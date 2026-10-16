@@ -133,6 +133,16 @@ describe("createHubClient()", () => {
         status = 401
       } else if (mode === "change-checkout") {
         process.env.TEST_BRANCH = "prototype/other"
+      } else if (request.url.startsWith("/api/canvas/prototype?")) {
+        result = {
+          id: 4,
+          repositoryId: 5,
+          branch: "prototype/first",
+          registered: false,
+          canEdit: true,
+          canRegister: true,
+          build: { commitSha: "1".padStart(40, "0") },
+        }
       }
       response.writeHead(status, { "Content-Type": "application/json" })
       response.end(JSON.stringify(result))
@@ -173,6 +183,13 @@ esac
         connectionScope: {},
       }
       await hub.request("/api/canvas/prototype?branch=prototype/first", options)
+      const status = await hub.status({ register: false, ...options })
+      assert.equal(status.state, "connected")
+      assert.equal(status.prototype.registered, false)
+      assert.equal(
+        calls.some(({ method }) => method === "PATCH"),
+        false,
+      )
       mode = "unversioned"
       assert.deepEqual(await hub.request("/api/canvas/comments", options), {})
       mode = "incompatible"

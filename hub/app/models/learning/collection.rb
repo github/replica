@@ -73,7 +73,7 @@ class Learning::Collection
   end
 
   def threads
-    existing = ReviewComment.where(created_at: ..@captured_at)
+    existing = ReviewComment.ordinary.where(created_at: ..@captured_at)
     roots = existing.where(prototype: @repository.reviewable_prototypes, root_id: nil).where.not(build_id: nil)
       .includes(:user, :build, :prototype, :resolved_by).order(:created_at, :id).to_a
     replies = existing.where(root_id: roots.map(&:id)).includes(:user, :prototype)

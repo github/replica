@@ -26,6 +26,27 @@ await build({
   },
 })
 
+await build({
+  configFile: false,
+  publicDir: false,
+  logLevel: "warn",
+  resolve: {
+    alias: {
+      "@utils": new URL("../app/javascript/utils/", import.meta.url).pathname,
+    },
+  },
+  build: {
+    emptyOutDir: false,
+    outDir: assets.pathname,
+    lib: {
+      entry: new URL("../app/javascript/utils/review-anchor/validate-anchor.ts", import.meta.url)
+        .pathname,
+      formats: ["es"],
+      fileName: () => "review-anchor-validation.mjs",
+    },
+  },
+})
+
 // The extension validates served definitions with Hub's validator without an npm install.
 await build({
   configFile: false,

@@ -385,6 +385,135 @@ class CanvasRepositoryCommentsTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "improvement notes need no Build and stay out of ordinary reviews and summaries" do
+    prototype = prototypes.create(repository: @repository)
+    ordinary = create_comment(prototype, 1)
+    note = ReviewComment.create! \
+      prototype:,
+      user: @author,
+      kind: "improvement_note",
+      local_id: SecureRandom.uuid,
+      note_revision: 1,
+      note_status: "open",
+      body: "Polish the Save button",
+      anchor: ordinary.anchor
+
+    assert_nil note.build_id
+    assert_empty note.thread_reads
+    assert_not_includes prototype.review_comments, note
+    collection = Learning::Collection.new(Learning::Store.new(@repository)).log
+    assert_equal [ ordinary.id ], collection[:calls].sole[:result][:threads].pluck(:id)
+    [ @path, canvas_api_review_comments_path(@repository.route_id, prototype), @summary_path ].each do |path|
+      get path, headers: @headers
+      assert_response :success
+      assert_equal [ ordinary.id ], JSON.parse(response.body).fetch("comments").pluck("id")
+    end
+    [ @path, canvas_api_review_comments_path(@repository.route_id, prototype) ].each do |path|
+      get path, params: { improvement_notes: "only" }, headers: @headers
+      assert_response :success
+      comments = JSON.parse(response.body).fetch("comments")
+      assert_equal [ note.id ], comments.pluck("id")
+      assert_equal "improvement_note", comments.first.fetch("kind")
+      assert_equal false, comments.first.fetch("viewerCanEdit")
+      get path, params: { improvement_notes: "include" }, headers: @headers
+      assert_equal [ note.id, ordinary.id ], JSON.parse(response.body).fetch("comments").pluck("id")
+      get path, params: { improvement_notes: "invalid" }, headers: @headers
+      assert_response :bad_request
+    end
+  end
+
+  test "creator note synchronization is idempotent, revision guarded and requires write access" do
+    prototype = prototypes.create(repository: @repository)
+    ordinary = create_comment(prototype, 1)
+    path = canvas_api_improvement_notes_path(@repository.route_id, prototype)
+    input = {
+      local_id: SecureRandom.uuid, revision: 1, previous_revision: 0, body: "Polish this", status: "open",
+      deleted: false, anchor: ordinary.anchor, capture: ""
+    }
+    post path, params: input, headers: @headers, as: :json
+    assert_response :forbidden
+    stub_github_permissions([ repository_payload(2001, "github/prototype") ], { 2001 => "push" })
+    assert_no_difference "Notification.count" do
+      assert_difference "ReviewComment.count", 1 do
+        post path, params: input, headers: @headers, as: :json
+        assert_response :success
+      end
+    end
+    assert_no_difference "ReviewComment.count" do
+      post path, params: input, headers: @headers, as: :json
+      assert_response :success
+    end
+    post path, params: input.merge(body: "Different same revision"), headers: @headers, as: :json
+    assert_response :conflict
+    post path, params: input.merge(revision: 2, previous_revision: 1, body: "Edited"), headers: @headers, as: :json
+    assert_response :success
+    post path, params: input.merge(revision: 4, previous_revision: 1, body: "Stale clone with more edits"), headers: @headers, as: :json
+    assert_response :conflict
+    post path, params: input.merge(revision: 3, anchor: input[:anchor].merge("selector" => "#other")), headers: @headers, as: :json
+    assert_response :conflict
+    post path, params: input, headers: @headers, as: :json
+    assert_response :conflict
+    get path, headers: @headers
+    assert_equal [ @viewer.login ], JSON.parse(response.body).fetch("notes").map { _1.fetch("author").fetch("login") }
+    note = prototype.improvement_notes.first!
+    assert_equal @viewer, note.user
+    assert_equal "Edited", note.body
+    prototype.improvement_notes.create! \
+      user: @author,
+      local_id: SecureRandom.uuid,
+      body: "Another author's note",
+      note_revision: 1,
+      note_status: "open",
+      anchor: ordinary.anchor,
+      capture: ""
+    get path, headers: @headers
+    assert_equal [ @viewer.login ], JSON.parse(response.body).fetch("notes").map { _1.fetch("author").fetch("login") }
+    post path, params: input.merge(revision: 3, previous_revision: 2, deleted: true), headers: @headers, as: :json
+    assert_response :success
+    assert_nil note.reload.body
+    post path, params: input.merge(revision: 4), headers: @headers, as: :json
+    assert_response :conflict
+  end
+
+  test "note writes reject oversized bodies before JSON parsing or repository authorization" do
+    prototype = prototypes.create(repository: @repository)
+    path = canvas_api_improvement_notes_path(@repository.route_id, prototype)
+    assert_no_difference "ReviewComment.count" do
+      post path, params: "{" * 1_550_001,
+        headers: @headers.merge("CONTENT_TYPE" => "application/json")
+      assert_response :content_too_large
+    end
+  end
+
+  test "note writes share the ordinary comment budget and leave rejected changes unapplied" do
+    prototype = prototypes.create(repository: @repository)
+    ordinary = create_comment(prototype, 1)
+    path = canvas_api_improvement_notes_path(@repository.route_id, prototype)
+    input = {
+      local_id: SecureRandom.uuid, revision: 1, previous_revision: 0, body: "Polish this",
+      status: "open", deleted: false, anchor: ordinary.anchor, capture: ""
+    }
+    stub_github_permissions([ repository_payload(2001, "github/prototype") ], { 2001 => "push" })
+    store = ActiveSupport::Cache::MemoryStore.new
+    Rails.cache.define_singleton_method(:increment) { |*args, **kwargs| store.increment(*args, **kwargs) }
+    begin
+      60.times do
+        post path, params: input, headers: @headers, as: :json
+        assert_response :success
+      end
+      assert_no_difference "ReviewComment.count" do
+        post path, params: input.merge(local_id: SecureRandom.uuid), headers: @headers, as: :json
+        assert_response :too_many_requests
+        assert_equal "60", response.headers["Retry-After"]
+      end
+      get path, headers: @headers
+      assert_response :success
+      assert_equal 1, JSON.parse(response.body).fetch("notes").length
+    ensure
+      Rails.cache.singleton_class.remove_method(:increment)
+    end
+  end
+
   private
 
   def issue_grant(user)

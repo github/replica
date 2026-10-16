@@ -157,7 +157,7 @@ class Learning::Run < ApplicationRecord
 
     def due?(repository)
       last = where(repository:, state: "succeeded").order(:started_at).last
-      comments = ReviewComment.where(prototype: repository.reviewable_prototypes)
+      comments = ReviewComment.ordinary.where(prototype: repository.reviewable_prototypes)
       return comments.exists? if last.nil?
 
       last.comments_remaining.positive? || last.suggestions_remaining.positive? ||

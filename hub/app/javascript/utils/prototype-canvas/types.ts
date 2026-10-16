@@ -139,6 +139,8 @@ export type CanvasConfig = {
   previewUrl?: string
   name: string
   token: string
+  improvementNotesDemo?: boolean
+  pickAndPolish?: boolean
 }
 
 export type PublishPreparation = {

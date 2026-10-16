@@ -5,6 +5,23 @@ import { runInNewContext } from "node:vm"
 import { renderCanvasHtml } from "./index.mjs"
 
 describe("renderCanvasHtml()", () => {
+  it("only enables the UI-only notes demo with an explicit context opt-in", () => {
+    for (const enabled of [undefined, false, true]) {
+      const html = renderCanvasHtml(
+        {
+          name: "Demo",
+          normalizedUrl: "http://localhost:5173/",
+          improvementNotesDemo: enabled,
+        },
+        "local-token",
+      )
+      const script = [...html.matchAll(/<script>([\s\S]*?)<\/script\s*>/gi)][0][1]
+      const window = {}
+      runInNewContext(script, { window })
+      assert.equal(window.__REPLICA_CANVAS__.improvementNotesDemo, enabled ? true : undefined)
+    }
+  })
+
   it("checks preview health repeatedly and returns to setup when the server stops", async () => {
     const html = renderCanvasHtml(
       { name: "Demo", normalizedUrl: "http://localhost:5173/" },

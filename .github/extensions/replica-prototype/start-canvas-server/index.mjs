@@ -21,6 +21,7 @@ import { requestCommentingFix } from "../request-commenting-fix/index.mjs"
 import { requestControlsDiagnosis } from "../request-controls-diagnosis/index.mjs"
 import { reviewAction } from "../review-action/index.mjs"
 import { createCommentStore } from "../comment-store/index.mjs"
+import { createImprovementNotes } from "../improvement-notes/index.mjs"
 import { createShareLinks } from "../share-links/index.mjs"
 import { startPreviewProxy } from "../start-preview-proxy/index.mjs"
 
@@ -32,7 +33,13 @@ const ASSET_PATHS = new Map([
       fileUrl: new URL("../assets/renderer.css", import.meta.url),
     },
   ],
-  ...["renderer.js", "renderer-vendor.js", "renderer-rolldown-runtime.js"].map((name) => [
+  ...[
+    "renderer.js",
+    "renderer-vendor.js",
+    "renderer-rolldown-runtime.js",
+    "renderer-improvement-notes-prototype.js",
+    "renderer-improvement-notes-vendor.js",
+  ].map((name) => [
     `/assets/${name}`,
     {
       contentType: "text/javascript; charset=utf-8",
@@ -58,6 +65,9 @@ export async function startCanvasServer(initialContext, session, options = {}) {
   const source = await readFile(new URL("../assets/canvas-bridge.js", import.meta.url), "utf8")
   const hubConnection = createHubConnection(() => context, options.hubOptions)
   const { hubClient, refreshDiscovery, selectHubOrigin, discoveries } = hubConnection
+  const improvementNotes = createImprovementNotes(() => context, session, hubClient, {
+    directory: options.improvementNotesDirectory,
+  })
   async function updateMetadata({ name, description, startPage }, expectedTarget) {
     const hub = await hubClient()
     if (!hub) throw httpError(409, "Enter a Hub URL before connecting.")
@@ -207,6 +217,7 @@ export async function startCanvasServer(initialContext, session, options = {}) {
         options.agentCommands,
         shareLinks,
         publishPreferences,
+        improvementNotes,
       )
     } catch (error) {
       sendJson(response, error?.statusCode || 500, {
@@ -277,6 +288,7 @@ export async function startCanvasServer(initialContext, session, options = {}) {
     getHubStatus: hubStatus,
     reviewAction: async (action, input) => reviewAction(await hubClient(), action, input, comments),
     updateMetadata,
+    improvementNotes,
     close: async () => {
       options.agentCommands?.close()
       for (const stream of streams) stream.end()
@@ -312,6 +324,7 @@ async function routeRequest(
   agentCommands,
   shareLinks,
   publishPreferences,
+  improvementNotes,
 ) {
   const requestUrl = new URL(request.url || "/", "http://127.0.0.1")
 
@@ -335,6 +348,22 @@ async function routeRequest(
   }
 
   requireToken(request, token)
+  if (requestUrl.pathname === "/api/improvement-notes" && request.method === "GET") {
+    sendJson(response, 200, await improvementNotes.load())
+    return
+  }
+  if (requestUrl.pathname === "/api/improvement-notes" && request.method === "POST") {
+    sendJson(response, 200, await improvementNotes.save(await readJson(request, 1_550_000)))
+    return
+  }
+  if (
+    request.method === "POST" &&
+    ["/api/improvement-notes/sync", "/api/improvement-notes/fix"].includes(requestUrl.pathname)
+  ) {
+    const action = requestUrl.pathname.endsWith("/fix") ? "fix" : "sync"
+    sendJson(response, 200, await improvementNotes[action](await readJson(request)))
+    return
+  }
   const sharingRoute =
     /^\/api\/hub\/share-links\/(context|list|create|delete|open|controls-preference|authorize)$/.exec(
       requestUrl.pathname,

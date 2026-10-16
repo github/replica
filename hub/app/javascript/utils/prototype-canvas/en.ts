@@ -1,4 +1,5 @@
 export const copy = {
+  improvementNotesLoading: "Loading improvement notes demo...",
   mentionSuggestions: "Mention suggestions",
   mentionSuggestionsError: "Mention suggestions are unavailable. Try again.",
   mentionSuggestionsLoading: "Loading people...",

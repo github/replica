@@ -78,6 +78,7 @@ Rails.application.routes.draw do
         as: :repository_review_comment_summaries,
         constraints: { repository_github_id: /\d+/ }
       scope "repositories/:repository_github_id/prototypes/:prototype_id" do
+        resources :improvement_notes, only: %i[index create]
         resources :mention_candidates, only: :index
         get "review_comments/:id/thread", to: "review_comment_threads#show",
           as: :review_comment_thread,

@@ -63,7 +63,9 @@ class Prototype < ApplicationRecord
   has_many :builds
   has_many :branch_banner_dismissals, dependent: :delete_all
   has_many :prototype_introductions, dependent: :delete_all
-  has_many :review_comments, dependent: :restrict_with_exception
+  has_many :review_comments, -> { where(kind: "review") }, dependent: :restrict_with_exception
+  has_many :improvement_notes, -> { where(kind: "improvement_note") },
+    class_name: "ReviewComment", dependent: :restrict_with_exception
   has_many :share_links, dependent: :restrict_with_exception
 
   validates :branch_name, presence: true, length: { maximum: 255 }

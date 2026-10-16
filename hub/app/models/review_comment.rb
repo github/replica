@@ -7,13 +7,18 @@
 #  activity_version        :integer
 #  anchor                  :json
 #  body                    :text
+#  capture                 :text
 #  deleted_at              :datetime
 #  edited_at               :datetime
+#  kind                    :string           default("review"), not null
 #  learning_removal_due_at :datetime
+#  note_revision           :integer
+#  note_status             :string
 #  resolved_at             :datetime
 #  created_at              :datetime         not null
 #  updated_at              :datetime         not null
 #  build_id                :integer
+#  local_id                :string
 #  prototype_id            :integer          not null
 #  resolved_by_id          :integer
 #  root_id                 :integer
@@ -21,13 +26,14 @@
 #
 # Indexes
 #
-#  index_review_comments_on_build_id                  (build_id)
-#  index_review_comments_on_id_and_prototype          (id,prototype_id) UNIQUE
-#  index_review_comments_on_learning_removal_due_at   (learning_removal_due_at) WHERE learning_removal_due_at IS NOT NULL
-#  index_review_comments_on_prototype_and_created_at  (prototype_id,created_at DESC,id DESC)
-#  index_review_comments_on_resolved_by_id            (resolved_by_id)
-#  index_review_comments_on_root_id                   (root_id)
-#  index_review_comments_on_user_id                   (user_id)
+#  index_review_comments_on_build_id                               (build_id)
+#  index_review_comments_on_id_and_prototype                       (id,prototype_id) UNIQUE
+#  index_review_comments_on_learning_removal_due_at                (learning_removal_due_at) WHERE learning_removal_due_at IS NOT NULL
+#  index_review_comments_on_prototype_and_created_at               (prototype_id,created_at DESC,id DESC)
+#  index_review_comments_on_prototype_id_and_user_id_and_local_id  (prototype_id,user_id,local_id) UNIQUE
+#  index_review_comments_on_resolved_by_id                         (resolved_by_id)
+#  index_review_comments_on_root_id                                (root_id)
+#  index_review_comments_on_user_id                                (user_id)
 #
 # Foreign Keys
 #
@@ -46,9 +52,10 @@
 #  review_comments_body              (CASE WHEN deleted_at IS NULL THEN body IS NOT NULL AND length(trim(body)) > 0 AND length(CAST(body AS BLOB)) <= 10000 ELSE body IS NULL END)
 #  review_comments_deletion_time     (deleted_at IS NULL OR deleted_at >= created_at)
 #  review_comments_edit_state        (edited_at IS NULL OR (deleted_at IS NULL AND edited_at >= created_at))
+#  review_comments_kind              ((kind = 'review' AND local_id IS NULL AND note_revision IS NULL AND note_status IS NULL AND capture IS NULL) OR (kind = 'improvement_note' AND root_id IS NULL AND build_id IS NULL AND local_id IS NOT NULL AND length(local_id) = 36 AND note_revision IS NOT NULL AND note_revision > 0 AND note_status IS NOT NULL AND note_status IN ('open', 'sent', 'ready', 'resolved', 'blocked') AND (capture IS NULL OR length(CAST(capture AS BLOB)) <= 1500000)))
 #  review_comments_resolution        ((resolved_at IS NULL AND resolved_by_id IS NULL) OR (root_id IS NULL AND resolved_at IS NOT NULL AND resolved_by_id IS NOT NULL))
 #  review_comments_root_not_self     (root_id IS NULL OR root_id <> id)
-#  review_comments_thread_shape      ((root_id IS NULL AND build_id IS NOT NULL AND anchor IS NOT NULL) OR (root_id IS NOT NULL AND build_id IS NULL AND anchor IS NULL))
+#  review_comments_thread_shape      ((root_id IS NULL AND anchor IS NOT NULL AND (build_id IS NOT NULL OR kind = 'improvement_note')) OR (kind = 'review' AND root_id IS NOT NULL AND build_id IS NULL AND anchor IS NULL))
 #
 # Stores one root comment or reply in a Prototype review thread.
 class ReviewComment < ApplicationRecord
@@ -152,17 +159,24 @@ class ReviewComment < ApplicationRecord
   end
 
   before_validation :set_initial_activity_version, on: :create
-  after_create :record_author_read, if: :root_comment?
-  after_create :record_analytics_creation
+  after_create :record_author_read, if: -> { root_comment? && !improvement_note? }
+  after_create :record_analytics_creation, unless: :improvement_note?
   before_destroy :remove_notifications
 
   scope :roots, -> { where(root_id: nil) }
   scope :not_deleted, -> { where(deleted_at: nil) }
   scope :unresolved, -> { where(resolved_at: nil) }
+  scope :ordinary, -> { where(kind: "review") }
+  scope :improvement_notes, -> { where(kind: "improvement_note") }
 
   validates :body, presence: true, if: -> { deleted_at.nil? }
   validates :body, absence: true, if: -> { deleted_at.present? }
-  validates :build, presence: true, if: :root_comment?
+  validates :kind, inclusion: { in: %w[review improvement_note] }
+  validates :build, presence: true, if: -> { root_comment? && !improvement_note? }
+  validates :note_status, inclusion: { in: %w[open sent ready resolved blocked] }, if: :improvement_note?
+  validates :note_revision, numericality: { only_integer: true, greater_than: 0 }, if: :improvement_note?
+  validates :local_id, format: { with: /\A[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\z/ }, if: :improvement_note?
+  validate :improvement_note_shape
   validates :build, absence: true, if: :reply?
   validates :anchor, presence: true, if: :root_comment?
   validates :anchor, absence: true, if: :reply?
@@ -183,26 +197,26 @@ class ReviewComment < ApplicationRecord
 
   class << self
     # Returns comments newest first with a signed token for the next page.
-    def page_for(prototype, cursor:, page_size:)
+    def page_for(prototype, cursor:, page_size:, improvement_notes: "exclude")
       paginate \
-        where(prototype:).includes(:build, :user, :resolved_by, :reactions, comment_mentions: :github_identity),
-        purpose: "prototype/#{prototype.id}",
+        filtered_notes(improvement_notes).where(prototype:).includes(:build, :user, :resolved_by, :reactions, comment_mentions: :github_identity),
+        purpose: "prototype/#{prototype.id}/#{improvement_notes}",
         cursor:,
         page_size:
     end
 
     # Returns one bounded stream across every reviewable branch in the repository.
-    def page_for_repository(repository, viewer:, cursor:, page_size:)
+    def page_for_repository(repository, viewer:, cursor:, page_size:, improvement_notes: "exclude")
       paginate \
-        where(prototype: repository.reviewable_prototypes).includes(:prototype, :build, :user, :resolved_by, :reactions, comment_mentions: :github_identity),
-        purpose: "repository/#{repository.id}/viewer/#{viewer.id}",
+        filtered_notes(improvement_notes).where(prototype: repository.reviewable_prototypes).includes(:prototype, :build, :user, :resolved_by, :reactions, comment_mentions: :github_identity),
+        purpose: "repository/#{repository.id}/viewer/#{viewer.id}/#{improvement_notes}",
         cursor:,
         page_size:
     end
 
     # Reads only visible starting comments, with filters bound into the cursor.
     def summary_page_for_repository(repository, viewer:, cursor:, page_size:, filters:, &fits)
-      relation = roots.not_deleted.where(prototype: repository.reviewable_prototypes)
+      relation = ordinary.roots.not_deleted.where(prototype: repository.reviewable_prototypes)
       relation = relation.where(resolved_at: nil) if filters[:resolution] == "unresolved"
       relation = relation.where.not(resolved_at: nil) if filters[:resolution] == "resolved"
       relation = relation.where(created_at: filters[:from]..) if filters[:from]
@@ -229,6 +243,16 @@ class ReviewComment < ApplicationRecord
     end
 
     private
+
+    # Opts into author notes only on explicit authorized API reads.
+    def filtered_notes(filter)
+      case filter
+      when "exclude" then ordinary
+      when "include" then all
+      when "only" then improvement_notes
+      else raise InvalidPagination
+      end
+    end
 
     # Uses the same signed keyset pagination for prototype and repository readers.
     def paginate(relation, purpose:, cursor:, page_size:, direction: :desc, activity_version: nil, &fits)
@@ -330,7 +354,23 @@ class ReviewComment < ApplicationRecord
     self.class.where(id:).update_all(learning_removal_due_at: nil)
   end
 
+  # Separates author improvement work from ordinary review threads.
+  def improvement_note?
+    kind == "improvement_note"
+  end
+
   private
+
+  # Keeps notes standalone, bounded and outside ordinary review interactions.
+  def improvement_note_shape
+    return unless improvement_note?
+
+    errors.add(:root, "must be absent for improvement notes") if root_id.present?
+    errors.add(:build, "must be absent for improvement notes") if build_id.present?
+    if capture.present? && (capture.bytesize > 1_500_000 || !capture.match?(/\Adata:image\/png;base64,[A-Za-z0-9+\/]+=*\z/))
+      errors.add(:capture, "must be a bounded PNG capture")
+    end
+  end
 
   # Cleans polymorphic resources when a message is physically removed.
   def remove_notifications
@@ -397,6 +437,7 @@ class ReviewComment < ApplicationRecord
     return if root.nil?
 
     errors.add(:root, "must be a root comment") if root.root_id.present?
+    errors.add(:root, "cannot be an improvement note") if root.improvement_note?
     errors.add(:root, "must belong to this prototype") if root.prototype_id != prototype_id
   end
 
@@ -412,7 +453,7 @@ class ReviewComment < ApplicationRecord
 
   # Prevents thread identity and anchor fields from changing after creation.
   def identity_is_unchanged
-    %i[prototype_id build_id user_id anchor root_id].each do |attribute|
+    %i[prototype_id build_id user_id anchor root_id kind local_id].each do |attribute|
       errors.add(attribute, "cannot change") if public_send("will_save_change_to_#{attribute}?")
     end
   end

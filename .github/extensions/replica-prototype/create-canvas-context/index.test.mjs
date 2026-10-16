@@ -18,6 +18,28 @@ const base = {
 }
 
 describe("createCanvasContext()", () => {
+  it("keeps the demo opt-in through checkout refresh without changing the prototype identity", async () => {
+    await withContext(async (fixture) => {
+      const input = { ...base, ...paths(fixture) }
+      const ordinary = await createCanvasContext(input)
+      const demo = await createCanvasContext({
+        ...input,
+        improvementNotesDemo: true,
+      })
+      assert.equal(ordinary.improvementNotesDemo, undefined)
+      assert.equal(demo.improvementNotesDemo, true)
+      assert.equal(demo.stateId, ordinary.stateId)
+      execFileSync("git", ["checkout", "-qb", "another"], {
+        cwd: fixture.repositoryPath,
+      })
+      assert.equal((await currentCanvasContext(demo)).improvementNotesDemo, true)
+      await assert.rejects(
+        createCanvasContext({ ...input, improvementNotesDemo: "true" }),
+        /must be a boolean/,
+      )
+    })
+  })
+
   it("normalizes the URL and retains explicit target metadata", async () => {
     await withContext(async (fixture) => {
       const input = { ...base, ...paths(fixture) }
@@ -49,8 +71,13 @@ describe("createCanvasContext()", () => {
     await withContext(async (fixture) => {
       const input = { ...base, ...paths(fixture) }
       const original = await createCanvasContext(input)
-      execFileSync("git", ["checkout", "-qb", "another"], { cwd: fixture.repositoryPath })
-      const changed = await createCanvasContext({ ...input, branch: "another" })
+      execFileSync("git", ["checkout", "-qb", "another"], {
+        cwd: fixture.repositoryPath,
+      })
+      const changed = await createCanvasContext({
+        ...input,
+        branch: "another",
+      })
       assert.notEqual(original.stateId, changed.stateId)
     })
   })
@@ -79,7 +106,10 @@ describe("createCanvasContext()", () => {
         cwd: fixture.repositoryPath,
       })
       const input = { ...base, ...paths(fixture) }
-      const supplied = await createCanvasContext({ ...input, repository: "GitHub/Replica" })
+      const supplied = await createCanvasContext({
+        ...input,
+        repository: "GitHub/Replica",
+      })
       assert.equal(supplied.target.repository, "github/replica")
       const discovered = await createCanvasContext({
         ...input,
@@ -157,7 +187,9 @@ describe("createCanvasContext()", () => {
     const repositoryPath = path.join(workspace, ".local/prototypes/example")
     await mkdir(repositoryPath, { recursive: true })
     try {
-      execFileSync("git", ["init", "-q", "-b", "main"], { cwd: repositoryPath })
+      execFileSync("git", ["init", "-q", "-b", "main"], {
+        cwd: repositoryPath,
+      })
       execFileSync("git", ["remote", "add", "origin", "https://github.com/github/replica.git"], {
         cwd: repositoryPath,
       })
@@ -196,7 +228,10 @@ describe("createCanvasContext()", () => {
         createCanvasContext(input),
         /Cannot verify repository hint: The origin remote is not a GitHub repository/,
       )
-      const withoutHint = await createCanvasContext({ ...input, repository: undefined })
+      const withoutHint = await createCanvasContext({
+        ...input,
+        repository: undefined,
+      })
       assert.equal(withoutHint.target.repository, null)
       execFileSync(
         "git",

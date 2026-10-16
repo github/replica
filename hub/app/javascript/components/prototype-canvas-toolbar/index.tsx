@@ -121,6 +121,9 @@ export function Toolbar({
       </Button>
 
       <div id="canvas-review-controls" className="canvas-review-controls-slot" />
+      {config.pickAndPolish || config.improvementNotesDemo ? (
+        <div id="canvas-improvement-controls" />
+      ) : null}
       {onControls ? (
         <ControlsToggle buttonRef={controlsButtonRef} open={controlsOpen} onToggle={onControls} />
       ) : null}

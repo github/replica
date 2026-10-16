@@ -7,7 +7,8 @@ class CanvasApi::RepositoryReviewCommentsController < CanvasApi::BaseController
       @repository,
       viewer: Current.user,
       cursor: pagination_cursor,
-      page_size: page_size
+      page_size: page_size,
+      improvement_notes: improvement_notes_filter
     prepare_viewer_thread_reads(page.records)
     render json: {
       comments: page.records.map do |comment|

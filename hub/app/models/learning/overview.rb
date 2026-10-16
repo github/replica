@@ -127,7 +127,7 @@ class Learning::Overview
   # The comments this store's evidence names, when they come from this Hub and this repository.
   def review_comments(references)
     ids = references.filter_map { _1.dig("source", "commentId") }
-    ReviewComment.where(id: ids.uniq, prototype: @repository.reviewable_prototypes)
+    ReviewComment.ordinary.where(id: ids.uniq, prototype: @repository.reviewable_prototypes)
       .includes(:user, :prototype).index_by(&:id)
   end
 

@@ -8,6 +8,13 @@ module ReviewCommentPages
 
   private
 
+  def improvement_notes_filter
+    value = params[:improvement_notes] || "exclude"
+    raise ReviewComment::InvalidPagination unless %w[exclude include only].include?(value)
+
+    value
+  end
+
   def pagination_cursor
     cursor = params[:cursor]
     raise ReviewComment::InvalidPagination if cursor.present? && !cursor.is_a?(String)
@@ -31,6 +38,18 @@ module ReviewCommentPages
   end
 
   def review_comment_json(comment)
+    if comment.improvement_note?
+      return {
+        id: comment.id, kind: "improvement_note", localId: comment.local_id,
+        revision: comment.note_revision, status: comment.note_status,
+        body: comment.body, anchor: comment.anchor, capture: comment.capture,
+        deletedAt: comment.deleted_at&.iso8601(6),
+        createdAt: comment.created_at.iso8601(6), updatedAt: comment.updated_at.iso8601(6),
+        author: author_json(comment.user),
+        viewerCanEdit: comment.editable_by?(Current.user),
+        viewerCanDelete: comment.editable_by?(Current.user)
+      }
+    end
     payload = {
       id: comment.id,
       kind: comment.root_comment? ? "root" : "reply",
@@ -63,7 +82,7 @@ module ReviewCommentPages
   end
 
   def prepare_viewer_thread_reads(comments)
-    root_ids = comments.filter_map { _1.id if _1.root_comment? }
+    root_ids = comments.filter_map { _1.id if _1.root_comment? && !_1.improvement_note? }
     @viewer_thread_reads = ReviewThreadRead.where \
       root_id: root_ids,
       user: Current.user

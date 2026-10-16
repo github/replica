@@ -1,0 +1,103 @@
+import type { Note, Target } from "./types"
+
+export const targets: Target[] = [
+  {
+    id: "projects-heading",
+    label: "Projects heading",
+    route: "/projects",
+    rect: { x: 40, y: 35, width: 640, height: 78 },
+  },
+  {
+    id: "new-project",
+    label: "New project button",
+    route: "/projects",
+    rect: { x: 764, y: 42, width: 156, height: 42 },
+  },
+  {
+    id: "activity",
+    label: "Activity summary",
+    route: "/projects",
+    rect: { x: 40, y: 144, width: 880, height: 100 },
+  },
+  {
+    id: "welcome-card",
+    label: "Welcome project card",
+    route: "/projects",
+    rect: { x: 40, y: 285, width: 420, height: 230 },
+  },
+  {
+    id: "onboarding-card",
+    label: "Onboarding project card",
+    route: "/projects",
+    rect: { x: 500, y: 285, width: 420, height: 230 },
+  },
+  {
+    id: "settings-heading",
+    label: "Settings heading",
+    route: "/settings",
+    rect: { x: 40, y: 35, width: 700, height: 78 },
+  },
+  {
+    id: "workspace-name",
+    label: "Workspace name field",
+    route: "/settings",
+    rect: { x: 40, y: 152, width: 880, height: 138 },
+  },
+  {
+    id: "notifications",
+    label: "Notifications settings",
+    route: "/settings",
+    rect: { x: 40, y: 318, width: 880, height: 130 },
+  },
+  {
+    id: "save-settings",
+    label: "Save settings button",
+    route: "/settings",
+    rect: { x: 40, y: 478, width: 166, height: 42 },
+  },
+]
+
+export const sampleNotes: Note[] = [
+  {
+    id: 1,
+    kind: "improvement_note",
+    author: "octocat",
+    body: "Make the primary action more prominent and shorten the label to 'New project'.",
+    route: "/projects",
+    target: "New project button",
+    selector: '[data-improvement-target="new-project"]',
+    rect: { x: 764, y: 42, width: 156, height: 42 },
+    capture: "",
+    status: "open",
+    sync: "local",
+    revision: 1,
+  },
+  {
+    id: 2,
+    kind: "improvement_note",
+    author: "octocat",
+    body: "Give the two cards a little more breathing room and align their metadata.",
+    route: "/projects",
+    target: "Selected region",
+    selector: null,
+    rect: { x: 28, y: 273, width: 904, height: 250 },
+    capture: "",
+    status: "open",
+    sync: "local",
+    revision: 1,
+  },
+  {
+    id: 3,
+    kind: "improvement_note",
+    author: "octocat",
+    body: "Explain what notifications this switch controls before asking me to enable it.",
+    route: "/settings",
+    target: "Notifications settings",
+    selector: '[data-improvement-target="notifications"]',
+    rect: { x: 40, y: 318, width: 880, height: 130 },
+    capture: "",
+    status: "ready",
+    sync: "synced",
+    revision: 1,
+  },
+]
