@@ -11,9 +11,6 @@ export default defineConfig({
     dedupe: ['react', 'react-dom'],
     alias: {
       '~': fileURLToPath(new URL('./app', import.meta.url)),
-      '@coreai-ds/react-components': fileURLToPath(
-        new URL('../../packages/react-components/src/index.ts', import.meta.url),
-      ),
     },
   },
   server: {

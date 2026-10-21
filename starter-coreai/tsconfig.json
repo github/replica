@@ -1,14 +1,19 @@
 {
-  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "target": "ES2022",
     "lib": ["DOM", "DOM.Iterable", "ES2022"],
     "noEmit": true,
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
     "types": ["node", "vite/client"],
     "rootDirs": [".", "./.react-router/types"],
     "paths": {
-      "~/*": ["./app/*"],
-      "@coreai-ds/react-components": ["../../packages/react-components/src/index.ts"]
+      "~/*": ["./app/*"]
     }
   },
   "include": ["app", "vite.config.ts", "react-router.config.ts", ".react-router/types"],

@@ -2,7 +2,7 @@
 
 The CoreAI Prototype is a React Router single-page app for exploring agent and design
 system experiences. It uses local mock data by default and consumes
-`@coreai-ds/react-components` from this monorepo.
+`@coreai-ds/react-components` design system.
 
 ## Project context
 
@@ -16,20 +16,21 @@ system experiences. It uses local mock data by default and consumes
 
 ## Run and validate
 
-From the repository root:
+From this app's directory (`starter-coreai` in the Replica checkout, or the
+repository root after copying the app):
 
 ```sh
 npm install
-npm run prototype
+npm run dev
 ```
 
 The app runs at <http://127.0.0.1:5174>.
 
 ```sh
-npm --workspace apps/prototype run type-check
-npm --workspace apps/prototype run lint
-npm run build:prototype
-npm --workspace apps/prototype run preview
+npm run type-check
+npm run lint
+npm run build
+npm run preview
 ```
 
 The package has no automated tests. Run the relevant checks and verify changed behavior
@@ -37,7 +38,7 @@ in a browser.
 
 ## Skill index
 
-Detailed working conventions live in `.github/skills/`. Load the matching skill before
+Detailed working conventions live in `.agents/skills/`. Load the matching skill before
 making a change. Treat the skill as the source of truth instead of duplicating its
 instructions here.
 
@@ -70,7 +71,7 @@ icon, routing, state, or variant skill when applicable.
 - Put mock records in `app/data/`.
 - Register prototype options in `app/features.json`; do not build a second feature
   system.
-- Keep prototype-specific code inside `apps/prototype`.
+- Keep prototype-specific code inside this app's directory.
 - Keep copyright and MIT license headers on source files.
 - Do not commit generated `build/` or `.react-router/` output.
 
@@ -84,6 +85,8 @@ customer data, prompts, or responses.
 
 ## Portability
 
-This package currently relies on monorepo TypeScript, Vite, ESLint, and workspace
-dependency configuration. Keep those dependencies explicit and contained so the package
-can be moved by replacing the local links. See `README.md` for the portability steps.
+Resolve the CoreAI design system through the published npm dependency in
+`package.json`, not a local workspace or source alias. TypeScript and Vite
+configuration belong to this app. The copied ESLint configuration and some skills
+still reference the original monorepo; these require adaptation before the app is
+a complete standalone starter. See `README.md` for the remaining portability work.

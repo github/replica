@@ -2,7 +2,7 @@
   "name": "@coreai-ds/prototype",
   "version": "0.0.0",
   "private": true,
-  "description": "CoreAI prototype app using the local design-system workspace.",
+  "description": "CoreAI Sandbox prototype app",
   "type": "module",
   "scripts": {
     "dev": "react-router dev",

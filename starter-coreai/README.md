@@ -1,29 +1,27 @@
 # CoreAI Prototype
 
-A React Router single-page app for prototyping experiences with
-`@coreai-ds/react-components`. It uses local mock data by default and does not require
-authentication or private package access.
+A React Router single-page app for prototyping experiences with `@coreai-ds/react-components`.
 
 ## Run locally
 
-From the repository root:
+From this app's directory (`starter-coreai` in the Replica checkout, or the repository root after copying the app):
 
 ```sh
 npm install
-npm run prototype
+npm run dev
 ```
 
 Open <http://127.0.0.1:5174>.
 
 ## Validate changes
 
-From the repository root:
+From this app's directory:
 
 ```sh
-npm --workspace apps/prototype run type-check
-npm --workspace apps/prototype run lint
-npm run build:prototype
-npm --workspace apps/prototype run preview
+npm run type-check
+npm run lint
+npm run build
+npm run preview
 ```
 
 The production build is written to `build/client`. A production host must serve
@@ -49,7 +47,7 @@ const variant = useFeature('agent-layout');
 
 Selections are stored in the URL as `variant` query parameters so a specific design can
 be shared and revisited. See the prototype feature skills in
-[.github/skills](.github/skills) for the full schema and workflow.
+[.agents/skills](.agents/skills) for the full schema and workflow.
 
 ## Optional Azure OpenAI connection
 
@@ -72,20 +70,14 @@ coding assistant. It does not load in production builds or connect to an externa
 service.
 
 The app uses CSS Modules and an app-owned Griffel renderer. Follow the scoped guidance
-in [AGENTS.md](AGENTS.md) and [.github/skills](.github/skills) when changing components,
+in [AGENTS.md](AGENTS.md) and [.agents/skills](.agents/skills) when changing components,
 styles, routing, state, icons, or variants.
 
 ## Portability
 
-The package is isolated under `apps/prototype`, but it currently consumes the design
-system from this monorepo. To move it to another repository:
+The app consumes `@coreai-ds/react-components` from the npm registry. Its TypeScript and Vite configuration do not require the original design-system monorepo.
 
-1. Copy this directory.
-2. Replace the `@coreai-ds/react-components` workspace dependency with a published or
-   otherwise approved package version.
-3. Remove the local `@coreai-ds/react-components` alias from `vite.config.ts`.
-4. Provide an equivalent ESLint configuration or replace the root configuration import.
-5. Install dependencies and run the validation commands in the new repository.
+Standalone adaptation is still in progress. The ESLint configuration imports the original monorepo's root configuration, and some copied skills refer to its paths and tooling. Adapt those before treating this directory as a ready-to-copy starter. The lint command above remains blocked until that configuration is replaced.
 
 Hosted fonts are optional. The app falls back to system fonts when they are unavailable,
 and no font binaries are included in this package.
