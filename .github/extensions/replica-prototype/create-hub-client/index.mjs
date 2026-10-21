@@ -1,24 +1,22 @@
 import { createHash } from "node:crypto"
 import os from "node:os"
 import path from "node:path"
-
 import { readCanvasRepository } from "../read-canvas-repository/index.mjs"
 import { runCommand } from "../run-command/index.mjs"
 import { createPrivateStore } from "../private-store/index.mjs"
 import { normalizeHubOrigin } from "../normalize-hub-origin/index.mjs"
-
+import { readHubObject } from "../read-hub-object/index.mjs"
+import { readHubError } from "../read-hub-error/index.mjs"
 function registrationReason(value) {
   if (value == null) return undefined
   if (typeof value !== "string" || !/^[a-z][a-z0-9_]{0,127}$/.test(value))
     throw new Error("Hub returned an invalid registration reason.")
   return value
 }
-
 export function createHubClient(context, options = {}) {
   const origin = new URL(normalizeHubOrigin(options.origin || process.env.REPLICA_HUB_ORIGIN))
   const directory = options.directory || path.join(os.homedir(), ".config", "replica", "canvas")
   const store = createPrivateStore(directory)
-
   async function checkout() {
     const [repository, branch, commit] = await Promise.all([
       readCanvasRepository(context),
@@ -36,36 +34,53 @@ export function createHubClient(context, options = {}) {
       commitSha: commit.ok ? commit.stdout.trim() : null,
     }
   }
-
   function credentialFile(repository) {
     const key = createHash("sha256").update(`${origin.origin}\n${repository}`).digest("hex")
     return `${key}.json`
   }
-
   async function readCredential(repository) {
     let credential = await store.read(credentialFile(repository))
     if (!credential) {
       const identity = await readCanvasRepository(context)
-      if (identity.githubRepository === repository && identity.legacyRepository !== repository)
+      if (
+        identity.githubRepository === repository &&
+        identity.legacyRepository &&
+        identity.legacyRepository !== repository
+      )
         credential = await store.read(credentialFile(identity.legacyRepository))
     }
     if (!credential) return null
+    const value = readHubObject(credential)
     if (
-      credential.repository?.toLowerCase() !== repository.toLowerCase() ||
-      credential.origin !== origin.origin ||
-      typeof credential.token !== "string" ||
-      !Number.isFinite(Date.parse(credential.expiresAt)) ||
-      (credential.refreshToken !== undefined && typeof credential.refreshToken !== "string")
+      typeof value?.repository !== "string" ||
+      value.repository.toLowerCase() !== repository.toLowerCase() ||
+      value.origin !== origin.origin ||
+      typeof value.token !== "string" ||
+      typeof value.expiresAt !== "string" ||
+      !Number.isFinite(Date.parse(value.expiresAt)) ||
+      (value.refreshToken !== undefined && typeof value.refreshToken !== "string") ||
+      (value.retryAfter !== undefined && typeof value.retryAfter !== "number") ||
+      (value.retryStatus !== undefined && typeof value.retryStatus !== "number")
     ) {
       throw new Error("Invalid stored canvas credentials.")
     }
-    return { ...credential, repository }
+    return {
+      ...value,
+      origin: origin.origin,
+      repository,
+      token: value.token,
+      expiresAt: value.expiresAt,
+      refreshToken: value.refreshToken,
+      retryAfter: value.retryAfter,
+      retryStatus: value.retryStatus,
+    }
   }
-
   async function saveCredential(repository, value, refreshToken) {
     if (
-      value.repository?.toLowerCase() !== repository.toLowerCase() ||
+      typeof value.repository !== "string" ||
+      value.repository.toLowerCase() !== repository.toLowerCase() ||
       typeof value.accessToken !== "string" ||
+      typeof value.expiresAt !== "string" ||
       !Number.isFinite(Date.parse(value.expiresAt))
     )
       throw new Error("Hub returned invalid repository credentials.")
@@ -80,7 +95,6 @@ export function createHubClient(context, options = {}) {
     })
     return readCredential(repository)
   }
-
   async function hubRequest(
     route,
     { method = "GET", body, token, interactive = false, beforeDispatch, timeoutMs = 10_000 } = {},
@@ -103,7 +117,8 @@ export function createHubClient(context, options = {}) {
       ...(body ? { body: JSON.stringify(body) } : {}),
       signal: AbortSignal.timeout(timeoutMs),
     })
-    const result = response.status === 204 ? {} : await response.json().catch(() => null)
+    const json = response.status === 204 ? {} : await response.json().catch(() => null)
+    const result = readHubObject(json)
     const version = response.headers.get("X-Replica-Canvas-Version")
     if (response.ok && version !== null && version !== "1") {
       throw Object.assign(
@@ -114,15 +129,19 @@ export function createHubClient(context, options = {}) {
       )
     }
     if (!response.ok) {
-      const error = new Error(
-        result?.error || result?.errors?.join(", ") || `Hub returned HTTP ${response.status}.`,
+      const error = Object.assign(
+        new Error(
+          (typeof result?.error === "string" && result.error) ||
+            (Array.isArray(result?.errors) && result.errors.join(", ")) ||
+            `Hub returned HTTP ${response.status}.`,
+        ),
+        { statusCode: response.status, code: result?.code },
       )
-      error.statusCode = response.status
-      error.code = result?.code
       if (
         response.status === 429 &&
         error.code === "rate_limited" &&
-        Number.isInteger(result?.retryAfter) &&
+        typeof result?.retryAfter === "number" &&
+        Number.isInteger(result.retryAfter) &&
         result.retryAfter > 0 &&
         result.retryAfter <= 600 &&
         Array.isArray(result.errors) &&
@@ -135,8 +154,11 @@ export function createHubClient(context, options = {}) {
         error.rateLimitMessage = `Too many requests. No changes were made. Wait ${result.retryAfter} seconds, then try again.`
       }
       if (error.code === "fresh_authorization_required") {
-        const challenge = result?.authorization
-        const url = challenge?.url && URL.canParse(challenge.url) ? new URL(challenge.url) : null
+        const challenge = readHubObject(result?.authorization)
+        const url =
+          typeof challenge?.url === "string" && URL.canParse(challenge.url)
+            ? new URL(challenge.url)
+            : null
         if (
           !url ||
           url.origin !== origin.origin ||
@@ -145,7 +167,7 @@ export function createHubClient(context, options = {}) {
           url.password ||
           url.search ||
           url.hash ||
-          typeof challenge.expiresAt !== "string" ||
+          typeof challenge?.expiresAt !== "string" ||
           !Number.isFinite(Date.parse(challenge.expiresAt))
         )
           throw Object.assign(new Error("Hub returned an invalid authorization request."), {
@@ -159,26 +181,23 @@ export function createHubClient(context, options = {}) {
     if (!result || typeof result !== "object") throw new Error("Hub returned invalid JSON.")
     return result
   }
-
   async function connected() {
     const target = await checkout()
     const credential = target.repository ? await credentialFor(target.repository) : null
     return { target, credential }
   }
-
   function connectionIdentity(credential) {
-    return createHash("sha256")
-      .update(String(credential.connectionId ?? credential.refreshToken ?? credential.token))
-      .digest("hex")
+    const identity = credential.connectionId ?? credential.refreshToken ?? credential.token
+    if (typeof identity !== "string" && typeof identity !== "number")
+      throw new Error("Invalid stored canvas credentials.")
+    return createHash("sha256").update(String(identity)).digest("hex")
   }
-
   function checkConnection(credential, scope) {
     if (scope?.identity && (!credential || connectionIdentity(credential) !== scope.identity))
       throw Object.assign(new Error("Hub connection changed. Retrieve comments again."), {
         code: "stale_comment_target",
       })
   }
-
   async function credentialFor(repository, rejectedToken, scope) {
     return store.lock(credentialFile(repository), async () => {
       const credential = await readCredential(repository)
@@ -188,7 +207,7 @@ export function createHubClient(context, options = {}) {
       const rejected = rejectedToken && credential.token === rejectedToken
       if (!rejected && !expired) return credential
       if (!credential.refreshToken) return null
-      if (credential.retryAfter > Date.now())
+      if (credential.retryAfter !== undefined && credential.retryAfter > Date.now())
         throw Object.assign(new Error("Hub verification is paused. Try again shortly."), {
           statusCode: credential.retryStatus || 503,
         })
@@ -200,7 +219,8 @@ export function createHubClient(context, options = {}) {
         const renewed = await saveCredential(repository, result, credential.refreshToken)
         checkConnection(renewed, scope)
         return renewed
-      } catch (error) {
+      } catch (caught) {
+        const error = readHubError(caught)
         await store.write(credentialFile(repository), {
           ...credential,
           invalid: error.statusCode === 401,
@@ -211,57 +231,72 @@ export function createHubClient(context, options = {}) {
       }
     })
   }
-
   // Renews a credential off the caller's time, so a later request finds it fresh. credentialFor
   // records a failed renewal on the credential, so nothing here needs to handle it.
   function renewInBackground(repository, rejectedToken) {
     credentialFor(repository, rejectedToken).catch(() => {})
   }
-
   async function authorizedRequest(repository, credential, route, options = {}) {
     try {
       return await hubRequest(route, { ...options, token: credential.token })
-    } catch (error) {
+    } catch (caught) {
+      const error = readHubError(caught)
       if (error.statusCode !== 401 || !credential.refreshToken) throw error
       const renewed = await credentialFor(repository, credential.token, options.connectionScope)
       if (!renewed) throw error
       return hubRequest(route, { ...options, token: renewed.token })
     }
   }
-
   function pendingFile(repository) {
     return `${credentialFile(repository)}.pairing`
   }
-
   async function readPending(repository) {
-    const pending = await store.read(pendingFile(repository))
+    const stored = await store.read(pendingFile(repository))
+    if (!stored) return null
+    const pending = readHubObject(stored)
     if (
-      pending &&
-      (pending.repository !== repository ||
-        pending.origin !== origin.origin ||
-        typeof pending.deviceCode !== "string" ||
-        typeof pending.userCode !== "string" ||
-        typeof pending.verificationUrl !== "string" ||
-        !Number.isFinite(Date.parse(pending.expiresAt)))
+      !pending ||
+      pending.repository !== repository ||
+      pending.origin !== origin.origin ||
+      typeof pending.deviceCode !== "string" ||
+      typeof pending.userCode !== "string" ||
+      typeof pending.verificationUrl !== "string" ||
+      typeof pending.expiresAt !== "string" ||
+      !Number.isFinite(Date.parse(pending.expiresAt)) ||
+      (pending.refreshToken !== undefined && typeof pending.refreshToken !== "string") ||
+      (pending.retryAfter !== undefined && typeof pending.retryAfter !== "number") ||
+      (pending.nextPollAt !== undefined && typeof pending.nextPollAt !== "number")
     )
       throw new Error("Invalid stored canvas approval.")
-    return pending
+    return {
+      ...pending,
+      repository,
+      origin: origin.origin,
+      deviceCode: pending.deviceCode,
+      userCode: pending.userCode,
+      verificationUrl: pending.verificationUrl,
+      expiresAt: pending.expiresAt,
+      refreshToken: pending.refreshToken,
+      retryAfter: pending.retryAfter,
+      nextPollAt: pending.nextPollAt,
+    }
   }
-
   async function removeCredentials(repository) {
     await store.remove(credentialFile(repository))
     const identity = await readCanvasRepository(context)
-    if (identity.githubRepository === repository && identity.legacyRepository !== repository)
+    if (
+      identity.githubRepository === repository &&
+      identity.legacyRepository &&
+      identity.legacyRepository !== repository
+    )
       await store.remove(credentialFile(identity.legacyRepository))
   }
-
   function publicPairing(pending) {
     return {
       verificationUrl: pending.verificationUrl,
       userCode: pending.userCode,
     }
   }
-
   return {
     origin: origin.origin,
     checkout,
@@ -305,7 +340,10 @@ export function createHubClient(context, options = {}) {
             credential,
             "/api/canvas/connection",
           )
-          if (connection.repository?.toLowerCase() !== target.repository.toLowerCase())
+          if (
+            typeof connection.repository !== "string" ||
+            connection.repository.toLowerCase() !== target.repository.toLowerCase()
+          )
             throw new Error("Hub did not verify this repository.")
           return {
             state: "undiscovered",
@@ -325,16 +363,20 @@ export function createHubClient(context, options = {}) {
             credential,
             `/api/canvas/prototype?branch=${encodeURIComponent(target.branch)}`,
           )
-        } catch (error) {
+        } catch (caught) {
+          const error = readHubError(caught)
           if (error.statusCode !== 404) throw error
           const connection = await authorizedRequest(
             target.repository,
             credential,
             "/api/canvas/connection",
           )
-          if (connection.repository?.toLowerCase() !== target.repository.toLowerCase())
+          if (
+            typeof connection.repository !== "string" ||
+            connection.repository.toLowerCase() !== target.repository.toLowerCase()
+          )
             throw new Error("Hub did not verify this repository.", {
-              cause: error,
+              cause: caught,
             })
           return {
             state: "undiscovered",
@@ -345,7 +387,9 @@ export function createHubClient(context, options = {}) {
             repository: target.repository,
             branch: target.branch,
             commitSha: target.commitSha,
-            ...(error.registrationReason ? { registrationReason: error.registrationReason } : {}),
+            ...(error.registrationReason
+              ? { registrationReason: registrationReason(error.registrationReason) }
+              : {}),
           }
         }
         let registrationError
@@ -356,7 +400,7 @@ export function createHubClient(context, options = {}) {
           prototype.canRegister &&
           target.commitSha &&
           prototype.branch === target.branch &&
-          prototype.build?.commitSha === target.commitSha
+          readHubObject(prototype.build)?.commitSha === target.commitSha
         ) {
           const current = await checkout()
           if (
@@ -378,14 +422,15 @@ export function createHubClient(context, options = {}) {
                   },
                 },
               )
-            } catch (error) {
+            } catch (caught) {
+              const error = readHubError(caught)
               if (
                 error.statusCode === 401 ||
                 (error.statusCode === 403 && !error.registrationReason)
               )
                 throw error
               registrationError = `Automatic prototype registration failed: ${error.message}`
-              reason = error.registrationReason
+              reason = registrationReason(error.registrationReason)
             }
           }
         }
@@ -400,7 +445,8 @@ export function createHubClient(context, options = {}) {
           ...(reason ? { registrationReason: reason } : {}),
           ...(registrationError ? { registrationError } : {}),
         }
-      } catch (error) {
+      } catch (caught) {
+        const error = readHubError(caught)
         if (error.statusCode === 401) {
           return {
             state: "disconnected",
@@ -422,13 +468,14 @@ export function createHubClient(context, options = {}) {
     },
     async pair() {
       const target = await checkout()
-      if (!target.repository) {
+      const repository = target.repository
+      if (!repository) {
         throw new Error("Open a repository with a GitHub origin before connecting to Hub.")
       }
-      return store.lock(credentialFile(target.repository), async () => {
-        const pending = await readPending(target.repository)
+      return store.lock(credentialFile(repository), async () => {
+        const pending = await readPending(repository)
         if (pending && Date.parse(pending.expiresAt) > Date.now()) return publicPairing(pending)
-        const credential = await readCredential(target.repository)
+        const credential = await readCredential(repository)
         if (
           credential &&
           !credential.invalid &&
@@ -440,7 +487,8 @@ export function createHubClient(context, options = {}) {
         const result = await hubRequest("/api/canvas/pairings", {
           method: "POST",
           body: { repository: target.repository, renewable: true },
-        }).catch((error) => {
+        }).catch((caught) => {
+          const error = readHubError(caught)
           if (error.statusCode === 404) {
             error.message =
               `Hub ${origin.origin} could not find ${target.repository} for canvas pairing. ` +
@@ -449,8 +497,14 @@ export function createHubClient(context, options = {}) {
           }
           throw error
         })
-        if (result.refreshToken != null && !/^rr_[A-Za-z0-9_-]{43}$/.test(result.refreshToken))
+        if (
+          result.refreshToken != null &&
+          (typeof result.refreshToken !== "string" ||
+            !/^rr_[A-Za-z0-9_-]{43}$/.test(result.refreshToken))
+        )
           throw new Error("Hub returned an invalid refresh credential.")
+        if (typeof result.verificationUrl !== "string" || typeof result.userCode !== "string")
+          throw new Error("Hub returned an invalid pairing URL.")
         const verificationUrl = new URL(result.verificationUrl)
         if (
           verificationUrl.origin !== origin.origin ||
@@ -464,26 +518,29 @@ export function createHubClient(context, options = {}) {
         const next = {
           ...result,
           origin: origin.origin,
-          repository: target.repository,
+          repository,
+          userCode: result.userCode,
           verificationUrl: verificationUrl.href,
           expiresAt: result.expiresAt || new Date(Date.now() + 10 * 60_000).toISOString(),
         }
-        await store.write(pendingFile(target.repository), next)
+        await store.write(pendingFile(repository), next)
         return publicPairing(next)
       })
     },
     async poll() {
       const target = await checkout()
-      if (!target.repository) throw new Error("The current repository is unavailable.")
-      return store.lock(credentialFile(target.repository), async () => {
-        const credential = await readCredential(target.repository)
+      const repository = target.repository
+      if (!repository) throw new Error("The current repository is unavailable.")
+      return store.lock(credentialFile(repository), async () => {
+        const credential = await readCredential(repository)
         if (credential && !credential.invalid && Date.parse(credential.expiresAt) > Date.now())
           return { status: "approved" }
-        const pending = await readPending(target.repository)
+        const pending = await readPending(repository)
         if (!pending) throw new Error("No pairing is in progress.")
-        if (pending.retryAfter > Date.now())
+        if (pending.retryAfter !== undefined && pending.retryAfter > Date.now())
           throw new Error("Hub approval verification is paused. Try again shortly.")
-        if (pending.nextPollAt > Date.now()) return { status: "pending" }
+        if (pending.nextPollAt !== undefined && pending.nextPollAt > Date.now())
+          return { status: "pending" }
         await store.write(pendingFile(pending.repository), {
           ...pending,
           nextPollAt: Date.now() + 3_000,
@@ -502,12 +559,16 @@ export function createHubClient(context, options = {}) {
               await saveCredential(pending.repository, recovered, pending.refreshToken)
               await store.remove(pendingFile(pending.repository))
               return { status: "approved" }
-            } catch (error) {
+            } catch (caught) {
+              const error = readHubError(caught)
               if (error.statusCode !== 401) throw error
             }
           }
           if (result.status === "approved") {
-            if (result.repository?.toLowerCase() !== pending.repository.toLowerCase()) {
+            if (
+              typeof result.repository !== "string" ||
+              result.repository.toLowerCase() !== pending.repository.toLowerCase()
+            ) {
               throw new Error("Hub approved a different repository.")
             }
             await saveCredential(pending.repository, result, pending.refreshToken)
@@ -525,12 +586,13 @@ export function createHubClient(context, options = {}) {
     },
     async disconnect() {
       const target = await checkout()
-      if (!target.repository) return
-      return store.lock(credentialFile(target.repository), async () => {
-        const credential = await readCredential(target.repository)
-        await store.remove(pendingFile(target.repository))
+      const repository = target.repository
+      if (!repository) return
+      return store.lock(credentialFile(repository), async () => {
+        const credential = await readCredential(repository)
+        await store.remove(pendingFile(repository))
         if (!credential) {
-          await removeCredentials(target.repository)
+          await removeCredentials(repository)
           return
         }
         if (credential.refreshToken) {
@@ -544,11 +606,12 @@ export function createHubClient(context, options = {}) {
               method: "DELETE",
               token: credential.token,
             })
-          } catch (error) {
+          } catch (caught) {
+            const error = readHubError(caught)
             if (error.statusCode !== 401) throw error
           }
         }
-        await removeCredentials(target.repository)
+        await removeCredentials(repository)
       })
     },
     /**
@@ -575,7 +638,8 @@ export function createHubClient(context, options = {}) {
           token: credential.token,
           timeoutMs,
         })
-      } catch (error) {
+      } catch (caught) {
+        const error = readHubError(caught)
         if (error.statusCode === 401) renewInBackground(target.repository, credential.token)
         // Hub answers 404 with this code while Learnings is off, when no learnings apply. Any other
         // 404, such as from a Hub without this route, is an error.
@@ -586,16 +650,17 @@ export function createHubClient(context, options = {}) {
       const memories = Array.isArray(result.memories) ? result.memories : null
       if (
         typeof result.text !== "string" ||
-        !memories?.every(
-          (memory) => typeof memory?.id === "string" && typeof memory.digest === "string",
-        )
+        !memories?.every((memory) => {
+          const value = readHubObject(memory)
+          return typeof value?.id === "string" && typeof value.digest === "string"
+        })
       )
         throw new Error("Hub returned invalid learnings.")
       return { text: result.text, memories: memories.map(({ id, digest }) => ({ id, digest })) }
     },
     async activity() {
       const { target, credential } = await connected()
-      if (!credential) return
+      if (!credential || !target.repository) return
       await authorizedRequest(target.repository, credential, "/api/canvas/connection", {
         method: "PATCH",
       })
@@ -626,8 +691,9 @@ export function createHubClient(context, options = {}) {
           })
         if (options.connectionScope && !options.connectionScope.identity)
           options.connectionScope.identity = connectionIdentity(credential)
+        const repository = target.repository
         async function guard() {
-          checkConnection(await readCredential(target.repository), options.connectionScope)
+          checkConnection(await readCredential(repository), options.connectionScope)
           if (expected && changed(await checkout()))
             throw Object.assign(new Error("Checkout changed. Retrieve comments again."), {
               code: "stale_comment_target",
@@ -649,7 +715,8 @@ export function createHubClient(context, options = {}) {
           )
         await guard()
         return result
-      } catch (error) {
+      } catch (caught) {
+        const error = readHubError(caught)
         error.deliveryPhase = dispatched ? "after_dispatch" : "before_dispatch"
         throw error
       }
@@ -662,6 +729,7 @@ export function createHubClient(context, options = {}) {
       })
       const expected = new URL(origin.origin.replace(/^http/, "ws"))
       if (
+        typeof cableUrl !== "string" ||
         new URL(cableUrl).origin !== expected.origin ||
         typeof protocol !== "string" ||
         !protocol.startsWith("replica-canvas.")
@@ -679,15 +747,20 @@ export function createHubClient(context, options = {}) {
       )
       socket.addEventListener("message", (event) => {
         try {
-          const data = JSON.parse(event.data)
-          if (data.identifier === identifier && data.message?.type === "review_comments_changed")
+          const message = JSON.parse(String(event.data))
+          if (message == null) throw new Error("Hub returned an invalid review message.")
+          const data = readHubObject(message)
+          if (
+            data?.identifier === identifier &&
+            readHubObject(data.message)?.type === "review_comments_changed"
+          )
             onChange()
-          if (data.type === "reject_subscription" && data.identifier === identifier) {
+          if (data?.type === "reject_subscription" && data.identifier === identifier) {
             onStop(new Error("Hub rejected the review subscription."))
             socket.close()
           }
         } catch (error) {
-          onStop(error)
+          onStop(readHubError(error))
           socket.close()
         }
       })

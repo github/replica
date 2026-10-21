@@ -1,19 +1,15 @@
 import { createHash } from "node:crypto"
 import os from "node:os"
 import path from "node:path"
-
 import { normalizeHubOrigin } from "../normalize-hub-origin/index.mjs"
 import { createPrivateStore } from "../private-store/index.mjs"
-
 export function createHubOriginStore(options = {}) {
   const directory = options.directory || path.join(os.homedir(), ".config", "replica", "canvas")
   const store = createPrivateStore(directory)
-
   function file(repository) {
     const key = createHash("sha256").update(repository).digest("hex")
     return `${key}.origin.json`
   }
-
   return {
     async read(repository) {
       if (!repository) return null
@@ -22,7 +18,9 @@ export function createHubOriginStore(options = {}) {
       if (
         !selection ||
         typeof selection !== "object" ||
+        !("repository" in selection) ||
         selection.repository !== repository ||
+        !("origin" in selection) ||
         typeof selection.origin !== "string"
       ) {
         throw new Error("Invalid stored canvas Hub selection.")

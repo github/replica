@@ -3,16 +3,16 @@ import { createHash } from "node:crypto"
 import os from "node:os"
 import path from "node:path"
 import { promisify } from "node:util"
-
 import { normalizeHubOrigin } from "../normalize-hub-origin/index.mjs"
 import { createPrivateStore } from "../private-store/index.mjs"
 import { readCanvasRepository } from "../read-canvas-repository/index.mjs"
-
+import { readHubObject } from "../read-hub-object/index.mjs"
+import { readHubError } from "../read-hub-error/index.mjs"
+import { readErrorCode } from "../read-error-code/index.mjs"
 const execFileAsync = promisify(execFile)
 const TTL = 5 * 60_000
 const CACHE_VERSION = 2
 const FILE = ".github/replica.json"
-
 async function runDiscoveryCommand(command, args, cwd) {
   try {
     const { stdout } = await execFileAsync(command, args, {
@@ -24,16 +24,16 @@ async function runDiscoveryCommand(command, args, cwd) {
     })
     return { ok: true, stdout }
   } catch (error) {
+    const stderr = error instanceof Error && "stderr" in error ? error.stderr : undefined
     return {
       ok: false,
       error:
-        error.code === "ENOENT"
+        readErrorCode(error) === "ENOENT"
           ? `${command} is not installed.`
-          : error.stderr?.trim() || error.message,
+          : (typeof stderr === "string" && stderr.trim()) || readHubError(error).message,
     }
   }
 }
-
 export async function discoverHub(context, options = {}) {
   const identity = await readCanvasRepository(context)
   if (identity.local) return { state: "local" }
@@ -48,14 +48,15 @@ export async function discoverHub(context, options = {}) {
   )
   const key = `${createHash("sha256").update(repository).digest("hex")}.discovery.json`
   return store.lock(key, async () => {
-    const previous = await store.read(key)
+    const previous = readHubObject(await store.read(key))
     if (
       !options.force &&
       previous?.cacheVersion === CACHE_VERSION &&
       previous?.repository === repository &&
+      typeof previous.checkedAt === "number" &&
       Date.now() - previous.checkedAt < TTL
     )
-      return previous
+      return readDiscovery(previous)
     const command = options.runCommand || runDiscoveryCommand
     const [owner, name] = repository.split("/")
     async function query(text, fields = []) {
@@ -77,9 +78,13 @@ export async function discoverHub(context, options = {}) {
         context.repositoryPath,
       )
       if (!result.ok) throw new Error(`Repository configuration unavailable: ${result.error}`)
-      const payload = JSON.parse(result.stdout)
-      const data = payload.data?.repository
-      if (payload.errors || data?.nameWithOwner?.toLowerCase() !== repository)
+      const payload = readHubObject(JSON.parse(result.stdout))
+      const data = readHubObject(readHubObject(payload?.data)?.repository)
+      if (
+        payload?.errors ||
+        typeof data?.nameWithOwner !== "string" ||
+        data.nameWithOwner.toLowerCase() !== repository
+      )
         throw new Error("GitHub could not verify the origin repository configuration.")
       return data
     }
@@ -90,8 +95,10 @@ export async function discoverHub(context, options = {}) {
       const metadata = await query(
         "query($owner:String!,$name:String!){repository(owner:$owner,name:$name){nameWithOwner defaultBranchRef{name target{oid}}}}",
       )
-      defaultBranch = metadata.defaultBranchRef?.name
-      sourceRevision = metadata.defaultBranchRef?.target?.oid
+      const branch = readHubObject(metadata.defaultBranchRef)
+      const oid = readHubObject(branch?.target)?.oid
+      defaultBranch = typeof branch?.name === "string" ? branch.name : undefined
+      sourceRevision = typeof oid === "string" ? oid : undefined
       if (!defaultBranch || !/^[0-9a-f]{40}$/.test(sourceRevision || ""))
         throw new Error("GitHub did not return a default-branch commit.")
       const data = await query(
@@ -101,12 +108,12 @@ export async function discoverHub(context, options = {}) {
       if (data.object === null) {
         result = { state: "absent", fingerprint: "absent" }
       } else {
-        const blob = data.object
+        const blob = readHubObject(data.object)
         try {
           if (blob?.__typename !== "Blob" || blob.isTruncated || typeof blob.text !== "string")
             throw new Error(`${FILE} must be a complete JSON file.`)
-          const value = JSON.parse(blob.text)
-          const origin = value?.hub?.origin
+          const value = readHubObject(JSON.parse(blob.text))
+          const origin = readHubObject(value?.hub)?.origin
           const fingerprint = createHash("sha256").update(blob.text).digest("hex")
           if (origin == null || (typeof origin === "string" && !origin.trim())) {
             result = { state: "absent", fingerprint }
@@ -122,14 +129,17 @@ export async function discoverHub(context, options = {}) {
         } catch (error) {
           result = {
             state: "invalid",
-            message: `Invalid ${FILE}: ${error.message}`,
+            message: `Invalid ${FILE}: ${readHubError(error).message}`,
           }
         }
       }
     } catch (error) {
-      result = { state: "unreachable", message: error.message }
+      result = { state: "unreachable", message: readHubError(error).message }
     }
-    const fingerprint = result.fingerprint || previous?.fingerprint
+    const resultFingerprint = "fingerprint" in result ? result.fingerprint : undefined
+    const previousFingerprint =
+      typeof previous?.fingerprint === "string" ? previous.fingerprint : undefined
+    const fingerprint = resultFingerprint || previousFingerprint
     const discovery = {
       ...result,
       cacheVersion: CACHE_VERSION,
@@ -137,14 +147,56 @@ export async function discoverHub(context, options = {}) {
       defaultBranch,
       sourceRevision,
       lastVerifiedRevision:
-        result.state === "unreachable" ? previous?.lastVerifiedRevision : sourceRevision,
+        result.state === "unreachable"
+          ? typeof previous?.lastVerifiedRevision === "string"
+            ? previous.lastVerifiedRevision
+            : undefined
+          : sourceRevision,
       fingerprint,
       changed: Boolean(
-        previous?.fingerprint && result.fingerprint && previous.fingerprint !== result.fingerprint,
+        previousFingerprint && resultFingerprint && previousFingerprint !== resultFingerprint,
       ),
       checkedAt: Date.now(),
     }
     await store.write(key, discovery)
     return discovery
   })
+}
+function readDiscovery(value) {
+  const record = readHubObject(value)
+  if (!record) throw new Error("Invalid stored canvas Hub discovery.")
+  const metadata = {
+    cacheVersion: typeof record.cacheVersion === "number" ? record.cacheVersion : undefined,
+    repository: typeof record.repository === "string" ? record.repository : undefined,
+    defaultBranch: typeof record.defaultBranch === "string" ? record.defaultBranch : undefined,
+    sourceRevision: typeof record.sourceRevision === "string" ? record.sourceRevision : undefined,
+    lastVerifiedRevision:
+      typeof record.lastVerifiedRevision === "string" ? record.lastVerifiedRevision : undefined,
+    fingerprint: typeof record.fingerprint === "string" ? record.fingerprint : undefined,
+    checkedAt: typeof record.checkedAt === "number" ? record.checkedAt : undefined,
+    changed: typeof record.changed === "boolean" ? record.changed : undefined,
+  }
+  switch (record.state) {
+    case "valid":
+      if (typeof record.origin === "string" && typeof record.fingerprint === "string")
+        return {
+          ...metadata,
+          state: "valid",
+          origin: record.origin,
+          fingerprint: record.fingerprint,
+        }
+      break
+    case "absent":
+      if (typeof record.fingerprint === "string")
+        return { ...metadata, state: "absent", fingerprint: record.fingerprint }
+      break
+    case "invalid":
+    case "unreachable":
+      if (typeof record.message === "string")
+        return { ...metadata, state: record.state, message: record.message }
+      break
+    case "local":
+      return { ...metadata, state: "local" }
+  }
+  throw new Error("Invalid stored canvas Hub discovery.")
 }
