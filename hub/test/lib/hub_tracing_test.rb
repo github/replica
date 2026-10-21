@@ -99,7 +99,87 @@ class HubTracingTest < ActiveSupport::TestCase
     assert_equal 0, calls
   end
 
-  test "serialized OTLP preserves emitted metadata and exception diagnostics but removes unrelated private content" do
+  test "exporter removes sensitive diagnostics and unrelated private content by default" do
+    originals, provider, sensitive = traced_spans
+    exporter, requests, intake = exporter_requests
+
+    assert_equal OpenTelemetry::SDK::Trace::Export::SUCCESS, exporter.export(originals, timeout: 1)
+
+    assert_requested intake, times: 1
+    payload = requests.first.body
+    %w[sql-diagnostic-canary argument-diagnostic-canary exception-diagnostic-canary].each do |diagnostic|
+      refute_includes payload, diagnostic
+    end
+    refute_includes payload, sensitive
+    decoded_spans(payload).zip(originals).each do |span, original|
+      attributes = span.attributes.to_h { |attribute| [ attribute.key, attribute.value ] }
+      assert_equal original.attributes.fetch("http.request.method"), attributes.fetch("http.request.method").string_value
+      assert_equal "sqlite", attributes.fetch("db.system.name").string_value
+      assert_equal "default", attributes.fetch("messaging.destination").string_value
+      assert_equal "TracingProbeJob", attributes.fetch("code.namespace").string_value
+      refute attributes.key?("db.query.text")
+      refute attributes.key?("replica.job.arguments")
+      refute attributes.key?("db.query.parameter.0")
+      assert_empty span.events
+      assert_empty span.links
+      assert_empty span.status.message
+    end
+    assert_equal "POST /#{sensitive}", originals.first.name
+    assert_equal sensitive, originals.first.events.first.name
+    assert_equal sensitive, originals.first.status.description
+  ensure
+    exporter&.shutdown(timeout: 1)
+    provider&.shutdown(timeout: 1)
+  end
+
+  test "sensitive exporter retains intended diagnostics but removes unrelated private content" do
+    originals, provider, sensitive = traced_spans
+    exporter, requests, intake = exporter_requests(include_sensitive_data: true)
+
+    assert_equal OpenTelemetry::SDK::Trace::Export::SUCCESS, exporter.export(originals, timeout: 1)
+
+    assert_requested intake, times: 1
+    assert_equal "application/x-protobuf", requests.first.headers["Content-Type"]
+    payload = requests.first.body
+    refute_includes payload, sensitive
+    exported = decoded_spans(payload)
+    assert_equal [ "POST /builds/:id", "GET /builds/:id" ], exported.map(&:name)
+    exported.zip(originals).each do |actual, original|
+      assert_equal original.trace_id, actual.trace_id
+      assert_equal original.span_id, actual.span_id
+      assert_equal original.start_timestamp, actual.start_time_unix_nano
+      assert_equal original.end_timestamp, actual.end_time_unix_nano
+      assert_empty actual.links
+      metadata = actual.attributes.to_h { |attribute| [ attribute.key, attribute.value ] }
+      assert_equal "SELECT 'sql-diagnostic-canary'", metadata.fetch("db.query.text").string_value
+      assert_equal \
+        '["argument-diagnostic-canary",{"password":"[FILTERED]"}]',
+        metadata.fetch("replica.job.arguments").string_value
+      refute metadata.key?("db.query.parameter.0")
+      refute metadata.key?("http.request.header.authorization")
+      refute metadata.key?("http.request.body")
+      refute metadata.key?("url.full")
+    end
+    assert_equal [ "exception" ], exported.first.events.map(&:name)
+    event = exported.first.events.first
+    assert_equal originals.first.events.last.timestamp, event.time_unix_nano
+    expected_exception = {
+      "exception.type" => "RuntimeError",
+      "exception.message" => "exception-diagnostic-canary",
+      "exception.stacktrace" => "probe.rb:1:in `perform'"
+    }
+    assert_equal expected_exception, event.attributes.to_h { |attribute| [ attribute.key, attribute.value.string_value ] }
+    assert_empty exported.last.events
+    assert_equal :STATUS_CODE_ERROR, exported.first.status.code
+    assert_empty exported.first.status.message
+  ensure
+    exporter&.shutdown(timeout: 1)
+    provider&.shutdown(timeout: 1)
+  end
+
+  private
+
+  def traced_spans
     memory = OpenTelemetry::SDK::Trace::Export::InMemorySpanExporter.new
     provider = OpenTelemetry::SDK::Trace::TracerProvider.new
     provider.add_span_processor(OpenTelemetry::SDK::Trace::Export::SimpleSpanProcessor.new(memory))
@@ -127,7 +207,7 @@ class HubTracingTest < ActiveSupport::TestCase
       "messaging.active_job.message.priority" => "3",
       "code.namespace" => "TracingProbeJob",
       "code.function" => "perform",
-      "replica.job.arguments" => '["argument-diagnostic-canary"]',
+      "replica.job.arguments" => '["argument-diagnostic-canary",{"password":"[FILTERED]"}]',
       "http.request.header.authorization" => "Bearer #{sensitive}",
       "http.request.body" => sensitive,
       "url.full" => "https://user:#{sensitive}@example.com/#{sensitive}?token=#{sensitive}",
@@ -164,58 +244,23 @@ class HubTracingTest < ActiveSupport::TestCase
       kind: :client,
       attributes: attributes.merge("http.request.method" => "GET")
     client.finish
-    originals = memory.finished_spans
+    [ memory.finished_spans, provider, sensitive ]
+  end
+
+  def exporter_requests(include_sensitive_data: false)
     requests = []
     intake = stub_request(:post, "http://collector.example/v1/traces").with do |request|
       requests << request
       true
     end.to_return(status: 200, body: "")
-    exporter = HubTracing::Exporter.new \
-      OpenTelemetry::Exporter::OTLP::Exporter.new(endpoint: "http://collector.example/v1/traces")
-
-    assert_equal OpenTelemetry::SDK::Trace::Export::SUCCESS, exporter.export(originals, timeout: 1)
-
-    assert_requested intake, times: 1
-    assert_equal "application/x-protobuf", requests.first.headers["Content-Type"]
-    payload = requests.first.body
-    refute_includes payload, sensitive
-    decoded = Opentelemetry::Proto::Collector::Trace::V1::ExportTraceServiceRequest.decode(payload)
-    exported = decoded.resource_spans.flat_map(&:scope_spans).flat_map(&:spans)
-    assert_equal [ "POST /builds/:id", "GET /builds/:id" ], exported.map(&:name)
-    exported.zip(originals).each do |actual, original|
-      assert_equal original.trace_id, actual.trace_id
-      assert_equal original.span_id, actual.span_id
-      assert_equal original.start_timestamp, actual.start_time_unix_nano
-      assert_equal original.end_timestamp, actual.end_time_unix_nano
-      assert_empty actual.links
-      metadata = actual.attributes.to_h { |attribute| [ attribute.key, attribute.value ] }
-      attributes.reject { |_, value| value.to_s.include?(sensitive) }
-        .merge("http.request.method" => original.attributes["http.request.method"]).each do |key, value|
-          assert metadata.key?(key), "missing emitted metadata #{key}"
-          assert_equal value, metadata.fetch(key).public_send(value.is_a?(Integer) ? :int_value : :string_value)
-        end
-    end
-    assert_equal [ "exception" ], exported.first.events.map(&:name)
-    event = exported.first.events.first
-    assert_equal originals.first.events.last.timestamp, event.time_unix_nano
-    expected_exception = {
-      "exception.type" => "RuntimeError",
-      "exception.message" => "exception-diagnostic-canary",
-      "exception.stacktrace" => "probe.rb:1:in `perform'"
-    }
-    assert_equal expected_exception, event.attributes.to_h { |attribute| [ attribute.key, attribute.value.string_value ] }
-    assert_empty exported.last.events
-    assert_equal :STATUS_CODE_ERROR, exported.first.status.code
-    assert_empty exported.first.status.message
-    assert_equal "POST /#{sensitive}", originals.first.name
-    assert_equal sensitive, originals.first.events.first.name
-    assert_equal sensitive, originals.first.status.description
-  ensure
-    exporter&.shutdown(timeout: 1)
-    provider&.shutdown(timeout: 1)
+    delegate = OpenTelemetry::Exporter::OTLP::Exporter.new(endpoint: "http://collector.example/v1/traces")
+    [ HubTracing::Exporter.new(delegate, include_sensitive_data:), requests, intake ]
   end
 
-  private
+  def decoded_spans(payload)
+    decoded = Opentelemetry::Proto::Collector::Trace::V1::ExportTraceServiceRequest.decode(payload)
+    decoded.resource_spans.flat_map(&:scope_spans).flat_map(&:spans)
+  end
 
   def run_startup(configuration, script)
     environment = ENV.keys.grep(/\A(?:OTEL_|REPLICA_OTEL_)/).to_h { |key| [ key, nil ] }

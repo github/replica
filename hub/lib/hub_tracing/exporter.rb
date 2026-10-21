@@ -2,19 +2,20 @@ require "timeout"
 
 module HubTracing
   class Exporter
-    # Keep this list aligned with the bundled instrumentation and Hub's diagnostic collectors.
-    ATTRIBUTES = %w[
+    OPERATIONAL_ATTRIBUTES = %w[
       http.request.method http.response.status_code http.method http.status_code http.route
       url.scheme http.scheme server.address server.port net.peer.name net.peer.port
-      db.system.name db.query.text
+      db.system.name
       messaging.system messaging.destination messaging.message.id messaging.active_job.adapter.name
       messaging.active_job.message.provider_job_id messaging.active_job.message.priority
-      code.namespace code.function replica.job.arguments
+      code.namespace code.function
     ].freeze
+    SENSITIVE_ATTRIBUTES = %w[db.query.text replica.job.arguments].freeze
     EXCEPTION_ATTRIBUTES = %w[exception.type exception.message exception.stacktrace].freeze
 
-    def initialize(exporter)
+    def initialize(exporter, include_sensitive_data: false)
       @exporter = exporter
+      @include_sensitive_data = include_sensitive_data
     end
 
     def export(spans, timeout: nil)
@@ -41,15 +42,10 @@ module HubTracing
 
     def sanitized(span)
       result = span.dup
-      result.attributes = (span.attributes || {}).slice(*ATTRIBUTES)
-      result.events = (span.events || []).filter_map do |event|
-        next unless event.name == "exception"
-
-        OpenTelemetry::SDK::Trace::Event.new \
-          event.name,
-          (event.attributes || {}).slice(*EXCEPTION_ATTRIBUTES),
-          event.timestamp
-      end
+      attributes = OPERATIONAL_ATTRIBUTES
+      attributes += SENSITIVE_ATTRIBUTES if @include_sensitive_data
+      result.attributes = (span.attributes || {}).slice(*attributes)
+      result.events = sanitized_events(span.events)
       result.links = []
       result.status = case span.status.code
       when OpenTelemetry::Trace::Status::ERROR then OpenTelemetry::Trace::Status.error
@@ -61,6 +57,19 @@ module HubTracing
         result.name = [ method || "HTTP", result.attributes["http.route"] ].compact.join(" ")
       end
       result
+    end
+
+    def sanitized_events(events)
+      return [] unless @include_sensitive_data
+
+      (events || []).filter_map do |event|
+        next unless event.name == "exception"
+
+        OpenTelemetry::SDK::Trace::Event.new \
+          event.name,
+          (event.attributes || {}).slice(*EXCEPTION_ATTRIBUTES),
+          event.timestamp
+      end
     end
   end
 end

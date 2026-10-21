@@ -6,12 +6,11 @@ require "opentelemetry/exporter/otlp"
 class HubTracingIntegrationTest < ActiveSupport::TestCase
   self.use_transactional_tests = false
 
-  test "normal boot isolates inbound context and traces serialized child jobs SQL and HTTP diagnostics" do
-    result = run_traced_request
+  test "normal boot isolates inbound context and excludes sensitive diagnostics" do
+    result = run_traced_request(failing_job: true)
 
     assert_equal 200, result.fetch("status")
     assert_equal "completed", result.fetch("body")
-    assert result.fetch("job_performed")
     assert_equal 200, result.fetch("health_status")
     refute result.fetch("baggage_propagated"), "incoming baggage reached the outbound service"
     refute result.fetch("tracestate_propagated"), "incoming tracestate reached the outbound service"
@@ -19,7 +18,10 @@ class HubTracingIntegrationTest < ActiveSupport::TestCase
     payloads = result.fetch("payloads").map { |payload| Base64.strict_decode64(payload) }
     assert_not_empty payloads, result.fetch("diagnostics")
     payloads.each do |payload|
-      %w[request-private-canary identity-email-canary identity-name-canary password-canary token-canary].each do |private_value|
+      %w[
+        request-private-canary identity-email-canary identity-name-canary password-canary token-canary
+        sql-diagnostic-canary argument-diagnostic-canary job-failure-diagnostic-canary
+      ].each do |private_value|
         refute_includes payload, private_value
       end
     end
@@ -38,21 +40,16 @@ class HubTracingIntegrationTest < ActiveSupport::TestCase
     end
     metadata = spans.flat_map(&:attributes)
     assert metadata.any? { |attribute| attribute.key == "db.system.name" }
-    assert metadata.any? { |attribute| attribute.key == "db.query.text" && attribute.value.string_value.include?("sql-diagnostic-canary") }
     jobs.each do |job|
       attributes = span_attributes(job)
       assert_equal "default", attributes.fetch("messaging.destination").string_value
       assert attributes.fetch("messaging.message.id").string_value.present?
       assert_equal "test", attributes.fetch("messaging.active_job.adapter.name").string_value
       assert_equal "3", attributes.fetch("messaging.active_job.message.priority").string_value
-      arguments = JSON.parse(attributes.fetch("replica.job.arguments").string_value)
-      assert_equal "argument-diagnostic-canary", arguments.first
-      assert_equal "[FILTERED]", arguments.last.fetch("email")
-      assert_equal "[FILTERED]", arguments.last.fetch("name")
-      assert_equal "[FILTERED]", arguments.last.fetch("password")
-      assert_equal "[FILTERED]", arguments.last.fetch("token")
-      assert_equal "ActiveJob::Serializers::DateSerializer", arguments.last.fetch("on").fetch("_aj_serialized")
+      refute attributes.key?("replica.job.arguments")
     end
+    refute metadata.any? { |attribute| attribute.key == "db.query.text" }
+    refute metadata.any? { |attribute| attribute.key.match?(/bind|parameter/) }
     assert spans.any? { |span| span.kind == :SPAN_KIND_CLIENT }, "outbound HTTP was not traced"
     spans.each do |span|
       assert_empty span.events
@@ -100,10 +97,19 @@ class HubTracingIntegrationTest < ActiveSupport::TestCase
     refute_includes result.fetch("payloads").map { |payload| Base64.strict_decode64(payload) }.join, "identity-email-canary"
   end
 
-  test "sensitive opt in permits structured identities but not credentials" do
-    result = run_traced_request(configuration: { "REPLICA_OTEL_INCLUDE_SENSITIVE_DATA" => "TrUe" })
+  test "sensitive opt in exports SQL filtered job arguments and exception diagnostics" do
+    result = run_traced_request(
+      configuration: { "REPLICA_OTEL_INCLUDE_SENSITIVE_DATA" => "TrUe" },
+      failing_job: true
+    )
 
-    jobs = decoded_spans(result).select { |span| span.name.include?("TracingProbeJob") }
+    payload = result.fetch("payloads").map { |encoded| Base64.strict_decode64(encoded) }.join
+    %w[
+      password-canary token-canary app-secret-canary authorization-canary cookies-canary
+      request-private-canary
+    ].each { |private_value| refute_includes payload, private_value }
+    spans = decoded_spans(result)
+    jobs = spans.select { |span| span.name.include?("TracingProbeJob") }
     assert_operator jobs.size, :>=, 2
     jobs.each do |job|
       arguments = JSON.parse(span_attributes(job).fetch("replica.job.arguments").string_value).last
@@ -112,21 +118,45 @@ class HubTracingIntegrationTest < ActiveSupport::TestCase
       assert_equal "[FILTERED]", arguments.fetch("password")
       assert_equal "[FILTERED]", arguments.fetch("token")
       assert_equal "[FILTERED]", arguments.fetch("customer_secret")
+      assert_equal "[FILTERED]", arguments.fetch("authorization")
+      assert_equal "[FILTERED]", arguments.fetch("cookies")
     end
-    assert result.fetch("job_performed"), "diagnostic filtering changed the arguments delivered to the job"
+    assert spans.any? do |span|
+      span_attributes(span)["db.query.text"]&.string_value&.include?("sql-diagnostic-canary")
+    end
+    failed_query = spans.find do |span|
+      span_attributes(span)["db.query.text"]&.string_value&.include?("missing_diagnostic_table")
+    end
+    assert failed_query, "failed SQL query was not exported"
+    assert_equal :STATUS_CODE_ERROR, failed_query.status.code
+    exception = jobs.flat_map(&:events).find { |event| event.name == "exception" }
+    assert exception, "job failure has no exported exception event"
+    attributes = exception.attributes.to_h { |attribute| [ attribute.key, attribute.value.string_value ] }
+    assert_equal "RuntimeError", attributes.fetch("exception.type")
+    assert_includes attributes.fetch("exception.message"), "job-failure-diagnostic-canary"
+    assert attributes.fetch("exception.stacktrace").present?
+    assert_equal %w[exception.message exception.stacktrace exception.type], attributes.keys.sort
+    assert spans.flat_map(&:attributes).none? { |attribute| attribute.key.match?(/bind|parameter/) }
   end
 
   test "sensitive collection setting remains fixed until restart" do
-    [ [ "true", "false", "identity-email-canary@example.test" ], [ "false", "true", "[FILTERED]" ] ].each do |startup, changed, expected|
+    [ [ "true", "false" ], [ "false", "true" ] ].each do |startup, changed|
       result = run_traced_request(
         configuration: { "REPLICA_OTEL_INCLUDE_SENSITIVE_DATA" => startup },
-        change_sensitive_setting: changed
+        change_sensitive_setting: changed,
+        failing_job: true
       )
-      jobs = decoded_spans(result).select { |span| span.name.include?("TracingProbeJob") }
+      spans = decoded_spans(result)
+      jobs = spans.select { |span| span.name.include?("TracingProbeJob") }
       assert_operator jobs.size, :>=, 2
-      jobs.each do |job|
-        arguments = JSON.parse(span_attributes(job).fetch("replica.job.arguments").string_value).last
-        assert_equal expected, arguments.fetch("email"), "runtime ENV change overrode startup value #{startup}"
+      if startup == "true"
+        assert jobs.all? { |job| span_attributes(job).key?("replica.job.arguments") }
+        assert spans.any? { |span| span_attributes(span).key?("db.query.text") }
+        assert jobs.any? { |job| job.events.any? { |event| event.name == "exception" } }
+      else
+        assert jobs.none? { |job| span_attributes(job).key?("replica.job.arguments") }
+        assert spans.none? { |span| span_attributes(span).key?("db.query.text") }
+        assert jobs.all? { |job| job.events.empty? }
       end
     end
   end
@@ -148,31 +178,6 @@ class HubTracingIntegrationTest < ActiveSupport::TestCase
     jobs = spans.select { |span| span.name.include?("TracingProbeJob") }
     assert_operator jobs.size, :>=, 2
     assert jobs.all? { |span| span.trace_id == server.trace_id }
-  end
-
-  test "job and SQL failures retain useful exception and query diagnostics" do
-    result = run_traced_request(failing_job: true)
-
-    assert_equal 200, result.fetch("status")
-    spans = decoded_spans(result)
-    job = spans.find { |span| span.name.include?("TracingProbeJob") && span.events.any? }
-    assert job, "job failure has no exported exception event"
-    assert_equal :STATUS_CODE_ERROR, job.status.code
-    assert_empty job.status.message
-    exception = job.events.find { |event| event.name == "exception" }
-    assert exception, "job failure did not preserve the exception event"
-    attributes = exception.attributes.to_h { |attribute| [ attribute.key, attribute.value.string_value ] }
-    assert_equal "RuntimeError", attributes.fetch("exception.type")
-    assert_includes attributes.fetch("exception.message"), "job-failure-diagnostic-canary"
-    assert attributes.fetch("exception.stacktrace").present?
-    assert_equal %w[exception.message exception.stacktrace exception.type], attributes.keys.sort
-    query = spans.find do |span|
-      span_attributes(span)["db.query.text"]&.string_value&.include?("missing_diagnostic_table")
-    end
-    assert query, "failed SQL query was not exported"
-    assert_equal :STATUS_CODE_ERROR, query.status.code
-    assert spans.flat_map(&:attributes).none? { |attribute| attribute.key.match?(/bind|parameter/) }
-    assert spans.flat_map(&:events).all? { |event| event.name == "exception" }
   end
 
   test "an unavailable collector does not interrupt a request or serialized job and flush is bounded" do
@@ -273,6 +278,9 @@ class HubTracingIntegrationTest < ActiveSupport::TestCase
             values.fetch("name") == "identity-name-canary" &&
             values.fetch("password") == "password-canary" &&
             values.fetch("token") == "token-canary" &&
+            values.fetch("customer_secret") == "app-secret-canary" &&
+            values.fetch("authorization") == "authorization-canary" &&
+            values.fetch("cookies") == "cookies-canary" &&
             values.fetch("on") == Date.new(2026, 10, 19)
           raise "job-failure-diagnostic-canary" if #{failing_job}
           self.class.performed = true
@@ -297,6 +305,8 @@ class HubTracingIntegrationTest < ActiveSupport::TestCase
             "password" => "password-canary",
             "token" => "token-canary",
             "customer_secret" => "app-secret-canary",
+            "authorization" => "authorization-canary",
+            "cookies" => "cookies-canary",
             "on" => Date.new(2026, 10, 19)
           })
           queued = TracingProbeJob.queue_adapter.enqueued_jobs.shift.select { |key, _| key.is_a?(String) }
@@ -342,6 +352,9 @@ class HubTracingIntegrationTest < ActiveSupport::TestCase
             "name" => "identity-name-canary",
             "password" => "password-canary",
             "token" => "token-canary",
+            "customer_secret" => "app-secret-canary",
+            "authorization" => "authorization-canary",
+            "cookies" => "cookies-canary",
             "on" => Date.new(2026, 10, 19)
           })
           OpenTelemetry.tracer_provider.force_flush(timeout: 1)

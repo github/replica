@@ -43,8 +43,10 @@ module HubTracing
     require_relative "hub_tracing/data_filter"
     require_relative "hub_tracing/propagator"
 
-    processor = OpenTelemetry::SDK::Trace::Export::BatchSpanProcessor.new \
-      Exporter.new(OpenTelemetry::Exporter::OTLP::Exporter.new)
+    span_exporter = Exporter.new \
+      OpenTelemetry::Exporter::OTLP::Exporter.new,
+      include_sensitive_data: include_sensitive_data
+    processor = OpenTelemetry::SDK::Trace::Export::BatchSpanProcessor.new(span_exporter)
     OpenTelemetry::SDK.configure do |config|
       config.service_name = ENV.fetch("OTEL_SERVICE_NAME", "replica-hub")
       config.propagators = [ Propagator.new(trust_incoming_context:) ]
@@ -56,22 +58,24 @@ module HubTracing
       config.use "OpenTelemetry::Instrumentation::Net::HTTP", untraced_hosts:
     end
 
-    # Snapshot the original rules before Rails compiles them into combined regular expressions.
-    Rails.application.config.after_initialize do
-      data_filter = DataFilter.new(include_sensitive_data:)
-      ActiveSupport.on_load(:active_job) do
-        record_arguments = proc do |job|
-          span = OpenTelemetry::Trace.current_span
-          next unless span.recording?
+    if include_sensitive_data
+      # Snapshot the original rules before Rails compiles them into combined regular expressions.
+      Rails.application.config.after_initialize do
+        data_filter = DataFilter.new
+        ActiveSupport.on_load(:active_job) do
+          record_arguments = proc do |job|
+            span = OpenTelemetry::Trace.current_span
+            next unless span.recording?
 
-          begin
-            span.set_attribute("replica.job.arguments", data_filter.job_arguments(job.arguments))
-          rescue ActiveJob::SerializationError, JSON::GeneratorError
-            Rails.logger.warn("OpenTelemetry could not serialize job arguments; diagnostic arguments omitted")
+            begin
+              span.set_attribute("replica.job.arguments", data_filter.job_arguments(job.arguments))
+            rescue ActiveJob::SerializationError, JSON::GeneratorError
+              Rails.logger.warn("OpenTelemetry could not serialize job arguments; diagnostic arguments omitted")
+            end
           end
+          before_enqueue(&record_arguments)
+          before_perform(&record_arguments)
         end
-        before_enqueue(&record_arguments)
-        before_perform(&record_arguments)
       end
     end
 
@@ -84,9 +88,14 @@ module HubTracing
         "database query",
         kind: :client,
         start_timestamp: started,
-        attributes: { "db.system.name" => "sqlite", "db.query.text" => payload[:sql] }
+        attributes: {
+          "db.system.name" => "sqlite",
+          "db.query.text" => include_sensitive_data ? payload[:sql] : nil
+        }.compact
       span.status = OpenTelemetry::Trace::Status.error if payload[:exception]
-      span.record_exception(payload[:exception_object]) if payload[:exception_object]
+      if include_sensitive_data && payload[:exception_object]
+        span.record_exception(payload[:exception_object])
+      end
       span.finish(end_timestamp: finished)
     end
     at_exit do

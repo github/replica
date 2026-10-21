@@ -1,15 +1,9 @@
 module HubTracing
   class DataFilter
-    IDENTITY_KEYS = /\A(?:email|name|username|user_name|first_name|last_name|display_name|given_name|family_name|login)\z/i
-
-    def initialize(include_sensitive_data: false)
+    def initialize
       filters = Rails.application.config.filter_parameters
-      if include_sensitive_data
-        # Only the baseline email rule is relaxed; deployment-added filters still apply.
-        filters = filters.reject { |filter| filter == :email || filter == "email" }
-      else
-        filters = filters + [ IDENTITY_KEYS ]
-      end
+      # The opt-in permits identity fields, including Rails' baseline email filter.
+      filters = filters.reject { |filter| filter == :email || filter == "email" }
       @filter = ActiveSupport::ParameterFilter.new(filters + [ :cookie ])
     end
 
