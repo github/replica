@@ -22,7 +22,7 @@ const forbiddenElements = [
   ['label', 'Use <Field label="..."> or a standalone <Label> from "@coreai-ds/react-components".'],
   [
     'img',
-    'Use the react-components skill and CoreAI MCP to select an image component; use @fluentui/react-icons for Fluent icons.',
+    'Use the react-components skill and published CoreAI documentation to select an image component; use @fluentui/react-icons for Fluent icons.',
   ],
   ['style', 'Write styles in CSS Modules (*.module.css), not <style> tags.'],
   ['h1', 'Use <Text as="h1" block preset="heading1"> from "@coreai-ds/react-components".'],
@@ -79,7 +79,7 @@ export default [
         },
         ...forbiddenElements.map(([element, message]) => ({
           selector: `JSXOpeningElement[name.type="JSXIdentifier"][name.name="${element}"]`,
-          message: `${message} Consult the react-components skill and CoreAI MCP.`,
+          message: `${message} Consult the react-components and coreai-ds-fluentui-react skills.`,
         })),
       ],
       'max-lines': ['warn', { max: 1000, skipBlankLines: true, skipComments: true }],

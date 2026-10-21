@@ -1,11 +1,11 @@
 ---
 name: features-variants
-description: 'Definitive guide to the app-local prototype feature/variant system: configuration, `useFeature()`, URL params, and anti-patterns. USE WHEN: editing `apps/prototype/app/features.json`, using `useFeature()` in routes, creating design alternatives, A/B comparisons, layout options, alternate versions, or switching between design proposals. Trigger keywords: feature, variant, version, option, alternate, prototype, design option, A/B, comparison, switch between, try a different, another way, layout option, explore, side by side.'
+description: 'Definitive guide to the app-local prototype feature/variant system: configuration, `useFeature()`, URL params, and anti-patterns. USE WHEN: editing `app/features.json`, using `useFeature()` in routes, creating design alternatives, A/B comparisons, layout options, alternate versions, or switching between design proposals. Trigger keywords: feature, variant, version, option, alternate, prototype, design option, A/B, comparison, switch between, try a different, another way, layout option, explore, side by side.'
 ---
 
 # Feature & Variant System Instructions
 
-Paths below are relative to `apps/prototype/`.
+Paths below are relative to this app's directory.
 
 ## What Is the Feature System?
 

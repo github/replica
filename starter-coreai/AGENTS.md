@@ -1,8 +1,6 @@
 # CoreAI Prototype — AI Coding Assistant Instructions
 
-The CoreAI Prototype is a React Router single-page app for exploring agent and design
-system experiences. It uses local mock data by default and consumes
-`@coreai-ds/react-components` design system.
+The CoreAI Prototype is a React Router single-page app for exploring agent and design-system experiences with local mock data.
 
 ## Project context
 
@@ -16,8 +14,7 @@ system experiences. It uses local mock data by default and consumes
 
 ## Run and validate
 
-From this app's directory (`starter-coreai` in the Replica checkout, or the
-repository root after copying the app):
+Run commands from this app's directory:
 
 ```sh
 npm install
@@ -60,6 +57,8 @@ When more than one row applies, load each relevant skill. In particular, compone
 often requires both `coreai-ds-fluentui-react` and `react-components`, plus a styling,
 icon, routing, state, or variant skill when applicable.
 
+For design-system reference, follow the `coreai-ds-fluentui-react` skill from the [CoreAI documentation index](https://microsoft.github.io/coreai-design-system/index.md).
+
 ## Baseline boundaries
 
 - Import product-facing components from `@coreai-ds/react-components`.
@@ -71,22 +70,10 @@ icon, routing, state, or variant skill when applicable.
 - Put mock records in `app/data/`.
 - Register prototype options in `app/features.json`; do not build a second feature
   system.
-- Keep prototype-specific code inside this app's directory.
 - Keep copyright and MIT license headers on source files.
 - Do not commit generated `build/` or `.react-router/` output.
-
-The lint configuration enforces many of these boundaries. Follow the applicable skill
-instead of working around a rule.
 
 ## Data and credentials
 
 The prototype must work without Azure OpenAI. Do not commit credentials, endpoints, real
 customer data, prompts, or responses.
-
-## Portability
-
-Resolve the CoreAI design system through the published npm dependency in
-`package.json`, not a local workspace or source alias. TypeScript and Vite
-configuration belong to this app. The copied ESLint configuration and some skills
-still reference the original monorepo; these require adaptation before the app is
-a complete standalone starter. See `README.md` for the remaining portability work.

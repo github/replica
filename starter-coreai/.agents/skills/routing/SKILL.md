@@ -5,7 +5,7 @@ description: 'React Router v7 routing conventions for this SPA. USE WHEN: editin
 
 # Routing
 
-Paths below are relative to `apps/prototype/`.
+Paths below are relative to this app's directory.
 
 - This app disables runtime SSR (`ssr: false`) and renders routes client-side. React Router still generates the SPA HTML shell during the build.
 - Routes are defined in `app/routes.ts` using React Router v7 config (the "framework" style).
@@ -27,4 +27,4 @@ Paths below are relative to `apps/prototype/`.
 1. Create the file in `app/routes/`
 2. Add it to `app/routes.ts` config array
 3. Use type-safe route imports: `import type { Route } from "./+types/routeName"`
-4. Run `react-router typegen` via `npm --workspace apps/prototype run type-check` from the repository root (or `npm run type-check` from the app directory) to regenerate types and check TypeScript
+4. Run `npm run type-check` from this app's directory to regenerate route types and check TypeScript.

@@ -17,7 +17,7 @@ You may also need to edit the matching `.tsx` file and its structure to properly
 
 ## CSS Architecture
 
-This project uses **CSS Modules**. Component CSS files should be named `*.module.css` and placed alongside their corresponding `.tsx` component files. Existing app-level stylesheets in `apps/prototype/app/styles/` are an exception for foundational styles such as resets and font registration; do not put component styles there.
+This project uses **CSS Modules**. Component CSS files should be named `*.module.css` and placed alongside their corresponding `.tsx` component files. App-level stylesheets in `app/styles/` provide foundational styles such as resets and font registration; do not put component styles there.
 
 Do not write inline css in the style attribute (unless there is a javascript value being attached).
 
@@ -27,11 +27,11 @@ Do not use CSS to recreate components that already exist in CoreAI or Fluent. Be
 
 ### CSS @layers
 
-There are 3 named CSS `@layer`s in this app, ordered `base`, `griffel`, and `common`, plus unlayered CSS (which is not a named layer). The `base` layer contains the foundational box-sizing reset in `apps/prototype/app/styles/globals.css`. The `griffel` layer encapsulates Fluent's styles through the app-owned layered renderer - NEVER write CSS into the `griffel` layer. The `common` layer is for common components inside the `apps/prototype/app/components/common` folder and existing app-level resets; all components in this folder should use this layer, and component styles outside it should not. All other component styles should be written outside of these layers.
+There are 3 named CSS `@layer`s in this app, ordered `base`, `griffel`, and `common`, plus unlayered CSS (which is not a named layer). The `base` layer contains the foundational box-sizing reset in `app/styles/globals.css`. The `griffel` layer encapsulates Fluent's styles through the app-owned layered renderer - NEVER write CSS into the `griffel` layer. The `common` layer is for common components inside the `app/components/common` folder and app-level resets; all components in this folder should use this layer, and component styles outside it should not. All other component styles should be written outside of these layers.
 
 ## General Guidelines
 
-**No Global CSS**: Do not write global CSS selectors (e.g., `body`, `h1`) outside of a scoped CSS class for component styling. All component styles must be scoped using CSS Modules. Existing app-level stylesheets in `apps/prototype/app/styles/` are a narrow exception for foundational resets, font registration, and app-wide variable defaults, not component styling.
+**No Global CSS**: Do not write global CSS selectors (e.g., `body`, `h1`) outside of a scoped CSS class for component styling. All component styles must be scoped using CSS Modules. App-level stylesheets in `app/styles/` provide foundational resets, font registration, and app-wide variable defaults, not component styling.
 **Use Nested Classes**: Scope styles to specific elements within the component using nested class selectors.
 **Avoid `!important`**: Do not use `!important` in CSS rules. Instead, refactor the CSS or component structure to achieve the desired specificity.
 
@@ -41,7 +41,7 @@ There are 3 named CSS `@layer`s in this app, ordered `base`, `griffel`, and `com
 
 This app uses **CSS container queries** so that responsive behavior responds to the actual available content width, not the viewport. Panels that reduce the content container's available width affect its breakpoints; the app-local floating feature selector is fixed-position and does not consume layout width.
 
-The `ContainerQueryProvider` component (wrapping the app children with `styles.fullscreenContainer` in `apps/prototype/app/components/shell/AppContent.tsx`) establishes `container-type: inline-size` with `container-name: app`.
+The `ContainerQueryProvider` component (wrapping the app children with `styles.fullscreenContainer` in `app/components/shell/AppContent.tsx`) establishes `container-type: inline-size` with `container-name: app`.
 
 ### Correct — Container Query
 

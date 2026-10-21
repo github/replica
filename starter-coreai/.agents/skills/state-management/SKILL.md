@@ -1,32 +1,15 @@
 ---
 name: state-management
-description: "CoreAI Sandbox's simplified TanStack Query + mock-JSON data layer. USE WHEN: editing data-fetching hooks (`app/hooks/use*.ts`), adding mock data in `app/data/`, or wiring a component to query state."
+description: "CoreAI Sandbox's TanStack Query + mock-JSON data layer. USE WHEN: editing data-fetching hooks (`app/hooks/use*.ts`), adding mock data in `app/data/`, or wiring a component to query state."
 ---
 
 # State Management Instructions — CoreAI Sandbox Demo
 
-Paths below are relative to `apps/prototype/`.
+Paths below are relative to this app's directory.
 
 ## Overview
 
-This document describes the data fetching and state management implementation in the CoreAI Sandbox demo application. This is a **simplified, mock-based implementation** designed for prototyping and design exploration, not production use.
-
-## Key Differences from Production
-
-CoreAI Sandbox uses a **simplified subset** of the production state management architecture:
-
-- ✅ **TanStack Query** - For consistent data fetching patterns
-- ❌ **No Jotai** - Not needed for this demo
-- ❌ **No Axios** - Direct JSON imports instead of HTTP calls
-- ❌ **No Redis** - No server-side caching
-- ❌ **No SSR/Loaders** - Client-side only rendering
-- ❌ **No Resolvers** - Simplified to direct data imports
-
-## Data Fetching Library
-
-### Primary Library
-
-- **@tanstack/react-query** (TanStack Query v5) - Core data fetching and caching library
+The app uses TanStack Query v5 hooks over local JSON data to provide client-side loading, filtering, and caching for prototypes.
 
 ## Architecture
 

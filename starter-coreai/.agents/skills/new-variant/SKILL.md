@@ -8,7 +8,7 @@ argument-hint: 'Optional: route or feature name the variant targets'
 
 You are helping a designer create a new design variant using CoreAI Sandbox's built-in feature/variant system. The designer may have no coding knowledge — they will describe what they want in plain language.
 
-Paths below are relative to `apps/prototype/`.
+Paths below are relative to this app's directory.
 
 ## Before You Start
 
@@ -52,13 +52,11 @@ Read `app/features.json` and check if a feature already exists for this route.
 - For **medium changes** (rearranging sections, swapping a panel) — extract the variant-specific section into a local component or conditional block
 - For **large changes** (completely different page layout) — create the new layout inline in the same file or as a separate component in the same route folder
 
-The designer's prototype will NOT be merged to `main`, so you have freedom to modify any code as needed. Keep things simple — do not over-engineer.
-
 ### Step 5: Start the App and Verify
 
 If the dev server is not already running, invoke the `start-app` skill.
 
-Use Playwright MCP tools to:
+Use the repository's browser validation workflow to:
 
 1. Navigate to the page
 2. Confirm the floating feature strip appears with the correct feature name and variant tab links; if hidden, enable **Show feature selector** in the **Prototype** menu

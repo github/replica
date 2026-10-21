@@ -4,7 +4,7 @@ A React Router single-page app for prototyping experiences with `@coreai-ds/reac
 
 ## Run locally
 
-From this app's directory (`starter-coreai` in the Replica checkout, or the repository root after copying the app):
+Run commands from this app's directory:
 
 ```sh
 npm install
@@ -29,6 +29,8 @@ The production build is written to `build/client`. A production host must serve
 
 This package does not have automated tests. Validate changes with the commands above
 and manual browser checks.
+
+The lint command currently fails because its ESLint configuration imports a missing file.
 
 ## Features and variants
 
@@ -73,11 +75,8 @@ The app uses CSS Modules and an app-owned Griffel renderer. Follow the scoped gu
 in [AGENTS.md](AGENTS.md) and [.agents/skills](.agents/skills) when changing components,
 styles, routing, state, icons, or variants.
 
-## Portability
+## Design-system documentation
 
-The app consumes `@coreai-ds/react-components` from the npm registry. Its TypeScript and Vite configuration do not require the original design-system monorepo.
+Use the [CoreAI documentation index](https://microsoft.github.io/coreai-design-system/index.md) for component guidance, APIs, patterns, and example source. Agents follow the [documentation skill](.agents/skills/coreai-ds-fluentui-react/SKILL.md) to discover current links and compare documented APIs with the installed package.
 
-Standalone adaptation is still in progress. The ESLint configuration imports the original monorepo's root configuration, and some copied skills refer to its paths and tooling. Adapt those before treating this directory as a ready-to-copy starter. The lint command above remains blocked until that configuration is replaced.
-
-Hosted fonts are optional. The app falls back to system fonts when they are unavailable,
-and no font binaries are included in this package.
+Hosted fonts are optional. The app falls back to system fonts when they are unavailable.

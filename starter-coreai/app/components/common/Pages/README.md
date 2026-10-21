@@ -34,9 +34,7 @@ By default, the header stays in place while the content region scrolls. `PageBod
 | Route-driven page tabs                    | `TabbedPageLayout` with child routes                                          |
 | Custom inline/overlay panel               | `ResponsivePanel`                                                             |
 
-Start with the smallest composition that fits the screen. See the
-[page layout migration](../../../../.github/docs/migrations/coreai/page-layout-migration.md)
-for historical records and legacy component mappings.
+Start with the smallest composition that fits the screen.
 
 ## Architecture
 
@@ -61,7 +59,7 @@ CollectionDetailsPage              PageLayout + PageHeader + GridDetailsContent
 TabbedPageLayout                   PageLayout + PageHeader/TabLinkList + Outlet
 ```
 
-These are compositions, not an inheritance hierarchy. There is no universal component with flags for every screen type, and no separate family of duplicated tab-subpage wrappers.
+Compose these components to match the screen's layout and scrolling needs.
 
 ## Source Reference
 
@@ -93,8 +91,6 @@ These are compositions, not an inheritance hierarchy. There is no universal comp
 5. `SidebarLayout` and `DetailsLayout` each supply their own main `PageBody`. Their `contentPadding` defaults to `default`.
 6. When nesting a details/grid layout inside a sidebar, set the sidebar's `contentPadding="none"`. The nested content owns the inset.
 7. Drawer headers and default body insets use responsive `spacingPagePadding` horizontally. Headers have `spacingL` vertical padding; bodies have `spacingL` bottom padding and top padding only when no header renders. Set `SidebarLayout.sidebarPadding="none"` or `PanelDetails.padding="none"` for unpadded body content; header padding is independent.
-
-There are no `data-pagecontent` / `data-subpagecontent` attributes or ancestor-padding overrides in the page system. When porting code from an older branch, replace its legacy wrappers rather than restoring those overrides.
 
 ### Drawer Portal Spacing
 
