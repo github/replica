@@ -47,13 +47,17 @@
 
 .review-comments-sidebar__body {
   display: flex;
-  width: 100%;
   flex-direction: column;
   min-height: 0;
   flex: 1;
   overflow: auto;
-  margin-inline: -2px 0;
+  margin-inline: calc(-1 * var(--hub-space-8)) calc(-1 * var(--hub-space-4));
   padding-inline: var(--hub-space-8) var(--hub-space-4);
+}
+
+.review-comments-sidebar > .review-comments-sidebar__body {
+  width: 100%;
+  margin-inline: -2px 0;
 }
 
 .review-comments-sidebar__state {
@@ -70,9 +74,13 @@
 
 .review-comments-sidebar__threads {
   display: flex;
-  padding: var(--hub-space-8) var(--hub-space-16) 0;
+  padding: var(--hub-space-8) 0 0;
   flex-direction: column;
   gap: 0.25rem;
+}
+
+.review-comments-sidebar > .review-comments-sidebar__body .review-comments-sidebar__threads {
+  padding-inline: var(--hub-space-16);
 }
 
 .review-comments-sidebar__loading {
