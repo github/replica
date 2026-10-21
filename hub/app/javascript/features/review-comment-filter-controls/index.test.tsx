@@ -64,12 +64,10 @@ describe("ReviewCommentFilterControls()", () => {
     expect(container.querySelector(".review-comment-filter-controls")).toHaveClass(
       "review-comment-filter-controls--compact",
     )
+    expect(container.querySelector(".review-comment-filter-controls__search-field svg")).toBeNull()
     expect(
-      container.querySelector(".review-comment-filter-controls__search-field svg"),
-    ).toBeNull()
-    expect(screen.getByRole("button", { name: reviewCommentsCopy.filterLabel }).className).toContain(
-      "Button--secondary",
-    )
+      screen.getByRole("button", { name: reviewCommentsCopy.filterLabel }).className,
+    ).toContain("Button--secondary")
   })
 
   it("filters by participant using a small, single-select ActionMenu", () => {
