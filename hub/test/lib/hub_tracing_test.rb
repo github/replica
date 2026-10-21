@@ -55,7 +55,7 @@ class HubTracingTest < ActiveSupport::TestCase
         begin
           HubTracing.start!
         rescue ArgumentError => error
-          puts error.message
+          puts error.full_message(highlight: false)
           exit 42
         end
       RUBY

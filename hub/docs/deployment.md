@@ -104,7 +104,7 @@ Outbound Net::HTTP calls propagate trace context by default. Use `REPLICA_OTEL_U
 | Error status | Exported without a description | Exported without a description |
 | Exception type, message and stack trace | Excluded | Exported |
 
-The exporter enforces this policy after instrumentation collects spans. Hub also avoids collecting SQL text, job arguments and exception events when the setting is `false`. Changing the environment variable in a running process does not change its policy.
+The exporter enforces this policy before a span leaves Hub. Hub avoids attaching SQL text and job arguments when the setting is `false`. Active Job instrumentation can record exception events in process memory before the exporter removes them. Changing the environment variable in a running process does not change its policy.
 
 Set `REPLICA_OTEL_INCLUDE_SENSITIVE_DATA=true` to include SQL query text, serialized job arguments, and exception type, message, and stack trace. Hub filters structured job arguments with Rails' configured parameter filters. The opt-in permits identity fields such as `email`, `name`, `username`, `user_name`, `first_name`, `last_name`, `display_name`, `given_name`, `family_name`, and `login`. Other configured filters still apply, including password, token, credential, and authorization rules. Cookie-keyed values remain filtered. The flag does not attach signed-in user records or enable request bodies or headers.
 

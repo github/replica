@@ -121,9 +121,16 @@ class HubTracingIntegrationTest < ActiveSupport::TestCase
       assert_equal "[FILTERED]", arguments.fetch("authorization")
       assert_equal "[FILTERED]", arguments.fetch("cookies")
     end
-    assert spans.any? do |span|
-      span_attributes(span)["db.query.text"]&.string_value&.include?("sql-diagnostic-canary")
+    successful_query = spans.find do |span|
+      span_attributes(span)["db.query.text"]&.string_value == "SELECT 'sql-diagnostic-canary'"
     end
+    assert successful_query, "successful SQL query was not exported"
+
+    unparented_query = spans.find do |span|
+      span_attributes(span)["db.query.text"]&.string_value == "SELECT 'unparented-sql-diagnostic-canary'"
+    end
+    refute unparented_query, "unparented SQL query was exported"
+
     failed_query = spans.find do |span|
       span_attributes(span)["db.query.text"]&.string_value&.include?("missing_diagnostic_table")
     end
@@ -166,14 +173,14 @@ class HubTracingIntegrationTest < ActiveSupport::TestCase
       "REPLICA_OTEL_UNTRACED_HOSTS" => " upstream.example, other.example "
     })
 
-    refute result.fetch("traceparent_propagated"), "untraced host received trace context"
+    refute result.fetch("traceparent_propagated"), "mixed-case untraced host received trace context"
     refute result.fetch("tracestate_propagated")
     refute result.fetch("baggage_propagated")
-    assert result.fetch("other_traceparent_propagated"), "hostname suffix incorrectly suppressed another host"
+    assert result.fetch("other_traceparent_propagated"), "hostname subdomain was incorrectly suppressed"
     spans = decoded_spans(result)
     http = spans.select { |span| span_attributes(span).key?("http.method") || span_attributes(span).key?("http.request.method") }
-    refute http.any? { |span| span.kind == :SPAN_KIND_CLIENT && span_attributes(span).values.any? { |value| value.string_value == "upstream.example" } }
-    assert http.any? { |span| span.kind == :SPAN_KIND_CLIENT && span_attributes(span).values.any? { |value| value.string_value == "not-upstream.example" } }
+    refute http.any? { |span| span.kind == :SPAN_KIND_CLIENT && span_attributes(span).values.any? { |value| value.string_value&.casecmp?("upstream.example") } }
+    assert http.any? { |span| span.kind == :SPAN_KIND_CLIENT && span_attributes(span).values.any? { |value| value.string_value == "sub.upstream.example" } }
     server = spans.find { |span| span.kind == :SPAN_KIND_SERVER }
     jobs = spans.select { |span| span.name.include?("TracingProbeJob") }
     assert_operator jobs.size, :>=, 2
@@ -259,14 +266,14 @@ class HubTracingIntegrationTest < ActiveSupport::TestCase
           { status: 200, body: "" }
         end
       end
-      WebMock.stub_request(:get, "http://upstream.example/request-private-canary?token=request-private-canary")
+      WebMock.stub_request(:get, "http://UpStReAm.ExAmPlE/request-private-canary?token=request-private-canary")
         .to_return do |request|
           baggage_propagated ||= request.headers.key?("Baggage")
           tracestate_propagated ||= request.headers.key?("Tracestate")
           traceparent_propagated ||= request.headers.key?("Traceparent")
           { status: 200, body: "request-private-canary" }
         end
-      WebMock.stub_request(:get, "http://not-upstream.example/")
+      WebMock.stub_request(:get, "http://sub.upstream.example/")
         .to_return do |request|
           other_traceparent_propagated ||= request.headers.key?("Traceparent")
           { status: 200, body: "" }
@@ -297,8 +304,8 @@ class HubTracingIntegrationTest < ActiveSupport::TestCase
             rescue ActiveRecord::StatementInvalid
             end
           end
-          Net::HTTP.get(URI("http://upstream.example/request-private-canary?token=request-private-canary"))
-          Net::HTTP.get(URI("http://not-upstream.example/"))
+          Net::HTTP.get(URI("http://UpStReAm.ExAmPlE/request-private-canary?token=request-private-canary"))
+          Net::HTTP.get(URI("http://sub.upstream.example/"))
           TracingProbeJob.set(priority: 3).perform_later("argument-diagnostic-canary", {
             "email" => "identity-email-canary@example.test",
             "name" => "identity-name-canary",
@@ -311,10 +318,12 @@ class HubTracingIntegrationTest < ActiveSupport::TestCase
           })
           queued = TracingProbeJob.queue_adapter.enqueued_jobs.shift.select { |key, _| key.is_a?(String) }
           serialized = JSON.parse(JSON.generate(queued))
-          begin
-            ActiveJob::Base.execute(serialized)
-          rescue RuntimeError => error
-            raise unless #{failing_job} && error.message == "job-failure-diagnostic-canary"
+          OpenTelemetry::Context.with_current(OpenTelemetry::Context.empty) do
+            begin
+              ActiveJob::Base.execute(serialized)
+            rescue RuntimeError => error
+              raise unless #{failing_job} && error.message == "job-failure-diagnostic-canary"
+            end
           end
           render plain: "completed"
         end
@@ -322,6 +331,9 @@ class HubTracingIntegrationTest < ActiveSupport::TestCase
       Rails.application.routes.draw do
         post "/tracing-probe", to: "tracing_probe#create"
         get "/up", to: "rails/health#show"
+      end
+      OpenTelemetry::Context.with_current(OpenTelemetry::Context.empty) do
+        ActiveRecord::Base.connection.select_value("SELECT 'unparented-sql-diagnostic-canary'")
       end
       started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
       request = Rack::MockRequest.env_for \

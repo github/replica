@@ -17,6 +17,9 @@ module HubTracing
     if untraced_hosts.any?(&:empty?)
       raise ArgumentError, "REPLICA_OTEL_UNTRACED_HOSTS must contain nonempty comma-separated hostnames"
     end
+    untraced_hosts = untraced_hosts.map do |host|
+      Regexp.new("\\A#{Regexp.escape(host)}\\z", Regexp::IGNORECASE)
+    end
 
     protocol = ENV["OTEL_EXPORTER_OTLP_TRACES_PROTOCOL"] ||
       ENV.fetch("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
@@ -27,7 +30,7 @@ module HubTracing
     begin
       uri = URI.parse(endpoint.to_s)
     rescue URI::InvalidURIError
-      raise ArgumentError, "OTLP endpoint must be an absolute HTTP(S) URL"
+      raise ArgumentError, "OTLP endpoint must be an absolute HTTP(S) URL", cause: nil
     end
     unless %w[http https].include?(uri.scheme) && uri.host &&
         !uri.userinfo && !uri.query && !uri.fragment
@@ -83,6 +86,7 @@ module HubTracing
     tracer = OpenTelemetry.tracer_provider.tracer("replica-hub")
     ActiveSupport::Notifications.subscribe("sql.active_record") do |_, started, finished, _, payload|
       next if payload[:name] == "SCHEMA" || payload[:cached]
+      next unless OpenTelemetry::Trace.current_span.recording?
 
       span = tracer.start_span \
         "database query",
