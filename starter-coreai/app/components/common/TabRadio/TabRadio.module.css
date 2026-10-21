@@ -1,0 +1,30 @@
+/*
+ * Copyright (c) Microsoft Corporation.
+ * Licensed under the MIT license.
+ */
+
+@layer common {
+  .input {
+    position: absolute;
+
+    overflow: hidden;
+
+    width: 1px;
+    height: 1px;
+
+    white-space: nowrap;
+
+    clip-path: inset(50%);
+  }
+
+  .tab {
+    max-width: 100%;
+
+    color: var(--colorNeutralForeground1);
+
+    &:focus-within:has(input:focus-visible) {
+      outline: var(--strokeWidthThick) solid var(--colorStrokeFocus2);
+      outline-offset: var(--spacingXXS);
+    }
+  }
+}

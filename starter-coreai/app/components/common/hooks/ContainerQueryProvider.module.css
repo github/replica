@@ -1,0 +1,21 @@
+/*
+ * Copyright (c) Microsoft Corporation.
+ * Licensed under the MIT license.
+ */
+
+.container {
+  container-type: inline-size;
+  container-name: app;
+}
+
+/* Target children so @container app resolves against .container (the nearest ancestor container).
+   Custom properties inherit, so all descendants receive the value. */
+.container > * {
+  --spacingPagePadding: var(--spacingXXL);
+}
+
+@container app (width <= 768px) {
+  .container > * {
+    --spacingPagePadding: var(--spacingL);
+  }
+}

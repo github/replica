@@ -1,0 +1,19 @@
+/*
+ * Copyright (c) Microsoft Corporation.
+ * Licensed under the MIT license.
+ */
+
+.fullscreenContainer {
+  flex-direction: column;
+  gap: var(--spacingVerticalXXL);
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+}
+
+/* Scroll full screen on short viewports */
+@media (height <= 480px) {
+  .fullscreenContainer {
+    height: auto;
+  }
+}

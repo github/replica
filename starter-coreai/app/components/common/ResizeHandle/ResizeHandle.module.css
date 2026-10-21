@@ -1,0 +1,53 @@
+/*
+ * Copyright (c) Microsoft Corporation.
+ * Licensed under the MIT license.
+ */
+
+@layer common {
+  .resizeHandle {
+    transition: background-color 0.1s ease;
+  }
+
+  .vertical {
+    --handle-width: var(--spacingL);
+
+    position: absolute;
+    top: 0;
+    right: calc(-1 * var(--handle-width));
+
+    width: var(--handle-width);
+    height: 100%;
+    border-left: var(--strokeWidthThickest) solid transparent;
+
+    &:hover,
+    &.dragging {
+      cursor: col-resize;
+      border-left-color: var(--colorBrandBackground);
+    }
+
+    &.disabled {
+      display: none;
+    }
+  }
+
+  .horizontal {
+    --handle-height: var(--spacingXS);
+
+    position: relative;
+
+    width: 100%;
+    height: var(--handle-height);
+    border-top: var(--strokeWidthThickest) solid transparent;
+
+    &:hover,
+    &.dragging {
+      cursor: ns-resize;
+      border-top-color: var(--colorBrandBackground);
+    }
+
+    &.disabled {
+      pointer-events: none;
+      opacity: 0.5;
+    }
+  }
+}

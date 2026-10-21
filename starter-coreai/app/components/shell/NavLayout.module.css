@@ -1,0 +1,116 @@
+/*
+ * Copyright (c) Microsoft Corporation.
+ * Licensed under the MIT license.
+ */
+
+.layout {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+
+  width: 100%;
+  height: 100vh;
+
+  /* stylelint-disable-next-line declaration-property-value-allowed-list */
+  background-color: var(--section-background, var(--colorNeutralBackground4));
+}
+
+.content {
+  /* This silly variable is used to make sure that
+  .leftNav and .main box-shadows are not clipped by overflow:hidden; */
+  --spacingRoomForBoxShadow: 3px;
+
+  overflow: hidden;
+  display: flex;
+  flex: 1;
+  gap: var(--spacingXXS);
+
+  margin-top: calc(-1 * var(--spacingRoomForBoxShadow));
+  padding-top: var(--spacingRoomForBoxShadow);
+}
+
+.main {
+  overflow: hidden auto;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+
+  width: 100%;
+  min-width: 0; /* Allow shrinking below content size in flex to accomodate side panels */
+  border-top-left-radius: var(--borderRadius2XLarge);
+
+  background-color: var(--colorNeutralBackground1);
+  box-shadow: var(--shadow2);
+
+  &.mainInMiddle {
+    border-top-right-radius: var(--borderRadius2XLarge);
+  }
+}
+
+/* Discover section specific styles */
+[data-discover-page] .main {
+  background-color: var(--colorNeutralBackground4);
+  box-shadow: none;
+}
+
+/* Docs page specific styles */
+[data-docs-page] .main {
+  box-shadow: none;
+}
+
+/* Home page specific styles */
+.layout[data-home-page] .main {
+  /* no left nav means no top-left radius */
+  border-top-left-radius: unset;
+  background-color: var(--colorNeutralBackground4);
+  background-image: linear-gradient(
+    to bottom,
+    lch(from var(--colorNeutralBackground3) l c h / 100%) 10%,
+    lch(from var(--colorNeutralBackground3) l c h / 0%) 30%,
+    lch(from var(--colorBrandBackground2) l c h / 0%) 70%,
+    lch(from var(--colorBrandBackground2) l c h / var(--homeBgGradientBrandIntensity)) 80%,
+    lch(from var(--colorBrandBackground2) l c h / calc(var(--homeBgGradientBrandIntensity) * 2))
+      100%
+  );
+  background-size: 100% auto;
+
+  [data-theme='Light'] & {
+    --homeBgGradientBrandIntensity: 15%;
+  }
+
+  [data-theme='Dark'] & {
+    --homeBgGradientBrandIntensity: 35%;
+  }
+}
+
+@container app (width > 768px) {
+  .rightPanel {
+    border-top-left-radius: var(--borderRadius2XLarge);
+    box-shadow: var(--shadow2);
+  }
+}
+
+@container app (width <= 900px) {
+  .leftNav {
+    display: none; /* TopNav will show button that opens MobileLeftNav instead */
+  }
+}
+
+/* Scroll full screen on short viewports */
+@media (height <= 480px) {
+  .layout {
+    height: auto;
+  }
+
+  .leftNav {
+    position: sticky;
+    top: 48px;
+    height: calc(100vh - 48px);
+  }
+
+  .main,
+  .content,
+  .layout {
+    overflow: visible; /* Needed for sticky left nav */
+  }
+}

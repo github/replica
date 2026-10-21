@@ -1,0 +1,22 @@
+/*
+ * Copyright (c) Microsoft Corporation.
+ * Licensed under the MIT license.
+ */
+
+@layer common {
+  .detailsList {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacingVerticalL);
+    margin: 0;
+  }
+
+  .label {
+    margin-bottom: var(--spacingVerticalXS);
+  }
+
+  .value {
+    margin: 0;
+    overflow-wrap: break-word;
+  }
+}

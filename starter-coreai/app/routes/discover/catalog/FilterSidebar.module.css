@@ -1,0 +1,43 @@
+/*
+ * Copyright (c) Microsoft Corporation.
+ * Licensed under the MIT license.
+ */
+
+.filterSidebar {
+  flex-shrink: 0;
+}
+
+.filterItem:not(:last-of-type) {
+  border-bottom: var(--strokeWidthThin) solid var(--colorNeutralStroke3);
+}
+
+.filterHeaderButton {
+  padding-inline: var(--spacingXS);
+}
+
+.filterOptions {
+  margin: 0;
+  padding-block-end: var(--spacingS);
+}
+
+.filterOption {
+  margin-bottom: var(--spacingXS);
+}
+
+.filterCount {
+  margin-left: var(--spacingXS);
+  vertical-align: text-bottom;
+}
+
+.visuallyHidden {
+  position: absolute;
+
+  overflow: hidden;
+
+  width: 1px;
+  height: 1px;
+
+  white-space: nowrap;
+
+  clip-path: inset(50%);
+}
