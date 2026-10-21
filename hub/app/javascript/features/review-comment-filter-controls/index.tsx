@@ -1,4 +1,4 @@
-import { FilterIcon, SearchIcon } from "@primer/octicons-react"
+import { FilterIcon } from "@primer/octicons-react"
 import { ActionMenu } from "@primer/react-brand"
 import { useState } from "react"
 import type { KeyboardEvent } from "react"
@@ -49,11 +49,6 @@ export function ReviewCommentFilterControls({
     <div className="review-comment-filter-controls">
       <div className="review-comment-filter-controls__search">
         <div className="review-comment-filter-controls__search-field">
-          <SearchIcon
-            className="review-comment-filter-controls__search-icon"
-            size={16}
-            aria-hidden="true"
-          />
           <input
             type="search"
             className="review-comment-filter-controls__input"
