@@ -10,8 +10,8 @@
 
 .review-comments-sidebar__header {
   display: flex;
-  min-height: 3.5rem;
-  padding: 0;
+  min-height: calc(var(--hub-space-32) + var(--hub-space-16));
+  padding: var(--hub-space-8) var(--hub-space-16);
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
