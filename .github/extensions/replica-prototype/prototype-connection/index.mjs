@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto"
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises"
 import path from "node:path"
-
+import { readErrorCode } from "../read-error-code/index.mjs"
 export function prototypeConnection(sessionWorkspacePath, repositoryPath) {
   if (!sessionWorkspacePath || !repositoryPath) {
     throw new Error("Connecting a prototype requires a session workspace and working directory.")
@@ -14,7 +14,7 @@ export function prototypeConnection(sessionWorkspacePath, repositoryPath) {
       try {
         return JSON.parse(await readFile(file, "utf8"))
       } catch (error) {
-        if (error.code === "ENOENT") return null
+        if (readErrorCode(error) === "ENOENT") return null
         throw error
       }
     },

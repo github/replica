@@ -5,7 +5,6 @@ export function renderCanvasHtml(context, token, setupUrl) {
     name: context.name,
     token,
   }).replaceAll("<", "\\u003c")
-
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -47,7 +46,6 @@ export function renderCanvasHtml(context, token, setupUrl) {
 </body>
 </html>`
 }
-
 function escapeHtml(value) {
   return String(value)
     .replaceAll("&", "&amp;")
