@@ -25,14 +25,14 @@ if (import.meta.env.DEV && typeof window !== 'undefined') {
 
 /**
  * Derive a page title from VITE_BASE.
- * e.g. "/jabradford-variants-router-examples/" → "CoreAI Sandbox Prototype | jabradford variants router examples"
+ * e.g. "/arniebradfo-variants-router-examples/" → "CoreAI Sandbox Prototype | arniebradfo variants router examples"
  * Falls back to "CoreAI Sandbox" for local dev (base = "/").
  */
 function getProtoTitle(): string {
   const base = import.meta.env.BASE_URL;
   const folder = base.replace(/^\/|\/$/g, '');
   if (!folder) return 'CoreAI Sandbox';
-  // folder is like "jabradford-variants-router-examples"
+  // folder is like "arniebradfo-variants-router-examples"
   // First segment before hyphen is username, rest is branch name
   const parts = folder.split('-');
   const readable = parts.join(' ');
