@@ -38,6 +38,7 @@
     "zod": "4.6.5"
   },
   "devDependencies": {
+    "@github/copilot-sdk": "1.0.16",
     "@eslint/js": "10.0.1",
     "@storybook/addon-a11y": "10.6.1",
     "@storybook/addon-docs": "10.6.1",
