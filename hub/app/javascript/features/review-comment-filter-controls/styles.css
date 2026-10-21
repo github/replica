@@ -40,10 +40,6 @@
   color: var(--hub-fg-muted);
 }
 
-.review-comment-filter-controls .review-comment-filter-controls__button {
-  border-color: transparent;
-}
-
 .review-comment-filter-controls .review-comment-filter-controls__button--active,
 .review-comment-filter-controls .review-comment-filter-controls__button:hover:not(:disabled) {
   background: var(--brand-color-border-muted);

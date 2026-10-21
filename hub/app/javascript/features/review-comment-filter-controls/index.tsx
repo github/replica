@@ -64,7 +64,6 @@ export function ReviewCommentFilterControls({
           aria-label={copy.filterLabel}
           description={copy.filterLabel}
           aria-expanded={filtersOpen}
-          variant="invisible"
           className={`review-comment-filter-controls__button${filtersOpen || filterControlsActive ? " review-comment-filter-controls__button--active" : ""}`}
           onClick={() => setFiltersOpen((open) => !open)}
         />
