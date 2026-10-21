@@ -1,4 +1,4 @@
-import { FilterIcon } from "@primer/octicons-react"
+import { FilterIcon, SearchIcon } from "@primer/octicons-react"
 import { ActionMenu } from "@primer/react-brand"
 import { useState } from "react"
 import type { KeyboardEvent } from "react"
@@ -19,6 +19,7 @@ function selectParticipantOnKeyDown(event: KeyboardEvent<HTMLLIElement>) {
 }
 
 export function ReviewCommentFilterControls({
+  compact = false,
   filters,
   participants,
   showPins,
@@ -46,9 +47,18 @@ export function ReviewCommentFilterControls({
         : `@${filters.participant}`
 
   return (
-    <div className="review-comment-filter-controls">
+    <div
+      className={`review-comment-filter-controls${compact ? " review-comment-filter-controls--compact" : ""}`}
+    >
       <div className="review-comment-filter-controls__search">
         <div className="review-comment-filter-controls__search-field">
+          {!compact ? (
+            <SearchIcon
+              className="review-comment-filter-controls__search-icon"
+              size={16}
+              aria-hidden="true"
+            />
+          ) : null}
           <input
             type="search"
             className="review-comment-filter-controls__input"
@@ -64,6 +74,7 @@ export function ReviewCommentFilterControls({
           aria-label={copy.filterLabel}
           description={copy.filterLabel}
           aria-expanded={filtersOpen}
+          variant={compact ? "default" : "invisible"}
           className={`review-comment-filter-controls__button${filtersOpen || filterControlsActive ? " review-comment-filter-controls__button--active" : ""}`}
           onClick={() => setFiltersOpen((open) => !open)}
         />

@@ -19,7 +19,7 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals())
 
 describe("ReviewCommentFilterControls()", () => {
-  it("shows the compact search field and updates the search query", () => {
+  it("shows the leading search icon in the default search field", () => {
     const onFiltersChange = vi.fn()
     const { container } = render(
       <ReviewCommentFilterControls
@@ -36,7 +36,7 @@ describe("ReviewCommentFilterControls()", () => {
     expect(input).toHaveClass("review-comment-filter-controls__input")
     expect(
       container.querySelector(".review-comment-filter-controls__search-field svg"),
-    ).toBeNull()
+    ).not.toBeNull()
     expect(
       container.querySelector(".review-comment-filter-controls__search-field"),
     ).toContainElement(input)
@@ -46,6 +46,30 @@ describe("ReviewCommentFilterControls()", () => {
       search: "spacing",
     })
     expect(screen.getByRole("button", { name: reviewCommentsCopy.filterLabel })).toBeEnabled()
+  })
+
+  it("shows the compact search and framed filter controls", () => {
+    const { container } = render(
+      <ReviewCommentFilterControls
+        compact
+        filters={defaultReviewFilters}
+        participants={[]}
+        showPins
+        copy={reviewCommentsCopy}
+        onFiltersChange={vi.fn()}
+        onShowPinsChange={vi.fn()}
+      />,
+    )
+
+    expect(container.querySelector(".review-comment-filter-controls")).toHaveClass(
+      "review-comment-filter-controls--compact",
+    )
+    expect(
+      container.querySelector(".review-comment-filter-controls__search-field svg"),
+    ).toBeNull()
+    expect(screen.getByRole("button", { name: reviewCommentsCopy.filterLabel }).className).toContain(
+      "Button--secondary",
+    )
   })
 
   it("filters by participant using a small, single-select ActionMenu", () => {
@@ -188,6 +212,7 @@ describe("ReviewCommentFilterControls()", () => {
   it("marks the framed filter control active", () => {
     render(
       <ReviewCommentFilterControls
+        compact
         filters={{ ...defaultReviewFilters, currentBuildOnly: true }}
         participants={[]}
         showPins
