@@ -1,5 +1,7 @@
 # CoreAI Prototype — AI Coding Assistant Instructions
 
+Read the [shared Replica instructions](REPLICA-AGENTS.md) before prototype work. They own task scope, component preflight, canvas setup, publishing and browser validation. This file and the CoreAI skills own app-specific conventions.
+
 The CoreAI Prototype is a React Router single-page app for exploring agent and design-system experiences with local mock data.
 
 ## Project context

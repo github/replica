@@ -1,0 +1,3 @@
+# id	source-directory	display-name	description
+minimal	starter	Minimal	A small React app with TanStack Router and no component library.
+coreai	starter-coreai	CoreAI Sandbox	A React Router app with CoreAI components and a Foundry-style shell.

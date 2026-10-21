@@ -2,11 +2,11 @@
 
 Use this guide when someone points an agent at `github/replica` and asks it to set up a prototyping repository. The first milestone is an independent starter app with a verified local preview. Product guidance, reference components, a shared team baseline, and Hub publishing are separate milestones.
 
-This guide uses the existing installer and starter workflows. It does not change `/setup-skills`, which drafts the full shared context library on plain setup.
+Choose a starter at creation time. Each app keeps its own routing, dependencies, examples and design-system guidance. Selection does not switch the design system of an existing app.
 
 ## 1. Resolve the target and requested outcome
 
-Reuse the repository name, destination, references, and decisions already supplied. Ask only for missing information needed for the next action.
+Reuse the repository name, destination, starter choice, references, and decisions already supplied. Ask only for missing information needed for the next action.
 
 | Target | Next action |
 | --- | --- |
@@ -19,7 +19,11 @@ A local repository needs no GitHub credentials or Hub. If the user also requests
 
 When a reference app is supplied, retain it for the guidance and component work in step 4. A request to create the repository does not require a design-system questionnaire before copying the starter.
 
-## 2. Create the independent starter
+## 2. Choose and create the independent starter
+
+Read the current [starter catalog](../starters.tsv) or run the installer's `--list`. Reuse an explicit choice from the conversation. Otherwise show the available names and descriptions and ask the user which app to start with. Do not infer selection from a passing design-system reference. A reference can instead be an input for later customization.
+
+The catalog currently offers `minimal` and `coreai`. Commands without `--starter` select Minimal for compatibility; agents should resolve the user's choice before creation. New catalog entries use the same commands.
 
 Without a local Replica checkout, download the installer:
 
@@ -30,22 +34,24 @@ curl -fLSs https://raw.githubusercontent.com/github/replica/main/scripts/install
 Read the downloaded script before running it. Use a destination that does not exist and whose parent directory exists:
 
 ```sh
-bash install-starter.sh my-prototype
+bash install-starter.sh --list
+bash install-starter.sh --starter coreai my-prototype
 ```
 
 From a local Replica checkout, use the checked-out script instead:
 
 ```sh
-bash scripts/create-prototype-repo.sh ../my-prototype
+bash scripts/create-prototype-repo.sh --list
+bash scripts/create-prototype-repo.sh --starter coreai ../my-prototype
 ```
 
-Both paths create an independent, uncommitted Git repository with no remote. They copy the starter without Replica's source history, require no GitHub credentials, and publish nothing. The installer does not install Node.js or app dependencies.
+Replace `coreai` with the chosen catalog ID. Both paths use the same creation implementation and assemble shared Replica tooling with only the selected app. They create an independent, uncommitted Git repository with no remote, require no GitHub credentials and publish nothing. The installer requires Bash, curl, tar and Git for download, or Bash and Git from a checkout. It does not require or install Node.js for copying, and it does not install app dependencies.
 
-Before asking the user to accept the copied repository's Copilot app configuration, review `.github/github-app.yml` and the startup details in the copied `README.md`. Explain that session startup can install Copilot CLI globally when missing, install or enable the Replica plugin, and will run `npm ci`.
+Before asking the user to accept the copied repository's Copilot app configuration, review `.github/github-app.yml` and the startup details in the copied `REPLICA.md`. Explain that session startup can install Copilot CLI globally when missing, install or enable the Replica plugin, and will run `npm ci`.
 
 Add the new directory to the Copilot app using **Projects → + → Local folder or repository**, then start a fresh session there. The session in the Replica checkout cannot discover the copied local skills.
 
-Before ending the originating session, provide a paste-ready kickoff message headed **Prompt 1: Continue prototype repository setup**. Tell the user to paste it into the fresh session; a new session does not inherit the previous conversation. Include the user's goal, repository path, supplied references, requested milestone, settled decisions and approvals, completed actions, blockers, and next step.
+Before ending the originating session, provide a paste-ready kickoff message headed **Prompt 1: Continue prototype repository setup**. Tell the user to paste it into the fresh session; a new session does not inherit the previous conversation. Include the user's goal, repository path, chosen starter ID and name, supplied references, requested milestone, settled decisions and approvals, completed actions, blockers, and next step.
 
 The kickoff must tell the new session to follow the copied repository's `AGENTS.md` and resume this guide at step 3. Include the [absolute guide URL](https://github.com/github/replica/blob/main/docs/prototype-repository-setup.md#3-verify-the-existing-app-locally), since this guide is not copied into the starter. If that version is not yet available at the URL, include steps 3 through 5 inline instead. The new session reuses settled answers and checks which actions and approvals remain applicable.
 
@@ -55,7 +61,7 @@ Check `node --version` against `engines.node` in the copied `package.json`. Reus
 
 The fresh session does not receive the setup output, so ask the user to inspect it and report any failures before repeating setup. Dependency installation success does not prove that the current session loaded the canvas.
 
-Follow the copied README's **Connect the Replica canvas** and **Canvas preflight** sections for plugin activation and recovery. Complete that preflight before starting a preview. Use its **Run it** commands, reuse an existing responsive server when appropriate, and open the actual printed URL. Verify that the included app renders; a successful dependency install or HTTP response alone is not a rendered check.
+Follow the copied `REPLICA.md` for canvas activation and preflight. Complete that preflight before starting a preview. Discover the selected app's run commands in its README and package scripts; do not assume another starter's headings, router or port. Reuse an existing responsive server only after confirming that it serves the intended app, and open the actual printed URL. Verify that the included app renders; a successful dependency install or HTTP response alone is not a rendered check.
 
 This milestone checks the existing starter page without building product UI. Report a missing runtime, unavailable canvas, or failed preview with its specific recovery step. Hub connection is not required for local preview.
 
@@ -64,8 +70,8 @@ This milestone checks the existing starter page without building product UI. Rep
 | Requested outcome | Continue with |
 | --- | --- |
 | Local starter and preview | Report the verified state and stop. No guidance authoring or Hub setup is needed just to inspect the included app. |
-| Product or design-system setup | Run the new repository's `/setup-skills` with the supplied sources. Reuse prior answers. Follow its source intake, installation approval, draft review, and separate activation steps. |
-| Reference-based starting UI | Complete the applicable guidance setup, then use the local `create-prototype` skill to build the requested shell or page. Establish whether components come from an installable package, permitted source reuse, or newly authored components. Verify the rendered result against the authorized reference. |
+| Product or design-system setup | Preserve the app's supplied skills and active context. Run `/setup-skills` when guidance must be added or changed, reusing prior answers. Follow source intake, installation approval, draft review and separate activation steps. |
+| Reference-based starting UI | Use supplied active guidance where it applies; offer setup only for missing task-required context. Use the local `create-prototype` skill and the selected app's conventions to build the requested shell or page. Establish the permitted component sources and verify the rendered result against the authorized reference. |
 | Shared team baseline | Complete the applicable guidance setup, [prepare useful starting pages](prototype-environment.md#3-prepare-useful-starting-pages), and review them together. Then [share the baseline on GitHub](#share-the-baseline-on-github). |
 | Hosted publishing and comments | First [share the reviewed baseline on GitHub and verify it on the actual default branch](#share-the-baseline-on-github), then follow [deploy the hub](prototype-environment.md#4-deploy-the-hub) and the remaining environment setup steps, or connect to an existing team Hub. |
 

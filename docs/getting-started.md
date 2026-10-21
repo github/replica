@@ -143,4 +143,4 @@ After Copilot adds the definitions, reload the preview page and open **Controls*
 
 Controls work locally without the Hub. Publish the changes to make them available in Hub previews too. To share a particular scenario, select **Include current control settings** on the canvas sharing page before copying the internal or public link. Publish any new control definitions first, a link cannot add controls missing from its Build.
 
-The [starter Controls guide](../starter/README.md#prototype-controls) covers authoring and recovery. If a control is disabled or reports an error, ask Copilot to investigate the displayed reason rather than assuming the change took effect.
+The [shared Controls guide](../starter-common/REPLICA.md#prototype-controls) covers authoring and recovery. If a control is disabled or reports an error, ask Copilot to investigate the displayed reason rather than assuming the change took effect.

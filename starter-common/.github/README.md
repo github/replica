@@ -18,7 +18,7 @@ configuration. A permitted repository-local CLI is considered only for that gap
 when the harness lacks project-local MCP support. Installations require separate
 approval; the agent records a short usage/status section in `AGENTS.md`.
 
-Playwright is a fallback for authorized rendered route and interaction checks only when the canvas is unavailable for the required check, not a replacement for the visible preview. Follow the browser-selection, recovery, isolation, authentication, and evidence rules in [`AGENTS.md`](../AGENTS.md#browser-validation-and-playwright-fallback). MCP startup and tool discovery alone do not prove browser launch, app readiness, or authenticated Build validation. Context researchers may inspect configuration but do not launch servers or browsers; the separate tooling phase can check discovery within its approval boundaries without opening a browser.
+Playwright is a fallback for authorized rendered route and interaction checks only when the canvas is unavailable for the required check, not a replacement for the visible preview. Follow the browser-selection, recovery, isolation, authentication, and evidence rules in [shared Replica instructions](../REPLICA-AGENTS.md#browser-validation-and-playwright-fallback). MCP startup and tool discovery alone do not prove browser launch, app readiness, or authenticated Build validation. Context researchers may inspect configuration but do not launch servers or browsers; the separate tooling phase can check discovery within its approval boundaries without opening a browser.
 
 Automated suites, CI and build-artifact capture retain their configured drivers;
 they run without the Copilot canvas host.

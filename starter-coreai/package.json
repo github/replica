@@ -4,7 +4,11 @@
   "private": true,
   "description": "CoreAI Sandbox prototype app",
   "type": "module",
+  "engines": {
+    "node": "^24.15.0 || ^26.0.0"
+  },
   "scripts": {
+    "check:starter": "npm run type-check && npm run lint && npm run build",
     "dev": "react-router dev",
     "build": "react-router build",
     "preview": "vite preview --outDir dist",

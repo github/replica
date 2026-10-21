@@ -1,19 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -ne 1 ]]; then
-  printf 'Usage: %s <new-repository-directory>\n' "$0" >&2
+if [[ $# -eq 0 || ( $# -eq 1 && ( "$1" == --help || "$1" == -h ) ) ]]; then
+  printf 'Usage: %s [--starter <id>] <new-repository-directory>\n       %s --list\n' "$0" "$0"
+  [[ $# -gt 0 ]] && exit 0
   exit 2
 fi
-
-parent="$(dirname "$1")"
-if [[ ! -d "$parent" ]]; then
-  printf 'Destination must have an existing parent directory.\n' >&2
-  exit 1
-fi
-if [[ -e "$1" || -L "$1" ]]; then
-  printf 'Destination already exists: %s\n' "$1" >&2
-  exit 1
+if [[ $# -eq 1 && "$1" != -* ]]; then
+  if [[ ! -d "$(dirname -- "$1")" ]]; then
+    printf 'Destination must have an existing parent directory.\n' >&2
+    exit 1
+  fi
+  if [[ -e "$1" || -L "$1" ]]; then
+    printf 'Destination already exists: %s\n' "$1" >&2
+    exit 1
+  fi
 fi
 
 for tool in curl tar git; do
@@ -40,8 +41,8 @@ fi
 
 archive_root="replica-main"
 has_script=0
-has_skills=0
-has_templates=0
+has_helper=0
+has_catalog=0
 exec 3< "$temporary/types"
 while IFS= read -r member; do
   if ! IFS= read -r details <&3; then
@@ -53,15 +54,17 @@ while IFS= read -r member; do
         ( "$member" != "$archive_root/"* || -z "$relative" ||
           "$relative" == /* || "$relative" == *"//"* ||
           "/$relative/" == *"/../"* || "/$relative/" == *"/./"* ||
-          "$relative" == *$'\r'* || "$relative" == *$'\t'* ) ]]; then
+          "$relative" == *$'\r'* || "$relative" == *$'\t'* || "$relative" == *\\* ) ]]; then
     printf 'Replica source archive contains an unsafe path: %s\n' "$member" >&2
     exit 1
   fi
+  bundle="${relative%%/*}"
   if [[ "$member" == "$archive_root/" ||
-        "$member" == "$archive_root/starter" ||
-        "$member" == "$archive_root/starter/"* ||
+        "$bundle" =~ ^starter(-[a-z0-9]+)*$ ||
+        "$relative" == starters.tsv ||
         "$member" == "$archive_root/scripts" ||
         "$member" == "$archive_root/scripts/" ||
+        "$member" == "$archive_root/scripts/starter-catalog.sh" ||
         "$member" == "$archive_root/scripts/create-prototype-repo.sh" ]]; then
     if [[ "$member" == */ ]]; then
       if [[ "$details" != d* ]]; then
@@ -75,11 +78,11 @@ while IFS= read -r member; do
   fi
   case "$member" in
     "$archive_root/scripts/create-prototype-repo.sh") has_script=1 ;;
-    "$archive_root/starter/.agents/skills/setup-skills/SKILL.md") has_skills=1 ;;
-    "$archive_root/starter/.agents/context-templates/SKILL.md") has_templates=1 ;;
+    "$archive_root/scripts/starter-catalog.sh") has_helper=1 ;;
+    "$archive_root/starters.tsv") has_catalog=1 ;;
   esac
-  if [[ "$member" == "$archive_root/starter/.git" ||
-        "$member" == "$archive_root/starter/.git/"* ]]; then
+  if [[ "$bundle" =~ ^starter(-[a-z0-9]+)*$ &&
+        ( "$relative" == */.git || "$relative" == */.git/* ) ]]; then
     printf 'Replica source archive contains Git metadata.\n' >&2
     exit 1
   fi
@@ -89,14 +92,15 @@ if IFS= read -r <&3; then
   exit 1
 fi
 exec 3<&-
-if [[ $has_script -ne 1 || $has_skills -ne 1 || $has_templates -ne 1 ]]; then
-  printf 'Replica source archive is missing the starter or setup script.\n' >&2
+if [[ $has_script -ne 1 || $has_helper -ne 1 || $has_catalog -ne 1 ]]; then
+  printf 'Replica source archive is missing the starter catalog or setup scripts.\n' >&2
   exit 1
 fi
 
 if ! tar -xzf "$archive" -C "$temporary" \
-    "$archive_root/starter" "$archive_root/scripts/create-prototype-repo.sh"; then
-  printf 'Could not extract the Replica starter.\n' >&2
+    "$archive_root/starters.tsv" "$archive_root/scripts/starter-catalog.sh" \
+    "$archive_root/scripts/create-prototype-repo.sh"; then
+  printf 'Could not extract the Replica setup files.\n' >&2
   exit 1
 fi
 if [[ ! -f "$temporary/$archive_root/scripts/create-prototype-repo.sh" ||
@@ -104,4 +108,15 @@ if [[ ! -f "$temporary/$archive_root/scripts/create-prototype-repo.sh" ||
   printf 'Replica source archive contains an invalid setup script.\n' >&2
   exit 1
 fi
-bash "$temporary/$archive_root/scripts/create-prototype-repo.sh" "$1"
+source "$temporary/$archive_root/scripts/starter-catalog.sh"
+parse_starter_arguments "$@"
+if [[ $show_help -eq 0 && $list_starters -eq 0 ]]; then
+  read_starter_catalog "$temporary/$archive_root/starters.tsv"
+  select_starter
+  if ! tar -xzf "$archive" -C "$temporary" \
+      "$archive_root/starter-common" "$archive_root/$starter_directory"; then
+    printf 'Could not extract the selected Replica starter and shared tooling.\n' >&2
+    exit 1
+  fi
+fi
+bash "$temporary/$archive_root/scripts/create-prototype-repo.sh" "$@"

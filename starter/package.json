@@ -7,6 +7,7 @@
     "node": "^24.15.0 || ^26.0.0"
   },
   "scripts": {
+    "check:starter": "npm run format:check && npm run typecheck && npm test && npm run build",
     "dev": "vite",
     "build": "vite build",
     "preview": "npm run build && vite preview",

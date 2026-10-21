@@ -3,7 +3,7 @@
 ## Canvas commenting
 
 Session setup installs or enables the Replica plugin. See
-[Connect the Replica canvas](README.md#connect-the-replica-canvas) for setup and
+[Connect the Replica canvas](REPLICA.md#connect-the-replica-canvas) for setup and
 missing-canvas recovery, including the separate plugin and extension switches.
 Start the prototype with its actual command and open the printed URL in the
 installed Replica canvas.
@@ -27,7 +27,7 @@ The proxy has a different origin and does not copy original-server localStorage.
 
 ### Controls
 
-Put versioned definitions in `public/controls.replica.json` or the build tool's equivalent static-assets directory. Each control binds an existing native field/button, CSS property, app-owned query/hash setting or optional exposed app API. See [Prototype controls](README.md#prototype-controls) and the [authoring reference](.agents/skills/prototype-controls/references/authoring.md).
+Put versioned definitions in `public/controls.replica.json` or the build tool's equivalent static-assets directory. Each control binds an existing native field/button, CSS property, app-owned query/hash setting or optional exposed app API. See [Prototype controls](REPLICA.md#prototype-controls) and the [authoring reference](.agents/skills/prototype-controls/references/authoring.md).
 
 Reload the preview page after editing definitions. Missing definitions mean no Controls; invalid definitions show a local error without breaking the app and reject publication when present in the retained Build. Missing or stale targets disable only the affected control. The ordinary app remains usable without Replica.
 

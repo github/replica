@@ -46,7 +46,7 @@ it("validates retained definitions without installed dependencies", async () => 
 it("validates the copied control sets examples", async () => {
   const reference = await readFile(
     new URL(
-      "../../../../../starter/.agents/skills/prototype-controls/references/sets.md",
+      "../../../../../starter-common/.agents/skills/prototype-controls/references/sets.md",
       import.meta.url,
     ),
     "utf8",

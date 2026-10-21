@@ -4,6 +4,8 @@ A React Router single-page app for prototyping experiences with `@coreai-ds/reac
 
 The profile displays a sample identity. Theme and Azure OpenAI settings are available from its menu.
 
+Choose `--starter coreai` when creating a repository with Replica. See [prototype repository setup](https://github.com/github/replica/blob/main/docs/prototype-repository-setup.md) for installation. The copied app includes [Replica setup and workflows](REPLICA.md) for canvas activation, Controls, optional product guidance and publishing.
+
 ## Run locally
 
 Run commands from this app's directory:
@@ -13,7 +15,7 @@ npm ci
 npm run dev
 ```
 
-Open <http://127.0.0.1:5174>.
+Use a Node.js version matching `engines.node` in [package.json](package.json). In Copilot, complete the [canvas preflight](REPLICA.md#canvas-preflight) before starting a preview. Open the URL printed by the server; the default port is `5174`.
 
 ## Validate changes
 

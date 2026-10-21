@@ -9,6 +9,8 @@ Run the app startup and then open the app using the available browser tools. Use
 
 Read the [local setup guide](../../../README.md#run-locally) before starting the app. Run commands from this app's directory.
 
+Complete the [Replica canvas preflight](../../../REPLICA.md#canvas-preflight) before preview startup. Use the running app's URL in the Replica canvas for the visual preview and the [browser workflow](../browser-canvas-validation/WORKFLOW.md) for separate rendered checks.
+
 First, check whether CoreAI Sandbox is already running at `http://127.0.0.1:5174/`. Verify the page belongs to this app before reusing the server. Vite defaults to strict port `5174`; if another app occupies it, leave that server untouched and use `npm run dev -- --port <available-port>`. Use the URL printed by the server.
 
 If startup fails because dependencies are missing, run `npm ci` from this app's directory. Report persistent setup errors.

@@ -15,6 +15,11 @@ const documentation = new Set([
 ])
 
 const starterScripts = new Set([
+  "starters.tsv",
+  "scripts/check-starter.sh",
+  "scripts/starter-catalog.sh",
+  "scripts/starter-ci-matrix.sh",
+  "scripts/starter-catalog.test.mjs",
   "scripts/create-prototype-repo.sh",
   "scripts/create-prototype-repo.test.mjs",
   "scripts/install-starter.sh",
@@ -45,7 +50,8 @@ export function selectCiSuites(paths) {
       path.startsWith(".github/extensions/replica-prototype/") ||
       path.startsWith(".github/plugin/") ||
       path.startsWith("packages/learning/") ||
-      path.startsWith("starter/")
+      path.startsWith("starter/") ||
+      /^starter-[a-z0-9-]+\//.test(path)
     ) {
       suites.hub = true
     } else if (starterScripts.has(path)) {

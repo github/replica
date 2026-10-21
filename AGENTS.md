@@ -1,6 +1,6 @@
 # Working on Replica
 
-Replica contains the self-hosted Hub, a copyable prototype starter, and the shared prototype build action.
+Replica contains the self-hosted Hub, selectable prototype starters, and the shared prototype build action.
 
 ## Start here
 
@@ -29,7 +29,8 @@ Follow the [commit and PR conventions](CONTRIBUTING.md#commits-and-pull-requests
 ## Project boundaries
 
 - `hub/` owns deployment, repository discovery, Build storage, previews, and review collaboration. Shared canvas and Controls source follows its normal `app/javascript/` layers. Read `hub/AGENTS.md` before changing it.
-- `starter/` is the single source for the Vite + React app, `.agents/skills/`, and `.agents/context-templates/`. Product- and design-system-specific guidance belongs in consuming repositories.
+- `starters.tsv` lists selectable apps. `starter/` owns Minimal and its TanStack scaffolder; `starter-coreai/` owns CoreAI Sandbox and its React Router app, skills and baseline context. Keep their application code independent.
+- `starter-common/` owns shared Replica skills, context templates, Copilot startup, browser configuration and copied workflow guides. Read [starter development](docs/starter-development.md) before changing catalog or assembly behavior. App sources and the shared bundle are assembled into independent repositories; copied instructions must not depend on this monorepo.
 - `actions/build/` owns the artifact contract between prototype repositories and Hub.
 - `packages/learning/` owns the learning contracts, the memory provider and consolidator interfaces, the reference providers and consolidators, the conformance suite, and the `replica-learning` command. It is private repository source with no release yet. Read its `README.md` and [ADR 0001](docs/adr/0001-learning-extension-architecture.md) before changing it.
 
@@ -43,7 +44,7 @@ Use the browser canvas first for agent-driven rendered checks, interaction tests
 
 Read fresh rendered structure before using element refs and after navigation or relevant page changes. Prefer structured actions; use small agent-authored read-only JavaScript only for diagnostics they cannot express. For an unreadable panel, check the declared readiness signal, refocus the same panel, rediscover capabilities and retry supported inspection once with valid inputs. Inspect the resulting state before retrying a timed-out interaction; it may already have succeeded. Do not restart a healthy server because its canvas timed out.
 
-Use the configured Playwright MCP fallback only when the canvas is unavailable for a required check: missing runtime, missing action or required identifier acquisition, or an unreadable panel after bounded recovery. Disclose the exact blocker and use fallback only for affected checks, starting with a fresh read rather than replaying a timed-out action. An application failure or failed assertion is not a reason to switch drivers. Keep supported checks in the canvas and preserve the visual preview. Follow the [shared browser workflow](starter/.agents/skills/browser-canvas-validation/WORKFLOW.md) for execution and evidence limits.
+Use the configured Playwright MCP fallback only when the canvas is unavailable for a required check: missing runtime, missing action or required identifier acquisition, or an unreadable panel after bounded recovery. Disclose the exact blocker and use fallback only for affected checks, starting with a fresh read rather than replaying a timed-out action. An application failure or failed assertion is not a reason to switch drivers. Keep supported checks in the canvas and preserve the visual preview. Follow the [shared browser workflow](starter-common/.agents/skills/browser-canvas-validation/WORKFLOW.md) for execution and evidence limits.
 
 The repository's [MCP configuration](.github/mcp.json) pins the official Microsoft server in `.github/mcp.json`. Discover its actual tools and input schemas; do not assume historical tool names. Navigate a new, agent-owned isolated browser session to the exact authorized preview URL, preserving its path, query, and hash. Use fresh snapshots and element references after navigation or relevant page changes. Inspect only the requested route and perform only authorized interactions.
 

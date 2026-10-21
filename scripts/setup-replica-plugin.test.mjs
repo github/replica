@@ -14,7 +14,7 @@ import { test } from "node:test"
 import { fileURLToPath } from "node:url"
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
-const script = join(root, "starter/scripts/setup-replica-plugin.mjs")
+const script = join(root, "starter-common/scripts/setup-replica-plugin.mjs")
 const installed = {
   name: "replica-prototype",
   marketplace: "replica",
@@ -72,7 +72,7 @@ console.log(step.raw ?? (step.command === "npm" && step.args[0] === "prefix"
     mkdirSync(join(directory, "scripts"))
     copyFileSync(script, join(directory, "scripts/setup-replica-plugin.mjs"))
     symlinkSync(process.execPath, join(directory, "node"))
-    const config = readFileSync(join(root, "starter/.github/github-app.yml"), "utf8")
+    const config = readFileSync(join(root, "starter-common/.github/github-app.yml"), "utf8").replaceAll("\r\n", "\n")
     command = "/bin/sh"
     args = ["-c", config.match(/^\s+command: (.+)$/m)[1]]
   }
@@ -307,7 +307,7 @@ test("setup rejects a missing or disabled plugin after CLI success", (t) => {
 })
 
 test("startup is configured to run when a session is created", () => {
-  const config = readFileSync(join(root, "starter/.github/github-app.yml"), "utf8")
+  const config = readFileSync(join(root, "starter-common/.github/github-app.yml"), "utf8").replaceAll("\r\n", "\n")
   assert.match(config, /triggers:\n\s+- session\.create/)
 })
 

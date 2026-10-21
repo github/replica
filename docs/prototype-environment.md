@@ -14,7 +14,7 @@ A designer or design-system maintainer leads the product guidance and starting p
 
 You will need a GitHub organization, permission to create a prototype repository and install a private GitHub App, and a Linux server with Docker and the Docker Compose plugin. You also need a dedicated domain, DNS access, and a hosting service or reverse proxy that can provide HTTPS for Hub and its wildcard preview addresses.
 
-The person preparing the prototype repository needs the [GitHub Copilot app](https://github.com/features/ai/github-app), [Git](https://git-scm.com/), [npm](https://docs.npmjs.com/downloading-and-installing-node-js-and-npm), and [Node.js](https://nodejs.org/). Use a Node.js version matching `engines.node` in [starter/package.json](../starter/package.json). npm comes with the Node.js installation, so you do not need to install it separately. Reuse an existing compatible installation, or arrange an approved installation with an engineer. The starter does not install these tools.
+The person preparing the prototype repository needs the [GitHub Copilot app](https://github.com/features/ai/github-app), [Git](https://git-scm.com/), [npm](https://docs.npmjs.com/downloading-and-installing-node-js-and-npm), and [Node.js](https://nodejs.org/). Use a Node.js version matching `engines.node` in the selected app's `package.json`. npm comes with the Node.js installation, so you do not need to install it separately. Reuse an existing compatible installation, or arrange an approved installation with an engineer. The starter does not install these tools.
 
 Keep the two environments separate: the prototype repository runs locally on authors' computers, while the Hub container runs on your organization's server. Authors joining later do not need their own Hub or Docker installation.
 
@@ -24,19 +24,19 @@ Install [GitHub CLI](https://cli.github.com/) on the author's computer for canva
 
 ## 1. Create the team's prototype repository
 
-Follow steps 1 through 3 of [prototype repository setup](prototype-repository-setup.md) to create an independent starter, open a fresh Copilot session, and verify its local preview. Then return here to prepare the team's guidance and starting pages.
+Follow steps 1 through 3 of [prototype repository setup](prototype-repository-setup.md) to choose an app from the catalog, create an independent repository, open a fresh Copilot session and verify its local preview. Then return here to prepare the team's guidance and starting pages.
 
 Use a GitHub repository in your organization for this shared environment. Give prototype authors write access and reviewers read access. Keep production credentials and real customer data out of it. Continue below to prepare guidance and starting pages before inviting the team.
 
 ## 2. Add your product and design-system guidance
 
-Run `/setup-skills` in the new repository. Provide the product documentation, design-system documentation, and component or token packages your team wants Copilot to follow. Use only sources your organization permits you to access.
+Review the selected app's supplied guidance first. Run `/setup-skills` when the team's product or design-system guidance must be added or changed. Provide the product documentation, design-system documentation, and component or token packages your team wants Copilot to follow. Use only sources your organization permits you to access.
 
 Copilot checks the sources, offers any needed package installations for your approval, and drafts guidance. Designers and design-system maintainers should review the drafts for accuracy and approve their activation. Drafting guidance does not activate it automatically.
 
 Try a small change using the approved guidance. Confirm that Copilot uses the intended components and patterns, not just similar-looking replacements. Have an engineer resolve package or build problems before the repository becomes your team's starting point.
 
-The [starter guide](../starter/README.md) explains the included app and skills. The [setup and troubleshooting guide](../starter/SETUP.md) covers technical canvas integration and installation errors.
+The selected app's README explains its examples and commands. The shared [Replica workflow guide](../starter-common/REPLICA.md) and [troubleshooting guide](../starter-common/SETUP.md) are copied into every repository and cover canvas integration and installation errors.
 
 ## 3. Prepare useful starting pages
 
