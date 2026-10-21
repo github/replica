@@ -336,21 +336,15 @@ choose their identity or certify their own delivery receipts.
 
 ### Scheduling, freshness and fixes
 
-**Run all**, individual **Run**, **Cancel** and **Retry** are explicit panel
-actions. At most two checks run concurrently, and a newer revision of one check
-waits for its previous worker to finish cleanup. Opt-in `automatic` checks debounce
-changes to their own assessment inputs; edits relevant only to another check do
-not restart that quiet period. Current completed, cancelled or execution-error
-records are not automatically retried for the same assessment. Initial
-opening alone does not launch automatic checks. Automatic browser/agent checks
-are not enabled by default. Background execution avoids foreground turns, but
-cannot eliminate shared CPU, memory or model-service contention.
+**Run all**, individual **Run**, **Cancel** and **Retry** are explicit panel actions. At most two checks run concurrently, and a newer revision of one check waits for its previous worker to finish cleanup.
 
-Scheduling still uses one polling loop while Canvas is open, independently of
-sidebar visibility. Foreground-idle integration and initial-open catch-up are
-not implemented yet. Changing `automatic`, `debounceMs` or `concurrency` affects
-scheduling, not assessment freshness. Already requested work remains owned until
-it finishes, becomes obsolete, or is cancelled explicitly.
+Opt-in `automatic` checks catch up on missing or outdated assessments when Canvas opens. They wait until the foreground agent is idle and their own saved inputs have settled for `debounceMs`. Edits relevant only to another check do not restart that check's quiet period. Current completed, cancelled or execution-error records are not automatically retried for the same assessment. Automatic browser/agent checks are not enabled by default.
+
+Foreground work defers new automatic workers, including those already queued. Returning to idle starts a new quiet period. Manual runs remain available during foreground work, and workers already running are not cancelled merely because foreground work resumes. Background execution avoids foreground turns, but cannot eliminate shared CPU, memory or model-service contention.
+
+One polling loop schedules checks while Canvas is open, independently of sidebar visibility. Replica subscribes to root session activity before reading its current processing state, so opening or restoring a panel during a turn does not assume idle. Root `assistant.idle` or `session.idle` events release the foreground gate; subagent events and individual turn-end events do not. Unavailable activity information leaves automatic execution paused with an explicit log message; a later successful activity read or root idle event can unblock it. Manual checks remain available.
+
+Changing `automatic`, `debounceMs` or `concurrency` affects scheduling, not assessment freshness. Already requested work remains owned until it finishes, becomes obsolete, or is cancelled explicitly.
 
 Runs assess bounded immutable snapshots of saved files, not unsaved editor
 buffers. Credential-like files and source `node_modules` are excluded. Symlinks,

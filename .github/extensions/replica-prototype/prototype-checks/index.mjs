@@ -60,7 +60,17 @@ function buildManager(context, session, options, key) {
   let closed = false
   let foreignOwner = false
   let acting = Promise.resolve()
+  let foregroundIdle = null
+  let foregroundIdleAt = 0
+  let foregroundRevision = 0
+  let foregroundReading
+  let foregroundFailure
   const manager = { users: 0, action, close }
+  const unsubscribe = session.on?.((event) => {
+    if (closed || event.agentId || event.data?.parentToolCallId) return
+    if (["user.message", "assistant.turn_start"].includes(event.type)) setForegroundIdle(false)
+    else if (["assistant.idle", "session.idle"].includes(event.type)) setForegroundIdle(true)
+  })
   const timer =
     options.poll === false
       ? null
@@ -72,6 +82,51 @@ function buildManager(context, session, options, key) {
   function report(cause) {
     error = cause instanceof Error ? cause.message : String(cause)
     session.log?.(`Replica prototype checks: ${error}`, { level: "error" })
+  }
+
+  function setForegroundIdle(idle) {
+    if (idle && foregroundIdle !== true) foregroundIdleAt = Date.now()
+    foregroundIdle = idle
+    foregroundRevision++
+  }
+
+  function readForeground() {
+    if (foregroundIdle !== null) return
+    if (foregroundReading) return foregroundReading
+    const revision = foregroundRevision
+    foregroundReading = (async () => {
+      try {
+        if (
+          typeof session.on !== "function" ||
+          typeof session.rpc?.metadata?.isProcessing !== "function"
+        )
+          throw new Error("The session does not expose foreground activity.")
+        const state = await session.rpc.metadata.isProcessing()
+        if (typeof state?.processing !== "boolean")
+          throw new Error("The session returned invalid foreground activity.")
+        if (!closed && foregroundRevision === revision) {
+          setForegroundIdle(!state.processing)
+          foregroundFailure = null
+        }
+      } catch (cause) {
+        if (!closed && foregroundRevision === revision) {
+          const message = `Automatic checks are waiting for foreground activity: ${cause instanceof Error ? cause.message : String(cause)}`
+          if (foregroundFailure !== message) session.log?.(message, { level: "error" })
+          foregroundFailure = message
+        }
+      }
+    })().finally(() => {
+      foregroundReading = undefined
+    })
+    return foregroundReading
+  }
+
+  function automaticReady(id) {
+    return (
+      foregroundIdle === true &&
+      Date.now() - Math.max(changedAt.get(id), foregroundIdleAt) >=
+        (input.config.debounceMs ?? 2000)
+    )
   }
 
   function persist() {
@@ -162,6 +217,11 @@ function buildManager(context, session, options, key) {
         foreignOwner = false
       }
       const next = await capture(context.repositoryPath, saved.baselines, saved.selection)
+      if (
+        next.config?.checks.some((check) => check.automatic) ||
+        queue.some((job) => job.automatic)
+      )
+        await readForeground()
       if (closed) return
       const initial = input === null
       const branchChanged = next.branch !== input?.branch
@@ -183,8 +243,7 @@ function buildManager(context, session, options, key) {
           changed = true
           changedAt.set(check.id, Date.now())
         }
-        if (initial) automaticFingerprint.set(check.id, automaticKey(check.id))
-        else if (enabled && automaticEnabled.get(check.id) === false)
+        if (enabled && automaticEnabled.get(check.id) === false)
           automaticFingerprint.delete(check.id)
         automaticEnabled.set(check.id, enabled)
       }
@@ -444,11 +503,22 @@ function buildManager(context, session, options, key) {
     for (const check of input.config.checks.filter((check) => selected.includes(check.id))) {
       if (check.targets && !input.pages.some((page) => check.targets.includes(page.id))) continue
       const previous = saved.records[check.id]
-      if (matchesRecord(previous, check.id) && ["running", "queued"].includes(previous.status))
+      if (matchesRecord(previous, check.id) && ["running", "queued"].includes(previous.status)) {
+        if (!automatic && previous.status === "queued") {
+          const index = queue.findIndex((job) => job.runId === previous.runId && job.automatic)
+          if (index !== -1) {
+            const [job] = queue.splice(index, 1)
+            job.automatic = false
+            previous.trigger = "manual"
+            queue.unshift(job)
+          }
+        }
         continue
+      }
       const job = {
         check,
         input,
+        automatic,
         assessmentFingerprint: assessments.get(check.id).fingerprint,
         runId: randomUUID(),
         controller: new AbortController(),
@@ -480,7 +550,7 @@ function buildManager(context, session, options, key) {
         (check) =>
           check.automatic &&
           automaticFingerprint.get(check.id) !== automaticKey(check.id) &&
-          Date.now() - changedAt.get(check.id) >= (input.config.debounceMs ?? 2000) &&
+          automaticReady(check.id) &&
           !(
             matchesRecord(saved.records[check.id], check.id) &&
             saved.records[check.id].status !== "out_of_date"
@@ -502,7 +572,9 @@ function buildManager(context, session, options, key) {
       active.size < (input.config.concurrency ?? 2)
     ) {
       const index = queue.findIndex(
-        (candidate) => ![...active.values()].some((job) => job.check.id === candidate.check.id),
+        (candidate) =>
+          (!candidate.automatic || automaticReady(candidate.check.id)) &&
+          ![...active.values()].some((job) => job.check.id === candidate.check.id),
       )
       if (index === -1) break
       const [job] = queue.splice(index, 1)
@@ -562,6 +634,7 @@ function buildManager(context, session, options, key) {
   async function close() {
     closed = true
     clearInterval(timer)
+    unsubscribe?.()
     for (const job of queue) {
       if (saved.records[job.check.id]?.runId === job.runId)
         saved.records[job.check.id].status = "cancelled"

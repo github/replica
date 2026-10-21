@@ -77,7 +77,7 @@ function result(check, snapshot) {
 }
 
 async function fixture(test, options = {}) {
-  const { session = { send: async () => {}, log: () => {} }, ...managerOptions } = options
+  const { session = foregroundSession(), ...managerOptions } = options
   const root = await mkdtemp(path.join(os.tmpdir(), "replica-check-manager-"))
   const checks = createPrototypeChecks(
     { repositoryPath: root, sessionWorkspacePath: root },
@@ -95,6 +95,27 @@ async function fixture(test, options = {}) {
     await rm(root, { recursive: true, force: true })
   })
   return checks
+}
+
+function foregroundSession(processing = false) {
+  const handlers = new Set()
+  return {
+    send: async () => {
+      assert.fail("Automatic scheduling must not send foreground prompts.")
+    },
+    log: () => {},
+    rpc: { metadata: { isProcessing: async () => ({ processing }) } },
+    on(handler) {
+      handlers.add(handler)
+      return () => handlers.delete(handler)
+    },
+    emit(type, extra = {}) {
+      for (const handler of handlers) handler({ type, ...extra })
+    },
+    get subscriptions() {
+      return handlers.size
+    },
+  }
 }
 
 async function settled(checks) {
@@ -406,7 +427,7 @@ describe("createPrototypeChecks()", () => {
     )
     assert.equal(prompts.length, 1)
   })
-  it("debounces opted-in saved edits without running on open or repeatedly retrying the same inputs", async (test) => {
+  it("runs missing opted-in checks after an idle bootstrap and does not repeat current assessments", async (test) => {
     test.mock.timers.enable({ apis: ["setInterval", "Date"], now: 0 })
     let snapshot = input()
     snapshot.config.checks[0].automatic = true
@@ -420,20 +441,319 @@ describe("createPrototypeChecks()", () => {
       },
     })
     await checks.action("status")
-    test.mock.timers.tick(10000)
-    await checks.action("status")
     assert.equal(calls, 0)
+    test.mock.timers.tick(2000)
+    await checks.action("status")
+    await settled(checks)
+    assert.equal(calls, 1)
     snapshot = editedInput()
     snapshot.config.checks[0].automatic = true
     await checks.action("status")
     test.mock.timers.tick(2000)
     await checks.action("status")
     await settled(checks)
-    assert.equal(calls, 1)
+    assert.equal(calls, 2)
     test.mock.timers.tick(10000)
     await checks.action("status")
+    assert.equal(calls, 2)
+  })
+  it("waits for root idle and the latest relevant edit while ignoring subagents and turn end", async (test) => {
+    test.mock.timers.enable({ apis: ["setInterval", "Date"], now: 0 })
+    const session = foregroundSession(true)
+    let snapshot = input()
+    snapshot.config.checks[0].automatic = true
+    snapshot.config.debounceMs = 4000
+    const calls = []
+    const checks = await fixture(test, {
+      session,
+      poll: true,
+      capture: async () => snapshot,
+      runner: (check, current) => {
+        calls.push(current.fingerprint)
+        return result(check, current)
+      },
+    })
+    await checks.action("status")
+    snapshot = editedInput("intermediate")
+    snapshot.config.checks[0].automatic = true
+    snapshot.config.debounceMs = 4000
+    await checks.action("status")
+    session.emit("assistant.idle", { agentId: "child" })
+    session.emit("session.idle", { data: { parentToolCallId: "legacy-child" } })
+    session.emit("assistant.turn_end")
+    test.mock.timers.tick(10000)
+    await checks.action("status")
+    assert.deepEqual(calls, [])
+    snapshot = editedInput("busy-latest")
+    snapshot.config.checks[0].automatic = true
+    snapshot.config.debounceMs = 4000
+    await checks.action("status")
+    session.emit("assistant.idle")
+    test.mock.timers.tick(2000)
+    await checks.action("status")
+    snapshot = editedInput("latest")
+    snapshot.config.checks[0].automatic = true
+    snapshot.config.debounceMs = 4000
+    await checks.action("status")
+    session.emit("user.message", { agentId: "child" })
+    session.emit("assistant.turn_start", { data: { parentToolCallId: "legacy-child" } })
+    test.mock.timers.tick(2000)
+    await checks.action("status")
+    assert.deepEqual(calls, [])
+    session.emit("session.idle")
+    test.mock.timers.tick(2000)
+    await checks.action("status")
+    await settled(checks)
+    assert.deepEqual(calls, ["latest"])
+  })
+
+  it("does not let a stale idle bootstrap override a newer foreground busy event", async (test) => {
+    test.mock.timers.enable({ apis: ["setInterval", "Date"], now: 0 })
+    const session = foregroundSession()
+    const bootstrap = Promise.withResolvers()
+    session.rpc.metadata.isProcessing = () => {
+      assert.equal(session.subscriptions, 1)
+      session.emit("user.message")
+      return bootstrap.promise
+    }
+    const snapshot = input()
+    snapshot.config.checks[0].automatic = true
+    let calls = 0
+    const checks = await fixture(test, {
+      session,
+      poll: true,
+      capture: async () => snapshot,
+      runner: (check, current) => {
+        calls++
+        return result(check, current)
+      },
+    })
+    const opening = checks.action("status")
+    await waitFor(() => session.subscriptions === 1)
+    bootstrap.resolve({ processing: false })
+    await opening
+    test.mock.timers.tick(10000)
+    await checks.action("status")
+    assert.equal(calls, 0)
+    session.emit("session.idle")
+    test.mock.timers.tick(2000)
+    await checks.action("status")
+    await settled(checks)
     assert.equal(calls, 1)
   })
+
+  it("retries unknown activity without repeated warnings and still permits manual checks", async (test) => {
+    test.mock.timers.enable({ apis: ["setInterval", "Date"], now: 0 })
+    const session = foregroundSession()
+    const warnings = []
+    session.log = (message) => warnings.push(message)
+    let queries = 0
+    let available = false
+    session.rpc.metadata.isProcessing = async () => {
+      queries++
+      if (!available) throw new Error("Activity unavailable")
+      return { processing: false }
+    }
+    const snapshot = input()
+    snapshot.config.checks[0].automatic = true
+    const calls = []
+    const checks = await fixture(test, {
+      session,
+      poll: true,
+      capture: async () => snapshot,
+      runner: (check, current) => {
+        calls.push(check.id)
+        return result(check, current)
+      },
+    })
+    await checks.action("status")
+    test.mock.timers.tick(10000)
+    await checks.action("status")
+    assert.deepEqual(calls, [])
+    assert.ok(queries >= 2)
+    assert.equal(warnings.length, 1)
+    await checks.action("run", { checkIds: ["advice"] })
+    await settled(checks)
+    assert.deepEqual(calls, ["advice"])
+    available = true
+    await checks.action("status")
+    test.mock.timers.tick(2000)
+    await checks.action("status")
+    await settled(checks)
+    assert.deepEqual(calls, ["advice", "lint"])
+  })
+
+  it("allows a root idle event to unblock scheduling when the activity RPC is missing", async (test) => {
+    test.mock.timers.enable({ apis: ["setInterval", "Date"], now: 0 })
+    const session = foregroundSession()
+    delete session.rpc
+    const warnings = []
+    session.log = (message) => warnings.push(message)
+    const snapshot = input()
+    snapshot.config.checks[0].automatic = true
+    let calls = 0
+    const checks = await fixture(test, {
+      session,
+      poll: true,
+      capture: async () => snapshot,
+      runner: (check, current) => {
+        calls++
+        return result(check, current)
+      },
+    })
+    await checks.action("status")
+    test.mock.timers.tick(10000)
+    await checks.action("status")
+    assert.equal(calls, 0)
+    assert.equal(warnings.length, 1)
+    session.emit("assistant.idle")
+    test.mock.timers.tick(2000)
+    await checks.action("status")
+    await settled(checks)
+    assert.equal(calls, 1)
+  })
+
+  it("holds queued automatic work through foreground activity but allows manual work and preserves running checks", async (test) => {
+    test.mock.timers.enable({ apis: ["setInterval", "Date"], now: 0 })
+    const session = foregroundSession()
+    const snapshot = input()
+    snapshot.config.checks[1].automatic = true
+    snapshot.config.debounceMs = 4000
+    const completion = Promise.withResolvers()
+    test.after(() => completion.resolve())
+    const calls = []
+    const checks = await fixture(test, {
+      session,
+      poll: true,
+      capture: async () => snapshot,
+      runner: async (check, current, { signal }) => {
+        calls.push({ id: check.id, signal })
+        if (check.id === "lint") await completion.promise
+        return result(check, current)
+      },
+    })
+    await checks.action("run", { checkIds: ["lint"] })
+    await waitFor(() => calls.length === 1)
+    test.mock.timers.tick(4000)
+    const queued = await checks.action("status")
+    assert.equal(queued.checks[1].status, "queued")
+    session.emit("assistant.turn_start")
+    assert.equal(calls[0].signal.aborted, false)
+    completion.resolve()
+    await checks.action("run", { checkIds: ["advice"] })
+    await waitFor(() => calls.some((call) => call.id === "advice"))
+    assert.deepEqual(
+      calls.map((call) => call.id),
+      ["lint", "advice"],
+    )
+    assert.equal((await checks.action("status")).checks[1].status, "queued")
+    test.mock.timers.tick(10000)
+    await checks.action("status")
+    assert.equal(calls.length, 2)
+    session.emit("assistant.idle")
+    test.mock.timers.tick(2000)
+    await checks.action("status")
+    assert.equal(calls.length, 2)
+    session.emit("assistant.idle")
+    test.mock.timers.tick(2000)
+    await checks.action("status")
+    const complete = await settled(checks)
+    assert.deepEqual(
+      calls.map((call) => call.id),
+      ["lint", "advice", "review"],
+    )
+    assert.equal(complete.checks[1].runId, queued.checks[1].runId)
+    assert.equal(complete.checks[1].fingerprint, "one")
+  })
+
+  it("promotes a queued automatic assessment on explicit Run without changing its identity or duplicating work", async (test) => {
+    test.mock.timers.enable({ apis: ["setInterval", "Date"], now: 0 })
+    const session = foregroundSession()
+    const snapshot = input()
+    snapshot.config.checks[1].automatic = true
+    const completion = Promise.withResolvers()
+    test.after(() => completion.resolve())
+    const calls = []
+    const checks = await fixture(test, {
+      session,
+      poll: true,
+      capture: async () => snapshot,
+      runner: async (check, current) => {
+        calls.push(check.id)
+        if (check.id === "lint") await completion.promise
+        return result(check, current)
+      },
+    })
+    await checks.action("run", { checkIds: ["lint"] })
+    await waitFor(() => calls.length === 1)
+    test.mock.timers.tick(2000)
+    const queued = (await checks.action("status")).checks[1]
+    assert.equal(queued.status, "queued")
+    assert.equal(queued.trigger, "automatic")
+    session.emit("user.message")
+    const promoted = (await checks.action("run", { checkIds: ["review"] })).checks[1]
+    assert.equal(promoted.runId, queued.runId)
+    assert.equal(promoted.trigger, "manual")
+    assert.equal(
+      (await checks.action("run", { checkIds: ["review"] })).checks[1].runId,
+      queued.runId,
+    )
+    completion.resolve()
+    const complete = await settled(checks)
+    assert.deepEqual(calls, ["lint", "review"])
+    assert.equal(complete.checks[1].runId, queued.runId)
+    assert.equal(complete.checks[1].fingerprint, "one")
+    assert.equal(complete.checks[1].outcome, "fail")
+  })
+
+  it("keeps a shared manager subscribed until the last canvas closes and stops further polling", async (test) => {
+    test.mock.timers.enable({ apis: ["setInterval", "Date"], now: 0 })
+    const session = foregroundSession(true)
+    const root = await mkdtemp(path.join(os.tmpdir(), "replica-check-lifecycle-"))
+    const context = { repositoryPath: root, sessionWorkspacePath: root }
+    const snapshot = input()
+    snapshot.config.checks[0].automatic = true
+    let captures = 0
+    let calls = 0
+    const options = {
+      capture: async () => {
+        captures++
+        return snapshot
+      },
+      runner: (check, current) => {
+        calls++
+        return result(check, current)
+      },
+    }
+    const first = createPrototypeChecks(context, session, options)
+    const second = createPrototypeChecks(context, session, options)
+    test.after(async () => {
+      await first.close()
+      await second.close()
+      await rm(root, { recursive: true, force: true })
+    })
+    await first.action("status")
+    assert.equal(session.subscriptions, 1)
+    await first.close()
+    assert.equal(session.subscriptions, 1)
+    session.emit("session.idle")
+    test.mock.timers.tick(2000)
+    await second.action("status")
+    await settled(second)
+    assert.equal(calls, 1)
+    snapshot.files.set("page.tsx", Buffer.from("Edit before closing"))
+    snapshot.fingerprint = "closing-edit"
+    await second.action("status")
+    await second.close()
+    assert.equal(session.subscriptions, 0)
+    const capturedBeforeClose = captures
+    session.emit("session.idle")
+    test.mock.timers.tick(10000)
+    await setTimeout(10)
+    assert.equal(captures, capturedBeforeClose)
+    assert.equal(calls, 1)
+  })
+
   it("debounces each automatic check independently instead of resetting siblings' quiet periods", async (test) => {
     test.mock.timers.enable({ apis: ["setInterval", "Date"], now: 0 })
     let snapshot = input()
@@ -453,7 +773,9 @@ describe("createPrototypeChecks()", () => {
         return result(check, current)
       },
     })
-    await checks.action("status")
+    await checks.action("run", { checkIds: ["lint", "review"] })
+    await settled(checks)
+    calls.length = 0
     test.mock.timers.tick(1000)
     snapshot = structuredClone(snapshot)
     snapshot.fingerprint = "lint-edit"
@@ -589,6 +911,108 @@ describe("createPrototypeChecks()", () => {
       assert.equal(calls, 2)
     })
   }
+
+  it("catches up only eligible missing and outdated assessments after reopening, not saved terminal or interrupted work", async (test) => {
+    test.mock.timers.enable({ apis: ["setInterval", "Date"], now: 0 })
+    const root = await mkdtemp(path.join(os.tmpdir(), "replica-check-catch-up-"))
+    const context = { repositoryPath: root, sessionWorkspacePath: root }
+    const snapshot = input()
+    const ids = [
+      "pass",
+      "fail",
+      "unverified",
+      "execution-error",
+      "cancelled",
+      "interrupted",
+      "outdated",
+    ]
+    snapshot.config.checks = ids.map((id) => ({
+      ...snapshot.config.checks[0],
+      id,
+      automatic: true,
+      inputs: { include: [id === "outdated" ? "outdated.ts" : "page.tsx"] },
+    }))
+    snapshot.files.set("outdated.ts", Buffer.from("Original"))
+    const options = {
+      isolated: true,
+      poll: false,
+      capture: async () => snapshot,
+      runner: (check, current) => ({
+        ...result(check, current),
+        outcome: ["fail", "unverified"].includes(check.id) ? check.id : "pass",
+      }),
+    }
+    const first = createPrototypeChecks(context, foregroundSession(true), options)
+    let second
+    test.after(async () => {
+      await first.close()
+      await second?.close()
+      await rm(root, { recursive: true, force: true })
+    })
+    await first.action("run")
+    await settled(first)
+    await first.close()
+    const key = createHash("sha256").update(`${root}\0${root}`).digest("hex")
+    const store = createPrivateStore(path.join(root, "replica-checks", key))
+    const saved = await store.read("results.json")
+    for (const id of ["execution-error", "cancelled"]) {
+      saved.records[id].status = id === "execution-error" ? "execution_error" : id
+      saved.records[id].result = null
+    }
+    saved.records.interrupted.status = "queued"
+    saved.records.interrupted.ownerPid = 2147483647
+    saved.records.interrupted.result = null
+    await store.write("results.json", saved)
+    snapshot.files.set("outdated.ts", Buffer.from("Edited"))
+    snapshot.fingerprint = "reopened"
+    snapshot.config.checks.push(
+      { ...snapshot.config.checks[0], id: "missing" },
+      { ...snapshot.config.checks[0], id: "manual", automatic: false },
+      { ...snapshot.config.checks[0], id: "unrelated-page", targets: ["other"] },
+    )
+    const calls = []
+    second = createPrototypeChecks(context, foregroundSession(), {
+      ...options,
+      poll: true,
+      runner: (check, current) => {
+        calls.push(check.id)
+        return result(check, current)
+      },
+    })
+    const opened = await second.action("status")
+    assert.equal(opened.state, "ready", opened.error)
+    assert.equal(
+      opened.checks.find((check) => check.id === "interrupted").status,
+      "execution_error",
+    )
+    snapshot.state = "scope_required"
+    await second.action("status")
+    test.mock.timers.tick(2000)
+    await second.action("status")
+    assert.deepEqual(calls, [])
+    snapshot.state = "ready"
+    await second.action("status")
+    test.mock.timers.tick(2000)
+    await second.action("status")
+    const complete = await settled(second)
+    assert.deepEqual(calls.sort(), ["missing", "outdated"])
+    for (const id of ["pass", "fail", "unverified"]) {
+      const restored = complete.checks.find((check) => check.id === id)
+      assert.equal(restored.outcome, id)
+      assert.equal(restored.runId, saved.records[id].runId)
+      assert.equal(restored.fingerprint, "one")
+    }
+    for (const id of ["execution-error", "cancelled", "interrupted"])
+      assert.equal(complete.checks.find((check) => check.id === id).runId, saved.records[id].runId)
+    assert.equal(complete.checks.find((check) => check.id === "manual").status, "not_run")
+    assert.equal(
+      complete.checks.find((check) => check.id === "unrelated-page").status,
+      "not_applicable",
+    )
+    await second.action("run", { checkIds: ["interrupted"] })
+    await settled(second)
+    assert.ok(calls.includes("interrupted"))
+  })
 
   it("restores complete results and their pinned baseline after provider restart", async (test) => {
     const root = await mkdtemp(path.join(os.tmpdir(), "replica-check-restart-"))
