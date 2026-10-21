@@ -66,7 +66,7 @@
 
 .review-comments-sidebar__threads {
   display: flex;
-  padding: var(--hub-space-8) 0 0;
+  padding: var(--hub-space-8) var(--hub-space-16) 0;
   flex-direction: column;
   gap: 0.25rem;
 }
