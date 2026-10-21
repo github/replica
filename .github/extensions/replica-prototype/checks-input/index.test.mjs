@@ -7,6 +7,7 @@ import { describe, it } from "node:test"
 import { promisify } from "node:util"
 
 import { captureChecksInput } from "./index.mjs"
+import { createCheckAssessment } from "../checks-assessment/index.mjs"
 
 const execute = promisify(execFile)
 
@@ -73,6 +74,41 @@ async function fixture(test) {
 }
 
 describe("captureChecksInput()", () => {
+  it("keeps scoped assessment identity across clean and unrelated commits while capturing fresh run provenance", async (test) => {
+    const { root, git } = await fixture(test)
+    const filename = path.join(root, ".replica/checks.json")
+    const config = JSON.parse(await readFile(filename, "utf8"))
+    delete config.pages
+    delete config.checks[0].targets
+    config.checks[0].inputs = { include: ["src/a.tsx"] }
+    await writeFile(filename, JSON.stringify(config))
+    await git("add", ".")
+    await git("commit", "--no-gpg-sign", "-m", "configure checks")
+    const original = await captureChecksInput(root)
+    const assessment = createCheckAssessment(original.config.checks[0], original).fingerprint
+    const baselines = { "prototype:main": original.baseline }
+    await git("commit", "--no-gpg-sign", "--allow-empty", "-m", "clean commit")
+    const clean = await captureChecksInput(root, baselines)
+    assert.notEqual(clean.head, original.head)
+    assert.notEqual(clean.fingerprint, original.fingerprint)
+    assert.equal(createCheckAssessment(clean.config.checks[0], clean).fingerprint, assessment)
+    await writeFile(path.join(root, "README.md"), "Unrelated documentation")
+    await git("add", "README.md")
+    await git("commit", "--no-gpg-sign", "-m", "unrelated commit")
+    const unrelated = await captureChecksInput(root, baselines)
+    assert.notEqual(unrelated.head, clean.head)
+    assert.equal(
+      createCheckAssessment(unrelated.config.checks[0], unrelated).fingerprint,
+      assessment,
+    )
+    await writeFile(path.join(root, "src/a.tsx"), "Relevant saved edit")
+    const changed = await captureChecksInput(root, baselines)
+    assert.notEqual(
+      createCheckAssessment(changed.config.checks[0], changed).fingerprint,
+      assessment,
+    )
+  })
+
   it("runs repository-wide checks without requiring page-scope confirmation or fake pages", async (test) => {
     const { root } = await fixture(test)
     const filename = path.join(root, ".replica/checks.json")

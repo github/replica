@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto"
 import path from "node:path"
 
 import { captureChecksInput } from "../checks-input/index.mjs"
+import { createCheckAssessment } from "../checks-assessment/index.mjs"
 import { validateChecksResult } from "../checks-result/index.mjs"
 import { runPrototypeCheck } from "../checks-runner/index.mjs"
 import { createPrivateStore } from "../private-store/index.mjs"
@@ -39,7 +40,7 @@ function buildManager(context, session, options, key) {
   const capture = options.capture ?? captureChecksInput
   const runner = options.runner ?? runPrototypeCheck
   let saved = {
-    version: 2,
+    version: 3,
     baselines: {},
     records: {},
     selection: null,
@@ -52,8 +53,10 @@ function buildManager(context, session, options, key) {
   let writing = Promise.resolve()
   let queue = []
   const active = new Map()
-  let changedAt = 0
-  let automaticFingerprint = null
+  let assessments = new Map()
+  const changedAt = new Map()
+  const automaticFingerprint = new Map()
+  const automaticEnabled = new Map()
   let closed = false
   let foreignOwner = false
   let acting = Promise.resolve()
@@ -84,6 +87,48 @@ function buildManager(context, session, options, key) {
     })
   }
 
+  function matchesRecord(record, id) {
+    return (
+      record?.assessmentFingerprint !== undefined &&
+      record.assessmentFingerprint === assessments.get(id)?.fingerprint &&
+      record.branch === input?.branch
+    )
+  }
+
+  function matchesJob(job) {
+    return (
+      job.assessmentFingerprint === assessments.get(job.check.id)?.fingerprint &&
+      job.input.branch === input?.branch
+    )
+  }
+
+  function automaticKey(id) {
+    return JSON.stringify([input.branch, assessments.get(id).fingerprint])
+  }
+
+  function obsolete(job) {
+    if (job.obsolete || job.cancelled) return false
+    job.obsolete = true
+    if (saved.records[job.check.id]?.runId === job.runId)
+      saved.records[job.check.id].status = "out_of_date"
+    if (
+      automaticFingerprint.get(job.check.id) ===
+      JSON.stringify([job.input.branch, job.assessmentFingerprint])
+    )
+      automaticFingerprint.delete(job.check.id)
+    if (assessments.has(job.check.id)) changedAt.set(job.check.id, Date.now())
+    job.controller.abort(new Error("Inputs changed during the check."))
+    return true
+  }
+
+  function validateRecordedResult(record, check) {
+    // Reuse is checked against assessment bytes; report identity stays bound to its captured run.
+    return validateChecksResult(record.result, check, {
+      ...input,
+      fingerprint: record.fingerprint,
+    })
+  }
+
   function refresh() {
     if (refreshing) return refreshing
     refreshing = (async () => {
@@ -103,7 +148,10 @@ function buildManager(context, session, options, key) {
               record.status = "execution_error"
               record.error = "This check was interrupted. Run it again."
             }
-            if (record.result && record.result.version !== 2) {
+            if (
+              record.result &&
+              (record.result.version !== 2 || !record.assessmentFingerprint || !record.branch)
+            ) {
               record.result = null
               record.status = "out_of_date"
               delete record.error
@@ -115,23 +163,45 @@ function buildManager(context, session, options, key) {
       }
       const next = await capture(context.repositoryPath, saved.baselines, saved.selection)
       if (closed) return
-      if (next.fingerprint !== input?.fingerprint || next.branch !== input?.branch) {
-        const initial = input === null
-        input = next
-        changedAt = Date.now()
-        if (initial) automaticFingerprint = next.fingerprint
+      const initial = input === null
+      const branchChanged = next.branch !== input?.branch
+      let changed = next.fingerprint !== input?.fingerprint || branchChanged
+      const previousAssessments = assessments
+      input = next
+      assessments = new Map(
+        (next.config?.checks ?? []).map((check) => [check.id, createCheckAssessment(check, next)]),
+      )
+      for (const check of next.config?.checks ?? []) {
+        const enabled = check.automatic === true
+        if (
+          initial ||
+          branchChanged ||
+          previousAssessments.get(check.id)?.fingerprint !==
+            assessments.get(check.id).fingerprint ||
+          (enabled && automaticEnabled.get(check.id) === false)
+        ) {
+          changed = true
+          changedAt.set(check.id, Date.now())
+        }
+        if (initial) automaticFingerprint.set(check.id, automaticKey(check.id))
+        else if (enabled && automaticEnabled.get(check.id) === false)
+          automaticFingerprint.delete(check.id)
+        automaticEnabled.set(check.id, enabled)
+      }
+      for (const id of previousAssessments.keys()) {
+        if (assessments.has(id)) continue
+        changed = true
+        changedAt.delete(id)
+        automaticFingerprint.delete(id)
+        automaticEnabled.delete(id)
+      }
+      if (changed) {
         queue = queue.filter((job) => {
-          if (job.input.fingerprint === next.fingerprint) return true
-          if (saved.records[job.check.id]?.runId === job.runId)
-            saved.records[job.check.id].status = "out_of_date"
+          if (matchesJob(job)) return true
+          obsolete(job)
           return false
         })
-        for (const job of active.values()) {
-          if (job.input.fingerprint !== next.fingerprint) {
-            job.obsolete = true
-            job.controller.abort(new Error("Inputs changed during the check."))
-          }
-        }
+        for (const job of active.values()) if (!matchesJob(job)) obsolete(job)
         if (next.config) {
           const ids = new Set(next.config.checks.map((check) => check.id))
           for (const id of Object.keys(saved.records)) if (!ids.has(id)) delete saved.records[id]
@@ -140,16 +210,21 @@ function buildManager(context, session, options, key) {
           saved.baselines[`${next.branch}:${next.config.base}`] = next.baseline
         }
         await persist()
-      } else input = next
+      }
       for (const check of next.config?.checks ?? []) {
         const record = saved.records[check.id]
-        if (record?.fingerprint === next.fingerprint && record.result)
-          validateChecksResult(record.result, check, next)
+        if (matchesRecord(record, check.id) && record.result) validateRecordedResult(record, check)
       }
       error = null
+      pump()
     })()
-      .catch((cause) => {
+      .catch(async (cause) => {
+        let discarded = false
+        for (const job of queue) discarded = obsolete(job) || discarded
+        queue = []
+        for (const job of active.values()) discarded = obsolete(job) || discarded
         report(cause)
+        if (discarded && loaded) await persist()
         throw cause
       })
       .finally(() => {
@@ -163,10 +238,10 @@ function buildManager(context, session, options, key) {
       const record = saved.records[check.id]
       const applicable =
         !check.targets || input.pages.some((page) => check.targets.includes(page.id))
-      const current = record?.fingerprint === input.fingerprint && !error && !storageError
+      const current = matchesRecord(record, check.id) && !error && !storageError
       let result = null
       if (current && record?.status === "completed" && record.result) {
-        result = validateChecksResult(record.result, check, input)
+        result = validateRecordedResult(record, check)
       }
       return {
         id: check.id,
@@ -182,6 +257,7 @@ function buildManager(context, session, options, key) {
               : record.status,
         runId: record?.runId,
         fingerprint: record?.fingerprint,
+        assessmentFingerprint: assessments.get(check.id)?.fingerprint,
         outcome: result?.outcome ?? null,
         summary: result?.summary ?? null,
         limitations: result?.limitations ?? [],
@@ -253,13 +329,17 @@ function buildManager(context, session, options, key) {
       await writing
       await store.remove("results.json")
       saved = {
-        version: 2,
+        version: 3,
         baselines: saved.baselines,
         records: {},
         selection: null,
       }
       loaded = true
       input = null
+      assessments.clear()
+      changedAt.clear()
+      automaticFingerprint.clear()
+      automaticEnabled.clear()
       storageError = null
     }
     try {
@@ -311,7 +391,7 @@ function buildManager(context, session, options, key) {
         !record ||
         record.status !== "completed" ||
         record.runId !== args.runId ||
-        record.fingerprint !== input.fingerprint ||
+        !matchesRecord(record, args.checkId) ||
         !Array.isArray(args.findingIds) ||
         !args.findingIds.length ||
         new Set(args.findingIds).size !== args.findingIds.length
@@ -364,14 +444,12 @@ function buildManager(context, session, options, key) {
     for (const check of input.config.checks.filter((check) => selected.includes(check.id))) {
       if (check.targets && !input.pages.some((page) => check.targets.includes(page.id))) continue
       const previous = saved.records[check.id]
-      if (
-        previous?.fingerprint === input.fingerprint &&
-        ["running", "queued"].includes(previous.status)
-      )
+      if (matchesRecord(previous, check.id) && ["running", "queued"].includes(previous.status))
         continue
       const job = {
         check,
         input,
+        assessmentFingerprint: assessments.get(check.id).fingerprint,
         runId: randomUUID(),
         controller: new AbortController(),
       }
@@ -380,36 +458,54 @@ function buildManager(context, session, options, key) {
         ownerPid: process.pid,
         runner: check.runner.type,
         fingerprint: input.fingerprint,
+        assessmentFingerprint: job.assessmentFingerprint,
+        branch: input.branch,
+        head: input.head,
+        base: input.base,
         status: "queued",
         result: null,
         trigger: automatic ? "automatic" : "manual",
         requestedAt: new Date().toISOString(),
       }
+      automaticFingerprint.set(check.id, automaticKey(check.id))
       if (automatic) queue.push(job)
       else queue.unshift(job)
     }
   }
 
   function scheduleAutomatic() {
-    if (
-      closed ||
-      error ||
-      storageError ||
-      input?.state !== "ready" ||
-      automaticFingerprint === input.fingerprint ||
-      Date.now() - changedAt < (input.config.debounceMs ?? 2000)
-    )
-      return
-    automaticFingerprint = input.fingerprint
-    const ids = input.config.checks.filter((check) => check.automatic).map((check) => check.id)
+    if (closed || error || storageError || input?.state !== "ready") return
+    const ids = input.config.checks
+      .filter(
+        (check) =>
+          check.automatic &&
+          automaticFingerprint.get(check.id) !== automaticKey(check.id) &&
+          Date.now() - changedAt.get(check.id) >= (input.config.debounceMs ?? 2000) &&
+          !(
+            matchesRecord(saved.records[check.id], check.id) &&
+            saved.records[check.id].status !== "out_of_date"
+          ),
+      )
+      .map((check) => check.id)
     if (!ids.length) return
     enqueue(ids, true)
     persist().then(pump).catch(report)
   }
 
   function pump() {
-    while (!closed && queue.length && active.size < (input?.config?.concurrency ?? 2)) {
-      const job = queue.shift()
+    while (
+      !closed &&
+      !error &&
+      !storageError &&
+      input?.state === "ready" &&
+      queue.length &&
+      active.size < (input.config.concurrency ?? 2)
+    ) {
+      const index = queue.findIndex(
+        (candidate) => ![...active.values()].some((job) => job.check.id === candidate.check.id),
+      )
+      if (index === -1) break
+      const [job] = queue.splice(index, 1)
       active.set(job.runId, job)
       job.promise = execute(job)
         .catch(report)
@@ -422,7 +518,7 @@ function buildManager(context, session, options, key) {
 
   async function execute(job) {
     const record = saved.records[job.check.id]
-    if (record.runId !== job.runId) return
+    if (record?.runId !== job.runId) return
     record.status = "running"
     record.startedAt = new Date().toISOString()
     const timeout = setTimeout(
@@ -500,7 +596,7 @@ function validateSaved(value) {
   const statuses = ["queued", "running", "completed", "cancelled", "out_of_date", "execution_error"]
   if (
     !object(value) ||
-    ![1, 2].includes(value.version) ||
+    ![1, 2, 3].includes(value.version) ||
     !object(value.baselines) ||
     !object(value.records) ||
     Object.keys(value.records).length > 50 ||
@@ -518,6 +614,13 @@ function validateSaved(value) {
         !object(record) ||
         !/^[a-z][a-z0-9-]{0,63}$/.test(id) ||
         !text(record.fingerprint) ||
+        (record.assessmentFingerprint !== undefined &&
+          (!/^[a-f0-9]{64}$/.test(record.assessmentFingerprint) || !text(record.branch))) ||
+        (record.branch !== undefined && !text(record.branch)) ||
+        ["head", "base"].some(
+          (key) =>
+            record[key] !== undefined && !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(record[key]),
+        ) ||
         !/^[a-f0-9-]{36}$/.test(record.runId) ||
         !["command", "agent"].includes(record.runner) ||
         !Number.isSafeInteger(record.ownerPid) ||
@@ -544,7 +647,7 @@ function validateSaved(value) {
   )
     throw new Error("Saved checks are invalid. Reset saved results explicitly.")
   return {
-    version: 2,
+    version: 3,
     baselines: value.baselines,
     records: value.records,
     selection: value.selection,

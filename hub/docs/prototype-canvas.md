@@ -337,19 +337,57 @@ choose their identity or certify their own delivery receipts.
 ### Scheduling, freshness and fixes
 
 **Run all**, individual **Run**, **Cancel** and **Retry** are explicit panel
-actions. At most two checks run concurrently. Opt-in `automatic` checks debounce
-saved-input changes and do not repeatedly retry a failed input set. Initial
+actions. At most two checks run concurrently, and a newer revision of one check
+waits for its previous worker to finish cleanup. Opt-in `automatic` checks debounce
+changes to their own assessment inputs; edits relevant only to another check do
+not restart that quiet period. Current completed, cancelled or execution-error
+records are not automatically retried for the same assessment. Initial
 opening alone does not launch automatic checks. Automatic browser/agent checks
 are not enabled by default. Background execution avoids foreground turns, but
 cannot eliminate shared CPU, memory or model-service contention.
 
+Scheduling still uses one polling loop while Canvas is open, independently of
+sidebar visibility. Foreground-idle integration and initial-open catch-up are
+not implemented yet. Changing `automatic`, `debounceMs` or `concurrency` affects
+scheduling, not assessment freshness. Already requested work remains owned until
+it finishes, becomes obsolete, or is cancelled explicitly.
+
 Runs assess bounded immutable snapshots of saved files, not unsaved editor
 buffers. Credential-like files and source `node_modules` are excluded. Symlinks,
 unstable captures and oversized snapshots block execution rather than reading
-outside the checkout or silently omitting source. Results must match the source,
-branch, pinned base, configuration and page-scope fingerprints. Edits invalidate
-current results; obsolete queued work is discarded and running work is cancelled.
-Late completions cannot replace a newer run.
+outside the checkout or silently omitting source. An unsafe or failed capture
+blocks new work and obsoletes owned work whose relevance cannot be established.
+
+Each check has a content-based assessment fingerprint covering its own
+definition, scoped source paths and bytes, context, instructions, and supplied
+page/scenario metadata. Only applicable scenarios participate. Object key order
+does not affect identity; missing explicit input files differ from empty files,
+and glob additions, removals and renames change identity. Page file inventories
+contain only supplied assessment source, including for repository-wide checks
+whose pages are not in the changed-page selection.
+
+Sibling check definitions, scheduling settings and unrelated files do not
+invalidate a scoped check. Checks without explicit inputs still assess their
+default page dependencies or captured repository files, so use explicit inputs
+when a narrower scope is intended. HEAD and base commit IDs are provenance, not
+assessment content: a commit or rebase with unchanged effective inputs can
+reuse results. Branch switches remain a separate execution and fix-safety
+boundary. Changes to page applicability or supplied scenarios still invalidate
+the affected assessment, including changes caused by a new baseline or confirmed
+page selection.
+
+The original whole-snapshot fingerprint remains bound to the worker report.
+Replica reuses a result only when its assessment fingerprint and branch match,
+then validates the report against that original run identity and the matching
+current scoped source. Relevant edits discard obsolete queued work and cancel
+only affected running checks. Late completions cannot replace a newer run or
+make an obsolete assessment current. Queue deduplication and automatic scheduling
+use the same per-check identity as freshness.
+
+Relevance covers declared inputs and runner configuration, not hidden external
+dependencies. Retargeting an installed image tag or changing host tools without a
+configuration/source change is not detected automatically; pin images by digest
+or request a manual rerun when the environment changes.
 
 Each check's execution state is separate from its assessment outcome. A completed
 check can fail or remain unverified; an execution error has no quality outcome.
@@ -358,9 +396,11 @@ outdated, cancelled and unverified checks remain in the applicable denominator.
 Private session-workspace files hold results, trigger type and run timestamps;
 there is no Hub/CI result store or committed result file.
 
-Existing private version 1 records retain their baseline pins and job ownership
-metadata. Interrupted workers are recovered before incompatible result bodies
-are discarded as outdated. Old scores and last-complete score history are removed.
+Private version 3 records retain both assessment identity and captured
+branch/HEAD/base provenance. Existing version 1 and 2 records retain baseline pins
+and job ownership metadata. Interrupted workers are recovered before results
+without the new identity are discarded as outdated. The worker report and
+configuration contracts remain version 2.
 
 Closing the last canvas cancels its owned checks. Graceful provider shutdown
 cleans workers up. After interruption, the next provider rejects a still-active

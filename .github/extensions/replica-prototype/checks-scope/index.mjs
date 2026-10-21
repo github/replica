@@ -25,5 +25,17 @@ export function resolveCheckScope(check, input) {
         !(check.inputs?.exclude ?? []).some((pattern) => matches(pattern, file)),
     )
     .sort()
-  return { files, contextFiles, instructionsFile, pages }
+  const pageFiles = Object.fromEntries(
+    pages.map((page) => [
+      page.id,
+      files.filter(
+        (file) =>
+          input.files.has(file) &&
+          (page.inputs
+            ? page.inputs.some((pattern) => matches(pattern, file))
+            : input.pageFiles[page.id]?.includes(file)),
+      ),
+    ]),
+  )
+  return { files, contextFiles, instructionsFile, pages, pageFiles }
 }

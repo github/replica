@@ -30,6 +30,7 @@ export type CheckState = {
   automatic: boolean
   runId?: string
   fingerprint?: string
+  assessmentFingerprint?: string
   status:
     | "not_run"
     | "queued"

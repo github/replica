@@ -99,6 +99,11 @@ describe("runPrototypeCheck()", () => {
     const snapshot = input()
     snapshot.files.set("review.mjs", Buffer.from("command wrapper"))
     snapshot.files.set("private.tsx", Buffer.from("Unrelated source"))
+    snapshot.config = {
+      pages: [{ id: "page", route: "/page", inputs: ["page.tsx", "private.tsx"] }],
+    }
+    snapshot.pages = []
+    snapshot.pageFiles = {}
     let args
     async function execute(command, values) {
       assert.equal(command, "docker")
@@ -110,6 +115,13 @@ describe("runPrototypeCheck()", () => {
       assert.equal(await readFile(path.join(source, "page.tsx"), "utf8"), "original code")
       assert.equal(await readFile(path.join(source, "review.mjs"), "utf8"), "command wrapper")
       await assert.rejects(readFile(path.join(source, "private.tsx")), { code: "ENOENT" })
+      const contextMount = values.find((value) =>
+        value.includes("target=/replica-context.json,readonly"),
+      )
+      const contextPath = contextMount.split("source=")[1].split(",")[0]
+      const context = JSON.parse(await readFile(contextPath, "utf8"))
+      assert.equal(context.fingerprint, "snapshot")
+      assert.deepEqual(context.pages[0].files, ["page.tsx"])
       return JSON.stringify(result())
     }
     const value = await runPrototypeCheck(
@@ -138,6 +150,10 @@ describe("runPrototypeCheck()", () => {
   })
   it("creates an independent empty SDK client with only immutable custom reads and deny-wins policy", async (test) => {
     const options = await fixture(test)
+    const snapshot = input()
+    snapshot.config = { pages: [{ id: "page", route: "/page", inputs: ["page.tsx"] }] }
+    snapshot.pages = []
+    snapshot.pageFiles = {}
     let configuration
     let stopped = false
     class Client {
@@ -175,7 +191,7 @@ describe("runPrototypeCheck()", () => {
     }
     const assessment = await runPrototypeCheck(
       { ...check, runner: { type: "agent", instructions: "review.md" } },
-      input(),
+      snapshot,
       {
         ...options,
         sdk,
@@ -184,6 +200,7 @@ describe("runPrototypeCheck()", () => {
     assert.equal(assessment.outcome, "pass")
     assert.deepEqual(assessment.scope, { files: ["page.tsx"], contextFiles: [], pages: ["page"] })
     assert.equal(assessment.readCoverage.files[0].status, "read")
+    assert.deepEqual(assessment.readCoverage.files[0].pageIds, ["page"])
     assert.deepEqual(configuration.excludedTools, ["builtin:*", "mcp:*"])
     assert.equal(configuration.skipCustomInstructions, true)
     assert.equal(configuration.onPermissionRequest({ kind: "write" }).kind, "reject")

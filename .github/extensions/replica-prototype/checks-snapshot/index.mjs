@@ -8,7 +8,11 @@ export function createChecksSnapshot(input, pages, checkScope) {
     for (const file of checkScope.files) {
       scope.set(
         file,
-        pages.filter((page) => input.pageFiles[page.id]?.includes(file)).map((page) => page.id),
+        pages
+          .filter((page) =>
+            (checkScope.pageFiles?.[page.id] ?? input.pageFiles[page.id])?.includes(file),
+          )
+          .map((page) => page.id),
       )
     }
   } else {

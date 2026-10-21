@@ -6,7 +6,7 @@ import path from "node:path"
 
 import { validateChecksResult } from "../checks-result/index.mjs"
 import { createChecksSnapshot } from "../checks-snapshot/index.mjs"
-import { resolveCheckScope } from "../checks-scope/index.mjs"
+import { createCheckAssessment } from "../checks-assessment/index.mjs"
 
 export async function runPrototypeCheck(
   check,
@@ -14,19 +14,8 @@ export async function runPrototypeCheck(
   { directory, signal, sdk, execute = run, runId = randomUUID(), cliPath },
 ) {
   if (!/^[a-f0-9-]{36}$/.test(runId)) throw new Error("Invalid check run identity.")
-  const scope = resolveCheckScope(check, input)
+  const { scope, context } = createCheckAssessment(check, input)
   const pages = scope.pages
-  const context = {
-    version: 2,
-    checkId: check.id,
-    fingerprint: input.fingerprint,
-    pages: pages.map((page) => ({ ...page, files: input.pageFiles[page.id] })),
-    scope: { files: scope.files, contextFiles: scope.contextFiles },
-    criteria: check.criteria ?? [],
-    scenarios: (check.scenarios ?? []).filter((scenario) =>
-      pages.some((page) => page.id === scenario.pageId),
-    ),
-  }
   if (check.targets && !pages.length)
     throw new Error("This check has no applicable prototype pages.")
   signal.throwIfAborted()

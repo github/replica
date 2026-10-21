@@ -167,12 +167,13 @@ export async function captureChecksInput(repositoryPath, baseline, selection) {
       !guidanceFiles.has(name) &&
       !(config.pages ?? []).some((page) => page.inputs.some((pattern) => matches(pattern, name))),
   )
+  const fileHashes = new Map([...files].map(([name, content]) => [name, hash(content)]))
   const selectionKey = hash(
     JSON.stringify({
       base,
       branch: branch.trim(),
       pages: config.pages,
-      changed: [...changed].map((name) => [name, files.has(name) ? hash(files.get(name)) : null]),
+      changed: [...changed].map((name) => [name, fileHashes.get(name) ?? null]),
     }),
   )
   const resolved = selection?.key === selectionKey
@@ -197,7 +198,7 @@ export async function captureChecksInput(repositoryPath, baseline, selection) {
       base,
       config,
       selectedPages.map((page) => page.id),
-      [...files].map(([name, content]) => [name, hash(content)]),
+      [...fileHashes],
     ]),
   )
   for (const [name, device, inode, modified, changedTime, size] of versions) {
@@ -230,6 +231,7 @@ export async function captureChecksInput(repositoryPath, baseline, selection) {
     head: head.trim(),
     config,
     files,
+    fileHashes,
     base,
     baseline: { branch: branch.trim(), ref: config.base, sha: base },
     pages: selectedPages,
