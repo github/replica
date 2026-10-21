@@ -5,7 +5,8 @@
   height: 100%;
   border: 1px solid var(--hub-border-muted);
   border-radius: 0.75rem;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .review-comments-sidebar__header {
