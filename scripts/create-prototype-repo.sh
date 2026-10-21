@@ -137,7 +137,13 @@ git init -q --initial-branch=main "$temporary/files"
 mkdir -- "$destination"
 created="$destination"
 cp -Rp -- "$temporary/files/." "$destination/"
+if ! git -C "$destination" add --force --all -- . ||
+   ! git -C "$destination" commit -q -m "chore: initialize prototype" \
+     -m "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"; then
+  printf 'Could not create the initial commit. Check the Git error above, configure user.name and user.email or resolve signing or hook failures, then rerun the installer. The incomplete destination will be removed.\n' >&2
+  exit 1
+fi
 created=""
 
-printf 'Created %s from %s (%s) with %s files and a new, uncommitted Git repository.\n' "$destination" "$starter_name" "$starter_id" "$count"
+printf 'Created %s from %s (%s) with %s files committed on main in a new Git repository.\n' "$destination" "$starter_name" "$starter_id" "$count"
 printf 'Start a new agent session in that directory. Follow AGENTS.md and README.md to run the included app.\n'

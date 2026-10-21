@@ -43,6 +43,8 @@ node --test scripts/create-prototype-repo.test.mjs scripts/setup-replica-plugin.
 
 Checkout creation copies tracked files with their current working-tree contents. It excludes untracked files, dependencies, generated output and source Git metadata. New files must be staged before this path includes them; commits are not required. The downloader uses validated regular files from the source archive. Both paths reject linked files, unsafe paths, unsupported entries and existing destinations.
 
+Both creation paths commit every copied file, including files matched by starter ignore rules, in a new repository on `main` with no remote. The initial commit fixes the missing-`HEAD` failure that prevents worktrees and branch-based tools from starting. Creation uses the caller's Git identity and configuration; staging or commit failures remove the incomplete destination and report recovery guidance.
+
 Starter CI expands the catalog across its Node matrix and checks assembled repositories. The tooling suite covers local and archive creation, selection, future entries, collisions, safety and copied guidance. [Shared testing guidance](testing-and-review.md) owns the additional selector and workflow checks.
 
 Rendered acceptance is separate from assembly and build checks. Follow the selected app's instructions and the shared browser workflow when checking the included UI. An unavailable package or browser is an explicit verification blocker, not a reason to change dependencies or claim a rendered pass.

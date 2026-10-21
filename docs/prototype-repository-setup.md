@@ -15,7 +15,7 @@ Reuse the repository name, destination, starter choice, references, and decision
 | Existing empty directory or repository | Explain that the installer requires a new destination. Propose creating the starter in a separate directory and reviewing how to integrate it into the intended repository. Get approval before transferring files or changing repository configuration. |
 | Existing repository with another app | Agree whether to adapt that app or create a separate prototype repository before installing anything. Preserve existing files and history. |
 
-A local repository needs no GitHub credentials or Hub. If the user also requests a GitHub repository, resolve its owner and visibility before creating it. Follow the host's authorization rules for repository creation, commits, and pushes; local setup alone does not authorize them.
+A local repository needs no GitHub credentials or Hub. Starter creation includes an initial local commit. If the user also requests a GitHub repository, resolve its owner and visibility before creating it. Follow the host's authorization rules for remote repository creation and pushes; local setup alone does not authorize publication.
 
 When a reference app is supplied, retain it for the guidance and component work in step 4. A request to create the repository does not require a design-system questionnaire before copying the starter.
 
@@ -45,7 +45,9 @@ bash scripts/create-prototype-repo.sh --list
 bash scripts/create-prototype-repo.sh --starter coreai ../my-prototype
 ```
 
-Replace `coreai` with the chosen catalog ID. Both paths use the same creation implementation and assemble shared Replica tooling with only the selected app. They create an independent, uncommitted Git repository with no remote, require no GitHub credentials and publish nothing. The installer requires Bash, curl, tar and Git for download, or Bash and Git from a checkout. It does not require or install Node.js for copying, and it does not install app dependencies.
+Replace `coreai` with the chosen catalog ID. Both paths use the same creation implementation and assemble shared Replica tooling with only the selected app. They create an independent Git repository with all copied files in an initial commit on `main`, no remote and nothing published. This baseline provides the `HEAD` needed by worktrees and branch-based tools. The installer requires Bash, curl, tar and Git for download, or Bash and Git from a checkout. It does not require GitHub credentials, require or install Node.js for copying, or install app dependencies.
+
+Git must have an author identity configured through `user.name` and `user.email` or its standard environment variables. The installer uses the existing Git configuration without changing it. If staging or committing fails, it reports the Git error and removes the incomplete destination. Resolve identity, signing or hook failures before retrying.
 
 Before asking the user to accept the copied repository's Copilot app configuration, review `.github/github-app.yml` and the startup details in the copied `REPLICA.md`. Explain that session startup can install Copilot CLI globally when missing, install or enable the Replica plugin, and will run `npm ci`.
 
@@ -79,7 +81,7 @@ Guidance drafts are not active guidance. Installed tokens or packages are not pr
 
 ### Share the baseline on GitHub
 
-After reviewing the starter files, guidance, and starting pages, use the intended empty GitHub repository or create one with the agreed owner and visibility. Connect it as a remote named `origin`, make the initial commit, and push the intended default branch only when authorized. For an existing shared repository, follow its contribution process to merge the reviewed changes instead of replacing its remote or history. Ask an engineer for help with these Git steps if needed.
+After reviewing the starter files, guidance, and starting pages, commit any customizations after the installer's initial commit. Use the intended empty GitHub repository or create one with the agreed owner and visibility. Connect it as a remote named `origin` and push the intended default branch only when authorized. For an existing shared repository, follow its contribution process to merge the reviewed changes instead of replacing its remote or history. Ask an engineer for help with these Git steps if needed.
 
 Verify the repository's actual default branch contains the intended baseline before calling it ready for teammates or continuing to Hub repository connection. A local preview is not evidence of a published Hub Build.
 

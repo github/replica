@@ -27,6 +27,10 @@ const bash = process.platform === "win32" ? "C:\\Program Files\\Git\\bin\\bash.e
 const shellPath = path => path.replaceAll("\\", "/").replace(/^([A-Za-z]):\//, (_, drive) => `/${drive.toLowerCase()}/`)
 const shellEnvironment = {
   ...process.env,
+  GIT_AUTHOR_NAME: "Starter test",
+  GIT_AUTHOR_EMAIL: "starter-test@example.invalid",
+  GIT_COMMITTER_NAME: "Starter test",
+  GIT_COMMITTER_EMAIL: "starter-test@example.invalid",
   PATH: process.platform === "win32"
     ? `C:\\Program Files\\Git\\bin${delimiter}${process.env.PATH}`
     : process.env.PATH,
@@ -278,11 +282,11 @@ function workspace(t) {
   return directory
 }
 
-function run(destination, cwd, bootstrap = script, flags = []) {
+function run(destination, cwd, bootstrap = script, flags = [], environment = {}) {
   return spawnSync(bash, [shellPath(bootstrap), ...flags, ...(destination ? [shellPath(destination)] : [])], {
     cwd,
     encoding: "utf8",
-    env: { ...shellEnvironment, TMPDIR: shellPath(cwd) },
+    env: { ...shellEnvironment, TMPDIR: shellPath(cwd), ...environment },
   })
 }
 
@@ -446,7 +450,7 @@ function assertCopiedFiles(destination, checkout, source = "starters/minimal") {
     const output = path.split("/").slice(2).join("/")
     assert.deepEqual(readFileSync(join(destination, output)), readFileSync(join(checkout, path)), path)
   }
-  const actual = execFileSync("git", ["ls-files", "--others", "--exclude-standard", "-z"], {
+  const actual = execFileSync("git", ["ls-tree", "-r", "--name-only", "-z", "HEAD"], {
     cwd: destination,
   }).toString().split("\0").filter(Boolean).sort()
   assert.deepEqual(actual, paths.map(path => path.split("/").slice(2).join("/")).sort())
@@ -455,9 +459,43 @@ function assertCopiedFiles(destination, checkout, source = "starters/minimal") {
   }
   assert.equal(execFileSync("git", ["branch", "--show-current"], { cwd: destination }).toString().trim(), "main")
   assert.equal(execFileSync("git", ["remote"], { cwd: destination }).toString(), "")
-  assert.equal(spawnSync("git", ["rev-parse", "HEAD"], { cwd: destination }).status, 128)
-  assert.equal(execFileSync("git", ["ls-files"], { cwd: destination }).toString(), "")
+  assert.equal(execFileSync("git", ["rev-list", "--count", "HEAD"], { cwd: destination }).toString().trim(), "1")
+  assert.equal(execFileSync("git", ["status", "--porcelain"], { cwd: destination }).toString(), "")
 }
+
+test("the initial commit supports a new worktree and includes ignored starter files", t => {
+  const { directory, checkout, bootstrap } = checkoutFixture(t)
+  writeFileSync(join(checkout, "starters/minimal/.gitignore"), "src/example.txt\n")
+  execFileSync("git", ["add", "starters/minimal/.gitignore"], { cwd: checkout })
+  const destination = join(directory, "prototype")
+  const result = run(destination, directory, bootstrap)
+  assert.equal(result.status, 0, result.stderr)
+  assertCopiedFiles(destination, checkout)
+  const worktree = join(directory, "worktree")
+  execFileSync("git", ["worktree", "add", "-b", "prototype-change", worktree], { cwd: destination })
+  assert.deepEqual(
+    readFileSync(join(worktree, "src/example.txt")),
+    readFileSync(join(destination, "src/example.txt")),
+  )
+})
+
+test("commit failure reports recovery guidance and removes the incomplete destination", t => {
+  const { directory, bootstrap } = checkoutFixture(t)
+  const destination = join(directory, "prototype")
+  const result = run(destination, directory, bootstrap, [], {
+    GIT_AUTHOR_NAME: "",
+    GIT_AUTHOR_EMAIL: "",
+    GIT_COMMITTER_NAME: "",
+    GIT_COMMITTER_EMAIL: "",
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_CONFIG_GLOBAL: shellPath(join(directory, "missing-gitconfig")),
+  })
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /initial commit/i)
+  assert.match(result.stderr, /user\.name.*user\.email/)
+  assert.ok(!existsSync(destination))
+  assertNoTemporaryFiles(directory)
+})
 
 test("creates an independent Minimal repository with exactly the tracked app and common files", t => {
   const { directory, checkout, bootstrap } = checkoutFixture(t)
