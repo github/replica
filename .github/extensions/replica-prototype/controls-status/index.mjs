@@ -1,5 +1,5 @@
 import { plainText } from "../validate-controls/index.mjs"
-
+import { readHubObject } from "../read-hub-object/index.mjs"
 const STATUSES = new Set([
   "pending",
   "ready",
@@ -8,21 +8,24 @@ const STATUSES = new Set([
   "unsupported-runtime",
   "invalid-config",
 ])
-
 function text(value, limit) {
   return typeof value === "string" && value.length <= limit
 }
-
+function status(value) {
+  return STATUSES.has(value)
+}
 /** Projects runtime diagnostics without forwarding definitions, values or app callback results. */
-export function projectControlsStatus(value, prototypeUrl) {
+export function projectControlsStatus(input, prototypeUrl) {
+  const value = readHubObject(input)
   const url = typeof value?.url === "string" ? URL.parse(value.url) : null
   if (
+    !value ||
     !url ||
     (prototypeUrl && url.origin !== new URL(prototypeUrl).origin) ||
     url.username ||
     url.password ||
     !text(value.url, 16_384) ||
-    !STATUSES.has(value.status) ||
+    !status(value.status) ||
     !text(value.error, 1000) ||
     !Array.isArray(value.controls) ||
     value.controls.length > 10_000 ||
@@ -32,20 +35,20 @@ export function projectControlsStatus(value, prototypeUrl) {
   const controls = projectControls(value.controls)
   let runtime
   if (value.runtime !== undefined) {
+    const reported = readHubObject(value.runtime)
     if (
-      !value.runtime ||
-      typeof value.runtime !== "object" ||
-      !STATUSES.has(value.runtime.status) ||
-      !text(value.runtime.error, 1000) ||
-      !Array.isArray(value.runtime.controls) ||
-      value.runtime.controls.length > 10_000 ||
-      (value.runtime.status === "pending" && value.runtime.controls.length)
+      !reported ||
+      !status(reported.status) ||
+      !text(reported.error, 1000) ||
+      !Array.isArray(reported.controls) ||
+      reported.controls.length > 10_000 ||
+      (reported.status === "pending" && reported.controls.length)
     )
       throw new Error("The live canvas returned invalid runtime Controls diagnostics.")
     runtime = {
-      status: value.runtime.status,
-      error: plainText(value.runtime.error, 1000),
-      controls: projectControls(value.runtime.controls),
+      status: reported.status,
+      error: plainText(reported.error, 1000),
+      controls: projectControls(reported.controls),
     }
   }
   return {
@@ -58,11 +61,12 @@ export function projectControlsStatus(value, prototypeUrl) {
     ...(runtime ? { runtime } : {}),
   }
 }
-
 function projectControls(controls) {
-  return controls.map((control) => {
+  return controls.map((input) => {
+    const control = readHubObject(input)
     if (
-      !text(control?.scope, 64) ||
+      !control ||
+      !text(control.scope, 64) ||
       !text(control.id, 64) ||
       typeof control.available !== "boolean" ||
       typeof control.busy !== "boolean" ||

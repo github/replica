@@ -14,5 +14,5 @@
     "typeRoots": ["../../../hub/node_modules/@types"],
     "types": ["node"]
   },
-  "include": ["**/*.mts"]
+  "include": ["**/*.mts", "**/*.d.ts"]
 }
