@@ -49,7 +49,7 @@ Replace `coreai` with the chosen catalog ID. Both paths use the same creation im
 
 Before asking the user to accept the copied repository's Copilot app configuration, review `.github/github-app.yml` and the startup details in the copied `REPLICA.md`. Explain that session startup can install Copilot CLI globally when missing, install or enable the Replica plugin, and will run `npm ci`.
 
-Add the new directory to the Copilot app using **Projects → + → Local folder or repository**, then start a fresh session there. The session in the Replica checkout cannot discover the copied local skills.
+Add the new directory to the Copilot app using **Sessions → + → Open folder**, then start a fresh session there. The session in the Replica checkout cannot discover the copied local skills.
 
 Before ending the originating session, provide a paste-ready kickoff message headed **Prompt 1: Continue prototype repository setup**. Tell the user to paste it into the fresh session; a new session does not inherit the previous conversation. Include the user's goal, repository path, chosen starter ID and name, supplied references, requested milestone, settled decisions and approvals, completed actions, blockers, and next step.
 

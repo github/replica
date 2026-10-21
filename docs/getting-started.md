@@ -28,10 +28,10 @@ Ask your team for the prototype repository's GitHub URL, the Hub URL, and access
 
 Add the repository to the Copilot app:
 
-1. In the sidebar, click **+** beside **Projects**.
+1. In the sidebar, click **+** beside **Sessions**.
 2. Choose **Add GitHub repository**.
 3. Find and select the repository your team gave you.
-4. Once it appears under **Projects**, click **+** beside that repository to start a new session.
+4. Once it appears under **Sessions**, click **+** beside that repository to start a new session.
 
 If the repository is missing or access is denied, ask its maintainer to check your GitHub access. See [connecting a repository in Copilot](https://docs.github.com/en/copilot/get-started/quickstart-copilot-app#connecting-a-repository-or-folder) for app setup help.
 
