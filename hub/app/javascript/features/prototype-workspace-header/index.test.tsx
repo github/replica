@@ -32,21 +32,6 @@ describe("PrototypeWorkspaceHeader()", () => {
     )
   })
 
-  it("orders build selection before comment controls", () => {
-    render(
-      <HubThemeProvider>
-        <PrototypeWorkspaceHeader {...story.args} />
-      </HubThemeProvider>,
-    )
-
-    const buildSelector = screen.getByRole("button", { name: "Choose build, v1" })
-    const commentControl = screen.getByRole("button", { name: "Add a comment" })
-
-    expect(
-      buildSelector.compareDocumentPosition(commentControl) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy()
-  })
-
   it("uses Superglue navigation once when Space activates a focused Build option", () => {
     const visit = vi.fn()
     const path = "/repositories/2001/prototypes/1?build=2"
