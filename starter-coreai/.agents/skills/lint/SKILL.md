@@ -8,7 +8,7 @@ description: 'Type-check and lint the CoreAI app. USE WHEN: the user asks to "li
 Run checks from this app's directory. Fix errors caused by or directly related to the current task and report unrelated failures.
 
 1. `npm run type-check` — Generate React Router types and check TypeScript.
-2. `npm run lint` — Run ESLint. If editing components, invoke the `react-components` skill for guidance. See the [validation guide](../../../README.md#validate-changes) for current limitations.
+2. `npm run lint` — Run ESLint. If editing components, invoke the `react-components` skill for guidance.
 
 After fixing errors, rerun the affected command and inspect its result before claiming success. For CSS changes, follow the `css-styling` skill; these commands do not lint CSS.
 

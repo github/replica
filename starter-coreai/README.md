@@ -30,8 +30,6 @@ The production build is written to `build/client`. A production host must serve
 This package does not have automated tests. Validate changes with the commands above
 and manual browser checks.
 
-The lint command currently fails because its ESLint configuration imports a missing file.
-
 ## Features and variants
 
 Use [app/features.json](app/features.json) to register prototype features and design
