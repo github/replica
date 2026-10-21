@@ -48,7 +48,7 @@
   margin: 0 auto;
   margin-top: var(--hub-space-16);
   flex: none;
-  grid-column: 1 / -1;
+  grid-column: 1;
   grid-row: 2;
 }
 
