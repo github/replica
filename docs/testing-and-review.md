@@ -51,7 +51,7 @@ The [shared selection workflow](../.github/workflows/ci-changes.yml) calls [the 
 | `actions/build/` | Hub and build action; Hub uses the action for local packaging and browser checks |
 | Copilot extension and plugin catalog | Hub |
 | `packages/learning/` | Hub; its image, lint, and learning integration consume the package |
-| `starter/` and `starter-*/` | Hub; local setup uses Minimal and the Controls runtime suite checks a shared starter reference. Starter CI checks every catalog app and the common bundle separately |
+| `starters/` except its catalog | Hub; local setup uses Minimal and the Controls runtime suite checks a shared starter reference. Starter CI checks every catalog app and the shared bundle separately |
 | Starter catalog, creation, installer and starter-check scripts | Neither; Starter CI covers them |
 | Root contributor documents, shared and Hub guides, skills, and documentation assets | Neither |
 | Workflow changes, selector changes, and unclassified paths | Both |

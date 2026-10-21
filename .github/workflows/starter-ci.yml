@@ -4,8 +4,7 @@ on:
   pull_request:
     paths:
       - ".github/workflows/starter-ci.yml"
-      - "starter*/**"
-      - "starters.tsv"
+      - "starters/**"
       - "scripts/check-starter.sh"
       - "scripts/starter-catalog.sh"
       - "scripts/starter-catalog.test.mjs"
@@ -18,8 +17,7 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/starter-ci.yml"
-      - "starter*/**"
-      - "starters.tsv"
+      - "starters/**"
       - "scripts/check-starter.sh"
       - "scripts/starter-catalog.sh"
       - "scripts/starter-catalog.test.mjs"

@@ -8,7 +8,7 @@ if [[ $show_help -eq 1 ]]; then
   starter_usage
   exit 0
 fi
-read_starter_catalog "$source_root/starters.tsv"
+read_starter_catalog "$source_root/starters/catalog.tsv"
 if [[ $list_starters -eq 1 ]]; then
   print_starter_catalog
   exit 0
@@ -76,7 +76,7 @@ checkout_root="$(git -C "$source_root" rev-parse --show-toplevel 2>/dev/null || 
 if [[ -n "$checkout_root" ]]; then
   checkout_root="$(cd "$checkout_root" && pwd -P)"
 fi
-for bundle in starter-common "$starter_directory"; do
+for bundle in starters/shared "$starter_directory"; do
   starter="$source_root/$bundle"
   if [[ ! -d "$starter" || -L "$starter" ]]; then
     printf 'Starter directory is missing or linked: %s\n' "$bundle" >&2

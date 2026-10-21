@@ -6,21 +6,21 @@ Replica assembles one app with a shared tooling bundle. Installed repositories a
 
 | Source | Owns |
 | --- | --- |
-| `starters.tsv` | Stable IDs, source directories, display names and descriptions |
-| `starter/` | Minimal, its TanStack Router app and route scaffold |
-| `starter-coreai/` | CoreAI Sandbox, its React Router app, design-system skills and baseline context |
-| `starter-common/` | Replica skills and context templates, plugin startup, browser configuration and workflow guides |
+| `starters/catalog.tsv` | Stable IDs, source directories, display names and descriptions |
+| `starters/minimal/` | Minimal, its TanStack Router app and route scaffold |
+| `starters/coreai/` | CoreAI Sandbox, its React Router app, design-system skills and baseline context |
+| `starters/shared/` | Replica skills and context templates, plugin startup, browser configuration and workflow guides |
 | `scripts/create-prototype-repo.sh` | Selection, safe assembly and independent Git initialization |
 | `scripts/install-starter.sh` | Download and archive validation before calling the same creator |
 
-Shared files keep their installed relative paths. For example, `starter-common/.agents/skills/` becomes `.agents/skills/`. The selected app uses the same destination root. Shared and app-owned files may share directories, but may not overwrite files or replace a file with a directory. Creation rejects collisions.
+Shared files keep their installed relative paths. For example, `starters/shared/.agents/skills/` becomes `.agents/skills/`. The selected app uses the same destination root. Shared and app-owned files may share directories, but may not overwrite files or replace a file with a directory. Creation rejects collisions.
 
 Each app owns its README and `AGENTS.md`; both refer to the copied `REPLICA.md` and `REPLICA-AGENTS.md`. Shared guides use the assembled layout, not monorepo-relative paths. Assemble a repository to check those links and integrations.
 
 ## Add a starter
 
-1. Add an app directory named `starter-<name>`. Keep its source, router, components, dependencies, lockfile, examples and app-specific skills there.
-2. Add one tab-separated row to [the catalog](../starters.tsv): `id`, `source-directory`, `display-name`, `description`. All fields are required. IDs use lowercase letters, digits and single hyphens between words. IDs and source directories must be unique. `starter-common` is reserved. The existing `starter` directory is also a valid source.
+1. Add an app directory named `starters/<name>`. Keep its source, router, components, dependencies, lockfile, examples and app-specific skills there.
+2. Add one tab-separated row to [the catalog](../starters/catalog.tsv): `id`, `source-directory`, `display-name`, `description`. All fields are required. IDs use lowercase letters, digits and single hyphens between words. Source directories use the same naming rule directly under `starters/`, with the repository-relative path recorded in the catalog. IDs and source directories must be unique. `starters/shared` is reserved.
 3. Declare `engines.node` and the npm scripts `dev`, `build`, `preview` and `check:starter`. The last script runs that app's own checks and production build; it need not use another app's test or formatting tools. Starter CI runs the supported Node majors listed in its workflow.
 4. Produce `dist/index.html` and assets that pass the existing Build contract. Do not add deployment credentials, Hub targets or publishing infrastructure to the template.
 5. Link app instructions to the copied shared instructions. Include baseline active context for preconfigured examples when shared authoring skills need it. Keep unknown consuming-team policy explicit; do not manufacture product requirements or silently activate setup drafts.

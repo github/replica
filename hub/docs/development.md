@@ -45,7 +45,7 @@ bin/devcontainer dev
 
 The option also works with `dev`, `rebuild`, `storybook`, `exec`, and `shell`; place it before any `exec` command. It selects the registry for the CLI image's npm installation and the container's initial dependency setup. After startup succeeds, it saves the registry in the container user's npm configuration, so later npm commands, including CI's `npm ci`, use it without repeating the option. It also updates an existing container without rebuilding or removing it.
 
-The registry must serve the locked dependencies for Hub and `packages/learning/`, plus `starter/` and `actions/build/` for local mode. `up` installs the first two; the first local-mode `dev` also prepares the example and shared build dependencies.
+The registry must serve the locked dependencies for Hub and `packages/learning/`, plus `starters/minimal/` and `actions/build/` for local mode. `up` installs the first two; the first local-mode `dev` also prepares the example and shared build dependencies.
 
 Use an HTTP(S) registry URL without credentials, whitespace, a query, or a fragment. This option does not configure an HTTP network proxy or disable TLS verification. It does not change the host's npm settings, repository `.npmrc` files, lockfiles, or the production image. Without the option, the wrapper leaves the registry configuration unchanged.
 

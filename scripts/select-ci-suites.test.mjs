@@ -100,7 +100,7 @@ test("path selection keeps documentation and installer scripts out while coverin
     "scripts/create-prototype-repo.test.mjs",
     "scripts/install-starter.sh",
     "scripts/setup-replica-plugin.test.mjs",
-    "starters.tsv",
+    "starters/catalog.tsv",
     "scripts/starter-catalog.sh",
     "scripts/check-starter.sh",
     "scripts/starter-ci-matrix.sh",
@@ -114,17 +114,17 @@ test("path selection keeps documentation and installer scripts out while coverin
     ".github/extensions/replica-prototype/extension.mjs",
     ".github/plugin/README.md",
     "packages/learning/src/index.mjs",
-    "starter/.agents/skills/prototype-controls/SKILL.md",
-    "starter/src/app/router.tsx",
-    "starter/package-lock.json",
-    "starter/.prototype",
-    "starter/.agents/skills/setup-skills/SKILL.md",
-    "starter/src/App.jsx",
-    "starter-common/.agents/skills/setup-skills/SKILL.md",
-    "starter-common/scripts/setup-replica-plugin.mjs",
-    "starter-coreai/src/App.tsx",
-    "starter-coreai/package-lock.json",
-    "starter-future-team/src/App.tsx",
+    "starters/minimal/.agents/skills/prototype-controls/SKILL.md",
+    "starters/minimal/src/app/router.tsx",
+    "starters/minimal/package-lock.json",
+    "starters/minimal/.prototype",
+    "starters/minimal/.agents/skills/setup-skills/SKILL.md",
+    "starters/minimal/src/App.jsx",
+    "starters/shared/.agents/skills/setup-skills/SKILL.md",
+    "starters/shared/scripts/setup-replica-plugin.mjs",
+    "starters/coreai/src/App.tsx",
+    "starters/coreai/package-lock.json",
+    "starters/future-team/src/App.tsx",
   ]) {
     assert.deepEqual(selectCiSuites([path]), { hub: true, build_action: false }, path)
   }
@@ -138,7 +138,7 @@ test("path selection keeps documentation and installer scripts out while coverin
 
 test("mixed changes union selections and unknown or CI configuration paths select both suites", () => {
   assert.deepEqual(
-    selectCiSuites(["docs/guide.md", "hub/app/models/prototype.rb", "starter/src/App.jsx"]),
+    selectCiSuites(["docs/guide.md", "hub/app/models/prototype.rb", "starters/minimal/src/App.jsx"]),
     { hub: true, build_action: false },
   )
   for (const path of [

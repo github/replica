@@ -60,7 +60,7 @@ read_starter_catalog() {
   starter_directories=()
   starter_names=()
   starter_descriptions=()
-  if [[ ! -f "$catalog" || -L "$catalog" ]]; then
+  if [[ ! -f "$catalog" || -L "$catalog" || -L "$(dirname "$catalog")" ]]; then
     printf 'Starter catalog is missing or linked: %s\n' "$catalog" >&2
     return 1
   fi
@@ -69,7 +69,7 @@ read_starter_catalog() {
     [[ -z "$line" || "$line" == \#* ]] && continue
     IFS=$'\t' read -r id directory name description extra <<< "$line"
     if [[ ! "$id" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ||
-          ! "$directory" =~ ^starter(-[a-z0-9]+)*$ || "$directory" == starter-common ||
+          ! "$directory" =~ ^starters/[a-z0-9]+(-[a-z0-9]+)*$ || "$directory" == starters/shared ||
           -z "$name" || -z "$description" || -n "$extra" ||
           "$line" == "$tab"* || "$line" == *"$tab" || "$line" == *"$tab$tab"* ||
           "$line" == *$'\r'* || "$ids" == *" $id "* || "$directories" == *" $directory "* ]]; then

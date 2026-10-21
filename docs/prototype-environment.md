@@ -36,7 +36,7 @@ Copilot checks the sources, offers any needed package installations for your app
 
 Try a small change using the approved guidance. Confirm that Copilot uses the intended components and patterns, not just similar-looking replacements. Have an engineer resolve package or build problems before the repository becomes your team's starting point.
 
-The selected app's README explains its examples and commands. The shared [Replica workflow guide](../starter-common/REPLICA.md) and [troubleshooting guide](../starter-common/SETUP.md) are copied into every repository and cover canvas integration and installation errors.
+The selected app's README explains its examples and commands. The shared [Replica workflow guide](../starters/shared/REPLICA.md) and [troubleshooting guide](../starters/shared/SETUP.md) are copied into every repository and cover canvas integration and installation errors.
 
 ## 3. Prepare useful starting pages
 

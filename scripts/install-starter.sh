@@ -58,10 +58,8 @@ while IFS= read -r member; do
     printf 'Replica source archive contains an unsafe path: %s\n' "$member" >&2
     exit 1
   fi
-  bundle="${relative%%/*}"
   if [[ "$member" == "$archive_root/" ||
-        "$bundle" =~ ^starter(-[a-z0-9]+)*$ ||
-        "$relative" == starters.tsv ||
+        "$relative" == starters || "$relative" == starters/* ||
         "$member" == "$archive_root/scripts" ||
         "$member" == "$archive_root/scripts/" ||
         "$member" == "$archive_root/scripts/starter-catalog.sh" ||
@@ -79,9 +77,9 @@ while IFS= read -r member; do
   case "$member" in
     "$archive_root/scripts/create-prototype-repo.sh") has_script=1 ;;
     "$archive_root/scripts/starter-catalog.sh") has_helper=1 ;;
-    "$archive_root/starters.tsv") has_catalog=1 ;;
+    "$archive_root/starters/catalog.tsv") has_catalog=1 ;;
   esac
-  if [[ "$bundle" =~ ^starter(-[a-z0-9]+)*$ &&
+  if [[ "$relative" == starters/* &&
         ( "$relative" == */.git || "$relative" == */.git/* ) ]]; then
     printf 'Replica source archive contains Git metadata.\n' >&2
     exit 1
@@ -98,7 +96,7 @@ if [[ $has_script -ne 1 || $has_helper -ne 1 || $has_catalog -ne 1 ]]; then
 fi
 
 if ! tar -xzf "$archive" -C "$temporary" \
-    "$archive_root/starters.tsv" "$archive_root/scripts/starter-catalog.sh" \
+    "$archive_root/starters/catalog.tsv" "$archive_root/scripts/starter-catalog.sh" \
     "$archive_root/scripts/create-prototype-repo.sh"; then
   printf 'Could not extract the Replica setup files.\n' >&2
   exit 1
@@ -111,10 +109,10 @@ fi
 source "$temporary/$archive_root/scripts/starter-catalog.sh"
 parse_starter_arguments "$@"
 if [[ $show_help -eq 0 && $list_starters -eq 0 ]]; then
-  read_starter_catalog "$temporary/$archive_root/starters.tsv"
+  read_starter_catalog "$temporary/$archive_root/starters/catalog.tsv"
   select_starter
   if ! tar -xzf "$archive" -C "$temporary" \
-      "$archive_root/starter-common" "$archive_root/$starter_directory"; then
+      "$archive_root/starters/shared" "$archive_root/$starter_directory"; then
     printf 'Could not extract the selected Replica starter and shared tooling.\n' >&2
     exit 1
   fi

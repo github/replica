@@ -67,7 +67,7 @@ bash scripts/check-starter.sh minimal ../check-minimal
 bash scripts/check-starter.sh coreai ../check-coreai
 ```
 
-Edit generic Replica skills and context templates under `starter-common/.agents/`. App-specific skills and baseline context stay with the app. Keep consuming-team context separate from shared files. Local-checkout creation includes tracked files with working-tree edits; stage new files before checking assembly, without committing them.
+Edit generic Replica skills and context templates under `starters/shared/.agents/`. App-specific skills and baseline context stay with the app. Keep consuming-team context separate from shared files. Local-checkout creation includes tracked files with working-tree edits; stage new files before checking assembly, without committing them.
 
 For selection, archive safety, static context links, plugin setup and CI selection, run `node --test scripts/create-prototype-repo.test.mjs scripts/setup-replica-plugin.test.mjs scripts/select-ci-suites.test.mjs` from the repository root. These checks do not verify agent authoring, semantic preservation or activation behavior; use the setup skill's real-host evaluation protocol for that evidence.
 

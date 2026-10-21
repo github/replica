@@ -21,4 +21,4 @@ jobs:
         with:
           bundler-cache: true
           working-directory: hub
-      - run: DEPENDENCY_AGE_ROOT=.. DEPENDENCY_AGE_EXCLUDED_PATHS=starter bin/check-dependency-age
+      - run: DEPENDENCY_AGE_ROOT=.. DEPENDENCY_AGE_EXCLUDED_PATHS=starters bin/check-dependency-age
