@@ -43,11 +43,12 @@
 
 .review-comments-sidebar__body {
   display: flex;
+  width: 100%;
   flex-direction: column;
   min-height: 0;
   flex: 1;
   overflow: auto;
-  margin-inline: calc(-1 * var(--hub-space-8)) calc(-1 * var(--hub-space-4));
+  margin-inline: -2px 0;
   padding-inline: var(--hub-space-8) var(--hub-space-4);
 }
 
