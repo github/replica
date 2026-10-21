@@ -2,6 +2,8 @@
 
 A React Router single-page app for prototyping experiences with `@coreai-ds/react-components`.
 
+The profile displays a sample identity. Theme and Azure OpenAI settings are available from its menu.
+
 ## Run locally
 
 Run commands from this app's directory:

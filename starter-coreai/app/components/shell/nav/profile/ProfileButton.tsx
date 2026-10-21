@@ -5,23 +5,18 @@ import type { JSX } from 'react';
 import {
   Avatar,
   Button,
-  Divider,
   Persona,
   Popover,
   PopoverSurface,
   PopoverTrigger,
   Text,
 } from '@coreai-ds/react-components';
-import { Link } from '~/components/common';
 
 import styles from './ProfileButton.module.css';
-import { ArrowExit20Regular } from '@fluentui/react-icons';
 import { ThemePicker } from './ThemePicker';
 import { AzureOpenAISettingsDialog } from './AzureOpenAISettingsDialog';
-import { useUserInfo } from '~/hooks/useUserInfo';
 
 export function ProfileButton(): JSX.Element {
-  const { data: userInfo, isLoading } = useUserInfo();
   return (
     <Popover
       positioning={{
@@ -34,11 +29,11 @@ export function ProfileButton(): JSX.Element {
     >
       <PopoverTrigger disableButtonEnhancement>
         <Button
+          aria-label="Profile"
           appearance="subtle"
           icon={
             <Avatar
-              // image={{ src: profileImageSrc, alt: '' }}
-              role="presentation" // Override default img because alt text is always empty
+              role="presentation"
               size={24}
             />
           }
@@ -55,12 +50,12 @@ export function ProfileButton(): JSX.Element {
             className={styles.persona}
             primaryText={
               <Text foreground={1} preset="heading4">
-                {isLoading ? 'Loading...' : userInfo?.userDetails || 'User Name'}
+                User Name
               </Text>
             }
             secondaryText={
               <Text preset="body" foreground={2}>
-                {isLoading ? '...' : userInfo?.identityProvider || 'Unknown'}
+                Prototype user
               </Text>
             }
           />
@@ -69,19 +64,6 @@ export function ProfileButton(): JSX.Element {
           </Text>
           <ThemePicker className={styles.dropdownContainer} />
           <AzureOpenAISettingsDialog className={styles.settingsButton} />
-          {/* <LanguagePicker
-            className={styles.dropdownContainer}
-            onPendingChange={setPendingLanguage}
-            pendingLanguage={pendingLanguage}
-          /> */}
-          <Divider />
-          <Link
-            className={styles.signOut}
-            to={'/.auth/logout'} //{`/${routePrefix}/auth/logout`}
-            reloadDocument
-          >
-            <ArrowExit20Regular /> Sign out
-          </Link>
         </div>
       </PopoverSurface>
     </Popover>

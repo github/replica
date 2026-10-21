@@ -27,13 +27,6 @@
   color: var(--colorNeutralForeground3);
 }
 
-.signOut {
-  display: flex;
-  gap: var(--spacingXS);
-  align-items: center;
-  padding: var(--spacingSNudge) var(--spacingXS);
-}
-
 .projectDetails {
   display: flex;
   gap: var(--spacingXS);
