@@ -3,6 +3,9 @@
   flex-direction: column;
   width: 100%;
   height: 100%;
+  border: 1px solid var(--hub-border-muted);
+  border-radius: var(--hub-radius-large);
+  overflow: hidden;
 }
 
 .review-comments-sidebar__header {
