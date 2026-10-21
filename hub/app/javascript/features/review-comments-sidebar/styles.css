@@ -36,6 +36,10 @@
   background: transparent;
 }
 
+.review-comments-sidebar > .review-comment-filter-controls {
+  padding-inline: var(--hub-space-16);
+}
+
 .review-comments-sidebar__close:focus-visible {
   outline: 2px solid var(--hub-focus);
   outline-offset: 1px;

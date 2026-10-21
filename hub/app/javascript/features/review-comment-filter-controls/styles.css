@@ -2,7 +2,7 @@
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-  padding: 0 var(--hub-space-16);
+  padding: 0;
 }
 
 .review-comment-filter-controls__search {
