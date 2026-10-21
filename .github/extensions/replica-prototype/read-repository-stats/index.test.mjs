@@ -246,6 +246,29 @@ esac
         assert.equal(refreshed.workflow.state, status === "completed" ? "failed" : "in_progress")
         assert.equal(refreshed.workflow.run.conclusion, expectedConclusion)
       }
+
+      for (const invalidRuns of [
+        null,
+        { runs },
+        [null],
+        [{ ...runs[0], headSha: 123 }],
+        [{ ...runs[0], headBranch: null }],
+      ]) {
+        await writeFile(path.join(workspace, "gh-runs.json"), JSON.stringify(invalidRuns))
+        const unavailable = await readRepositoryStats(context)
+        assert.equal(unavailable.workflow.state, "unavailable")
+        assert.equal(unavailable.workflow.run, null)
+        assert.match(unavailable.workflow.detail, /invalid workflow data/)
+      }
+
+      await writeFile(
+        path.join(workspace, "gh-runs.json"),
+        JSON.stringify([{ ...runs[0], databaseId: { unexpected: "run ID" } }]),
+      )
+      const missingPublisher = await readRepositoryStats(context)
+      assert.equal(missingPublisher.workflow.state, "succeeded")
+      assert.equal(missingPublisher.workflow.run.actor, null)
+      assert.match(missingPublisher.workflow.run.actorError, /publisher is unavailable/)
     } finally {
       delete process.env.TEST_COMMIT
       process.env.PATH = originalPath

@@ -132,6 +132,22 @@ describe("requestPublish()", () => {
     })
   })
 
+  it("rejects a malformed skill catalog before dispatching or replacing saved state", async () => {
+    await withContext(async (context) => {
+      const initial = await readState(context)
+      for (const catalog of [{ skills: "unavailable" }, { skills: [null] }]) {
+        await assert.rejects(
+          requestPublish(context, {
+            rpc: { skills: { list: async () => catalog } },
+            send: () => assert.fail("Must not dispatch"),
+          }),
+          /invalid skill catalog/,
+        )
+        assert.deepEqual(await readState(context), initial)
+      }
+    })
+  })
+
   it("keeps the required publishing safeguards in the bundled procedure", () => {
     assert.match(
       publishInstructions,
