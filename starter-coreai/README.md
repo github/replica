@@ -9,7 +9,7 @@ The profile displays a sample identity. Theme and Azure OpenAI settings are avai
 Run commands from this app's directory:
 
 ```sh
-npm install
+npm ci
 npm run dev
 ```
 

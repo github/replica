@@ -17,7 +17,7 @@ The CoreAI Prototype is a React Router single-page app for exploring agent and d
 Run commands from this app's directory:
 
 ```sh
-npm install
+npm ci
 npm run dev
 ```
 

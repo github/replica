@@ -11,7 +11,7 @@ Read the [local setup guide](../../../README.md#run-locally) before starting the
 
 First, check whether CoreAI Sandbox is already running at `http://127.0.0.1:5174/`. Verify the page belongs to this app before reusing the server. Vite defaults to strict port `5174`; if another app occupies it, leave that server untouched and use `npm run dev -- --port <available-port>`. Use the URL printed by the server.
 
-If startup fails because dependencies are missing, run `npm install` from this app's directory. Report persistent setup errors.
+If startup fails because dependencies are missing, run `npm ci` from this app's directory. Report persistent setup errors.
 
 If no CoreAI server is running, start `npm run dev` using the available terminal tool's background execution. Keep the returned process or session identifier so the server can be stopped later. If the user needs the server left running after the response, use supported persistent background execution when permitted. Stop assistant-owned session-attached validation servers before finishing, and never stop a user-owned server without permission. If persistent background execution is unavailable, explain the limitation instead of promising a persistent server.
 
