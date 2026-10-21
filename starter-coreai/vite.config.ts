@@ -5,8 +5,8 @@ import { fileURLToPath } from 'node:url';
 import { reactRouter } from '@react-router/dev/vite';
 import { defineConfig } from 'vite';
 
-export default defineConfig({
-  plugins: [reactRouter()],
+export default defineConfig(({ isPreview }) => ({
+  plugins: isPreview ? [] : [reactRouter()],
   resolve: {
     dedupe: ['react', 'react-dom'],
     alias: {
@@ -23,4 +23,4 @@ export default defineConfig({
     port: 5174,
     strictPort: true,
   },
-});
+}));

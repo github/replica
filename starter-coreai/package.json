@@ -7,10 +7,10 @@
   "scripts": {
     "dev": "react-router dev",
     "build": "react-router build",
-    "preview": "vite preview --outDir build/client",
+    "preview": "vite preview --outDir dist",
     "type-check": "react-router typegen && tsc --noEmit",
     "lint": "eslint .",
-    "clean": "rimraf build .react-router"
+    "clean": "rimraf build dist .react-router"
   },
   "dependencies": {
     "@griffel/react": "1.7.8",

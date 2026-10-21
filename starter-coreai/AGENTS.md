@@ -71,7 +71,7 @@ For design-system reference, follow the `coreai-ds-fluentui-react` skill from th
 - Register prototype options in `app/features.json`; do not build a second feature
   system.
 - Keep copyright and MIT license headers on source files.
-- Do not commit generated `build/` or `.react-router/` output.
+- Do not commit generated `build/`, `dist/`, or `.react-router/` output.
 
 ## Data and credentials
 

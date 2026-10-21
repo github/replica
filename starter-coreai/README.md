@@ -26,7 +26,7 @@ npm run build
 npm run preview
 ```
 
-The production build is written to `build/client`. A production host must serve
+The production build is written to `dist`. A production host must serve
 `index.html` as the fallback for application routes.
 
 This package does not have automated tests. Validate changes with the commands above

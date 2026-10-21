@@ -8,7 +8,7 @@ import tseslint from 'typescript-eslint';
 import appRules from './eslint.rules.js';
 
 export default tseslint.config(
-  { ignores: ['build/**', '.react-router/**'] },
+  { ignores: ['build/**', 'dist/**', '.react-router/**'] },
   eslint.configs.recommended,
   ...tseslint.configs.recommended.map((config) => ({
     ...config,
