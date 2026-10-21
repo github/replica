@@ -5,8 +5,6 @@
   inset: var(--hub-space-12) var(--hub-space-12) var(--hub-space-12) auto;
   width: min(20rem, calc(100% - var(--hub-space-24)));
   margin: 0;
-  padding: var(--hub-space-12);
-  border: 1px solid var(--hub-border-muted);
   border-radius: var(--hub-radius-large);
   background: var(--hub-canvas-default);
   box-shadow: var(--hub-shadow-floating);
