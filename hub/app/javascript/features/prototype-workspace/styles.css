@@ -9,8 +9,7 @@
   display: grid;
   flex: 1;
   min-height: 0;
-  padding: 2rem;
-  padding-bottom: var(--hub-space-16);
+  padding: var(--hub-space-24);
   width: 100%;
   grid-template-columns: minmax(0, 1fr) minmax(0, 0rem);
   grid-template-rows: minmax(0, 1fr) auto;
