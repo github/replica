@@ -2,6 +2,20 @@
 
 The Replica prototype canvas puts a local prototype in the Copilot app alongside repository status and a Publish control. Open it from **+ → Canvas** to find running HTTP servers in this checkout, then select **Connect** beside the one you want. When none is running, **Start dev server** is the primary action beside **Scan again**. Opening a canvas never executes a repository script; starting requires your click and does not send a chat request.
 
+## Prototype quality checks
+
+The source extension also adds a **Prototype checks** toolbar control. Repository
+owners configure version 2 `.replica/checks.json` with assessment inputs, guidance,
+optional page dependencies and command or agent runners. Checks report pass,
+fail or unverified outcomes rather than scores. They run in independent,
+read-only background workers; selecting findings and requesting a fix engages
+the foreground agent explicitly. See [Prototype quality checks](../../../hub/docs/prototype-canvas.md#prototype-quality-checks)
+for configuration, runtime-image requirements, result contracts and limitations.
+
+The versioned [configuration schema](checks-config/schema.v2.json) also powers the runtime validator. The starter includes a local schema reference and a dependency-free `npm run checks:validate` command for editor feedback and local/CI validation. JSON language servers provide completion and diagnostics, not automatic correction; AI access to those diagnostics depends on its host.
+
+Ask an agent to set up prototype checks, or invoke `/replica-setup-checks`. The plugin's bundled skill creates configuration and repository guidance, installs the shared schema and standalone validator when needed, and validates the final config. It works in repositories without the starter. Schema validity and actual check outcomes remain separate; automatic execution is opt-in.
+
 ## Local prototype controls
 
 **Controls** in the canvas toolbar reads `/controls.replica.json` from the preview and binds its eleven supported field types to ordinary app behavior. Existing sets, flat groups and conditions render in the shared panel. Controls work independently of Hub and comments; dismissal keeps the same iframe and route.

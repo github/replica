@@ -1,0 +1,114 @@
+{
+  "$schema": "../.github/extensions/replica-prototype/checks-config/schema.v2.json",
+  "version": 2,
+  "base": "origin/main",
+  "concurrency": 1,
+  "pages": [
+    {
+      "id": "canvas",
+      "name": "Replica Canvas",
+      "route": "/",
+      "inputs": [
+        "hub/app/javascript/application/prototype-canvas/**",
+        "hub/app/javascript/application/start-prototype-canvas/**",
+        "hub/app/javascript/components/prototype-*/**",
+        "hub/app/javascript/features/prototype-canvas-*/**",
+        "hub/app/javascript/hooks/use-canvas-*/**",
+        "hub/app/javascript/hooks/use-prototype-*/**",
+        "hub/vite.prototype-canvas.config.mjs",
+        "hub/app/javascript/components/**",
+        "hub/app/javascript/features/review-*/**",
+        "hub/app/javascript/features/prototype-workspace-header/review-comment-control/**",
+        "hub/app/javascript/hooks/use-prototype-review/**",
+        "hub/app/javascript/hooks/use-review-comments/**",
+        "hub/app/javascript/utils/**",
+        "hub/app/javascript/storybook/fixtures/review/**",
+        "hub/app/javascript/tokens/**",
+        "hub/package*.json",
+        "hub/tsconfig*.json",
+        "hub/.prettierrc.json",
+        "eslint.config.mjs",
+        ".github/extensions/replica-prototype/extension.mjs",
+        ".github/extensions/replica-prototype/checks-config/schema.v2.json",
+        ".github/extensions/replica-prototype/checks-config/files.mjs",
+        ".github/extensions/replica-prototype/checks-config/validate.mjs",
+        ".github/extensions/replica-prototype/**/index.mjs"
+      ]
+    }
+  ],
+  "ignore": [
+    ".replica/**",
+    "starter/**",
+    "scripts/**",
+    "tests/**",
+    "actions/**",
+    "README.md",
+    "hub/docs/**",
+    "hub/script/*.mjs",
+    ".github/extensions/replica-prototype/README.md",
+    ".github/extensions/replica-prototype/assets/**",
+    ".github/extensions/replica-prototype/skills/**",
+    ".github/extensions/replica-prototype/checks-config/shape.cjs",
+    ".github/extensions/replica-prototype/checks-config/standalone.js",
+    ".github/extensions/replica-prototype/**/*.test.mjs"
+  ],
+  "checks": [
+    {
+      "id": "github-a11y-source",
+      "name": "Accessibility source review (GitHub example)",
+      "runner": { "type": "agent", "instructions": "starter/.replica/checks/github-a11y.md" },
+      "targets": ["canvas"],
+      "context": ["docs/coding-conventions.md", "hub/docs/coding-conventions.md"],
+      "automatic": false,
+      "timeoutSeconds": 300,
+      "criteria": [
+        {
+          "id": "semantics-and-names",
+          "name": "Semantics and accessible names"
+        },
+        {
+          "id": "keyboard-and-focus",
+          "name": "Keyboard and focus"
+        },
+        {
+          "id": "forms-and-feedback",
+          "name": "Forms and feedback"
+        },
+        {
+          "id": "content-and-motion",
+          "name": "Content and motion"
+        }
+      ]
+    },
+    {
+      "id": "github-code-quality-source",
+      "name": "Code-quality source review (GitHub example)",
+      "runner": {
+        "type": "agent",
+        "instructions": "starter/.replica/checks/github-code-quality.md"
+      },
+      "targets": ["canvas"],
+      "context": ["docs/coding-conventions.md", "hub/docs/coding-conventions.md"],
+      "automatic": false,
+      "timeoutSeconds": 300,
+      "criteria": [
+        {
+          "id": "typing-and-lint-patterns",
+          "name": "Type safety and lint patterns"
+        },
+        {
+          "id": "react-correctness",
+          "name": "React hooks and state"
+        },
+        {
+          "id": "errors-and-async",
+          "name": "Errors and async behavior"
+        },
+        {
+          "id": "maintainability",
+          "name": "Maintainability"
+        }
+      ]
+    }
+  ]
+}

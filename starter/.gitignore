@@ -4,3 +4,8 @@ dist
 *.local
 **/__pycache__/
 *.pyc
+.replica/*
+!.replica/checks.json
+!.replica/checks.schema.json
+!.replica/validate-checks.mjs
+!.replica/checks/

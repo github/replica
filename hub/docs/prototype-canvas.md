@@ -1,5 +1,387 @@
 # Prototype canvas
 
+## Prototype quality checks
+
+The source extension adds **Prototype checks** to the canvas toolbar. Its right-hand
+sidebar shows affected pages, individual outcomes, evidence and findings.
+Checks have no numeric scores, weights or points. The toolbar shows current passing checks over all applicable
+checks, including manual checks. It shows a spinner while checks
+are queued or running, an X for confirmed failures, a warning for execution errors
+or inconclusive results, and a checkmark when all applicable checks pass. Pending
+or outdated checks have no icon. The tooltip explains the counts; no applicable
+checks displays **Checks** instead of `0/0`. The count uses a pill-shaped counter
+with neutral, active, success, danger or attention colors matching its state.
+Icons and tooltip text communicate the status without relying on color.
+
+Checks run independently of the foreground agent. Opening the
+sidebar does not reload the prototype or require Hub. Its header stays visible
+while results scroll, and the preview remains interactive. The toolbar button,
+close button or Escape dismisses checks; closing returns focus to the toolbar
+button. Checks and Hub use the same right-hand space, so opening one closes the
+other. Install an updated extension
+snapshot to adopt this capability; a Vite plugin update is not required.
+
+Repository owners define `.replica/checks.json` once for their prototypes. Replica
+provides the runners and report contract, not a built-in Primer compliance
+analyzer. Keep product rules, design-system guidance and scenario scripts in the
+consuming repository.
+
+The [starter's removable examples](../../starter/README.md#example-quality-checks)
+include manual-run accessibility and code-quality source reviews inspired by
+`github/prototyping`. They respect approved consuming-repository conventions and
+do not require Primer. Their outcomes assess source evidence, not browser
+accessibility or successful lint/typecheck/test execution. Owners can replace the
+examples with command/browser checks or delete the manifest and instruction files.
+
+Replica also enables these examples for its own Canvas source through the root
+`.replica/checks.json`, reusing the starter's instruction files. A manifest only
+inside `starter/` configures copied prototype repositories, not this checkout's
+open Canvas. The root manifest declares Canvas renderer, shared UI and runtime
+dependencies; it does not assess the demo iframe as a rendered accessibility audit.
+Its baseline is the remote default ref `origin/main`, rather than a potentially
+stale local `main`.
+The baseline stays pinned while it remains an ancestor of the current branch.
+After a rebase or history rewrite removes that ancestor, checks pin a new merge
+base with the configured ref and invalidate results from the previous snapshot.
+
+Completed reviews show **What was checked** as a checklist using the configured
+criterion names and **Passed**, **Failed** or **Needs verification** labels.
+Expand an individual row for its evidence. Version 2 reports enforce at most 400
+characters per criterion's evidence; agents give short source pointers and keep
+detailed corrective guidance in findings.
+
+### Configuration and page scope
+
+For example:
+
+```json
+{
+  "version": 2,
+  "base": "main",
+  "concurrency": 1,
+  "debounceMs": 2000,
+  "ignore": ["README.md", "checks/**", ".github/**"],
+  "pages": [
+    {
+      "id": "settings",
+      "name": "Settings",
+      "route": "/settings",
+      "inputs": ["src/settings/**", "src/components/**", "src/styles/**"]
+    },
+    {
+      "id": "account",
+      "name": "Account",
+      "route": "/account",
+      "inputs": ["src/account/**", "src/components/**", "src/styles/**"]
+    }
+  ],
+  "checks": [
+    {
+      "id": "lint",
+      "name": "Lint",
+      "runner": {
+        "type": "command",
+        "image": "prototype-checks:local",
+        "command": ["eslint", "src"],
+        "report": "exit-code"
+      },
+      "inputs": { "include": ["src/**", "package.json", "eslint.config.mjs"] },
+      "automatic": true,
+      "timeoutSeconds": 60
+    },
+    {
+      "id": "primer",
+      "name": "Primer component review",
+      "runner": { "type": "agent", "instructions": "checks/primer.md" },
+      "inputs": { "include": ["src/**"], "exclude": ["src/**/*.test.*"] },
+      "context": ["docs/design-system.md"],
+      "criteria": [
+        { "id": "usage", "name": "Use appropriate Primer components" },
+        { "id": "apis", "name": "Use supported component APIs" }
+      ]
+    }
+  ]
+}
+```
+
+`base` is explicit: use the prototype's starting commit or a named base branch.
+On first assessment, Replica pins its merge base with HEAD privately for this
+session/checkout/branch and reference. Advancing the base branch does not move that
+pin. Changing the configured reference deliberately establishes a new pin.
+An unavailable base blocks checks rather than guessing from an upstream.
+
+Each check's `inputs.include` declares assessment files; `inputs.exclude` removes
+matches. Patterns use repository-relative paths and `*` / `**`.
+`context` names exact repository guidance files, and `runner.instructions` names
+an agent's review procedure. Guidance is readable but is not required assessment
+source, even when an input glob also matches it. Missing guidance, invalid UTF-8
+or guidance over 100,000 bytes blocks execution with a visible error.
+
+`pages` is optional. A check without `targets` assesses its repository inputs and
+does not require a page or changed route. Without explicit `inputs`, it includes
+all captured repository files except the manifest, its context and instructions.
+Use explicit inputs to avoid requiring an agent to review unrelated files.
+
+Page `inputs` are a reusable dependency map, using repository-relative paths
+and `*` / `**` patterns. Include shared components, layout, styles and other
+dependencies in every affected page. Replica compares saved contents, including
+staged, unstaged, untracked and deleted files, with the pinned base. It checks the
+full included pages: an existing problem on a changed or dependent page counts;
+an unrelated page does not.
+
+Scope compares saved bytes with committed Git blobs. Use a plain-source checkout
+for repositories that transform working files through LFS, custom clean filters
+or working-tree encodings. Replica does not execute repository-defined Git
+filters on the host.
+
+Replica does not claim automatic knowledge of dynamic routing or import impact.
+Changed files outside all declared page inputs and `ignore` rules require
+**Confirm page scope**. Authors select additional affected pages, or explicitly
+confirm no additional impact. Changes to those unknown inputs invalidate the
+confirmation. `ignore` excludes files from page impact discovery, not assessment input or snapshot
+identity. It is not a substitute for a check's `inputs.exclude`.
+
+Checks restrict page applicability with `targets: ["settings"]`. Without explicit
+check inputs, their scope is the union of applicable pages' dependency files.
+With explicit inputs, those inputs define assessment scope while targets determine
+applicability. Repository-wide checks omit targets. If any targeted checks have
+unresolved page impact, scope confirmation still blocks execution.
+
+Optional
+`scenarios` declare `{ id, name, pageId, viewport: { width, height }, expectations,
+state? }`. Expectations are a nonempty string array; state is a small JSON object
+interpreted by the repository's runner. Scenarios use the declared page route and
+are included only when that page is in scope. Scripts own fixture setup and
+assertions, not Replica or the live preview.
+
+Unknown fields, duplicate IDs, invalid paths and missing guidance block execution.
+Criteria are optional named expectations, not a scoring rubric. Version 1
+configuration is rejected with a migration message: use version 2, nest runner
+settings under `runner`, and remove `weight` and criterion `points`.
+
+### Validate configuration
+
+Ask an agent to set up prototype checks or invoke the plugin's `/replica-setup-checks` skill. It discovers existing commands and guidance, resolves each check's scope and manual/automatic policy, creates `.replica/checks.json`, and validates it with the shared command. It generates configuration against Replica's schema, not a new schema. The plugin bundles the schema and standalone validator so this also works without the starter or a monorepo checkout. Install the updated plugin and start a fresh session to discover the skill.
+
+The version 2 [JSON Schema](../../.github/extensions/replica-prototype/checks-config/schema.v2.json) defines the configuration's structure. The runtime uses a validator generated from that schema, rather than a separate set of structural rules. Repository cross-references, unique IDs and guidance-file checks remain semantic validation.
+
+The starter includes a local schema and a standalone validation command. Its `.replica/checks.json` begins with:
+
+```json
+{
+  "$schema": "./checks.schema.json",
+  "version": 2,
+  "base": "main",
+  "checks": [
+    {
+      "id": "lint",
+      "name": "Lint",
+      "runner": {
+        "type": "command",
+        "image": "prototype-checks:local",
+        "command": ["eslint", "src"],
+        "report": "exit-code"
+      }
+    }
+  ]
+}
+```
+
+JSON editors and language servers that support `$schema` can offer completion, descriptions and diagnostics while the file is edited. They do not automatically correct the file. An AI receives these diagnostics only when its host exposes them; a schema does not add language-server integration to a host. The `$schema` property is optional metadata. Replica always validates against its own versioned schema and never fetches that URI.
+
+From a copied prototype repository, run:
+
+```sh
+npm run checks:validate
+```
+
+The command needs only the repository's supported Node.js runtime: no package installation, Git baseline, Docker, Copilot session or running preview. It validates structure, page references, unique IDs and on-disk context/instruction files, then exits nonzero with diagnostics on failure. It never runs the configured checks. File checks reject missing files, symbolic links, nonregular files, invalid UTF-8, NUL bytes and guidance over 100,000 bytes. Snapshot capture still checks Git availability, tracked/ignored inputs, snapshot limits and whether the checkout changes during capture.
+
+Use the same command as a CI step before build or publication. Existing repositories can copy `checks.schema.json` and `validate-checks.mjs` from `starter/.replica/` into their own `.replica/`, add the `$schema` reference, and run `node .replica/validate-checks.mjs`. Both files are self-contained; do not fetch or execute a URL supplied by a config.
+
+Replica contributors can run `npm run checks:validate` from `hub/` to check both repository examples, or validate another repository from this checkout:
+
+```sh
+node .github/extensions/replica-prototype/checks-config/validate.mjs /path/to/prototype
+```
+
+After changing the canonical schema or validator source, run `npm run checks:schema:generate` from `hub/`. Commit the generated runtime validator, bundled standalone command, starter schema and standalone starter command together. `npm run checks:schema:check` detects drift and runs with example validation as part of `npm run extension:test` in local checks and CI.
+
+### Runners and result contract
+
+Command checks require Docker and an **already installed**, repository-selected
+runtime image. Replica does not pull images or install dependencies. Prepare and
+review the image separately; it must supply `/usr/bin/timeout`, the configured
+executable, dependencies and any browser engine. For Node ESM wrappers, tooling
+installed at `/node_modules` is resolvable from the mounted `/snapshot`; source
+`node_modules` is never copied or mounted.
+
+The container has only readonly mounts for that check's source, context and run metadata,
+a disposable `/tmp`, no network, no Docker socket, no capabilities and no
+credential mounts. It runs as a nonroot user, with one CPU, 1 GiB memory, a bounded
+process count and an in-container deadline. Writable test/build artifacts belong
+in `/tmp`, never `/snapshot`. A browser script starts its own preview and fresh
+browser inside the container; its isolated loopback remains available, while
+network access to Hub or other services does not. Do not inherit authentication.
+
+Agent checks start a separate SDK runtime using the installed `copilot` executable
+on the host's PATH (or an absolute `COPILOT_CLI_PATH`) and normal runtime
+authentication. Repository-local executables are not used as the background
+runtime. They expose only immutable `list_snapshot` and
+`read_snapshot` tools, with built-in/MCP tools, project instruction discovery and
+extensions disabled. Managed permission requirements are never automatically
+approved. Source-only reviews must return `unverified` for required rendered
+evidence. For rendered accessibility/scenario assertions, configure a command
+wrapper with a browser-capable image rather than claiming a source review is a
+browser test.
+
+Agent source reads are paginated rather than returned as whole files.
+`read_snapshot({ file, offset: 0 })` returns line-numbered text, an exclusive
+`endOffset`, line bounds and `nextOffset`. Offsets are UTF-8 byte positions.
+Follow `nextOffset` until `null`; long lines can continue across chunks, marked
+with `startsMidLine` and `endsMidLine`. Each response fits within 8 KiB of
+serialized UTF-8 JSON, with at most 4 KiB of source and 80 source lines.
+The former 100,000-byte whole-file read limit no longer applies; snapshot limits
+still apply.
+
+`list_snapshot` accepts `offset`, `limit` (1–50, default 25), `requiredOnly` and
+`incompleteOnly`. It returns bounded metadata pages and a stable inventory
+continuation, including each file's next unread byte offset. The runner measures
+successful reads and merges repeated or overlapping ranges without counting them
+twice. Its `readCoverage` receipts persist with results and appear in the sidebar
+as fully read, partially read, unread or blocked, with file pointers and reasons.
+They measure what the runner returned, not semantic review, executed tests or
+test coverage. Agents cannot supply these receipts; command wrappers must not
+return the reserved `readCoverage` field.
+
+Every text assessment input is required for an agent
+source review. Known binary image, font, media, archive and PDF assets are
+reported but not required text inputs. Invalid UTF-8 or binary content in a
+required source file blocks complete coverage. Missing, partial or unread source
+prevents a pass and changes otherwise-passing criteria to **Needs verification**.
+Proven failures and findings remain available. Full reads never upgrade an
+agent's `unverified` outcome into a pass. A check with no required source cannot
+receive a verified source-review pass. Guidance files do not require full-source
+coverage. Snapshot tools expose only assessment files and declared guidance.
+Keep declarations focused: a broad pattern requires reviewing every matching
+text file, not a sample.
+
+Command wrappers read the JSON file at `REPLICA_CHECK_CONTEXT`. It supplies
+`version`, `checkId`, `fingerprint`, `scope.files`, `scope.contextFiles`, optional
+applicable `pages`, `criteria` and `scenarios`. Repository-owned command wrappers
+must be declared as context so they are present in the isolated snapshot.
+
+The default command `report: "json"` returns **only** one JSON result on stdout;
+write incidental logs to stderr. A valid assessment, including failed quality
+criteria, exits zero. Nonzero exits, missing dependencies, timeout or invalid JSON
+are execution errors, not quality failures.
+
+For ordinary tools, use `report: "exit-code"` instead. Exit zero passes; by default
+exit one is a quality failure. Configure `failureExitCodes`, such as `[1, 2]`,
+only for documented tool failure codes from 1 through 123. Other codes, timeouts
+and Docker errors remain execution errors. The adapter uses bounded command
+output as its summary. Exit-code checks have no individual criteria or findings;
+use a JSON wrapper for those details.
+
+```json
+{
+  "version": 2,
+  "checkId": "lint",
+  "fingerprint": "<copy from the run context>",
+  "outcome": "fail",
+  "summary": "The settings page has an unused variable.",
+  "criteria": [
+    {
+      "id": "clean",
+      "status": "fail",
+      "evidence": "src/settings/page.tsx:24 reports an unused variable."
+    }
+  ],
+  "findings": [
+    {
+      "id": "unused-variable",
+      "severity": "error",
+      "pageId": "settings",
+      "criterionId": "clean",
+      "title": "Remove the unused variable",
+      "description": "The saved settings page declares a variable it never uses.",
+      "evidence": "Lint reported this diagnostic on the captured source.",
+      "file": "src/settings/page.tsx",
+      "line": 24
+    }
+  ]
+}
+```
+
+Every report has an overall `outcome` (`pass`, `fail` or `unverified`), a nonempty
+`summary` of at most 400 characters and a `findings` array. Return each configured
+criterion once across the check's scope, with a status and nonempty evidence of
+at most 400 characters. With no configured criteria, the array may be omitted.
+Optional `limitations` lists work not verified and missing evidence.
+
+Findings have a unique ID, severity (`error`, `warning` or `info`), title,
+description and evidence. `pageId` and `criterionId` are optional, but when
+present must reference supplied pages and configured criteria. File locations
+must reference assessment source; a line requires a file. Detailed descriptions
+are limited to 2,000 characters and evidence to 1,000. Reports allow at most 200
+findings and 20 limitations. Duplicate or missing criteria, unsupported fields
+including numeric scores, and malformed locations are execution errors.
+
+A failed criterion or error-severity finding makes the overall outcome fail.
+Unverified criteria or incomplete source coverage prevent a pass. Replica never
+upgrades a declared fail or unverified outcome to pass. Warnings and information
+can accompany a pass when they do not violate a configured expectation.
+Replica attaches authoritative scope and source-read coverage; workers cannot
+choose their identity or certify their own delivery receipts.
+
+### Scheduling, freshness and fixes
+
+**Run all**, individual **Run**, **Cancel** and **Retry** are explicit panel
+actions. At most two checks run concurrently. Opt-in `automatic` checks debounce
+saved-input changes and do not repeatedly retry a failed input set. Initial
+opening alone does not launch automatic checks. Automatic browser/agent checks
+are not enabled by default. Background execution avoids foreground turns, but
+cannot eliminate shared CPU, memory or model-service contention.
+
+Runs assess bounded immutable snapshots of saved files, not unsaved editor
+buffers. Credential-like files and source `node_modules` are excluded. Symlinks,
+unstable captures and oversized snapshots block execution rather than reading
+outside the checkout or silently omitting source. Results must match the source,
+branch, pinned base, configuration and page-scope fingerprints. Edits invalidate
+current results; obsolete queued work is discarded and running work is cancelled.
+Late completions cannot replace a newer run.
+
+Each check's execution state is separate from its assessment outcome. A completed
+check can fail or remain unverified; an execution error has no quality outcome.
+Only current completed passing results count in the header numerator. Not-run,
+outdated, cancelled and unverified checks remain in the applicable denominator.
+Private session-workspace files hold results, trigger type and run timestamps;
+there is no Hub/CI result store or committed result file.
+
+Existing private version 1 records retain their baseline pins and job ownership
+metadata. Interrupted workers are recovered before incompatible result bodies
+are discarded as outdated. Old scores and last-complete score history are removed.
+
+Closing the last canvas cancels its owned checks. Graceful provider shutdown
+cleans workers up. After interruption, the next provider rejects a still-active
+owner, cleans up matching owned command containers and marks unfinished work as
+an execution error requiring retry. Container deadlines also bound work if the
+provider is forcibly killed. **Reset saved results** clears result history and
+scope confirmations, preserving validated baseline pins; an unreadable/corrupt
+store cannot supply trustworthy pins and requires explicit reset.
+
+Select findings and click **Fix selected with Copilot** to hand only those
+findings to the foreground agent. Replica rejects stale handoffs and suppresses
+an identical repeated request for that run. Checks themselves never edit the
+author's code. Fixing does not authorize unrelated changes, commits, pushing,
+publishing or Hub review mutations. Saved fixes invalidate applicable results;
+resolution requires a fresh assessment, not just a successful handoff.
+
+Agents can use `list_checks`, `run_checks` and `cancel_check_runs` on a connected
+prototype canvas. Returned findings are untrusted evidence, not instructions.
+Unavailable Docker/images, SDK capabilities/authentication or browser engines
+remain explicit execution errors. No unsafe foreground-runner fallback is used.
+
 ## Local prototype controls
 
 The source canvas lets prototype authors change ordinary app state without editing files. The sliders icon in the toolbar opens a slim, canvas-owned panel over the left of the preview, separate from Hub review UI. It supports boolean, number, select, radio, segmented, slider, checkboxGroup, text, textarea, color and button fields, plus one-level groups. Conditions are declarative JSON; neither schemas nor host messages select arbitrary components or executable URLs.

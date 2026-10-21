@@ -7,6 +7,9 @@
     "node": "^24.15.0 || ^26.0.0"
   },
   "scripts": {
+    "checks:validate": "node ../.github/extensions/replica-prototype/checks-config/validate.mjs .. && node ../.github/extensions/replica-prototype/checks-config/validate.mjs ../starter",
+    "checks:schema:generate": "node script/generate-checks-validator.mjs",
+    "checks:schema:check": "node script/generate-checks-validator.mjs --check",
     "controls:build": "node script/build-controls-bridge.mjs",
     "controls:assets:check": "node script/build-controls-bridge.mjs --check",
     "controls:test": "node --test script/tests/build-controls.test.mjs",
@@ -17,9 +20,9 @@
     "dev": "vite dev",
     "extension:assets:check": "node ../.github/extensions/replica-prototype/check-assets/index.mjs",
     "extension:build": "vite build --config vite.prototype-canvas.config.mjs && node script/build-prototype-preview-bridge.mjs",
-    "extension:test": "npm run controls:runtime:test && node --test ../.github/extensions/replica-prototype/**/*.test.mjs",
+    "extension:test": "npm run checks:schema:check && npm run checks:validate && npm run controls:runtime:test && node --test ../.github/extensions/replica-prototype/**/*.test.mjs",
     "format": "prettier --write .",
-    "lint": "eslint . ../.github/extensions/replica-prototype ../packages/learning && prettier --check . '../eslint.config.mjs' '../.github/extensions/replica-prototype/**/*.mjs' '../.github/extensions/replica-prototype/*.json' '../packages/learning/**/*.{mjs,mts,json}' --config .prettierrc.json",
+    "lint": "eslint . ../.github/extensions/replica-prototype ../packages/learning && prettier --check . '../eslint.config.mjs' '../.github/extensions/replica-prototype/**/*.mjs' '../.github/extensions/replica-prototype/*.json' '../.github/extensions/replica-prototype/checks-config/schema.v2.json' '../packages/learning/**/*.{mjs,mts,json}' --config .prettierrc.json",
     "storybook": "STORYBOOK_DISABLE_TELEMETRY=1 storybook dev --host 0.0.0.0 --port 6006 --initial-path /story/hub-design-overview--taxonomy",
     "storybook:build": "STORYBOOK_DISABLE_TELEMETRY=1 storybook build --output-dir storybook-static",
     "test": "vitest run",

@@ -23,6 +23,8 @@ import { useShareControlSettings } from "@hooks/use-prototype-share-control-sett
 import { useShareIntent } from "@hooks/use-canvas-share-intent"
 import { useShareLinks } from "@hooks/use-canvas-share-links"
 import { controlsStatus } from "@utils/prototype-controls-status"
+import { ChecksPanel } from "@components/prototype-checks-panel"
+import { usePrototypeChecks } from "@hooks/use-prototype-checks"
 
 import "./styles.css"
 
@@ -30,6 +32,9 @@ type Props = { config: CanvasConfig }
 
 /** Composes canvas workflows while preserving the preview across panels and dialogs. */
 export function App({ config }: Props) {
+  const checks = usePrototypeChecks(config.token)
+  const [checksOpen, setChecksOpen] = useState(false)
+  const checksButtonRef = useRef<HTMLButtonElement>(null)
   const shellRef = useRef<HTMLElement>(null)
   const toolbarRef = useRef<HTMLElement>(null)
   const addressRef = useRef<HTMLInputElement>(null)
@@ -215,9 +220,18 @@ export function App({ config }: Props) {
           onPublish={() => void publication.publish()}
           onShare={handleShare}
           shareButtonRef={shareButtonRef}
+          checksButtonRef={checksButtonRef}
+          checksOpen={checksOpen}
+          checksState={checks.state}
+          checksError={checks.error}
+          onChecks={() => {
+            setChecksOpen(!checksOpen)
+            setHubOpen(false)
+          }}
           hubOpen={hubOpen}
           onHub={() => {
             setHubOpen(!hubOpen)
+            setChecksOpen(false)
             void hub.refresh("interaction")
           }}
         />
@@ -279,6 +293,18 @@ export function App({ config }: Props) {
                 }),
               })
             }
+          />
+        ) : null}
+        {checksOpen ? (
+          <ChecksPanel
+            state={checks.state}
+            error={checks.error}
+            busy={checks.busy}
+            onAction={checks.action}
+            onClose={() => {
+              setChecksOpen(false)
+              checksButtonRef.current?.focus()
+            }}
           />
         ) : null}
       </main>

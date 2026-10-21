@@ -392,6 +392,8 @@ describe("startCanvasServer()", () => {
         ["/api/hub/events", "GET"],
         ["/api/hub/mention-candidates?repositoryId=5&prototypeId=4", "GET"],
         ["/api/publish", "POST"],
+        ["/api/checks", "GET"],
+        ["/api/checks/action", "POST"],
       ]) {
         for (const supplied of [undefined, "wrong", documentToken]) {
           const actionUrl = new URL(`${pathname}?document=${documentToken}`, server.url)

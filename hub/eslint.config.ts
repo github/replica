@@ -21,6 +21,7 @@ export default defineConfig(
       "storage/**",
       "**/replica-prototype/assets/**",
       "**/prototype-controls/controls-shape.cjs",
+      "**/replica-prototype/checks-config/shape.cjs",
       "**/learning/src/contracts-validators.cjs",
     ],
   },

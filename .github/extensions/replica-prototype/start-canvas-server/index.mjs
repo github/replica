@@ -25,6 +25,7 @@ import { createShareLinks } from "../share-links/index.mjs"
 import { startPreviewProxy } from "../start-preview-proxy/index.mjs"
 import { captureReviewRevision } from "../capture-review-revision/index.mjs"
 import { createLocalReviewComments } from "../create-local-review-comments/index.mjs"
+import { createPrototypeChecks } from "../prototype-checks/index.mjs"
 
 const ASSET_PATHS = new Map([
   [
@@ -58,6 +59,7 @@ export async function startCanvasServer(initialContext, session, options = {}) {
   const publishPreferences = createPublishPreferences(options.publishPreferencesDirectory)
   const comments = createCommentStore(initialContext.sessionWorkspacePath)
   const source = await readFile(new URL("../assets/canvas-bridge.js", import.meta.url), "utf8")
+  let checks = createPrototypeChecks(initialContext, session, options.checksOptions)
   const hubConnection = createHubConnection(() => context, options.hubOptions)
   const { hubClient, refreshDiscovery, selectHubOrigin, discoveries } = hubConnection
   const localComments = createLocalReviewComments(initialContext, {
@@ -290,6 +292,7 @@ export async function startCanvasServer(initialContext, session, options = {}) {
         publishPreferences,
         localComments,
         localScope,
+        checks,
       )
     } catch (error) {
       sendJson(
@@ -309,16 +312,22 @@ export async function startCanvasServer(initialContext, session, options = {}) {
     }
   })
 
-  await new Promise((resolve, reject) => {
-    server.once("error", reject)
-    server.listen(0, "127.0.0.1", () => {
-      server.off("error", reject)
-      resolve()
+  try {
+    await new Promise((resolve, reject) => {
+      server.once("error", reject)
+      server.listen(0, "127.0.0.1", () => {
+        server.off("error", reject)
+        resolve()
+      })
     })
-  })
+  } catch (error) {
+    await checks.close()
+    throw error
+  }
 
   const address = server.address()
   if (!address || typeof address === "string") {
+    await checks.close()
     await closeServer(server)
     throw new Error("Replica prototype server did not receive a loopback port.")
   }
@@ -335,12 +344,17 @@ export async function startCanvasServer(initialContext, session, options = {}) {
   try {
     preview = await connectPreview(context)
   } catch (error) {
+    await checks.close()
     await closeServer(server)
     throw error
   }
   return {
     url,
     setContext(nextContext) {
+      nextContext = {
+        ...nextContext,
+        sessionWorkspacePath: nextContext.sessionWorkspacePath ?? context.sessionWorkspacePath,
+      }
       // Each caller receives its own failure; a failed transition must not block later retries.
       previewUpdate = previewUpdate
         .catch(() => {})
@@ -355,13 +369,28 @@ export async function startCanvasServer(initialContext, session, options = {}) {
             preview = nextPreview
           }
           options.agentCommands?.close()
+          let previousChecks
+          if (
+            nextContext.repositoryPath !== context.repositoryPath ||
+            nextContext.sessionWorkspacePath !== context.sessionWorkspacePath
+          ) {
+            previousChecks = checks
+            checks = createPrototypeChecks(nextContext, session, options.checksOptions)
+          }
           context = nextContext
           hubConnection.invalidate()
-          await previous?.close()
+          try {
+            await previousChecks?.close()
+          } finally {
+            await previous?.close()
+          }
         })
       return previewUpdate
     },
     getHubStatus: hubStatus,
+    get checks() {
+      return checks
+    },
     reviewAction: async (action, input) => reviewAction(await hubClient(), action, input, comments),
     updateMetadata,
     close: async () => {
@@ -371,9 +400,13 @@ export async function startCanvasServer(initialContext, session, options = {}) {
         await previewUpdate
       } finally {
         try {
-          await preview.close()
+          await checks.close()
         } finally {
-          await closeServer(server)
+          try {
+            await preview.close()
+          } finally {
+            await closeServer(server)
+          }
         }
       }
     },
@@ -401,6 +434,7 @@ async function routeRequest(
   publishPreferences,
   localComments,
   localScope,
+  checks,
 ) {
   const requestUrl = new URL(request.url || "/", "http://127.0.0.1")
 
@@ -424,6 +458,21 @@ async function routeRequest(
   }
 
   requireToken(request, token)
+  if (requestUrl.pathname === "/api/checks" && request.method === "GET") {
+    sendJson(response, 200, await checks.action("status"))
+    return
+  }
+  if (requestUrl.pathname === "/api/checks/action" && request.method === "POST") {
+    const input = await readJson(request)
+    if (
+      !input ||
+      typeof input.action !== "string" ||
+      !["run", "cancel", "scope", "fix", "reset"].includes(input.action)
+    )
+      throw httpError(422, "Choose a supported prototype check action.")
+    sendJson(response, 200, await checks.action(input.action, input))
+    return
+  }
   const sharingRoute =
     /^\/api\/hub\/share-links\/(context|list|create|delete|open|controls-preference|authorize)$/.exec(
       requestUrl.pathname,

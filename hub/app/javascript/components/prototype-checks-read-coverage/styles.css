@@ -1,0 +1,16 @@
+.canvas-check-read-coverage ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.canvas-check-read-coverage li {
+  display: grid;
+  gap: var(--hub-space-4);
+  padding-block: var(--hub-space-8);
+  border-bottom: 1px solid var(--hub-border-muted);
+}
+
+.canvas-check-read-coverage small {
+  color: var(--hub-fg-muted);
+}

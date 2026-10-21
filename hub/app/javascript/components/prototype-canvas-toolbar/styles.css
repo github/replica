@@ -81,6 +81,44 @@
   align-items: center;
 }
 
+.canvas-checks-button {
+  --checks-fg: var(--hub-fg-muted);
+  --checks-bg: var(--hub-canvas-muted);
+}
+
+.canvas-toolbar .canvas-checks-button {
+  gap: var(--hub-space-4);
+}
+
+.canvas-checks-button[data-check-status="running"] {
+  --checks-fg: var(--hub-fg-link);
+  --checks-bg: color-mix(in srgb, var(--hub-fg-link) 12%, var(--hub-canvas-default));
+}
+
+.canvas-checks-button[data-check-status="passed"] {
+  --checks-fg: var(--hub-fg-success);
+  --checks-bg: color-mix(in srgb, var(--hub-fg-success) 12%, var(--hub-canvas-default));
+}
+
+.canvas-checks-button[data-check-status="failed"] {
+  --checks-fg: var(--hub-fg-danger);
+  --checks-bg: color-mix(in srgb, var(--hub-fg-danger) 12%, var(--hub-canvas-default));
+}
+
+.canvas-checks-button[data-check-status="warning"] {
+  --checks-fg: var(--hub-attention);
+  --checks-bg: var(--hub-attention-subtle);
+}
+
+.canvas-checks-button .canvas-checks-counter {
+  background: var(--checks-bg);
+  color: color-mix(in srgb, var(--checks-fg) 70%, var(--hub-fg-default));
+}
+
+.canvas-checks-button :is(svg, .hub-spinner) {
+  color: var(--checks-fg);
+}
+
 .canvas-publish-button[aria-busy="true"] svg {
   animation: canvas-publish-spin 1s linear infinite;
 }

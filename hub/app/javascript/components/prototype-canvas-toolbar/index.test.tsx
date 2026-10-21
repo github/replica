@@ -4,6 +4,7 @@ import { createRef } from "react"
 import { describe, expect, it, vi } from "vitest"
 
 import { Toolbar } from "."
+import type { ChecksState, CheckState } from "@utils/prototype-checks/types"
 
 const config = { name: "Demo", prototypeUrl: "http://localhost:3000", token: "local-token" }
 const props = {
@@ -16,6 +17,62 @@ const props = {
 }
 
 describe("Toolbar()", () => {
+  it.each([
+    ["running", null, ".hub-spinner", true],
+    ["completed", "fail", ".octicon-x", false],
+    ["completed", "unverified", ".octicon-alert", false],
+    ["completed", "pass", ".octicon-check", false],
+    ["not_run", null, null, false],
+    ["out_of_date", null, null, false],
+  ] as const)(
+    "shows compact counts and the appropriate indicator for %s / %s",
+    (status, outcome, icon, busy) => {
+      const check: CheckState = {
+        id: "lint",
+        name: "Lint",
+        runner: "command",
+        automatic: true,
+        status,
+        outcome,
+        summary: outcome ? "Result" : null,
+        error: null,
+        findings: [],
+        criteria: outcome ? [{ id: "result", status: outcome, evidence: "Result" }] : [],
+      }
+      const checksState: ChecksState = {
+        state: "ready",
+        pages: [],
+        availablePages: [],
+        unknown: [],
+        checks: [check],
+      }
+      const onChecks = vi.fn()
+      const checksButtonRef = createRef<HTMLButtonElement>()
+      render(
+        <ThemeProvider>
+          <Toolbar
+            {...props}
+            state={null}
+            checksState={checksState}
+            checksButtonRef={checksButtonRef}
+            onChecks={onChecks}
+            checksOpen
+          />
+        </ThemeProvider>,
+      )
+      const button = screen.getByRole("button", { name: /^Prototype checks:/ })
+      expect(button.textContent).toBe(outcome === "pass" ? "1/1" : "0/1")
+      expect(button).toHaveAttribute("aria-busy", String(busy))
+      expect(button).toHaveAttribute("aria-expanded", "true")
+      expect(button).toHaveAccessibleDescription(button.getAttribute("aria-label")!)
+      expect(checksButtonRef.current).toBe(button)
+      if (icon) expect(button.querySelector(icon)).not.toBeNull()
+      else expect(button.querySelector("svg, .hub-spinner")).toBeNull()
+      fireEvent.click(button)
+      expect(onChecks).toHaveBeenCalledOnce()
+    },
+  )
+
   it("places the labeled share icon to the right of Publish without disabling it during publishing", () => {
     const onShare = vi.fn()
     const shareButtonRef = createRef<HTMLButtonElement>()

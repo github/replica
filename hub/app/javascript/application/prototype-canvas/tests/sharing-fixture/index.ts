@@ -36,6 +36,15 @@ export function sharingFixture(
         case "/api/refresh":
           data = fixture.state
           break
+        case "/api/checks":
+          data = {
+            state: "unconfigured",
+            pages: [],
+            availablePages: [],
+            unknown: [],
+            checks: [],
+          }
+          break
         case "/api/publish/prepare":
           data = publishPreparation(fixture.state, fixture.remember)
           break

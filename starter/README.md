@@ -36,6 +36,39 @@ Deliberately excluded: any styling system (Primer, Tailwind, or otherwise),
 GitHub product UI, bundled product templates, and anything specific to a
 particular prototype. Add what your project actually needs.
 
+## Example quality checks
+
+The removable `.replica/checks.json` examples provide **Accessibility source
+review (GitHub example)** and **Code-quality source review (GitHub example)**,
+inspired by `github/prototyping`. Both run only when requested in the Canvas
+checks sidebar, report individual outcomes, and use the repository's
+approved conventions without requiring Primer or another component library.
+
+The examples use independent read-only agents, not browser or command runners.
+Accessibility covers semantic names, keyboard/focus implementation, forms and
+feedback, and content/motion. Code quality covers type safety and source-visible
+lint patterns, React correctness, asynchronous errors and maintainability.
+Browser-only evidence and actual ESLint, TypeScript and test outcomes remain
+unverified; these are source reviews, not accessibility certification
+or passing tool output.
+
+Use an updated Replica extension source snapshot; this capability is not supplied
+by the pinned Vite plugin. After the new repository has an initial commit, create
+your prototype branch from `main` before changing pages. The manifest uses `main`
+as its explicit baseline; set `base` to your actual starting ref when adopting
+the examples elsewhere.
+
+Update `pages`, routes and shared dependency patterns as the prototype grows.
+Unmapped files require scope confirmation instead of guessing which pages changed.
+Customize the expectations, assessment inputs, context and instruction files, remove one check entry to
+keep the other, or delete `.replica/checks.json` and `.replica/checks/` to remove
+both examples. Generated controls bindings remain ignored; check configuration
+and instructions are committed source.
+
+The manifest's `$schema` reference points to `.replica/checks.schema.json` for autocomplete and diagnostics in JSON editors that support schemas. Run `npm run checks:validate` locally or in CI to check the config, page references and guidance files without running the checks. This command needs only Node.js and works without installing packages or opening Canvas. Editor diagnostics do not replace the command: JSON Schema cannot verify repository files or every cross-reference. Keep the schema and standalone `.replica/validate-checks.mjs` with the repository when copying these examples.
+
+With an updated Replica plugin, ask an agent to set up or change checks, or invoke `/replica-setup-checks`. The plugin skill reuses these resources, writes configuration and repository-specific guidance, and runs validation before handing off. New checks stay manual unless you opt into automatic execution.
+
 ## Prototype controls
 
 Use `/prototype-controls`, or describe the variation in ordinary language:

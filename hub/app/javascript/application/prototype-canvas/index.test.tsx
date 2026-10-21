@@ -8,6 +8,57 @@ import { isHubStatusRequest } from "./tests/is-hub-status-request"
 import { App } from "."
 
 describe("App()", () => {
+  it("switches between Hub and checks sidebars without reloading the preview and restores checks-button focus", async () => {
+    const { fetch } = sharingFixture()
+    const respond = fetch.getMockImplementation()!
+    fetch.mockImplementation((path: string) =>
+      path === "/api/checks"
+        ? Promise.resolve(
+            new Response(
+              JSON.stringify({
+                state: "unconfigured",
+                pages: [],
+                availablePages: [],
+                unknown: [],
+                checks: [],
+              }),
+            ),
+          )
+        : respond(path),
+    )
+    const url = "http://localhost:4321/settings?view=quality#heading"
+    render(<App config={{ name: "Demo", prototypeUrl: url, token: "local" }} />)
+    const frame = screen.getByTitle("Demo prototype")
+    const checksButton = await screen.findByRole("button", { name: /^Prototype checks:/ })
+    const hubButton = screen.getByRole("button", { name: "Edit details" })
+    await act(async () => {
+      fireEvent.click(hubButton)
+      await Promise.resolve()
+    })
+    expect(screen.getByRole("complementary", { name: "Hub" })).toBeInTheDocument()
+    fireEvent.click(checksButton)
+    const sidebar = screen.getByRole("complementary", { name: "Prototype checks" })
+    expect(sidebar).toHaveClass("hub-sidebar")
+    expect(screen.queryByRole("complementary", { name: "Hub" })).not.toBeInTheDocument()
+    expect(checksButton).toHaveAttribute("aria-expanded", "true")
+    fireEvent.keyDown(sidebar, { key: "Escape" })
+    expect(
+      screen.queryByRole("complementary", { name: "Prototype checks" }),
+    ).not.toBeInTheDocument()
+    expect(checksButton).toHaveFocus()
+    expect(checksButton).toHaveAttribute("aria-expanded", "false")
+    fireEvent.click(checksButton)
+    await act(async () => {
+      fireEvent.click(hubButton)
+      await Promise.resolve()
+    })
+    expect(
+      screen.queryByRole("complementary", { name: "Prototype checks" }),
+    ).not.toBeInTheDocument()
+    expect(screen.getByRole("complementary", { name: "Hub" })).toBeInTheDocument()
+    expect(screen.getByTitle("Demo prototype")).toBe(frame)
+    expect(frame).toHaveAttribute("src", url)
+  })
   it("dispatches local controls failure evidence to the current chat without saving values or repairing", async () => {
     vi.useFakeTimers()
     const epoch = "e6a1f4e0-45af-4da8-a66c-538d52e355f9"
