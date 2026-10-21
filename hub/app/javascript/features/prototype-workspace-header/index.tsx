@@ -26,8 +26,6 @@ import { withControlQuery } from "@utils/prototype-controls-url/with-control-que
 
 import type { PrototypeWorkspaceHeaderProps } from "./types"
 
-const BUILD_MENU_WIDTH = 213
-
 export function PrototypeWorkspaceHeader({
   data,
   onShowInfo,
@@ -45,7 +43,7 @@ export function PrototypeWorkspaceHeader({
   }
   const [buildMenu, setBuildMenu] = useState({
     align: "end" as "start" | "end",
-    width: BUILD_MENU_WIDTH,
+    maxWidth: null as number | null,
     height: 460,
   })
   const dark = resolvedColorMode === "dark"
@@ -169,7 +167,9 @@ export function PrototypeWorkspaceHeader({
           className="review-shell__build-menu"
           style={
             {
-              "--review-shell-build-menu-width": `${buildMenu.width}px`,
+              "--review-shell-build-menu-max-width": buildMenu.maxWidth
+                ? `${buildMenu.maxWidth}px`
+                : undefined,
               "--review-shell-build-menu-height": `${buildMenu.height}px`,
             } as CSSProperties
           }
@@ -195,14 +195,10 @@ export function PrototypeWorkspaceHeader({
                   Math.min(window.innerWidth, scrollport?.right ?? window.innerWidth) - 8
                 const spaceBefore = bounds.right - left
                 const spaceAfter = right - bounds.left
-                const align =
-                  spaceBefore >= BUILD_MENU_WIDTH || spaceBefore >= spaceAfter ? "end" : "start"
+                const align = spaceBefore >= spaceAfter ? "end" : "start"
                 setBuildMenu({
                   align,
-                  width: Math.max(
-                    0,
-                    Math.min(BUILD_MENU_WIDTH, align === "end" ? spaceBefore : spaceAfter),
-                  ),
+                  maxWidth: Math.max(0, align === "end" ? spaceBefore : spaceAfter),
                   height: Math.max(
                     0,
                     Math.min(window.innerHeight, scrollport?.bottom ?? window.innerHeight) -

@@ -169,8 +169,9 @@ div:has(> [data-testid="ActionMenu"] .review-shell__more-trigger[aria-expanded="
 
 .review-shell__build-menu [role="menu"] {
   box-sizing: border-box;
-  width: var(--review-shell-build-menu-width);
+  width: max-content;
   min-width: 0;
+  max-width: var(--review-shell-build-menu-max-width, calc(100vw - (2 * var(--base-size-8))));
   max-height: min(460px, var(--review-shell-build-menu-height));
 }
 
