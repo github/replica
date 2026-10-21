@@ -273,21 +273,23 @@ export function ReviewThreadConversation({
             {copy.threadHeading}
           </Heading>
 
-          <Button
-            size="small"
-            disabled={state.draftActive || mutation !== null}
-            aria-busy={
-              mutation !== null &&
-              "commentId" in mutation &&
-              mutation.commentId === thread.root.id &&
-              (mutation.kind === "resolve" || mutation.kind === "reopen")
-            }
-            onClick={() => {
-              void actions.changeResolution()
-            }}
-          >
-            {state.resolved ? copy.reopenLabel : copy.resolveLabel}
-          </Button>
+          {thread.root.buildNumber !== null ? (
+            <Button
+              size="small"
+              disabled={state.draftActive || mutation !== null}
+              aria-busy={
+                mutation !== null &&
+                "commentId" in mutation &&
+                mutation.commentId === thread.root.id &&
+                (mutation.kind === "resolve" || mutation.kind === "reopen")
+              }
+              onClick={() => {
+                void actions.changeResolution()
+              }}
+            >
+              {state.resolved ? copy.reopenLabel : copy.resolveLabel}
+            </Button>
+          ) : null}
           {mutation &&
           "commentId" in mutation &&
           mutation.commentId === thread.root.id &&
@@ -415,36 +417,42 @@ export function ReviewThreadConversation({
               onAddReaction={(content) => onAddReaction(comment.id, content)}
               onRemoveReaction={(content) => onRemoveReaction(comment.id, content)}
               onBurstReaction={burst}
-              onMarkUnread={comment.kind === "root" ? () => void markUnread() : undefined}
+              onMarkUnread={
+                comment.kind === "root" && thread.root.buildNumber !== null
+                  ? () => void markUnread()
+                  : undefined
+              }
               markUnreadDisabled={readPending || unreadPending || mutation !== null}
             />
           ))}
         </div>
 
-        <div
-          className={`review-thread-conversation__footer${
-            blockedLabel && !state.confirmingDiscard
-              ? " review-thread-conversation__footer--blocked"
-              : ""
-          }`}
-        >
-          <ReviewThreadReplyForm
-            blockedLabel={blockedLabel}
-            confirmingDiscard={state.confirmingDiscard}
-            replyDraft={state.replyDraft}
-            replyBodyTooLong={state.replyBodyTooLong}
-            replyFailed={state.replyFailed}
-            replyDisabled={mutation !== null || state.editingCommentId !== null}
-            replying={mutation?.kind === "reply" && mutation.commentId === thread.root.id}
-            copy={copy}
-            onKeepDraft={actions.keepDraft}
-            onDiscardDraft={actions.discardAndClose}
-            onSubmit={() => {
-              void actions.submitReply()
-            }}
-            onDraftChange={actions.changeReplyDraft}
-          />
-        </div>
+        {thread.root.buildNumber !== null || state.confirmingDiscard ? (
+          <div
+            className={`review-thread-conversation__footer${
+              blockedLabel && !state.confirmingDiscard
+                ? " review-thread-conversation__footer--blocked"
+                : ""
+            }`}
+          >
+            <ReviewThreadReplyForm
+              blockedLabel={blockedLabel}
+              confirmingDiscard={state.confirmingDiscard}
+              replyDraft={state.replyDraft}
+              replyBodyTooLong={state.replyBodyTooLong}
+              replyFailed={state.replyFailed}
+              replyDisabled={mutation !== null || state.editingCommentId !== null}
+              replying={mutation?.kind === "reply" && mutation.commentId === thread.root.id}
+              copy={copy}
+              onKeepDraft={actions.keepDraft}
+              onDiscardDraft={actions.discardAndClose}
+              onSubmit={() => {
+                void actions.submitReply()
+              }}
+              onDraftChange={actions.changeReplyDraft}
+            />
+          </div>
+        ) : null}
       </div>
       {canvas}
     </section>

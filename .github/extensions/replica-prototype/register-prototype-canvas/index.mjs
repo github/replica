@@ -8,17 +8,22 @@ import { discoverPrototypeServers } from "../discover-prototype-servers/index.mj
 import { createDevServerManager } from "../dev-server/index.mjs"
 import { prototypeConnection } from "../prototype-connection/index.mjs"
 import { refreshPrototypeStatus } from "../refresh-prototype-status/index.mjs"
-import { normalizeHubOrigin } from "../hub-client/index.mjs"
+import {
+  MAX_PUBLISH_RESULT_REASON_LENGTH,
+  PUBLISH_RESULT_OUTCOMES,
+  reportPublishResult,
+} from "../report-publish-result/index.mjs"
+import { normalizeHubOrigin } from "../normalize-hub-origin/index.mjs"
 import { startCanvasServer } from "../start-canvas-server/index.mjs"
 import { agentCommands, MAX_RELOAD_ADDRESS_LENGTH } from "../agent-commands/index.mjs"
 import { startMissingPrototypeServer } from "../start-missing-prototype-server/index.mjs"
 import { commentActions } from "../comment-actions/index.mjs"
-import { createHubConnection } from "../hub-connection/index.mjs"
+import { createHubConnection } from "../create-hub-connection/index.mjs"
 import { createCommentStore } from "../comment-store/index.mjs"
 import { reviewAction } from "../review-action/index.mjs"
 import { projectValidation, validateControls } from "../validate-controls/index.mjs"
 import { projectControlsStatus } from "../controls-status/index.mjs"
-import { createLearningsHook } from "../recall-learnings/index.mjs"
+import { createLearningsHook } from "../create-learnings-hook/index.mjs"
 
 const HUB_STATES = new Set([
   "connected",
@@ -733,6 +738,65 @@ export async function registerPrototypeCanvas(
                   error instanceof WorkflowStatusError
                     ? error.message
                     : "Could not refresh prototype status. Check the canvas for details.",
+                )
+              }
+            },
+          },
+          {
+            name: "report_publish_result",
+            description:
+              "End this canvas's pending publish request when you stop without pushing. Pass the exact target JSON and mode from the publish request. Rejected when a push was already observed.",
+            inputSchema: {
+              type: "object",
+              additionalProperties: false,
+              required: ["outcome", "target"],
+              properties: {
+                outcome: { type: "string", enum: PUBLISH_RESULT_OUTCOMES },
+                reason: { type: "string", maxLength: MAX_PUBLISH_RESULT_REASON_LENGTH },
+                target: {
+                  type: "object",
+                  additionalProperties: true,
+                  required: [
+                    "repository",
+                    "branch",
+                    "commitSha",
+                    "originFingerprint",
+                    "pushFingerprint",
+                    "canvasInstanceId",
+                    "mode",
+                  ],
+                  properties: {
+                    repository: { type: "string" },
+                    branch: { type: "string" },
+                    commitSha: { type: "string", pattern: "^[0-9a-f]{40}$" },
+                    originFingerprint: { type: ["string", "null"] },
+                    pushFingerprint: { type: ["string", "null"] },
+                    canvasInstanceId: { type: "string" },
+                    mode: { type: "string", enum: ["commit-changes", "committed-only"] },
+                  },
+                },
+              },
+            },
+            handler: async (ctx) => {
+              const entry = requireOpenPrototypeEntry(ctx.instanceId)
+              const { target, outcome, reason } = ctx.input
+              if (target.canvasInstanceId !== ctx.instanceId)
+                throw new CanvasError(
+                  "publish_result_rejected",
+                  "The publish request belongs to a different canvas.",
+                )
+              try {
+                return await reportPublishResult(await currentCanvasContext(entry.context), {
+                  instanceId: ctx.instanceId,
+                  outcome,
+                  reason,
+                  mode: target.mode,
+                  target,
+                })
+              } catch (error) {
+                throw new CanvasError(
+                  error?.statusCode === 409 ? "publish_result_rejected" : "publish_result_failed",
+                  error instanceof Error ? error.message : "Could not report the publish result.",
                 )
               }
             },

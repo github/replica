@@ -3,12 +3,11 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 
 import { octocatRootComment } from "@/storybook/fixtures/review/comments"
 import { reviewCommentsCopy } from "@utils/review-comment/en"
-
 import type { HubStatus } from "@utils/prototype-canvas/types"
 import { publicationCopy } from "@utils/resolve-prototype-publication/en"
 import { importedPrototype, publicationHub } from "@utils/resolve-prototype-publication/fixtures"
 
-import { HubPanel } from "."
+import { PrototypeCanvasHubPanel } from "."
 
 const canvasPreview = `<!doctype html>
 <html lang="en">
@@ -52,14 +51,23 @@ function ConnectedDemo({
   preview = false,
   rateLimited = false,
   ...props
-}: ComponentProps<typeof HubPanel> & { preview?: boolean; rateLimited?: boolean }) {
+}: ComponentProps<typeof PrototypeCanvasHubPanel> & { preview?: boolean; rateLimited?: boolean }) {
   const [ready, setReady] = useState(false)
   const [open, setOpen] = useState(!preview)
   const frameRef = useRef<HTMLIFrameElement>(null)
 
   useEffect(() => {
     const originalFetch = window.fetch.bind(window)
-    let comments = [octocatRootComment]
+    const startingComment = props.status?.reviewRevision?.id
+      ? {
+          ...octocatRootComment,
+          buildNumber: null,
+          buildPath: null,
+          draftRevisionId: props.status.reviewRevision.id,
+          viewerLastSeenActivityVersion: octocatRootComment.activityVersion,
+        }
+      : octocatRootComment
+    let comments = [startingComment]
     window.fetch = (input, init) => {
       const path = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
       if (
@@ -88,7 +96,7 @@ function ConnectedDemo({
           ),
         )
       }
-      if (path === "/api/hub/comments") {
+      if (path === "/api/hub/comments" || path.startsWith("/api/hub/comments?")) {
         if (init?.method === "POST") {
           if (typeof init.body !== "string")
             return Promise.reject(new Error("Expected a JSON comment request."))
@@ -96,7 +104,7 @@ function ConnectedDemo({
             review_comment: { body: string; anchor: typeof octocatRootComment.anchor }
           }
           const created = {
-            ...octocatRootComment,
+            ...startingComment,
             id: 2,
             body: review_comment.body,
             anchor: review_comment.anchor,
@@ -112,7 +120,7 @@ function ConnectedDemo({
           }),
         )
       }
-      if (path === "/api/hub/discovery") {
+      if (path === "/api/hub/discovery" || path === "/api/hub/status") {
         return Promise.resolve(
           new Response(JSON.stringify(props.status), {
             status: 200,
@@ -151,7 +159,7 @@ function ConnectedDemo({
         />
       ) : null}
       {ready ? (
-        <HubPanel
+        <PrototypeCanvasHubPanel
           {...props}
           frameRef={preview ? frameRef : props.frameRef}
           config={
@@ -169,7 +177,7 @@ function ConnectedDemo({
 
 const meta = {
   title: "Components/Prototype canvas/Hub panel",
-  component: HubPanel,
+  component: PrototypeCanvasHubPanel,
   args: {
     config: {
       prototypeUrl: "http://localhost:4321/",
@@ -189,7 +197,7 @@ const meta = {
     open: true,
     onClose: () => {},
   },
-} satisfies Meta<typeof HubPanel>
+} satisfies Meta<typeof PrototypeCanvasHubPanel>
 
 export default meta
 type Story = StoryObj<typeof meta>
@@ -488,6 +496,7 @@ export const Connected: Story = {
       repository: "local/example",
       branch: "prototype/welcome",
       commitSha: "a".repeat(40),
+      reviewRevision: publicationHub.reviewRevision,
       hubOrigin: "http://replica.localhost:19500",
       prototype: {
         id: 1,
@@ -586,6 +595,65 @@ export const PinWithCommentsClosed: Story = {
 export const RateLimited: Story = {
   ...PinWithCommentsClosed,
   render: (args) => <ConnectedDemo {...args} preview rateLimited />,
+}
+
+export const LocalDraftComments: Story = {
+  ...PinWithCommentsClosed,
+  args: {
+    ...Connected.args,
+    status: {
+      ...publicationHub,
+      state: "connected",
+      reviewRevision: {
+        ...publicationHub.reviewRevision!,
+        id: 7,
+        buildNumber: null,
+        clean: false,
+      },
+      prototype: {
+        ...importedPrototype,
+        registered: false,
+        published: false,
+        build: null,
+        currentBuild: null,
+        buildState: null,
+        versionCount: 0,
+      },
+    },
+  },
+  play: async ({ canvas }) => {
+    await canvas.findByRole("button", { name: "Thread started by @octocat" })
+  },
+}
+
+export const LocalCommentsBeforeFirstPublish: Story = {
+  ...LocalDraftComments,
+  args: {
+    ...LocalDraftComments.args,
+    status: {
+      ...LocalDraftComments.args!.status!,
+      state: "undiscovered",
+      repositoryAuthorized: true,
+      viewerLogin: "octocat",
+      prototype: undefined,
+      reviewRevision: {
+        ...LocalDraftComments.args!.status!.reviewRevision!,
+        prototypeId: null,
+      },
+    },
+  },
+}
+
+export const LocalCommentUploadFailed: Story = {
+  ...LocalDraftComments,
+  args: {
+    ...LocalDraftComments.args,
+    status: {
+      ...LocalDraftComments.args!.status!,
+      localCommentsError:
+        "Local comments not synced: Hub is unavailable. Your drafts are kept on this device.",
+    },
+  },
 }
 
 export const PostedCommentWithCommentsClosed: Story = {

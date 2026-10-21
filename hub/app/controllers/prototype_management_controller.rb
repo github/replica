@@ -6,7 +6,7 @@ class PrototypeManagementController < SuperglueController
 
   # @route GET /repositories/:repository_github_id/prototypes/manage (repository_prototype_management)
   def show
-    load_repository_workspace
+    load_repository_workspace(repository_choices: false)
     return if performed?
     return head :not_found if !@repository.authorization.sufficient?(@repository_permission, minimum: :write)
     page = params[:page]
@@ -15,16 +15,17 @@ class PrototypeManagementController < SuperglueController
     @candidate_page = page ? page.to_i : 1
     @candidate_page_path = repository_prototype_management_path(@repository.route_id)
     @registered_prototypes = @repository.reviewable_prototypes.active.registered.order(:branch_name)
-    begin
-      @unregistered_prototypes, @candidate_page_count = @repository.prototype_candidates.available_page \
-        Current.user,
-        permission: @repository_permission,
-        page: @candidate_page
-      head :not_found if @candidate_page > [ @candidate_page_count, 1 ].max
-    rescue GithubClient::Error, LocalDevelopment::Error
-      @candidate_check_failed = true
-      @unregistered_prototypes = []
-      @candidate_page_count = 0
+    @unregistered_prototypes = []
+    @candidate_page_count = 0
+    return if !request.format.json?
+
+    case params[:props_at]
+    when "data.management"
+      load_candidates
+    when "data.repositoryChoices"
+      @repositories = authorized_repositories(@github_configuration, including: @repository)
+    else
+      head :not_found if params[:props_at]
     end
   rescue LocalDevelopment::Error => error
     response.status = 422
@@ -33,6 +34,21 @@ class PrototypeManagementController < SuperglueController
   end
 
   private
+
+  # Checks available branches independently of the workspace and listed prototypes.
+  def load_candidates
+    @unregistered_prototypes, @candidate_page_count = @repository.prototype_candidates.available_page \
+      Current.user,
+      permission: @repository_permission,
+      page: @candidate_page,
+      configuration: @github_configuration
+    head :not_found if @candidate_page > [ @candidate_page_count, 1 ].max
+  rescue GithubClient::Error, LocalDevelopment::Error => error
+    Rails.logger.warn("Prototype candidate check failed: #{error.class}")
+    @candidate_check_failed = true
+    @unregistered_prototypes = []
+    @candidate_page_count = 0
+  end
 
   # Does not present an incomplete branch list as authoritative.
   def repository_unavailable

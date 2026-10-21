@@ -275,7 +275,9 @@ describe("resolvePublication()", () => {
       },
       example.hub,
     )
-    expect(pending.detail).toBe("Pushing branch to repository.")
+    expect(pending.detail).toBe(
+      "Copilot received the publish request in chat and has not pushed this branch yet. Follow its progress in chat.",
+    )
 
     const unpushed = publicationExamples["Unpushed changes"]!
     const push = resolvePublication(unpushed.state, unpushed.hub)
@@ -369,8 +371,9 @@ describe("resolvePublication()", () => {
     expect(resolvePublication(state, example.hub)).toMatchObject({
       kind: "requested",
       action: "none",
-      detail: "Pushing branch to repository.",
-      label: "Publish",
+      detail:
+        "Copilot received the publish request in chat and has not pushed this branch yet. Follow its progress in chat.",
+      label: "Waiting for Copilot",
     })
     state.publishRequest.requestedAt = new Date(Date.now() - 11 * 60_000).toISOString()
     expect(resolvePublication(state, example.hub)).toMatchObject({
@@ -392,10 +395,12 @@ describe("resolvePublication()", () => {
       } satisfies PrototypeState
       const publication = resolvePublication(state, example.hub)
       expect(publication.kind).toBe(resolvePublication(example.state, example.hub).kind)
-      expect(publication.detail).not.toBe("Pushing branch to repository.")
+      expect(publication.detail).not.toBe(
+        "Copilot received the publish request in chat and has not pushed this branch yet. Follow its progress in chat.",
+      )
     },
   )
-  it("keeps the existing push action label for a pending update to a remote branch", () => {
+  it("shows a pending update to a remote branch as waiting for Copilot", () => {
     const example = publicationExamples["Unpushed changes"]!
     expect(
       resolvePublication(
@@ -409,7 +414,7 @@ describe("resolvePublication()", () => {
         },
         example.hub,
       ),
-    ).toMatchObject({ kind: "requested", action: "none", label: "Publish changes" })
+    ).toMatchObject({ kind: "requested", action: "none", label: "Waiting for Copilot" })
   })
   it.each(["requested", "failed"] as const)(
     "shows publication instead of a stale %s push request",

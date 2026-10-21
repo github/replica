@@ -120,9 +120,11 @@ it("shows push progress without asking for reconfirmation while a request is pen
       />
     </ThemeProvider>,
   )
-  expect(screen.getByRole("status")).toHaveTextContent("Pushing branch to repository.")
+  expect(screen.getByRole("status")).toHaveTextContent(
+    "Copilot received the publish request in chat and has not pushed this branch yet. Follow its progress in chat.",
+  )
   expect(view.container.querySelectorAll("p")).toHaveLength(1)
-  const button = screen.getByRole("button", { name: "Publish" })
+  const button = screen.getByRole("button", { name: "Waiting for Copilot" })
   expect(button).toBeDisabled()
   expect(button).toHaveAttribute("aria-busy", "true")
   expect(button.querySelector("svg")).not.toBeNull()

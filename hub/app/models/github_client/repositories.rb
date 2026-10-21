@@ -60,6 +60,15 @@ class GithubClient::Repositories
     raise GithubClient::InvalidResponse, "GitHub returned an incomplete collaborator list"
   end
 
+  # Fetches independent permissions while retaining each repository's failure.
+  def permissions(repositories, user, token:)
+    GithubClient::Batch.map(repositories) do |repository|
+      [ repository.github_id, permission(repository, user, token:) ]
+    rescue GithubClient::Error => error
+      [ repository.github_id, error ]
+    end.to_h
+  end
+
   # Lists every current branch and head commit in one repository.
   def branches(repository, token:)
     branches = []

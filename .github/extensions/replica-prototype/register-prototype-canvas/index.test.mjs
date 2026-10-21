@@ -12,7 +12,7 @@ import { readState } from "../read-state/index.mjs"
 import { requestPublish } from "../request-publish/index.mjs"
 import { writeState } from "../write-state/index.mjs"
 import { createPrivateStore } from "../private-store/index.mjs"
-import { createHubOriginStore } from "../hub-origin-store/index.mjs"
+import { createHubOriginStore } from "../create-hub-origin-store/index.mjs"
 import { rankForRecall, renderRecall } from "../../../../packages/learning/src/recall.mjs"
 import {
   metadataUpdateAcknowledgement,
@@ -1280,6 +1280,83 @@ describe("registerPrototypeCanvas()", () => {
       mutate(malformed)
       assert.throws(() => projectPrototypeStatus(malformed), error)
     }
+  })
+
+  it("lets the requesting canvas end a publish request that stopped before pushing", async () => {
+    await withContext(async (context) => {
+      const canvas = await register(context, [])
+      const openContext = {
+        instanceId: "publish-canvas",
+        sessionId: "test-session",
+        session: { workingDirectory: context.repositoryPath },
+        input: {
+          prototypeUrl: context.normalizedUrl,
+          repository: context.target.repository,
+          branch: context.target.branch,
+        },
+      }
+      try {
+        await canvas.open(openContext)
+        let prompt
+        await requestPublish(
+          context,
+          {
+            async send(message) {
+              prompt = message.prompt
+              return "message-1"
+            },
+          },
+          { instanceId: "publish-canvas", mode: "commit-changes" },
+        )
+        const target = prompt
+          .split("\n\n")
+          .map((paragraph) => {
+            try {
+              return JSON.parse(paragraph)
+            } catch {
+              return null
+            }
+          })
+          .find((value) => value?.canvasInstanceId === "publish-canvas")
+        const reportResult = canvas.actions.find(
+          (action) => action.name === "report_publish_result",
+        )
+        assert.ok(reportResult.inputSchema.properties.target.required.includes("canvasInstanceId"))
+        const targetWithoutCanvas = { ...target }
+        delete targetWithoutCanvas.canvasInstanceId
+
+        await assert.rejects(
+          reportResult.handler({
+            ...openContext,
+            input: { outcome: "blocked", target: { ...target, canvasInstanceId: "other" } },
+          }),
+          { code: "publish_result_rejected" },
+        )
+        await assert.rejects(
+          reportResult.handler({
+            ...openContext,
+            input: { outcome: "blocked", target: targetWithoutCanvas },
+          }),
+          { code: "publish_result_rejected" },
+        )
+        assert.equal((await readState(context)).publishRequest.state, "requested")
+        const reported = await reportResult.handler({
+          ...openContext,
+          input: { outcome: "canceled", reason: "The user chose to stop.", target },
+        })
+        assert.deepEqual(reported, {
+          reported: true,
+          publishRequest: { state: "failed", outcome: "canceled" },
+        })
+
+        const refresh = canvas.actions.find((action) => action.name === "refresh_status")
+        const status = await refresh.handler(openContext)
+        assert.equal(status.publishRequest.state, "failed")
+        assert.equal(status.publishStatus.state, "failed")
+      } finally {
+        await canvas.onClose(openContext)
+      }
+    })
   })
 
   it("keeps full renderer state while refresh_status returns only safe publish progress", async () => {

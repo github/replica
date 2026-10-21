@@ -5,15 +5,18 @@ class Repository::PrototypeCandidates < ActiveRecord::AssociatedObject
   CANDIDATES_PER_PAGE = 10
 
   # Paginates eligible branches, leaving registration checks fresh.
-  def available_page(user, permission:, page: 1)
+  def available_page(user, permission:, page: 1, configuration: GithubAppConfiguration.current)
     return [ [], 0 ] if !record.authorization.sufficient?(permission, minimum: :write)
 
     candidates = candidate_branches.to_a
     return [ [], 0 ] if candidates.empty?
 
-    heads = current_heads
+    heads = current_heads(configuration:)
+    authors = if !record.local? && !record.authorization.sufficient?(permission, minimum: :admin)
+      warm_authors(candidates, heads, configuration:)
+    end
     eligible = candidates.select do |prototype|
-      eligible?(prototype, user, permission:, heads:)
+      eligible?(prototype, user, permission:, heads:, authors:)
     end
     page_count = (eligible.size + CANDIDATES_PER_PAGE - 1) / CANDIDATES_PER_PAGE
     [ eligible.slice((page - 1) * CANDIDATES_PER_PAGE, CANDIDATES_PER_PAGE) || [], page_count ]
@@ -76,12 +79,12 @@ class Repository::PrototypeCandidates < ActiveRecord::AssociatedObject
   end
 
   # Rechecks one branch at registration, independent of the page's filtered list.
-  def eligible?(prototype, user, permission:, heads: nil, fresh: false)
-    registration_ineligibility_reason(prototype, user, permission:, heads:, fresh:).nil?
+  def eligible?(prototype, user, permission:, heads: nil, fresh: false, authors: nil)
+    registration_ineligibility_reason(prototype, user, permission:, heads:, fresh:, authors:).nil?
   end
 
   # Explains the first failed registration check without changing eligibility.
-  def registration_ineligibility_reason(prototype, user, permission:, heads: nil, fresh: false)
+  def registration_ineligibility_reason(prototype, user, permission:, heads: nil, fresh: false, authors: nil)
     return "write_access_required" if !record.authorization.sufficient?(permission, minimum: :write)
     return "repository_mismatch" if prototype.repository_id != record.id
     return "remote_branch_missing" if prototype.branch_deleted_at.present?
@@ -96,7 +99,8 @@ class Repository::PrototypeCandidates < ActiveRecord::AssociatedObject
     default_head = heads[record.default_branch]
     raise GithubClient::InvalidResponse, "GitHub omitted the default branch" if default_head.nil?
 
-    "branch_authorship_required" unless author_ids(default_head, head, fresh:).include?(user.github_id)
+    ids = authors && !fresh ? authors.fetch(head) : author_ids(default_head, head, fresh:)
+    "branch_authorship_required" unless ids.include?(user.github_id)
   end
 
   private
@@ -107,14 +111,13 @@ class Repository::PrototypeCandidates < ActiveRecord::AssociatedObject
   end
 
   # Uses current heads, not persisted Builds, to exclude deleted and moved branches.
-  def current_heads
+  def current_heads(configuration: GithubAppConfiguration.current)
     if record.local?
       refs = Repository::LocalDiscovery.git!("-C", record.local_path, "for-each-ref",
         "--format=%(refname:short) %(objectname)", "refs/heads")
       return refs.each_line.to_h { |line| line.strip.split(" ", 2) }
     end
 
-    configuration = GithubAppConfiguration.current
     raise GithubClient::InvalidResponse, "GitHub App is not configured" if configuration.nil?
 
     configuration.github_client.repositories.branches(
@@ -142,22 +145,55 @@ class Repository::PrototypeCandidates < ActiveRecord::AssociatedObject
     return compare_authors(base, head) if fresh
 
     Rails.cache.fetch(
-      [ "prototype-branch-authors", record.github_id, base, head ],
+      author_cache_key(base, head),
       expires_in: AUTHOR_CACHE_TTL
     ) { compare_authors(base, head) }
   end
 
+  # Retains successful comparisons on this thread before surfacing any batch failure.
+  def warm_authors(candidates, heads, configuration:)
+    base = heads[record.default_branch]
+    raise GithubClient::InvalidResponse, "GitHub omitted the default branch" if base.nil?
+
+    live_heads = candidates.filter_map { heads[_1.branch_name] }.uniq
+    cached = Rails.cache.read_multi(*live_heads.map { author_cache_key(base, _1) })
+    missing = live_heads.reject { cached.key?(author_cache_key(base, _1)) }
+    if missing.any?
+      token = configuration.tokens.installation
+      failures = Queue.new
+      comparisons = GithubClient::Batch.map(missing) do |head|
+        next if !failures.empty?
+
+        [ head, compare_authors(base, head, configuration:, token:) ]
+      rescue GithubClient::Error => error
+        failures << error
+        nil
+      end
+      comparisons.compact.each do |head, authors|
+        cached[author_cache_key(base, head)] = authors
+        Rails.cache.write(author_cache_key(base, head), authors, expires_in: AUTHOR_CACHE_TTL)
+      end
+      raise failures.pop if !failures.empty?
+    end
+    live_heads.to_h { |head| [ head, cached.fetch(author_cache_key(base, head)) ] }
+  end
+
+  # Separates comparisons by the exact default and branch commits.
+  def author_cache_key(base, head)
+    [ "prototype-branch-authors", record.github_id, base, head ]
+  end
+
   # Paginates the entire branch-only history; the latest Build author is not enough.
-  def compare_authors(base, head)
-    configuration = GithubAppConfiguration.current
+  def compare_authors(base, head, configuration: GithubAppConfiguration.current, token: nil)
     raise GithubClient::InvalidResponse, "GitHub App is not configured" if configuration.nil?
 
+    token ||= configuration.tokens.installation
     authors = []
     seen = 0
     page = 1
     loop do
       comparison = configuration.github_client.repositories.compare(
-        record, base, head, token: configuration.tokens.installation, page:
+        record, base, head, token:, page:
       )
       if !comparison.is_a?(Hash)
         raise GithubClient::InvalidResponse, "GitHub returned an incomplete branch comparison"

@@ -117,11 +117,7 @@ export function resolvePublication(
   ) {
     const age = Date.now() - Date.parse(pending.requestedAt || "")
     if (Number.isFinite(age) && age < 10 * 60_000)
-      return result(
-        "requested",
-        copy.pending,
-        remote.state === "absent" ? copy.publishBranch : copy.publishChanges,
-      )
+      return result("requested", copy.pending, copy.awaitingCopilot)
   }
   if (!hub) return result("loading", copy.checkingHub, copy.checking)
   if (hub.state === "disconnected" || hub.state === "pairing" || hub.state === "unconfigured")

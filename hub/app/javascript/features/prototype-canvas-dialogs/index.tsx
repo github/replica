@@ -5,6 +5,7 @@ import { ShareLinksPage } from "../prototype-canvas-share-links"
 import { readinessCopy } from "@utils/resolve-prototype-share-readiness/en"
 import { ShareReadinessDialog } from "@components/prototype-share-readiness-dialog"
 import type { Props } from "./types"
+import { publishChangesCopy } from "@hooks/use-canvas-publish-preference/en"
 
 /** Presents mutually coordinated dialogs without replacing the underlying preview. */
 export function AppDialogs({
@@ -85,12 +86,25 @@ export function AppDialogs({
       ) : null}
       {publication.publishDialog ? (
         <PublishChangesDialog
+          key={
+            publication.publishDialog.preparation.workingTree === "unavailable"
+              ? "unchecked"
+              : "checked"
+          }
           busy={publication.busy}
           error={publication.publishDialogError}
+          changes={publication.publishDialog.preparation.changes}
+          checkError={
+            publication.publishDialog.preparation.workingTree === "unavailable"
+              ? publication.publishDialog.preparation.workingTreeError ||
+                publishChangesCopy.checkFailed
+              : undefined
+          }
           remembered={publication.publishDialog.preparation.remember}
           returnFocusRef={intent ? shareButtonRef : publishButtonRef}
           onClose={publication.closePublishDialog}
           onChoose={(mode, remember) => void publication.choosePublish(mode, remember)}
+          onRetry={() => void publication.retryPublishCheck()}
         />
       ) : null}
       {sharing.state.open ? (

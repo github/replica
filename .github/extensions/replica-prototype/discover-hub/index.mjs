@@ -4,7 +4,7 @@ import os from "node:os"
 import path from "node:path"
 import { promisify } from "node:util"
 
-import { normalizeHubOrigin } from "../hub-client/index.mjs"
+import { normalizeHubOrigin } from "../normalize-hub-origin/index.mjs"
 import { createPrivateStore } from "../private-store/index.mjs"
 import { readCanvasRepository } from "../read-canvas-repository/index.mjs"
 

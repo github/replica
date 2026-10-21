@@ -59,3 +59,17 @@ export const Creating: Story = {
     creating: true,
   },
 }
+
+export const SubmissionFailed: Story = {
+  args: {
+    submitError: "Hub is temporarily unavailable. Your comment is still here. Try saving again.",
+    onSubmit: () => Promise.resolve(false),
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.type(
+      canvas.getByRole("textbox", { name: reviewCommentsCopy.composerLabel }),
+      "Please align this control with the content above it.",
+    )
+    await userEvent.click(canvas.getByRole("button", { name: reviewCommentsCopy.submitLabel }))
+  },
+}

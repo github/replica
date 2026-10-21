@@ -5,6 +5,184 @@ class PrototypeRegistrationsTest < ActionDispatch::IntegrationTest
     github_app_configurations.create_installed
   end
 
+  test "renders the management shell without branches or other repository checks" do
+    payloads = [ repository_payload(2001, "github/prototype"), repository_payload(2002, "github/other") ]
+    stub_github_sign_in(repositories: payloads, permissions: { 2001 => "push", 2002 => "pull" })
+    sign_in
+    repository = Repository.find_by!(github_id: 2001)
+    prototypes.create(repository:, branch_name: "prototype/listed").register!(name: "Listed")
+    prototypes.create(repository:, branch_name: "prototype/new")
+    WebMock.reset_executed_requests!
+
+    load_ids = [ {}, { "Accept" => "application/json" } ].map do |headers|
+      get repository_prototype_management_path(repository.route_id), headers: headers
+      assert_response :success
+      assert_includes response.body, '"name":"Listed"'
+      assert_includes response.body, '"unlisted":[]'
+      assert_not_includes response.body, "github/other"
+      response.body[/"sectionLoadId":"([^"]+)"/, 1]
+    end
+    assert load_ids.all?(&:present?)
+    assert_equal 2, load_ids.uniq.size
+    assert_not_requested :get, %r{/branches}
+    assert_not_requested :get, %r{/compare/}
+    assert_not_requested :get, "#{GITHUB_API_URL}/repos/github/other/collaborators/octocat/permission"
+  end
+
+  test "loads repository choices independently and excludes inaccessible repositories" do
+    payloads = [ repository_payload(2001, "github/prototype"), repository_payload(2002, "github/other"),
+      repository_payload(2003, "github/private") ]
+    stub_github_sign_in(repositories: payloads, permissions: { 2001 => "push", 2002 => "pull", 2003 => nil })
+    sign_in
+    repository = Repository.find_by!(github_id: 2001)
+    prototypes.create(repository:, branch_name: "prototype/new")
+    WebMock.reset_executed_requests!
+
+    get repository_prototype_management_path(repository.route_id),
+      params: { props_at: "data.repositoryChoices" },
+      headers: { "Accept" => "application/json" }
+
+    assert_response :success
+    assert_includes response.body, '"action":"graft"'
+    assert_includes response.body, '"path":"data.repositoryChoices"'
+    assert_includes response.body, "github/other"
+    assert_not_includes response.body, "github/private"
+    assert_not_includes response.body, "unlisted"
+    assert_not_includes response.body, "sectionLoadId"
+    assert_not_requested :get, %r{/branches}
+    assert_not_requested :get, %r{/compare/}
+    assert_requested :post, "#{GITHUB_API_URL}/app/installations/456/access_tokens", times: 1
+  end
+
+  test "rejects unsupported management sections without loading branch data" do
+    payload = repository_payload(2001, "github/prototype")
+    stub_github_sign_in(repositories: [ payload ], permissions: { 2001 => "push" })
+    sign_in
+    repository = Repository.find_by!(github_id: 2001)
+    WebMock.reset_executed_requests!
+
+    get repository_prototype_management_path(repository.route_id),
+      params: { props_at: "data.unknown" },
+      headers: { "Accept" => "application/json" }
+
+    assert_response :not_found
+    assert_not_requested :get, %r{/branches}
+    assert_not_requested :get, %r{/compare/}
+  end
+
+  test "reports partial repository failures and permits a retry instead of caching them" do
+    original_cache = Rails.cache
+    Rails.cache = ActiveSupport::Cache::MemoryStore.new
+    payloads = [ repository_payload(2001, "github/prototype"), repository_payload(2002, "github/other") ]
+    stub_github_sign_in(repositories: payloads, permissions: { 2001 => "push", 2002 => "pull" })
+    sign_in
+    repository = Repository.find_by!(github_id: 2001)
+    Rails.cache.clear
+    stub_github_permissions(payloads, { 2001 => "push", 2002 => :failure })
+    path = repository_prototype_management_path(repository.route_id)
+    options = { params: { props_at: "data.repositoryChoices" }, headers: { "Accept" => "application/json" } }
+
+    get path, **options
+    assert_response :success
+    assert_includes response.body, '"failed":true'
+    assert_not_includes response.body, "github/other"
+
+    stub_github_permissions(payloads, { 2001 => "push", 2002 => "pull" })
+    get path, **options
+    assert_response :success
+    assert_includes response.body, '"failed":false'
+    assert_includes response.body, "github/other"
+  ensure
+    Rails.cache = original_cache
+  end
+
+  test "rechecks write access for both async sections" do
+    payload = repository_payload(2001, "github/prototype")
+    stub_github_sign_in(repositories: [ payload ], permissions: { 2001 => "push" })
+    sign_in
+    repository = Repository.find_by!(github_id: 2001)
+    prototypes.create(repository:, branch_name: "prototype/listed").register!(name: "Listed")
+    get repository_prototype_management_path(repository.route_id)
+    assert_response :success
+    stub_github_permissions([ payload ], { 2001 => "pull" })
+
+    %w[data.management data.repositoryChoices].each do |section|
+      get repository_prototype_management_path(repository.route_id),
+        params: { props_at: section }, headers: { "Accept" => "application/json" }
+      assert_response :not_found
+      assert_not_includes response.body, "Listed"
+    end
+  end
+
+  test "reuses comparison caches but checks authorship freshly on registration" do
+    original_cache = Rails.cache
+    Rails.cache = ActiveSupport::Cache::MemoryStore.new
+    payload = repository_payload(2001, "github/prototype")
+    stub_github_sign_in(repositories: [ payload ], permissions: { 2001 => "push" })
+    sign_in
+    repository = Repository.find_by!(github_id: 2001)
+    branch = prototypes.create(repository:, branch_name: "prototype/new")
+    stub_branches(repository, "main" => "a" * 40, branch.branch_name => "b" * 40)
+    stub_comparison(repository, "a" * 40, "b" * 40, author_ids: [ 1001 ])
+    get_management(repository)
+    assert_response :success
+    assert_includes response.body, branch.branch_name
+    WebMock.reset_executed_requests!
+
+    get_management(repository)
+    assert_response :success
+    assert_includes response.body, branch.branch_name
+    assert_not_requested :get, %r{/compare/}
+
+    stub_comparison(repository, "a" * 40, "b" * 40, author_ids: [ 1002 ])
+    patch repository_prototype_registration_path(repository.route_id, branch),
+      params: { prototype: { name: "Not eligible now" } }
+    assert_response :not_found
+    assert_not branch.reload.registered?
+    assert_requested :get, %r{/compare/}, times: 1
+
+    stub_branches(repository, "main" => "c" * 40, branch.branch_name => "b" * 40)
+    stub_comparison(repository, "c" * 40, "b" * 40, author_ids: [ 1002 ])
+    get_management(repository)
+    assert_response :success
+    assert_not_includes response.body, branch.branch_name
+    assert_requested :get, %r{/compare/#{"c" * 40}}, times: 1
+
+    stub_branches(repository, "main" => "c" * 40, branch.branch_name => "d" * 40)
+    stub_comparison(repository, "c" * 40, "d" * 40, author_ids: [ 1001 ])
+    get_management(repository)
+    assert_response :success
+    assert_includes response.body, branch.branch_name
+    assert_requested :get, %r{/compare/#{"c" * 40}\.\.\.#{"d" * 40}}, times: 1
+  ensure
+    Rails.cache = original_cache
+  end
+
+  test "retries branch comparisons after an upstream failure instead of caching an empty result" do
+    original_cache = Rails.cache
+    Rails.cache = ActiveSupport::Cache::MemoryStore.new
+    payload = repository_payload(2001, "github/prototype")
+    stub_github_sign_in(repositories: [ payload ], permissions: { 2001 => "push" })
+    sign_in
+    repository = Repository.find_by!(github_id: 2001)
+    prototype = prototypes.create(repository:, branch_name: "prototype/retry")
+    stub_branches(repository, "main" => "a" * 40, prototype.branch_name => "b" * 40)
+    stub_request(:get, %r{/compare/}).to_timeout
+
+    get_management(repository)
+    assert_response :success
+    assert_includes response.body, '"candidateCheckFailed":true'
+    assert_not_includes response.body, '"branchName":"prototype/retry"'
+
+    stub_comparison(repository, "a" * 40, "b" * 40, author_ids: [ 1001 ])
+    get_management(repository)
+    assert_response :success
+    assert_includes response.body, '"candidateCheckFailed":false'
+    assert_includes response.body, '"branchName":"prototype/retry"'
+  ensure
+    Rails.cache = original_cache
+  end
+
   test "retired histories leave lists but keep their exact review and history links" do
     payload = repository_payload(2001, "github/prototype")
     stub_github_sign_in(repositories: [ payload ], permissions: { 2001 => "admin" })
@@ -28,6 +206,11 @@ class PrototypeRegistrationsTest < ActionDispatch::IntegrationTest
     assert_not_includes response.body, "Retained original"
     get repository_prototype_management_path(repository.github_id)
     assert_response :success
+    assert_includes response.body, "Replacement"
+    assert_not_includes response.body, "Retained original"
+    get_management(repository)
+    assert_response :success
+    assert_includes response.body, "Replacement"
     assert_not_includes response.body, "Retained original"
 
     get repository_prototype_path(repository.github_id, original, build: old_build.number)
@@ -58,7 +241,7 @@ class PrototypeRegistrationsTest < ActionDispatch::IntegrationTest
     assert_includes response.body, repository_prototype_management_path(repository.github_id)
     assert_includes response.body, '"prototypes":[]'
 
-    get repository_prototype_management_path(repository.github_id)
+    get_management(repository)
 
     assert_response :success
     assert_includes response.body, path
@@ -221,7 +404,7 @@ class PrototypeRegistrationsTest < ActionDispatch::IntegrationTest
     assert_includes response.body, '"recentBranches":[]'
     assert_includes response.body, "Manage prototypes"
 
-    get repository_prototype_management_path(repository.github_id)
+    get_management(repository)
     assert_response :success
     assert_not_includes response.body, "prototype/someone-else"
     assert_includes response.body, "prototype/existing"
@@ -307,7 +490,7 @@ class PrototypeRegistrationsTest < ActionDispatch::IntegrationTest
         headers: { "Content-Type" => "application/json" })
     assert_includes repository.prototype_candidates.recently_active_by(other_user, permission: "write"), declined
 
-    get repository_prototype_management_path(repository.route_id)
+    get_management(repository)
     assert_response :success
     assert_includes response.body, '"branchName":"prototype/declined"'
 
@@ -384,7 +567,7 @@ class PrototypeRegistrationsTest < ActionDispatch::IntegrationTest
       get repository_path(repository.github_id)
       assert_not_includes response.body, "You pushed prototype/recent."
 
-      get repository_prototype_management_path(repository.github_id)
+      get_management(repository)
       assert_response :success
       %w[boundary old someone-else recent].each { |name| assert_includes response.body, "prototype/#{name}" }
     end
@@ -590,7 +773,7 @@ class PrototypeRegistrationsTest < ActionDispatch::IntegrationTest
     stub_branches(repository, "main" => "a" * 40, "feature/navigation" => "b" * 40,
       "replica/install-workflow" => "c" * 40)
 
-    get repository_prototype_management_path(repository.github_id)
+    get_management(repository)
     assert_response :success
     assert_includes response.body, "feature/navigation"
     assert_not_includes response.body, "prototype/deleted"
@@ -621,7 +804,7 @@ class PrototypeRegistrationsTest < ActionDispatch::IntegrationTest
     stub_comparison(repository, "a" * 40, "b" * 40,
       author_ids: [ 1001 ], page: 2, total: 101)
 
-    get repository_prototype_management_path(repository.github_id)
+    get_management(repository)
     assert_response :success
     assert_includes response.body, "prototype/long-history"
 
@@ -646,8 +829,9 @@ class PrototypeRegistrationsTest < ActionDispatch::IntegrationTest
     end
     stub_branches(repository, heads)
     path = repository_prototype_management_path(repository.github_id)
+    WebMock.reset_executed_requests!
 
-    get path
+    get_management(repository)
 
     assert_response :success
     assert_equal 10, response.body.scan(/"branchName":"prototype\/branch-/).size
@@ -658,8 +842,10 @@ class PrototypeRegistrationsTest < ActionDispatch::IntegrationTest
     assert_includes response.body, '"candidatePage":1'
     assert_includes response.body, '"candidatePageCount":2'
     assert_includes response.body, %("candidatePagePath":"#{path}")
+    assert_requested :get, %r{/compare/}, times: 22
+    assert_requested :post, "#{GITHUB_API_URL}/app/installations/456/access_tokens", times: 1
 
-    get path, params: { page: 2 }
+    get_management(repository, page: 2)
 
     assert_response :success
     assert_equal 1, response.body.scan(/"branchName":"prototype\/branch-/).size
@@ -667,7 +853,7 @@ class PrototypeRegistrationsTest < ActionDispatch::IntegrationTest
     assert_includes response.body, '"candidatePage":2'
     assert_includes response.body, '"candidatePageCount":2'
 
-    get path, params: { page: 3 }
+    get_management(repository, page: 3)
     assert_response :not_found
   end
 
@@ -681,12 +867,12 @@ class PrototypeRegistrationsTest < ActionDispatch::IntegrationTest
     stub_comparison(repository, "a" * 40, "b" * 40, author_ids: [ 1002 ])
     path = repository_prototype_management_path(repository.github_id)
 
-    get path
+    get_management(repository)
     assert_response :success
     assert_includes response.body, '"candidatePageCount":0'
     assert_includes response.body, '"unlisted":[]'
 
-    get path, params: { page: 2 }
+    get_management(repository, page: 2)
     assert_response :not_found
 
     get path, params: { page: "0" }
@@ -706,7 +892,7 @@ class PrototypeRegistrationsTest < ActionDispatch::IntegrationTest
     stub_comparison(repository, "a" * 40, "b" * 40,
       author_ids: [ 1001 ], total: 101)
 
-    get repository_prototype_management_path(repository.github_id)
+    get_management(repository)
     assert_response :success
     assert_includes response.body, "could not check which branches"
     assert_not_includes response.body, '"branchName":"prototype/incomplete"'
@@ -735,7 +921,7 @@ class PrototypeRegistrationsTest < ActionDispatch::IntegrationTest
     assert_includes response.body, "could not check which branches"
     assert_includes response.body, '"recentBranches":[]'
 
-    get repository_prototype_management_path(repository.github_id)
+    get_management(repository)
     assert_response :success
     assert_includes response.body, '"name":"Listed"'
     assert_includes response.body, "could not check which branches"
@@ -831,6 +1017,12 @@ class PrototypeRegistrationsTest < ActionDispatch::IntegrationTest
   end
 
   private
+
+  def get_management(repository, page: 1)
+    get repository_prototype_management_path(repository.route_id),
+      params: { page:, props_at: "data.management" },
+      headers: { "Accept" => "application/json" }
+  end
 
   def push_activity(branch, timestamp: 1.hour.ago, actor_id: 1001, activity_type: "push")
     { activity_type:, timestamp: timestamp.iso8601, actor: { id: actor_id }, ref: "refs/heads/#{branch}" }

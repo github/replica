@@ -169,6 +169,87 @@ fi
     })
   }
 
+  for (const evidence of ["none", "push", "workflow"]) {
+    it(`${evidence === "none" ? "keeps" : "clears"} a reported failure ${evidence === "none" ? "without" : "after"} new ${evidence === "none" ? "" : `${evidence} `}evidence for the current HEAD`, async () => {
+      await withContext(async (context) => {
+        const originalPath = process.env.PATH
+        const commitSha = execFileSync("git", ["rev-parse", "HEAD"], {
+          cwd: context.repositoryPath,
+          encoding: "utf8",
+        }).trim()
+        const runFile = path.join(context.repositoryPath, "runs.json")
+        const remoteFile = path.join(context.repositoryPath, "remote.json")
+        await mkdir(path.join(context.repositoryPath, ".github/workflows"), { recursive: true })
+        await writeFile(
+          path.join(context.repositoryPath, ".github/workflows/replica.yml"),
+          "name: Replica\n",
+        )
+        execFileSync("git", ["remote", "add", "origin", "https://github.com/github/replica.git"], {
+          cwd: context.repositoryPath,
+        })
+        await writeFile(
+          path.join(context.repositoryPath, "gh"),
+          `#!/bin/sh
+if [ "$1:$2" = "run:list" ]; then
+  cat "${runFile}"
+else
+  cat "${remoteFile}"
+fi
+`,
+          { mode: 0o755 },
+        )
+        const run = {
+          databaseId: evidence === "workflow" ? 2 : 1,
+          headSha: commitSha,
+          headBranch: "prototype",
+          status: "in_progress",
+          conclusion: null,
+          createdAt: "2000-01-01T00:00:00Z",
+          updatedAt: "2000-01-01T00:00:00Z",
+        }
+        try {
+          process.env.PATH = `${context.repositoryPath}:${originalPath}`
+          await writeFile(
+            remoteFile,
+            JSON.stringify([
+              { ref: "refs/heads/prototype", object: { type: "commit", sha: commitSha } },
+            ]),
+          )
+          await writeFile(runFile, JSON.stringify([run]))
+          const state = await readState(context)
+          state.publishRequest = {
+            state: "failed",
+            requestedAt: new Date().toISOString(),
+            commitSha,
+            target: await capturePublishTarget(context),
+            mode: "committed-only",
+            remoteState: evidence === "push" ? "absent" : "present",
+            remoteSha: evidence === "push" ? null : commitSha,
+            workflowRunId: 1,
+            buildNumber: null,
+            outcome: "blocked",
+            reportedAt: new Date().toISOString(),
+            error: "Copilot stopped before pushing.",
+          }
+          await writeState(context, state)
+
+          const refreshed = await getPrototypeState(context, { refresh: true })
+          if (evidence === "none") {
+            assert.equal(refreshed.publishRequest.state, "failed")
+            assert.equal(refreshed.publishStatus.state, "failed")
+          } else {
+            assert.equal(refreshed.publishRequest.state, "idle")
+            assert.equal(refreshed.publishRequest.error, null)
+            assert.equal(refreshed.publishRequest.outcome, undefined)
+            assert.equal(refreshed.publishStatus.state, "in_progress")
+          }
+        } finally {
+          process.env.PATH = originalPath
+        }
+      })
+    })
+  }
+
   it("caches until a forced refresh and persists the same state ID", async () => {
     await withContext(async (context) => {
       const withSession = { ...context, sessionId: "example-session-id" }

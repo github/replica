@@ -65,7 +65,8 @@ describe("Toolbar()", () => {
           state={null}
           publication={{
             kind: "requested",
-            detail: "Pushing branch to repository.",
+            detail:
+              "Copilot received the publish request in chat and has not pushed this branch yet. Follow its progress in chat.",
             label: "Publish",
             action: "none",
           }}

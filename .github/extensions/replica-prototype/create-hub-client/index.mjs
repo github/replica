@@ -5,41 +5,7 @@ import path from "node:path"
 import { readCanvasRepository } from "../read-canvas-repository/index.mjs"
 import { runCommand } from "../run-command/index.mjs"
 import { createPrivateStore } from "../private-store/index.mjs"
-
-export class InvalidHubOrigin extends Error {}
-
-function parseHubUrl(value, name) {
-  let origin
-  try {
-    origin = new URL(value)
-  } catch {
-    throw new InvalidHubOrigin(`${name} must be an HTTP or HTTPS origin without credentials.`)
-  }
-  if (!["http:", "https:"].includes(origin.protocol) || origin.username || origin.password) {
-    throw new InvalidHubOrigin(`${name} must be an HTTP or HTTPS origin without credentials.`)
-  }
-  if (
-    origin.protocol === "http:" &&
-    origin.hostname !== "localhost" &&
-    origin.hostname !== "127.0.0.1" &&
-    !origin.hostname.endsWith(".localhost")
-  ) {
-    throw new InvalidHubOrigin("Remote Replica Hub connections require HTTPS.")
-  }
-  return origin
-}
-
-export function normalizeHubOrigin(value, name = "REPLICA_HUB_ORIGIN") {
-  const origin = parseHubUrl(value, name)
-  if (origin.pathname !== "/" || origin.search || origin.hash) {
-    throw new InvalidHubOrigin(`${name} must be an HTTP or HTTPS origin without credentials.`)
-  }
-  return origin.origin
-}
-
-export function normalizeSelectedHubOrigin(value) {
-  return parseHubUrl(value, "Hub URL").origin
-}
+import { normalizeHubOrigin } from "../normalize-hub-origin/index.mjs"
 
 function registrationReason(value) {
   if (value == null) return undefined
@@ -299,6 +265,10 @@ export function createHubClient(context, options = {}) {
   return {
     origin: origin.origin,
     checkout,
+    async connectionKey(repository) {
+      const credential = await credentialFor(repository)
+      return credential ? connectionIdentity(credential) : null
+    },
     async status() {
       const target = await checkout()
       if (!target.repository) {
@@ -340,7 +310,9 @@ export function createHubClient(context, options = {}) {
           return {
             state: "undiscovered",
             repositoryAuthorized: true,
+            reviewConnectionId: connectionIdentity(credential),
             canPublish: connection.canPublish,
+            viewerLogin: connection.viewerLogin,
             repository: target.repository,
             commitSha: target.commitSha,
             message: "Connected to this repository. Open a named branch for Builds and reviews.",
@@ -367,7 +339,9 @@ export function createHubClient(context, options = {}) {
           return {
             state: "undiscovered",
             repositoryAuthorized: true,
+            reviewConnectionId: connectionIdentity(credential),
             canPublish: connection.canPublish,
+            viewerLogin: connection.viewerLogin,
             repository: target.repository,
             branch: target.branch,
             commitSha: target.commitSha,
@@ -418,6 +392,7 @@ export function createHubClient(context, options = {}) {
         return {
           state: "connected",
           repositoryAuthorized: true,
+          reviewConnectionId: connectionIdentity(credential),
           repository: target.repository,
           branch: target.branch,
           commitSha: target.commitSha,

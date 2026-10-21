@@ -5,7 +5,7 @@ import { AppDialogs } from "@features/prototype-canvas-dialogs"
 import { BrowserBar } from "@components/prototype-browser-bar"
 import { ControlsPanel } from "@components/prototype-controls-panel"
 import type { ControlsPanelLayout } from "@components/prototype-controls-panel/types"
-import { HubPanel } from "@features/prototype-canvas-hub-panel"
+import { PrototypeCanvasHubPanel } from "@features/prototype-canvas-hub-panel"
 import { copy } from "@utils/prototype-canvas/en"
 import { request } from "@utils/prototype-canvas-request"
 import { resolveShareReadiness } from "@utils/resolve-prototype-share-readiness"
@@ -234,7 +234,7 @@ export function App({ config }: Props) {
           }}
         />
 
-        <HubPanel
+        <PrototypeCanvasHubPanel
           config={config}
           frameRef={frameRef}
           onRouteChange={reportRoute}

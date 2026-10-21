@@ -7,3 +7,11 @@
 .publish-changes-dialog p {
   margin: 0;
 }
+
+.publish-changes-dialog__files {
+  max-height: 10rem;
+  margin: 0;
+  padding-left: var(--base-size-20);
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+}

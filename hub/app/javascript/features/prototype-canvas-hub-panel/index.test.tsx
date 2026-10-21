@@ -1,12 +1,9 @@
-import { ThemeProvider } from "@primer/react-brand"
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import { createRef } from "react"
-import { afterEach, beforeEach, expect, it, vi } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { octocatRootComment } from "@/storybook/fixtures/review/comments"
 import { reviewCommentsCopy } from "@utils/review-comment/en"
-
-import { HubPanel } from "."
 import {
   importedPrototype,
   publicationHub,
@@ -15,17 +12,7 @@ import {
 import { resolvePublication } from "@utils/resolve-prototype-publication"
 import type { HubStatus } from "@utils/prototype-canvas/types"
 
-beforeEach(() => {
-  const reviewControls = document.createElement("div")
-  reviewControls.id = "canvas-review-controls"
-  document.body.append(reviewControls)
-})
-
-afterEach(() => {
-  document.getElementById("canvas-review-controls")?.remove()
-  vi.restoreAllMocks()
-  vi.unstubAllGlobals()
-})
+import { renderPrototypeCanvasHubPanel } from "./test-support/render-prototype-canvas-hub-panel"
 
 it.each(["undiscovered", "unregistered", "no-build", "disconnected"] as const)(
   "hides publishing Settings for a %s prototype",
@@ -37,39 +24,28 @@ it.each(["undiscovered", "unregistered", "no-build", "disconnected"] as const)(
       ),
     )
     const save = vi.fn<() => Promise<void>>().mockResolvedValue(undefined)
-    const view = render(
-      <ThemeProvider>
-        <HubPanel
-          config={{ name: "Example", prototypeUrl: "http://localhost:4321/", token: "local" }}
-          frameRef={createRef<HTMLIFrameElement>()}
-          status={{
-            ...publicationHub,
-            state: state === "undiscovered" || state === "disconnected" ? state : "connected",
-            prototype:
-              state === "undiscovered" || state === "disconnected"
-                ? undefined
-                : {
-                    ...importedPrototype,
-                    registered: state !== "unregistered",
-                    build: state === "no-build" ? null : importedPrototype.build,
-                  },
-          }}
-          publishPreference={{
-            remember: false,
-            loading: false,
-            saving: false,
-            error: "",
-            save,
-            retry: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
-          }}
-          onStatusChange={async () => {}}
-          onSelectHub={async () => {}}
-          onConnect={() => {}}
-          onClose={() => {}}
-          open
-        />
-      </ThemeProvider>,
-    )
+    const view = renderPrototypeCanvasHubPanel({
+      status: {
+        ...publicationHub,
+        state: state === "undiscovered" || state === "disconnected" ? state : "connected",
+        prototype:
+          state === "undiscovered" || state === "disconnected"
+            ? undefined
+            : {
+                ...importedPrototype,
+                registered: state !== "unregistered",
+                build: state === "no-build" ? null : importedPrototype.build,
+              },
+      },
+      publishPreference: {
+        remember: false,
+        loading: false,
+        saving: false,
+        error: "",
+        save,
+        retry: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+      },
+    })
     expect(screen.queryByRole("region", { name: "Settings" })).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "Publishing preferences" })).not.toBeInTheDocument()
     expect(save).not.toHaveBeenCalled()
@@ -88,13 +64,8 @@ it.each(["unavailable", "denied"] as const)(
       message: "Hub status unavailable: Load failed",
     }
     const props = {
-      config: { name: "Example", prototypeUrl: "http://localhost:4321/", token: "local" },
-      frameRef: createRef<HTMLIFrameElement>(),
       status,
       onStatusChange,
-      onSelectHub: async () => {},
-      onConnect: () => {},
-      onClose: () => {},
       onPublish: vi.fn(),
       onRetryPublication,
       publication: {
@@ -103,13 +74,8 @@ it.each(["unavailable", "denied"] as const)(
         label: "Retry status",
         action: "retry" as const,
       },
-      open: true,
     }
-    const view = render(
-      <ThemeProvider>
-        <HubPanel {...props} />
-      </ThemeProvider>,
-    )
+    const view = renderPrototypeCanvasHubPanel({ ...props })
     expect(screen.getAllByRole("alert")).toHaveLength(1)
     expect(screen.getByRole("alert")).toHaveTextContent(status.message!)
     expect(screen.getByRole("alert")).toHaveClass("hub-alert--warning", "hub-alert--compact")
@@ -122,22 +88,14 @@ it.each(["unavailable", "denied"] as const)(
     expect(onStatusChange).not.toHaveBeenCalled()
     expect(props.onPublish).not.toHaveBeenCalled()
 
-    view.rerender(
-      <ThemeProvider>
-        <HubPanel {...props} publicationBusy />
-      </ThemeProvider>,
-    )
+    view.rerender({ ...props, publicationBusy: true })
     const retry = screen.getByRole("button", { name: "Retry status" })
     expect(retry).toBeDisabled()
     expect(retry).toHaveAttribute("aria-busy", "true")
     fireEvent.click(retry)
     expect(onRetryPublication).toHaveBeenCalledOnce()
 
-    view.rerender(
-      <ThemeProvider>
-        <HubPanel {...props} status={{ ...status, state: "undiscovered", message: undefined }} />
-      </ThemeProvider>,
-    )
+    view.rerender({ ...props, status: { ...status, state: "undiscovered", message: undefined } })
     expect(screen.getByRole("region", { name: "Branch publication" })).toHaveTextContent(
       props.publication.detail,
     )
@@ -148,20 +106,10 @@ it.each(["unavailable", "denied"] as const)(
 
 it("offers a Hub-only retry with fallback copy when no publication callback is provided", () => {
   const onStatusChange = vi.fn().mockResolvedValue(undefined)
-  const view = render(
-    <ThemeProvider>
-      <HubPanel
-        config={{ name: "Example", prototypeUrl: "http://localhost:4321/", token: "local" }}
-        frameRef={createRef<HTMLIFrameElement>()}
-        status={{ ...publicationHub, state: "unavailable" }}
-        onStatusChange={onStatusChange}
-        onSelectHub={async () => {}}
-        onConnect={() => {}}
-        onClose={() => {}}
-        open
-      />
-    </ThemeProvider>,
-  )
+  const view = renderPrototypeCanvasHubPanel({
+    status: { ...publicationHub, state: "unavailable" },
+    onStatusChange,
+  })
   expect(screen.getByRole("alert")).toHaveTextContent(
     "Hub verification is unavailable. Restore access and retry.",
   )
@@ -182,31 +130,17 @@ it("replaces automatic publication progress with editable metadata once publishe
       ),
     ),
   )
-  const props = {
-    config: { name: "Example", prototypeUrl: "http://localhost:4321/", token: "local" },
-    frameRef: createRef<HTMLIFrameElement>(),
-    onStatusChange: async () => {},
-    onSelectHub: async () => {},
-    onConnect: () => {},
-    onClose: () => {},
-    onPublish: () => {},
-    onRetryPublication: () => {},
-    open: true,
-  }
+  const props = { onPublish: () => {}, onRetryPublication: () => {} }
   const waiting = {
     ...publicationHub,
     state: "connected" as const,
     prototype: { ...importedPrototype, registered: false, published: false },
   }
-  const view = render(
-    <ThemeProvider>
-      <HubPanel
-        {...props}
-        status={waiting}
-        publication={resolvePublication(publicationState, waiting)}
-      />
-    </ThemeProvider>,
-  )
+  const view = renderPrototypeCanvasHubPanel({
+    ...props,
+    status: waiting,
+    publication: resolvePublication(publicationState, waiting),
+  })
   expect(screen.queryByRole("button", { name: "Register prototype" })).not.toBeInTheDocument()
   expect(screen.queryByRole("button", { name: "Refresh publication" })).not.toBeInTheDocument()
   expect(screen.queryByRole("button", { name: "Edit details" })).not.toBeInTheDocument()
@@ -220,15 +154,11 @@ it("replaces automatic publication progress with editable metadata once publishe
     ...waiting,
     registrationError: "Automatic prototype registration failed: Hub returned HTTP 404.",
   }
-  view.rerender(
-    <ThemeProvider>
-      <HubPanel
-        {...props}
-        status={failed}
-        publication={resolvePublication(publicationState, failed)}
-      />
-    </ThemeProvider>,
-  )
+  view.rerender({
+    ...props,
+    status: failed,
+    publication: resolvePublication(publicationState, failed),
+  })
   expect(screen.getByText(failed.registrationError)).toBeInTheDocument()
   expect(screen.getByRole("link", { name: "Build #1" })).toBeInTheDocument()
   expect(screen.getByText(importedPrototype.build!.commitSha.slice(0, 7)).parentElement).toBe(
@@ -247,15 +177,11 @@ it("replaces automatic publication progress with editable metadata once publishe
   expect(screen.queryByRole("button", { name: "Connect to the Hub" })).not.toBeInTheDocument()
 
   const published = { ...waiting, prototype: importedPrototype }
-  view.rerender(
-    <ThemeProvider>
-      <HubPanel
-        {...props}
-        status={published}
-        publication={resolvePublication(publicationState, published)}
-      />
-    </ThemeProvider>,
-  )
+  view.rerender({
+    ...props,
+    status: published,
+    publication: resolvePublication(publicationState, published),
+  })
   expect(screen.queryByText(/publishing it automatically/)).not.toBeInTheDocument()
   expect(screen.queryByRole("region", { name: "Branch publication" })).not.toBeInTheDocument()
   expect(screen.getByRole("button", { name: "Edit details" })).toBeEnabled()
@@ -337,30 +263,19 @@ it.each([
     "fetch",
     vi.fn(() => Promise.resolve(Response.json({ comments: [], hasMore: false, nextCursor: null }))),
   )
-  const view = render(
-    <ThemeProvider>
-      <HubPanel
-        config={{ name: "Example", prototypeUrl: "http://localhost:4321/", token: "local" }}
-        frameRef={createRef<HTMLIFrameElement>()}
-        status={{
-          ...publicationHub,
-          state: "connected",
-          prototype: {
-            ...importedPrototype,
-            build: {
-              ...importedPrototype.build!,
-              author: { name, login, avatarUrl: null },
-            },
-          },
-        }}
-        onStatusChange={async () => {}}
-        onSelectHub={async () => {}}
-        onConnect={() => {}}
-        onClose={() => {}}
-        open
-      />
-    </ThemeProvider>,
-  )
+  const view = renderPrototypeCanvasHubPanel({
+    status: {
+      ...publicationHub,
+      state: "connected",
+      prototype: {
+        ...importedPrototype,
+        build: {
+          ...importedPrototype.build!,
+          author: { name, login, avatarUrl: null },
+        },
+      },
+    },
+  })
   const build = within(screen.getByRole("region", { name: "Latest Build" }))
   expect(build.getByText(label)).toBeInTheDocument()
   expect(build.queryByText(/^Commit author:/)).not.toBeInTheDocument()
@@ -382,59 +297,39 @@ it("derives Build history from the selected Hub and current prototype only with 
     "fetch",
     vi.fn(() => Promise.resolve(Response.json({ comments: [], hasMore: false, nextCursor: null }))),
   )
-  const props = {
-    config: { name: "Example", prototypeUrl: "http://localhost:4321/", token: "local" },
-    frameRef: createRef<HTMLIFrameElement>(),
-    onStatusChange: async () => {},
-    onSelectHub: async () => {},
-    onConnect: () => {},
-    onClose: () => {},
-    open: true,
-  }
+
   const status = {
     ...publicationHub,
     state: "connected" as const,
     prototype: { ...importedPrototype, id: 53, repositoryId: 2001, versionCount: 12 },
   }
-  const view = render(
-    <ThemeProvider>
-      <HubPanel {...props} status={status} />
-    </ThemeProvider>,
-  )
+  const view = renderPrototypeCanvasHubPanel({
+    status,
+  })
   expect(screen.getByRole("link", { name: "Show build history" })).toHaveAttribute(
     "href",
     "https://hub.example.com/repositories/2001/prototypes/53/builds",
   )
   expect(screen.queryByText(/versions?/)).not.toBeInTheDocument()
   await screen.findByRole("button", { name: /^Comments, 0/ })
-  view.rerender(
-    <ThemeProvider>
-      <HubPanel
-        {...props}
-        status={{
-          ...status,
-          hubOrigin: "https://other-hub.example.com/",
-          prototype: { ...status.prototype, id: 62, repositoryId: 4003 },
-        }}
-      />
-    </ThemeProvider>,
-  )
+  view.rerender({
+    status: {
+      ...status,
+      hubOrigin: "https://other-hub.example.com/",
+      prototype: { ...status.prototype, id: 62, repositoryId: 4003 },
+    },
+  })
   expect(screen.getByRole("link", { name: "Show build history" })).toHaveAttribute(
     "href",
     "https://other-hub.example.com/repositories/4003/prototypes/62/builds",
   )
   for (const buildState of ["queued", "building", "failed", null]) {
-    view.rerender(
-      <ThemeProvider>
-        <HubPanel
-          {...props}
-          status={{
-            ...status,
-            prototype: { ...status.prototype, build: null, buildState },
-          }}
-        />
-      </ThemeProvider>,
-    )
+    view.rerender({
+      status: {
+        ...status,
+        prototype: { ...status.prototype, build: null, buildState },
+      },
+    })
     expect(screen.queryByRole("link", { name: "Show build history" })).not.toBeInTheDocument()
     expect(screen.queryByRole("link", { name: "Build #1" })).not.toBeInTheDocument()
     expect(screen.getByText(/No successful imported Build yet/)).toBeInTheDocument()
@@ -452,24 +347,13 @@ it("keeps the Hub heading and root link before discovery with only concise unpub
       remoteBranch: { ...publicationState.stats.remoteBranch!, state: "absent" as const },
     },
   }
-  const view = render(
-    <ThemeProvider>
-      <HubPanel
-        config={{ name: "Example", prototypeUrl: "http://localhost:4321/", token: "local" }}
-        frameRef={createRef<HTMLIFrameElement>()}
-        status={status}
-        publication={resolvePublication(state, status)}
-        dirty
-        onPublish={() => {}}
-        onRetryPublication={() => {}}
-        onStatusChange={async () => {}}
-        onSelectHub={async () => {}}
-        onConnect={() => {}}
-        onClose={() => {}}
-        open
-      />
-    </ThemeProvider>,
-  )
+  const view = renderPrototypeCanvasHubPanel({
+    status,
+    publication: resolvePublication(state, status),
+    dirty: true,
+    onPublish: () => {},
+    onRetryPublication: () => {},
+  })
   const heading = screen.getByRole("heading", { name: "Hub" })
   expect(heading.className).toContain("Heading--subhead-medium")
   const link = screen.getByRole("link", { name: "https://hub.example.com" })
@@ -487,25 +371,12 @@ it("keeps the Hub heading and root link before discovery with only concise unpub
 })
 
 it("offers only the shared dialog action when disconnected status arrives after loading", () => {
-  const props = {
-    config: { name: "Example", prototypeUrl: "http://localhost:4321/", token: "local" },
-    frameRef: createRef<HTMLIFrameElement>(),
-    onStatusChange: async () => {},
-    onSelectHub: async () => {},
-    onConnect: () => {},
-    onClose: () => {},
-    open: true,
-  }
-  const view = render(
-    <ThemeProvider>
-      <HubPanel {...props} status={null} />
-    </ThemeProvider>,
-  )
-  view.rerender(
-    <ThemeProvider>
-      <HubPanel {...props} status={{ ...publicationHub, state: "disconnected" }} />
-    </ThemeProvider>,
-  )
+  const view = renderPrototypeCanvasHubPanel({
+    status: null,
+  })
+  view.rerender({
+    status: { ...publicationHub, state: "disconnected" },
+  })
   expect(screen.queryByRole("textbox", { name: "Hub URL" })).not.toBeInTheDocument()
   expect(
     screen.getByText("Connect to the hub before publishing this prototype."),
@@ -524,20 +395,8 @@ it("reports disconnect failures and keeps reconnecting to the saved Hub availabl
   vi.stubGlobal("fetch", fetch)
   const onStatusChange = vi.fn().mockResolvedValue(undefined)
   const onConnect = vi.fn()
-  const props = {
-    config: { name: "Example", prototypeUrl: "http://localhost:4321/", token: "local" },
-    frameRef: createRef<HTMLIFrameElement>(),
-    onStatusChange,
-    onSelectHub: async () => {},
-    onConnect,
-    onClose: () => {},
-    open: true,
-  }
-  const view = render(
-    <ThemeProvider>
-      <HubPanel {...props} status={publicationHub} />
-    </ThemeProvider>,
-  )
+  const props = { onStatusChange, onConnect }
+  const view = renderPrototypeCanvasHubPanel({ ...props, status: publicationHub })
   fireEvent.click(screen.getByRole("button", { name: "Disconnect Hub" }))
   expect(await screen.findByRole("alert")).toHaveTextContent("Hub could not revoke the connection.")
   expect(onStatusChange).not.toHaveBeenCalled()
@@ -548,20 +407,12 @@ it("reports disconnect failures and keeps reconnecting to the saved Hub availabl
 
   fireEvent.click(screen.getByRole("button", { name: "Disconnect Hub" }))
   await waitFor(() => expect(onStatusChange).toHaveBeenCalledOnce())
-  view.rerender(
-    <ThemeProvider>
-      <HubPanel {...props} status={{ ...publicationHub, state: "disconnected" }} />
-    </ThemeProvider>,
-  )
+  view.rerender({ ...props, status: { ...publicationHub, state: "disconnected" } })
   expect(screen.queryByRole("textbox", { name: "Hub URL" })).not.toBeInTheDocument()
   expect(screen.queryByRole("button", { name: "Cancel" })).not.toBeInTheDocument()
   fireEvent.click(screen.getByRole("button", { name: "Connect to the Hub" }))
   expect(onConnect).toHaveBeenCalledOnce()
-  view.rerender(
-    <ThemeProvider>
-      <HubPanel {...props} status={publicationHub} />
-    </ThemeProvider>,
-  )
+  view.rerender({ ...props, status: publicationHub })
   await waitFor(() =>
     expect(screen.queryByRole("textbox", { name: "Hub URL" })).not.toBeInTheDocument(),
   )
@@ -573,26 +424,18 @@ it("keeps a repository connection when configuration differs and requires an exp
   const onStatusChange = vi.fn().mockResolvedValue(undefined)
   const fetch = vi.fn().mockResolvedValue(Response.json({ state: "disconnected" }))
   vi.stubGlobal("fetch", fetch)
-  const view = render(
-    <ThemeProvider>
-      <HubPanel
-        config={{ name: "New prototype", prototypeUrl: "http://localhost:4321/", token: "local" }}
-        frameRef={createRef<HTMLIFrameElement>()}
-        status={{
-          state: "undiscovered",
-          repository: "github/prototype",
-          branch: "prototype/uncommitted",
-          hubOrigin: "https://previous.example.com",
-          discovery: { state: "valid", origin: "https://configured.example.com", mismatch: true },
-        }}
-        onStatusChange={onStatusChange}
-        onSelectHub={onSelectHub}
-        open
-        onConnect={() => {}}
-        onClose={() => {}}
-      />
-    </ThemeProvider>,
-  )
+  const view = renderPrototypeCanvasHubPanel({
+    config: { name: "New prototype", prototypeUrl: "http://localhost:4321/", token: "local" },
+    status: {
+      state: "undiscovered",
+      repository: "github/prototype",
+      branch: "prototype/uncommitted",
+      hubOrigin: "https://previous.example.com",
+      discovery: { state: "valid", origin: "https://configured.example.com", mismatch: true },
+    },
+    onStatusChange,
+    onSelectHub,
+  })
   expect(screen.getByText(/Your repository connection is ready/)).toBeInTheDocument()
   expect(screen.getByRole("button", { name: "Disconnect Hub" })).toBeInTheDocument()
   expect(screen.getByRole("alert")).toHaveTextContent("Your connection has not changed")
@@ -623,24 +466,18 @@ it("keeps pending approval and configuration out of the sidebar", () => {
   vi.stubGlobal("fetch", fetch)
   const onStatusChange = vi.fn().mockResolvedValue(undefined)
   const onSelectHub = vi.fn().mockResolvedValue(undefined)
-  const view = render(
-    <ThemeProvider>
-      <HubPanel
-        config={{ name: "Example", prototypeUrl: "http://localhost:4321/", token: "local" }}
-        frameRef={createRef<HTMLIFrameElement>()}
-        status={{
-          ...publicationHub,
-          state: "pairing",
-          pairing: { verificationUrl: "https://hub.example.com/canvas/pair/123", userCode: "123" },
-        }}
-        onStatusChange={onStatusChange}
-        onSelectHub={onSelectHub}
-        onConnect={() => {}}
-        onClose={() => {}}
-        open
-      />
-    </ThemeProvider>,
-  )
+  const view = renderPrototypeCanvasHubPanel({
+    status: {
+      ...publicationHub,
+      state: "pairing",
+      pairing: {
+        verificationUrl: "https://hub.example.com/canvas/pair/123",
+        userCode: "123",
+      },
+    },
+    onStatusChange,
+    onSelectHub,
+  })
   expect(screen.queryByRole("textbox", { name: "Hub URL" })).not.toBeInTheDocument()
   expect(screen.queryByRole("textbox", { name: "Approval URL" })).not.toBeInTheDocument()
   expect(screen.queryByRole("link", { name: "Connect to the Hub" })).not.toBeInTheDocument()
@@ -657,20 +494,10 @@ it("offers an explicit local switch with a warning when the selected Hub cannot 
     vi.fn().mockResolvedValue(Response.json({ error: "Hub is offline." }, { status: 503 })),
   )
   const onSelectHub = vi.fn().mockResolvedValue(undefined)
-  const view = render(
-    <ThemeProvider>
-      <HubPanel
-        config={{ name: "Example", prototypeUrl: "http://localhost:4321/", token: "local" }}
-        frameRef={createRef<HTMLIFrameElement>()}
-        status={{ ...publicationHub, state: "unavailable" }}
-        onStatusChange={async () => {}}
-        onSelectHub={onSelectHub}
-        onConnect={() => {}}
-        onClose={() => {}}
-        open
-      />
-    </ThemeProvider>,
-  )
+  const view = renderPrototypeCanvasHubPanel({
+    status: { ...publicationHub, state: "unavailable" },
+    onSelectHub,
+  })
   fireEvent.click(screen.getByRole("button", { name: "Disconnect Hub" }))
   expect(await screen.findByText(/The previous connection may still be active/)).toHaveAttribute(
     "role",
@@ -692,6 +519,9 @@ it("offers an explicit local switch with a warning when the selected Hub cannot 
 
 it("creates Hub conversations and supports existing-thread actions", async () => {
   const paths: { path: string; method: string }[] = []
+  const recoveryDetail = "Hub is temporarily unavailable. Retry saving your comment."
+  let saveUnavailable = true
+  let savedRoot: typeof octocatRootComment | null = null
   let finishReply!: (response: Response) => void
   const nonce = "00000000-0000-4000-8000-000000000000"
   vi.spyOn(crypto, "randomUUID").mockReturnValue(nonce)
@@ -711,32 +541,48 @@ it("creates Hub conversations and supports existing-thread actions", async () =>
       const path = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
       paths.push({ path, method: options?.method || "GET" })
       if (path === "/api/hub/events") throw new Error("Live connection unavailable")
+      if (path === "/api/hub/status")
+        return Promise.resolve(
+          Response.json({
+            ...publicationHub,
+            state: "connected",
+            repository: "github/prototype",
+            branch: "prototype/welcome",
+            prototype: { ...importedPrototype, repositoryId: 2001 },
+          }),
+        )
       if (path === "/api/hub/comments/1/replies")
         return new Promise<Response>((resolve) => {
           finishReply = resolve
         })
-      if (path === "/api/hub/comments" && options?.method === "POST")
+      if (path === "/api/hub/comments" && options?.method === "POST" && saveUnavailable)
+        return Promise.resolve(Response.json({ error: recoveryDetail }, { status: 503 }))
+      if (path === "/api/hub/comments" && options?.method === "POST") {
+        savedRoot = {
+          ...octocatRootComment,
+          id: 2,
+          body: "Please update this heading.",
+          activityVersion: 1,
+        }
         return Promise.resolve(
           new Response(
             JSON.stringify({
-              comments: [
-                {
-                  ...octocatRootComment,
-                  id: 2,
-                  body: "Please update this heading.",
-                  activityVersion: 1,
-                },
-              ],
+              comments: [savedRoot],
             }),
             { status: 201, headers: { "Content-Type": "application/json" } },
           ),
         )
+      }
       return Promise.resolve(
         new Response(
           JSON.stringify(
             path === "/api/hub/comments"
               ? {
-                  comments: [octocatRootComment, resolvedRootComment],
+                  comments: [
+                    octocatRootComment,
+                    resolvedRootComment,
+                    ...(savedRoot ? [savedRoot] : []),
+                  ],
                   hasMore: false,
                   nextCursor: null,
                 }
@@ -747,48 +593,43 @@ it("creates Hub conversations and supports existing-thread actions", async () =>
       )
     }),
   )
-  const view = render(
-    <ThemeProvider>
-      <iframe ref={frameRef} title="Prototype preview" src="about:blank" />
-      <HubPanel
-        config={{ name: "Welcome", prototypeUrl: "http://localhost:4321/", token: "local" }}
-        frameRef={frameRef}
-        status={{
-          state: "connected",
-          repository: "github/prototype",
+  const view = renderPrototypeCanvasHubPanel(
+    {
+      config: { name: "Welcome", prototypeUrl: "http://localhost:4321/", token: "local" },
+      frameRef,
+      status: {
+        state: "connected",
+        repository: "github/prototype",
+        branch: "prototype/welcome",
+        commitSha: "a".repeat(40),
+        reviewRevision: publicationHub.reviewRevision,
+        hubOrigin: "https://hub.example.com",
+        prototype: {
+          id: 1,
+          repositoryId: 2001,
           branch: "prototype/welcome",
-          commitSha: "a".repeat(40),
-          hubOrigin: "https://hub.example.com",
-          prototype: {
-            id: 1,
-            repositoryId: 2001,
-            branch: "prototype/welcome",
-            name: "Welcome",
-            description: "A welcome flow.",
-            startPage: "/welcome?step=1#intro",
-            viewerLogin: "octocat",
-            registered: true,
-            canEdit: true,
-            canRegister: true,
-            published: true,
-            buildState: "successful",
-            versionCount: 1,
-            build: {
-              url: "https://hub.example.com/repositories/2001/prototypes/1?build=1",
-              number: 1,
-              commitSha: "a".repeat(40),
-              publishedAt: "2026-09-14T12:00:00Z",
-              author: { login: "octocat", name: null, avatarUrl: null },
-            },
+          name: "Welcome",
+          description: "A welcome flow.",
+          startPage: "/welcome?step=1#intro",
+          viewerLogin: "octocat",
+          registered: true,
+          canEdit: true,
+          canRegister: true,
+          published: true,
+          buildState: "successful",
+          versionCount: 1,
+          build: {
+            url: "https://hub.example.com/repositories/2001/prototypes/1?build=1",
+            number: 1,
+            commitSha: "a".repeat(40),
+            publishedAt: "2026-09-14T12:00:00Z",
+            author: { login: "octocat", name: null, avatarUrl: null },
           },
-        }}
-        onStatusChange={async () => {}}
-        onSelectHub={async () => {}}
-        open
-        onConnect={() => {}}
-        onClose={onClose}
-      />
-    </ThemeProvider>,
+        },
+      },
+      onClose,
+    },
+    <iframe ref={frameRef} title="Prototype preview" src="about:blank" />,
   )
   const commentsToggle = await screen.findByRole("button", { name: /^Comments, 1/ })
   const hubPanel = screen.getByRole("complementary", { name: "Hub" })
@@ -959,13 +800,15 @@ it("creates Hub conversations and supports existing-thread actions", async () =>
   fireEvent.click(
     await screen.findByRole("menuitem", { name: reviewCommentsCopy.commentOnElementLabel }),
   )
-  expect(postMessage).toHaveBeenLastCalledWith(
-    {
-      type: "replica:canvas:select",
-      nonce,
-      mode: "element",
-    },
-    "http://localhost:4321",
+  await waitFor(() =>
+    expect(postMessage).toHaveBeenLastCalledWith(
+      {
+        type: "replica:canvas:select",
+        nonce,
+        mode: "element",
+      },
+      "http://localhost:4321",
+    ),
   )
   expect(
     screen.getAllByRole("button", { name: reviewCommentsCopy.cancelSelectionLabel }),
@@ -987,6 +830,14 @@ it("creates Hub conversations and supports existing-thread actions", async () =>
     target: { value: "Please update this heading." },
   })
   fireEvent.click(screen.getByRole("button", { name: reviewCommentsCopy.submitLabel }))
+  const composer = screen.getByRole("dialog", { name: reviewCommentsCopy.composerHeading })
+  expect(await within(composer).findByRole("alert")).toHaveTextContent(recoveryDetail)
+  expect(within(composer).getByRole("alert")).toBeVisible()
+  expect(
+    within(composer).getByRole("textbox", { name: reviewCommentsCopy.composerLabel }),
+  ).toHaveValue("Please update this heading.")
+  saveUnavailable = false
+  fireEvent.click(within(composer).getByRole("button", { name: reviewCommentsCopy.submitLabel }))
   await waitFor(() => expect(paths).toContainEqual({ path: "/api/hub/comments", method: "POST" }))
   expect(
     await screen.findByRole("dialog", { name: reviewCommentsCopy.threadHeading }),
@@ -1029,78 +880,6 @@ it("creates Hub conversations and supports existing-thread actions", async () =>
     await Promise.resolve()
   })
   expect(paths).toContainEqual({ path: "/api/hub/comments", method: "POST" })
-  view.unmount()
-})
-
-it("blocks new root comments when the local checkout differs from the imported Build", async () => {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn((input: RequestInfo | URL) => {
-      const path = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
-      if (path === "/api/hub/events") throw new Error("Live connection unavailable")
-      return Promise.resolve(
-        new Response(JSON.stringify({ comments: [], hasMore: false, nextCursor: null }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        }),
-      )
-    }),
-  )
-
-  const view = render(
-    <ThemeProvider>
-      <HubPanel
-        config={{ name: "Welcome", prototypeUrl: "http://localhost:4321/", token: "local" }}
-        frameRef={createRef<HTMLIFrameElement>()}
-        status={{
-          state: "connected",
-          repository: "github/prototype",
-          branch: "prototype/welcome",
-          commitSha: "b".repeat(40),
-          hubOrigin: "https://hub.example.com",
-          prototype: {
-            id: 1,
-            repositoryId: 2001,
-            branch: "prototype/welcome",
-            name: "Welcome",
-            description: null,
-            viewerLogin: "octocat",
-            registered: true,
-            canEdit: true,
-            canRegister: true,
-            published: true,
-            buildState: "successful",
-            versionCount: 1,
-            build: {
-              url: "https://hub.example.com/repositories/2001/prototypes/1?build=1",
-              number: 1,
-              commitSha: "a".repeat(40),
-              publishedAt: "2026-09-14T12:00:00Z",
-              author: { login: "octocat", name: null, avatarUrl: null },
-            },
-          },
-        }}
-        onStatusChange={async () => {}}
-        onSelectHub={async () => {}}
-        open
-        onConnect={() => {}}
-        onClose={() => {}}
-      />
-    </ThemeProvider>,
-  )
-
-  fireEvent.click(await screen.findByRole("button", { name: /^Comments, 0/ }))
-  expect(
-    await screen.findByText("New comments are available when the local checkout matches Build #1."),
-  ).toBeInTheDocument()
-  expect(screen.getByRole("button", { name: reviewCommentsCopy.commentMenuLabel })).toBeDisabled()
-  const commentsSidebar = screen
-    .getByRole("complementary", { name: reviewCommentsCopy.heading })
-    .closest(".canvas-comments-sidebar-shell")
-  expect(commentsSidebar).toHaveAttribute("data-open", "true")
-  fireEvent.click(screen.getByRole("button", { name: reviewCommentsCopy.closeLabel }))
-  expect(commentsSidebar).toHaveAttribute("data-open", "false")
-  expect(commentsSidebar).toHaveAttribute("aria-hidden", "true")
   view.unmount()
 })
 
@@ -1149,34 +928,20 @@ it("discards stale comments and metadata edits when the checkout changes", async
   }
   const props = {
     config: { name: "Welcome", prototypeUrl: "http://localhost:4321/", token: "local" },
-    frameRef: createRef<HTMLIFrameElement>(),
-    onStatusChange: async () => {},
-    onSelectHub: async () => {},
-    open: true,
-    onConnect: () => {},
-    onClose: () => {},
   }
-  const view = render(
-    <ThemeProvider>
-      <HubPanel {...props} status={status} />
-    </ThemeProvider>,
-  )
+  const view = renderPrototypeCanvasHubPanel({ ...props, status })
   await waitFor(() => expect(requests).toBeGreaterThan(0))
   const oldRequests = requests
   fireEvent.click(screen.getByRole("button", { name: "Edit details" }))
   fireEvent.change(screen.getByRole("textbox", { name: "Name" }), { target: { value: "Draft" } })
-  view.rerender(
-    <ThemeProvider>
-      <HubPanel
-        {...props}
-        status={{
-          ...status,
-          branch: "prototype/second",
-          prototype: { ...status.prototype, id: 2, branch: "prototype/second", name: "Second" },
-        }}
-      />
-    </ThemeProvider>,
-  )
+  view.rerender({
+    ...props,
+    status: {
+      ...status,
+      branch: "prototype/second",
+      prototype: { ...status.prototype, id: 2, branch: "prototype/second", name: "Second" },
+    },
+  })
   await waitFor(() => expect(requests).toBeGreaterThan(oldRequests))
   expect(screen.queryByRole("textbox", { name: "Name" })).not.toBeInTheDocument()
   await act(async () => {
@@ -1190,6 +955,329 @@ it("discards stale comments and metadata edits when the checkout changes", async
   })
   expect(screen.getByRole("button", { name: /^Comments, 0/ })).toBeInTheDocument()
   view.unmount()
+})
+
+describe("PrototypeCanvasHubPanel()", () => {
+  it.each(["comments", "error"] as const)(
+    "keeps current-source feedback visible when stale %s arrive",
+    async (staleResult) => {
+      let finishOld!: (response: Response) => void
+      const fetch = vi.fn((path: string) => {
+        if (path === "/api/hub/events") throw new Error("Live connection unavailable")
+        if (path.includes("local_revision_id=11"))
+          return new Promise<Response>((resolve) => {
+            finishOld = resolve
+          })
+        return Promise.resolve(
+          Response.json({
+            comments: [
+              {
+                ...octocatRootComment,
+                body: "Current source comment.",
+                draftRevisionId: 12,
+                buildNumber: null,
+              },
+            ],
+            hasMore: false,
+            nextCursor: null,
+          }),
+        )
+      })
+      vi.stubGlobal("fetch", fetch)
+      const status: HubStatus = {
+        ...publicationHub,
+        state: "connected",
+        prototype: importedPrototype,
+        reviewRevision: {
+          ...publicationHub.reviewRevision!,
+          id: 11,
+          buildNumber: null,
+          clean: false,
+        },
+      }
+
+      const view = renderPrototypeCanvasHubPanel({ status })
+      await waitFor(() => expect(finishOld).toBeTypeOf("function"))
+      fireEvent.click(screen.getByRole("button", { name: /^Comments, 0/ }))
+      view.rerender({
+        status: {
+          ...status,
+          reviewRevision: { ...status.reviewRevision!, id: 12, treeSha: "c".repeat(40) },
+        },
+      })
+      const sidebar = screen.getByRole("complementary", { name: reviewCommentsCopy.heading })
+      expect(await within(sidebar).findByText("Current source comment.")).toBeVisible()
+      await act(async () => {
+        finishOld(
+          staleResult === "error"
+            ? Response.json({ error: "Old source is unavailable." }, { status: 503 })
+            : Response.json({
+                comments: [
+                  {
+                    ...octocatRootComment,
+                    body: "Old source comment.",
+                    draftRevisionId: 11,
+                    buildNumber: null,
+                  },
+                ],
+                hasMore: false,
+                nextCursor: null,
+              }),
+        )
+        await Promise.resolve()
+      })
+      expect(within(sidebar).getByText("Current source comment.")).toBeVisible()
+      expect(within(sidebar).queryByText("Old source comment.")).not.toBeInTheDocument()
+      expect(within(sidebar).queryByRole("alert")).not.toBeInTheDocument()
+      expect(within(sidebar).queryByText(reviewCommentsCopy.loadingLabel)).not.toBeInTheDocument()
+      view.unmount()
+    },
+  )
+
+  it("keeps local feedback editable before discovery when source capture fails", async () => {
+    const local = {
+      ...octocatRootComment,
+      body: "Local feedback before the first publish.",
+      buildNumber: null,
+      buildPath: null,
+      draftRevisionId: 11,
+      viewerLastSeenActivityVersion: octocatRootComment.activityVersion,
+    }
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(Response.json({ comments: [local], hasMore: false, nextCursor: null })),
+      ),
+    )
+    const view = renderPrototypeCanvasHubPanel({
+      status: {
+        ...publicationHub,
+        state: "undiscovered",
+        repositoryAuthorized: true,
+        viewerLogin: "octocat",
+        prototype: undefined,
+        reviewError: "Commit or discard submodule changes before commenting.",
+        reviewRevision: undefined,
+      },
+    })
+    fireEvent.click(await screen.findByRole("button", { name: /^Comments, 1/ }))
+    fireEvent.click(await screen.findByRole("button", { name: /Local feedback before/ }))
+    const conversation = await screen.findByRole("dialog", {
+      name: reviewCommentsCopy.threadHeading,
+    })
+    expect(within(conversation).queryByRole("textbox")).not.toBeInTheDocument()
+    expect(
+      within(conversation).queryByRole("button", { name: reviewCommentsCopy.resolveLabel }),
+    ).not.toBeInTheDocument()
+    expect(
+      within(conversation).queryByRole("button", { name: reviewCommentsCopy.addReactionLabel }),
+    ).not.toBeInTheDocument()
+    fireEvent.click(
+      within(conversation).getByRole("button", {
+        name: reviewCommentsCopy.commentActionsLabel.replace("%{author}", "@octocat"),
+      }),
+    )
+    expect(
+      await screen.findByRole("menuitem", { name: reviewCommentsCopy.editLabel }),
+    ).toBeEnabled()
+    expect(screen.getByRole("menuitem", { name: reviewCommentsCopy.deleteLabel })).toBeEnabled()
+    expect(
+      screen.queryByRole("menuitem", { name: reviewCommentsCopy.markUnreadLabel }),
+    ).not.toBeInTheDocument()
+    expect(within(conversation).queryByRole("link", { name: /build/i })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole("menuitem", { name: reviewCommentsCopy.editLabel }))
+    expect(screen.getByRole("textbox", { name: reviewCommentsCopy.editCommentLabel })).toHaveValue(
+      local.body,
+    )
+    view.unmount()
+  })
+
+  it.each(["draft revision", "published Build"] as const)(
+    "saves once to the selected %s after source changes and a preview reload",
+    async (target) => {
+      const nonce = "00000000-0000-4000-8000-000000000022"
+      vi.spyOn(crypto, "randomUUID").mockReturnValue(nonce)
+      const frameRef = createRef<HTMLIFrameElement>()
+      const onFrameLoad = vi.fn()
+      const originalRevision = {
+        ...publicationHub.reviewRevision!,
+        id: target === "draft revision" ? 11 : null,
+        buildNumber: target === "published Build" ? 1 : null,
+        clean: target === "published Build",
+      }
+      let finishPreparation!: (response: Response) => void
+      let finishSave!: (response: Response) => void
+      let savedRoot: typeof octocatRootComment | null = null
+      const fetch = vi.fn((input: RequestInfo | URL, options?: RequestInit) => {
+        const path =
+          typeof input === "string" ? input : input instanceof URL ? input.href : input.url
+        if (path === "/api/hub/events") throw new Error("Live connection unavailable")
+        if (path === "/api/hub/status")
+          return target === "draft revision"
+            ? new Promise<Response>((resolve) => {
+                finishPreparation = resolve
+              })
+            : Promise.resolve(Response.json(status))
+        if (path === "/api/hub/comments" && options?.method === "POST")
+          return new Promise<Response>((resolve) => {
+            finishSave = resolve
+          })
+        return Promise.resolve(
+          Response.json({
+            comments: savedRoot && target === "published Build" ? [savedRoot] : [],
+            hasMore: false,
+            nextCursor: null,
+          }),
+        )
+      })
+      vi.stubGlobal("fetch", fetch)
+      const onStatusChange = vi
+        .fn<() => Promise<void>>()
+        .mockRejectedValue(new Error("Background status refresh is unavailable."))
+      const status: HubStatus = {
+        ...publicationHub,
+        state: "connected",
+        prototype:
+          target === "draft revision" ? { ...importedPrototype, build: null } : importedPrototype,
+        reviewRevision: originalRevision,
+      }
+      const view = renderPrototypeCanvasHubPanel(
+        {
+          frameRef,
+          onStatusChange,
+          status: {
+            ...status,
+            reviewRevision:
+              target === "draft revision"
+                ? { ...originalRevision, id: 10, treeSha: "e".repeat(40) }
+                : originalRevision,
+          },
+        },
+        <iframe ref={frameRef} title="Prototype" src="about:blank" onLoad={onFrameLoad} />,
+      )
+      fireEvent.click(await screen.findByRole("button", { name: /^Comments, 0/ }))
+      await waitFor(() => expect(onFrameLoad).toHaveBeenCalled())
+      act(() => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            origin: "http://localhost:4321",
+            source: frameRef.current?.contentWindow,
+            data: {
+              type: "replica:canvas:ready",
+              nonce,
+              protocolVersion: 1,
+              route: { pathname: "/", search: "", hash: "" },
+            },
+          }),
+        )
+      })
+      fireEvent.click(screen.getByRole("button", { name: reviewCommentsCopy.commentMenuLabel }))
+      fireEvent.click(
+        await screen.findByRole("menuitem", { name: reviewCommentsCopy.commentOnElementLabel }),
+      )
+      if (target === "draft revision") {
+        await waitFor(() => expect(finishPreparation).toBeTypeOf("function"))
+        await act(async () => {
+          finishPreparation(Response.json(status))
+          await Promise.resolve()
+        })
+      }
+      await screen.findByRole("button", { name: reviewCommentsCopy.cancelSelectionLabel })
+      act(() => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            origin: "http://localhost:4321",
+            source: frameRef.current?.contentWindow,
+            data: {
+              type: "replica:canvas:selected",
+              nonce,
+              anchor: octocatRootComment.anchor,
+            },
+          }),
+        )
+      })
+      fireEvent.change(screen.getByRole("textbox", { name: reviewCommentsCopy.composerLabel }), {
+        target: { value: "Keep the comment on the source I selected." },
+      })
+      view.rerender({
+        status: {
+          ...status,
+          commitSha: "c".repeat(40),
+          prototype: {
+            ...importedPrototype,
+            build: { ...importedPrototype.build!, number: 2, commitSha: "c".repeat(40) },
+          },
+          reviewRevision: {
+            ...originalRevision,
+            id: 12,
+            buildNumber: null,
+            treeSha: "d".repeat(40),
+            commitSha: "c".repeat(40),
+            clean: false,
+          },
+        },
+      })
+      fireEvent.load(frameRef.current!)
+      expect(screen.getByRole("textbox", { name: reviewCommentsCopy.composerLabel })).toHaveValue(
+        "Keep the comment on the source I selected.",
+      )
+      const submit = screen.getByRole("button", { name: reviewCommentsCopy.submitLabel })
+      fireEvent.click(submit)
+      await waitFor(() => expect(finishSave).toBeTypeOf("function"))
+      fireEvent.click(submit)
+      const saves = fetch.mock.calls.filter(
+        ([input, options]) => input === "/api/hub/comments" && options?.method === "POST",
+      )
+      expect(saves).toHaveLength(1)
+      expect(JSON.parse(saves[0]![1]!.body as string)).toEqual({
+        review_revision: originalRevision,
+        review_comment: {
+          body: "Keep the comment on the source I selected.",
+          anchor: octocatRootComment.anchor,
+        },
+      })
+      savedRoot = {
+        ...octocatRootComment,
+        id: 22,
+        draftRevisionId: originalRevision.id,
+        buildNumber: originalRevision.buildNumber,
+        buildPath: target === "draft revision" ? null : octocatRootComment.buildPath,
+        body: "Keep the comment on the source I selected.",
+      }
+      await act(async () => {
+        finishSave(
+          Response.json(
+            {
+              comments: [savedRoot],
+            },
+            { status: 201 },
+          ),
+        )
+        await Promise.resolve()
+      })
+      await waitFor(() =>
+        expect(
+          screen.queryByRole("dialog", { name: reviewCommentsCopy.composerHeading }),
+        ).not.toBeInTheDocument(),
+      )
+      if (target === "published Build") {
+        const sidebar = screen.getByRole("complementary", { name: reviewCommentsCopy.heading })
+        expect(await within(sidebar).findByText(savedRoot.body!)).toBeVisible()
+      } else {
+        expect(screen.queryByText(savedRoot.body!)).not.toBeInTheDocument()
+        await waitFor(() =>
+          expect(screen.getByRole("button", { name: /^Comments, 0/ })).toHaveFocus(),
+        )
+      }
+      expect(screen.queryByText(reviewCommentsCopy.createErrorLabel)).not.toBeInTheDocument()
+      expect(
+        fetch.mock.calls.filter(
+          ([input, options]) => input === "/api/hub/comments" && options?.method === "POST",
+        ),
+      ).toHaveLength(1)
+      view.unmount()
+    },
+  )
 })
 
 it("does not mix conversations from two Hubs for the same repository and branch", async () => {
@@ -1235,25 +1323,11 @@ it("does not mix conversations from two Hubs for the same repository and branch"
   }
   const props = {
     config: { name: "First", prototypeUrl: "http://localhost:4321/", token: "local" },
-    frameRef: createRef<HTMLIFrameElement>(),
-    onStatusChange: async () => {},
-    onSelectHub: async () => {},
-    open: true,
-    onConnect: () => {},
-    onClose: () => {},
   }
-  const view = render(
-    <ThemeProvider>
-      <HubPanel {...props} status={status} />
-    </ThemeProvider>,
-  )
+  const view = renderPrototypeCanvasHubPanel({ ...props, status })
   await screen.findByRole("button", { name: /^Comments, 1/ })
 
-  view.rerender(
-    <ThemeProvider>
-      <HubPanel {...props} status={{ ...status, hubOrigin: "https://second.example.com" }} />
-    </ThemeProvider>,
-  )
+  view.rerender({ ...props, status: { ...status, hubOrigin: "https://second.example.com" } })
 
   await screen.findByRole("button", { name: /^Comments, 0/ })
   expect(requests).toBeGreaterThan(1)
@@ -1261,20 +1335,10 @@ it("does not mix conversations from two Hubs for the same repository and branch"
 })
 
 it("offers the shared connection dialog instead of guessing a Hub URL", () => {
-  const view = render(
-    <ThemeProvider>
-      <HubPanel
-        config={{ name: "Example", prototypeUrl: "http://localhost:6006/", token: "local" }}
-        frameRef={createRef<HTMLIFrameElement>()}
-        status={{ state: "unconfigured" }}
-        onStatusChange={async () => {}}
-        onSelectHub={async () => {}}
-        open
-        onConnect={() => {}}
-        onClose={() => {}}
-      />
-    </ThemeProvider>,
-  )
+  const view = renderPrototypeCanvasHubPanel({
+    config: { name: "Example", prototypeUrl: "http://localhost:6006/", token: "local" },
+    status: { state: "unconfigured" },
+  })
 
   expect(screen.queryByRole("textbox", { name: "Hub URL" })).not.toBeInTheDocument()
   expect(screen.queryByText(/replica\.localhost/)).not.toBeInTheDocument()
@@ -1285,25 +1349,16 @@ it("offers the shared connection dialog instead of guessing a Hub URL", () => {
 it("changes the selected Hub before connecting", async () => {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ state: "disconnected" })))
   const onSelectHub = vi.fn().mockResolvedValue(undefined)
-  const view = render(
-    <ThemeProvider>
-      <HubPanel
-        config={{ name: "Example", prototypeUrl: "http://localhost:6006/", token: "local" }}
-        frameRef={createRef<HTMLIFrameElement>()}
-        status={{
-          state: "unavailable",
-          hubOrigin: "http://replica.localhost:19500",
-          repository: "github/prototype",
-          branch: "prototype/welcome",
-        }}
-        onStatusChange={async () => {}}
-        onSelectHub={onSelectHub}
-        open
-        onConnect={() => {}}
-        onClose={() => {}}
-      />
-    </ThemeProvider>,
-  )
+  const view = renderPrototypeCanvasHubPanel({
+    config: { name: "Example", prototypeUrl: "http://localhost:6006/", token: "local" },
+    status: {
+      state: "unavailable",
+      hubOrigin: "http://replica.localhost:19500",
+      repository: "github/prototype",
+      branch: "prototype/welcome",
+    },
+    onSelectHub,
+  })
 
   expect(screen.getByText("http://replica.localhost:19500")).toBeInTheDocument()
   fireEvent.click(screen.getByRole("button", { name: "Disconnect Hub" }))
@@ -1333,20 +1388,11 @@ it("resets only the editable URL and preserves the selected Hub until saved", as
     ),
   )
   vi.stubGlobal("fetch", fetch)
-  const view = render(
-    <ThemeProvider>
-      <HubPanel
-        config={{ name: "Example", prototypeUrl: "http://localhost:6006/", token: "local" }}
-        frameRef={createRef<HTMLIFrameElement>()}
-        status={{ state: "unavailable", hubOrigin: "https://selected.example.com" }}
-        onStatusChange={async () => {}}
-        onSelectHub={onSelectHub}
-        onConnect={() => {}}
-        open
-        onClose={() => {}}
-      />
-    </ThemeProvider>,
-  )
+  const view = renderPrototypeCanvasHubPanel({
+    config: { name: "Example", prototypeUrl: "http://localhost:6006/", token: "local" },
+    status: { state: "unavailable", hubOrigin: "https://selected.example.com" },
+    onSelectHub,
+  })
   vi.stubGlobal("fetch", fetch.mockResolvedValueOnce(Response.json({ state: "disconnected" })))
   fireEvent.click(screen.getByRole("button", { name: "Disconnect Hub" }))
   await screen.findByRole("textbox", { name: "Hub URL" })
@@ -1377,20 +1423,11 @@ it.each(["absent", "unreachable"])(
       vi.fn().mockResolvedValue(new Response(JSON.stringify({ discovery: { state } }))),
     )
     const onSelectHub = vi.fn()
-    const view = render(
-      <ThemeProvider>
-        <HubPanel
-          config={{ name: "Example", prototypeUrl: "http://localhost:6006/", token: "local" }}
-          frameRef={createRef<HTMLIFrameElement>()}
-          status={{ state: "unavailable", hubOrigin: "https://selected.example.com" }}
-          onStatusChange={async () => {}}
-          onSelectHub={onSelectHub}
-          onConnect={() => {}}
-          open
-          onClose={() => {}}
-        />
-      </ThemeProvider>,
-    )
+    const view = renderPrototypeCanvasHubPanel({
+      config: { name: "Example", prototypeUrl: "http://localhost:6006/", token: "local" },
+      status: { state: "unavailable", hubOrigin: "https://selected.example.com" },
+      onSelectHub,
+    })
     const fetch = vi.mocked(globalThis.fetch)
     fetch.mockResolvedValueOnce(Response.json({ state: "disconnected" }))
     fireEvent.click(screen.getByRole("button", { name: "Disconnect Hub" }))
@@ -1411,26 +1448,17 @@ it.each(["absent", "unreachable"])(
 
 it("uses one primary connection action without inline Hub configuration", () => {
   const onConnect = vi.fn()
-  const view = render(
-    <ThemeProvider>
-      <HubPanel
-        config={{ name: "Example", prototypeUrl: "http://localhost:6006/", token: "local" }}
-        frameRef={createRef<HTMLIFrameElement>()}
-        status={{
-          state: "disconnected",
-          repository: "github/prototype",
-          branch: "prototype/welcome",
-          hubOrigin: "https://hub.example.com",
-          discovery: { state: "absent" },
-        }}
-        onStatusChange={async () => {}}
-        onSelectHub={async () => {}}
-        onConnect={onConnect}
-        open
-        onClose={() => {}}
-      />
-    </ThemeProvider>,
-  )
+  const view = renderPrototypeCanvasHubPanel({
+    config: { name: "Example", prototypeUrl: "http://localhost:6006/", token: "local" },
+    status: {
+      state: "disconnected",
+      repository: "github/prototype",
+      branch: "prototype/welcome",
+      hubOrigin: "https://hub.example.com",
+      discovery: { state: "absent" },
+    },
+    onConnect,
+  })
 
   const button = screen.getByRole("button", { name: "Connect to the Hub" })
   expect(screen.queryByRole("button", { name: "Retry discovery" })).not.toBeInTheDocument()

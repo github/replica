@@ -6,6 +6,8 @@ These guides apply across the Replica monorepo. Start with [Contributing](../CON
 
 [Get started with Replica](getting-started.md) walks new users through installing Copilot, adding their team's repository and canvas, creating and publishing a prototype, sharing feedback, and adding controls.
 
+[Set up a prototype repository](prototype-repository-setup.md) guides agents through new or existing repository targets, starter installation, the fresh-session handoff, and a verified local preview before optional product guidance or team setup.
+
 [Set up and configure your prototype environment](prototype-environment.md) walks environment maintainers through creating the shared repository, adding design-system guidance and templates, deploying Hub with Docker, connecting builds, and inviting the team.
 
 ## Shared conventions

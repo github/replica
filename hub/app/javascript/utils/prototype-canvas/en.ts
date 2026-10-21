@@ -1,4 +1,11 @@
 export const copy = {
+  localCommentsSaved:
+    "Comments stay on this device until a Build with matching content is published and the canvas syncs them to Hub.",
+  commentPagesExceeded: "Too many review comment pages.",
+  commentPreparationFailed: "Hub could not prepare this comment.",
+  commentRefreshFailed: (detail: string) =>
+    `The comment was saved, but Hub could not be refreshed: ${detail}`,
+  commentLiveUpdatesPaused: "Live updates paused; checking every 30 seconds.",
   mentionSuggestions: "Mention suggestions",
   mentionSuggestionsError: "Mention suggestions are unavailable. Try again.",
   mentionSuggestionsLoading: "Loading people...",

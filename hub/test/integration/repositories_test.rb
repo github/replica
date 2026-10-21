@@ -107,16 +107,11 @@ class RepositoriesTest < ActionDispatch::IntegrationTest
     alpha = repositories.create(github_id: 2001, name_with_owner: "github/alpha")
     beta = repositories.create(github_id: 2002, name_with_owner: "github/beta")
     configuration = GithubAppConfiguration.current
-    configuration.tokens.define_singleton_method(:installation) { "installation-token" }
-    calls = 0
-    github_repositories = Object.new
-    github_repositories.define_singleton_method(:permission) do |_repository, current_user, token:|
-      calls += 1
-      { "permission" => "pull", "user" => { "id" => current_user.github_id } }
-    end
-    github_client = Object.new
-    github_client.define_singleton_method(:repositories) { github_repositories }
-    configuration.define_singleton_method(:github_client) { github_client }
+    stub_github_installation_token
+    stub_github_permissions(
+      [ repository_payload(2001, alpha.name_with_owner), repository_payload(2002, beta.name_with_owner) ],
+      { 2001 => "pull", 2002 => "pull" }
+    )
     cache = ActiveSupport::Cache::MemoryStore.new
     controller = RepositoriesController.new
 
@@ -128,7 +123,8 @@ class RepositoriesTest < ActionDispatch::IntegrationTest
       assert_equal first, second
     end
 
-    assert_equal 2, calls
+    assert_requested :get, %r{/collaborators/octocat/permission}, times: 2
+    assert_requested :post, "#{GITHUB_API_URL}/app/installations/456/access_tokens", times: 1
   end
 
   test "allows a writer to request current branch polling" do

@@ -1,25 +1,15 @@
-import { ThemeProvider } from "@primer/react-brand"
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
-import { createRef } from "react"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { act, fireEvent, screen, waitFor } from "@testing-library/react"
+import { describe, expect, it, vi } from "vitest"
 
 import { octocatRootComment } from "@/storybook/fixtures/review/comments"
-
 import { importedPrototype, publicationHub } from "@utils/resolve-prototype-publication/fixtures"
 
-import { HubPanel } from "."
+import { renderPrototypeCanvasHubPanel } from "./test-support/render-prototype-canvas-hub-panel"
 
-afterEach(() => {
-  document.getElementById("canvas-review-controls")?.remove()
-})
-
-describe("HubPanel() reactions", () => {
+describe("PrototypeCanvasHubPanel() reactions", () => {
   it.each([true, false])(
     "retains optimistic reactions through invalidation and reconciles a successful save %s",
     async (successful) => {
-      const controls = document.createElement("div")
-      controls.id = "canvas-review-controls"
-      document.body.append(controls)
       const initial = {
         ...octocatRootComment,
         viewerLastSeenActivityVersion: octocatRootComment.activityVersion,
@@ -66,20 +56,11 @@ describe("HubPanel() reactions", () => {
         )
       })
       vi.stubGlobal("fetch", fetchMock)
-      const view = render(
-        <ThemeProvider>
-          <HubPanel
-            config={{ name: "Welcome", prototypeUrl: "http://localhost:4321/", token: "local" }}
-            frameRef={createRef<HTMLIFrameElement>()}
-            status={{ ...publicationHub, state: "connected", prototype: importedPrototype }}
-            onStatusChange={async () => {}}
-            onSelectHub={async () => {}}
-            onConnect={() => {}}
-            open={false}
-            onClose={() => {}}
-          />
-        </ThemeProvider>,
-      )
+      const view = renderPrototypeCanvasHubPanel({
+        config: { name: "Welcome", prototypeUrl: "http://localhost:4321/", token: "local" },
+        status: { ...publicationHub, state: "connected", prototype: importedPrototype },
+        open: false,
+      })
       fireEvent.click(await screen.findByRole("button", { name: /^Comments, 1/ }))
       fireEvent.click(screen.getByRole("button", { name: /Please align this control/ }))
       await act(async () => {

@@ -1,7 +1,7 @@
 import path from "node:path"
 
-import { createHubClient } from "../hub-client/index.mjs"
-import { createHubOriginStore } from "../hub-origin-store/index.mjs"
+import { createHubClient } from "../create-hub-client/index.mjs"
+import { createHubOriginStore } from "../create-hub-origin-store/index.mjs"
 import { readCanvasRepository } from "../read-canvas-repository/index.mjs"
 
 const TIMEOUT_MS = 3_000

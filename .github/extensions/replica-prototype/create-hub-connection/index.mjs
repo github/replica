@@ -1,9 +1,7 @@
-import {
-  createHubClient,
-  InvalidHubOrigin,
-  normalizeSelectedHubOrigin,
-} from "../hub-client/index.mjs"
-import { createHubOriginStore } from "../hub-origin-store/index.mjs"
+import { createHubClient } from "../create-hub-client/index.mjs"
+import { InvalidHubOrigin } from "../invalid-hub-origin/index.mjs"
+import { normalizeSelectedHubOrigin } from "../normalize-selected-hub-origin/index.mjs"
+import { createHubOriginStore } from "../create-hub-origin-store/index.mjs"
 import { discoverHub } from "../discover-hub/index.mjs"
 import { readCanvasRepository } from "../read-canvas-repository/index.mjs"
 

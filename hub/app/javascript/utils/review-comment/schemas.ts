@@ -43,8 +43,9 @@ const COMMON_COMMENT_FIELDS = {
 const ROOT_COMMENT_SCHEMA = z.object({
   ...COMMON_COMMENT_FIELDS,
   kind: z.literal("root"),
-  buildNumber: IDENTIFIER_SCHEMA,
-  buildPath: z.string().startsWith("/"),
+  buildNumber: IDENTIFIER_SCHEMA.nullable(),
+  buildPath: z.string().startsWith("/").nullable(),
+  draftRevisionId: IDENTIFIER_SCHEMA.nullable().optional(),
   anchor: REVIEW_ANCHOR_SCHEMA,
   resolvedAt: NULLABLE_DATE_TIME_SCHEMA,
   resolvedBy: AUTHOR_SCHEMA.nullable(),

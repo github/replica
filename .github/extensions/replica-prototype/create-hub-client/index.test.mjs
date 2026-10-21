@@ -7,12 +7,11 @@ import path from "node:path"
 import { describe, it } from "node:test"
 
 import { createCanvasContext, currentCanvasContext } from "../create-canvas-context/index.mjs"
-import {
-  createHubClient,
-  InvalidHubOrigin,
-  normalizeHubOrigin,
-  normalizeSelectedHubOrigin,
-} from "./index.mjs"
+import { InvalidHubOrigin } from "../invalid-hub-origin/index.mjs"
+import { normalizeHubOrigin } from "../normalize-hub-origin/index.mjs"
+import { normalizeSelectedHubOrigin } from "../normalize-selected-hub-origin/index.mjs"
+
+import { createHubClient } from "./index.mjs"
 
 describe("normalizeSelectedHubOrigin()", () => {
   it("converts manually selected Hub URLs to origins and preserves ports", () => {

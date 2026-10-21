@@ -275,6 +275,19 @@ export const Playground: Story = {
   },
 }
 export const Queued: Story = { args: { scenario: "Build queued" } }
+export const WaitingForCopilot: Story = {
+  args: { scenario: "Waiting for Copilot" },
+  render: (args) => (
+    <PublicationDemo
+      {...args}
+      prototypeUrl={new URL("/prototype-preview/index.html", window.location.href).href}
+    />
+  ),
+}
+export const PublishBlocked: Story = {
+  ...WaitingForCopilot,
+  args: { scenario: "Publish blocked" },
+}
 export const Importing: Story = { args: { scenario: "Awaiting Hub import" } }
 export const AutomaticPublication: Story = { args: { scenario: "Automatic publication" } }
 export const AutomaticPublicationFailed: Story = {

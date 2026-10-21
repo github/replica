@@ -6,14 +6,30 @@ import { HubIconButton } from "@components/hub-icon-button"
 import { PrototypeMetadataManagement } from "@features/prototype-metadata-management"
 import { RepositoryWorkspace } from "@features/repository-workspace"
 
-import type { PrototypeManagementPageData } from "./types"
+import type { PageSectionState, PrototypeManagementPageData } from "./types"
 
 import "./styles.css"
 
 /** Gives repository writers one place to add branches and edit gallery details. */
-export function PrototypeManagementPage({ data }: { data: PrototypeManagementPageData }) {
+export function PrototypeManagementPage({
+  data,
+  candidates,
+  repositoryChoices,
+}: {
+  data: PrototypeManagementPageData
+  candidates?: PageSectionState
+  repositoryChoices?: PageSectionState
+}) {
   return (
-    <RepositoryWorkspace data={data}>
+    <RepositoryWorkspace
+      data={{ ...data, repositories: data.repositoryChoices.repositories }}
+      repositoryChoices={{
+        ...data.repositoryChoices,
+        loading: repositoryChoices?.loading ?? false,
+        failed: (repositoryChoices?.failed ?? false) || data.repositoryChoices.failed,
+        onRetry: repositoryChoices?.retry,
+      }}
+    >
       <div className="prototype-management-page">
         <header className="repository-page-header prototype-management-page__header">
           <HubIconButton
@@ -36,6 +52,9 @@ export function PrototypeManagementPage({ data }: { data: PrototypeManagementPag
           <PrototypeMetadataManagement
             authenticityToken={data.authenticityToken}
             data={data.management}
+            loading={candidates?.loading}
+            loadFailed={candidates?.failed}
+            onRetry={candidates?.retry}
           />
         </div>
       </div>

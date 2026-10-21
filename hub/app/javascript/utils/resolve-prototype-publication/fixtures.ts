@@ -40,6 +40,18 @@ export const publicationHub: HubStatus = {
   branch: "prototype/welcome",
   commitSha: sha,
   hubOrigin: "https://hub.example.com",
+  reviewRevision: {
+    id: null,
+    treeSha: "c".repeat(40),
+    commitSha: sha,
+    clean: true,
+    prototypeId: 1,
+    repository: "github/example",
+    branch: "prototype/welcome",
+    buildNumber: 1,
+    hubOrigin: "https://hub.example.com",
+    connectionId: "fixture-review-connection",
+  },
   discovery: { state: "valid", origin: "https://hub.example.com", defaultBranch: "main" },
 }
 export const importedPrototype: NonNullable<HubStatus["prototype"]> = {
@@ -93,6 +105,38 @@ export const publicationExamples: Record<
       stats: {
         ...publicationState.stats,
         remoteBranch: { ...publicationState.stats.remoteBranch!, remoteSha: "b".repeat(40) },
+      },
+    },
+    hub: publicationHub,
+  },
+  "Waiting for Copilot": {
+    state: {
+      ...publicationState,
+      stats: {
+        ...publicationState.stats,
+        remoteBranch: { ...publicationState.stats.remoteBranch!, remoteSha: "b".repeat(40) },
+      },
+      publishRequest: {
+        state: "requested",
+        requestedAt: new Date().toISOString(),
+        commitSha: sha,
+      },
+    },
+    hub: publicationHub,
+  },
+  "Publish blocked": {
+    state: {
+      ...publicationState,
+      stats: {
+        ...publicationState.stats,
+        remoteBranch: { ...publicationState.stats.remoteBranch!, remoteSha: "b".repeat(40) },
+      },
+      publishRequest: {
+        state: "failed",
+        requestedAt: null,
+        commitSha: sha,
+        error:
+          "Copilot stopped before pushing because publishing was blocked. The branch cannot fast-forward origin.",
       },
     },
     hub: publicationHub,

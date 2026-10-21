@@ -71,7 +71,7 @@ describe("App()", () => {
     const view = render(
       <App config={{ name: "Demo", prototypeUrl: "http://localhost:4321/", token: "local" }} />,
     )
-    await screen.findByRole("button", { name: "Publish" })
+    await screen.findByRole("button", { name: "Waiting for Copilot" })
     fireEvent.click(screen.getByRole("button", { name: "Share prototype" }))
     await screen.findByRole("dialog", { name: "Preparing your prototype" })
     fixture.state = states.after

@@ -47,6 +47,8 @@ Rails models apply product rules and save changes. React handles the Hub interfa
 
 Rails TSX page views connect Superglue and browser workflows to typed presentation Pages. Vite discovers those views from their Rails virtual paths, while Storybook renders the same Pages with display-ready Oaken-based fixtures.
 
+Manage prototypes checks access to the selected repository before rendering its listed prototypes. Available branches and other repository choices load independently through Superglue partial-page updates. Each request checks access again, shares an installation token, and runs at most four independent GitHub calls at a time. Database and cache writes stay on the request thread. If a branch comparison fails, Hub stops starting new comparisons, retains completed successes for retries, and reports the failure. Registration still checks permission, branch existence, and authorship afresh.
+
 Prototype JavaScript runs at a separate preview address. Hub cookies and credentials never reach that address. A small preview bridge connects conversations to selected elements and highlighted regions.
 
 [Prototype controls](preview-serving.md#prototype-controls) use a separate controls-only bridge on the same authorized Build origins. Each Build serves its own versioned `controls.replica.json`; Hub and the Copilot plugin supply one shared injected engine and bindings adapter. Overrides stay in prototype URLs, not server state or private capability-bearing addresses. Screenshot capture uses the same adapter and retained defaults.

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto"
 import os from "node:os"
 import path from "node:path"
 
-import { normalizeHubOrigin } from "../hub-client/index.mjs"
+import { normalizeHubOrigin } from "../normalize-hub-origin/index.mjs"
 import { createPrivateStore } from "../private-store/index.mjs"
 
 export function createHubOriginStore(options = {}) {

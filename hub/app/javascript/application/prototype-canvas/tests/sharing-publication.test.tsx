@@ -71,7 +71,7 @@ describe("App()", () => {
       )
       await screen.findByRole("dialog", { name: "Preparing your prototype" })
       expect(
-        within(screen.getByRole("dialog")).getByRole("button", { name: "Publish" }),
+        within(screen.getByRole("dialog")).getByRole("button", { name: "Waiting for Copilot" }),
       ).toBeDisabled()
       fireEvent.click(screen.getByRole("button", { name: "Close sharing readiness" }))
       fireEvent.click(screen.getByRole("button", { name: "Share prototype" }))

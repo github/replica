@@ -6,6 +6,7 @@ export interface ReviewCommentComposerProps {
   bodyMaximumBytes: number
   copy: ReviewCommentsCopy
   creating: boolean
+  submitError?: string
   onSubmit: (body: string) => Promise<boolean>
   onDiscard: () => void
 }

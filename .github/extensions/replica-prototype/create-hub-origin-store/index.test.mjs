@@ -4,7 +4,7 @@ import { readdir, readFile, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { describe, it } from "node:test"
 
-import { InvalidHubOrigin } from "../hub-client/index.mjs"
+import { InvalidHubOrigin } from "../invalid-hub-origin/index.mjs"
 import { createHubOriginStore } from "./index.mjs"
 
 describe("createHubOriginStore()", () => {

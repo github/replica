@@ -37,7 +37,7 @@ export async function capturePublishTarget(context) {
   }
 }
 
-function sameCheckout(left, right) {
+export function sameCheckout(left, right) {
   return (
     left?.repository === right.repository &&
     left?.branch === right.branch &&

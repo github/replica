@@ -96,6 +96,8 @@ en:
       edit_dialog_heading: Edit prototype details
       close_dialog_label: Close dialog
       back_label: Back to prototypes
+      loading_branches: Checking branches you can add...
+      retry: Retry branch check
   repository_workspace:
     repositories: Repositories
     repository_selector: "Choose repository. %{repository} selected"
@@ -108,6 +110,9 @@ en:
     theme_system: System
     theme_light: Light
     theme_dark: Dark
+    loading_repositories: Loading repositories...
+    repositories_unavailable: Hub could not load all repository choices.
+    retry: Retry repository choices
   new_prototypes:
     show:
       page_title: Create

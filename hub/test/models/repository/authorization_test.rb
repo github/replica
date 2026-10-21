@@ -97,6 +97,17 @@ class Repository::AuthorizationTest < ActiveSupport::TestCase
     assert_equal user.id, repository.authorization.share_link_creation_proof.user_id
   end
 
+  test "fresh permission checks ignore prefetched selector payloads" do
+    user = users.create
+    repository = repositories.create
+    configuration = installed_configuration
+    client = permission_client(user, "pull")
+    configuration.define_singleton_method(:github_client) { client }
+    payload = { "permission" => "admin", "user" => { "id" => user.github_id } }
+
+    assert_equal "read", repository.authorization.permission_for(user, fresh: true, configuration:, payload:)
+  end
+
   private
 
   def installed_configuration

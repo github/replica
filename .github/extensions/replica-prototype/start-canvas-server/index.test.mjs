@@ -13,7 +13,149 @@ import { readState } from "../read-state/index.mjs"
 import { writeState } from "../write-state/index.mjs"
 import { createPublishPreferences } from "../publish-preferences/index.mjs"
 
+function publishData(prompt) {
+  assert.match(prompt, /\/replica-publish-prototype\b/)
+  const data = prompt.split("\n\n").find((paragraph) => paragraph.startsWith('{"repository":'))
+  assert.ok(data, "The publishing request includes its verified target.")
+  return JSON.parse(data)
+}
+
 describe("startCanvasServer()", () => {
+  it("requires an explicit committed-only choice after a failed check even with saved commit permission", async () => {
+    await withContext(async (context) => {
+      const directory = path.join(context.sessionWorkspacePath, "publish-settings")
+      await writeFile(
+        path.join(context.repositoryPath, ".git/info/exclude"),
+        "replica-prototype/\npublish-settings/\n",
+      )
+      const prompts = []
+      const canvas = await startCanvasServer(
+        context,
+        { send: ({ prompt }) => prompts.push(prompt) },
+        {
+          publishPreferencesDirectory: directory,
+          hubOptions: {
+            directory: path.join(context.sessionWorkspacePath, "replica-prototype", "credentials"),
+          },
+        },
+      )
+      try {
+        const html = await (await fetch(canvas.url)).text()
+        const { token } = JSON.parse(html.match(/window\.__REPLICA_CANVAS__ = ([^;]+);/)[1])
+        async function send(route, body = {}) {
+          const response = await fetch(new URL(route, canvas.url), {
+            method: "POST",
+            headers: { "X-Replica-Canvas-Token": token },
+            body: JSON.stringify(body),
+          })
+          return { status: response.status, body: await response.json() }
+        }
+        const initial = await send("/api/publish/prepare")
+        const preferences = createPublishPreferences(directory)
+        const index = path.join(context.repositoryPath, ".git/index")
+        await writeFile(index, "invalid Git index")
+        const failed = await send("/api/publish/prepare")
+        assert.equal(failed.status, 200)
+        assert.deepEqual(failed.body.target, initial.body.target)
+        assert.equal(failed.body.workingTree, "unavailable")
+        assert.ok(failed.body.workingTreeError)
+        assert.equal("changes" in failed.body, false)
+        const unchecked = {
+          target: failed.body.target,
+          workingTree: "unavailable",
+        }
+        for (const remember of [false, true]) {
+          await preferences.write(initial.body.target, remember)
+          assert.equal((await send("/api/publish", unchecked)).status, 409)
+          assert.equal(
+            (
+              await send("/api/publish", {
+                ...unchecked,
+                mode: "commit-changes",
+                remember: true,
+              })
+            ).status,
+            409,
+          )
+          assert.equal(await preferences.read(initial.body.target), remember)
+        }
+        assert.equal((await send("/api/publish")).status, 409)
+        assert.equal(
+          (
+            await send("/api/publish", {
+              ...unchecked,
+              workingTree: "clean",
+              mode: "commit-changes",
+            })
+          ).status,
+          409,
+        )
+        for (const field of [
+          "commitSha",
+          "branch",
+          "repository",
+          "originFingerprint",
+          "pushFingerprint",
+        ]) {
+          assert.equal(
+            (
+              await send("/api/publish", {
+                ...unchecked,
+                target: { ...unchecked.target, [field]: "stale" },
+                mode: "committed-only",
+              })
+            ).status,
+            409,
+          )
+        }
+        assert.equal(
+          (
+            await send("/api/publish", {
+              ...unchecked,
+              mode: "committed-only",
+              remember: true,
+            })
+          ).status,
+          422,
+        )
+        assert.equal(prompts.length, 0)
+        await preferences.write(initial.body.target, false)
+        assert.equal(
+          (await send("/api/publish", { ...unchecked, mode: "committed-only" })).status,
+          202,
+        )
+        assert.equal(prompts.length, 1)
+        assert.deepEqual(
+          {
+            repository: publishData(prompts[0]).repository,
+            branch: publishData(prompts[0]).branch,
+            commitSha: publishData(prompts[0]).commitSha,
+            mode: publishData(prompts[0]).mode,
+          },
+          {
+            repository: initial.body.target.repository,
+            branch: initial.body.target.branch,
+            commitSha: initial.body.target.commitSha,
+            mode: "committed-only",
+          },
+        )
+        assert.equal(await preferences.read(initial.body.target), false)
+        assert.equal(await readFile(index, "utf8"), "invalid Git index")
+        assert.equal(
+          execFileSync("git", ["rev-parse", "HEAD"], {
+            cwd: context.repositoryPath,
+            encoding: "utf8",
+          }).trim(),
+          initial.body.target.commitSha,
+        )
+        await rm(index)
+        assert.equal((await send("/api/publish/prepare")).body.workingTree, "clean")
+      } finally {
+        await canvas.close()
+      }
+    })
+  })
+
   it("checks changes on click, requires a publish choice, saves branch permission and rejects stale targets", async () => {
     await withContext(async (context) => {
       const directory = path.join(context.sessionWorkspacePath, "publish-settings")
@@ -102,7 +244,8 @@ describe("startCanvasServer()", () => {
           ).status,
           202,
         )
-        assert.match(prompts[0], /Publish only the captured commitSha/)
+        assert.equal(publishData(prompts[0]).mode, "committed-only")
+        assert.equal(publishData(prompts[0]).commitSha, initialHead.trim())
         assert.equal(
           execFileSync("git", ["rev-parse", "HEAD"], {
             cwd: context.repositoryPath,
@@ -127,7 +270,8 @@ describe("startCanvasServer()", () => {
           ).status,
           202,
         )
-        assert.match(prompts[1], /The user chose Commit changes & publish/)
+        assert.equal(publishData(prompts[1]).mode, "commit-changes")
+        assert.equal(publishData(prompts[1]).branch, changed.body.target.branch)
         assert.equal((await send("/api/publish/prepare")).body.remember, true)
         assert.equal((await send("/api/publish", { target: changed.body.target })).status, 202)
         assert.equal(prompts.length, 2)
@@ -625,6 +769,123 @@ esac
     }
   })
 
+  it("warns about a mismatched CLI account without blocking login-only local comments", async () => {
+    await withContext(async (context) => {
+      const workspace = context.sessionWorkspacePath
+      execFileSync("git", ["remote", "add", "origin", "https://github.com/github/replica.git"], {
+        cwd: context.repositoryPath,
+      })
+      const bin = path.join(workspace, "bin")
+      await mkdir(bin)
+      await writeFile(
+        path.join(bin, "gh"),
+        `#!/bin/sh
+if [ "$*" = "api --hostname github.com user" ]; then
+  printf '%s\\n' '{"login":"another-reviewer","name":"Another Reviewer","avatar_url":"https://avatars.githubusercontent.com/u/1002"}'
+  exit 0
+fi
+exit 1
+`,
+        { mode: 0o755 },
+      )
+      const hubWrites = []
+      const hub = createServer((request, response) => {
+        request.resume()
+        response.setHeader("X-Replica-Canvas-Version", "1")
+        response.setHeader("Content-Type", "application/json")
+        if (request.method !== "GET") hubWrites.push(request.url)
+        if (request.url === "/api/canvas/pairings") {
+          response.end(
+            JSON.stringify({
+              deviceCode: "device",
+              userCode: "ABCD",
+              verificationUrl: `http://${request.headers.host}/canvas/pair/ABCD`,
+            }),
+          )
+        } else if (request.url === "/api/canvas/pairings/token") {
+          response.end(
+            JSON.stringify({
+              status: "approved",
+              repository: "github/replica",
+              accessToken: "rp_test",
+              expiresAt: new Date(Date.now() + 60_000).toISOString(),
+            }),
+          )
+        } else if (request.url === "/api/canvas/connection") {
+          response.end(JSON.stringify({ repository: "github/replica", viewerLogin: "octocat" }))
+        } else {
+          response.writeHead(404)
+          response.end(JSON.stringify({ error: "Hub has not discovered this branch." }))
+        }
+      })
+      await new Promise((resolve) => hub.listen(0, "127.0.0.1", resolve))
+      const originalPath = process.env.PATH
+      let canvas
+      try {
+        process.env.PATH = `${bin}:${originalPath}`
+        canvas = await startCanvasServer(
+          context,
+          { send() {} },
+          {
+            localCommentsDirectory: path.join(workspace, "local-comments"),
+            hubOptions: {
+              origin: `http://127.0.0.1:${hub.address().port}`,
+              directory: path.join(workspace, "credentials"),
+            },
+          },
+        )
+        const page = await (await fetch(canvas.url)).text()
+        const { token } = JSON.parse(page.match(/window\.__REPLICA_CANVAS__ = ([^;]+);/)[1])
+        async function send(route, method = "GET", body) {
+          const response = await fetch(new URL(route, canvas.url), {
+            method,
+            headers: { "X-Replica-Canvas-Token": token },
+            ...(body ? { body: JSON.stringify(body) } : {}),
+          })
+          return { status: response.status, body: await response.json() }
+        }
+        await send("/api/hub/pair", "POST", {})
+        assert.equal((await send("/api/hub/poll", "POST", {})).body.status, "approved")
+        const status = await send("/api/hub/status")
+        assert.equal(status.status, 200)
+        assert.equal(status.body.repository, "github/replica")
+        assert.equal(status.body.repositoryAuthorized, true)
+        assert.match(status.body.localCommentsError, /profile.*different reviewer/i)
+        assert.ok(status.body.reviewRevision.id > 0)
+        const beforeSave = hubWrites.length
+        const posted = await send("/api/hub/comments", "POST", {
+          review_revision: status.body.reviewRevision,
+          review_comment: {
+            body: "Keep reviewing without a profile photo",
+            anchor: { schemaVersion: 1, kind: "element", selector: "#save" },
+          },
+        })
+        assert.equal(posted.status, 201, JSON.stringify(posted.body))
+        assert.deepEqual(posted.body.comments[0].author, {
+          login: "octocat",
+          name: null,
+          avatarUrl: null,
+        })
+        const comments = (await send("/api/hub/comments")).body.comments
+        assert.equal(comments.length, 1)
+        assert.equal(comments[0].body, "Keep reviewing without a profile photo")
+        assert.equal(comments[0].draftRevisionId, status.body.reviewRevision.id)
+        assert.deepEqual(comments[0].author, {
+          login: "octocat",
+          name: null,
+          avatarUrl: null,
+        })
+        assert.equal(hubWrites.length, beforeSave)
+      } finally {
+        if (canvas) await canvas.close()
+        process.env.PATH = originalPath
+        await new Promise((resolve, reject) =>
+          hub.close((error) => (error ? reject(error) : resolve())),
+        )
+      }
+    })
+  })
+
   it("proxies only protected review actions for the current checkout", async () => {
     const workspace = path.join(process.cwd(), "storage/replica-extension-tests", randomUUID())
     await mkdir(workspace, { recursive: true })
@@ -633,6 +894,10 @@ esac
     const calls = []
     const publishPrompts = []
     const prototypes = new Map()
+    let currentPrototypeId = 4
+    let currentBuildNumber = 2
+    let currentBuildCommit = "1".padStart(40, "0")
+    let accessToken = "rp_secret"
     let canRegister = true
     let registrationError = false
     let registrationPending
@@ -658,20 +923,32 @@ esac
         const branch = new URL(request.url, "http://localhost").searchParams.get("branch")
         if (branch === "prototype/second") {
           response.writeHead(404, { "Content-Type": "application/json" })
-          response.end(JSON.stringify({ error: "Hub has not discovered this branch." }))
+          response.end(
+            JSON.stringify({
+              error: "Hub has not discovered this branch.",
+              registrationReason: "remote_branch_missing",
+            }),
+          )
           return
         }
         result = {
-          id: 4,
+          id: currentPrototypeId,
           repositoryId: 5,
           repository: "github/replica",
           viewerLogin: "octocat",
           branch,
           registered: prototypes.has(branch),
+          canEdit: true,
           canRegister,
           canManageShareLinks: true,
           published: sharingPublished,
-          build: sharingPublished ? { number: 2 } : null,
+          build: sharingPublished
+            ? {
+                number: currentBuildNumber,
+                commitSha: currentBuildCommit,
+                publishedAt: "2099-01-01T00:00:00Z",
+              }
+            : null,
           name: prototypes.get(branch)?.name ?? null,
           description: null,
           startPage: null,
@@ -694,13 +971,13 @@ esac
         result = {
           deviceCode: "device",
           userCode: "ABCD",
-          verificationUrl: `${process.env.REPLICA_HUB_ORIGIN}/canvas/pair/ABCD`,
+          verificationUrl: `http://${request.headers.host}/canvas/pair/ABCD`,
         }
       } else if (request.url === "/api/canvas/pairings/token" && request.method === "POST") {
         result = {
           status: "approved",
           repository: "github/replica",
-          accessToken: "rp_secret",
+          accessToken,
           expiresAt: new Date(Date.now() + 60_000).toISOString(),
         }
       } else if (request.url === "/api/canvas/connection") {
@@ -770,7 +1047,24 @@ esac
           nextCursor: null,
         }
       } else if (request.url?.includes("/review_comments")) {
-        result = { comments: [], hasMore: false, nextCursor: null }
+        const attributes = body ? JSON.parse(body).review_comment : null
+        result = {
+          comments:
+            request.method === "POST" && request.url.endsWith("/review_comments")
+              ? [
+                  {
+                    id: 9,
+                    kind: "root",
+                    body: attributes.body,
+                    anchor: attributes.anchor,
+                    author: { login: "octocat" },
+                    buildNumber: attributes.build_number,
+                  },
+                ]
+              : [],
+          hasMore: false,
+          nextCursor: null,
+        }
       } else {
         result = { name: "Updated" }
       }
@@ -783,11 +1077,27 @@ esac
       await writeFile(
         path.join(workspace, "git"),
         `#!/bin/sh
+while [ "$1" = "-c" ]; do shift 2; done
 case "$1:$2" in
   remote:get-url) echo https://github.com/\${TEST_REPOSITORY:-github/replica}.git ;;
   branch:--show-current) echo "\${TEST_BRANCH:-prototype/first}" ;;
   rev-parse:HEAD) printf '%040d\\n' "\${TEST_HEAD:-1}" ;;
+  rev-parse:HEAD^{tree}) printf '%040d\\n' "\${TEST_HEAD_TREE:-2}" ;;
+  rev-parse:*^{tree}) printf '%040d\\n' "\${TEST_HEAD_TREE:-2}" ;;
+  write-tree:) printf '%040d\\n' "\${TEST_TREE:-2}" ;;
+  config:*) exit 1 ;;
 esac
+`,
+        { mode: 0o755 },
+      )
+      await writeFile(
+        path.join(workspace, "gh"),
+        `#!/bin/sh
+if [ "$*" = "api --hostname github.com user" ]; then
+  printf '%s\\n' '{"login":"octocat","name":"The Octocat","avatar_url":"https://avatars.githubusercontent.com/u/583231"}'
+  exit 0
+fi
+exit 1
 `,
         { mode: 0o755 },
       )
@@ -801,27 +1111,33 @@ esac
         sessionWorkspacePath: workspace,
         repositoryPath: workspace,
       })
-      canvas = await startCanvasServer(
-        context,
-        {
-          send(message) {
-            publishPrompts.push({
-              prompt: message.prompt,
-              registrations: calls.filter(
-                ({ path, method }) => path === "/api/canvas/prototype" && method === "PATCH",
-              ).length,
-            })
-            return "message"
+      function startCanvas() {
+        return startCanvasServer(
+          context,
+          {
+            send(message) {
+              publishPrompts.push({
+                prompt: message.prompt,
+                registrations: calls.filter(
+                  ({ path, method }) => path === "/api/canvas/prototype" && method === "PATCH",
+                ).length,
+              })
+              return "message"
+            },
           },
-        },
-        {
-          hubOptions: { directory: path.join(workspace, "credentials") },
-          openBrowser: async (url) => {
-            browserUrls.push(url)
-            return browserUnavailable ? { ok: false, error: "No browser available." } : { ok: true }
+          {
+            localCommentsDirectory: path.join(workspace, "local-comments"),
+            hubOptions: { directory: path.join(workspace, "credentials") },
+            openBrowser: async (url) => {
+              browserUrls.push(url)
+              return browserUnavailable
+                ? { ok: false, error: "No browser available." }
+                : { ok: true }
+            },
           },
-        },
-      )
+        )
+      }
+      canvas = await startCanvas()
       const page = await (await fetch(canvas.url)).text()
       let token = JSON.parse(page.match(/window\.__REPLICA_CANVAS__ = ([^;]+);/)[1]).token
       assert.equal((await fetch(new URL("/api/hub/status", canvas.url))).status, 403)
@@ -985,9 +1301,9 @@ esac
         false,
       )
       assert.equal(publishPrompts.length, 1)
-      assert.match(publishPrompts[0].prompt, /Push the verified non-default branch/)
-      assert.match(publishPrompts[0].prompt, /or modify staged, unstaged or untracked files/)
-      assert.doesNotMatch(publishPrompts[0].prompt, /approval|authoriz|confirmation|ask before/i)
+      assert.equal(publishData(publishPrompts[0].prompt).mode, "committed-only")
+      assert.equal(publishData(publishPrompts[0].prompt).branch, "prototype/first")
+      assert.equal(publishData(publishPrompts[0].prompt).repository, "github/replica")
       canRegister = false
       process.env.TEST_BRANCH = "prototype/third"
       assert.equal((await send("/api/publish", "POST", {})).status, 403)
@@ -1035,17 +1351,94 @@ esac
         (await send("/api/hub/mention-candidates?repositoryId=5&prototypeId=99")).status,
         409,
       )
+      const previousRevision = (await send("/api/hub/status")).body.reviewRevision
+      const beforeChangedRevision = calls.filter(
+        ({ path, method }) => path.endsWith("/review_comments") && method === "POST",
+      ).length
+      process.env.TEST_TREE = "3"
+      const posted = await send("/api/hub/comments", "POST", {
+        review_revision: previousRevision,
+        review_comment: {
+          body: "New thread",
+          anchor: { schemaVersion: 1, kind: "element", selector: "#save" },
+        },
+      })
+      assert.equal(posted.status, 201)
+      const localRoots = (await send("/api/hub/comments")).body.comments
+      assert.equal(localRoots.length, 1)
+      assert.equal(localRoots[0].body, "New thread")
+      assert.equal(localRoots[0].draftRevisionId, previousRevision.id)
+      assert.equal(localRoots[0].buildNumber, null)
+      await canvas.close()
+      canvas = await startCanvas()
+      const reloadedPage = await (await fetch(canvas.url)).text()
+      token = JSON.parse(reloadedPage.match(/window\.__REPLICA_CANVAS__ = ([^;]+);/)[1]).token
+      assert.deepEqual((await send("/api/hub/comments")).body.comments, localRoots)
+      assert.equal(
+        calls.filter(({ path, method }) => path.endsWith("/review_comments") && method === "POST")
+          .length,
+        beforeChangedRevision,
+      )
+      delete process.env.TEST_TREE
+      sharingPublished = true
+      const selectedBuild = (await send("/api/hub/status")).body.reviewRevision
+      assert.equal(selectedBuild.id, null)
+      assert.equal(selectedBuild.buildNumber, 2)
+      assert.equal((await send("/api/hub/comments")).body.comments.length, 0)
+      process.env.TEST_TREE = "3"
+      process.env.TEST_HEAD = "2"
+      process.env.TEST_HEAD_TREE = "3"
+      currentBuildNumber = 3
+      currentBuildCommit = "2".padStart(40, "0")
       assert.equal(
         (
           await send("/api/hub/comments", "POST", {
+            review_revision: selectedBuild,
             review_comment: {
-              build_number: 2,
-              body: "New thread",
+              body: "Keep the selected Build",
               anchor: { schemaVersion: 1 },
             },
           })
         ).status,
         201,
+      )
+      assert.equal(JSON.parse(calls.at(-1).body).review_comment.build_number, 2)
+      sharingPublished = false
+      currentBuildNumber = 2
+      currentBuildCommit = "1".padStart(40, "0")
+      delete process.env.TEST_HEAD
+      delete process.env.TEST_HEAD_TREE
+      delete process.env.TEST_TREE
+      assert.equal(
+        (
+          await send("/api/hub/comments", "POST", {
+            review_revision: {
+              ...previousRevision,
+              hubOrigin: "https://another-hub.example.com",
+            },
+            review_comment: { body: "Wrong Hub", anchor: { schemaVersion: 1 } },
+          })
+        ).status,
+        409,
+      )
+      currentPrototypeId = 9
+      assert.equal(
+        (
+          await send("/api/hub/comments", "POST", {
+            review_revision: previousRevision,
+            review_comment: {
+              body: "Stale Hub target",
+              anchor: { schemaVersion: 1 },
+            },
+          })
+        ).status,
+        409,
+      )
+      currentPrototypeId = 4
+      assert.equal(
+        calls.filter(({ path, method }) => path.endsWith("/review_comments") && method === "POST")
+          .length,
+        beforeChangedRevision + 2,
       )
       assert.equal(
         (
@@ -1180,17 +1573,41 @@ esac
       const unpublishedRepositoryPage = await canvas.reviewAction("list_repository_comments", {})
       assert.equal(unpublishedRepositoryPage.scanComplete, true)
       assert.equal(unpublishedRepositoryPage.target.branch, "prototype/second")
-      assert.equal((await send("/api/publish", "POST", {})).status, 202)
-      assert.match(
-        publishPrompts.at(-1).prompt,
-        /If unregistered after discovery, call update_metadata/,
+      const draftOnly = (await send("/api/hub/status")).body
+      assert.equal(draftOnly.state, "undiscovered")
+      assert.equal(draftOnly.prototype, undefined)
+      const beforeUnpublishedSave = calls.length
+      assert.equal(
+        (
+          await send("/api/hub/comments", "POST", {
+            review_revision: draftOnly.reviewRevision,
+            review_comment: {
+              body: "Review before Hub discovers the branch",
+              anchor: { schemaVersion: 1, kind: "element", selector: "#save" },
+            },
+          })
+        ).status,
+        201,
       )
+      const localComment = (await send("/api/hub/comments")).body.comments[0]
+      assert.equal(localComment.buildNumber, null)
+      assert.deepEqual(localComment.author, {
+        login: "octocat",
+        name: "The Octocat",
+        avatarUrl: "https://avatars.githubusercontent.com/u/583231",
+      })
+      assert.ok(
+        calls.slice(beforeUnpublishedSave).every(({ method }) => method === "GET"),
+        "Saving unpublished feedback must not create any Hub records.",
+      )
+      assert.equal((await send("/api/publish", "POST", {})).status, 202)
+      assert.equal(publishData(publishPrompts.at(-1).prompt).branch, "prototype/second")
       assert.equal(publishPrompts.at(-1).registrations, previousRegistrations)
       process.env.TEST_BRANCH = "prototype/third"
       assert.equal((await send("/api/publish", "POST", {})).status, 202)
       assert.equal(prototypes.get("prototype/third")?.name, "third")
       assert.equal(publishPrompts.at(-1).registrations, previousRegistrations + 1)
-      assert.match(publishPrompts.at(-1).prompt, /Never ask for a Register prototype click/)
+      assert.equal(publishData(publishPrompts.at(-1).prompt).branch, "prototype/third")
       process.env.TEST_BRANCH = "prototype/first"
       assert.equal((await send("/api/state")).body.publishRequest.state, "requested")
 
@@ -1229,6 +1646,41 @@ esac
       )
 
       const originalHub = process.env.REPLICA_HUB_ORIGIN
+      const otherHub = `http://localhost:${hub.address().port}`
+      assert.equal((await send("/api/hub/origin", "POST", { origin: otherHub })).status, 200)
+      await send("/api/hub/pair", "POST", {})
+      await send("/api/hub/poll", "POST", {})
+      const otherHubStatus = (await send("/api/hub/status")).body
+      assert.equal(otherHubStatus.state, "connected")
+      const selectedConnection = otherHubStatus.reviewRevision
+      await send("/api/hub/disconnect", "POST", {})
+      accessToken = "rp_reconnected"
+      await send("/api/hub/pair", "POST", {})
+      await send("/api/hub/poll", "POST", {})
+      const reconnectedStatus = (await send("/api/hub/status")).body
+      assert.equal(reconnectedStatus.state, "connected")
+      assert.notEqual(
+        reconnectedStatus.reviewRevision.connectionId,
+        selectedConnection.connectionId,
+      )
+      const beforeReconnectedSave = calls.filter(
+        ({ path, method }) => path.endsWith("/review_comments") && method === "POST",
+      ).length
+      const reconnectedSave = await send("/api/hub/comments", "POST", {
+        review_revision: selectedConnection,
+        review_comment: {
+          body: "Old connection",
+          anchor: { schemaVersion: 1 },
+        },
+      })
+      assert.equal(reconnectedSave.status, 409, JSON.stringify(reconnectedSave.body))
+      assert.equal(
+        calls.filter(({ path, method }) => path.endsWith("/review_comments") && method === "POST")
+          .length,
+        beforeReconnectedSave,
+      )
+      assert.equal((await send("/api/hub/origin", "POST", { origin: originalHub })).status, 200)
+      await send("/api/hub/status")
       const invalid = await send("/api/hub/origin", "POST", {
         origin: "http://hub.example.com",
       })
@@ -1272,7 +1724,10 @@ esac
       canvas = await startCanvasServer(
         context,
         { send() {} },
-        { hubOptions: { directory: path.join(workspace, "credentials") } },
+        {
+          hubOptions: { directory: path.join(workspace, "credentials") },
+          localCommentsDirectory: path.join(workspace, "local-comments"),
+        },
       )
       const reopenedPage = await (await fetch(canvas.url)).text()
       token = JSON.parse(reopenedPage.match(/window\.__REPLICA_CANVAS__ = ([^;]+);/)[1]).token
@@ -1289,6 +1744,8 @@ esac
       delete process.env.TEST_BRANCH
       delete process.env.TEST_REPOSITORY
       delete process.env.TEST_HEAD
+      delete process.env.TEST_HEAD_TREE
+      delete process.env.TEST_TREE
       if (originalOrigin === undefined) delete process.env.REPLICA_HUB_ORIGIN
       else process.env.REPLICA_HUB_ORIGIN = originalOrigin
       await new Promise((resolve, reject) =>
@@ -1328,6 +1785,23 @@ esac
       assert.match(html, /window\.__REPLICA_CANVAS__/)
       assert.match(page.headers.get("content-security-policy"), /frame-src http: https:/)
       assert.match(page.headers.get("content-security-policy"), /avatars\.githubusercontent\.com/)
+      assert.equal(
+        page.headers
+          .get("content-security-policy")
+          .split("; ")
+          .find((directive) => directive.startsWith("img-src ")),
+        "img-src 'self' data: https://avatars.githubusercontent.com",
+      )
+      const placeholder = await fetch(new URL("/avatar-placeholder.svg", server.url))
+      assert.equal(placeholder.status, 200)
+      assert.equal(placeholder.headers.get("content-type"), "image/svg+xml")
+      assert.equal(
+        await placeholder.text(),
+        await readFile(
+          new URL("../../../../hub/public/avatar-placeholder.svg", import.meta.url),
+          "utf8",
+        ),
+      )
       const asset = await fetch(new URL("/assets/renderer.js", server.url))
       assert.equal(asset.status, 200)
       assert.match(await asset.text(), /renderer-vendor\.js/)
