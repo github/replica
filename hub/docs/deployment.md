@@ -31,6 +31,29 @@ This example assumes a Collector named `otel-collector` is reachable from Hub on
 
 Restart every Hub web and job container after changing these settings. No image rebuild is needed. Docker Compose already passes the private `.env` to Hub; other container platforms must pass the variables to every process themselves.
 
+### Check traces with a local viewer
+
+Use a local OpenTelemetry viewer before connecting a production recipient. After `./replica up` creates the default Replica Compose network, the standalone Aspire dashboard can join it and receive traces directly from Hub:
+
+```sh
+docker run --rm -d \
+  --name replica-otel-dashboard \
+  --network replica-hub_default \
+  -p 127.0.0.1:18888:18888 \
+  -e ASPIRE_DASHBOARD_UNSECURED_ALLOW_ANONYMOUS=true \
+  mcr.microsoft.com/aspire/dashboard:latest
+```
+
+Add this endpoint to Hub's private `.env`, then restart Hub:
+
+```dotenv
+OTEL_TRACES_EXPORTER=otlp
+OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://replica-otel-dashboard:18890/v1/traces
+OTEL_EXPORTER_OTLP_TRACES_PROTOCOL=http/protobuf
+```
+
+Open <http://localhost:18888/traces>, use Hub, and confirm Rails requests and jobs appear. The command exposes the unsecured dashboard only on the local machine and leaves its OTLP receiver on the private Compose network. It is for temporary local inspection, not production retention. Stop it with `docker stop replica-otel-dashboard`.
+
 | Setting | Purpose |
 | --- | --- |
 | `OTEL_TRACES_EXPORTER` | `otlp` enables export; `none` disables tracing and is Hub's default. Other exporters are not included. |
@@ -69,7 +92,19 @@ Outbound Net::HTTP calls propagate trace context by default. Use `REPLICA_OTEL_U
 
 ### Data and delivery limits
 
-By default, Hub exports operational metadata without SQL text, job arguments, or exception messages and stack traces. Job spans retain queue, job ID, adapter, provider job ID, and priority metadata when the instrumentation supplies them. Hub uses explicit attribute lists matching its bundled instrumentation, including legacy HTTP and code keys that those versions still emit.
+`REPLICA_OTEL_INCLUDE_SENSITIVE_DATA` controls diagnostic content as one startup policy:
+
+| Trace data | `false` (default) | `true` |
+| --- | --- | --- |
+| HTTP method, route template, status and service address | Exported | Exported |
+| Database system | Exported | Exported |
+| SQL query text | Excluded | Exported |
+| Queue, job ID, adapter, provider job ID and priority | Exported | Exported |
+| Serialized job arguments | Excluded | Exported after key-based filtering |
+| Error status | Exported without a description | Exported without a description |
+| Exception type, message and stack trace | Excluded | Exported |
+
+The exporter enforces this policy after instrumentation collects spans. Hub also avoids collecting SQL text, job arguments and exception events when the setting is `false`. Changing the environment variable in a running process does not change its policy.
 
 Set `REPLICA_OTEL_INCLUDE_SENSITIVE_DATA=true` to include SQL query text, serialized job arguments, and exception type, message, and stack trace. Hub filters structured job arguments with Rails' configured parameter filters. The opt-in permits identity fields such as `email`, `name`, `username`, `user_name`, `first_name`, `last_name`, `display_name`, `given_name`, `family_name`, and `login`. Other configured filters still apply, including password, token, credential, and authorization rules. Cookie-keyed values remain filtered. The flag does not attach signed-in user records or enable request bodies or headers.
 
