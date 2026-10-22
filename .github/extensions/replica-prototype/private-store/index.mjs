@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto"
 import { mkdir, readFile, rename, rm, rmdir, stat, unlink, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { setTimeout } from "node:timers/promises"
-
+import { readErrorCode } from "../read-error-code/index.mjs"
 export function createPrivateStore(directory) {
   async function prepare() {
     await mkdir(directory, { recursive: true, mode: 0o700 })
@@ -17,7 +17,7 @@ export function createPrivateStore(directory) {
         throw new Error("Canvas credential file is not private.")
       return JSON.parse(await readFile(file, "utf8"))
     } catch (error) {
-      if (error.code === "ENOENT") return null
+      if (readErrorCode(error) === "ENOENT") return null
       throw error
     }
   }
@@ -25,7 +25,7 @@ export function createPrivateStore(directory) {
     try {
       await unlink(path.join(directory, name))
     } catch (error) {
-      if (error.code !== "ENOENT") throw error
+      if (readErrorCode(error) !== "ENOENT") throw error
     }
   }
   return {
@@ -53,7 +53,7 @@ export function createPrivateStore(directory) {
           await mkdir(lock, { mode: 0o700 })
           break
         } catch (error) {
-          if (error.code !== "EEXIST") throw error
+          if (readErrorCode(error) !== "EEXIST") throw error
         }
         await recoverLock(lock)
         if (Date.now() >= deadline)
@@ -71,24 +71,22 @@ export function createPrivateStore(directory) {
     },
   }
 }
-
 async function releaseLock(lock) {
   try {
     await unlink(path.join(lock, "owner"))
   } catch (error) {
-    if (error.code !== "ENOENT") throw error
+    if (readErrorCode(error) !== "ENOENT") throw error
   }
   for (let attempt = 0; ; attempt++) {
     try {
       await rmdir(lock)
       return
     } catch (error) {
-      if (error.code !== "ENOTEMPTY" || attempt >= 20) throw error
+      if (readErrorCode(error) !== "ENOTEMPTY" || attempt >= 20) throw error
       await setTimeout(50)
     }
   }
 }
-
 async function recoverLock(lock) {
   try {
     const observed = await stat(lock)
@@ -102,12 +100,12 @@ async function recoverLock(lock) {
           process.kill(owner, 0)
           abandoned = false
         } catch (error) {
-          if (error.code !== "ESRCH") throw error
+          if (readErrorCode(error) !== "ESRCH") throw error
           abandoned = true
         }
       }
     } catch (error) {
-      if (error.code !== "ENOENT") throw error
+      if (readErrorCode(error) !== "ENOENT") throw error
       abandoned = Date.now() - (await stat(lock)).mtimeMs > 60_000
     }
     if (!abandoned) return
@@ -116,7 +114,7 @@ async function recoverLock(lock) {
     try {
       await mkdir(reaper)
     } catch (error) {
-      if (error.code !== "EEXIST") throw error
+      if (readErrorCode(error) !== "EEXIST") throw error
       if (Date.now() - (await stat(reaper)).mtimeMs > 60_000) await rmdir(reaper)
       return
     }
@@ -128,6 +126,6 @@ async function recoverLock(lock) {
     await rename(lock, retired)
     await rm(retired, { recursive: true })
   } catch (error) {
-    if (!["ENOENT", "EEXIST"].includes(error.code)) throw error
+    if (readErrorCode(error) !== "ENOENT" && readErrorCode(error) !== "EEXIST") throw error
   }
 }

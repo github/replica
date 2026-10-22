@@ -17,7 +17,7 @@
     "dev": "vite dev",
     "extension:assets:check": "node ../.github/extensions/replica-prototype/check-assets/index.mjs",
     "extension:build": "npm run extension:modules:build && vite build --config vite.prototype-canvas.config.mjs && node script/build-prototype-preview-bridge.mjs",
-    "extension:modules:build": "tsc --project ../.github/extensions/replica-prototype/tsconfig.json --noEmit false && prettier --write '../.github/extensions/replica-prototype/read-remote-branch/index.mjs' --config .prettierrc.json",
+    "extension:modules:build": "node script/build-extension-modules.mjs",
     "extension:test": "npm run controls:runtime:test && node --test ../.github/extensions/replica-prototype/**/*.test.mjs",
     "format": "prettier --write .",
     "lint": "eslint . ../.github/extensions/replica-prototype ../packages/learning && prettier --check . '../eslint.config.mjs' '../.github/extensions/replica-prototype/**/*.{mjs,mts}' '../.github/extensions/replica-prototype/*.json' '../packages/learning/**/*.{mjs,mts,json}' --config .prettierrc.json",

@@ -11,7 +11,8 @@
     "noEmit": true,
     "noEmitOnError": true,
     "skipLibCheck": true,
-    "types": []
+    "typeRoots": ["../../../hub/node_modules/@types"],
+    "types": ["node"]
   },
   "include": ["**/*.mts"]
 }

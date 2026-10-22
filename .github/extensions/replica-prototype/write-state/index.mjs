@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto"
 import { mkdir, rename, writeFile } from "node:fs/promises"
-
 export async function writeState(context, state) {
   await mkdir(context.stateDirectory, { recursive: true })
   const temporaryFile = `${context.stateFile}.${process.pid}.${randomUUID()}.new`
