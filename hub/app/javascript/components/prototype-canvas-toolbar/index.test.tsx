@@ -16,6 +16,54 @@ const props = {
 }
 
 describe("Toolbar()", () => {
+  it("shows the more menu only when the caller supplies a context action", () => {
+    const onImproveContext = vi.fn()
+    const view = render(
+      <ThemeProvider>
+        <Toolbar {...props} state={null} />
+      </ThemeProvider>,
+    )
+    expect(screen.queryByRole("button", { name: "More actions" })).not.toBeInTheDocument()
+
+    view.rerender(
+      <ThemeProvider>
+        <Toolbar {...props} state={null} onImproveContext={onImproveContext} />
+      </ThemeProvider>,
+    )
+    const more = screen.getByRole("button", { name: "More actions" })
+    const publish = screen.getByRole("button", { name: "Publish" })
+    expect(publish.compareDocumentPosition(more) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.queryByRole("menuitem", { name: "Improve context" })).not.toBeInTheDocument()
+    fireEvent.click(more)
+    fireEvent.click(screen.getByRole("menuitem", { name: "Improve context" }))
+    expect(onImproveContext).toHaveBeenCalledOnce()
+    expect(more).toHaveAttribute("aria-expanded", "false")
+    expect(more).toHaveFocus()
+
+    view.rerender(
+      <ThemeProvider>
+        <Toolbar {...props} state={null} />
+      </ThemeProvider>,
+    )
+    expect(screen.queryByRole("button", { name: "More actions" })).not.toBeInTheDocument()
+  })
+
+  it.each(["Enter", " "])("runs the menu action once with %j", (key) => {
+    const onImproveContext = vi.fn()
+    render(
+      <ThemeProvider>
+        <Toolbar {...props} state={null} onImproveContext={onImproveContext} />
+      </ThemeProvider>,
+    )
+    fireEvent.click(screen.getByRole("button", { name: "More actions" }))
+    fireEvent.keyDown(screen.getByRole("menuitem", { name: "Improve context" }), { key })
+    expect(onImproveContext).toHaveBeenCalledOnce()
+    expect(screen.getByRole("button", { name: "More actions" })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    )
+  })
+
   it("places the labeled share icon to the right of Publish without disabling it during publishing", () => {
     const onShare = vi.fn()
     const shareButtonRef = createRef<HTMLButtonElement>()

@@ -1,5 +1,12 @@
-import { CheckCircleIcon, LinkIcon, SyncIcon, UploadIcon } from "@primer/octicons-react"
-import { Button, Tooltip } from "@primer/react-brand"
+import {
+  CheckCircleIcon,
+  KebabHorizontalIcon,
+  LinkIcon,
+  SparkleIcon,
+  SyncIcon,
+  UploadIcon,
+} from "@primer/octicons-react"
+import { ActionMenu, Button, Tooltip } from "@primer/react-brand"
 import type { RefObject } from "react"
 
 import { ControlsToggle } from "../prototype-controls-toggle"
@@ -31,6 +38,7 @@ type Props = {
   controlsButtonRef?: RefObject<HTMLButtonElement | null>
   onShare?: () => void
   shareButtonRef?: RefObject<HTMLButtonElement | null>
+  onImproveContext?: () => void
 }
 
 export function Toolbar({
@@ -52,6 +60,7 @@ export function Toolbar({
   controlsButtonRef,
   onShare,
   shareButtonRef,
+  onImproveContext,
 }: Props) {
   const status = state?.publishStatus ?? {
     state: "unavailable" as const,
@@ -160,6 +169,32 @@ export function Toolbar({
           />
         ) : null}
       </div>
+
+      {onImproveContext ? (
+        <ActionMenu size="small" selectionVariant="none" menuAlignment="end">
+          <ActionMenu.IconButton
+            icon={KebabHorizontalIcon}
+            variant="secondary"
+            aria-label={copy.moreActions}
+          />
+          <ActionMenu.Overlay aria-label={copy.moreActions}>
+            <ActionMenu.Item
+              className="canvas-more-action"
+              leadingVisual={<SparkleIcon size={16} />}
+              onClick={onImproveContext}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") onImproveContext()
+                if (event.key === " ") {
+                  event.preventDefault()
+                  event.currentTarget.click()
+                }
+              }}
+            >
+              {copy.improveContext}
+            </ActionMenu.Item>
+          </ActionMenu.Overlay>
+        </ActionMenu>
+      ) : null}
     </header>
   )
 }

@@ -26,10 +26,10 @@ import { controlsStatus } from "@utils/prototype-controls-status"
 
 import "./styles.css"
 
-type Props = { config: CanvasConfig }
+type Props = { config: CanvasConfig; onImproveContext?: () => void }
 
 /** Composes canvas workflows while preserving the preview across panels and dialogs. */
-export function App({ config }: Props) {
+export function App({ config, onImproveContext }: Props) {
   const shellRef = useRef<HTMLElement>(null)
   const toolbarRef = useRef<HTMLElement>(null)
   const addressRef = useRef<HTMLInputElement>(null)
@@ -214,6 +214,7 @@ export function App({ config }: Props) {
           onControls={() => setControlsOpen(!controlsOpen)}
           onPublish={() => void publication.publish()}
           onShare={handleShare}
+          onImproveContext={onImproveContext}
           shareButtonRef={shareButtonRef}
           hubOpen={hubOpen}
           onHub={() => {

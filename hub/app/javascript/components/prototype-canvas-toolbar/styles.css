@@ -81,6 +81,12 @@
   align-items: center;
 }
 
+.canvas-more-action {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .canvas-publish-button[aria-busy="true"] svg {
   animation: canvas-publish-spin 1s linear infinite;
 }

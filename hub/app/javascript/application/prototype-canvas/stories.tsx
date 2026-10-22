@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react"
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { fn } from "storybook/test"
 
 import { App } from "."
 import { publicationExamples } from "@utils/resolve-prototype-publication/fixtures"
@@ -15,11 +16,13 @@ function PublicationDemo({
   prototypeUrl,
   withShareLinks = false,
   withComments = false,
+  onImproveContext,
 }: {
   scenario: string
   prototypeUrl: string
   withShareLinks?: boolean
   withComments?: boolean
+  onImproveContext?: () => void
 }) {
   const [ready, setReady] = useState(false)
   useEffect(() => {
@@ -226,7 +229,10 @@ function PublicationDemo({
     <div className="publication-demo">
       <div className="publication-demo-canvas">
         {ready ? (
-          <App config={{ prototypeUrl, name: "Welcome prototype", token: "fixture-only" }} />
+          <App
+            config={{ prototypeUrl, name: "Welcome prototype", token: "fixture-only" }}
+            onImproveContext={onImproveContext}
+          />
         ) : null}
       </div>
     </div>
@@ -313,6 +319,35 @@ export const UnknownRegistrationReason: Story = {
 }
 export const Failed: Story = { args: { scenario: "Build failed" } }
 export const Ready: Story = { args: { scenario: "Published" } }
+export const ImproveContext: Story = {
+  args: {
+    scenario: "Published",
+    onImproveContext: fn(),
+  },
+  render: (args) => (
+    <PublicationDemo
+      {...args}
+      prototypeUrl={new URL("/prototype-preview/index.html", window.location.href).href}
+    />
+  ),
+  parameters: {
+    docs: {
+      description: {
+        story:
+          "Presentation for a connected repository maintainer. Improve context records a Storybook action without running a skill or calling Hub. The live canvas keeps it hidden until backend eligibility and dispatch are connected.",
+      },
+    },
+  },
+}
+export const MoreActionsOpen: Story = {
+  ...ImproveContext,
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "More actions" }, { timeout: 5_000 }),
+    )
+    await canvas.findByRole("menuitem", { name: "Improve context" })
+  },
+}
 export const CommentsSidebar: Story = {
   args: {
     scenario: "Published",

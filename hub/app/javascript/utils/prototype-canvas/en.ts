@@ -103,6 +103,8 @@ export const copy = {
   hubBuildMissing: "Hub has not imported a successful registered Build.",
   hubPublicationUnavailable: "Connect to Hub to verify publication.",
   editDetails: "Edit details",
+  improveContext: "Improve context",
+  moreActions: "More actions",
   startPageHint: "Paste a prototype URL or route. Leave blank to start at /.",
   requestFailed: "The request failed.",
   statusUnavailable: "Publish status unavailable.",
