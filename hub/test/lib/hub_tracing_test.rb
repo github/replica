@@ -64,6 +64,7 @@ class HubTracingTest < ActiveSupport::TestCase
       { "OTEL_EXPORTER_OTLP_ENDPOINT" => "file:///credential-canary" },
       { "OTEL_EXPORTER_OTLP_ENDPOINT" => "http:///v1/traces" },
       { "OTEL_EXPORTER_OTLP_ENDPOINT" => "https://:4318/v1/traces" },
+      { "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT" => "http://collector.example" },
       { "OTEL_EXPORTER_OTLP_PROTOCOL" => "grpc" },
       { "OTEL_EXPORTER_OTLP_TRACES_HEADERS" => "Authorization=credential-canary%ZZ" },
       { "OTEL_EXPORTER_OTLP_HEADERS" => "Authorization=credential-canary%ZZ" },
@@ -248,7 +249,7 @@ class HubTracingTest < ActiveSupport::TestCase
     assert_equal OpenTelemetry::SDK::Trace::Export::SUCCESS, exporter.export(originals, timeout: 1)
     Timeout.timeout(1) { server.value }
     assert_equal 2, factories
-    assert_equal 2, connections.uniq.size
+    assert_equal 2, connections.size
   ensure
     release_first_response&.push(true)
     first_export&.join(1)

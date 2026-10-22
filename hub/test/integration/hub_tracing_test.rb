@@ -115,6 +115,17 @@ class HubTracingIntegrationTest < ActiveSupport::TestCase
     end
   end
 
+  test "pathless common endpoint appends the OTLP traces path" do
+    result = run_traced_request(configuration: {
+      "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT" => nil,
+      "OTEL_EXPORTER_OTLP_ENDPOINT" => "http://collector.example"
+    })
+
+    assert_equal 200, result.fetch("status")
+    assert_operator result.fetch("export_attempts"), :>, 0
+    assert_not_empty decoded_spans(result)
+  end
+
   test "sensitive opt in exports SQL filtered job arguments and exception diagnostics" do
     result = run_traced_request(
       configuration: { "REPLICA_OTEL_INCLUDE_SENSITIVE_DATA" => "TrUe" },

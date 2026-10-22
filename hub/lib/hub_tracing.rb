@@ -39,6 +39,7 @@ module HubTracing
     unless protocol == "http/protobuf"
       raise ArgumentError, "Hub tracing supports only the http/protobuf OTLP protocol"
     end
+    trace_endpoint = ENV.key?("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")
     endpoint = ENV["OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"] || ENV["OTEL_EXPORTER_OTLP_ENDPOINT"]
     begin
       uri = URI.parse(endpoint.to_s)
@@ -48,6 +49,9 @@ module HubTracing
     unless %w[http https].include?(uri.scheme) && uri.host && !uri.host.empty? &&
         !uri.userinfo && !uri.query && !uri.fragment
       raise ArgumentError, "OTLP endpoint must be an absolute HTTP(S) URL without credentials, query, or fragment"
+    end
+    if trace_endpoint && uri.path.empty?
+      raise ArgumentError, "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT must include a request path"
     end
     validate_otlp_headers!
 
