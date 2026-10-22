@@ -4,6 +4,7 @@ module ReviewCommentActions
 
   include HasReviewCommentContext
   include ReviewCommentMutations
+  include CanvasCommentResponses
 
   included do
     prepend_before_action :reject_large_request, only: %i[create update]
@@ -12,7 +13,10 @@ module ReviewCommentActions
   # @route GET /repositories/:repository_github_id/prototypes/:prototype_id/review_comments (repository_prototype_review_comments)
   # @route GET /api/canvas/repositories/:repository_github_id/prototypes/:prototype_id/review_comments (canvas_api_review_comments)
   def index
-    render_review_comment_page
+    filter = is_a?(CanvasApi::BaseController) ? improvement_notes_filter : "exclude"
+    comments = canvas_comments_for(@prototype, filter:)
+    prepare_viewer_thread_reads(comments)
+    render json: { comments: comments.map { canvas_comment_json(_1) }, nextCursor: nil, hasMore: false }
   end
 
   # @route POST /repositories/:repository_github_id/prototypes/:prototype_id/review_comments (repository_prototype_review_comments)
@@ -56,6 +60,7 @@ module ReviewCommentActions
   private
 
   def review_comment_params
+    reject_note_thread_parameters!
     params.require(:review_comment).permit(:build_number, :body, anchor: {})
   end
 

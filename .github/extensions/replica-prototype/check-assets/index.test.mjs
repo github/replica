@@ -66,11 +66,11 @@ describe("checkAssets()", () => {
     }
   })
 
-  it("runs the CLI check from a path with spaces without invoking the real build", async () => {
+  it("checks generated Node modules outside browser assets from a path with spaces", async () => {
     const directory = path.join(process.cwd(), "storage/replica-extension-tests", randomUUID())
     const extension = path.join(directory, "extension with spaces")
     const scriptDirectory = path.join(extension, "check-assets")
-    const assetFile = path.join(extension, "assets", "renderer.js")
+    const assetFile = path.join(extension, "read-remote-branch", "index.mjs")
     const script = path.join(scriptDirectory, "index.mjs")
     await mkdir(scriptDirectory, { recursive: true })
     await mkdir(path.dirname(assetFile), { recursive: true })
@@ -94,7 +94,7 @@ describe("checkAssets()", () => {
             },
             stdio: "pipe",
           }),
-        /Extension assets differ after build.*renderer\.js/s,
+        /Extension assets differ after build.*read-remote-branch\/index\.mjs/s,
       )
     } finally {
       await rm(directory, { recursive: true, force: true })

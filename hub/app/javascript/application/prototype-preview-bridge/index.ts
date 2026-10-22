@@ -376,7 +376,25 @@ function areaElements(rect: DOMRect): AreaElement[] {
   })
 }
 
-function startAreaSelection(origin: string, nonce: string) {
+function areaAnchor(rect: DOMRect): AreaAnchor {
+  return {
+    schemaVersion: 1,
+    kind: "area",
+    route: currentRoute(),
+    path: [
+      { x: 0, y: 0 },
+      { x: 1, y: 0 },
+      { x: 1, y: 1 },
+      { x: 0, y: 1 },
+      { x: 0, y: 0 },
+    ],
+    rect: anchorRect(rect),
+    viewport: currentViewport(),
+    elements: areaElements(rect),
+  }
+}
+
+function startAreaSelection(origin: string, nonce: string, allowElement = false) {
   finishSelection()
   const surface = document.createElement("div")
   surface.setAttribute(BRIDGE_ATTRIBUTE, "")
@@ -391,6 +409,28 @@ function startAreaSelection(origin: string, nonce: string) {
   overlay.style.display = "none"
   document.body.append(surface)
   let start: { x: number; y: number } | null = null
+  let target: Element | null = null
+  let pointerId: number | null = null
+  let keyboardPoint: { x: number; y: number } | null = null
+
+  function elementAt(x: number, y: number) {
+    surface.style.pointerEvents = "none"
+    const element = document.elementFromPoint(x, y)
+    surface.style.pointerEvents = ""
+    return element === document.body || element === document.documentElement ? null : element
+  }
+
+  function complete(anchor: ElementAnchor | AreaAnchor, rect: DOMRect, element?: Element) {
+    overlay.style.position = element && isViewportAnchoredElement(element) ? "fixed" : "absolute"
+    positionOverlay(overlay, rect)
+    replaceSelectedOverlay(overlay, element)
+    finishSelection()
+    post(origin, {
+      type: "replica:canvas:selected",
+      nonce,
+      anchor,
+    })
+  }
 
   function update(clientX: number, clientY: number) {
     if (!start) return
@@ -403,71 +443,159 @@ function startAreaSelection(origin: string, nonce: string) {
   }
 
   function pointerDown(event: PointerEvent) {
+    if (event.button !== 0 || start) return
     event.preventDefault()
     start = { x: event.clientX, y: event.clientY }
+    pointerId = event.pointerId
+    target = allowElement ? elementAt(event.clientX, event.clientY) : null
     surface.setPointerCapture(event.pointerId)
     update(event.clientX, event.clientY)
   }
 
   function pointerMove(event: PointerEvent) {
-    if (!start) return
+    if (!start) {
+      if (!allowElement) return
+      const element = elementAt(event.clientX, event.clientY)
+      overlay.style.display = element ? "block" : "none"
+      if (element) positionOverlay(overlay, element.getBoundingClientRect())
+      return
+    }
+    if (event.pointerId !== pointerId) return
     event.preventDefault()
     update(event.clientX, event.clientY)
   }
 
   function pointerUp(event: PointerEvent) {
-    if (!start) return
+    if (!start || event.pointerId !== pointerId) return
     event.preventDefault()
+    const endX = Math.max(0, Math.min(window.innerWidth, event.clientX))
+    const endY = Math.max(0, Math.min(window.innerHeight, event.clientY))
     const rect = new DOMRect(
-      Math.min(start.x, event.clientX),
-      Math.min(start.y, event.clientY),
-      Math.abs(event.clientX - start.x),
-      Math.abs(event.clientY - start.y),
+      Math.min(start.x, endX),
+      Math.min(start.y, endY),
+      Math.abs(endX - start.x),
+      Math.abs(endY - start.y),
     )
-    if (Math.hypot(rect.width, rect.height) < 8) {
-      surface.remove()
-      overlay.remove()
+    if (allowElement && Math.hypot(rect.width, rect.height) < 8) {
+      const anchor = target ? elementAnchor(target, start.x, start.y) : null
+      if (!anchor || !target) {
+        failSelection(origin, nonce, "element-unavailable")
+        return
+      }
+      complete(anchor, target.getBoundingClientRect(), target)
+      return
+    }
+    if (
+      allowElement ? rect.width < 8 || rect.height < 8 : Math.hypot(rect.width, rect.height) < 8
+    ) {
       failSelection(origin, nonce, "area-too-small")
       return
     }
-    const anchor: AreaAnchor = {
-      schemaVersion: 1,
-      kind: "area",
-      route: currentRoute(),
-      path: [
-        { x: 0, y: 0 },
-        { x: 1, y: 0 },
-        { x: 1, y: 1 },
-        { x: 0, y: 1 },
-        { x: 0, y: 0 },
-      ],
-      rect: anchorRect(rect),
-      viewport: currentViewport(),
-      elements: areaElements(rect),
+    complete(areaAnchor(rect), rect)
+  }
+
+  function keyboardClick(event: MouseEvent) {
+    if (
+      !allowElement ||
+      event.detail !== 0 ||
+      !(event.target instanceof Element) ||
+      event.target.hasAttribute(BRIDGE_ATTRIBUTE)
+    )
+      return
+    event.preventDefault()
+    event.stopImmediatePropagation()
+    const element = event.target
+    const rect = element.getBoundingClientRect()
+    const anchor = elementAnchor(element, rect.left + rect.width / 2, rect.top + rect.height / 2)
+    if (!anchor) {
+      failSelection(origin, nonce, "element-unavailable")
+      return
     }
-    surface.remove()
-    overlay.style.position = "absolute"
-    positionOverlay(overlay, rect)
-    replaceSelectedOverlay(overlay)
+    complete(anchor, rect, element)
+  }
+
+  function cancel(event?: Event) {
     finishSelection()
-    post(origin, { type: "replica:canvas:selected", nonce, anchor })
+    post(origin, {
+      type: "replica:canvas:selection-cancelled",
+      nonce,
+      reason: event ? "interrupted" : "escape",
+    })
   }
 
   function keydown(event: KeyboardEvent) {
+    if (allowElement && event.shiftKey && event.key === "Enter") {
+      event.preventDefault()
+      keyboardPoint = { x: window.innerWidth / 2, y: window.innerHeight / 2 }
+      start = null
+      overlay.style.display = "block"
+      positionOverlay(overlay, new DOMRect(keyboardPoint.x, keyboardPoint.y, 4, 4))
+      return
+    }
+    if (
+      keyboardPoint &&
+      ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Enter", " "].includes(event.key)
+    ) {
+      event.preventDefault()
+      if (event.key === "Enter" || event.key === " ") {
+        if (!start) {
+          start = { ...keyboardPoint }
+        } else {
+          const rect = new DOMRect(
+            Math.min(start.x, keyboardPoint.x),
+            Math.min(start.y, keyboardPoint.y),
+            Math.abs(start.x - keyboardPoint.x),
+            Math.abs(start.y - keyboardPoint.y),
+          )
+          if (rect.width < 8 || rect.height < 8) {
+            failSelection(origin, nonce, "area-too-small")
+            return
+          }
+          complete(areaAnchor(rect), rect)
+        }
+      } else {
+        keyboardPoint = {
+          x: Math.max(
+            0,
+            Math.min(
+              window.innerWidth,
+              keyboardPoint.x +
+                (event.key === "ArrowRight" ? 10 : event.key === "ArrowLeft" ? -10 : 0),
+            ),
+          ),
+          y: Math.max(
+            0,
+            Math.min(
+              window.innerHeight,
+              keyboardPoint.y +
+                (event.key === "ArrowDown" ? 10 : event.key === "ArrowUp" ? -10 : 0),
+            ),
+          ),
+        }
+        if (start) update(keyboardPoint.x, keyboardPoint.y)
+        else positionOverlay(overlay, new DOMRect(keyboardPoint.x, keyboardPoint.y, 4, 4))
+      }
+      return
+    }
     if (event.key !== "Escape") return
     event.preventDefault()
-    finishSelection()
-    post(origin, { type: "replica:canvas:selection-cancelled", nonce })
+    cancel()
   }
 
   surface.addEventListener("pointerdown", pointerDown)
   surface.addEventListener("pointermove", pointerMove)
   surface.addEventListener("pointerup", pointerUp)
+  surface.addEventListener("pointercancel", cancel)
+  surface.addEventListener("lostpointercapture", cancel)
+  if (allowElement) document.addEventListener("click", keyboardClick, true)
   document.addEventListener("keydown", keydown, true)
   cleanupActiveSelection = () => {
     surface.removeEventListener("pointerdown", pointerDown)
     surface.removeEventListener("pointermove", pointerMove)
     surface.removeEventListener("pointerup", pointerUp)
+    surface.removeEventListener("pointercancel", cancel)
+    surface.removeEventListener("lostpointercapture", cancel)
+    if (allowElement) document.removeEventListener("click", keyboardClick, true)
     document.removeEventListener("keydown", keydown, true)
     surface.remove()
     if (selectedOverlay !== overlay) overlay.remove()
@@ -615,6 +743,7 @@ function receiveCanvasMessage(event: MessageEvent<unknown>) {
     post(event.origin, {
       type: "replica:canvas:ready",
       protocolVersion: 1,
+      improvementSelection: true,
       nonce: data.nonce,
       route: currentRoute(),
       ...(inPlaceRoute === routeAddress() ? { replaceRoute: true } : {}),
@@ -693,12 +822,17 @@ function receiveCanvasMessage(event: MessageEvent<unknown>) {
   if (data.type === "replica:canvas:select") {
     if (data.mode === "element") startElementSelection(event.origin, data.nonce)
     else if (data.mode === "area") startAreaSelection(event.origin, data.nonce)
+    else if (data.mode === "improvement") startAreaSelection(event.origin, data.nonce, true)
     return
   }
 
   if (data.type === "replica:canvas:cancel-selection") {
     finishSelection()
-    post(event.origin, { type: "replica:canvas:selection-cancelled", nonce: data.nonce })
+    post(event.origin, {
+      type: "replica:canvas:selection-cancelled",
+      nonce: data.nonce,
+      reason: "command",
+    })
     return
   }
 
@@ -709,11 +843,7 @@ function receiveCanvasMessage(event: MessageEvent<unknown>) {
     return
   }
 
-  if (
-    data.type !== "replica:canvas:resolve" ||
-    !Array.isArray(data.anchors) ||
-    data.anchors.length > 200
-  ) {
+  if (data.type !== "replica:canvas:resolve" || !Array.isArray(data.anchors)) {
     return
   }
 

@@ -1,5 +1,5 @@
+// Edit index.mts; rebuild index.mjs with Hub's extension:modules:build command.
 import { runCommand } from "../run-command/index.mjs"
-
 // Matching refs returns [] for a missing branch; authorization/HTTP errors stay unknown.
 export async function readRemoteBranch(
   { repository, branch, commitSha, repositoryPath },
@@ -7,7 +7,11 @@ export async function readRemoteBranch(
 ) {
   const identity = { repository, branch, commitSha }
   if (!branch)
-    return { ...identity, state: "detached", error: "Open a named branch before publishing." }
+    return {
+      ...identity,
+      state: "detached",
+      error: "Open a named branch before publishing.",
+    }
   if (!repository || !commitSha)
     return {
       ...identity,
@@ -29,20 +33,38 @@ export async function readRemoteBranch(
   try {
     refs = JSON.parse(result.stdout)
   } catch {
-    return { ...identity, state: "unknown", error: "GitHub returned invalid branch data." }
+    return {
+      ...identity,
+      state: "unknown",
+      error: "GitHub returned invalid branch data.",
+    }
   }
   if (
     !Array.isArray(refs) ||
-    refs.some(
+    !refs.every(
       (ref) =>
-        !ref ||
-        typeof ref.ref !== "string" ||
-        !/^refs\/heads\//.test(ref.ref) ||
-        ref.object?.type !== "commit" ||
-        !/^[0-9a-f]{40}$/.test(ref.object?.sha || ""),
+        typeof ref === "object" &&
+        ref !== null &&
+        "ref" in ref &&
+        typeof ref.ref === "string" &&
+        /^refs\/heads\//.test(ref.ref) &&
+        "object" in ref &&
+        typeof ref.object === "object" &&
+        ref.object !== null &&
+        "type" in ref.object &&
+        ref.object.type === "commit" &&
+        "sha" in ref.object &&
+        typeof ref.object.sha === "string" &&
+        /^[0-9a-f]{40}$/.test(ref.object.sha),
     )
   )
-    return { ...identity, state: "unknown", error: "GitHub returned invalid branch refs." }
+    return {
+      ...identity,
+      state: "unknown",
+      error: "GitHub returned invalid branch refs.",
+    }
   const exact = refs.find((ref) => ref.ref === `refs/heads/${branch}`)
-  return { ...identity, state: exact ? "present" : "absent", remoteSha: exact?.object.sha || null }
+  return exact
+    ? { ...identity, state: "present", remoteSha: exact.object.sha }
+    : { ...identity, state: "absent", remoteSha: null }
 }

@@ -98,7 +98,6 @@ describe("commentActions()", () => {
       [{ statusCode: 422 }, "invalid_comment_request"],
       [{ code: "stale_comment_target" }, "stale_comment_target"],
       [{ code: "reply_delivery_unknown" }, "reply_delivery_unknown"],
-      [{ code: "comment_scan_limit" }, "comment_scan_limit"],
       [{ code: "comment_response_limit", statusCode: 413 }, "comment_response_limit"],
       [{}, "comment_action_failed"],
     ]) {

@@ -1,10 +1,26 @@
 import type { Preview } from "@storybook/react-vite"
+import { addons } from "storybook/preview-api"
+
+import componentUsageIndex from "virtual:storybook-component-usage"
 
 import { HubThemeProvider } from "@/hooks/use-hub-theme"
 
 import "@/tokens/base.css"
 
 import "./preview.css"
+
+if (import.meta.hot) {
+  const channel = addons.getChannel()
+  function sendUsageIndex() {
+    channel.emit("storybook/component-usage", componentUsageIndex)
+  }
+  channel.on("storybook/component-usage/request", sendUsageIndex)
+  import.meta.hot.on("storybook/component-usage", (index) => {
+    Object.assign(componentUsageIndex, index)
+    sendUsageIndex()
+  })
+  import.meta.hot.dispose(() => channel.off("storybook/component-usage/request", sendUsageIndex))
+}
 
 function hubColorMode(value: unknown): "auto" | "light" | "dark" {
   if (value === "light" || value === "dark") return value
@@ -39,11 +55,12 @@ const preview: Preview = {
     colorMode: "auto",
   },
   parameters: {
+    componentUsageIndex,
     controls: { expanded: true },
     options: {
       storySort: {
         method: "alphabetical",
-        order: ["Hub Design", "Foundations", "Components", "Features", "Pages"],
+        order: ["Components", "Prototype canvas", "Hub", ["Design", "Pages", "Features"]],
       },
     },
     viewport: {

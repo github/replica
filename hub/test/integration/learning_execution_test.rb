@@ -165,7 +165,7 @@ class LearningExecutionTest < ActiveSupport::TestCase
       claim(Learning::Run::FindLearningsJob.name).perform
       assert_equal "queued", run.reload.state
       assert_nil run.started_at
-      travel 35.seconds
+      travel_to SolidQueue::ScheduledExecution.sole.scheduled_at + 1.second
       assert_equal 1, SolidQueue::ScheduledExecution.dispatch_next_batch(100)
     end
     assert_raises(Learning::ExecutionLock::Busy) { claim(Learning::Run::FindLearningsJob.name).perform }
@@ -201,7 +201,7 @@ class LearningExecutionTest < ActiveSupport::TestCase
     (attempts - 1).times do
       claim(ReviewComment::RemoveFromLearningStoreJob.name).perform
       assert @comment.reload.learning_removal_due_at
-      travel 35.seconds
+      travel_to SolidQueue::ScheduledExecution.sole.scheduled_at + 1.second
       assert_equal 1, SolidQueue::ScheduledExecution.dispatch_next_batch(100)
     end
     assert_raises(Learning::ExecutionLock::Busy) { claim(ReviewComment::RemoveFromLearningStoreJob.name).perform }

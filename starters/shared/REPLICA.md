@@ -73,6 +73,14 @@ Use an app-owned route, including its query or hash when needed. The file stores
 
 The Replica canvas reads this file before the prototype exists in Hub. On push, Hub imports the first valid start page from the exact commit unless Hub already has a setting. Later pushes cannot replace Hub's value, even when explicitly cleared to `/`. Keep the file after publishing for local use and new branches.
 
+## Improve guidance from review feedback
+
+Run `/review-hub-feedback` with an approved Hub connection to find reusable themes across prototype reviews. It leaves repository files and Hub feedback unchanged, saves the evidence in private session artifacts, and offers a choice of findings to investigate. Its confidence scores describe theme relevance, not proof of a defect.
+
+After selecting findings, use `/prepare-feedback-proposals` to compare them with existing repository guidance. The skill presents a solution for each investigation: a proposed guidance change, an already-covered finding, a clarification needed, or a suggestion for a separate environment investigation. Every proposed edit is shown before you approve it. Asking for proposals does not authorize edits; only explicit approval of displayed changes does.
+
+The proposal skill changes only reusable repository guidance. It does not fix prototypes or change components, templates, skills, dependencies or configuration. You can decline all proposals. In the same session it uses the saved review; in another session, explicitly select or attach the private review artifact. If that artifact is unavailable, run a new review rather than relying on the summary. Start a fresh agent session after updating starter skills so both skills are discovered.
+
 ## Prototype controls
 
 Use `/prototype-controls`, or describe the variation: "add controls to switch between empty and populated scenarios", "add a slider for the item count", or "add a dropdown to switch seed data". The skill creates controls in Replica's panel and wires them to the prototype's rendering, state or authorized data sources. Product UI fields and filters are separate from prototype configuration.

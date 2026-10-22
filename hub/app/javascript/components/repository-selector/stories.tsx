@@ -5,7 +5,7 @@ import { githubEmpty, githubPrototype } from "@/storybook/fixtures/repositories"
 import { RepositorySelector } from "."
 
 const meta = {
-  title: "Components/Brand-based: Repository Selector",
+  title: "Components/Repository Selector",
   component: RepositorySelector,
   args: {
     ariaLabel: "Choose repository. github/prototype selected",

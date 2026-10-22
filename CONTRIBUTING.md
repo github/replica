@@ -107,7 +107,7 @@ Read the [shared coding conventions](docs/coding-conventions.md) and existing do
 
 - For Hub changes, follow the existing system boundaries in [Hub architecture](hub/docs/architecture.md).
 - For Hub changes, follow the Rails, TypeScript, interface, and test rules in [Hub coding conventions](hub/docs/coding-conventions.md).
-- Use Storybook for Hub presentation work and add or update a colocated story for each meaningful visual change. See [Storybook](hub/docs/storybook.md).
+- For Hub and canvas UI changes, follow the [Storybook coverage and screenshot requirements](hub/docs/storybook.md#ui-changes-and-pull-request-evidence).
 - Follow the [shared documentation conventions](docs/documentation-conventions.md) for prose, labels, errors, and code comments.
 
 ## Verify the change
@@ -140,7 +140,7 @@ Use the [PR template](.github/pull_request_template.md). Write short, simple Eng
 
 Include an accurate Mermaid diagram when it makes a proposed flow or system boundary easier to understand. Before/after diagrams are especially useful when an existing flow changes. Use familiar labels, make clear what changes and what stays the same, and leave diagrams out when a sentence explains the proposal better.
 
-Include screenshots or recordings for meaningful interface changes. Omit validation sections and checklists from the PR description. Do not repeat passing test or CI results. Leave statements such as "CI is green" and "tests passed" out of the description; GitHub displays the checks.
+For Hub or canvas UI changes, finish the PR description with screenshots of every added or changed story, following the [Storybook evidence workflow](hub/docs/storybook.md#ui-changes-and-pull-request-evidence). Recordings may supplement the screenshots. Omit validation sections and checklists from the PR description. Do not repeat passing test or CI results. Leave statements such as "CI is green" and "tests passed" out of the description; GitHub displays the checks.
 
 Still run the relevant checks before opening the PR. Mention only known verification gaps that affect the change, such as a required check that could not run or behavior that remains unverified. Describe the actual gap, not whether the agent drafting the description ran tests itself.
 
