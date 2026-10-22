@@ -59,6 +59,11 @@
   margin-bottom: 0.5rem;
 }
 
+/* Shared rows isolate their hover layer; lift the open menu's entire row above siblings. */
+.thread-sample__card:has(.thread-sample__menu button[aria-expanded="true"]) {
+  z-index: 1;
+}
+
 .thread-sample__card::before {
   inset-inline: calc(-1 * var(--hub-space-12)) var(--hub-space-4);
 }

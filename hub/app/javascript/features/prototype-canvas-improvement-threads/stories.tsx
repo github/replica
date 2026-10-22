@@ -49,6 +49,28 @@ export const ActiveNotes: Story = {
   args: { open: true },
 }
 
+export const BlockedNotes: Story = {
+  args: {
+    open: true,
+    onRetry: () => Promise.resolve(false),
+    threads: [
+      {
+        ...meta.args.threads[0]!,
+        status: "blocked",
+        retryStatus: "blocked",
+      },
+      {
+        ...meta.args.threads[0]!,
+        id: 2,
+        author: "Jordan Lee",
+        body: "Keep the project description visible beside the save action.",
+        status: "blocked",
+        retryStatus: "blocked",
+      },
+    ],
+  },
+}
+
 export const CopilotAnswer: Story = {
   args: {
     open: true,
