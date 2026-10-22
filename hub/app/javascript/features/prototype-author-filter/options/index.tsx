@@ -3,6 +3,7 @@ import type { KeyboardEvent } from "react"
 
 import { ActionMenu, Button, TextInput } from "@primer/react-brand"
 
+import { HubSpinner } from "@components/hub-spinner"
 import type { PrototypeAuthorResults, PrototypeListing } from "@utils/prototype-listing/types"
 
 /** Loads author choices only while the menu is mounted and cancels stale searches. */
@@ -121,9 +122,16 @@ export function PrototypeAuthorOptions({
             </Button>
           </div>
         </li>
-      ) : !results || (!results.authors.length && query.trim()) ? (
+      ) : !results ? (
+        <li role="presentation">
+          <div role="status" className="prototype-author-filter__loading">
+            <HubSpinner decorative size="small" />
+            <span>{copy.loading}</span>
+          </div>
+        </li>
+      ) : !results.authors.length && query.trim() ? (
         <li role="presentation" className="prototype-author-filter__status">
-          <p role="status">{results ? copy.noAuthors : copy.loading}</p>
+          <p role="status">{copy.noAuthors}</p>
         </li>
       ) : (
         results.authors.map((author) => (

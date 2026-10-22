@@ -64,6 +64,14 @@
   padding: var(--base-size-8);
 }
 
+.prototype-author-filter__loading {
+  display: flex;
+  align-items: center;
+  gap: var(--base-size-12);
+  padding: var(--base-size-8) var(--brand-control-small-paddingInline-condensed);
+  color: var(--hub-fg-muted);
+}
+
 .prototype-author-filter__paging {
   display: flex;
   justify-content: center;
