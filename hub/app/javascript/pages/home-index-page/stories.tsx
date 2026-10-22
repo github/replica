@@ -24,7 +24,7 @@ const data: HomeIndexPageData = {
 }
 
 const meta = {
-  title: "Pages/Home",
+  title: "Hub/Pages/Home",
   component: HomeIndexPage,
   args: { colorMode: "dark", data },
   argTypes: {

@@ -5,7 +5,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { PrototypeBriefComposer } from "."
 
 const meta = {
-  title: "Components/Hub-built: Prototype Brief Composer",
+  title: "Components/Prototype Brief Composer",
   component: PrototypeBriefComposer,
   args: {
     value: "",

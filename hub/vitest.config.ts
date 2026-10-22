@@ -4,6 +4,7 @@ import { configDefaults, defineConfig } from "vitest/config"
 import { viteAliases } from "./vite-aliases.ts"
 
 const nodeTests = [
+  ".storybook/analyze-usage/index.test.ts",
   "app/javascript/utils/create-byte-limited-string-schema/index.test.ts",
   "app/javascript/utils/create-preview-prototype-prompt/index.test.ts",
   "app/javascript/utils/create-prototype-submission/index.test.ts",

@@ -5,7 +5,7 @@ import { hubAdministrationWorkspaceData } from "@/storybook/fixtures/hub-adminis
 import { FreshAuthorizationPage } from "."
 
 const meta = {
-  title: "Pages/Security/Fresh authorization",
+  title: "Hub/Pages/Security/Fresh authorization",
   component: FreshAuthorizationPage,
   parameters: { layout: "fullscreen" },
   args: {

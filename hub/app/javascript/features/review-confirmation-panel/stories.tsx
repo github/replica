@@ -5,7 +5,7 @@ import { ReviewConfirmationPanel } from "."
 function noop() {}
 
 const meta = {
-  title: "Features/Review/Confirmation Panel",
+  title: "Hub/Features/Review/Confirmation Panel",
   component: ReviewConfirmationPanel,
   args: {
     cancelLabel: "Keep",

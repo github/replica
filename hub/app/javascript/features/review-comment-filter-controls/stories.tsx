@@ -31,7 +31,7 @@ function FilterDemo({ active = false, search = "" }: { active?: boolean; search?
 }
 
 const meta = {
-  title: "Features/Review/Comment Filters",
+  title: "Hub/Features/Review/Comment Filters",
   component: ReviewCommentFilterControls,
   args: {
     filters: defaultReviewFilters,
