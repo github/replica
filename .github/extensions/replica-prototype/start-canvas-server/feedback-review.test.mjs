@@ -11,7 +11,7 @@ import { startCanvasServer } from "./index.mjs"
 
 const repository = "github/replica"
 
-// Starts the canvas with a stored connection to a Hub whose maintainer check the case controls.
+// Starts the canvas with a stored connection to a Hub whose access check the case controls.
 async function withCanvas(options, run) {
   const { canReviewFeedback, review = () => [200, null] } = { canReviewFeedback: true, ...options }
   await withContext(async (context) => {
@@ -30,7 +30,7 @@ async function withCanvas(options, run) {
       let status = 200
       let result = {}
       if (request.url === "/api/canvas/connection" && request.method === "GET") {
-        result = { repository, canPublish: true, viewerLogin: "octocat" }
+        result = { repository, canPublish: false, viewerLogin: "octocat" }
         if (canReviewFeedback !== undefined) result.canReviewFeedback = canReviewFeedback
       } else if (request.url === "/api/canvas/feedback_review" && request.method === "POST") {
         reviewChecks.push(request.headers.authorization)
@@ -105,10 +105,11 @@ function displayedTarget(status) {
 }
 
 describe("POST /api/hub/feedback-review", () => {
-  it("requests the review in the current chat for the displayed maintainer target", async () => {
+  it("requests the review in the current chat for a reader of the displayed repository", async () => {
     await withCanvas({}, async ({ send, prompts, reviewChecks, origin }) => {
       const status = (await send("/api/hub/status")).body
       assert.equal(status.canReviewFeedback, true)
+      assert.equal(status.canPublish, false)
       assert.deepEqual(displayedTarget(status), {
         repository,
         branch: "prototype",
@@ -149,7 +150,8 @@ describe("POST /api/hub/feedback-review", () => {
   })
 
   it("returns Hub's refusal as a visible error without dispatching", async () => {
-    const error = "Reviewing repository feedback requires GitHub Admin or Maintain access."
+    const error =
+      "Reviewing repository feedback requires repository access through a connected Hub."
     await withCanvas({ review: () => [403, { error }] }, async ({ send, prompts }) => {
       const status = (await send("/api/hub/status")).body
 

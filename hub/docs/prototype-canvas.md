@@ -70,11 +70,11 @@ Run shared adapter/schema tests, renderer/iframe tests and type checks, then reb
 
 `bin/setup` restores Hub's locked dependencies, including the validator generator. `controls:build` generates the minified screenshot adapter, Hub bridge and Storybook fixture; `controls:assets:check` checks freshness in CI. The screenshot driver reads its committed adapter without a compiler. No prototype package installation or compatibility preparation is needed.
 
-## Maintainer feedback review
+## Feedback review
 
 **Improve context** in the toolbar's **More actions** menu requests `/review-hub-feedback` in the current chat. The skill reviews repository feedback for reusable themes, using independent judging and private session artifacts. It asks for a judge model and reasoning when unspecified. It does not generate solutions or edit repository context.
 
-The action appears only when the connected Hub user's GitHub permission for the loaded repository is Admin or Maintain. Ordinary write access and Hub administrator status alone do not qualify. A Hub connection and a named checkout branch are required; the branch need not have a published Build. The action stays hidden while access is unverified or denied, after a connection failure, and with older Hubs that do not report this capability.
+The action is available to every connected Hub user with GitHub access to the loaded repository, including Read and Triage as well as Write, Maintain and Admin. No maintainer or Hub administrator role is required. A Hub connection and a named checkout branch are required; the branch need not have a published Build. The action stays hidden while access is unverified or denied, after a connection failure, and with older Hubs that do not report this capability.
 
 Hub may cache the display permission briefly, but clicking rechecks GitHub access through the existing repository grant before dispatch. The extension verifies the displayed Hub, repository, branch and connection still match. Overlapping requests share one dispatch; failures are shown in the toolbar without an automatic retry. The button starts no pairing, publication, or repository mutation. The review skill must be enabled and discoverable; otherwise the action explains that a plugin update or fresh session is needed.
 

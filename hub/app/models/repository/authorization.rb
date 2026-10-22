@@ -1,10 +1,10 @@
 # Checks a user's current GitHub permission for one installed repository.
 class Repository::Authorization < ActiveRecord::AssociatedObject
   CACHE_TTL = 1.minute
-  PERMISSION_LEVELS = { "none" => 0, "read" => 1, "write" => 2, "maintain" => 3, "admin" => 4 }.freeze
+  PERMISSION_LEVELS = { "none" => 0, "read" => 1, "write" => 2, "admin" => 3 }.freeze
   NORMALIZED_PERMISSIONS = {
     "pull" => "read", "read" => "read", "triage" => "read",
-    "push" => "write", "write" => "write", "maintain" => "maintain",
+    "push" => "write", "write" => "write", "maintain" => "write",
     "admin" => "admin"
   }.freeze
 
@@ -80,10 +80,9 @@ class Repository::Authorization < ActiveRecord::AssociatedObject
       return "none"
     end
 
-    normalized = NORMALIZED_PERMISSIONS.fetch(permission) do
+    NORMALIZED_PERMISSIONS.fetch(permission) do
       raise GithubClient::InvalidResponse, "GitHub returned an unknown repository permission"
     end
-    normalized == "write" && payload["role_name"] == "maintain" ? "maintain" : normalized
   rescue GithubClient::NotFound
     "none"
   rescue KeyError, TypeError
@@ -99,6 +98,6 @@ class Repository::Authorization < ActiveRecord::AssociatedObject
 
   # Separates cached permission by durable identities and repository state.
   def cache_key(user)
-    [ "repository-permission-v2", record.github_id, user.github_id, record.updated_at.to_f ]
+    [ "repository-permission", record.github_id, user.github_id, record.updated_at.to_f ]
   end
 end

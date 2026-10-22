@@ -13,10 +13,10 @@ import { requestFeedbackReview } from "./index.mjs"
 const repository = "github/prototype"
 const branch = "prototype/review"
 const enabledSkill = [{ name: "review-hub-feedback", enabled: true }]
-const maintainer = { repository, canReviewFeedback: true, viewerLogin: "octocat" }
+const repositoryReader = { repository, canReviewFeedback: true, viewerLogin: "octocat" }
 
-// A checkout, a stored Hub connection and a Hub that answers the maintainer check.
-async function withFixture(t, respond = () => [200, maintainer]) {
+// A checkout, a stored Hub connection and a Hub that answers the repository access check.
+async function withFixture(t, respond = () => [200, repositoryReader]) {
   const root = path.join(process.cwd(), "storage/replica-extension-tests", randomUUID())
   await mkdir(root, { recursive: true })
   t.after(() => rm(root, { recursive: true, force: true }))
@@ -100,7 +100,7 @@ async function withFixture(t, respond = () => [200, maintainer]) {
 }
 
 describe("requestFeedbackReview()", () => {
-  it("asks the current chat to run the review skill after Hub confirms maintainer access", async (t) => {
+  it("asks the current chat to run the review skill after Hub confirms repository access", async (t) => {
     const fixture = await withFixture(t)
 
     await fixture.request()
@@ -114,15 +114,21 @@ describe("requestFeedbackReview()", () => {
 
   for (const [label, status, result] of [
     [
-      "writer",
+      "user without repository access",
       403,
-      { error: "Reviewing repository feedback requires GitHub Admin or Maintain access." },
+      {
+        error: "Reviewing repository feedback requires repository access through a connected Hub.",
+      },
     ],
     ["revoked connection", 401, { error: "Unauthorized" }],
     ["older Hub without the check", 404, { error: "Not found." }],
     ["unavailable GitHub check", 503, {}],
-    ["Hub that withholds the capability", 200, { ...maintainer, canReviewFeedback: false }],
-    ["Hub that verified another repository", 200, { ...maintainer, repository: "github/other" }],
+    ["Hub that withholds the capability", 200, { ...repositoryReader, canReviewFeedback: false }],
+    [
+      "Hub that verified another repository",
+      200,
+      { ...repositoryReader, repository: "github/other" },
+    ],
   ])
     it(`does not dispatch for a ${label}`, async (t) => {
       const fixture = await withFixture(t, () => [status, result])
@@ -153,7 +159,7 @@ describe("requestFeedbackReview()", () => {
     it(`does not dispatch when ${label} while Hub checks access`, async (t) => {
       const fixture = await withFixture(t, async (current) => {
         await change(current)
-        return [200, maintainer]
+        return [200, repositoryReader]
       })
 
       await assert.rejects(fixture.request())
@@ -166,7 +172,7 @@ describe("requestFeedbackReview()", () => {
     let answered = false
     const fixture = await withFixture(t, () => {
       answered = true
-      return [200, maintainer]
+      return [200, repositoryReader]
     })
 
     await assert.rejects(
@@ -216,7 +222,7 @@ describe("requestFeedbackReview()", () => {
     const gate = new Promise((resolve) => (release = resolve))
     const fixture = await withFixture(t, async () => {
       await gate
-      return [200, maintainer]
+      return [200, repositoryReader]
     })
 
     const requests = Promise.allSettled([fixture.request(), fixture.request()])

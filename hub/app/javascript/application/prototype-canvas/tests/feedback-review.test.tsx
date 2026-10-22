@@ -7,9 +7,10 @@ import { sharingFixture } from "./sharing-fixture"
 import { App } from ".."
 
 const config = { name: "Demo", prototypeUrl: "http://localhost:4321/", token: "local" }
-const maintainerHub: HubStatus = {
+const readerHub: HubStatus = {
   ...publicationHub,
   repositoryAuthorized: true,
+  canPublish: false,
   canReviewFeedback: true,
 }
 const displayedTarget = {
@@ -56,7 +57,7 @@ async function settleHub(canvasFetch: ReturnType<typeof vi.fn>) {
 describe("App() feedback review", () => {
   it.each([
     ["an older Hub without the capability", { ...publicationHub, repositoryAuthorized: true }],
-    ["a writer", { ...maintainerHub, canReviewFeedback: false }],
+    ["a Hub that withholds the capability", { ...readerHub, canReviewFeedback: false }],
     [
       "a disconnected canvas",
       { state: "disconnected", ...displayedTarget, discovery: publicationHub.discovery },
@@ -70,17 +71,17 @@ describe("App() feedback review", () => {
     view.unmount()
   })
 
-  it("requests a review of the displayed target once and reports when chat takes over", async () => {
+  it("lets a reader request a review once and reports when chat takes over", async () => {
     const answers: ((response: Response) => void)[] = []
     const { reviews, canvasFetch } = feedbackFixture(
-      maintainerHub,
+      readerHub,
       () => new Promise<Response>((resolve) => answers.push(resolve)),
     )
     const view = render(<App config={config} />)
     await settleHub(canvasFetch)
 
     const item = improveContextItem()
-    if (!item) throw new Error("Expected Improve context for a maintainer.")
+    if (!item) throw new Error("Expected Improve context for a repository reader.")
     fireEvent.click(item)
     const more = await screen.findByRole("button", { name: "More actions" })
     await waitFor(() => expect(reviews).toHaveLength(1))
@@ -108,15 +109,16 @@ describe("App() feedback review", () => {
   })
 
   it("shows Hub's refusal and offers the action again", async () => {
-    const error = "Reviewing repository feedback requires GitHub Admin or Maintain access."
-    const { reviews, canvasFetch } = feedbackFixture(maintainerHub, () =>
+    const error =
+      "Reviewing repository feedback requires repository access through a connected Hub."
+    const { reviews, canvasFetch } = feedbackFixture(readerHub, () =>
       Promise.resolve(Response.json({ error }, { status: 403 })),
     )
     const view = render(<App config={config} />)
     await settleHub(canvasFetch)
 
     const item = improveContextItem()
-    if (!item) throw new Error("Expected Improve context for a maintainer.")
+    if (!item) throw new Error("Expected Improve context for a repository reader.")
     fireEvent.click(item)
 
     expect(await screen.findByRole("alert")).toHaveTextContent(error)
@@ -126,7 +128,7 @@ describe("App() feedback review", () => {
   })
 
   it("withdraws Improve context once Hub no longer verifies the connection", async () => {
-    const { fixture, canvasFetch } = feedbackFixture(maintainerHub)
+    const { fixture, canvasFetch } = feedbackFixture(readerHub)
     const view = render(<App config={config} />)
     await settleHub(canvasFetch)
     expect(improveContextItem()).not.toBeNull()

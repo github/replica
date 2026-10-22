@@ -8,7 +8,7 @@ class CanvasApi::ConnectionsController < CanvasApi::BaseController
       repository: @repository.name_with_owner,
       repositoryId: @repository.route_id,
       canPublish: @repository.authorization.sufficient?(@repository_permission, minimum: :write),
-      canReviewFeedback: @repository.authorization.sufficient?(@repository_permission, minimum: :maintain),
+      canReviewFeedback: true,
       viewerId: Current.user.id,
       viewerLogin: Current.user.login
     }

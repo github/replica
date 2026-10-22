@@ -59,7 +59,7 @@ async function sendReview(session, hub, target, { verifyCurrent } = {}) {
     connectionScope: { identity: connectionId },
   })
   if (authorization.repository !== target.repository || authorization.canReviewFeedback !== true)
-    throw failure(403, "Hub did not verify GitHub Admin or Maintain access for this repository.")
+    throw failure(403, "Hub did not verify access to feedback for this repository.")
   await verify()
   await session.send({
     prompt: [

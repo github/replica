@@ -343,7 +343,7 @@ export const ImproveContext: Story = {
     docs: {
       description: {
         story:
-          "A connected repository maintainer can request feedback review through Improve context. This story records the request without running a skill or calling Hub.",
+          "Any connected user with repository access can request feedback review through Improve context. This story records the request without running a skill or calling Hub.",
       },
     },
   },

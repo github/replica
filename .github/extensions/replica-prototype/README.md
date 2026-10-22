@@ -76,7 +76,7 @@ Copilot CLI runs extensions only while its extensions feature is on. In Copilot 
 
 ## Agent access to Hub comments
 
-For connected users with GitHub Admin or Maintain access, **More actions → Improve context** requests the bundled `/review-hub-feedback` skill in the current chat. Hub checks permission again on click. The skill identifies reusable feedback themes; it does not generate solutions or edit context. See [maintainer feedback review](../../../hub/docs/prototype-canvas.md#maintainer-feedback-review) for access and recovery.
+For every connected user with repository access, including Read and Triage, **More actions → Improve context** requests the bundled `/review-hub-feedback` skill in the current chat. Hub checks access again on click. The skill identifies reusable feedback themes; it does not generate solutions or edit context. See [feedback review](../../../hub/docs/prototype-canvas.md#feedback-review) for access and recovery.
 
 Agents can use actions on the existing `replica-prototype` canvas to retrieve conversations for the current prototype or every reviewable prototype in the checkout's repository, across all Builds. Both use the approved repository connection. Repository retrieval requires a Hub deployment with the repository comments API; it needs no migration, MCP server or separate comment store. Open the canvas, but no running or connected local preview is required for comment actions. They reuse the saved Hub selection and approved credentials; missing authorization still requires connecting to Hub. Preview interactions and publishing still require a connected local preview.
 

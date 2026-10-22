@@ -88,7 +88,7 @@ class CanvasApi::PrototypesController < CanvasApi::BaseController
       viewerLogin: Current.user.login,
       registered: prototype.registered?,
       canEdit: @repository.authorization.sufficient?(@repository_permission, minimum: :write),
-      canReviewFeedback: @repository.authorization.sufficient?(@repository_permission, minimum: :maintain),
+      canReviewFeedback: true,
       canManageShareLinks: can_manage_share_links,
       publicSharingEnabled: SharingSetting.enabled?,
       shareLinkExpirationOptions: ShareLink.expiration_options.keys,

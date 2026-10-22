@@ -19,8 +19,8 @@ class CanvasFeedbackReviewsTest < ActionDispatch::IntegrationTest
     @headers = { "Authorization" => "Bearer #{token}" }
   end
 
-  test "confirms a GitHub maintainer or admin with a fresh check for every request" do
-    [ %w[write maintain], %w[admin admin] ].each do |permission, role_name|
+  test "confirms every repository reader with a fresh check for every request" do
+    [ %w[read read], %w[read triage], %w[write write], %w[write maintain], %w[admin admin] ].each do |permission, role_name|
       WebMock::RequestRegistry.instance.reset!
       stub = stub_role(permission, role_name)
 
@@ -37,30 +37,32 @@ class CanvasFeedbackReviewsTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "Hub admin status does not raise lower repository access to maintainer" do
+  test "Hub admin status does not grant access to another repository" do
     @viewer.update!(hub_admin: true)
-    [ %w[write write], %w[read triage], %w[read read] ].each do |permission, role_name|
-      stub_role(permission, role_name)
+    stub_github_permissions([ repository_payload(2001, "github/prototype") ], { 2001 => nil })
 
-      post PATH, headers: @headers, as: :json
-
-      assert_response :forbidden, "#{permission}/#{role_name}"
-    end
-  end
-
-  test "a maintainer demoted after an earlier confirmation is refused" do
-    stub_role("write", "maintain")
-    post PATH, headers: @headers, as: :json
-    assert_response :success
-
-    stub_role("write", "write")
     post PATH, headers: @headers, as: :json
 
     assert_response :forbidden
   end
 
-  test "refuses a maintain role GitHub reports for another stable user" do
-    stub_role("write", "maintain", github_id: 9999)
+  test "a role demotion to read preserves review access but losing all access refuses it" do
+    stub_role("write", "maintain")
+    post PATH, headers: @headers, as: :json
+    assert_response :success
+
+    stub_role("read", "read")
+    post PATH, headers: @headers, as: :json
+    assert_response :success
+
+    stub_github_permissions([ repository_payload(2001, "github/prototype") ], { 2001 => nil })
+    post PATH, headers: @headers, as: :json
+
+    assert_response :forbidden
+  end
+
+  test "refuses repository access GitHub reports for another stable user" do
+    stub_role("read", "read", github_id: 9999)
 
     post PATH, headers: @headers, as: :json
 
@@ -68,7 +70,7 @@ class CanvasFeedbackReviewsTest < ActionDispatch::IntegrationTest
   end
 
   test "refuses a missing, revoked or lapsed connection and reports GitHub failures" do
-    stub_role("write", "maintain")
+    stub_role("read", "read")
     post PATH, as: :json
     assert_response :unauthorized
 
@@ -80,27 +82,27 @@ class CanvasFeedbackReviewsTest < ActionDispatch::IntegrationTest
     post PATH, headers: @headers, as: :json
     assert_response :service_unavailable
 
-    stub_role("write", "maintain")
+    stub_role("read", "read")
     @grant.revoke!
     post PATH, headers: @headers, as: :json
     assert_response :unauthorized
   end
 
-  test "advertises the capability only to maintainers when the canvas reads its connection" do
-    stub_role("write", "maintain")
-    get canvas_api_connection_path, headers: @headers
-    assert_equal true, JSON.parse(response.body).fetch("canReviewFeedback")
+  test "advertises the capability to readers including triage without publishing access" do
+    [ %w[read read], %w[read triage] ].each do |permission, role_name|
+      Rails.cache.clear
+      stub_role(permission, role_name)
+      get canvas_api_connection_path, headers: @headers
 
-    stub_role("write", "write")
-    get canvas_api_connection_path, headers: @headers
-    payload = JSON.parse(response.body)
-    assert_equal true, payload.fetch("canPublish")
-    assert_equal false, payload.fetch("canReviewFeedback")
+      assert_response :success
+      payload = JSON.parse(response.body)
+      assert_equal false, payload.fetch("canPublish")
+      assert_equal true, payload.fetch("canReviewFeedback")
+    end
   end
 
   private
 
-  # GitHub reports a maintainer's legacy permission as write and names the role separately.
   def stub_role(permission, role_name, github_id: @viewer.github_id)
     stub_request(:get, "#{GithubRequestStubs::GITHUB_API_URL}/repos/github/prototype/collaborators/#{@viewer.login}/permission")
       .to_return \
