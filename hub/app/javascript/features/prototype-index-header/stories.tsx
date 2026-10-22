@@ -3,7 +3,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { PrototypeIndexHeader } from "."
 
 const meta = {
-  title: "Features/Prototype Index Header",
+  title: "Hub/Features/Prototype Index Header",
   component: PrototypeIndexHeader,
   args: {
     clearSearchLabel: "Clear search",

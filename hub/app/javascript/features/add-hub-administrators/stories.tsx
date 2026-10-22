@@ -6,7 +6,7 @@ import { AddHubAdministrators } from "."
 import type { HubAdministratorSearchResults } from "./types"
 
 const meta = {
-  title: "Features/Hub Administrators/Add administrators",
+  title: "Hub/Features/Hub Administrators/Add administrators",
   component: AddHubAdministrators,
   parameters: { layout: "fullscreen" },
   args: {

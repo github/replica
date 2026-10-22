@@ -51,7 +51,7 @@ const candidates = [
 ].sort((a, b) => (a.login < b.login ? -1 : a.login > b.login ? 1 : a.id - b.id))
 
 const meta = {
-  title: "Pages/Security/Hub administrators",
+  title: "Hub/Pages/Security/Hub administrators",
   component: HubAdminsPage,
   parameters: { layout: "fullscreen" },
   args: {

@@ -29,6 +29,8 @@
 #  index_prototypes_on_active_branch                              (repository_id,branch_name) UNIQUE WHERE branch_deleted_at IS NULL
 #  index_prototypes_on_author_id                                  (author_id)
 #  index_prototypes_on_current_build_id                           (current_build_id)
+#  index_prototypes_on_gallery_author                             (repository_id,author_id,registered_at,id) WHERE branch_deleted_at IS NULL AND registered_at IS NOT NULL
+#  index_prototypes_on_gallery_order                              (repository_id,registered_at,id) WHERE branch_deleted_at IS NULL AND registered_at IS NOT NULL
 #  index_prototypes_on_repository_id                              (repository_id)
 #
 # Foreign Keys
@@ -64,6 +66,8 @@ class Prototype < ApplicationRecord
   has_many :branch_banner_dismissals, dependent: :delete_all
   has_many :prototype_introductions, dependent: :delete_all
   has_many :review_comments, dependent: :restrict_with_exception
+  has_many :improvement_notes, -> { where(root_id: nil) },
+    class_name: "ImprovementComment", dependent: :restrict_with_exception
   has_many :share_links, dependent: :restrict_with_exception
 
   validates :branch_name, presence: true, length: { maximum: 255 }

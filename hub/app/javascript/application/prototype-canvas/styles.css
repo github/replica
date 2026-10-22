@@ -37,6 +37,8 @@ body,
 }
 
 .canvas-base {
+  --hub-counter-background: color-mix(in srgb, var(--hub-fg-default) 10%, transparent);
+
   position: relative;
   color-scheme: light;
   color: var(--brand-color-text-default, #1f2328);

@@ -9,6 +9,7 @@ import { readCanvasRepository } from "../read-canvas-repository/index.mjs"
 import { readHubObject } from "../read-hub-object/index.mjs"
 import { readHubError } from "../read-hub-error/index.mjs"
 import { readErrorCode } from "../read-error-code/index.mjs"
+import { gitShaPattern } from "../identity-patterns/index.mjs"
 const execFileAsync = promisify(execFile)
 const TTL = 5 * 60_000
 const CACHE_VERSION = 2
@@ -99,7 +100,7 @@ export async function discoverHub(context, options = {}) {
       const oid = readHubObject(branch?.target)?.oid
       defaultBranch = typeof branch?.name === "string" ? branch.name : undefined
       sourceRevision = typeof oid === "string" ? oid : undefined
-      if (!defaultBranch || !/^[0-9a-f]{40}$/.test(sourceRevision || ""))
+      if (!defaultBranch || !gitShaPattern.test(sourceRevision || ""))
         throw new Error("GitHub did not return a default-branch commit.")
       const data = await query(
         "query($owner:String!,$name:String!,$expression:String!){repository(owner:$owner,name:$name){nameWithOwner object(expression:$expression){__typename ... on Blob{text byteSize isTruncated}}}}",

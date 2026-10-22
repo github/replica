@@ -4,7 +4,7 @@ import { BuildStateLabel } from "."
 import type { BuildState } from "./types"
 
 const meta = {
-  title: "Components/Brand-based: Build State Label",
+  title: "Components/Build State Label",
   component: BuildStateLabel,
   args: {
     label: "Successful",

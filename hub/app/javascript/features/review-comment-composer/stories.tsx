@@ -11,7 +11,7 @@ function submitComment() {
 function discardComment() {}
 
 const meta = {
-  title: "Features/Review/Comment Composer",
+  title: "Hub/Features/Review/Comment Composer",
   component: ReviewCommentComposer,
   args: {
     anchorPoint: { x: 360, y: 180 },
@@ -41,8 +41,6 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Default: Story = {}
-
-export const Dark: Story = { globals: { colorMode: "night" } }
 
 export const SubmitShortcut: Story = {
   play: async ({ canvas, userEvent }) => {

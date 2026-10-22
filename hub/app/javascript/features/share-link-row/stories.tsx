@@ -4,7 +4,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { ShareLinkRow } from "."
 
 const meta = {
-  title: "Features/Share Links/Row",
+  title: "Hub/Features/Share Links/Row",
   component: ShareLinkRow,
   args: {
     shareLink: {

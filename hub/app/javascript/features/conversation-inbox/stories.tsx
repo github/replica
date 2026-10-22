@@ -6,7 +6,7 @@ import { inboxActivities, inboxCopy } from "@/storybook/fixtures/inbox-activity"
 import { ConversationInbox } from "."
 
 const meta = {
-  title: "Features/Conversation inbox",
+  title: "Hub/Features/Conversation inbox",
   component: ConversationInbox,
   args: {
     items: inboxActivities,

@@ -3,7 +3,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HubAdminEnrollmentPage } from "."
 
 const meta = {
-  title: "Pages/Security/Operator enrollment",
+  title: "Hub/Pages/Security/Operator enrollment",
   component: HubAdminEnrollmentPage,
   parameters: { layout: "fullscreen" },
   args: {

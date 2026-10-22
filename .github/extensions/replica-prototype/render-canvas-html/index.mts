@@ -1,7 +1,9 @@
 import type { CanvasContext } from "../create-canvas-context/index.mjs"
 
 export function renderCanvasHtml(
-  context: Pick<CanvasContext, "normalizedUrl" | "name"> & { previewUrl?: string },
+  context: Pick<CanvasContext, "normalizedUrl" | "name" | "improvementThreadsSample"> & {
+    previewUrl?: string
+  },
   token: string,
   setupUrl?: string,
 ) {
@@ -10,6 +12,8 @@ export function renderCanvasHtml(
     previewUrl: context.previewUrl,
     name: context.name,
     token,
+    pickAndPolish: true,
+    ...(context.improvementThreadsSample ? { improvementThreadsSample: true } : {}),
   }).replaceAll("<", "\\u003c")
 
   return `<!doctype html>

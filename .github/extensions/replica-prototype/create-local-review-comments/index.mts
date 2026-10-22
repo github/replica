@@ -4,6 +4,7 @@ import path from "node:path"
 import { isDeepStrictEqual } from "node:util"
 
 import { createPrivateStore } from "../private-store/index.mjs"
+import { gitShaPattern } from "../identity-patterns/index.mjs"
 import { runCommand } from "../run-command/index.mjs"
 import { readHubObject } from "../read-hub-object/index.mjs"
 import { readHubError } from "../read-hub-error/index.mjs"
@@ -72,7 +73,7 @@ function storedDraft(input: unknown): Draft {
     !savedAnchor ||
     (savedAnchor.kind !== "element" && savedAnchor.kind !== "area") ||
     typeof value.treeSha !== "string" ||
-    !/^[0-9a-f]{40}$/.test(value.treeSha) ||
+    !gitShaPattern.test(value.treeSha) ||
     (value.prototypeId !== null &&
       (typeof value.prototypeId !== "number" ||
         !Number.isSafeInteger(value.prototypeId) ||
@@ -215,7 +216,7 @@ export function createLocalReviewComments(
       if (
         !Number.isSafeInteger(revision.id) ||
         revision.id < 1 ||
-        !/^[0-9a-f]{40}$/.test(revision.treeSha) ||
+        !gitShaPattern.test(revision.treeSha) ||
         !attributes.anchor
       )
         throw Object.assign(new Error("Select a valid local preview target."), {
@@ -280,7 +281,7 @@ export function createLocalReviewComments(
     },
     async sync(scope: LocalReviewScope, build: LocalReviewBuild, hub: Pick<HubClient, "request">) {
       if (!(await entries(scope)).length) return
-      if (!/^[0-9a-f]{40}$/.test(build.commitSha))
+      if (!gitShaPattern.test(build.commitSha))
         throw new Error("Hub returned an invalid Build commit.")
       if (!Number.isFinite(Date.parse(build.publishedAt)))
         throw new Error("Hub did not return the Build publication time.")
@@ -299,29 +300,16 @@ export function createLocalReviewComments(
           if (draft.treeSha !== tree.stdout.trim()) continue
           if (Date.parse(build.publishedAt) < Date.parse(draft.comment.createdAt)) continue
           if (draft.sendingAt) {
-            const remote: Record<string, unknown>[] = []
-            let cursor: string | null | undefined
-            do {
-              const page = await hub.request(
-                `${base}${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`,
-                {
-                  expectedTarget: scope,
-                  connectionScope: { identity: scope.connectionId },
-                },
-              )
-              if (!Array.isArray(page.comments))
-                throw new Error("Hub returned invalid review comments.")
-              for (const input of page.comments) {
-                const comment = readHubObject(input)
-                if (!comment) throw new Error("Hub returned an invalid review comment.")
-                remote.push(comment)
-              }
-              if (page.hasMore && typeof page.nextCursor !== "string")
-                throw new Error("Hub returned an invalid review comment cursor.")
-              cursor = page.hasMore && typeof page.nextCursor === "string" ? page.nextCursor : null
-            } while (cursor)
-            const saved = remote.some(
-              (comment) =>
+            const remote = await hub.request(base, {
+              expectedTarget: scope,
+              connectionScope: { identity: scope.connectionId },
+            })
+            if (!Array.isArray(remote.comments))
+              throw new Error("Hub returned invalid review comments.")
+            const saved = remote.comments.some((input: unknown) => {
+              const comment = readHubObject(input)
+              return Boolean(
+                comment &&
                 comment.kind === "root" &&
                 comment.buildNumber === draft.sendingBuildNumber &&
                 readHubObject(comment.author)?.login === scope.viewerLogin &&
@@ -329,7 +317,8 @@ export function createLocalReviewComments(
                 isDeepStrictEqual(comment.anchor, draft.comment.anchor) &&
                 typeof comment.createdAt === "string" &&
                 Date.parse(comment.createdAt) >= Date.parse(draft.sendingAt ?? "") - 1000,
-            )
+              )
+            })
             if (!saved)
               throw new Error(
                 "A local comment upload could not be confirmed. Check the published review, then discard the local copy before saving it again if needed.",

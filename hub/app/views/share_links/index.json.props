@@ -7,10 +7,7 @@ json.repositoriesPath repository_path(@repository.route_id)
 json.repositoryName @repository.name_with_owner
 json.repositoryPath repository_path(@repository.route_id)
 json.branchName @prototype.branch_name
-json.branchPath repository_prototype_path \
-  @repository.route_id,
-  @prototype,
-  **(@selected_build ? { build: @selected_build.number } : {})
+json.branchPath repository_prototype_path(@repository.route_id, @prototype)
 json.heading t("share_links.index.heading")
 json.description t("share_links.index.description")
 json.publicSharingEnabled @public_sharing_enabled
@@ -23,6 +20,7 @@ json.signedInAsLabel t("authenticated.signed_in_as", login: Current.user.login)
 json.signOutPath session_path
 json.authenticityToken form_authenticity_token
 json.controlSettingsIdentity "#{@repository.route_id}:#{@prototype.id}"
+json.managementBuildNumber @selected_build.number if params.key?(:build) && @selected_build
 json.controlSettingsCopy do
   json.label t("share_links.index.controls.label")
   json.description t("share_links.index.controls.description")

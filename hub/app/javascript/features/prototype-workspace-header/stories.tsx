@@ -14,7 +14,7 @@ const data: PrototypeWorkspaceHeaderData = {
     url: "https://github.com/octocat",
   },
   branchName: "prototype/welcome",
-  branchPath: "/repositories/2001/prototypes/1?build=1",
+  branchPath: "/repositories/2001/prototypes/1",
   buildOptions: [
     {
       number: 1,
@@ -35,7 +35,7 @@ const data: PrototypeWorkspaceHeaderData = {
     number: 1,
   },
   shareLinksLabel: "Share links",
-  shareLinksPath: "/repositories/2001/prototypes/1/share_links?build=1",
+  shareLinksPath: "/repositories/2001/prototypes/1/share_links",
   useDarkThemeLabel: "Use dark theme",
   useLightThemeLabel: "Use light theme",
 }
@@ -43,7 +43,7 @@ const data: PrototypeWorkspaceHeaderData = {
 function noop() {}
 
 const meta = {
-  title: "Features/Review/Shell Header",
+  title: "Hub/Features/Review/Shell Header",
   component: PrototypeWorkspaceHeader,
   parameters: {
     docs: {
