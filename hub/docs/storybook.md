@@ -57,6 +57,14 @@ The `Hub/Design/Banner inventory` story compares the repository workflow panel's
 
 `Hub/Pages/Security/Hub administrators` lists administrators only. **Add administrator** opens the searchable multi-select dialog with synthetic Hub users. `Hub/Features/Hub Administrators/Add administrators` covers empty, single, multiple, loading, and failed searches. Selection and confirmation work in these stories, but form submission is blocked and no roles are saved.
 
+## Component usage
+
+Open **Used in** below a component's story to see its direct production consumers and the pages or application surfaces reached through those consumers. Counts are JSX source locations, including repeated tags on one line, not runtime instances. Each consumer lists its source lines; related story links use the current Storybook index. GitHub source links open `main` and can differ from local edits. Components without consumers show an explicit empty state. Stories without a local `component` in their default metadata show that usage is unavailable rather than implying a zero count.
+
+The Storybook-only Vite plugin reads Hub's TypeScript configuration on development source changes and static builds. It resolves local JSX tags through TypeScript symbols, including aliases, namespace imports and re-exports. Test and story files, fixture directories and the `storybook/` catalogue directory are excluded from counts. No generated report is committed, and the production app does not load the analyzer or usage view.
+
+Traversal follows component files to consuming files, stopping cycles. A page or application file in the result is a possible source dependency, not proof of runtime reachability. Multiple exports in one file share usage. Story-only helpers outside the excluded directories can appear as consumers. Same-file references, dynamic component props, registries, `createElement` calls, non-JSX templates and external packages are not traced. Default metadata must directly declare `component`; title-only and render-only stories are not guessed. The `Hub/Design/Component usage` stories cover populated, unused and unmapped states.
+
 ## Story data
 
 Story fixtures use the Oaken personas as their source:

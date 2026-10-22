@@ -1,5 +1,7 @@
 import type { Preview } from "@storybook/react-vite"
 
+import componentUsageIndex from "virtual:storybook-component-usage"
+
 import { HubThemeProvider } from "@/hooks/use-hub-theme"
 
 import "@/tokens/base.css"
@@ -39,6 +41,7 @@ const preview: Preview = {
     colorMode: "auto",
   },
   parameters: {
+    componentUsageIndex,
     controls: { expanded: true },
     options: {
       storySort: {
