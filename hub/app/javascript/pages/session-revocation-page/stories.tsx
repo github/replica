@@ -58,7 +58,7 @@ const result: SessionRevocationPageData = {
 }
 
 const meta = {
-  title: "Pages/Security/End all sessions",
+  title: "Hub/Pages/Security/End all sessions",
   component: SessionRevocationPage,
   parameters: { layout: "fullscreen" },
   args: { data: sessionRevocationData },

@@ -9,7 +9,7 @@ import { ReviewCommentRow } from "."
 function selectThread() {}
 
 const meta = {
-  title: "Features/Review/Comment Row",
+  title: "Hub/Features/Review/Comment Row",
   component: ReviewCommentRow,
   args: {
     thread: singleReviewThread,

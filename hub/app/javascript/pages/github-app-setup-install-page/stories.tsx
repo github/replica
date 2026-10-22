@@ -3,7 +3,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { GithubAppSetupInstallPage } from "."
 
 const meta = {
-  title: "Pages/GitHub Setup/Installed",
+  title: "Hub/Pages/GitHub Setup/Installed",
   component: GithubAppSetupInstallPage,
   args: {
     data: {

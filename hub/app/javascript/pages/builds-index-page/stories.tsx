@@ -22,7 +22,7 @@ const data: BuildsIndexPageData = {
 }
 
 const meta = {
-  title: "Pages/Builds/Index",
+  title: "Hub/Pages/Builds/Index",
   component: BuildsIndexPage,
   args: { data },
   parameters: { layout: "fullscreen" },

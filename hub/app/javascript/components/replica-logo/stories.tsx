@@ -3,7 +3,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { ReplicaLogo } from "."
 
 const meta = {
-  title: "Components/Hub-built: Replica Logo",
+  title: "Components/Replica Logo",
   component: ReplicaLogo,
   args: { size: "medium" },
   argTypes: {

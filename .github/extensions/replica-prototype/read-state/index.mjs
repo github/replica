@@ -1,17 +1,14 @@
 import { mkdir, readFile } from "node:fs/promises"
-
+import { readErrorCode } from "../read-error-code/index.mjs"
 import { writeState } from "../write-state/index.mjs"
-
 const STATE_VERSION = 1
-
 export async function readState(context) {
   await mkdir(context.stateDirectory, { recursive: true })
-
   try {
     const content = await readFile(context.stateFile, "utf8")
     return validateStoredState(JSON.parse(content))
   } catch (error) {
-    if (error?.code !== "ENOENT") {
+    if (readErrorCode(error) !== "ENOENT") {
       if (error instanceof SyntaxError) {
         throw new Error(`Stored Replica prototype state is invalid JSON: ${context.stateFile}`, {
           cause: error,
@@ -20,7 +17,6 @@ export async function readState(context) {
       throw error
     }
   }
-
   const state = {
     version: STATE_VERSION,
     prototypeUrl: context.normalizedUrl,
@@ -35,18 +31,19 @@ export async function readState(context) {
     updatedAt: new Date().toISOString(),
   }
   await writeState(context, state)
-
   return state
 }
-
 function validateStoredState(value) {
-  if (!value || value.version !== STATE_VERSION) {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    !("version" in value) ||
+    value.version !== STATE_VERSION
+  ) {
     throw new Error("Stored Replica prototype state has an unsupported format.")
   }
-
   return value
 }
-
 function emptyStats(context) {
   return {
     branch: context.target.branch,

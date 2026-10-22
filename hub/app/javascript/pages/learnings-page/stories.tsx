@@ -153,7 +153,7 @@ const data: LearningsPageData = {
 }
 
 const meta = {
-  title: "Pages/Learnings",
+  title: "Hub/Pages/Learnings",
   component: LearningsPage,
   parameters: { layout: "fullscreen" },
   args: { data },

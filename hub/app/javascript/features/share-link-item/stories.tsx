@@ -16,7 +16,7 @@ const shareLink = {
 }
 
 const meta = {
-  title: "Features/Share Links/Item",
+  title: "Hub/Features/Share Links/Item",
   component: ShareLinkItem,
   args: {
     authenticityToken: "csrf-token",
