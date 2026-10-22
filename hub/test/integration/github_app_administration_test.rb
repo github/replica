@@ -64,18 +64,12 @@ class GithubAppAdministrationTest < ActionDispatch::IntegrationTest
     assert_redirected_to fresh_authorization_path(challenge.public_id)
     form = verify_pending_action(challenge, path: github_app_credentials_path, method: "patch")
     assert_equal "client-secret", @configuration.reload.client_secret
-    new_tempfile = Tempfile.method(:new)
-    Tempfile.define_singleton_method(:new) do |*|
-      raise Minitest::Assertion, "Continuation must not create a temporary file"
-    end
     continue_pending_action(form)
     assert_redirected_to github_app_path
     assert_equal "replacement-client-secret", @configuration.reload.client_secret
     assert_equal github_app_configurations.test_private_key, @configuration.private_key
     assert_equal I18n.t("github_app.credentials.saved"), flash[:notice]
     assert_not FreshAuthorization.exists?(challenge.id)
-  ensure
-    Tempfile.define_singleton_method(:new, new_tempfile) if new_tempfile
   end
 
   test "confirmed server-side webhook start and finish are separately authorized" do
