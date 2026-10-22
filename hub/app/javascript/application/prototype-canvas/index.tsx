@@ -112,7 +112,6 @@ export function App({ config }: Props) {
   ])
   const canReviewFeedback =
     hub.status?.repositoryAuthorized === true &&
-    hub.status.canReviewFeedback === true &&
     (hub.status.state === "connected" || hub.status.state === "undiscovered") &&
     Boolean(hub.status.repository && hub.status.branch && hub.status.hubOrigin)
   const sharing = useShareLinks({

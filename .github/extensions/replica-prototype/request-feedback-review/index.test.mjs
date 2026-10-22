@@ -13,7 +13,7 @@ import { requestFeedbackReview } from "./index.mjs"
 const repository = "github/prototype"
 const branch = "prototype/review"
 const enabledSkill = [{ name: "review-hub-feedback", enabled: true }]
-const repositoryReader = { repository, canReviewFeedback: true, viewerLogin: "octocat" }
+const repositoryReader = { repository, canPublish: false, viewerLogin: "octocat" }
 
 // A checkout, a stored Hub connection and a Hub that answers the repository access check.
 async function withFixture(t, respond = () => [200, repositoryReader]) {
@@ -41,7 +41,7 @@ async function withFixture(t, respond = () => [200, repositoryReader]) {
   const server = createServer(async (request, response) => {
     request.resume()
     response.setHeader("X-Replica-Canvas-Version", "1")
-    if (request.url !== "/api/canvas/feedback_review") {
+    if (request.url !== "/api/canvas/connection") {
       response.writeHead(404, { "Content-Type": "application/json" })
       response.end(JSON.stringify({ error: "Not found." }))
       return
@@ -49,6 +49,7 @@ async function withFixture(t, respond = () => [200, repositoryReader]) {
     fixture.reviewChecks.push({
       method: request.method,
       authorization: request.headers.authorization,
+      interactive: request.headers["x-replica-canvas-activity"],
     })
     const [status, result] = await respond(fixture)
     response.writeHead(status, { "Content-Type": "application/json" })
@@ -100,13 +101,13 @@ async function withFixture(t, respond = () => [200, repositoryReader]) {
 }
 
 describe("requestFeedbackReview()", () => {
-  it("asks the current chat to run the review skill after Hub confirms repository access", async (t) => {
+  it("asks the current chat to run the review skill after the existing connection check confirms repository access", async (t) => {
     const fixture = await withFixture(t)
 
     await fixture.request()
 
     assert.deepEqual(fixture.reviewChecks, [
-      { method: "POST", authorization: "Bearer fixture-token" },
+      { method: "GET", authorization: "Bearer fixture-token", interactive: "interactive" },
     ])
     assert.equal(fixture.sent.length, 1)
     assert.match(fixture.sent[0].prompt, /\/review-hub-feedback\b/)
@@ -123,7 +124,7 @@ describe("requestFeedbackReview()", () => {
     ["revoked connection", 401, { error: "Unauthorized" }],
     ["older Hub without the check", 404, { error: "Not found." }],
     ["unavailable GitHub check", 503, {}],
-    ["Hub that withholds the capability", 200, { ...repositoryReader, canReviewFeedback: false }],
+    ["connection for no repository", 200, { viewerLogin: "octocat" }],
     [
       "Hub that verified another repository",
       200,

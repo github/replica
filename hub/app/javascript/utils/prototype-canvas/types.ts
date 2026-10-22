@@ -103,7 +103,6 @@ export type HubPrototype = {
 
 export type HubStatus = {
   repositoryAuthorized?: boolean
-  canReviewFeedback?: boolean
   viewerLogin?: string
   canPublish?: boolean
   localStartPage?: string | null

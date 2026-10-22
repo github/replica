@@ -69,7 +69,6 @@ Rails.application.routes.draw do
       patch "connection", to: "connections#update"
       delete "connection", to: "connections#destroy"
       resource :prototype, only: %i[show update]
-      resource :feedback_review, only: :create
       post "learnings/recall", to: "learning_recalls#create", as: :learnings_recall
       get "repositories/:repository_github_id/review_comments",
         to: "repository_review_comments#index",

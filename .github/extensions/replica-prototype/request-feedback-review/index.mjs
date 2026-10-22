@@ -52,13 +52,12 @@ async function sendReview(session, hub, target, { verifyCurrent } = {}) {
       "The review-hub-feedback skill is unavailable or disabled. Update or enable the Replica plugin and start a fresh session.",
     )
   await verify()
-  const authorization = await hub.request("/api/canvas/feedback_review", {
-    method: "POST",
+  const authorization = await hub.request("/api/canvas/connection", {
     interactive: true,
     expectedTarget: { repository: target.repository, branch: target.branch },
     connectionScope: { identity: connectionId },
   })
-  if (authorization.repository !== target.repository || authorization.canReviewFeedback !== true)
+  if (authorization.repository !== target.repository)
     throw failure(403, "Hub did not verify access to feedback for this repository.")
   await verify()
   await session.send({

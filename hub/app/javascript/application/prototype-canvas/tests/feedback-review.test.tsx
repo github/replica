@@ -11,7 +11,6 @@ const readerHub: HubStatus = {
   ...publicationHub,
   repositoryAuthorized: true,
   canPublish: false,
-  canReviewFeedback: true,
 }
 const displayedTarget = {
   repository: publicationHub.repository,
@@ -56,8 +55,8 @@ async function settleHub(canvasFetch: ReturnType<typeof vi.fn>) {
 
 describe("App() feedback review", () => {
   it.each([
-    ["an older Hub without the capability", { ...publicationHub, repositoryAuthorized: true }],
-    ["a Hub that withholds the capability", { ...readerHub, canReviewFeedback: false }],
+    ["a denied repository", { ...publicationHub, repositoryAuthorized: false }],
+    ["an unverified repository", publicationHub],
     [
       "a disconnected canvas",
       { state: "disconnected", ...displayedTarget, discovery: publicationHub.discovery },
@@ -71,42 +70,50 @@ describe("App() feedback review", () => {
     view.unmount()
   })
 
-  it("lets a reader request a review once and reports when chat takes over", async () => {
-    const answers: ((response: Response) => void)[] = []
-    const { reviews, canvasFetch } = feedbackFixture(
-      readerHub,
-      () => new Promise<Response>((resolve) => answers.push(resolve)),
-    )
-    const view = render(<App config={config} />)
-    await settleHub(canvasFetch)
+  it.each([
+    ["undiscovered", readerHub],
+    ["connected", { ...readerHub, state: "connected" }],
+  ] satisfies [string, HubStatus][])(
+    "lets a reader of a %s branch request a review once and reports when chat takes over",
+    async (_label, hub) => {
+      const answers: ((response: Response) => void)[] = []
+      const { reviews, canvasFetch } = feedbackFixture(
+        hub,
+        () => new Promise<Response>((resolve) => answers.push(resolve)),
+      )
+      const view = render(<App config={config} />)
+      await settleHub(canvasFetch)
 
-    const item = improveContextItem()
-    if (!item) throw new Error("Expected Improve context for a repository reader.")
-    fireEvent.click(item)
-    const more = await screen.findByRole("button", { name: "More actions" })
-    await waitFor(() => expect(reviews).toHaveLength(1))
-    const again = improveContextItem()
-    if (again) fireEvent.click(again)
-    expect(more.matches(":disabled, [aria-disabled='true']")).toBe(true)
-    expect(reviews).toEqual([{ body: displayedTarget, token: "local" }])
-    expect(screen.queryByText(/feedback review requested/i)).toBeNull()
+      const item = improveContextItem()
+      if (!item) throw new Error("Expected Improve context for a repository reader.")
+      fireEvent.click(item)
+      const more = await screen.findByRole("button", { name: "More actions" })
+      await waitFor(() => expect(reviews).toHaveLength(1))
+      const again = improveContextItem()
+      if (again) fireEvent.click(again)
+      expect(more.matches(":disabled, [aria-disabled='true']")).toBe(true)
+      expect(reviews).toEqual([{ body: displayedTarget, token: "local" }])
+      expect(screen.queryByText(/feedback review requested/i)).toBeNull()
 
-    await act(async () => {
-      answers[0]?.(Response.json({ requested: true }))
-      await Promise.resolve()
-    })
+      await act(async () => {
+        answers[0]?.(Response.json({ requested: true }))
+        await Promise.resolve()
+      })
 
-    await waitFor(() =>
-      expect(
-        screen
-          .getAllByRole("status")
-          .some((status) => /feedback review requested/i.test(status.textContent ?? "")),
-      ).toBe(true),
-    )
-    await waitFor(() => expect(screen.getByRole("button", { name: "More actions" })).toBeEnabled())
-    expect(reviews).toHaveLength(1)
-    view.unmount()
-  })
+      await waitFor(() =>
+        expect(
+          screen
+            .getAllByRole("status")
+            .some((status) => /feedback review requested/i.test(status.textContent ?? "")),
+        ).toBe(true),
+      )
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: "More actions" })).toBeEnabled(),
+      )
+      expect(reviews).toHaveLength(1)
+      view.unmount()
+    },
+  )
 
   it("shows Hub's refusal and offers the action again", async () => {
     const error =

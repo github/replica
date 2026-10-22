@@ -30,10 +30,7 @@ function PublicationDemo({
     if (!fixture) throw new Error(`Unknown publication example: ${scenario}`)
     let state: PrototypeState | null = structuredClone(fixture.state)
     let hub: HubStatus | null = structuredClone(fixture.hub)
-    if (onImproveContext && hub) {
-      hub.repositoryAuthorized = true
-      hub.canReviewFeedback = true
-    }
+    if (onImproveContext && hub) hub.repositoryAuthorized = true
     let remember = false
     if (withShareLinks && hub?.prototype)
       hub.prototype = { ...hub.prototype, canManageShareLinks: true }

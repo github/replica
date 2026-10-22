@@ -13,7 +13,7 @@ const repository = "github/replica"
 
 // Starts the canvas with a stored connection to a Hub whose access check the case controls.
 async function withCanvas(options, run) {
-  const { canReviewFeedback, review = () => [200, null] } = { canReviewFeedback: true, ...options }
+  const { review = () => [200, null] } = options
   await withContext(async (context) => {
     const workspace = context.sessionWorkspacePath
     execFileSync("git", ["remote", "add", "origin", `https://github.com/${repository}.git`], {
@@ -21,22 +21,24 @@ async function withCanvas(options, run) {
     })
     const bin = path.join(workspace, "bin")
     await mkdir(bin)
-    await writeFile(path.join(bin, "gh"), "#!/bin/sh\nexit 1\n", { mode: 0o755 })
+    await writeFile(path.join(bin, "gh"), "#!/bin/sh\nexit 1\n", {
+      mode: 0o755,
+    })
     const reviewChecks = []
     const hub = createServer(async (request, response) => {
       request.resume()
       response.setHeader("X-Replica-Canvas-Version", "1")
       response.setHeader("Content-Type", "application/json")
       let status = 200
-      let result = {}
+      let result
       if (request.url === "/api/canvas/connection" && request.method === "GET") {
         result = { repository, canPublish: false, viewerLogin: "octocat" }
-        if (canReviewFeedback !== undefined) result.canReviewFeedback = canReviewFeedback
-      } else if (request.url === "/api/canvas/feedback_review" && request.method === "POST") {
-        reviewChecks.push(request.headers.authorization)
-        ;[status, result] = await review()
-        result ??= { repository, canReviewFeedback: true, viewerLogin: "octocat" }
-      } else if (request.url !== "/api/canvas/connection") {
+        if (request.headers["x-replica-canvas-activity"] === "interactive") {
+          reviewChecks.push(request.headers.authorization)
+          ;[status, result] = await review()
+          result ??= { repository, canPublish: false, viewerLogin: "octocat" }
+        }
+      } else {
         status = 404
         result = { error: "Hub has not discovered this branch." }
       }
@@ -63,7 +65,9 @@ async function withCanvas(options, run) {
     const session = {
       rpc: {
         skills: {
-          list: async () => ({ skills: [{ name: "review-hub-feedback", enabled: true }] }),
+          list: async () => ({
+            skills: [{ name: "review-hub-feedback", enabled: true }],
+          }),
         },
       },
       send: async ({ prompt }) => prompts.push(prompt),
@@ -101,14 +105,19 @@ async function withCanvas(options, run) {
 }
 
 function displayedTarget(status) {
-  return { repository: status.repository, branch: status.branch, hubOrigin: status.hubOrigin }
+  return {
+    repository: status.repository,
+    branch: status.branch,
+    hubOrigin: status.hubOrigin,
+  }
 }
 
 describe("POST /api/hub/feedback-review", () => {
   it("requests the review in the current chat for a reader of the displayed repository", async () => {
     await withCanvas({}, async ({ send, prompts, reviewChecks, origin }) => {
       const status = (await send("/api/hub/status")).body
-      assert.equal(status.canReviewFeedback, true)
+      assert.equal(status.repositoryAuthorized, true)
+      assert.equal("canReviewFeedback" in status, false)
       assert.equal(status.canPublish, false)
       assert.deepEqual(displayedTarget(status), {
         repository,
@@ -124,18 +133,6 @@ describe("POST /api/hub/feedback-review", () => {
       assert.match(prompts[0], /\/review-hub-feedback\b/)
     })
   })
-
-  for (const [label, canReviewFeedback] of [
-    ["denies", false],
-    ["predates", undefined],
-  ])
-    it(`does not advertise the review when Hub ${label} the capability`, async () => {
-      await withCanvas({ canReviewFeedback }, async ({ send }) => {
-        const status = (await send("/api/hub/status")).body
-        assert.equal(status.repositoryAuthorized, true)
-        assert.notEqual(status.canReviewFeedback, true)
-      })
-    })
 
   it("requires the canvas token before checking Hub or dispatching", async () => {
     await withCanvas({}, async ({ send, prompts, reviewChecks, origin }) => {

@@ -356,7 +356,6 @@ class CanvasRepositoryCommentsTest < ActionDispatch::IntegrationTest
       "repository" => @repository.name_with_owner,
       "repositoryId" => @repository.route_id,
       "canPublish" => false,
-      "canReviewFeedback" => true,
       "viewerId" => @viewer.id,
       "viewerLogin" => @viewer.login
     }, JSON.parse(response.body))
