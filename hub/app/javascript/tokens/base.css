@@ -16,6 +16,7 @@
   --hub-danger-emphasis: var(--brand-color-danger-emphasis);
   --hub-fg-on-danger: var(--brand-color-text-onEmphasis);
   --hub-fg-success: var(--brand-color-success-fg);
+  --hub-success-emphasis: var(--brand-color-success-emphasis);
   --hub-border-default: var(--brand-color-border-default);
   --hub-border-muted: var(--brand-color-border-muted);
   --hub-focus: var(--brand-color-focus);

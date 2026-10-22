@@ -34,7 +34,9 @@ export function CanvasDialog({
     dialog?.showModal()
     return () => {
       dialog?.close()
-      returnFocus?.focus()
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- The caller can replace a deleted opener with a live fallback.
+      const target = returnFocusRef?.current ?? returnFocus
+      target?.focus()
     }
   }, [returnFocusRef])
 
@@ -65,7 +67,7 @@ export function CanvasDialog({
           {title}
         </Heading>
         <HubIconButton
-          variant="invisible"
+          variant="default"
           size="small"
           icon={XIcon}
           aria-label={closeLabel}
