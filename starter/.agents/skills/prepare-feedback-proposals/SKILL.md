@@ -15,6 +15,8 @@ Require a complete, valid review and explicit selected finding IDs. Malformed ju
 
 Keep the review's timestamps, uncertainties, exclusions and single-reviewer limits visible. Historical evidence does not establish current behavior. If the user disputes a source or reports changed evidence, pause that finding for a refreshed review rather than silently relabeling it or fetching another repository.
 
+Preserve typed review and improvement source IDs and the handoff's human/agent distinctions. Use human Pick & polish requests and corrections under the same evidence standards as ordinary reviews. Agent answers, `ready` work and a `resolved` conversation do not verify a fix or justify a guidance rule. Keep missing message times, screenshots and other unavailable metadata explicit; never fill them from the current prototype. Legacy v1 reviews remain review-only, not mixed-source evidence.
+
 ## 2. Investigate the guidance
 
 Read current consumer instructions and [context resolution](../product-design/references/context-resolution.md). Respect saved source skips and topic restrictions. Select the active context root once; read shared authority rules and task-relevant sections of the owners and their directly linked topics. Product findings use `PRODUCT-DESIGN.md`; design-system findings use `DESIGN-SYSTEM.md`; other findings use their declared owner. Inspect `REPOSITORY.md` when local ownership or guidance locations need clarification.
