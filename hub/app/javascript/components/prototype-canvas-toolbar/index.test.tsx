@@ -56,12 +56,15 @@ describe("Toolbar()", () => {
       </ThemeProvider>,
     )
     fireEvent.click(screen.getByRole("button", { name: "More actions" }))
-    fireEvent.keyDown(screen.getByRole("menuitem", { name: "Improve context" }), { key })
+    expect(
+      fireEvent.keyDown(screen.getByRole("menuitem", { name: "Improve context" }), { key }),
+    ).toBe(false)
     expect(onImproveContext).toHaveBeenCalledOnce()
     expect(screen.getByRole("button", { name: "More actions" })).toHaveAttribute(
       "aria-expanded",
       "false",
     )
+    expect(screen.getByRole("button", { name: "More actions" })).toHaveFocus()
   })
 
   it("places the labeled share icon to the right of Publish without disabling it during publishing", () => {

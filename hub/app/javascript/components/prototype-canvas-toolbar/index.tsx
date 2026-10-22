@@ -183,7 +183,10 @@ export function Toolbar({
               leadingVisual={<SparkleIcon size={16} />}
               onClick={onImproveContext}
               onKeyDown={(event) => {
-                if (event.key === "Enter") onImproveContext()
+                if (event.key === "Enter") {
+                  event.preventDefault()
+                  onImproveContext()
+                }
                 if (event.key === " ") {
                   event.preventDefault()
                   event.currentTarget.click()
