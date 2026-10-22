@@ -152,7 +152,7 @@ GEM
       prism (>= 1.3.0)
       rdoc (>= 4.0.0)
       reline (>= 0.4.2)
-    json (3.0.2)
+    json (3.1.0)
     jwt (3.3.0)
       base64
     language_server-protocol (3.17.0.6)
@@ -371,13 +371,13 @@ GEM
       fugit (~> 1.11)
       railties (>= 7.1)
       thor (>= 1.3.1)
-    sqlite3 (2.9.6-aarch64-linux-gnu)
-    sqlite3 (2.9.6-aarch64-linux-musl)
-    sqlite3 (2.9.6-arm-linux-gnu)
-    sqlite3 (2.9.6-arm-linux-musl)
-    sqlite3 (2.9.6-arm64-darwin)
-    sqlite3 (2.9.6-x86_64-linux-gnu)
-    sqlite3 (2.9.6-x86_64-linux-musl)
+    sqlite3 (2.10.0-aarch64-linux-gnu)
+    sqlite3 (2.10.0-aarch64-linux-musl)
+    sqlite3 (2.10.0-arm-linux-gnu)
+    sqlite3 (2.10.0-arm-linux-musl)
+    sqlite3 (2.10.0-arm64-darwin)
+    sqlite3 (2.10.0-x86_64-linux-gnu)
+    sqlite3 (2.10.0-x86_64-linux-musl)
     superglue (1.1.1)
       actionpack (>= 7.0, < 9.0)
       form_props (~> 0.2)
@@ -409,7 +409,7 @@ GEM
       actionview (>= 8.0.0)
       bindex (>= 0.4.0)
       railties (>= 8.0.0)
-    webmock (3.26.4)
+    webmock (3.34.0)
       addressable (>= 2.8.0)
       crack (>= 0.3.2)
       hashdiff (>= 0.4.0, < 2.0.0)
@@ -439,7 +439,7 @@ DEPENDENCIES
   chusaku (= 1.5.2)
   debug
   foreman (= 0.90.0)
-  json (~> 3.0)
+  json (~> 3.1)
   jwt (~> 3.3)
   oaken (= 1.0.0)
   opentelemetry-exporter-otlp
@@ -462,7 +462,7 @@ DEPENDENCIES
   tzinfo-data
   vite_rails (= 3.11.1)
   web-console
-  webmock (~> 3.26)
+  webmock (~> 3.34)
 
 CHECKSUMS
   action_text-trix (2.1.19) sha256=7012f59421009cf284aa651294896414d653a61a2417c9b8714c8476d2f74009
@@ -516,7 +516,7 @@ CHECKSUMS
   i18n (1.15.2) sha256=00f9eb62412fe593b2a65a97daa75300d37abb8f7202ec748e94b6d46a9dd1b5
   io-console (0.9.2) sha256=efa74f891dd03c0939a931dfc6e74c2813d904763d456ea9762b0525e748db08
   irb (1.18.0) sha256=de9454a0703a54704b9811a5ef31a60c86949fbf4013fcf244fabc7c775248e3
-  json (3.0.2) sha256=8e6d7e7b11384c21230430cef90b71f14849a34a1f4452796670f7c981bd19df
+  json (3.1.0) sha256=3ce7ccf8fde58960177a3a756c31f292a4c1e1dedee884547096a5b0604e3bd8
   jwt (3.3.0) sha256=44cc34fbc341c148233cf66641522b4bce0dfb1ce55e8073f05c56f44f4ee546
   language_server-protocol (3.17.0.6) sha256=5ef2c0c138f8267e1bc631d3328347d354f96724b0af22f2c79516120443b7f0
   lint_roller (1.1.0) sha256=2c0c845b632a7d172cb849cc90c1bce937a28c5c8ccccb50dfd46a485003cc87
@@ -595,13 +595,13 @@ CHECKSUMS
   solid_cable (4.1.0) sha256=828e3d509207b82b4f05f4e9c85f696994710679b52d511aa7f97ebd212d3226
   solid_cache (1.0.10) sha256=bc05a2fb3ac78a6f43cbb5946679cf9db67dd30d22939ededc385cb93e120d41
   solid_queue (1.7.0) sha256=6566b70b801d1c317c81bba7bcdd5677c019afac584a30374b4164002ca356d3
-  sqlite3 (2.9.6-aarch64-linux-gnu) sha256=d8b1f7d23efd7abac285775a9566562fc7debfef79d594e3a20354406fb7907c
-  sqlite3 (2.9.6-aarch64-linux-musl) sha256=3579e1c98cdc7ff5c3722847bb63ed4e1efb7ff675cb5e1e48ef2d4da5fb3bc9
-  sqlite3 (2.9.6-arm-linux-gnu) sha256=33541500e3615da02afe54a9cc38b17a6985d3cf9d8b76d6d0a83002f114e7ec
-  sqlite3 (2.9.6-arm-linux-musl) sha256=c5490af48bb228fefa54314e9541375c3907e70f8109f3881b5ff97e1c93ae33
-  sqlite3 (2.9.6-arm64-darwin) sha256=849b5d7f795e60fe25076d62c72dd722beb45b3850b516ad978d60ee848ec15b
-  sqlite3 (2.9.6-x86_64-linux-gnu) sha256=613188ce02f614126ddbc38c5e217ccffd6306d0dcd9adca9764547aa890a634
-  sqlite3 (2.9.6-x86_64-linux-musl) sha256=d493b11818a3573387a1d56e1ee8fa00da23a683a7a1cc063e7a0feeed843abf
+  sqlite3 (2.10.0-aarch64-linux-gnu) sha256=dafeea94182af2eb53a10797be359fa6ec4270532bd45255d1c2beb69f2eb743
+  sqlite3 (2.10.0-aarch64-linux-musl) sha256=ec4ffedded0bd8579629e14d0647cfee9092c0af0009c05d6404d90857b1cb8b
+  sqlite3 (2.10.0-arm-linux-gnu) sha256=bcf2e165f27fd28f46ba34eeba3503d557ea7f76f9dd40434ce719f2ba0d5cda
+  sqlite3 (2.10.0-arm-linux-musl) sha256=338510e64876c7d02d91733eeaee384806c58b3835d8a688d1bfdbf7e468c497
+  sqlite3 (2.10.0-arm64-darwin) sha256=f619f33adfd01a1827e8764a3da92b289c1a99d93707d021a242dccba6909c4e
+  sqlite3 (2.10.0-x86_64-linux-gnu) sha256=295f48b240ba663efa2e3b6f38cbc0f19f5c8a2823a71fda3bf15531be5dd0e8
+  sqlite3 (2.10.0-x86_64-linux-musl) sha256=876dd86a15c7828075ff7612e3d0ab0eb2eba0d8485b13fd4000e8a335f86bc5
   superglue (1.1.1) sha256=b600a4c5d2855474b504d7e8b1fb5b8fdd9da528a0470672cae1daa4532ceb31
   thor (1.5.0) sha256=e3a9e55fe857e44859ce104a84675ab6e8cd59c650a49106a05f55f136425e73
   thruster (0.1.27) sha256=5fd3855192bb4e8d13db69ae5f70d39f2dfd88fe0394fa372104996edf0bb599
@@ -618,7 +618,7 @@ CHECKSUMS
   vite_rails (3.11.1) sha256=61fa4a7c9248fc28f22a05e0760810bf79f645b776c721d888a815c5d21dd338
   vite_ruby (3.10.5) sha256=e9ee92be1cb31c0b6360b02182cfe09d3ac2b7fc278db7870e3f32ae64dde49e
   web-console (4.3.0) sha256=e13b71301cdfc2093f155b5aa3a622db80b4672d1f2f713119cc7ec7ac6a6da4
-  webmock (3.26.4) sha256=8d8da206d217ebe6968cfb09c77f4533c23074e1432bad865f3994eacbaad50d
+  webmock (3.34.0) sha256=72eed29dc8c00148d592acaedaaa6b869e2e397de57dfc8602b84aa834f46b33
   websocket-driver (0.8.2) sha256=97c556b019bf3410b4961002ac501621e9322d3f8a7bc02161a09301cc4c4146
   websocket-extensions (0.1.5) sha256=1c6ba63092cda343eb53fc657110c71c754c56484aad42578495227d717a8241
   zeitwerk (2.8.3) sha256=2c85125a8467ce069e20123d1e709a08955c9d29c118c25b46b7b7fafdbb92e5
