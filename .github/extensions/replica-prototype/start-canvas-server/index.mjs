@@ -27,8 +27,16 @@ import { startPreviewProxy } from "../start-preview-proxy/index.mjs"
 import { captureReviewRevision } from "../capture-review-revision/index.mjs"
 import { createLocalReviewComments } from "../create-local-review-comments/index.mjs"
 import { uuidInputPattern } from "../identity-patterns/index.mjs"
+import { createReviewerProfile } from "../create-reviewer-profile/index.mjs"
 
 const ASSET_PATHS = new Map([
+  [
+    "/avatar-placeholder.svg",
+    {
+      contentType: "image/svg+xml",
+      fileUrl: new URL("../assets/avatar-placeholder.svg", import.meta.url),
+    },
+  ],
   [
     "/assets/renderer.css",
     {
@@ -76,17 +84,36 @@ export async function startCanvasServer(initialContext, session, options = {}) {
   const localComments = createLocalReviewComments(initialContext, {
     directory: options.localCommentsDirectory,
   })
+  const reviewerProfile = createReviewerProfile(initialContext)
   async function localScope(hub, status) {
     const connectionId = await hub.connectionKey(status.repository)
     if (!connectionId || connectionId !== status.reviewConnectionId)
       throw httpError(409, "The Hub connection changed. Refresh before using local comments.")
-    return {
+    const scope = {
       hubOrigin: hub.origin,
       repository: status.repository,
       branch: status.branch,
       viewerLogin: status.prototype?.viewerLogin || status.viewerLogin,
       connectionId,
     }
+    if (!scope.viewerLogin) throw new Error("Hub did not identify the connected reviewer.")
+    const identity = await readCanvasRepository(context)
+    const hubHostname = new URL(hub.origin).hostname
+    const local =
+      identity.local &&
+      identity.repository === scope.repository &&
+      (hubHostname === "localhost" ||
+        hubHostname === "127.0.0.1" ||
+        hubHostname.endsWith(".localhost"))
+    const profile = local
+      ? {
+          author: { login: scope.viewerLogin, name: null, avatarUrl: null },
+          error: null,
+        }
+      : await reviewerProfile.read(scope)
+    if ((await hub.connectionKey(status.repository)) !== connectionId)
+      throw httpError(409, "The Hub connection changed. Refresh before using local comments.")
+    return { ...scope, author: profile.author, profileError: profile.error }
   }
   async function updateMetadata({ name, description, startPage }, expectedTarget) {
     const hub = await hubClient()
@@ -214,7 +241,7 @@ export async function startCanvasServer(initialContext, session, options = {}) {
         const scope = await localScope(hub, status)
         if (scope.connectionId !== connectionId)
           throw httpError(409, "The Hub connection changed while preparing local comments.")
-        if (!scope.viewerLogin) throw new Error("Hub did not identify the connected reviewer.")
+        if (scope.profileError) status = { ...status, localCommentsError: scope.profileError }
         if (status.prototype?.build) {
           try {
             await localComments.sync(
@@ -871,7 +898,7 @@ function sendHtml(response, html) {
       "style-src 'self' 'unsafe-inline'",
       "script-src 'self' 'unsafe-inline'",
       "connect-src 'self'",
-      "img-src data: https://avatars.githubusercontent.com",
+      "img-src 'self' data: https://avatars.githubusercontent.com",
       "frame-src http: https:",
       "font-src 'self'",
       "base-uri 'none'",

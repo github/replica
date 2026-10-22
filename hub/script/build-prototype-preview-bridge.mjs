@@ -1,8 +1,14 @@
+import { copyFile } from "node:fs/promises"
+
 import { build } from "vite"
 
 import { viteAliases } from "../vite-aliases.ts"
 
 const assets = new URL("../../.github/extensions/replica-prototype/assets/", import.meta.url)
+await copyFile(
+  new URL("../public/avatar-placeholder.svg", import.meta.url),
+  new URL("avatar-placeholder.svg", assets),
+)
 await build({
   configFile: false,
   publicDir: false,
