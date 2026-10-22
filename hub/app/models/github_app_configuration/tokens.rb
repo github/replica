@@ -4,11 +4,10 @@ class GithubAppConfiguration::Tokens < ActiveRecord::AssociatedObject
   # Requests organization permission.
   class CopilotPermissionMissing < GithubClient::Error; end
 
-  # The only permission a Copilot token asks for.
+  # The only permission a Copilot token asks for, and the only one Hub accepts on it. A token with any
+  # other permission, even read-only repository metadata, could read the repositories the App's
+  # installation covers.
   COPILOT_PERMISSIONS = { organization_copilot_requests: "read" }.freeze
-  # What GitHub may report a Copilot token holds: the Copilot permission, and the read-only metadata
-  # access that GitHub can add to any installation token.
-  COPILOT_TOKEN_PERMISSIONS = [ %w[organization_copilot_requests read], %w[metadata read] ].freeze
 
   # Creates a short-lived token that authenticates as the GitHub App.
   def app
@@ -72,9 +71,7 @@ class GithubAppConfiguration::Tokens < ActiveRecord::AssociatedObject
     raise KeyError if !token.is_a?(String) || token.blank? || expires_at <= Time.current
 
     # GitHub grants only the requested permissions. A token with more must not reach Copilot's runtime.
-    granted = payload.fetch("permissions")
-    if !granted.is_a?(Hash) || granted.any? { |name, access| !COPILOT_TOKEN_PERMISSIONS.include?([ name, access ]) } ||
-        granted["organization_copilot_requests"] != "read"
+    if payload.fetch("permissions") != COPILOT_PERMISSIONS.stringify_keys
       raise GithubClient::InvalidResponse, "GitHub returned a Copilot token with other permissions"
     end
 

@@ -29,9 +29,9 @@ module GithubRequestStubs
 
   # Stubs the new token Hub's GitHub App creates for each Copilot request, which may ask only for
   # the Copilot Requests organization permission. GitHub answers with each token in turn and repeats
-  # the last, or fails every request with error_status.
+  # the last, reporting the given permissions, or fails every request with error_status.
   def stub_github_copilot_token(*tokens, installation_id: 456, error_status: nil,
-    permissions: { organization_copilot_requests: "read", metadata: "read" })
+    permissions: { organization_copilot_requests: "read" })
     request = stub_request(:post, "#{GITHUB_API_URL}/app/installations/#{installation_id}/access_tokens")
       .with(body: { permissions: { organization_copilot_requests: "read" } })
     return request.to_return(status: error_status, body: JSON.generate(message: "Validation Failed")) if error_status

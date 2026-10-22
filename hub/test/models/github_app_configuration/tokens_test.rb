@@ -72,9 +72,13 @@ class GithubAppConfiguration::TokensTest < ActiveSupport::TestCase
     assert_equal %w[copilot-token-1 copilot-token-2], [ configuration.tokens.copilot, configuration.tokens.copilot ]
   end
 
-  test "rejects a Copilot token that GitHub reports with another permission or without the Copilot permission" do
+  test "rejects a Copilot token that GitHub reports with any other permission, even metadata, or without the Copilot permission" do
     configuration = github_app_configurations.create_installed
-    [ { organization_copilot_requests: "read", contents: "read" }, { metadata: "read" } ].each do |permissions|
+    [
+      { organization_copilot_requests: "read", metadata: "read" },
+      { organization_copilot_requests: "read", contents: "read" },
+      { metadata: "read" }
+    ].each do |permissions|
       stub_github_copilot_token("copilot-token", permissions:)
 
       assert_raises(GithubClient::InvalidResponse, permissions.inspect) { configuration.tokens.copilot }
