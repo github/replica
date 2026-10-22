@@ -6,7 +6,8 @@ class CopilotConnectionsController < SuperglueController
 
   before_action :require_github_hub
   before_action :authorize_admin
-  before_action :confirm_change, only: %i[create destroy]
+  before_action :confirm_connect, only: :create
+  before_action :confirm_disconnect, only: :destroy
   before_action :authorize_connect, only: :create
   before_action :authorize_disconnect, only: :destroy
 
@@ -21,7 +22,10 @@ class CopilotConnectionsController < SuperglueController
 
   # @route POST /copilot (copilot_connection)
   def create
-    CopilotConnection.connect!(actor: Current.user, browser_session: Current.session)
+    CopilotConnection.connect! \
+      actor: Current.user,
+      browser_session: Current.session,
+      credential: @confirmed_credential
     @security_audit_recorded = true
     redirect_to copilot_connection_path, notice: t("copilot_connection.connected"), status: :see_other
   rescue CopilotConnection::Refused, Learning::Error => error
@@ -58,7 +62,13 @@ class CopilotConnectionsController < SuperglueController
     render :show, status: :forbidden
   end
 
-  def confirm_change
+  def confirm_connect
+    return change_denied(CopilotConnection::ChangeDenied.new(:confirmation_required)) if params[:confirmed] != "1"
+
+    @confirmed_credential = CopilotConnection.confirmed_credential!(params[:billing_confirmation])
+  end
+
+  def confirm_disconnect
     return if params[:confirmed] == "1"
 
     change_denied(CopilotConnection::ChangeDenied.new(:confirmation_required))

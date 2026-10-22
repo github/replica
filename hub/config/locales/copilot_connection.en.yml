@@ -31,6 +31,7 @@ en:
     errors:
       not_authorized: Your account is not a current Hub administrator. Copilot was not changed.
       confirmation_required: Confirm the Copilot change explicitly. Copilot was not changed.
+      confirmation_changed: Who Copilot bills changed after this page loaded. Review the current billing information and confirm again.
       not_connected: Copilot is not connected, so there is nothing to disconnect.
       connection_changed: The Copilot connection changed while Hub checked Copilot. Hub did not change it. Review the current connection before trying again.
       no_token: Hub has no Copilot token, so Copilot was not connected. Set REPLICA_COPILOT_TOKEN and restart Hub.

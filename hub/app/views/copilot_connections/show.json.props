@@ -45,6 +45,7 @@ if !@access_denied
       json.label copilot_billing_t("#{connection && confirmed ? 'reconnect' : 'connect'}.label")
       json.consequence copilot_billing_t("connect.consequence", organization:)
       json.confirmLabel copilot_billing_t("connect.confirm", organization:)
+      json.billingConfirmation CopilotConnection.billing_confirmation(organization:)
       json.verification t("copilot_connection.verification")
     end
   else

@@ -47,7 +47,7 @@ GitHub's installation-token documentation says the response reports the token's 
 ## Connect Copilot
 
 1. Open **Copilot** in the sidebar's lower group, or go to `/copilot`. When Hub has no token, or its App is not installed on an organization for organization billing, the page says what to set up.
-2. Read what Hub will do with Copilot and who Copilot will bill, check the confirmation, and choose **Connect Copilot**. Like Hub's other administrator settings, this needs a [fresh GitHub authorization](fresh-authorization.md) on the same browser Session within the last five minutes. If GitHub asks you to verify, return and confirm again; verification never submits the change.
+2. Read what Hub will do with Copilot and who Copilot will bill, check the confirmation, and choose **Connect Copilot**. The form carries a signed fingerprint of the billing mode and credential shown on that page; if either changes before submission, Hub asks the administrator to review and confirm the current information instead of minting a token. Like Hub's other administrator settings, this needs a [fresh GitHub authorization](fresh-authorization.md) on the same browser Session within the last five minutes. If GitHub asks you to verify, return and confirm again; verification never submits the change.
 3. Hub checks the token, or a new App token, with a Copilot request that lists the models it may use. If Copilot answers, Hub connects Copilot and records who connected it.
 
 If another administrator disconnects or replaces the connection while Hub checks the token, Hub cancels the earlier check and leaves that change intact.

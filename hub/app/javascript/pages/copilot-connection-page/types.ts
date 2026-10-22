@@ -9,6 +9,7 @@ export interface CopilotConnectionChange {
   label: string
   consequence: string
   confirmLabel: string
+  billingConfirmation?: string
   verification: string
 }
 

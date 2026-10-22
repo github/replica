@@ -104,6 +104,7 @@ class GithubAppConfiguration::TokensTest < ActiveSupport::TestCase
       }
 
     error = assert_raises(GithubClient::Error) { configuration.tokens.copilot }
+    assert_instance_of GithubClient::Error, error
     assert_equal 422, error.status
   end
 

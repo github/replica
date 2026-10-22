@@ -66,6 +66,31 @@ class CopilotConnection < ApplicationRecord
   validates :singleton_key, inclusion: { in: [ 1 ] }
 
   class << self
+    # Signs the billing mode and credential shown in one connect confirmation.
+    def billing_confirmation(organization: self.organization)
+      credential = self.credential
+      return if credential.nil?
+
+      billing_confirmation_verifier.generate \
+        "billing" => organization_billing? ? "organization" : "token_owner",
+        "credential_digest" => digest(credential),
+        "organization" => organization
+    end
+
+    # Returns the still-current credential behind a signed confirmation, or rejects a stale form.
+    def confirmed_credential!(confirmation)
+      payload = billing_confirmation_verifier.verified(confirmation.to_s)
+      credential = self.credential
+      expected = {
+        "billing" => organization_billing? ? "organization" : "token_owner",
+        "credential_digest" => credential && digest(credential),
+        "organization" => organization
+      }
+      raise ChangeDenied, :confirmation_changed if payload != expected
+
+      credential
+    end
+
     # The connection Hub uses, when an administrator connected one.
     def current
       find_by(singleton_key: 1)
@@ -109,16 +134,22 @@ class CopilotConnection < ApplicationRecord
     # rejects it, and records the refusal on an existing connection. Connecting again clears an
     # earlier refusal and names the administrator who connected. A disconnect or replacement while
     # Copilot answers cancels this check rather than restoring the earlier enablement.
-    def connect!(actor:, browser_session:)
+    def connect!(actor:, browser_session:, credential: self.credential)
       live_actor, = authorized!(actor:, browser_session:)
-      credential = self.credential
-      raise ChangeDenied, :no_token if credential.nil?
+      raise ChangeDenied, :no_token if credential.nil? || self.credential != credential
 
       earlier, generation = uncached do
         transaction { [ current, CopilotConnectionState.current.generation ] }
       end
       begin
-        check!(copilot_token(credential))
+        token = copilot_token(credential)
+        ensure_connect_unchanged! \
+          earlier:,
+          generation:,
+          credential:,
+          actor: live_actor,
+          browser_session:
+        check!(token)
       rescue Refused
         earlier&.refuse!(credential:)
         raise
@@ -187,6 +218,23 @@ class CopilotConnection < ApplicationRecord
     end
 
     private
+
+    # Rejects a minted token before Copilot sees it when the connection or administrator changed.
+    def ensure_connect_unchanged!(earlier:, generation:, credential:, actor:, browser_session:)
+      uncached do
+        transaction do
+          authorized!(actor:, browser_session:)
+          changed = current&.id != earlier&.id ||
+            CopilotConnectionState.current.generation != generation ||
+            self.credential != credential
+          raise ChangeDenied, :connection_changed if changed
+        end
+      end
+    end
+
+    def billing_confirmation_verifier
+      Rails.application.message_verifier("copilot-billing-confirmation")
+    end
 
     # Asks Copilot to answer with the token, without labeling anything, or raises Refused.
     def check!(token)

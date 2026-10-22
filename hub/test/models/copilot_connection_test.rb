@@ -370,6 +370,33 @@ class CopilotConnectionTest < ActiveSupport::TestCase
     assert_equal "still-confirmed-token", connection.access_token!
   end
 
+  test "organization billing hands out no token when the connection is refused during minting" do
+    github_app_configurations.create_installed
+    Rails.configuration.x.copilot_billing = "organization"
+    connection = CopilotConnection.create! \
+      user: @admin,
+      token_digest: CopilotConnection.digest(CopilotConnection.credential),
+      verified_at: 1.day.ago
+    request = stub_request(:post, "#{GITHUB_API_URL}/app/installations/456/access_tokens")
+      .with(body: { permissions: { organization_copilot_requests: "read" } })
+      .to_return do
+        connection.refuse!
+        {
+          status: 201,
+          body: JSON.generate(
+            token: "refused-token",
+            expires_at: 1.hour.from_now.iso8601,
+            permissions: { organization_copilot_requests: "read" }
+          ),
+          headers: { "Content-Type" => "application/json" }
+        }
+      end
+
+    assert_raises(CopilotConnection::Refused) { connection.access_token! }
+    assert connection.reload.refused?
+    assert_requested request
+  end
+
   test "Hub starts with organization billing and refuses a billing choice it does not know" do
     initializer = Rails.root.join("config/initializers/deployment_configuration.rb")
     Rails.configuration.x.copilot_billing = "organization"

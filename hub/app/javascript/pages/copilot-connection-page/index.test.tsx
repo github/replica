@@ -36,6 +36,9 @@ describe("CopilotConnectionPage()", () => {
     expect(form).toHaveAttribute("method", "post")
     expect(form?.querySelector('[name="_method"]')).toBeNull()
     expect(form?.querySelector('[name="authenticity_token"]')).toHaveValue("storybook-token")
+    expect(form?.querySelector('[name="billing_confirmation"]')).toHaveValue(
+      "signed-billing-confirmation",
+    )
     expect(screen.queryByRole("button", { name: "Disconnect Copilot" })).not.toBeInTheDocument()
   })
 

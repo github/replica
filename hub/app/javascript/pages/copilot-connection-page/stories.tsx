@@ -31,6 +31,7 @@ const verification =
 
 const connect = {
   label: "Connect Copilot",
+  billingConfirmation: "signed-billing-confirmation",
   consequence:
     "Hub will ask Copilot, with the configured token, to read new review comments from every repository on this Hub and suggest learnings, including while you are signed out. Copilot never sees who wrote a comment. The usage counts toward the Copilot plan of the token's owner. Hub checks the token with Copilot first, and never stores or shows it.",
   confirmLabel: "I understand that Hub will use this Copilot token for this Hub.",

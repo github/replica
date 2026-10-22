@@ -42,6 +42,11 @@ export function CopilotConnectionPage({ data }: { data: CopilotConnectionPageDat
                 className="copilot-connection-page__form"
               >
                 <input type="hidden" name="authenticity_token" value={data.authenticityToken} />
+                <input
+                  type="hidden"
+                  name="billing_confirmation"
+                  value={data.connect.billingConfirmation}
+                />
                 <label className="copilot-connection-page__confirmation">
                   <input type="checkbox" name="confirmed" value="1" required />
                   <span>{data.connect.confirmLabel}</span>
