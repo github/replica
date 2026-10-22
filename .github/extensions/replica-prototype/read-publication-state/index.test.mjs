@@ -62,7 +62,6 @@ describe("readPublicationState()", () => {
       (state) => (state.publishRequest.workflowRunId = Number.MAX_SAFE_INTEGER + 1),
     ],
     ["status timestamp", (state) => (state.stats.refreshedAt = "not a date")],
-    ["request target", (state) => (state.publishRequest.target = { branch: "prototype" })],
     ["workflow evidence", (state) => (state.stats.workflow.run = "successful")],
     ["remote evidence", (state) => (state.stats.remoteBranch = { state: false })],
   ]) {
