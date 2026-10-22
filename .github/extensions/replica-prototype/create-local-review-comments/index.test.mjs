@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { execFileSync } from "node:child_process"
-import { writeFile } from "node:fs/promises"
+import { readFile, readdir, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { describe, it } from "node:test"
 
@@ -49,6 +49,111 @@ function fixture(context) {
 }
 
 describe("createLocalReviewComments()", () => {
+  it("saves verified profile metadata without replacing the Hub viewer login", async () => {
+    await withContext(async (context) => {
+      const { comments, captured, scope } = fixture(context)
+      const author = {
+        login: "OctoCat",
+        name: "Mona",
+        avatarUrl: "https://avatars.githubusercontent.com/u/1",
+      }
+      const created = await comments.create({ ...scope, author }, captured, {
+        body: "Keep this selection",
+        anchor: { schemaVersion: 1, kind: "element", selector: "#save" },
+      })
+      const expected = { ...author, login: scope.viewerLogin }
+      assert.deepEqual(created.author, expected)
+      assert.deepEqual((await localComments(context).list(scope))[0].author, expected)
+      const updated = await comments.update(
+        {
+          ...scope,
+          author: { login: scope.viewerLogin, name: null, avatarUrl: null },
+        },
+        created.id,
+        "Keep the saved profile",
+      )
+      assert.deepEqual(updated.author, expected)
+      assert.deepEqual((await localComments(context).list(scope))[0].author, expected)
+    })
+  })
+
+  it("projects a matching profile onto persisted comments without rewriting storage", async () => {
+    await withContext(async (context) => {
+      const { comments, captured, scope } = fixture(context)
+      const created = await comments.create(scope, captured, {
+        body: "Written before profile discovery",
+        anchor: { schemaVersion: 1, kind: "element", selector: "#save" },
+      })
+      const directory = path.join(context.repositoryPath, ".git", "local-review-comments")
+      const file = path.join(
+        directory,
+        (await readdir(directory)).find((name) => name.endsWith(".json")),
+      )
+      const saved = await readFile(file, "utf8")
+      const author = {
+        login: "OCTOCAT",
+        name: "Mona",
+        avatarUrl: "https://avatars.githubusercontent.com/u/1",
+      }
+      const enrichedScope = { ...scope, author }
+      const expected = { ...author, login: created.author.login }
+      assert.deepEqual((await localComments(context).list(enrichedScope))[0].author, expected)
+      assert.equal(await readFile(file, "utf8"), saved)
+      const updated = await localComments(context).update(
+        enrichedScope,
+        created.id,
+        "Updated feedback",
+      )
+      assert.deepEqual(updated.author, expected)
+      assert.deepEqual((await localComments(context).list(scope))[0].author, expected)
+    })
+  })
+
+  it("never applies another account's metadata or reassigns historical authors", async () => {
+    await withContext(async (context) => {
+      const { comments, captured, scope } = fixture(context)
+      const anotherAuthor = {
+        login: "mona",
+        name: "Another reviewer",
+        avatarUrl: "https://avatars.githubusercontent.com/u/2",
+      }
+      const created = await comments.create({ ...scope, author: anotherAuthor }, captured, {
+        body: "Keep the connected identity",
+        anchor: { schemaVersion: 1, kind: "element", selector: "#save" },
+      })
+      assert.deepEqual(created.author, {
+        login: scope.viewerLogin,
+        name: null,
+        avatarUrl: null,
+      })
+      const directory = path.join(context.repositoryPath, ".git", "local-review-comments")
+      const file = path.join(
+        directory,
+        (await readdir(directory)).find((name) => name.endsWith(".json")),
+      )
+      const entries = JSON.parse(await readFile(file, "utf8"))
+      entries[0].comment.author = anotherAuthor
+      await writeFile(file, JSON.stringify(entries))
+
+      const verifiedScope = {
+        ...scope,
+        author: {
+          login: scope.viewerLogin,
+          name: "Current reviewer",
+          avatarUrl: "https://avatars.githubusercontent.com/u/1",
+        },
+      }
+      assert.deepEqual((await comments.list(verifiedScope))[0].author, anotherAuthor)
+      const updated = await comments.update(
+        verifiedScope,
+        created.id,
+        "Preserve historical ownership",
+      )
+      assert.deepEqual(updated.author, anotherAuthor)
+      assert.deepEqual((await localComments(context).list(scope))[0].author, anotherAuthor)
+    })
+  })
+
   it("persists local edits and deletion across instances", async () => {
     await withContext(async (context) => {
       const { scope, captured } = fixture(context)

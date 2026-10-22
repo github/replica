@@ -769,6 +769,123 @@ esac
     }
   })
 
+  it("warns about a mismatched CLI account without blocking login-only local comments", async () => {
+    await withContext(async (context) => {
+      const workspace = context.sessionWorkspacePath
+      execFileSync("git", ["remote", "add", "origin", "https://github.com/github/replica.git"], {
+        cwd: context.repositoryPath,
+      })
+      const bin = path.join(workspace, "bin")
+      await mkdir(bin)
+      await writeFile(
+        path.join(bin, "gh"),
+        `#!/bin/sh
+if [ "$*" = "api --hostname github.com user" ]; then
+  printf '%s\\n' '{"login":"another-reviewer","name":"Another Reviewer","avatar_url":"https://avatars.githubusercontent.com/u/1002"}'
+  exit 0
+fi
+exit 1
+`,
+        { mode: 0o755 },
+      )
+      const hubWrites = []
+      const hub = createServer((request, response) => {
+        request.resume()
+        response.setHeader("X-Replica-Canvas-Version", "1")
+        response.setHeader("Content-Type", "application/json")
+        if (request.method !== "GET") hubWrites.push(request.url)
+        if (request.url === "/api/canvas/pairings") {
+          response.end(
+            JSON.stringify({
+              deviceCode: "device",
+              userCode: "ABCD",
+              verificationUrl: `http://${request.headers.host}/canvas/pair/ABCD`,
+            }),
+          )
+        } else if (request.url === "/api/canvas/pairings/token") {
+          response.end(
+            JSON.stringify({
+              status: "approved",
+              repository: "github/replica",
+              accessToken: "rp_test",
+              expiresAt: new Date(Date.now() + 60_000).toISOString(),
+            }),
+          )
+        } else if (request.url === "/api/canvas/connection") {
+          response.end(JSON.stringify({ repository: "github/replica", viewerLogin: "octocat" }))
+        } else {
+          response.writeHead(404)
+          response.end(JSON.stringify({ error: "Hub has not discovered this branch." }))
+        }
+      })
+      await new Promise((resolve) => hub.listen(0, "127.0.0.1", resolve))
+      const originalPath = process.env.PATH
+      let canvas
+      try {
+        process.env.PATH = `${bin}:${originalPath}`
+        canvas = await startCanvasServer(
+          context,
+          { send() {} },
+          {
+            localCommentsDirectory: path.join(workspace, "local-comments"),
+            hubOptions: {
+              origin: `http://127.0.0.1:${hub.address().port}`,
+              directory: path.join(workspace, "credentials"),
+            },
+          },
+        )
+        const page = await (await fetch(canvas.url)).text()
+        const { token } = JSON.parse(page.match(/window\.__REPLICA_CANVAS__ = ([^;]+);/)[1])
+        async function send(route, method = "GET", body) {
+          const response = await fetch(new URL(route, canvas.url), {
+            method,
+            headers: { "X-Replica-Canvas-Token": token },
+            ...(body ? { body: JSON.stringify(body) } : {}),
+          })
+          return { status: response.status, body: await response.json() }
+        }
+        await send("/api/hub/pair", "POST", {})
+        assert.equal((await send("/api/hub/poll", "POST", {})).body.status, "approved")
+        const status = await send("/api/hub/status")
+        assert.equal(status.status, 200)
+        assert.equal(status.body.repository, "github/replica")
+        assert.equal(status.body.repositoryAuthorized, true)
+        assert.match(status.body.localCommentsError, /profile.*different reviewer/i)
+        assert.ok(status.body.reviewRevision.id > 0)
+        const beforeSave = hubWrites.length
+        const posted = await send("/api/hub/comments", "POST", {
+          review_revision: status.body.reviewRevision,
+          review_comment: {
+            body: "Keep reviewing without a profile photo",
+            anchor: { schemaVersion: 1, kind: "element", selector: "#save" },
+          },
+        })
+        assert.equal(posted.status, 201, JSON.stringify(posted.body))
+        assert.deepEqual(posted.body.comments[0].author, {
+          login: "octocat",
+          name: null,
+          avatarUrl: null,
+        })
+        const comments = (await send("/api/hub/comments")).body.comments
+        assert.equal(comments.length, 1)
+        assert.equal(comments[0].body, "Keep reviewing without a profile photo")
+        assert.equal(comments[0].draftRevisionId, status.body.reviewRevision.id)
+        assert.deepEqual(comments[0].author, {
+          login: "octocat",
+          name: null,
+          avatarUrl: null,
+        })
+        assert.equal(hubWrites.length, beforeSave)
+      } finally {
+        if (canvas) await canvas.close()
+        process.env.PATH = originalPath
+        await new Promise((resolve, reject) =>
+          hub.close((error) => (error ? reject(error) : resolve())),
+        )
+      }
+    })
+  })
+
   it("proxies only protected review actions for the current checkout", async () => {
     const workspace = path.join(process.cwd(), "storage/replica-extension-tests", randomUUID())
     await mkdir(workspace, { recursive: true })
@@ -970,6 +1087,17 @@ case "$1:$2" in
   write-tree:) printf '%040d\\n' "\${TEST_TREE:-2}" ;;
   config:*) exit 1 ;;
 esac
+`,
+        { mode: 0o755 },
+      )
+      await writeFile(
+        path.join(workspace, "gh"),
+        `#!/bin/sh
+if [ "$*" = "api --hostname github.com user" ]; then
+  printf '%s\\n' '{"login":"octocat","name":"The Octocat","avatar_url":"https://avatars.githubusercontent.com/u/583231"}'
+  exit 0
+fi
+exit 1
 `,
         { mode: 0o755 },
       )
@@ -1264,7 +1392,10 @@ esac
         (
           await send("/api/hub/comments", "POST", {
             review_revision: selectedBuild,
-            review_comment: { body: "Keep the selected Build", anchor: { schemaVersion: 1 } },
+            review_comment: {
+              body: "Keep the selected Build",
+              anchor: { schemaVersion: 1 },
+            },
           })
         ).status,
         201,
@@ -1279,7 +1410,10 @@ esac
       assert.equal(
         (
           await send("/api/hub/comments", "POST", {
-            review_revision: { ...previousRevision, hubOrigin: "https://another-hub.example.com" },
+            review_revision: {
+              ...previousRevision,
+              hubOrigin: "https://another-hub.example.com",
+            },
             review_comment: { body: "Wrong Hub", anchor: { schemaVersion: 1 } },
           })
         ).status,
@@ -1453,7 +1587,13 @@ esac
         ).status,
         201,
       )
-      assert.equal((await send("/api/hub/comments")).body.comments[0].buildNumber, null)
+      const localComment = (await send("/api/hub/comments")).body.comments[0]
+      assert.equal(localComment.buildNumber, null)
+      assert.deepEqual(localComment.author, {
+        login: "octocat",
+        name: "The Octocat",
+        avatarUrl: "https://avatars.githubusercontent.com/u/583231",
+      })
       assert.ok(
         calls.slice(beforeUnpublishedSave).every(({ method }) => method === "GET"),
         "Saving unpublished feedback must not create any Hub records.",
@@ -1526,7 +1666,10 @@ esac
       ).length
       const reconnectedSave = await send("/api/hub/comments", "POST", {
         review_revision: selectedConnection,
-        review_comment: { body: "Old connection", anchor: { schemaVersion: 1 } },
+        review_comment: {
+          body: "Old connection",
+          anchor: { schemaVersion: 1 },
+        },
       })
       assert.equal(reconnectedSave.status, 409, JSON.stringify(reconnectedSave.body))
       assert.equal(
@@ -1640,6 +1783,23 @@ esac
       assert.match(html, /window\.__REPLICA_CANVAS__/)
       assert.match(page.headers.get("content-security-policy"), /frame-src http: https:/)
       assert.match(page.headers.get("content-security-policy"), /avatars\.githubusercontent\.com/)
+      assert.equal(
+        page.headers
+          .get("content-security-policy")
+          .split("; ")
+          .find((directive) => directive.startsWith("img-src ")),
+        "img-src 'self' data: https://avatars.githubusercontent.com",
+      )
+      const placeholder = await fetch(new URL("/avatar-placeholder.svg", server.url))
+      assert.equal(placeholder.status, 200)
+      assert.equal(placeholder.headers.get("content-type"), "image/svg+xml")
+      assert.equal(
+        await placeholder.text(),
+        await readFile(
+          new URL("../../../../hub/public/avatar-placeholder.svg", import.meta.url),
+          "utf8",
+        ),
+      )
       const asset = await fetch(new URL("/assets/renderer.js", server.url))
       assert.equal(asset.status, 200)
       assert.match(await asset.text(), /renderer-vendor\.js/)

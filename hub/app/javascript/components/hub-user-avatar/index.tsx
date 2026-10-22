@@ -17,6 +17,11 @@ export function HubUserAvatar({
       alt=""
       size={32}
       className={`hub-user-avatar hub-user-avatar--${size}${className ? ` ${className}` : ""}`}
+      onError={(event) => {
+        const image = event.currentTarget
+        if (image.getAttribute("src") !== "/avatar-placeholder.svg")
+          image.src = "/avatar-placeholder.svg"
+      }}
     />
   )
 }

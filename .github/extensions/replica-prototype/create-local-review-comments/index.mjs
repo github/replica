@@ -55,10 +55,25 @@ export function createLocalReviewComments(context, options = {}) {
       throw new Error("Check Hub before changing this comment: its upload could not be confirmed.")
     return draft
   }
+  function withAuthor(scope, comment) {
+    if (
+      scope.author?.login?.toLowerCase() !== scope.viewerLogin.toLowerCase() ||
+      comment.author.login.toLowerCase() !== scope.viewerLogin.toLowerCase()
+    )
+      return comment
+    return {
+      ...comment,
+      author: {
+        ...comment.author,
+        name: scope.author.name ?? comment.author.name,
+        avatarUrl: scope.author.avatarUrl ?? comment.author.avatarUrl,
+      },
+    }
+  }
   return {
     async list(scope) {
       return (await entries(scope)).map((entry) => ({
-        ...entry.comment,
+        ...withAuthor(scope, entry.comment),
         viewerCanEdit: !entry.sendingAt,
       }))
     },
@@ -76,7 +91,7 @@ export function createLocalReviewComments(context, options = {}) {
         })
       return mutate(scope, (drafts) => {
         const now = new Date().toISOString()
-        const comment = {
+        const comment = withAuthor(scope, {
           id: 2 ** 48 + randomBytes(6).readUIntBE(0, 6),
           kind: "root",
           body,
@@ -96,7 +111,7 @@ export function createLocalReviewComments(context, options = {}) {
           resolvedBy: null,
           activityVersion: 1,
           viewerLastSeenActivityVersion: 1,
-        }
+        })
         drafts.push({
           treeSha: revision.treeSha,
           prototypeId: revision.prototypeId ?? null,
@@ -110,12 +125,12 @@ export function createLocalReviewComments(context, options = {}) {
       return mutate(scope, (drafts) => {
         const draft = editable(drafts, id)
         const now = new Date().toISOString()
-        draft.comment = {
+        draft.comment = withAuthor(scope, {
           ...draft.comment,
           body: text,
           editedAt: now,
           updatedAt: now,
-        }
+        })
         return draft.comment
       })
     },
