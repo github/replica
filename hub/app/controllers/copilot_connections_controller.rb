@@ -1,6 +1,6 @@
-# Lets Hub administrators connect Copilot with the operator's token, see who connected it, and
-# disconnect it. Both changes need fresh GitHub proof, like Hub's other administrator settings.
-# Hub keeps no Copilot credential; see CopilotConnection.
+# Lets Hub administrators connect Copilot with the credential the operator configured, see who
+# connected it, and disconnect it. Both changes need fresh GitHub proof, like Hub's other
+# administrator settings. Hub keeps no Copilot credential; see CopilotConnection.
 class CopilotConnectionsController < SuperglueController
   include FreshAuthorizationRequired
 
@@ -26,11 +26,12 @@ class CopilotConnectionsController < SuperglueController
     redirect_to copilot_connection_path, notice: t("copilot_connection.connected"), status: :see_other
   rescue CopilotConnection::Refused, Learning::Error => error
     reason, outcome = case error
+    when CopilotConnection::PermissionMissing then [ :permission_missing, "denied" ]
     when CopilotConnection::Refused then [ :refused, "denied" ]
     else [ error.code == "not_installed" ? :not_installed : :unavailable, "failed" ]
     end
     record_security_audit(outcome:)
-    redirect_to copilot_connection_path, alert: t("copilot_connection.errors.#{reason}"), status: :see_other
+    redirect_to copilot_connection_path, alert: helpers.copilot_billing_t("errors.#{reason}"), status: :see_other
   end
 
   # @route DELETE /copilot (copilot_connection)
@@ -42,7 +43,7 @@ class CopilotConnectionsController < SuperglueController
 
   private
 
-  # Local development has no Copilot token, so it uses the developer's own Copilot sign-in instead.
+  # Local development has no Copilot credential, so it uses the developer's own Copilot sign-in instead.
   def require_github_hub
     head :not_found if LocalDevelopment.enabled?
   end
@@ -85,7 +86,7 @@ class CopilotConnectionsController < SuperglueController
     else
       redirect_to \
         copilot_connection_path,
-        alert: t("copilot_connection.errors.#{error.reason}"),
+        alert: helpers.copilot_billing_t("errors.#{error.reason}"),
         status: :see_other
     end
   end

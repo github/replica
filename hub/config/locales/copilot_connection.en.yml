@@ -12,6 +12,7 @@ en:
       other: "%{count} Copilot requests"
     refused: "Copilot refused the token on %{date}, so Hub stopped looking for learnings. Replace REPLICA_COPILOT_TOKEN and restart Hub, or check the token again."
     no_token: Hub has no Copilot token. The person who runs Hub sets REPLICA_COPILOT_TOKEN to a fine-grained personal access token whose only permission is Copilot requests, then restarts Hub.
+    billing: Copilot counts the usage toward the Copilot plan of the person who owns the token in REPLICA_COPILOT_TOKEN.
     empty: Learnings stays off until a Hub administrator connects Copilot.
     verification: This change requires GitHub verification within the last five minutes on this browser. If asked to verify, return and confirm again. Verification never submits this change.
     connect:
@@ -31,8 +32,27 @@ en:
       not_authorized: Your account is not a current Hub administrator. Copilot was not changed.
       confirmation_required: Confirm the Copilot change explicitly. Copilot was not changed.
       not_connected: Copilot is not connected, so there is nothing to disconnect.
-      connection_changed: The Copilot connection changed while Hub checked the token. Hub did not change it. Review the current connection before trying again.
+      connection_changed: The Copilot connection changed while Hub checked Copilot. Hub did not change it. Review the current connection before trying again.
       no_token: Hub has no Copilot token, so Copilot was not connected. Set REPLICA_COPILOT_TOKEN and restart Hub.
       refused: Copilot refused the token, so Copilot was not connected. Check that the token's owner has Copilot and that the token has the Copilot requests permission.
       unavailable: Hub could not reach Copilot to check the token, so Copilot was not connected. Try again later.
-      not_installed: Hub could not check the token because replica-learning or a package it needs is not installed here. Run bin/setup, then try again.
+      not_installed: Hub could not check Copilot because replica-learning or a package it needs is not installed here. Run bin/setup, then try again.
+      permission_missing: Hub's GitHub App does not have the Copilot Requests organization permission, so Copilot was not connected. Add the permission in the App's settings, have an organization owner approve it, then try again.
+    # Replaces the wording above when the person who runs Hub sets REPLICA_COPILOT_BILLING to organization.
+    organization:
+      description: A Hub administrator connects Copilot once for the whole Hub. Hub then asks Copilot to suggest learnings from prototype review comments, with tokens from Hub's GitHub App, so it works while everyone is signed out.
+      billing: "Copilot bills the usage to the %{organization} organization, which installed Hub's GitHub App, and applies its Copilot policies and budgets."
+      no_token: Hub's GitHub App has no active installation on an organization, so Hub cannot bill Copilot to one. Install the App on an organization, or the person who runs Hub can remove REPLICA_COPILOT_BILLING and give Hub a token instead.
+      unconfirmed: "Hub bills Copilot to an organization only after a Hub administrator confirms it, so Hub stopped looking for learnings. Connect Copilot to let Copilot bill %{organization}."
+      refused: "Copilot refused Hub's GitHub App on %{date}, so Hub stopped looking for learnings. Check that the App has the Copilot Requests organization permission and that %{organization} allows Copilot requests from GitHub Apps, then check Copilot again."
+      connect:
+        consequence: "Hub will ask Copilot to read new review comments from every repository on this Hub and suggest learnings, including while you are signed out. Copilot never sees who wrote a comment. Copilot bills the usage to the %{organization} organization. For each request, Hub's GitHub App creates a new one-hour token that can only make Copilot requests. Hub checks with Copilot first, and never stores or shows a token."
+        confirm: "I understand that Hub will bill this Hub's Copilot usage to %{organization}."
+      reconnect:
+        label: Check Copilot again
+      disconnect:
+        consequence: Hub stops looking for learnings and turns off Learnings for every repository. Hub keeps every learning and decision, so connecting again restores them. Hub's GitHub App keeps its Copilot Requests permission until someone removes it in the App's settings.
+      errors:
+        no_token: Hub's GitHub App has no active installation on an organization, so Copilot was not connected.
+        refused: Copilot refused Hub's GitHub App, so Copilot was not connected. Check that the organization has Copilot Business or Copilot Enterprise and allows Copilot requests from GitHub Apps.
+        unavailable: Hub could not reach GitHub or Copilot to check the connection, so Copilot was not connected. Try again later.

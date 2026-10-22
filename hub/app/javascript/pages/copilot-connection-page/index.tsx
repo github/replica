@@ -6,7 +6,7 @@ import { HubAdministrationPage } from "@features/hub-administration-page"
 import type { CopilotConnectionPageData } from "./types"
 import "./styles.css"
 
-/** Shows who connected Copilot, whether Hub has a token, and each change's consequence beside its confirmation. */
+/** Shows who connected Copilot, who Copilot bills, and each change's consequence beside its confirmation. */
 export function CopilotConnectionPage({ data }: { data: CopilotConnectionPageData }) {
   return (
     <HubAdministrationPage data={data}>
@@ -27,7 +27,8 @@ export function CopilotConnectionPage({ data }: { data: CopilotConnectionPageDat
             ) : (
               <Text as="p">{data.emptyLabel}</Text>
             )}
-            {data.tokenLabel ? <HubAlert title={data.tokenLabel} variant="warning" /> : null}
+            {data.billingLabel ? <Text as="p">{data.billingLabel}</Text> : null}
+            {data.setupLabel ? <HubAlert title={data.setupLabel} variant="warning" /> : null}
             {data.refusedLabel ? <HubAlert title={data.refusedLabel} variant="critical" /> : null}
           </section>
 

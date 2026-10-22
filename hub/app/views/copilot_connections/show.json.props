@@ -1,17 +1,26 @@
 json.partial! partial: "hub_admins/navigation"
 json.pageTitle t("copilot_connection.heading")
 json.heading t("copilot_connection.heading")
-json.description t("copilot_connection.description")
+json.description copilot_billing_t("description")
 json.accessDenied !!@access_denied
 json.emptyLabel t(@access_denied ? "copilot_connection.no_access" : "copilot_connection.empty")
 if !@access_denied
   connection = @connection
-  token = CopilotConnection.token.present?
+  credential = CopilotConnection.credential.present?
+  organization = CopilotConnection.organization
   refused = connection&.refused?
+  confirmed = connection.nil? || connection.confirmed?
   json.connected connection.present?
   json.statusLabel t("copilot_connection.#{connection ? 'connected' : 'disconnected'}_status")
   json.submitPath copilot_connection_path
-  json.tokenLabel(token ? nil : t("copilot_connection.no_token"))
+  json.billingLabel(credential ? copilot_billing_t("billing", organization:) : nil)
+  json.setupLabel(
+    if !credential
+      copilot_billing_t("no_token")
+    elsif !confirmed
+      t("copilot_connection.organization.unconfirmed", organization:)
+    end
+  )
   if connection
     login = "@#{connection.user.login}"
     json.connectedBy t("copilot_connection.connected_by", login:, date: connection.created_at.to_date.to_fs(:long))
@@ -21,19 +30,19 @@ if !@access_denied
       credits: number_with_precision(recent.sum(:nano_aiu).to_d / 1_000_000_000, precision: 3, significant: true,
         strip_insignificant_zeros: true),
       requests: t("copilot_connection.requests", count: recent.sum(:copilot_requests)))
-    json.refusedLabel(refused ? t("copilot_connection.refused", date: connection.refused_at.to_date.to_fs(:long)) : nil)
+    json.refusedLabel(refused ? copilot_billing_t("refused", date: connection.refused_at.to_date.to_fs(:long), organization:) : nil)
     json.disconnect do
       json.label t("copilot_connection.disconnect.label")
-      json.consequence t("copilot_connection.disconnect.consequence")
+      json.consequence copilot_billing_t("disconnect.consequence")
       json.confirmLabel t("copilot_connection.disconnect.confirm")
       json.verification t("copilot_connection.verification")
     end
   end
-  if token && (connection.nil? || refused)
+  if credential && (connection.nil? || refused || !confirmed)
     json.connect do
-      json.label t("copilot_connection.#{connection ? 'reconnect' : 'connect'}.label")
-      json.consequence t("copilot_connection.connect.consequence")
-      json.confirmLabel t("copilot_connection.connect.confirm")
+      json.label copilot_billing_t("#{connection && confirmed ? 'reconnect' : 'connect'}.label")
+      json.consequence copilot_billing_t("connect.consequence", organization:)
+      json.confirmLabel copilot_billing_t("connect.confirm", organization:)
       json.verification t("copilot_connection.verification")
     end
   else
