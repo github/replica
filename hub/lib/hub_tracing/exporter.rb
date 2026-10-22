@@ -20,21 +20,34 @@ module HubTracing
       @exporter = @exporter_factory.call
       @include_sensitive_data = include_sensitive_data
       @mutex = Mutex.new
+      @pid = Process.pid
     end
 
     def export(spans, timeout: nil)
-      @mutex.synchronize { export_with_deadline(spans, timeout:) }
+      synchronize_exporter { export_with_deadline(spans, timeout:) }
     end
 
     def shutdown(timeout: nil)
-      @mutex.synchronize { @exporter.shutdown(timeout:) }
+      synchronize_exporter { @exporter.shutdown(timeout:) }
     end
 
     def force_flush(timeout: nil)
-      @mutex.synchronize { @exporter.force_flush(timeout:) }
+      synchronize_exporter { @exporter.force_flush(timeout:) }
     end
 
     private
+
+    def synchronize_exporter(&operation)
+      replace_inherited_exporter if @pid != Process.pid
+      @mutex.synchronize(&operation)
+    end
+
+    def replace_inherited_exporter
+      exporter = @exporter_factory.call
+      @mutex = Mutex.new
+      @exporter = exporter
+      @pid = Process.pid
+    end
 
     def export_with_deadline(spans, timeout:)
       raise Timeout::Error if timeout && timeout <= 0

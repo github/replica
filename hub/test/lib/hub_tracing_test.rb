@@ -36,6 +36,8 @@ class HubTracingTest < ActiveSupport::TestCase
       { "OTEL_EXPORTER_OTLP_ENDPOINT" => "https://collector.example/#credential-canary" },
       { "OTEL_EXPORTER_OTLP_ENDPOINT" => "https://[credential-canary" },
       { "OTEL_EXPORTER_OTLP_ENDPOINT" => "file:///credential-canary" },
+      { "OTEL_EXPORTER_OTLP_ENDPOINT" => "http:///v1/traces" },
+      { "OTEL_EXPORTER_OTLP_ENDPOINT" => "https://:4318/v1/traces" },
       { "OTEL_EXPORTER_OTLP_PROTOCOL" => "grpc" },
       { "OTEL_TRACES_EXPORTER" => "console,otlp" },
       { "REPLICA_OTEL_INCLUDE_SENSITIVE_DATA" => "credential-canary" },
@@ -47,7 +49,14 @@ class HubTracingTest < ActiveSupport::TestCase
       { "REPLICA_OTEL_UNTRACED_HOSTS" => "" },
       { "REPLICA_OTEL_UNTRACED_HOSTS" => "upstream.example," },
       { "REPLICA_OTEL_UNTRACED_HOSTS" => ",upstream.example" },
-      { "REPLICA_OTEL_UNTRACED_HOSTS" => "upstream.example, ,other.example" }
+      { "REPLICA_OTEL_UNTRACED_HOSTS" => "upstream.example, ,other.example" },
+      { "REPLICA_OTEL_UNTRACED_HOSTS" => "https://upstream.example" },
+      { "REPLICA_OTEL_UNTRACED_HOSTS" => "upstream.example:443" },
+      { "REPLICA_OTEL_UNTRACED_HOSTS" => "upstream.example/path" },
+      { "REPLICA_OTEL_UNTRACED_HOSTS" => "-upstream.example" },
+      { "REPLICA_OTEL_UNTRACED_HOSTS" => "upstream..example" },
+      { "REPLICA_OTEL_UNTRACED_HOSTS" => "999.0.0.1" },
+      { "REPLICA_OTEL_UNTRACED_HOSTS" => "2001:db8::gggg" }
     ].each do |invalid|
       configuration = {
         "OTEL_TRACES_EXPORTER" => "otlp",
@@ -135,6 +144,111 @@ class HubTracingTest < ActiveSupport::TestCase
     provider&.shutdown(timeout: 1)
     collector&.close
     server&.join(1)
+  end
+
+  test "forked exporters use independent keep-alive collector connections" do
+    collector = TCPServer.new("127.0.0.1", 0)
+    requests = Queue.new
+    server = Thread.new do
+      handlers = 2.times.map do |connection|
+        client = collector.accept
+        Thread.new do
+          (connection.zero? ? 2 : 1).times do
+            body = read_http_request(client)
+            requests << [ connection, decoded_spans(body).map(&:name) ]
+            client.write("HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: keep-alive\r\n\r\n")
+          end
+        ensure
+          client.close
+        end
+      end
+      handlers.each(&:value)
+    end
+    endpoint = "http://127.0.0.1:#{collector.local_address.ip_port}/v1/traces"
+    exporter = HubTracing::Exporter.new do
+      OpenTelemetry::Exporter::OTLP::Exporter.new(endpoint:)
+    end
+    originals, provider, _sensitive = traced_spans
+    template = originals.last
+
+    assert_equal \
+      OpenTelemetry::SDK::Trace::Export::SUCCESS,
+      exporter.export(named_batch(template, "before fork"), timeout: 1)
+
+    reader, writer = IO.pipe
+    pid = fork do
+      reader.close
+      result = exporter.export(named_batch(template, "child after fork"), timeout: 1)
+      shutdown = exporter.shutdown(timeout: 1)
+      writer.write(Marshal.dump(export: result, shutdown:))
+      writer.close
+      exit! 0
+    end
+    writer.close
+    child = Marshal.load(reader.read)
+    reader.close
+    _, child_status = Process.wait2(pid)
+
+    assert child_status.success?
+    assert_equal OpenTelemetry::SDK::Trace::Export::SUCCESS, child.fetch(:export)
+    assert_equal OpenTelemetry::SDK::Trace::Export::SUCCESS, child.fetch(:shutdown)
+    assert_equal \
+      OpenTelemetry::SDK::Trace::Export::SUCCESS,
+      exporter.export(named_batch(template, "parent after fork"), timeout: 1)
+    assert_equal OpenTelemetry::SDK::Trace::Export::SUCCESS, exporter.shutdown(timeout: 1)
+    Timeout.timeout(1) { server.value }
+
+    names_by_connection = Hash.new { |names, connection| names[connection] = [] }
+    3.times do
+      connection, names = requests.pop
+      names_by_connection[connection].concat(names)
+    end
+    assert_equal [ "before fork", "parent after fork" ], names_by_connection.fetch(0)
+    assert_equal [ "child after fork" ], names_by_connection.fetch(1)
+  ensure
+    exporter&.shutdown(timeout: 1)
+    provider&.shutdown(timeout: 1)
+    collector&.close
+    server&.join(1)
+  end
+
+  test "forked flush and shutdown replace inherited delegates before use" do
+    %i[force_flush shutdown].each do |operation|
+      calls = []
+      factories = 0
+      exporter = HubTracing::Exporter.new do
+        identifier = factories += 1
+        Object.new.tap do |delegate|
+          delegate.define_singleton_method(:force_flush) do |timeout:|
+            calls << [ identifier, :force_flush ]
+            OpenTelemetry::SDK::Trace::Export::SUCCESS
+          end
+          delegate.define_singleton_method(:shutdown) do |timeout:|
+            calls << [ identifier, :shutdown ]
+            OpenTelemetry::SDK::Trace::Export::SUCCESS
+          end
+        end
+      end
+      reader, writer = IO.pipe
+      pid = fork do
+        reader.close
+        result = exporter.public_send(operation, timeout: 1)
+        writer.write(Marshal.dump(factories:, calls:, result:))
+        writer.close
+        exit! 0
+      end
+      writer.close
+      child = Marshal.load(reader.read)
+      reader.close
+      _, status = Process.wait2(pid)
+
+      assert status.success?
+      assert_equal 2, child.fetch(:factories)
+      assert_equal [ [ 2, operation ] ], child.fetch(:calls)
+      assert_equal OpenTelemetry::SDK::Trace::Export::SUCCESS, child.fetch(:result)
+    ensure
+      exporter&.shutdown(timeout: 1)
+    end
   end
 
   test "expired export deadlines do not send spans" do
@@ -323,7 +437,15 @@ class HubTracingTest < ActiveSupport::TestCase
     request << socket.readpartial(1024) until request.include?("\r\n\r\n")
     headers, body = request.split("\r\n\r\n", 2)
     content_length = headers[/\r\nContent-Length:\s*(\d+)/i, 1].to_i
-    socket.read(content_length - body.bytesize) if body.bytesize < content_length
+    body << socket.read(content_length - body.bytesize) if body.bytesize < content_length
+    body
+  end
+
+  def named_batch(template, name)
+    span = template.dup
+    span.name = name
+    span.attributes = {}
+    [ span ]
   end
 
   def run_startup(configuration, script)

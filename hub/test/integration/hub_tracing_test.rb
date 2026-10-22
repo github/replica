@@ -97,6 +97,24 @@ class HubTracingIntegrationTest < ActiveSupport::TestCase
     refute_includes result.fetch("payloads").map { |payload| Base64.strict_decode64(payload) }.join, "identity-email-canary"
   end
 
+  test "service name preserves SDK resource precedence" do
+    [
+      [ {}, "replica-hub" ],
+      [ { "OTEL_RESOURCE_ATTRIBUTES" => "service.name=resource-service" }, "resource-service" ],
+      [
+        {
+          "OTEL_RESOURCE_ATTRIBUTES" => "service.name=resource-service",
+          "OTEL_SERVICE_NAME" => "explicit-service"
+        },
+        "explicit-service"
+      ]
+    ].each do |configuration, expected|
+      result = run_traced_request(configuration:)
+
+      assert_equal [ expected ], resource_service_names(result), result.fetch("diagnostics")
+    end
+  end
+
   test "sensitive opt in exports SQL filtered job arguments and exception diagnostics" do
     result = run_traced_request(
       configuration: { "REPLICA_OTEL_INCLUDE_SENSITIVE_DATA" => "TrUe" },
@@ -170,7 +188,7 @@ class HubTracingIntegrationTest < ActiveSupport::TestCase
 
   test "untraced exact hosts suppress HTTP spans and propagation without suppressing other hosts or jobs" do
     result = run_traced_request(configuration: {
-      "REPLICA_OTEL_UNTRACED_HOSTS" => " upstream.example, other.example "
+      "REPLICA_OTEL_UNTRACED_HOSTS" => " upstream.example, LocalHost,127.0.0.1,::1 "
     })
 
     refute result.fetch("traceparent_propagated"), "mixed-case untraced host received trace context"
@@ -225,6 +243,17 @@ class HubTracingIntegrationTest < ActiveSupport::TestCase
 
   def span_attributes(span)
     span.attributes.to_h { |attribute| [ attribute.key, attribute.value ] }
+  end
+
+  def resource_service_names(result)
+    result.fetch("payloads").flat_map do |payload|
+      request = Opentelemetry::Proto::Collector::Trace::V1::ExportTraceServiceRequest.decode \
+        Base64.strict_decode64(payload)
+      request.resource_spans.filter_map do |resource_spans|
+        attribute = resource_spans.resource.attributes.find { |candidate| candidate.key == "service.name" }
+        attribute&.value&.string_value
+      end
+    end.uniq
   end
 
   def run_traced_request(collector_failure: false, fork_worker: false, configuration: {}, failing_job: false, change_sensitive_setting: nil)

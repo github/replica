@@ -1,6 +1,14 @@
 require "uri"
+require "ipaddr"
 
 module HubTracing
+  HOSTNAME = /
+    \A
+    [a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?
+    (?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*
+    \z
+  /ix
+
   def self.start!
     return if ENV["SECRET_KEY_BASE_DUMMY"] || ENV["OTEL_SDK_DISABLED"]&.casecmp?("true")
 
@@ -18,8 +26,9 @@ module HubTracing
       []
     end
     if ENV.key?("REPLICA_OTEL_UNTRACED_HOSTS") &&
-        (untraced_hosts.empty? || untraced_hosts.any?(&:empty?))
-      raise ArgumentError, "REPLICA_OTEL_UNTRACED_HOSTS must contain nonempty comma-separated hostnames"
+        (untraced_hosts.empty? || untraced_hosts.any? { !valid_untraced_host?(_1) })
+      raise ArgumentError,
+        "REPLICA_OTEL_UNTRACED_HOSTS must contain comma-separated hostnames or IP addresses"
     end
     untraced_hosts = untraced_hosts.map do |host|
       Regexp.new("\\A#{Regexp.escape(host)}\\z", Regexp::IGNORECASE)
@@ -36,7 +45,7 @@ module HubTracing
     rescue URI::InvalidURIError
       raise ArgumentError, "OTLP endpoint must be an absolute HTTP(S) URL", cause: nil
     end
-    unless %w[http https].include?(uri.scheme) && uri.host &&
+    unless %w[http https].include?(uri.scheme) && uri.host && !uri.host.empty? &&
         !uri.userinfo && !uri.query && !uri.fragment
       raise ArgumentError, "OTLP endpoint must be an absolute HTTP(S) URL without credentials, query, or fragment"
     end
@@ -55,7 +64,9 @@ module HubTracing
     end
     processor = OpenTelemetry::SDK::Trace::Export::BatchSpanProcessor.new(span_exporter)
     OpenTelemetry::SDK.configure do |config|
-      config.service_name = ENV.fetch("OTEL_SERVICE_NAME", "replica-hub")
+      resource_service_name = \
+        OpenTelemetry::SDK::Resources::Resource.default.attribute_enumerator.to_h["service.name"]
+      config.service_name = "replica-hub" if resource_service_name == "unknown_service"
       config.propagators = [ Propagator.new(trust_incoming_context:) ]
       config.add_span_processor(processor)
       config.use "OpenTelemetry::Instrumentation::Rack", untraced_endpoints: [ "/up" ]
@@ -120,5 +131,18 @@ module HubTracing
     end
 
     value.casecmp?("true")
+  end
+
+  def self.valid_untraced_host?(host)
+    return false if host.empty? || host.bytesize > 253
+
+    if host.include?(":") || host.match?(/\A[0-9.]+\z/)
+      IPAddr.new(host)
+      return true
+    end
+
+    host.match?(HOSTNAME)
+  rescue IPAddr::InvalidAddressError
+    false
   end
 end
