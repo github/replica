@@ -43,7 +43,7 @@ const data: PrototypeWorkspaceHeaderData = {
 function noop() {}
 
 const meta = {
-  title: "Features/Review/Shell Header",
+  title: "Hub/Features/Review/Shell Header",
   component: PrototypeWorkspaceHeader,
   parameters: {
     docs: {

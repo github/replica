@@ -51,7 +51,7 @@ const connections: CanvasPairingsPageData = {
 }
 
 const meta = {
-  title: "Pages/Canvas/Connection",
+  title: "Hub/Pages/Canvas/Connection",
   component: CanvasPairingsPage,
   args: { data: approval },
   parameters: { layout: "fullscreen" },

@@ -67,7 +67,7 @@ const workflowCases: { label: string; data: WorkflowInstallationData }[] = [
 ]
 
 const meta = {
-  title: "Hub Design/Banner inventory",
+  title: "Hub/Design/Banner inventory",
   parameters: { layout: "padded" },
 } satisfies Meta
 

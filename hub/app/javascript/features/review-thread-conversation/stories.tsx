@@ -14,7 +14,7 @@ function successfulAction() {
 }
 
 const meta = {
-  title: "Features/Review/Thread Conversation",
+  title: "Hub/Features/Review/Thread Conversation",
   component: ReviewThreadConversation,
   args: {
     thread: singleReviewThread,
@@ -91,8 +91,6 @@ export const ReadOnlyConversation: Story = {
     },
   },
 }
-
-export const Dark: Story = { globals: { colorMode: "night" } }
 
 export const Multiple: Story = {
   args: {

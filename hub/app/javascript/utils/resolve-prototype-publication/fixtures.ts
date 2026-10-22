@@ -346,4 +346,50 @@ export const publicationExamples: Record<
     },
     hub: publicationHub,
   },
+  "Checking remote branch": {
+    state: {
+      ...publicationState,
+      stats: {
+        ...publicationState.stats,
+        remoteBranch: { ...publicationState.stats.remoteBranch!, state: "loading" },
+      },
+    },
+    hub: publicationHub,
+  },
+  "Hub unavailable": {
+    state: publicationState,
+    hub: {
+      ...publicationHub,
+      state: "unavailable",
+      message: "Hub could not be reached. Retry when the connection is restored.",
+    },
+  },
+  "Hub access denied": {
+    state: publicationState,
+    hub: { ...publicationHub, state: "denied", message: "Repository access was removed." },
+  },
+  "Checkout changed": {
+    state: publicationState,
+    hub: { ...publicationHub, branch: "prototype/previous" },
+  },
+  "Default branch": {
+    state: publicationState,
+    hub: {
+      ...publicationHub,
+      discovery: { ...publicationHub.discovery!, defaultBranch: publicationState.stats.branch },
+      registrationReason: "branch_not_reviewable",
+    },
+  },
+  "Branch authorship required": {
+    state: publicationState,
+    hub: { ...publicationHub, registrationReason: "branch_authorship_required" },
+  },
+  "Repository mismatch": {
+    state: publicationState,
+    hub: { ...publicationHub, registrationReason: "repository_mismatch" },
+  },
+  "Already registered": {
+    state: publicationState,
+    hub: { ...publicationHub, registrationReason: "already_registered" },
+  },
 }

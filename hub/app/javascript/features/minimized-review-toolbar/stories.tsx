@@ -61,7 +61,7 @@ function InteractiveToolbar(props: MinimizedReviewToolbarProps) {
 }
 
 const meta = {
-  title: "Features/Review/Minimized Toolbar",
+  title: "Hub/Features/Review/Minimized Toolbar",
   component: MinimizedReviewToolbar,
   parameters: { layout: "fullscreen" },
   args: {

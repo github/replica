@@ -517,6 +517,57 @@ it("offers an explicit local switch with a warning when the selected Hub cannot 
   view.unmount()
 })
 
+it("retains every preview pin for collections larger than 200 threads", async () => {
+  const comments = Array.from({ length: 201 }, (_, index) => ({
+    ...octocatRootComment,
+    id: index + 1,
+  }))
+  const nonce = "00000000-0000-4000-8000-000000000000"
+  vi.spyOn(crypto, "randomUUID").mockReturnValue(nonce)
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() => Promise.resolve(Response.json({ comments, hasMore: false, nextCursor: null }))),
+  )
+  const frameRef = createRef<HTMLIFrameElement>()
+  const view = renderPrototypeCanvasHubPanel(
+    {
+      status: { ...publicationHub, state: "connected", prototype: importedPrototype },
+      frameRef,
+      open: false,
+    },
+    <iframe ref={frameRef} title="Prototype preview" src="about:blank" />,
+  )
+  await screen.findByRole("button", { name: /^Comments, 201/ })
+  const post = vi.spyOn(frameRef.current!.contentWindow!, "postMessage")
+  fireEvent.load(frameRef.current!)
+  expect(post).toHaveBeenCalledWith(
+    expect.objectContaining({
+      type: "replica:canvas:resolve",
+      anchors: comments.toReversed().map(({ id, anchor }) => ({ id, anchor })),
+    }),
+    "http://localhost:4321",
+  )
+  act(() => {
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        source: frameRef.current?.contentWindow,
+        origin: "http://localhost:4321",
+        data: {
+          type: "replica:canvas:resolved",
+          protocolVersion: 1,
+          nonce,
+          route: { pathname: "/", search: "", hash: "" },
+          results: comments.map(({ id }) => ({ id, x: 0, y: 0 })),
+        },
+      }),
+    )
+  })
+  expect(
+    screen.queryAllByRole("button", { name: "Unread thread started by @octocat" }),
+  ).toHaveLength(comments.length)
+  view.unmount()
+})
+
 it("creates Hub conversations and supports existing-thread actions", async () => {
   const paths: { path: string; method: string }[] = []
   const recoveryDetail = "Hub is temporarily unavailable. Retry saving your comment."

@@ -10,7 +10,7 @@ const config = {
 }
 
 const meta = {
-  title: "Components/Prototype canvas/Toolbar",
+  title: "Prototype canvas/Toolbar",
   component: Toolbar,
   args: {
     config,
@@ -20,6 +20,8 @@ const meta = {
     shareButtonRef: createRef<HTMLButtonElement>(),
     onBuildDetails: () => undefined,
     onHub: () => undefined,
+    onControls: () => undefined,
+    controlsOpen: false,
     hubOpen: false,
     publishButtonRef: createRef<HTMLButtonElement>(),
     titleButtonRef: createRef<HTMLButtonElement>(),
@@ -95,3 +97,6 @@ export const Failed: Story = {
 export const Unavailable: Story = {
   args: { state: null },
 }
+export const Publishing: Story = { args: { publishing: true } }
+export const ControlsOpen: Story = { args: { controlsOpen: true } }
+export const HubOpen: Story = { args: { hubOpen: true } }

@@ -200,14 +200,11 @@ describe("useReviewComments()", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
-  it("follows every cursor page and preserves newest-first order", async () => {
+  it("loads the complete collection in one request and preserves newest-first order", async () => {
     const fetchMock = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(
-        Response.json({ comments: [COMMENT_2], nextCursor: "cursor-2", hasMore: true }),
-      )
-      .mockResolvedValueOnce(
-        Response.json({ comments: [COMMENT_1], nextCursor: null, hasMore: false }),
+        Response.json({ comments: [COMMENT_2, COMMENT_1], nextCursor: null, hasMore: false }),
       )
     vi.stubGlobal("fetch", fetchMock)
 
@@ -216,10 +213,14 @@ describe("useReviewComments()", () => {
     await waitFor(() => expect(result.current.comments).toHaveLength(2))
     expect(result.current.comments.map(({ id }) => id)).toEqual([2, 1])
     expect(result.current.loading).toBe(false)
-    expect(fetchMock).toHaveBeenCalledTimes(2)
-    const secondRequest: unknown = fetchMock.mock.calls[1]?.[0]
-    if (!(secondRequest instanceof URL)) throw new Error("Expected a cursor URL")
-    expect(secondRequest.searchParams.get("cursor")).toBe("cursor-2")
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const input = fetchMock.mock.calls[0]?.[0]
+    const request = new URL(
+      input instanceof Request ? input.url : (input ?? ""),
+      window.location.origin,
+    )
+    expect(request.pathname).toBe(REVIEW_COMMENTS_PATH)
+    expect(request.search).toBe("")
   })
 
   it("adds the created comment without reloading the page", async () => {
@@ -332,7 +333,7 @@ describe("useReviewComments()", () => {
   it("reports invalid or failed responses without returning success-shaped data", async () => {
     const fetchMock = vi
       .fn<typeof fetch>()
-      .mockResolvedValueOnce(Response.json({ comments: [], nextCursor: null, hasMore: true }))
+      .mockResolvedValueOnce(Response.json({ comments: "invalid" }))
     vi.stubGlobal("fetch", fetchMock)
 
     const { result } = renderHook(() => useReviewComments(REVIEW_COMMENTS_PATH, "csrf-token"))

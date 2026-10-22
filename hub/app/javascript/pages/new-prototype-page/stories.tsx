@@ -64,7 +64,7 @@ const data: NewPrototypePageData = {
 }
 
 const meta = {
-  title: "Pages/Repositories/Create",
+  title: "Hub/Pages/Repositories/Create",
   component: NewPrototypePage,
   args: { data },
   parameters: {

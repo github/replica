@@ -22,6 +22,7 @@ import { requestCommentingFix } from "../request-commenting-fix/index.mjs"
 import { requestControlsDiagnosis } from "../request-controls-diagnosis/index.mjs"
 import { reviewAction } from "../review-action/index.mjs"
 import { createCommentStore } from "../comment-store/index.mjs"
+import { createImprovementNotes } from "../improvement-notes/index.mjs"
 import { createShareLinks } from "../share-links/index.mjs"
 import { startPreviewProxy } from "../start-preview-proxy/index.mjs"
 import { captureReviewRevision } from "../capture-review-revision/index.mjs"
@@ -43,10 +44,13 @@ import type { ShareBrowser, ShareLinks } from "../share-links/index.mjs"
 import type { PreviewProxy } from "../start-preview-proxy/index.mjs"
 import type { AgentCommands } from "../agent-commands/index.mjs"
 import type { PrototypeServerStatus } from "../check-prototype-server/index.mjs"
+import type { ImprovementNotes } from "../improvement-notes/index.mjs"
+import { uuidInputPattern } from "../identity-patterns/index.mjs"
 
 export type CanvasServerOptions = {
   publishPreferencesDirectory?: string
   localCommentsDirectory?: string
+  improvementNotesDirectory?: string
   hubOptions?: HubConnectionOptions
   openBrowser?: ShareBrowser
   agentCommands?: AgentCommands
@@ -122,6 +126,9 @@ export async function startCanvasServer(
   const source = await readFile(new URL("../assets/canvas-bridge.js", import.meta.url), "utf8")
   const hubConnection = createHubConnection(() => context, options.hubOptions)
   const { hubClient, refreshDiscovery, selectHubOrigin, discoveries } = hubConnection
+  const improvementNotes = createImprovementNotes(() => context, session, hubClient, {
+    directory: options.improvementNotesDirectory,
+  })
   const localComments = createLocalReviewComments(initialContext, {
     directory: options.localCommentsDirectory,
   })
@@ -393,6 +400,7 @@ export async function startCanvasServer(
         options.agentCommands,
         shareLinks,
         publishPreferences,
+        improvementNotes,
         localComments,
         localScope,
       )
@@ -475,6 +483,7 @@ export async function startCanvasServer(
     reviewAction: async (action: string, input: unknown) =>
       reviewAction(await hubClient(), action, input, comments),
     updateMetadata,
+    improvementNotes,
     close: async () => {
       options.agentCommands?.close()
       for (const stream of streams) stream.end()
@@ -510,6 +519,7 @@ async function routeRequest(
   agentCommands: AgentCommands | undefined,
   shareLinks: ShareLinks,
   publishPreferences: PublishPreferences,
+  improvementNotes: ImprovementNotes,
   localComments: LocalReviewComments,
   localScope: LocalScope,
 ) {
@@ -536,6 +546,26 @@ async function routeRequest(
   }
 
   requireToken(request, token)
+  if (requestUrl.pathname === "/api/improvement-notes/capture" && request.method === "POST") {
+    sendJson(response, 200, await improvementNotes.capture())
+    return
+  }
+  if (requestUrl.pathname === "/api/improvement-notes" && request.method === "GET") {
+    sendJson(response, 200, await improvementNotes.load())
+    return
+  }
+  if (requestUrl.pathname === "/api/improvement-notes" && request.method === "POST") {
+    sendJson(response, 200, await improvementNotes.save(await readJson(request, 1_550_000)))
+    return
+  }
+  if (
+    request.method === "POST" &&
+    ["/api/improvement-notes/sync", "/api/improvement-notes/fix"].includes(requestUrl.pathname)
+  ) {
+    const action = requestUrl.pathname.endsWith("/fix") ? "fix" : "sync"
+    sendJson(response, 200, await improvementNotes[action](await readJson(request)))
+    return
+  }
   const sharingRoute =
     /^\/api\/hub\/share-links\/(context|list|create|delete|open|controls-preference|authorize)$/.exec(
       requestUrl.pathname,
@@ -1076,11 +1106,7 @@ function validRoute(route: unknown) {
 }
 
 function validAgentResult(result: Record<string, unknown>) {
-  if (
-    !boundedString(result.id, 36) ||
-    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(result.id)
-  )
-    return false
+  if (!boundedString(result.id, 36) || !uuidInputPattern.test(result.id)) return false
   if (result.ok === false)
     return (
       hasKeys(result, ["id", "ok", "error"]) &&

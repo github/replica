@@ -21,7 +21,7 @@ const data = {
 }
 
 const meta = {
-  title: "Pages/Replica Browse",
+  title: "Hub/Pages/Replica Browse",
   component: ReplicaBrowsePage,
   args: {
     data,
