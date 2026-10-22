@@ -454,7 +454,9 @@ export async function registerPrototypeCanvas(
   const devServers = createDevServerManager({ discover })
 
   const session = await joinSession({
-    hooks: { onUserPromptSubmitted: createLearningsHook(canvasOptions.hubOptions) },
+    hooks: {
+      onUserPromptSubmitted: createLearningsHook(canvasOptions.hubOptions),
+    },
     canvases: [
       createCanvas({
         id: canvasOptions.id ?? "replica-prototype",
@@ -478,7 +480,7 @@ export async function registerPrototypeCanvas(
             improvementThreadsSample: {
               type: "boolean",
               description:
-                "Compatibility flag for clients with an isolated, in-memory follow-up conversation surface. The runtime transports this flag without saving, syncing or dispatching sample actions.",
+                "Show an isolated, in-memory follow-up conversation experiment instead of saved Pick & polish notes. Sample actions never save, sync or dispatch work.",
             },
             repository: {
               type: "string",
@@ -818,7 +820,10 @@ export async function registerPrototypeCanvas(
               required: ["outcome", "target"],
               properties: {
                 outcome: { type: "string", enum: PUBLISH_RESULT_OUTCOMES },
-                reason: { type: "string", maxLength: MAX_PUBLISH_RESULT_REASON_LENGTH },
+                reason: {
+                  type: "string",
+                  maxLength: MAX_PUBLISH_RESULT_REASON_LENGTH,
+                },
                 target: {
                   type: "object",
                   additionalProperties: true,
@@ -838,7 +843,10 @@ export async function registerPrototypeCanvas(
                     originFingerprint: { type: ["string", "null"] },
                     pushFingerprint: { type: ["string", "null"] },
                     canvasInstanceId: { type: "string" },
-                    mode: { type: "string", enum: ["commit-changes", "committed-only"] },
+                    mode: {
+                      type: "string",
+                      enum: ["commit-changes", "committed-only"],
+                    },
                   },
                 },
               },
@@ -920,7 +928,10 @@ export async function registerPrototypeCanvas(
           )
           const input = ctx.input?.prototypeUrl
             ? ctx.input
-            : { ...(existing?.input ?? (await connection.read())), ...ctx.input }
+            : {
+                ...(existing?.input ?? (await connection.read())),
+                ...ctx.input,
+              }
           let entry = existing
           if (!entry) {
             let devServer

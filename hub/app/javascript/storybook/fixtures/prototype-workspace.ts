@@ -12,7 +12,7 @@ export const prototypeWorkspaceData = {
     url: "https://github.com/octocat",
   },
   branchName: "prototype/welcome",
-  branchPath: "/repositories/2001/prototypes/1?build=1",
+  branchPath: "/repositories/2001/prototypes/1",
   buildOptions: [
     {
       number: 1,

@@ -197,13 +197,23 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Movable: Story = {}
+export const Empty: Story = {
+  args: { status: "no-controls" },
+  parameters: {
+    docs: {
+      description: {
+        story:
+          "The empty panel keeps its explanation above a left-aligned green Learn more link with an external-link icon. The link is vertically centered in the gray footer and retains its keyboard focus outline in both themes.",
+      },
+    },
+  },
+}
 export const Collapsed: Story = { args: { collapsed: true } }
 export const ConnectionFailure: Story = { args: { failure: true } }
 export const StorageFailure: Story = { args: { storageFailure: true } }
 export const ScopeFailure: Story = { args: { scopeFailure: true } }
 export const ControlFailure: Story = { args: { controlFailure: true } }
 export const Loading: Story = { args: { controlFailure: true, loading: true } }
-export const NoControls: Story = { args: { status: "no-controls" } }
 export const UnsupportedRuntime: Story = {
   args: { status: "unsupported-runtime", failure: true },
 }

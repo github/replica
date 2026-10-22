@@ -7,10 +7,7 @@ json.repositoriesPath repository_path(@repository.route_id)
 json.repositoryName @repository.name_with_owner
 json.repositoryPath repository_path(@repository.route_id)
 json.branchName @prototype.branch_name
-json.branchPath repository_prototype_path \
-  @repository.route_id,
-  @prototype,
-  **(@selected_build ? { build: @selected_build.number } : {})
+json.branchPath repository_prototype_path(@repository.route_id, @prototype)
 json.buildsHeading t("builds.index.heading")
 json.emptyLabel t("builds.index.empty")
 json.newestPageLabel t("builds.index.newest_page")
