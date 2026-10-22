@@ -63,7 +63,7 @@
     "prettier": "3.9.9",
     "storybook": "10.6.1",
     "typescript": "npm:@typescript/typescript6@6.0.2",
-    "typescript-eslint": "8.71.1",
+    "typescript-eslint": "8.71.2",
     "vite": "8.3.4",
     "vite-plugin-ruby": "5.2.5",
     "vitest": "5.0.3"
