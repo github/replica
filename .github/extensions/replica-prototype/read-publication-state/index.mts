@@ -102,6 +102,7 @@ function isTimestamp(value: unknown): value is string {
 function isCommitShaOrNull(value: unknown): value is string | null {
   return value === null || (typeof value === "string" && /^[0-9a-f]{40}$/.test(value))
 }
+
 function nullableText(value: unknown) {
   return value === null || typeof value === "string"
 }

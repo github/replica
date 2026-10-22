@@ -5,7 +5,7 @@ import { BuildStateLabel } from "@components/build-state-label"
 import { HubContentPageHeader } from "."
 
 const meta = {
-  title: "Components/Hub-built: Content Page Header",
+  title: "Components/Content Page Header",
   component: HubContentPageHeader,
   args: { title: "History" },
 } satisfies Meta<typeof HubContentPageHeader>

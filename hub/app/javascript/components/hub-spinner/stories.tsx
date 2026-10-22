@@ -3,7 +3,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HubSpinner } from "."
 
 const meta = {
-  title: "Components/Hub-built: Spinner",
+  title: "Components/Spinner",
   component: HubSpinner,
   args: { label: "Loading comments", size: "small" },
 } satisfies Meta<typeof HubSpinner>

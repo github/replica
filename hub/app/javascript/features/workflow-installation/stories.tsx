@@ -3,7 +3,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { WorkflowInstallation } from "."
 
 const meta = {
-  title: "Features/GitHub/Workflow Installation",
+  title: "Hub/Features/GitHub/Workflow Installation",
   component: WorkflowInstallation,
   args: {
     authenticityToken: "storybook-token",

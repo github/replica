@@ -1,39 +1,23 @@
-import { REVIEW_COMMENT_PAGE_SCHEMA } from "@utils/review-comment/schemas"
-import type { ReviewComment } from "@utils/review-comment/types"
-
-import { REVIEW_COMMENTS_PAGE_SIZE } from "../../constants"
+import { REVIEW_COMMENTS_SCHEMA } from "@utils/review-comment/schemas"
 import { reviewAccessUnavailable } from "../review-access-unavailable"
 import type { ReviewCommentsFetchResult } from "./types"
 
-/** Fetches every cursor page without exposing a partial response. */
+/** Fetches the complete comment collection. */
 export async function fetchAllReviewComments(
   path: string,
   signal: AbortSignal,
 ): Promise<ReviewCommentsFetchResult> {
-  const fetched: ReviewComment[] = []
-  let cursor: string | null = null
-
   try {
-    do {
-      const url = new URL(path, window.location.origin)
-      url.searchParams.set("pageSize", REVIEW_COMMENTS_PAGE_SIZE.toString())
-      if (cursor) url.searchParams.set("cursor", cursor)
+    const response = await fetch(new URL(path, window.location.origin), {
+      headers: { Accept: "application/json" },
+      signal,
+    })
+    if (reviewAccessUnavailable(response)) return { kind: "access-lost" }
+    if (!response.ok) return { kind: "failed" }
+    const collection = REVIEW_COMMENTS_SCHEMA.safeParse(await response.json())
+    if (!collection.success) return { kind: "failed" }
 
-      const response = await fetch(url, {
-        headers: { Accept: "application/json" },
-        signal,
-      })
-      if (reviewAccessUnavailable(response)) return { kind: "access-lost" }
-      if (!response.ok) return { kind: "failed" }
-
-      const parsedPage = REVIEW_COMMENT_PAGE_SCHEMA.safeParse(await response.json())
-      if (!parsedPage.success) return { kind: "failed" }
-
-      fetched.push(...parsedPage.data.comments)
-      cursor = parsedPage.data.nextCursor
-    } while (cursor)
-
-    return { kind: "success", comments: fetched }
+    return { kind: "success", comments: collection.data.comments }
   } catch (error) {
     if (signal.aborted) throw error
 

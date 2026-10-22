@@ -8,7 +8,7 @@ import { PrototypeIndexHeader } from "@features/prototype-index-header"
 import { RepositoryWorkspace } from "."
 
 const meta = {
-  title: "Features/Repository Workspace",
+  title: "Hub/Features/Repository Workspace",
   component: RepositoryWorkspace,
   args: {
     data: {

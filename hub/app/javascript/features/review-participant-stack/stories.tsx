@@ -6,7 +6,7 @@ import { mona, octocat } from "@/storybook/fixtures/users"
 import { ReviewParticipantStack } from "."
 
 const meta = {
-  title: "Features/Review/Participant Stack",
+  title: "Hub/Features/Review/Participant Stack",
   component: ReviewParticipantStack,
   args: {
     participants: [octocat],

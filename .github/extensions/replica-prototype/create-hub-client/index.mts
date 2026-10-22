@@ -8,6 +8,7 @@ import { createPrivateStore } from "../private-store/index.mjs"
 import { normalizeHubOrigin } from "../normalize-hub-origin/index.mjs"
 import { readHubObject } from "../read-hub-object/index.mjs"
 import { readHubError } from "../read-hub-error/index.mjs"
+import { githubLoginPattern } from "../identity-patterns/index.mjs"
 import type { CanvasContext } from "../create-canvas-context/index.mjs"
 
 export type HubContext = Pick<CanvasContext, "repositoryPath"> & {
@@ -29,7 +30,7 @@ export type HubRequestOptions = {
   beforeDispatch?: () => void | Promise<void>
   timeoutMs?: number
   connectionScope?: ConnectionScope
-  expectedTarget?: { repository: string; branch: string }
+  expectedTarget?: { repository: string; branch: string | null }
 }
 type Credential = {
   origin: string
@@ -61,6 +62,24 @@ type RequestError = Error & {
   rateLimitMessage?: string
   authorization?: { url: string; expiresAt: string }
   registrationReason?: string
+}
+type StatusOptions = {
+  register?: boolean
+  expectedTarget?: { repository: string; branch: string }
+  connectionScope?: ConnectionScope
+}
+
+function connectionViewer(connection: Record<string, unknown>) {
+  if (connection.viewerId == null) return {}
+  if (
+    typeof connection.viewerId !== "number" ||
+    !Number.isSafeInteger(connection.viewerId) ||
+    connection.viewerId < 1 ||
+    typeof connection.viewerLogin !== "string" ||
+    !githubLoginPattern.test(connection.viewerLogin)
+  )
+    throw new Error("Hub returned an invalid connected author.")
+  return { viewerId: connection.viewerId, viewerLogin: connection.viewerLogin }
 }
 
 function registrationReason(value: unknown) {
@@ -397,7 +416,7 @@ export function createHubClient(context: HubContext, options: HubClientOptions =
       const credential = await credentialFor(repository)
       return credential ? connectionIdentity(credential) : null
     },
-    async status(): Promise<
+    async status({ register = true, expectedTarget, connectionScope }: StatusOptions = {}): Promise<
       | {
           state: "connected"
           repositoryAuthorized: true
@@ -415,6 +434,7 @@ export function createHubClient(context: HubContext, options: HubClientOptions =
           reviewConnectionId: string
           canPublish: unknown
           viewerLogin: unknown
+          viewerId?: number
           repository: string
           branch?: string
           commitSha: string | null
@@ -437,20 +457,22 @@ export function createHubClient(context: HubContext, options: HubClientOptions =
           message: "Open a repository with a GitHub origin.",
         }
       }
+      const repository = target.repository
       try {
-        const credential = await credentialFor(target.repository)
+        const credential = await credentialFor(repository, undefined, connectionScope)
         if (!credential) {
-          const pending = await readPending(target.repository)
+          const pending = await readPending(repository)
           if (pending?.refreshToken && Date.parse(pending.expiresAt) <= Date.now()) {
             const result = await this.poll()
-            if (result.status === "approved") return this.status()
+            if (result.status === "approved")
+              return this.status({ register, expectedTarget, connectionScope })
           }
           const pairing = pending && Date.parse(pending.expiresAt) > Date.now()
-          const previous = await readCredential(target.repository)
+          const previous = await readCredential(repository)
           return {
             state: pairing ? "pairing" : "disconnected",
             pairing: pairing ? publicPairing(pending) : undefined,
-            repository: target.repository,
+            repository,
             branch: target.branch,
             commitSha: target.commitSha,
             message:
@@ -459,15 +481,21 @@ export function createHubClient(context: HubContext, options: HubClientOptions =
                 : undefined,
           }
         }
+        const lookup = (route: string) =>
+          register
+            ? authorizedRequest(credential.repository, credential, route)
+            : this.request(route, {
+                expectedTarget: expectedTarget ?? {
+                  repository,
+                  branch: target.branch,
+                },
+                connectionScope,
+              })
         if (!target.branch) {
-          const connection = await authorizedRequest(
-            target.repository,
-            credential,
-            "/api/canvas/connection",
-          )
+          const connection = await lookup("/api/canvas/connection")
           if (
             typeof connection.repository !== "string" ||
-            connection.repository.toLowerCase() !== target.repository.toLowerCase()
+            connection.repository.toLowerCase() !== repository.toLowerCase()
           )
             throw new Error("Hub did not verify this repository.")
           return {
@@ -476,29 +504,24 @@ export function createHubClient(context: HubContext, options: HubClientOptions =
             reviewConnectionId: connectionIdentity(credential),
             canPublish: connection.canPublish,
             viewerLogin: connection.viewerLogin,
-            repository: target.repository,
+            ...connectionViewer(connection),
+            repository,
             commitSha: target.commitSha,
             message: "Connected to this repository. Open a named branch for Builds and reviews.",
           }
         }
         let prototype
         try {
-          prototype = await authorizedRequest(
-            target.repository,
-            credential,
+          prototype = await lookup(
             `/api/canvas/prototype?branch=${encodeURIComponent(target.branch)}`,
           )
         } catch (caught) {
           const error = readHubError(caught)
           if (error.statusCode !== 404) throw error
-          const connection = await authorizedRequest(
-            target.repository,
-            credential,
-            "/api/canvas/connection",
-          )
+          const connection = await lookup("/api/canvas/connection")
           if (
             typeof connection.repository !== "string" ||
-            connection.repository.toLowerCase() !== target.repository.toLowerCase()
+            connection.repository.toLowerCase() !== repository.toLowerCase()
           )
             throw new Error("Hub did not verify this repository.", {
               cause: caught,
@@ -509,17 +532,21 @@ export function createHubClient(context: HubContext, options: HubClientOptions =
             reviewConnectionId: connectionIdentity(credential),
             canPublish: connection.canPublish,
             viewerLogin: connection.viewerLogin,
-            repository: target.repository,
+            ...connectionViewer(connection),
+            repository,
             branch: target.branch,
             commitSha: target.commitSha,
             ...(error.registrationReason
-              ? { registrationReason: registrationReason(error.registrationReason) }
+              ? {
+                  registrationReason: registrationReason(error.registrationReason),
+                }
               : {}),
           }
         }
         let registrationError
         let reason = registrationReason(prototype.registrationReason)
         if (
+          register &&
           !prototype.registered &&
           prototype.canEdit &&
           prototype.canRegister &&
@@ -781,7 +808,10 @@ export function createHubClient(context: HubContext, options: HubClientOptions =
         })
       )
         throw new Error("Hub returned invalid learnings.")
-      return { text: result.text, memories: memories.map(({ id, digest }) => ({ id, digest })) }
+      return {
+        text: result.text,
+        memories: memories.map(({ id, digest }) => ({ id, digest })),
+      }
     },
     async activity() {
       const { target, credential } = await connected()

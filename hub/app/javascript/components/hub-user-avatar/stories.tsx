@@ -5,7 +5,7 @@ import { octocat } from "@/storybook/fixtures/users"
 import { HubUserAvatar } from "."
 
 const meta = {
-  title: "Components/Brand-based: User avatar",
+  title: "Components/User avatar",
   component: HubUserAvatar,
   args: { src: octocat.avatarUrl },
 } satisfies Meta<typeof HubUserAvatar>
