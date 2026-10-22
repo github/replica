@@ -7,7 +7,13 @@ const execFileAsync = promisify(execFile)
 
 export type CommandResult =
   | { ok: true; stdout: string }
-  | { ok: false; error: string; exitCode?: string | number; stdout?: string; stderr?: string }
+  | {
+      ok: false
+      error: string
+      exitCode?: string | number | null
+      stdout?: string
+      stderr?: string
+    }
 
 export async function runCommand(
   command: string,

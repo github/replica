@@ -55,5 +55,12 @@ describe("runCommand()", () => {
     assert.equal(withoutStderr.ok, false)
     assert.equal(withoutStderr.exitCode, 8)
     assert.match(withoutStderr.error, /Command failed/)
+
+    const signaled = await runCommand(process.execPath, [
+      "-e",
+      'process.kill(process.pid, "SIGTERM")',
+    ])
+    assert.equal(signaled.ok, false)
+    assert.equal(signaled.exitCode, null)
   })
 })
