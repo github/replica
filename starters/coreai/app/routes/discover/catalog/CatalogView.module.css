@@ -1,0 +1,88 @@
+/*
+ * Copyright (c) Microsoft Corporation.
+ * Licensed under the MIT license.
+ */
+
+.catalogToolbar {
+  display: flex;
+  flex-shrink: 0;
+  flex-direction: column;
+  gap: var(--spacingS);
+  min-width: 0;
+  padding: 0 var(--spacingPagePadding);
+}
+
+.controlsContainer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacingS);
+}
+
+.controlsContainerRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacingL);
+  align-items: center;
+}
+
+.searchBarContainer {
+  flex: 1 1 240px;
+  min-width: 0;
+  max-width: 468px;
+}
+
+.sortDropdownContainer {
+  display: flex;
+  gap: var(--spacingS);
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.mainContent {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacingL);
+  min-width: 0;
+}
+
+.catalogGrid {
+  width: 100%;
+}
+
+.loadMoreContainer {
+  display: flex;
+  justify-content: center;
+  padding-top: var(--spacingM);
+}
+
+.searchResults {
+  /* stylelint-disable-next-line declaration-property-value-allowed-list */
+  padding-top: 6px;
+  /* stylelint-disable-next-line declaration-property-value-allowed-list */
+  padding-bottom: 6px;
+  padding-left: var(--spacingS);
+}
+
+.selectedFilters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacingXS);
+  align-items: center;
+}
+
+@container app (width < 640px) {
+  .searchBarContainer {
+    flex-basis: 0;
+    max-width: none;
+  }
+
+  .sortDropdownContainer {
+    width: 100%;
+  }
+
+  .sortDropdown {
+    width: 100%;
+    min-width: 0;
+  }
+}

@@ -118,7 +118,9 @@ gates.each do |(workflow, id), script|
 end
 puts "CI workflow guards and wiring passed (#{checks} shell cases)."
 
-projects = %w[hub starter actions/build packages/learning]
+catalog_output, catalog_error, catalog_status = Open3.capture3("bash", "scripts/starter-ci-matrix.sh", chdir: root)
+check(catalog_status.success?, "Could not read the starter CI catalog:\n#{catalog_error}")
+projects = %w[hub actions/build packages/learning] + JSON.parse(catalog_output).map { |starter| starter.fetch("directory") }
 projects.each do |project|
   manifest = JSON.parse(File.read(File.join(root, project, "package.json")))
   lock = JSON.parse(File.read(File.join(root, project, "package-lock.json")))
@@ -140,8 +142,16 @@ end
     check(job.fetch("name").end_with?("${{ matrix.node == 26 && ' (Node 26)' || '' }}"), "#{label}: preserve Node 24 check names and distinguish Node 26")
     setup_node = job.fetch("steps").find { |step| step["uses"].to_s.start_with?("actions/setup-node@") }
     check(setup_node && expression(setup_node.dig("with", "node-version")) == "matrix.node", "#{label}: execute the selected Node version")
-    installs = job.fetch("steps").select { |step| step["run"].to_s.start_with?("npm ci") }
-    check(!installs.empty? && installs.all? { |step| step.fetch("run").split.include?("--engine-strict") }, "#{label}: enforce dependency engines")
+    if workflow == "starter-ci"
+      check(expression(job.dig("strategy", "matrix", "starter")) == "fromJSON(needs.catalog.outputs.starters)", "#{label}: check every catalog starter")
+      runner = job.fetch("steps").find { |step| step["run"] == 'bash scripts/check-starter.sh "${{ matrix.starter.id }}" "$RUNNER_TEMP/prototype"' }
+      check(runner, "#{label}: validate the assembled starter with the shared runner")
+      commands = File.read(File.join(root, "scripts/check-starter.sh")).lines.map(&:strip)
+      check(commands.include?("npm ci --engine-strict") && commands.include?("npm run check:starter"), "#{label}: enforce dependency engines and run app checks")
+    else
+      installs = job.fetch("steps").select { |step| step["run"].to_s.start_with?("npm ci") }
+      check(!installs.empty? && installs.all? { |step| step.fetch("run").split.include?("--engine-strict") }, "#{label}: enforce dependency engines")
+    end
   end
 end
 action_steps = workflows.fetch("actions-ci").fetch("test").fetch("steps")

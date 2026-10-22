@@ -1,0 +1,106 @@
+/*
+ * Copyright (c) Microsoft Corporation.
+ * Licensed under the MIT license.
+ */
+
+.dialogSurface {
+  width: 36%;
+  max-width: 570px;
+  padding: var(--spacingL) var(--spacingXXL);
+  border: var(--strokeWidthThin) solid var(--colorNeutralStroke3);
+  background-color: var(--colorNeutralBackground1);
+}
+
+.dialogTitle {
+  min-height: var(--spacingXXXL);
+  overflow-wrap: break-word;
+}
+
+.dialogContent {
+  margin: 0 calc(-1 * var(--spacingXXL));
+  padding: 0 var(--spacingXXL) var(--spacingL);
+}
+
+.description {
+  margin-bottom: var(--spacingL);
+}
+
+.inheritForeground {
+  color: inherit;
+}
+
+.divider {
+  grid-area: 2 / 1 / 2 / 4;
+  align-self: end;
+  width: calc(100% + var(--spacingXXL) * 2);
+  margin-right: calc(-1 * var(--spacingXXL));
+  margin-left: calc(-1 * var(--spacingXXL));
+  border-bottom: var(--strokeWidthThin) solid var(--colorNeutralBackground4);
+}
+
+.dialogActions {
+  flex-wrap: wrap;
+  justify-content: end;
+  margin-top: var(--spacingS);
+}
+
+@media (width < 1312px) {
+  .dialogSurface {
+    width: 42%;
+  }
+}
+
+@media (width < 1056px) {
+  .dialogSurface {
+    width: 60%;
+  }
+}
+
+@media (width <= 768px), (height <= 480px) {
+  .dialogSurface {
+    width: 100%;
+    max-width: 100%;
+    height: 100%;
+    margin: 0;
+  }
+}
+
+.fieldStack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacingVerticalM);
+}
+
+.statusRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacingHorizontalM);
+}
+
+.statusMessage {
+  display: flex;
+  align-items: center;
+  gap: var(--spacingHorizontalS);
+}
+
+.configuredIcon {
+  color: var(--colorPaletteGreenForeground1);
+}
+
+.notConfiguredIcon {
+  color: var(--colorPaletteRedForeground1);
+}
+
+.errorMessage {
+  padding: var(--spacingVerticalS) var(--spacingHorizontalM);
+  background-color: var(--colorPaletteRedBackground1);
+  border-radius: var(--borderRadiusMedium);
+}
+
+.testButton {
+  display: flex;
+  align-items: center;
+  gap: var(--spacingHorizontalXS);
+  flex-shrink: 0;
+}

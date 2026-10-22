@@ -82,7 +82,7 @@ When Controls has finished connecting with no active controls and no errors, its
 
 The source canvas lets prototype authors change ordinary app state without editing files. The sliders icon in the toolbar opens a slim, canvas-owned panel over the left of the preview, separate from Hub review UI. It supports boolean, number, select, radio, segmented, slider, checkboxGroup, text, textarea, color and button fields, plus one-level groups. Conditions are declarative JSON; neither schemas nor host messages select arbitrary components or executable URLs.
 
-Authors put version-1 definitions in `public/controls.replica.json`, served at `/controls.replica.json`. Each control includes a binding to native fields/buttons, styles, query/hash settings or optional app-owned APIs. The Copilot plugin and [Hub Build previews](preview-serving.md#prototype-controls) supply one shared injected adapter. Each Build retains its own definitions. The [authoring reference](../../starter/.agents/skills/prototype-controls/references/authoring.md) owns the JSON and binding contract.
+Authors put version-1 definitions in `public/controls.replica.json`, served at `/controls.replica.json`. Each control includes a binding to native fields/buttons, styles, query/hash settings or optional app-owned APIs. The Copilot plugin and [Hub Build previews](preview-serving.md#prototype-controls) supply one shared injected adapter. Each Build retains its own definitions. The [authoring reference](../../starters/shared/.agents/skills/prototype-controls/references/authoring.md) owns the JSON and binding contract.
 
 ### Connection and state
 
@@ -230,14 +230,14 @@ browser approval again; connecting never pushes a branch.
 ### Deterministic publication example
 
 The Storybook **Components / Prototype canvas / Publication example / Playground** reuses
-the existing `starter/` welcome prototype in an iframe and runs the real canvas renderer
+the existing `starters/minimal/` welcome prototype in an iframe and runs the real canvas renderer
 against story-only fixtures. It needs no GitHub credentials or Hub and makes no real
 publication, approval, or registration requests. Production detection has no demo mode.
 
 In the devcontainer, run the existing starter from the repository root:
 
 ```sh
-cd starter
+cd starters/minimal
 npm run dev -- --host 0.0.0.0 --port 38763
 ```
 
@@ -488,7 +488,7 @@ The proxy rejects requests marked cross-site by the browser, even without an `Or
 
 CSP, framing protections and HTTPS certificate verification are preserved. Policies that block framing or same-origin module scripts remain blockers; the extension does not copy script nonces or relax protections. HTML is limited to 8 MiB after decompression. Buffered HTML keeps the upstream's 30-second inactivity timeout; pass-through streaming responses do not. Unsupported encoding, delivery and upstream failures return explicit proxy errors. This is not a general or authenticated reverse proxy.
 
-The canvas periodically checks the exact proxy iframe source, origin, nonce, protocol version and route. Reloads reset readiness; missing or incompatible responses disable targeting, not existing conversations. **Fix with Copilot** requests scoped, read-only connection diagnosis first, with separate approval before repairs or repository commands. **Dismiss** keeps the preview usable, and recovery is detected automatically. See the starter's [connection troubleshooting](../../starter/SETUP.md#canvas-commenting).
+The canvas periodically checks the exact proxy iframe source, origin, nonce, protocol version and route. Reloads reset readiness; missing or incompatible responses disable targeting, not existing conversations. **Fix with Copilot** requests scoped, read-only connection diagnosis first, with separate approval before repairs or repository commands. **Dismiss** keeps the preview usable, and recovery is detected automatically. See the starter's [connection troubleshooting](../../starters/shared/SETUP.md#canvas-commenting).
 
 The full runtime remains in `hub/app/javascript/application/prototype-preview-bridge/`. Plain static servers now support local selection, markers, route reporting and agent clicks when opened through the proxy. Standalone pages and published Hub commenting are unchanged. Updating the installed extension and reopening the canvas selects its current runtime without prototype-file changes.
 

@@ -1,0 +1,110 @@
+.messageList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacingXL);
+}
+
+.message {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacingXS);
+  max-width: min(90%, 800px);
+}
+
+.userMessage {
+  align-self: flex-end;
+}
+
+.assistantMessage {
+  align-self: flex-start;
+}
+
+.messageHeader {
+  display: flex;
+  align-items: center;
+  gap: var(--spacingS);
+}
+
+.messageContent {
+  border-radius: var(--borderRadiusMedium);
+  padding: var(--spacingS) var(--spacingM);
+}
+
+.userMessage .messageContent {
+  background-color: var(--colorNeutralBackground1);
+}
+
+/* .assistantMessage .messageContent {} */
+
+.timestamp {
+  opacity: 0.7;
+}
+
+.loadingIndicator {
+  display: flex;
+  align-items: center;
+  gap: var(--spacingS);
+  padding: var(--spacingM);
+  align-self: flex-start;
+}
+
+.errorMessage {
+  padding: var(--spacingM);
+  background-color: var(--colorPaletteRedBackground1);
+  color: var(--colorPaletteRedForeground1);
+  border-radius: var(--borderRadiusMedium);
+}
+
+/* Chat Container Styles */
+.chatMessages {
+  overflow-y: auto;
+  padding: var(--spacingXXL);
+  display: flex;
+  flex-direction: column;
+}
+
+.chatMessages:has(.emptyState) {
+  align-items: center;
+  justify-content: center;
+}
+
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacingMNudge);
+  align-items: center;
+  text-align: center;
+  max-width: 800px;
+}
+
+.streamingCursor {
+  display: inline-block;
+  animation: blink 1s step-end infinite;
+  margin-left: var(--spacingXXS);
+  color: var(--colorBrandForeground1);
+}
+
+@keyframes blink {
+  0%,
+  50% {
+    opacity: 1;
+  }
+  51%,
+  100% {
+    opacity: 0;
+  }
+}
+
+/* Message Actions Toolbar */
+.messageActions {
+  display: flex;
+  align-items: center;
+  gap: var(--spacingS);
+  padding: 0 var(--spacingM);
+}
+
+.tokenInfo {
+  display: flex;
+  align-items: center;
+  /* gap: var(--spacingXS); */
+}

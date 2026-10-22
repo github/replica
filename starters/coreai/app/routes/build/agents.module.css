@@ -1,0 +1,5 @@
+.tagsCell {
+  display: flex;
+  gap: var(--spacingXS);
+  flex-wrap: wrap;
+}

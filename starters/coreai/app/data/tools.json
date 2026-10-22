@@ -1,0 +1,317 @@
+[
+  {
+    "id": "tool-001",
+    "name": "Web Search",
+    "description": "Searches the web for current information and returns relevant results",
+    "category": "Data",
+    "isPublished": true,
+    "mark": "WS",
+    "initialsColor": "var(--colorPaletteTealForeground2)"
+  },
+  {
+    "id": "tool-002",
+    "name": "Email Sender",
+    "description": "Sends emails through configured SMTP server",
+    "category": "Communication",
+    "isPublished": true,
+    "mark": "ES",
+    "initialsColor": "var(--colorPaletteBlueForeground2)"
+  },
+  {
+    "id": "tool-003",
+    "name": "Calendar Integration",
+    "description": "Creates, updates, and queries calendar events",
+    "category": "Productivity",
+    "isPublished": true,
+    "mark": "CI",
+    "initialsColor": "var(--colorPaletteMagentaForeground2)"
+  },
+  {
+    "id": "tool-004",
+    "name": "Database Query",
+    "description": "Executes SQL queries on configured databases",
+    "category": "Data",
+    "isPublished": true,
+    "mark": "DQ",
+    "initialsColor": "var(--colorPaletteTealForeground2)"
+  },
+  {
+    "id": "tool-005",
+    "name": "File Storage",
+    "description": "Uploads, downloads, and manages files in cloud storage",
+    "category": "Storage",
+    "isPublished": true,
+    "mark": "FS",
+    "initialsColor": "var(--colorPaletteGreenForeground2)"
+  },
+  {
+    "id": "tool-006",
+    "name": "Slack Messenger",
+    "description": "Sends messages to Slack channels and users",
+    "category": "Communication",
+    "isPublished": true,
+    "mark": "SM",
+    "initialsColor": "var(--colorPaletteBlueForeground2)"
+  },
+  {
+    "id": "tool-007",
+    "name": "Image Generator",
+    "description": "Generates images from text descriptions",
+    "category": "Creative",
+    "isPublished": false,
+    "mark": "IG",
+    "initialsColor": "var(--colorPaletteMarigoldForeground2)"
+  },
+  {
+    "id": "tool-008",
+    "name": "Sentiment Analyzer",
+    "description": "Analyzes text sentiment and returns scores",
+    "category": "Analysis",
+    "isPublished": true,
+    "mark": "SA",
+    "initialsColor": "var(--colorPaletteRedForeground2)"
+  },
+  {
+    "id": "tool-009",
+    "name": "Translation Service",
+    "description": "Translates text between multiple languages",
+    "category": "Language",
+    "isPublished": true,
+    "mark": "TS",
+    "initialsColor": "var(--colorPaletteTealForeground2)"
+  },
+  {
+    "id": "tool-010",
+    "name": "Code Executor",
+    "description": "Safely executes code snippets in sandboxed environment",
+    "category": "Development",
+    "isPublished": false,
+    "mark": "CE",
+    "initialsColor": "var(--colorPaletteBlueForeground2)"
+  },
+  {
+    "id": "tool-011",
+    "name": "PDF Parser",
+    "description": "Extracts text and data from PDF documents",
+    "category": "Data",
+    "isPublished": true,
+    "mark": "PP",
+    "initialsColor": "var(--colorPaletteTealForeground2)"
+  },
+  {
+    "id": "tool-012",
+    "name": "Weather API",
+    "description": "Retrieves current weather and forecast data",
+    "category": "Data",
+    "isPublished": true,
+    "mark": "WA",
+    "initialsColor": "var(--colorPaletteTealForeground2)"
+  },
+  {
+    "id": "tool-013",
+    "name": "Task Manager",
+    "description": "Creates and manages tasks in project management systems",
+    "category": "Productivity",
+    "isPublished": true,
+    "mark": "TM",
+    "initialsColor": "var(--colorPaletteMagentaForeground2)"
+  },
+  {
+    "id": "tool-014",
+    "name": "Spreadsheet Editor",
+    "description": "Reads and writes data to spreadsheet files",
+    "category": "Data",
+    "isPublished": true,
+    "mark": "SE",
+    "initialsColor": "var(--colorPaletteTealForeground2)"
+  },
+  {
+    "id": "tool-015",
+    "name": "Video Transcriber",
+    "description": "Transcribes audio from video files to text",
+    "category": "Media",
+    "isPublished": false,
+    "mark": "VT",
+    "initialsColor": "var(--colorPaletteMagentaForeground2)"
+  },
+  {
+    "id": "tool-016",
+    "name": "Chart Generator",
+    "description": "Creates charts and graphs from data",
+    "category": "Visualization",
+    "isPublished": true,
+    "mark": "CG",
+    "initialsColor": "var(--colorPaletteGreenForeground2)"
+  },
+  {
+    "id": "tool-017",
+    "name": "Text-to-Speech",
+    "description": "Converts text to natural-sounding speech audio",
+    "category": "Media",
+    "isPublished": true,
+    "mark": "T",
+    "initialsColor": "var(--colorPaletteMagentaForeground2)"
+  },
+  {
+    "id": "tool-018",
+    "name": "QR Code Generator",
+    "description": "Creates QR codes from text or URLs",
+    "category": "Utility",
+    "isPublished": true,
+    "mark": "QC",
+    "initialsColor": "var(--colorPaletteMarigoldForeground2)"
+  },
+  {
+    "id": "tool-019",
+    "name": "Math Calculator",
+    "description": "Performs complex mathematical calculations",
+    "category": "Utility",
+    "isPublished": true,
+    "mark": "MC",
+    "initialsColor": "var(--colorPaletteMarigoldForeground2)"
+  },
+  {
+    "id": "tool-020",
+    "name": "HTTP Request",
+    "description": "Makes HTTP requests to external APIs",
+    "category": "Integration",
+    "isPublished": true,
+    "mark": "HR",
+    "initialsColor": "var(--colorPaletteRedForeground2)"
+  },
+  {
+    "id": "tool-021",
+    "name": "JSON Validator",
+    "description": "Validates and formats JSON data",
+    "category": "Development",
+    "isPublished": true,
+    "mark": "JV",
+    "initialsColor": "var(--colorPaletteBlueForeground2)"
+  },
+  {
+    "id": "tool-022",
+    "name": "Password Generator",
+    "description": "Generates secure random passwords",
+    "category": "Security",
+    "isPublished": true,
+    "mark": "PG",
+    "initialsColor": "var(--colorPaletteTealForeground2)"
+  },
+  {
+    "id": "tool-023",
+    "name": "Markdown Renderer",
+    "description": "Converts Markdown to HTML",
+    "category": "Content",
+    "isPublished": true,
+    "mark": "MR",
+    "initialsColor": "var(--colorPaletteBlueForeground2)"
+  },
+  {
+    "id": "tool-024",
+    "name": "OCR Scanner",
+    "description": "Extracts text from images using optical character recognition",
+    "category": "Data",
+    "isPublished": false,
+    "mark": "OS",
+    "initialsColor": "var(--colorPaletteTealForeground2)"
+  },
+  {
+    "id": "tool-025",
+    "name": "URL Shortener",
+    "description": "Creates shortened URLs for easy sharing",
+    "category": "Utility",
+    "isPublished": true,
+    "mark": "US",
+    "initialsColor": "var(--colorPaletteMarigoldForeground2)"
+  },
+  {
+    "id": "tool-026",
+    "name": "GitHub Integration",
+    "description": "Interacts with GitHub repositories and issues",
+    "category": "Development",
+    "isPublished": true,
+    "mark": "GI",
+    "initialsColor": "var(--colorPaletteBlueForeground2)"
+  },
+  {
+    "id": "tool-027",
+    "name": "Payment Processor",
+    "description": "Processes payments through configured payment gateway",
+    "category": "Finance",
+    "isPublished": false,
+    "mark": "PP",
+    "initialsColor": "var(--colorPaletteMagentaForeground2)"
+  },
+  {
+    "id": "tool-028",
+    "name": "Geolocation Service",
+    "description": "Retrieves geographic information from IP addresses",
+    "category": "Data",
+    "isPublished": true,
+    "mark": "GS",
+    "initialsColor": "var(--colorPaletteTealForeground2)"
+  },
+  {
+    "id": "tool-029",
+    "name": "Keyword Extractor",
+    "description": "Extracts important keywords from text",
+    "category": "Analysis",
+    "isPublished": true,
+    "mark": "KE",
+    "initialsColor": "var(--colorPaletteRedForeground2)"
+  },
+  {
+    "id": "tool-030",
+    "name": "Time Zone Converter",
+    "description": "Converts times between different time zones",
+    "category": "Utility",
+    "isPublished": true,
+    "mark": "TZ",
+    "initialsColor": "var(--colorPaletteMarigoldForeground2)"
+  },
+  {
+    "id": "tool-031",
+    "name": "RSS Feed Reader",
+    "description": "Reads and parses RSS/Atom feeds",
+    "category": "Data",
+    "isPublished": true,
+    "mark": "RF",
+    "initialsColor": "var(--colorPaletteTealForeground2)"
+  },
+  {
+    "id": "tool-032",
+    "name": "Audio Transcriber",
+    "description": "Converts speech to text from audio files",
+    "category": "Media",
+    "isPublished": true,
+    "mark": "AT",
+    "initialsColor": "var(--colorPaletteMagentaForeground2)"
+  },
+  {
+    "id": "tool-033",
+    "name": "Currency Converter",
+    "description": "Converts amounts between different currencies",
+    "category": "Finance",
+    "isPublished": true,
+    "mark": "CC",
+    "initialsColor": "var(--colorPaletteMagentaForeground2)"
+  },
+  {
+    "id": "tool-034",
+    "name": "Regex Tester",
+    "description": "Tests and validates regular expressions",
+    "category": "Development",
+    "isPublished": true,
+    "mark": "RT",
+    "initialsColor": "var(--colorPaletteBlueForeground2)"
+  },
+  {
+    "id": "tool-035",
+    "name": "Color Palette Generator",
+    "description": "Creates color palettes for design projects",
+    "category": "Creative",
+    "isPublished": false,
+    "mark": "CP",
+    "initialsColor": "var(--colorPaletteMarigoldForeground2)"
+  }
+]
