@@ -65,6 +65,8 @@ class HubTracingTest < ActiveSupport::TestCase
       { "OTEL_EXPORTER_OTLP_ENDPOINT" => "http:///v1/traces" },
       { "OTEL_EXPORTER_OTLP_ENDPOINT" => "https://:4318/v1/traces" },
       { "OTEL_EXPORTER_OTLP_PROTOCOL" => "grpc" },
+      { "OTEL_EXPORTER_OTLP_TRACES_HEADERS" => "Authorization=credential-canary%ZZ" },
+      { "OTEL_EXPORTER_OTLP_HEADERS" => "Authorization=credential-canary%ZZ" },
       { "OTEL_TRACES_EXPORTER" => "console,otlp" },
       { "REPLICA_OTEL_INCLUDE_SENSITIVE_DATA" => "credential-canary" },
       { "REPLICA_OTEL_INCLUDE_SENSITIVE_DATA" => "" },
@@ -86,6 +88,9 @@ class HubTracingTest < ActiveSupport::TestCase
       { "REPLICA_OTEL_UNTRACED_HOSTS" => "[::1]" },
       { "REPLICA_OTEL_UNTRACED_HOSTS" => "::1/128" }
     ].each do |invalid|
+      header_name = invalid.keys.find { _1.match?(/\AOTEL_EXPORTER_OTLP(?:_TRACES)?_HEADERS\z/) }
+      expected_message = header_name &&
+        "#{header_name} must contain comma-separated URL-encoded key=value headers"
       configuration = {
         "OTEL_TRACES_EXPORTER" => "otlp",
         "OTEL_EXPORTER_OTLP_ENDPOINT" => "http://collector.example"
@@ -94,6 +99,11 @@ class HubTracingTest < ActiveSupport::TestCase
         begin
           HubTracing.start!
         rescue ArgumentError => error
+          expected_message = #{expected_message.inspect}
+          if expected_message
+            abort "unsanitized OTLP header error" unless error.message == expected_message
+            abort "OTLP header error retained its cause" if error.cause
+          end
           puts error.full_message(highlight: false)
           exit 42
         end

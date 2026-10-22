@@ -49,6 +49,7 @@ module HubTracing
         !uri.userinfo && !uri.query && !uri.fragment
       raise ArgumentError, "OTLP endpoint must be an absolute HTTP(S) URL without credentials, query, or fragment"
     end
+    validate_otlp_headers!
 
     require "opentelemetry/sdk"
     require "opentelemetry/exporter/otlp"
@@ -131,6 +132,30 @@ module HubTracing
     end
 
     value.casecmp?("true")
+  end
+
+  def self.validate_otlp_headers!
+    name = if ENV.key?("OTEL_EXPORTER_OTLP_TRACES_HEADERS")
+      "OTEL_EXPORTER_OTLP_TRACES_HEADERS"
+    elsif ENV.key?("OTEL_EXPORTER_OTLP_HEADERS")
+      "OTEL_EXPORTER_OTLP_HEADERS"
+    end
+    return unless name
+
+    entries = ENV.fetch(name).split(",", -1)
+    valid = entries.any? && entries.all? do |entry|
+      key, value = entry.split("=", 2)
+      key && value &&
+        !URI.decode_uri_component(key).strip.empty? &&
+        !URI.decode_uri_component(value).strip.empty?
+    end
+    return if valid
+
+    raise ArgumentError, "#{name} must contain comma-separated URL-encoded key=value headers"
+  rescue ArgumentError, Encoding::CompatibilityError
+    raise ArgumentError,
+      "#{name} must contain comma-separated URL-encoded key=value headers",
+      cause: nil
   end
 
   def self.valid_untraced_host?(host)
