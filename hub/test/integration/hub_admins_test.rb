@@ -1,6 +1,9 @@
 require "test_helper"
+require_relative "../support/authorization_continuation_helpers"
 
 class HubAdminsTest < ActionDispatch::IntegrationTest
+  include AuthorizationContinuationHelpers
+
   setup do
     github_app_configurations.create_installed
     @payload = repository_payload(2001, "github/prototype")
@@ -66,7 +69,7 @@ class HubAdminsTest < ActionDispatch::IntegrationTest
     assert_includes response.body, I18n.t("hub_admins.errors.not_authorized")
   end
 
-  test "stale browser proof challenges without changing or replaying the role" do
+  test "stale browser proof continues the original role change exactly once" do
     @session.update!(fresh_authorized_at: 5.minutes.ago)
     assert_no_difference -> { User.where(hub_admin: true).count } do
       change("designate")
@@ -77,16 +80,16 @@ class HubAdminsTest < ActionDispatch::IntegrationTest
     assert_equal @session.id, challenge.credential_id
     assert_equal edit_hub_admin_path(@target), challenge.return_to
     assert_equal @target.id, SecurityAuditEvent.where(action: "hub_admin.designate").last.context["target_user_id"]
-    post fresh_authorization_path(challenge.public_id)
-    state = Rack::Utils.parse_query(URI(response.location).query).fetch("state")
-    assert_no_difference -> { User.where(hub_admin: true).count } do
-      get github_authentication_callback_path, params: { code: "code", state: }
-    end
-    assert_redirected_to edit_hub_admin_path(@target)
-    follow_redirect!
-    assert_response :success
+    form = verify_pending_action(challenge, path: @path, method: "patch")
     assert_not @target.reload.hub_admin?
-    change("designate")
+    continue_pending_action(form, operation: "revoke", confirmed: "0", user_id: @actor.id)
+    assert @target.reload.hub_admin?
+    assert_equal I18n.t("hub_admins.changed"), flash[:notice]
+    assert_nil challenge.reload.pending_action
+    assert challenge.continued_at
+    assert_no_difference("SecurityAuditEvent.where(action: 'hub_admin.designate', outcome: 'succeeded').count") do
+      continue_pending_action(form)
+    end
     assert @target.reload.hub_admin?
   end
 
@@ -98,7 +101,7 @@ class HubAdminsTest < ActionDispatch::IntegrationTest
     assert_not @target.reload.hub_admin?
   end
 
-  test "administrator removal also halts at the fresh authorization gate" do
+  test "administrator removal continues after fresh authorization" do
     @target.update!(hub_admin: true)
     @session.update!(fresh_authorized_at: 5.minutes.ago)
     change("revoke")
@@ -106,6 +109,9 @@ class HubAdminsTest < ActionDispatch::IntegrationTest
     assert @target.reload.hub_admin?
     assert_equal "hub_admin_management", FreshAuthorization.last.purpose
     assert_equal "denied", SecurityAuditEvent.where(action: "hub_admin.revoke").last.outcome
+    form = verify_pending_action(FreshAuthorization.last, path: @path, method: "patch")
+    continue_pending_action(form)
+    assert_not @target.reload.hub_admin?
   end
 
   test "management works without repository access and self removal still shows its result" do
@@ -328,7 +334,7 @@ class HubAdminsTest < ActionDispatch::IntegrationTest
     assert_equal "denied", SecurityAuditEvent.where(action: "hub_admin.designate").last.outcome
   end
 
-  test "bulk addition requires this browser's fresh proof and never replays its selection" do
+  test "bulk addition continues only the saved selection after this browser verifies" do
     @actor.sessions.create!(fresh_authorized_at: Time.current)
     @session.update!(fresh_authorized_at: nil)
     post hub_admins_path, params: {
@@ -339,13 +345,12 @@ class HubAdminsTest < ActionDispatch::IntegrationTest
     assert_equal hub_admins_path, challenge.return_to
     assert_equal "hub_admin_management", challenge.purpose
     assert_equal @session.id, challenge.credential_id
-    post fresh_authorization_path(challenge.public_id)
-    state = Rack::Utils.parse_query(URI(response.location).query).fetch("state")
-    get github_authentication_callback_path, params: { code: "code", state: }
-    assert_redirected_to hub_admins_path
+    form = verify_pending_action(challenge, path: hub_admins_path, method: "post")
     assert_not @target.reload.hub_admin?
-    post hub_admins_path, params: { user_ids: [ @target.id ], confirmed: "1" }
+    other = users.create(github_id: 1003, login: "other")
+    continue_pending_action(form, user_ids: [ other.id ], confirmed: "0")
     assert @target.reload.hub_admin?
+    assert_not other.reload.hub_admin?
   end
 
   test "revoked administrators cannot search users or submit bulk selections" do

@@ -1,6 +1,9 @@
 require "test_helper"
+require_relative "../support/authorization_continuation_helpers"
 
 class SessionRevocationsTest < ActionDispatch::IntegrationTest
+  include AuthorizationContinuationHelpers
+
   setup do
     @original_bootstrap_secret = ENV["REPLICA_BOOTSTRAP_SECRET"]
     ENV["REPLICA_BOOTSTRAP_SECRET"] = "session-cutoff-bootstrap"
@@ -93,7 +96,7 @@ class SessionRevocationsTest < ActionDispatch::IntegrationTest
     assert_equal "denied", SecurityAuditEvent.where(action: "session_revocation.end_all").last.outcome
   end
 
-  test "exactly five-minute proof challenges and its callback never replays revocation" do
+  test "exactly five-minute proof continues the confirmed all-session revocation" do
     @session.update!(fresh_authorized_at: 5.minutes.ago)
     assert_no_difference("Session.count") do
       post session_revocation_path, params: { confirmed: "1" }
@@ -103,14 +106,9 @@ class SessionRevocationsTest < ActionDispatch::IntegrationTest
     assert_equal "session_revocation", challenge.purpose
     assert_equal @session.id, challenge.credential_id
     assert_equal session_revocation_path, challenge.return_to
-    post fresh_authorization_path(challenge.public_id)
-    state = Rack::Utils.parse_query(URI(response.location).query).fetch("state")
-    assert_no_difference("Session.count") do
-      get github_authentication_callback_path, params: { code: "code", state: }
-    end
-    assert_redirected_to session_revocation_path
+    form = verify_pending_action(challenge, path: session_revocation_path, method: "post")
     assert FreshAuthorization.fresh?(@session)
-    post session_revocation_path, params: { confirmed: "1" }
+    continue_pending_action(form)
     assert_response :success
     assert_empty Session.all
   end

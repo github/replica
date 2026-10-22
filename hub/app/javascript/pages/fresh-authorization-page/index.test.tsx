@@ -7,7 +7,7 @@ import { hubAdministrationWorkspaceData } from "@/storybook/fixtures/hub-adminis
 import { FreshAuthorizationPage } from "."
 
 describe("FreshAuthorizationPage()", () => {
-  it("keeps an administrator check in Hub scope without replaying its action", () => {
+  it("keeps an administrator check in Hub scope", () => {
     render(
       <ThemeProvider>
         <FreshAuthorizationPage
@@ -15,7 +15,7 @@ describe("FreshAuthorizationPage()", () => {
             productName: "Replica Hub",
             pageTitle: "Fresh authorization",
             heading: "Fresh authorization",
-            description: "Return and confirm again.",
+            description: "Verify your GitHub account.",
             submitLabel: "Verify with GitHub",
             submitPath: "/authorization/example",
             cancelLabel: "Cancel",
@@ -50,7 +50,7 @@ describe("FreshAuthorizationPage()", () => {
             productName: "Replica Hub",
             pageTitle: "Fresh authorization",
             heading: "Fresh authorization",
-            description: "Verify the same GitHub account. No action is replayed.",
+            description: "Verify the same GitHub account.",
             submitLabel: "Verify with GitHub",
             submitPath: "/authorization/example",
             cancelLabel: "Cancel",
@@ -70,5 +70,37 @@ describe("FreshAuthorizationPage()", () => {
     expect(container.querySelector('input[name="user_id"]')).toBeNull()
     expect(container.querySelector('input[name="destination"]')).toBeNull()
     expect(container.querySelector('input[name="share_link"]')).toBeNull()
+  })
+
+  it("continues through the original route with only CSRF and an opaque authorization identifier", () => {
+    render(
+      <ThemeProvider>
+        <FreshAuthorizationPage
+          data={{
+            productName: "Replica Hub",
+            pageTitle: "Continue action",
+            heading: "GitHub account verified",
+            description: "Continuing your action.",
+            submitLabel: "Continue",
+            submitPath: "/github_app/credentials",
+            authenticityToken: "csrf-token",
+            continuation: { id: "opaque-authorization-id", method: "patch" },
+          }}
+        />
+      </ThemeProvider>,
+    )
+    const form = screen.getByRole("button", { name: "Continue" }).closest("form")
+    expect(form).toHaveAttribute("method", "post")
+    expect(form).toHaveAttribute("action", "/github_app/credentials")
+    expect(form?.querySelector('input[name="authenticity_token"]')).toHaveValue("csrf-token")
+    expect(form?.querySelector('input[name="authorization_continuation_id"]')).toHaveValue(
+      "opaque-authorization-id",
+    )
+    expect(form?.querySelector('input[name="_method"]')).toHaveValue("patch")
+    expect(
+      Array.from(form!.querySelectorAll("input"))
+        .map((input) => input.name)
+        .sort(),
+    ).toEqual(["_method", "authenticity_token", "authorization_continuation_id"].sort())
   })
 })

@@ -1,7 +1,10 @@
 require "test_helper"
+require_relative "../support/authorization_continuation_helpers"
 
 # Keeps legacy never-expiring authorization covered independently of the current cap.
 class FreshAuthorizationsTest < ActionDispatch::IntegrationTest
+  include AuthorizationContinuationHelpers
+
   setup do
     @original_share_link_maximum = Rails.configuration.x.share_link_maximum_lifetime
     Rails.configuration.x.share_link_maximum_lifetime = nil
@@ -58,27 +61,218 @@ class FreshAuthorizationsTest < ActionDispatch::IntegrationTest
     assert_nil ShareLink.last.expires_at
   end
 
-  test "analytics mutations never save or replay submitted credentials" do
-    destination = @repository.analytics_destinations.create! \
-      provider: "segment", region: "us", credentials: { write_key: "existing" },
-      event_types: Analytics::Event::TYPES
-    path = repository_analytics_destination_path(@repository.route_id, destination)
+  test "analytics creation retains encrypted credentials and continues exactly once" do
     assert_no_difference("Analytics::Destination.count") do
       post @analytics_path, params: { destination: analytics_configuration }
     end
     challenge = FreshAuthorization.last
     assert_equal "analytics_destination", challenge.purpose
-    assert_not_includes challenge.attributes.to_s, "submitted-secret"
-    patch path, params: { destination: { credentials: { write_key: "submitted-secret" } } }
-    assert_equal "existing", destination.reload.credentials.fetch("write_key")
+    raw = FreshAuthorization.connection.select_value(
+      "SELECT pending_action FROM fresh_authorizations WHERE id = #{challenge.id}"
+    )
+    assert_not_includes raw, "submitted-secret"
+    assert_not_includes request.session.to_hash.to_s, "submitted-secret"
+    assert_not_includes response.location, "submitted-secret"
+    state = start_verification(challenge)
+    callback(state)
+    assert_redirected_to fresh_authorization_path(challenge.public_id)
+    follow_redirect!(as: :json)
+    form = response.parsed_body.fetch("data")
+    assert_not_includes response.body, "submitted-secret"
+    assert_empty @repository.analytics_destinations
+    continue_pending_action(form, destination: analytics_configuration.merge(credentials: { write_key: "injected" }))
+    destination = @repository.analytics_destinations.sole
+    assert_equal "submitted-secret", destination.credentials.fetch("write_key")
+    assert_equal I18n.t("analytics.configured_notice"), flash[:notice]
+    assert_nil challenge.reload.pending_action
+    assert challenge.continued_at
+    timestamp = @browser_session.reload.fresh_authorized_at
+    assert_no_difference("Analytics::Destination.count") do
+      callback(state)
+      continue_pending_action(form)
+    end
+    assert_equal timestamp, @browser_session.reload.fresh_authorized_at
+  end
+
+  test "analytics credential updates pause resume and deletion continue their original actions" do
+    destination = @repository.analytics_destinations.create! \
+      provider: "segment", region: "us", credentials: { write_key: "existing" },
+      event_types: Analytics::Event::TYPES
+    path = repository_analytics_destination_path(@repository.route_id, destination)
+    changes = [
+      [ "patch", { destination: analytics_configuration }, -> {
+        assert_equal "submitted-secret", destination.reload.credentials.fetch("write_key")
+      } ],
+      [ "patch", { operation: "pause" }, -> { assert_not destination.reload.enabled? } ],
+      [ "patch", { operation: "resume" }, -> { assert destination.reload.enabled? } ],
+      [ "delete", {}, -> { assert_not Analytics::Destination.exists?(destination.id) } ]
+    ]
+    changes.each do |method, input, outcome|
+      @browser_session.reload.update!(fresh_authorized_at: nil)
+      travel 1.minute
+      public_send(method, path, params: input)
+      form = verify_pending_action(FreshAuthorization.last, path:, method:)
+      continue_pending_action(form)
+      assert_redirected_to repository_analytics_path(@repository.route_id)
+      outcome.call
+    end
+  end
+
+  test "analytics validation failures report their actual result and discard the continuation" do
+    post @analytics_path, params: { destination: analytics_configuration.except(:history) }
+    challenge = FreshAuthorization.last
+    form = verify_pending_action(challenge, path: @analytics_path, method: "post")
+    continue_pending_action(form, destination: analytics_configuration)
+    assert_empty @repository.analytics_destinations
+    assert_equal I18n.t("analytics.invalid_configuration"), flash[:alert]
+    assert_nil challenge.reload.pending_action
+    assert challenge.continued_at
+    continue_pending_action(form)
+    assert_empty @repository.analytics_destinations
+  end
+
+  test "cancelling an analytics action before or after verification discards its payload" do
+    [ false, true ].each do |verified|
+      @browser_session.update!(fresh_authorized_at: nil)
+      post @analytics_path, params: { destination: analytics_configuration }
+      challenge = FreshAuthorization.last
+      form = if verified
+        verify_pending_action(challenge, path: @analytics_path, method: "post")
+      else
+        { "submitPath" => @analytics_path, "continuation" => { "id" => challenge.public_id, "method" => "post" } }
+      end
+      delete fresh_authorization_path(challenge.public_id)
+      assert_equal I18n.t("fresh_authorization.cancelled"), flash[:alert]
+      assert_nil challenge.reload.pending_action
+      continue_pending_action(form)
+      assert_empty @repository.analytics_destinations
+    end
+  end
+
+  test "failed GitHub verification discards analytics credentials without applying them" do
+    [ :identity, :denied, :timeout ].each do |failure|
+      stub_github_oauth_user
+      post @analytics_path, params: { destination: analytics_configuration }
+      challenge = FreshAuthorization.last
+      state = start_verification(challenge)
+      case failure
+      when :identity
+        stub_github_oauth_user(github_id: 1002, login: "mona")
+      when :timeout
+        stub_request(:post, "#{GITHUB_URL}/login/oauth/access_token").to_timeout
+      end
+      if failure == :denied
+        get github_authentication_callback_path, params: { error: "access_denied", state: }
+      else
+        callback(state)
+      end
+      assert_equal I18n.t("fresh_authorization.failure"), flash[:alert]
+      assert_nil challenge.reload.pending_action
+      post @analytics_path, params: { authorization_continuation_id: challenge.public_id }
+      assert_empty @repository.analytics_destinations
+    end
+  end
+
+  test "an unverified analytics continuation cannot execute even with another fresh proof" do
+    post @analytics_path, params: { destination: analytics_configuration }
+    challenge = FreshAuthorization.last
+    @browser_session.update!(fresh_authorized_at: Time.current)
+    post @analytics_path, params: { authorization_continuation_id: challenge.public_id }
+    assert_empty @repository.analytics_destinations
+  end
+
+  test "an opaque continuation identifier does not replace browser forgery protection" do
+    previous = ActionController::Base.allow_forgery_protection
+    post @analytics_path, params: { destination: analytics_configuration }
+    challenge = FreshAuthorization.last
+    form = verify_pending_action(challenge, path: @analytics_path, method: "post")
+    ActionController::Base.allow_forgery_protection = true
+    continue_pending_action(form)
+    assert_response :unprocessable_entity
+    assert_empty @repository.analytics_destinations
+    assert challenge.reload.pending_action
+    assert_nil challenge.continued_at
+  ensure
+    ActionController::Base.allow_forgery_protection = previous
+  end
+
+  test "expired proof and the fifteen minute challenge deadline prevent continuation" do
+    [ :proof, :challenge ].each do |boundary|
+      @browser_session.reload.update!(fresh_authorized_at: nil)
+      post @analytics_path, params: { destination: analytics_configuration }
+      challenge = FreshAuthorization.last
+      form = verify_pending_action(challenge, path: @analytics_path, method: "post")
+      assert_in_delta 15.minutes, challenge.expires_at - challenge.created_at, 1
+      deadline = boundary == :proof ? @browser_session.reload.fresh_authorized_at + 5.minutes : challenge.expires_at
+      travel_to deadline, with_usec: true do
+        @browser_session.update!(fresh_authorized_at: Time.current) if boundary == :challenge
+        continue_pending_action(form)
+        assert_empty @repository.analytics_destinations
+        assert_nil challenge.reload.pending_action
+      end
+    end
+  end
+
+  test "another signed in browser cannot read cancel or execute a verified analytics action" do
+    post @analytics_path, params: { destination: analytics_configuration }
+    challenge = FreshAuthorization.last
+    form = verify_pending_action(challenge, path: @analytics_path, method: "post")
+    other = open_session
+    other.host! "replica.localhost:19500"
+    other.post github_authentication_path
+    state = Rack::Utils.parse_query(URI(other.response.location).query).fetch("state")
+    other.get github_authentication_callback_path, params: { code: "code", state: }
+    other.get fresh_authorization_path(challenge.public_id), as: :json
+    assert_equal 303, other.response.status
+    assert_not_includes other.response.body, "submitted-secret"
+    other.delete fresh_authorization_path(challenge.public_id)
+    other.post form.fetch("submitPath"), params: { authorization_continuation_id: challenge.public_id }
+    assert_empty @repository.analytics_destinations
+    continue_pending_action(form)
+    assert_equal "submitted-secret", @repository.analytics_destinations.sole.credentials.fetch("write_key")
+  end
+
+  test "a changed GitHub identity cannot continue an already verified analytics action" do
+    post @analytics_path, params: { destination: analytics_configuration }
+    challenge = FreshAuthorization.last
+    form = verify_pending_action(challenge, path: @analytics_path, method: "post")
+    @user.update_columns(github_id: 1002)
+    continue_pending_action(form)
+    assert_empty @repository.analytics_destinations
+    assert_nil challenge.reload.pending_action
+  end
+
+  test "continuation cannot be retargeted to another route or HTTP method" do
+    destination = @repository.analytics_destinations.create! \
+      provider: "segment", region: "us", credentials: { write_key: "existing" },
+      event_types: Analytics::Event::TYPES
+    path = repository_analytics_destination_path(@repository.route_id, destination)
     patch path, params: { operation: "pause" }
+    challenge = FreshAuthorization.last
+    verify_pending_action(challenge, path:, method: "patch")
+    other = @repository.analytics_destinations.create! \
+      provider: "mixpanel", region: "us",
+      credentials: { service_account_username: "service", service_account_secret: "secret", project_id: "123" },
+      event_types: Analytics::Event::TYPES
+    other_path = repository_analytics_destination_path(@repository.route_id, other)
+    patch other_path, params: { authorization_continuation_id: challenge.public_id }
+    assert other.reload.enabled?
+    delete path, params: { authorization_continuation_id: challenge.public_id }
     assert destination.reload.enabled?
-    delete path
-    assert Analytics::Destination.exists?(destination.id)
-    callback(start_verification(FreshAuthorization.last))
-    assert_equal "existing", destination.reload.credentials.fetch("write_key")
-    patch path, params: { operation: "pause" }
-    assert_not destination.reload.enabled?
+    post @analytics_path, params: { authorization_continuation_id: challenge.public_id }
+    assert_equal 2, @repository.analytics_destinations.count
+    assert destination.reload.enabled?
+  end
+
+  test "repository permission is rechecked after successful verification before continuation" do
+    post @analytics_path, params: { destination: analytics_configuration }
+    challenge = FreshAuthorization.last
+    form = verify_pending_action(challenge, path: @analytics_path, method: "post")
+    stub_github_permissions([ @payload ], { 2001 => nil })
+    continue_pending_action(form)
+    assert_response :not_found
+    assert_empty @repository.analytics_destinations
+    assert_nil challenge.reload.pending_action
   end
 
   test "cancellation failure and identity mismatch leave sensitive requests unapplied" do
