@@ -19,7 +19,8 @@ const data: GithubAppPageData = {
   identity: "App 123 - github (Organization, identity 321)",
   installation: "Installation 456: active",
   busyLabel: null,
-  verification: "Verify this browser with GitHub, then confirm again. Nothing is replayed.",
+  verification:
+    "GitHub must have verified this browser's account within the last five minutes. If verification is required, Hub temporarily encrypts your submitted settings and continues your confirmed change after it succeeds.",
   paragraphs: ["Only the current webhook secret is accepted."],
   links: [
     { label: "Replace App credentials", path: "/github_app/credentials" },

@@ -6,5 +6,5 @@
 Rails.application.config.filter_parameters += [
   :passw, :email, :secret, :token, :_key, :crypt, :salt, :certificate, :otp, :ssn, :cvv, :cvc,
   :code, :pem, :state, :authorization, :signature, :grant, :credentials, :secrets, :proof,
-  :service_account_username, :headers, :endpoint, :template
+  :service_account_username, :headers, :endpoint, :template, :pending_action
 ]

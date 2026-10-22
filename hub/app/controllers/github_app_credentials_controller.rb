@@ -1,4 +1,4 @@
-# Accepts new credentials once without exporting or replaying saved secrets.
+# Accepts replacement credentials without exporting saved secrets.
 class GithubAppCredentialsController < SuperglueController
   include HasGithubAppAdministration
 
@@ -14,15 +14,21 @@ class GithubAppCredentialsController < SuperglueController
 
   # @route PATCH /github_app/credentials (github_app_credentials)
   def update
-    upload = params[:private_key]
-    limit = GithubAppConfiguration::Administration::PRIVATE_KEY_LIMIT
-    if !upload.is_a?(ActionDispatch::Http::UploadedFile) || upload.size > limit
-      raise GithubAppConfiguration::Administration::InvalidCredentials, "Invalid replacement credentials"
+    private_key = if @continued_action_parameters
+      @continued_action_parameters.fetch("private_key")
+    else
+      upload = params[:private_key]
+      limit = GithubAppConfiguration::Administration::PRIVATE_KEY_LIMIT
+      if !upload.is_a?(ActionDispatch::Http::UploadedFile) || upload.size > limit
+        raise GithubAppConfiguration::Administration::InvalidCredentials, "Invalid replacement credentials"
+      end
+
+      upload.read(limit + 1)
     end
 
     @configuration.administration.replace_credentials! \
       actor: Current.user, browser_session: Current.session, expected_version: @expected_version,
-      client_secret: params[:client_secret], private_key: upload.read(limit + 1)
+      client_secret: params[:client_secret], private_key: private_key
     @security_audit_recorded = true
     redirect_to github_app_path, notice: t("github_app.credentials.saved"), status: :see_other
   end

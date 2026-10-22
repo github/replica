@@ -1,7 +1,10 @@
 require "test_helper"
 require "tempfile"
+require_relative "../support/authorization_continuation_helpers"
 
 class GithubAppAdministrationTest < ActionDispatch::IntegrationTest
+  include AuthorizationContinuationHelpers
+
   setup do
     @configuration = github_app_configurations.create_installed
     @actor = users.create(hub_admin: true)
@@ -47,25 +50,34 @@ class GithubAppAdministrationTest < ActionDispatch::IntegrationTest
     assert_not_requested :get, "#{GITHUB_API_URL}/app"
   end
 
-  test "stale proof challenges before parsing an upload and never replays credentials" do
+  test "stale proof continues the saved replacement credentials and upload" do
     @session.update!(fresh_authorized_at: 5.minutes.ago)
-    patch github_app_credentials_path,
-      params: confirmation.merge(client_secret: "never-store-this", private_key: "not-an-upload")
+    Tempfile.create([ "replacement", ".pem" ], Rails.root.join("storage")) do |key|
+      key.write(github_app_configurations.test_private_key)
+      key.flush
+      patch github_app_credentials_path, params: confirmation.merge(
+        client_secret: "replacement-client-secret",
+        private_key: Rack::Test::UploadedFile.new(key.path, "application/x-pem-file")
+      )
+    end
     challenge = FreshAuthorization.last
     assert_redirected_to fresh_authorization_path(challenge.public_id)
-    assert_equal "github_app_credentials", challenge.purpose
-    assert_not_includes challenge.attributes.to_s, "never-store-this"
-    post fresh_authorization_path(challenge.public_id)
-    state = Rack::Utils.parse_query(URI(response.location).query).fetch("state")
-    get github_authentication_callback_path, params: { code: "code", state: }
-    assert_redirected_to edit_github_app_credentials_path
+    form = verify_pending_action(challenge, path: github_app_credentials_path, method: "patch")
     assert_equal "client-secret", @configuration.reload.client_secret
-    assert_not_requested :get, "#{GITHUB_API_URL}/app"
+    continue_pending_action(form)
+    assert_redirected_to github_app_path
+    assert_equal "replacement-client-secret", @configuration.reload.client_secret
+    assert_equal github_app_configurations.test_private_key, @configuration.private_key
+    assert_equal I18n.t("github_app.credentials.saved"), flash[:notice]
+    assert_not FreshAuthorization.exists?(challenge.id)
   end
 
   test "confirmed server-side webhook start and finish are separately authorized" do
     stub_request(:patch, "#{GITHUB_API_URL}/app/hook/config").to_return(status: 200, body: "{}")
+    @session.update!(fresh_authorized_at: nil)
     post github_app_webhook_rotation_path, params: confirmation.merge(operation: "start")
+    form = verify_pending_action(FreshAuthorization.last, path: github_app_webhook_rotation_path, method: "post")
+    continue_pending_action(form)
     assert_redirected_to github_app_webhook_rotation_path
     assert_equal "confirmed", @configuration.reload.webhook_rotation_state
     event = SecurityAuditEvent.where(action: "github_app.rotate_webhook_secret").last
@@ -75,6 +87,31 @@ class GithubAppAdministrationTest < ActionDispatch::IntegrationTest
     delete github_app_webhook_rotation_path, params: confirmation
     assert_equal "github_app_finish_webhook", FreshAuthorization.last.purpose
     assert @configuration.reload.previous_webhook_secret
+    form = verify_pending_action(FreshAuthorization.last, path: github_app_webhook_rotation_path, method: "delete")
+    continue_pending_action(form)
+    assert_nil @configuration.reload.previous_webhook_secret
+    assert_equal "idle", @configuration.webhook_rotation_state
+    assert_equal I18n.t("github_app.webhook.finished"), flash[:notice]
+  end
+
+  test "an App version conflict is reported after verification and consumes the saved reset" do
+    original = ENV["REPLICA_BOOTSTRAP_SECRET"]
+    ENV["REPLICA_BOOTSTRAP_SECRET"] = "manual"
+    @session.update!(fresh_authorized_at: nil)
+    delete github_app_path, params: confirmation.merge(
+      confirmation: GithubAppConfiguration::Administration::RESET_PHRASE
+    )
+    challenge = FreshAuthorization.last
+    form = verify_pending_action(challenge, path: github_app_path, method: "delete")
+    @configuration.update!(webhook_secret: "changed-after-verification")
+    continue_pending_action(form, expected_version: @configuration.lock_version.to_s)
+    assert GithubAppConfiguration.exists?(@configuration.id)
+    assert Session.exists?(@session.id)
+    assert_equal I18n.t("github_app.errors.state_changed"), flash[:alert]
+    assert_nil challenge.reload.pending_action
+    assert challenge.continued_at
+  ensure
+    ENV["REPLICA_BOOTSTRAP_SECRET"] = original
   end
 
   test "replacement upload saves encrypted credentials and returns only a safe notice" do
@@ -97,11 +134,15 @@ class GithubAppAdministrationTest < ActionDispatch::IntegrationTest
 
   test "App mutations retain browser forgery protection" do
     previous = ActionController::Base.allow_forgery_protection
-    ActionController::Base.allow_forgery_protection = true
+    @session.update!(fresh_authorized_at: nil)
     post github_app_webhook_rotation_path, params: confirmation.merge(operation: "start")
+    challenge = FreshAuthorization.last
+    form = verify_pending_action(challenge, path: github_app_webhook_rotation_path, method: "post")
+    ActionController::Base.allow_forgery_protection = true
+    continue_pending_action(form)
     assert_response :unprocessable_entity
     assert_equal "idle", @configuration.reload.webhook_rotation_state
-    assert_empty FreshAuthorization.all
+    assert challenge.reload.pending_action
   ensure
     ActionController::Base.allow_forgery_protection = previous
   end
@@ -124,7 +165,7 @@ class GithubAppAdministrationTest < ActionDispatch::IntegrationTest
     patch github_app_credentials_path, params: { client_secret: "never-store-this" }
     assert_equal I18n.t("github_app.errors.confirmation_required"), flash[:alert]
     patch github_app_credentials_path,
-      params: confirmation.merge(client_secret: "never-store-this", private_key: "not-an-upload")
+      params: confirmation.merge(client_secret: "never-store-this", private_key: github_app_configurations.test_private_key)
     assert_equal I18n.t("github_app.errors.invalid_credentials"), flash[:alert]
     assert_not_includes flash.to_hash.to_s, "never-store-this"
     assert_not_requested :get, "#{GITHUB_API_URL}/app"
@@ -133,9 +174,12 @@ class GithubAppAdministrationTest < ActionDispatch::IntegrationTest
   test "reset signs out users and retains roles without changing the remote App" do
     original = ENV["REPLICA_BOOTSTRAP_SECRET"]
     ENV["REPLICA_BOOTSTRAP_SECRET"] = "manual"
+    @session.update!(fresh_authorized_at: nil)
     delete github_app_path, params: confirmation.merge(
       confirmation: GithubAppConfiguration::Administration::RESET_PHRASE
     )
+    form = verify_pending_action(FreshAuthorization.last, path: github_app_path, method: "delete")
+    continue_pending_action(form)
     assert_redirected_to root_path
     assert_empty Session.all
     assert @actor.reload.hub_admin?

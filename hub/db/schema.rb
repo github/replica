@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_19_140000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_22_160000) do
   create_table "analytics_deliveries", force: :cascade do |t|
     t.integer "attempts", default: 0, null: false
     t.datetime "created_at", null: false
@@ -233,11 +233,14 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_19_140000) do
     t.datetime "verified_at"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.text "pending_action"
+    t.datetime "continued_at"
     t.index ["credential_type", "credential_id"], name: "idx_on_credential_type_credential_id_835b090260"
     t.index ["expires_at"], name: "index_fresh_authorizations_on_expires_at"
     t.index ["public_id"], name: "index_fresh_authorizations_on_public_id", unique: true
     t.index ["repository_id"], name: "index_fresh_authorizations_on_repository_id"
     t.index ["user_id"], name: "index_fresh_authorizations_on_user_id"
+    t.check_constraint "continued_at IS NULL OR (verified_at IS NOT NULL AND pending_action IS NULL)", name: "fresh_authorizations_continuation"
     t.check_constraint "credential_type IN ('Session', 'CanvasGrant') AND credential_id > 0 AND github_id > 0", name: "fresh_authorizations_identity"
     t.check_constraint "purpose IN ('never_expiring_share', 'analytics_destination', 'hub_admin_management', 'sharing_settings', 'session_revocation', 'github_app_reset', 'github_app_credentials', 'github_app_webhook', 'github_app_finish_webhook', 'copilot_connection', 'copilot_disconnection')", name: "fresh_authorizations_purpose"
     t.check_constraint "verified_at IS NULL OR consumed_at IS NOT NULL", name: "fresh_authorizations_verification"
