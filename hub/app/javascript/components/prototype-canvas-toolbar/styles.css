@@ -90,12 +90,8 @@
 .canvas-feedback-message {
   flex-basis: 100%;
   margin: 0;
-  color: var(--brand-color-text-muted);
-  font-size: var(--brand-text-size-100);
-}
-
-.canvas-feedback-message[role="alert"] {
   color: var(--hub-fg-danger);
+  font-size: var(--brand-text-size-100);
 }
 
 .canvas-publish-button[aria-busy="true"] svg {

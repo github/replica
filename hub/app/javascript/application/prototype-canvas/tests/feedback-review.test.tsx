@@ -74,7 +74,7 @@ describe("App() feedback review", () => {
     ["undiscovered", readerHub],
     ["connected", { ...readerHub, state: "connected" }],
   ] satisfies [string, HubStatus][])(
-    "lets a reader of a %s branch request a review once and reports when chat takes over",
+    "lets a reader of a %s branch request a review once without adding a success message",
     async (_label, hub) => {
       const answers: ((response: Response) => void)[] = []
       const { reviews, canvasFetch } = feedbackFixture(
@@ -101,15 +101,10 @@ describe("App() feedback review", () => {
       })
 
       await waitFor(() =>
-        expect(
-          screen
-            .getAllByRole("status")
-            .some((status) => /feedback review requested/i.test(status.textContent ?? "")),
-        ).toBe(true),
-      )
-      await waitFor(() =>
         expect(screen.getByRole("button", { name: "More actions" })).toBeEnabled(),
       )
+      expect(screen.queryByText(/feedback review requested/i)).toBeNull()
+      expect(screen.queryByRole("alert")).toBeNull()
       expect(reviews).toHaveLength(1)
       view.unmount()
     },

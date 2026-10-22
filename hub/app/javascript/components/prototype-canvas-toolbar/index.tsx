@@ -40,7 +40,7 @@ type Props = {
   shareButtonRef?: RefObject<HTMLButtonElement | null>
   onImproveContext?: () => void
   improvingContext?: boolean
-  feedbackMessage?: { kind: "notice" | "error"; message: string }
+  feedbackMessage?: { message: string }
 }
 
 export function Toolbar({
@@ -209,10 +209,7 @@ export function Toolbar({
         </ActionMenu>
       ) : null}
       {feedbackMessage ? (
-        <p
-          className="canvas-feedback-message"
-          role={feedbackMessage.kind === "error" ? "alert" : "status"}
-        >
+        <p className="canvas-feedback-message" role="alert">
           {feedbackMessage.message}
         </p>
       ) : null}

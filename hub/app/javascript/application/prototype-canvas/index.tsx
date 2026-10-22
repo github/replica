@@ -52,7 +52,6 @@ export function App({ config }: Props) {
   const [improvingContext, setImprovingContext] = useState(false)
   const [feedbackMessage, setFeedbackMessage] = useState<{
     target: string
-    kind: "notice" | "error"
     message: string
   } | null>(null)
   const closeHub = useCallback(() => {
@@ -205,15 +204,9 @@ export function App({ config }: Props) {
         },
       )
       if (result.requested !== true) throw new Error(copy.invalidResponse)
-      setFeedbackMessage({
-        target: feedbackTarget,
-        kind: "notice",
-        message: copy.feedbackReviewRequested,
-      })
     } catch (cause) {
       setFeedbackMessage({
         target: feedbackTarget,
-        kind: "error",
         message: copy.feedbackReviewFailed(cause instanceof Error ? cause.message : String(cause)),
       })
       await hub.refresh()
