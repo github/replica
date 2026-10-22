@@ -68,20 +68,13 @@ export const RateLimitedWithSelectionFailure: Story = {
   args: { selectionNotice: reviewCommentsCopy.areaTooSmallLabel },
   play: RateLimitedWithHubClosed.play,
 }
-export const SelectingElement: Story = {
+export const SelectionFailed: Story = {
   args: {
-    selectionNotice: reviewCommentsCopy.commentOnElementLabel,
+    selectionNotice: reviewCommentsCopy.areaTooSmallLabel,
     rateLimitNotice: null,
     conversation: null,
   },
   play: undefined,
-}
-export const SelectionFailed: Story = {
-  ...SelectingElement,
-  args: {
-    ...SelectingElement.args,
-    selectionNotice: reviewCommentsCopy.areaTooSmallLabel,
-  },
 }
 export const CommentComposer: Story = {
   args: {
