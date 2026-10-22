@@ -8,6 +8,67 @@ import { it } from "node:test"
 
 import { createHubClient } from "./index.mjs"
 
+it("keeps an approval readable when Hub omits its refresh token with null", async () => {
+  const workspace = path.join(process.cwd(), "storage/replica-extension-tests", randomUUID())
+  await mkdir(workspace, { recursive: true })
+  execFileSync("git", ["init", "-b", "prototype/new", workspace], { stdio: "ignore" })
+  execFileSync("git", [
+    "-C",
+    workspace,
+    "remote",
+    "add",
+    "origin",
+    "git@github.com:team/prototype.git",
+  ])
+  let pairings = 0
+  let polls = 0
+  const server = createServer(async (request, response) => {
+    response.setHeader("X-Replica-Canvas-Version", "1")
+    response.setHeader("Content-Type", "application/json")
+    if (request.url === "/api/canvas/pairings") {
+      pairings++
+      response.end(
+        JSON.stringify({
+          deviceCode: "device",
+          userCode: "CODE",
+          refreshToken: null,
+          verificationUrl: `http://127.0.0.1:${server.address().port}/canvas/pair/CODE`,
+          expiresAt: new Date(Date.now() + 600_000).toISOString(),
+        }),
+      )
+      return
+    }
+    if (request.url === "/api/canvas/pairings/token") {
+      polls++
+      response.end(JSON.stringify({ status: "pending" }))
+      return
+    }
+    response.writeHead(404)
+    response.end(JSON.stringify({ error: "Unexpected request." }))
+  })
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve))
+  try {
+    const origin = `http://127.0.0.1:${server.address().port}`
+    const client = createHubClient(
+      { repositoryPath: workspace },
+      { origin, directory: path.join(workspace, "credentials") },
+    )
+    const pairing = await client.pair()
+    assert.deepEqual(pairing, {
+      verificationUrl: `${origin}/canvas/pair/CODE`,
+      userCode: "CODE",
+    })
+    assert.deepEqual(await client.poll(), { status: "pending" })
+    assert.deepEqual(await client.pair(), pairing)
+    assert.equal((await client.status()).state, "pairing")
+    assert.equal(pairings, 1)
+    assert.equal(polls, 1)
+  } finally {
+    await new Promise((resolve) => server.close(resolve))
+    await rm(workspace, { recursive: true, force: true })
+  }
+})
+
 it("shares approval, serializes refresh, recovers lost responses and stops after revocation", async () => {
   const workspace = path.join(process.cwd(), "storage/replica-extension-tests", randomUUID())
   await mkdir(workspace, { recursive: true })

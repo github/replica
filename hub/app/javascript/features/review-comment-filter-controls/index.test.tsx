@@ -19,7 +19,7 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals())
 
 describe("ReviewCommentFilterControls()", () => {
-  it("shows the leading search icon in a reply-style input and updates the search query", () => {
+  it("shows the leading search icon in the default search field", () => {
     const onFiltersChange = vi.fn()
     const { container } = render(
       <ReviewCommentFilterControls
@@ -34,7 +34,9 @@ describe("ReviewCommentFilterControls()", () => {
 
     const input = screen.getByRole("searchbox", { name: reviewCommentsCopy.searchLabel })
     expect(input).toHaveClass("review-comment-filter-controls__input")
-    expect(container.querySelector(".review-comment-filter-controls__search svg")).not.toBeNull()
+    expect(
+      container.querySelector(".review-comment-filter-controls__search-field svg"),
+    ).not.toBeNull()
     expect(
       container.querySelector(".review-comment-filter-controls__search-field"),
     ).toContainElement(input)
@@ -44,6 +46,28 @@ describe("ReviewCommentFilterControls()", () => {
       search: "spacing",
     })
     expect(screen.getByRole("button", { name: reviewCommentsCopy.filterLabel })).toBeEnabled()
+  })
+
+  it("shows the compact search and framed filter controls", () => {
+    const { container } = render(
+      <ReviewCommentFilterControls
+        compact
+        filters={defaultReviewFilters}
+        participants={[]}
+        showPins
+        copy={reviewCommentsCopy}
+        onFiltersChange={vi.fn()}
+        onShowPinsChange={vi.fn()}
+      />,
+    )
+
+    expect(container.querySelector(".review-comment-filter-controls")).toHaveClass(
+      "review-comment-filter-controls--compact",
+    )
+    expect(container.querySelector(".review-comment-filter-controls__search-field svg")).toBeNull()
+    expect(
+      screen.getByRole("button", { name: reviewCommentsCopy.filterLabel }).className,
+    ).toContain("Button--secondary")
   })
 
   it("filters by participant using a small, single-select ActionMenu", () => {
@@ -183,9 +207,10 @@ describe("ReviewCommentFilterControls()", () => {
     })
   })
 
-  it("marks the filter icon active without changing its borderless variant", () => {
+  it("marks the framed filter control active", () => {
     render(
       <ReviewCommentFilterControls
+        compact
         filters={{ ...defaultReviewFilters, currentBuildOnly: true }}
         participants={[]}
         showPins
@@ -197,6 +222,8 @@ describe("ReviewCommentFilterControls()", () => {
 
     const filterButton = screen.getByRole("button", { name: reviewCommentsCopy.filterLabel })
     expect(filterButton).toHaveClass("review-comment-filter-controls__button--active")
+    expect(filterButton.className).toContain("Button--secondary")
+    expect(filterButton).not.toHaveClass("hub-icon-button--invisible")
     expect(filterButton).toHaveAttribute("aria-expanded", "false")
   })
 
