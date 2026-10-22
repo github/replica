@@ -40,7 +40,6 @@ const skillNames = [
   "component-design-system-review",
   "create-prototype",
   "developer-handoff",
-  "prepare-feedback-proposals",
   "product-design",
   "prototype-controls",
   "responsive-audit",
