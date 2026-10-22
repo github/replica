@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "noEmit": true,
+    "noEmitOnError": true,
+    "skipLibCheck": true,
+    "types": []
+  },
+  "include": ["**/*.mts"]
+}
