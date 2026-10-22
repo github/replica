@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import type { CSSProperties } from "react"
 
 import { BrowserBar } from "."
+import { copy } from "@utils/prototype-canvas/en"
 
 const meta = {
   title: "Components/Prototype canvas/Browser bar",
@@ -61,4 +62,30 @@ export const Tinted: Story = {
 
 export const Narrow: Story = {
   globals: { viewport: { value: "mobile" } },
+}
+
+export const NoHistory: Story = { args: { canGoBack: false, canGoForward: false } }
+export const ForwardHistory: Story = { args: { canGoBack: true, canGoForward: true } }
+export const CrossOriginAddress: Story = {
+  play: async ({ canvas, userEvent }) => {
+    const address = canvas.getByRole("textbox")
+    await userEvent.clear(address)
+    await userEvent.type(address, "https://github.com/{Enter}")
+    await canvas.findByRole("alert")
+  },
+}
+export const InvalidAddress: Story = {
+  play: async ({ canvas, userEvent }) => {
+    const address = canvas.getByRole("textbox")
+    await userEvent.clear(address)
+    await userEvent.type(address, "http://[[invalid{Enter}")
+    await canvas.findByRole("alert")
+  },
+}
+export const OpenTabFailed: Story = {
+  args: { onOpenTab: () => Promise.reject(new Error("Could not open your browser.")) },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: copy.browserOpenTab }))
+    await canvas.findByRole("alert")
+  },
 }

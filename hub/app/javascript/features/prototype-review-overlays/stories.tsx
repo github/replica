@@ -68,3 +68,49 @@ export const RateLimitedWithSelectionFailure: Story = {
   args: { selectionNotice: reviewCommentsCopy.areaTooSmallLabel },
   play: RateLimitedWithHubClosed.play,
 }
+export const SelectingElement: Story = {
+  args: {
+    selectionNotice: reviewCommentsCopy.commentOnElementLabel,
+    rateLimitNotice: null,
+    conversation: null,
+  },
+  play: undefined,
+}
+export const SelectionFailed: Story = {
+  ...SelectingElement,
+  args: {
+    ...SelectingElement.args,
+    selectionNotice: reviewCommentsCopy.areaTooSmallLabel,
+  },
+}
+export const CommentComposer: Story = {
+  args: {
+    rateLimitNotice: null,
+    conversation: null,
+    composer: {
+      anchorPoint: { x: 300, y: 200 },
+      bodyMaximumBytes: 10_000,
+      copy: reviewCommentsCopy,
+      creating: false,
+      onSubmit: unchanged,
+      onDiscard: noop,
+    },
+  },
+}
+export const CommentSubmitting: Story = {
+  ...CommentComposer,
+  args: {
+    ...CommentComposer.args,
+    composer: { ...CommentComposer.args!.composer!, creating: true },
+  },
+}
+export const CommentFailed: Story = {
+  ...CommentComposer,
+  args: {
+    ...CommentComposer.args,
+    composer: {
+      ...CommentComposer.args!.composer!,
+      submitError: "Could not save your comment. Your draft is still here.",
+    },
+  },
+}

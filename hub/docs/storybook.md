@@ -70,6 +70,18 @@ Collection surfaces normally need only three stories:
 
 Add another story only when it shows a meaningful product state, such as loading, failure, Build lifecycle, unavailable anchors, protected drafts, or a layout that changes at a narrow width. Use Storybook's theme and viewport controls instead of duplicating every story for dark mode or screen size.
 
+## UI changes and pull request evidence
+
+Hub and canvas UI changes are complete only when their Storybook coverage and PR screenshots match the change. This includes the extension's own screens, shared styles, copy, and interaction states, not just React component edits.
+
+1. Compare the PR with its base and identify every affected presentation surface. Include stories whose output changes through shared components, styles, copy, or fixtures, even when their story file is untouched.
+2. Update existing colocated stories for changed states and add stories for new states. Cover the meaningful states introduced or affected by the change, including loading, empty, failure, recovery, permissions, and pending or completed actions where applicable. Reuse production presentation code and isolated fixtures. Existing stories that already represent the changed UI need no artificial source edit.
+3. Render every added or changed story from the final PR code. Reach its intended state, let assets and interactions settle, and inspect the result before capturing it. Use the [repository browser workflow](../../AGENTS.md#browser-validation-and-playwright-fallback) for agent-driven capture. A blank iframe, unintended loading placeholder, or failed story is a blocker, not evidence of the intended state. Stories deliberately showing loading or product errors should capture those states.
+4. Upload the screenshots as GitHub attachments and embed them in a final `## Storybook screenshots` section at the bottom of the PR description. Label each image with its full Storybook title and story name, plus its theme and viewport. Include every added or changed story; use collapsible groups for large sets rather than representative samples. Choose a consistent theme and viewport, with additional captures when the change affects theme-specific or responsive behavior. Agents use the `github-pr-media` skill for uploads.
+5. Refresh the screenshots after further UI edits. Before requesting review, reconcile the affected-story list with the story coverage and image captions. Reviewers check both coverage and evidence, including indirectly affected stories. If rendering or upload is blocked, name each missing story and the blocker in the PR; the evidence requirement remains incomplete.
+
+Deleted stories need no after screenshot; explain removed UI in the PR. Omit the screenshot section when no story presentation changes. These are contributor and review requirements, not an automated CI coverage gate: a successful Storybook build does not prove state coverage or screenshot completeness.
+
 ## Story ownership
 
 Keep `stories.tsx` beside the code it presents:
@@ -92,7 +104,11 @@ Catalogue-only overview and inventory stories live under `app/javascript/storybo
 
 `Pages/Repositories/Create` and `Components/Hub-built: Template Card` use screenshots of the actual local seed layouts, not dashboard drawings. Create places the template picker inside the centered form and the searchable catalog below it, with Multiple, Single, No Preview, and search-empty states. Template Picker Open shows the dropdown, and Template Selected shows a non-Default selection. Narrow Desktop uses an 832-pixel viewport to check that grid columns follow the catalog's available width with the sidebar expanded. Local keeps prompt copying instead of the Copilot handoff. Their HTML and PNG fixtures live under `.storybook/preview-fixtures/templates/`. Regeneration requires the shared build action's installed Playwright dependency and the devcontainer's Chromium. Regenerate them inside the devcontainer with `node script/build-template-story-fixtures.mjs` after editing the authored examples. `Pages/Replica Browse/Template` displays that authored HTML in the existing preview and brief-composer shell.
 
-Add or update a story with every meaningful visual change. Existing TypeScript tests remain responsible for behavior; Storybook makes presentation states available for design and accessibility review.
+For UI changes and PR evidence, follow the [coverage and screenshot workflow](#ui-changes-and-pull-request-evidence). Existing TypeScript tests remain responsible for behavior; Storybook makes presentation states available for design and accessibility review.
+
+The `Components/Prototype canvas` catalogue covers the local extension before and after connecting a preview. Server Connection renders the extension's actual HTML document with isolated in-memory responses for scanning, empty and populated server lists, script selection, startup output, pending operations and failures. It never scans this checkout, starts processes or connects to a real server. Publication Example exposes each publication scenario as a sidebar entry as well as a scenario control. Its preview URL can be configured with `VITE_STORYBOOK_PROTOTYPE_URL`.
+
+Canvas recovery stories cover Controls compatibility, configuration, empty, reconnect, reset and diagnosis states; browser address and launch errors; Hub approval, URL save/reset and metadata failures; unavailable Build details and clipboard feedback; comment loading and recovery; and sharing permissions, expiry, validation and uncertain outcomes. Interaction stories perform the real UI action against fixture callbacks and retain the resulting state. Use the theme and viewport controls instead of separate light, dark or narrow copies.
 
 `Components/Prototype canvas/Controls fields` has interactive examples backed by the real controls runtime: All Fields covers all 11 control types; Conditional Fields shows one field in variant A and three in variant B, resetting hidden values; Actions demonstrates unavailable handlers, busy state, completion, and explicit failures. Each example shows live values and has a Reset example button. These stories do not exercise canvas persistence, the cross-frame bridge, or Hub integration.
 

@@ -20,6 +20,7 @@ Keep shared rules in root guides and project-specific rules in the affected proj
 - Separate accepted requirements from proposed implementation choices.
 - Follow existing patterns and implement one complete user flow at a time.
 - Update the canonical guide when its behavior or rules change.
+- For Hub or canvas UI changes, and when preparing or reviewing their PRs, follow the [Storybook coverage and screenshot requirements](hub/docs/storybook.md#ui-changes-and-pull-request-evidence).
 - Use conventional commit style for commits and PR titles, such as `fix(hub): retain prototype history`.
 - Write PR descriptions as short, simple English paragraphs for first-time readers. Include accurate Mermaid diagrams when they clarify the proposal; use before/after diagrams when helpful.
 - Omit validation sections, checklists, and routine test/CI summaries from PR descriptions. Mention only known verification gaps that affect the change, not disclaimers about drafting the description.

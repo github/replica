@@ -44,3 +44,4 @@ type Story = StoryObj<typeof meta>
 export const MissingBridge: Story = {}
 export const FixRequested: Story = { args: { requested: true } }
 export const FixRequestFailed: Story = { args: { error: "Could not reach Copilot. Try again." } }
+export const RequestingFix: Story = { args: { busy: true } }
