@@ -24,14 +24,20 @@ json.repositories do
   end
 end
 
+requested_build = params[:build]
+build_number = @selected_build.number if @selected_build &&
+  (@build || @history_build || requested_build.is_a?(String))
 json.historyLabel t("prototypes.show.history")
-json.historyPath repository_prototype_builds_path(@repository.route_id, @prototype)
+json.historyPath repository_prototype_builds_path \
+  @repository.route_id,
+  @prototype,
+  **(build_number ? { build: build_number } : {})
 json.moreActionsLabel t("prototypes.show.more_actions")
 json.closeLabel t("prototypes.show.close")
 json.closePath repository_prototype_path \
   @repository.route_id,
   @prototype,
-  **(@selected_build ? { build: @selected_build.number } : {})
+  **(build_number ? { build: build_number } : {})
 json.useDarkThemeLabel t("prototypes.show.use_dark_theme")
 json.useLightThemeLabel t("prototypes.show.use_light_theme")
 
@@ -60,7 +66,7 @@ if @can_manage_share_links && @selected_build
   json.shareLinksPath repository_prototype_share_links_path \
     @repository.route_id,
     @prototype,
-    build: @selected_build.number
+    **(build_number ? { build: build_number } : {})
 end
 
 if @latest_build

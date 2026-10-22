@@ -61,9 +61,10 @@ module HasShareLinkContext
     build = @prototype.builds.where(state: "successful").find_by! \
       number: positive_build_number(attributes[:build_number])
     if attributes[:expiration] == "never"
+      return_to = Current.canvas_grant ? root_path : management_path
       return if !require_fresh_authorization(
         purpose: "never_expiring_share",
-        return_to: repository_prototype_share_links_path(@repository.route_id, @prototype, build: build.number)
+        return_to:
       )
     end
 

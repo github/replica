@@ -1,4 +1,7 @@
 .canvas-toolbar {
+  --hub-toolbar-selected-bg: var(--brand-button-secondary-bgColor-hover);
+  --hub-toolbar-selected-hover-bg: var(--brand-button-secondary-bgColor-active);
+
   position: relative;
   z-index: 50;
   display: flex;
@@ -44,8 +47,9 @@
 }
 
 .canvas-toolbar .canvas-title {
-  flex: 0 1 auto;
+  flex: 1 1 0;
   width: fit-content;
+  max-width: max-content;
   margin-right: auto;
   min-width: 0;
   overflow: hidden;
@@ -63,6 +67,13 @@
   white-space: nowrap;
 }
 
+.canvas-toolbar .canvas-title > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .canvas-toolbar .canvas-title:hover {
   background: var(--brand-button-subtle-bgColor-hover);
 }
@@ -74,6 +85,22 @@
 
 .canvas-toolbar button {
   flex-shrink: 0;
+}
+
+.canvas-toolbar
+  button:is([aria-pressed="true"], [aria-expanded="true"]):not(
+    .canvas-title,
+    .canvas-publish-button
+  ):not(:disabled):not([aria-disabled="true"]) {
+  background-color: var(--hub-toolbar-selected-bg);
+}
+
+.canvas-toolbar
+  button:is([aria-pressed="true"], [aria-expanded="true"]):not(
+    .canvas-title,
+    .canvas-publish-button
+  ):not(:disabled):not([aria-disabled="true"]):is(:hover, :active) {
+  background-color: var(--hub-toolbar-selected-hover-bg);
 }
 
 .canvas-review-controls-slot {
@@ -113,5 +140,18 @@
 @media (max-width: 30rem) {
   .canvas-toolbar {
     padding-inline: 0.625rem;
+  }
+}
+
+@media (width < 1024px) {
+  .canvas-toolbar .canvas-toolbar-compact-button {
+    width: var(--brand-control-small-size);
+    min-width: var(--brand-control-small-size);
+    padding-inline: 0;
+    gap: 0;
+  }
+
+  .canvas-toolbar .canvas-toolbar-button-label {
+    display: none;
   }
 }

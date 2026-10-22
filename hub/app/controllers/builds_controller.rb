@@ -11,6 +11,7 @@ class BuildsController < SuperglueController
     load_prototype
     return if performed?
 
+    @history_build = history_build
     before = params[:before]
     before_at = params[:before_at]
     return head :not_found if before_at && !before
@@ -27,11 +28,17 @@ class BuildsController < SuperglueController
     return head :not_found if before && page_builds.empty?
 
     @builds = page_builds.first(BUILDS_PER_PAGE)
-    @newest_page_path = repository_prototype_builds_path(@repository.route_id, @prototype) if before
+    if before
+      @newest_page_path = repository_prototype_builds_path \
+        @repository.route_id,
+        @prototype,
+        **history_parameters
+    end
     if page_builds.size > BUILDS_PER_PAGE
       @next_page_path = repository_prototype_builds_path \
         @repository.route_id,
         @prototype,
+        **history_parameters,
         before: @builds.last.number,
         before_at: @builds.last.chronological_at.iso8601(6)
     end
@@ -65,7 +72,8 @@ class BuildsController < SuperglueController
 
   def prepare_review_header
     @latest_build = @prototype.current_build || @prototype.builds.chronological.first
-    @selected_build = @prototype.builds.where(state: "successful").chronological.first
+    @selected_build = @history_build ||
+      @prototype.builds.where(state: "successful").chronological.first
     @build_options = @prototype.builds.chronological.to_a
     @can_manage_share_links = @prototype.share_links_manageable_by? \
       Current.user,
@@ -90,6 +98,19 @@ class BuildsController < SuperglueController
     false
   end
 
+  def history_build
+    number = params[:build]
+    return if number.nil? || (number.is_a?(ActionController::Parameters) && number.empty?)
+
+    raise ActiveRecord::RecordNotFound if !valid_build_number?(number)
+
+    @prototype.builds.where(state: "successful").find_by!(number: number.to_i)
+  end
+
+  def history_parameters
+    @history_build ? { build: @history_build.number } : {}
+  end
+
   # Adds the captured timestamp required by chronological pagination.
   def redirect_legacy_cursor(number)
     return head :not_found if !valid_build_number?(number)
@@ -98,6 +119,7 @@ class BuildsController < SuperglueController
     redirect_to repository_prototype_builds_path \
       @repository.route_id,
       @prototype,
+      **history_parameters,
       before: build.number,
       before_at: build.chronological_at.iso8601(6)
   end

@@ -44,4 +44,20 @@ it("resolves the marketplace's relative source to the shipped plugin", async () 
     ),
     "The shipped review skill includes its private handoff contract.",
   )
+  for (const name of ["replica-publish-prototype", "replica-pick-and-polish"]) {
+    const skill = (
+      await readFile(new URL(`${plugin.source}/skills/${name}/SKILL.md`, root), "utf8")
+    ).replaceAll("\r\n", "\n")
+    assert.ok(skill.startsWith(`---\nname: ${name}\n`))
+    const frontmatterEnd = skill.indexOf("\n---\n", 4)
+    assert.notEqual(frontmatterEnd, -1)
+    assert.match(skill.slice(0, frontmatterEnd), /\ndescription:\s+\S/)
+    if (name === "replica-pick-and-polish")
+      assert.doesNotMatch(
+        skill.slice(0, frontmatterEnd),
+        /\ndisable-model-invocation:\s*true\b/i,
+        "Pick & polish remains discoverable by the model.",
+      )
+    assert.ok(skill.slice(frontmatterEnd + 5).trim(), "The shipped skill has executable guidance.")
+  }
 })

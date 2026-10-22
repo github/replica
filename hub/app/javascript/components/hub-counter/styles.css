@@ -6,7 +6,7 @@
   align-items: center;
   justify-content: center;
   border-radius: 100rem;
-  background: color-mix(in srgb, currentColor 10%, Canvas);
+  background: var(--hub-counter-background, color-mix(in srgb, currentColor 10%, Canvas));
   color: inherit;
   font-size: 0.75rem;
   font-variant-numeric: tabular-nums;

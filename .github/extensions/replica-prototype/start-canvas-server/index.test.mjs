@@ -21,6 +21,66 @@ function publishData(prompt) {
 }
 
 describe("startCanvasServer()", () => {
+  it("protects saved notes with the canvas token and restores them after reopening", async () => {
+    await withContext(async (context) => {
+      const options = {
+        improvementNotesDirectory: path.join(context.sessionWorkspacePath, "notes"),
+        hubOptions: {
+          directory: path.join(context.sessionWorkspacePath, "credentials"),
+        },
+      }
+      let canvas = await startCanvasServer(context, { send: assert.fail }, options)
+      try {
+        const html = await (await fetch(canvas.url)).text()
+        const { token } = JSON.parse(html.match(/window\.__REPLICA_CANVAS__ = ([^;]+);/)[1])
+        const headers = { "X-Replica-Canvas-Token": token }
+        const endpoint = new URL("/api/improvement-notes", canvas.url)
+        assert.equal((await fetch(endpoint)).status, 403)
+        const captureEndpoint = new URL("/api/improvement-notes/capture", canvas.url)
+        assert.equal((await fetch(captureEndpoint, { method: "POST" })).status, 403)
+        const captured = await (await fetch(captureEndpoint, { method: "POST", headers })).json()
+        const state = await (await fetch(endpoint, { headers })).json()
+        const response = await fetch(endpoint, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            identity: state.identity,
+            revision: state.revision,
+            operation: "create",
+            sourceId: captured.sourceId,
+            body: "Improve the selected button.",
+            anchor: {
+              schemaVersion: 1,
+              kind: "element",
+              route: { pathname: "/", search: "", hash: "" },
+              selector: "#save",
+              accessibleName: "Save",
+              tagName: "button",
+              selectedText: "",
+              rect: { x: 20, y: 30, width: 100, height: 32 },
+              viewport: { width: 960, height: 560, scrollX: 0, scrollY: 0 },
+              elementOffset: { x: 0.5, y: 0.5 },
+            },
+          }),
+        })
+        const saved = await response.json()
+        assert.equal(response.status, 200, JSON.stringify(saved))
+        assert.match(saved.notes[0].source.treeSha, /^[0-9a-f]{40}$/)
+        await canvas.close()
+        canvas = await startCanvasServer(context, { send: assert.fail }, options)
+        const reopenedHtml = await (await fetch(canvas.url)).text()
+        const reopened = JSON.parse(reopenedHtml.match(/window\.__REPLICA_CANVAS__ = ([^;]+);/)[1])
+        const restored = await fetch(new URL("/api/improvement-notes", canvas.url), {
+          headers: { "X-Replica-Canvas-Token": reopened.token },
+        })
+        assert.equal(restored.status, 200)
+        assert.deepEqual((await restored.json()).notes, saved.notes)
+      } finally {
+        await canvas.close()
+      }
+    })
+  })
+
   it("requires an explicit committed-only choice after a failed check even with saved commit permission", async () => {
     await withContext(async (context) => {
       const directory = path.join(context.sessionWorkspacePath, "publish-settings")
@@ -1803,7 +1863,14 @@ exit 1
       const asset = await fetch(new URL("/assets/renderer.js", server.url))
       assert.equal(asset.status, 200)
       assert.match(await asset.text(), /renderer-vendor\.js/)
-      for (const name of ["renderer-vendor.js", "renderer-rolldown-runtime.js"]) {
+      for (const name of [
+        "renderer-vendor.js",
+        "renderer-rolldown-runtime.js",
+        "renderer-improvement-notes-prototype.js",
+        "renderer-improvement-notes-vendor.js",
+        "renderer-prototype-canvas-thread-sample.js",
+        "renderer-prototype-canvas-improvement-threads.js",
+      ]) {
         const chunk = await fetch(new URL(`/assets/${name}`, server.url))
         assert.equal(chunk.status, 200)
         assert.equal(chunk.headers.get("content-type"), "text/javascript; charset=utf-8")

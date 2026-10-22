@@ -13,6 +13,14 @@ const config = {
 const meta = {
   title: "Prototype canvas/Toolbar",
   component: Toolbar,
+  parameters: {
+    docs: {
+      description: {
+        component:
+          "Neutral toolbar toggles use the standard Brand hover fill when selected, and the darker pressed fill when a selected button is hovered or pressed. Unselected and disabled styling stays with the original components. Edit details includes a pencil icon. Below 1024px, Edit details and the live canvas Pick & polish control retain their icons, accessible names, and tooltips while hiding their labels.",
+      },
+    },
+  },
   args: {
     config,
     prototypeName: "Prototype",
@@ -64,6 +72,14 @@ export const MoreActionsOpen: Story = {
     await userEvent.click(canvas.getByRole("button", { name: "More actions" }))
     await canvas.findByRole("menuitem", { name: "Improve context" })
   },
+}
+
+export const ControlsClosed: Story = {
+  args: { onControls: () => undefined, controlsOpen: false },
+}
+
+export const ControlsOpen: Story = {
+  args: { onControls: () => undefined, controlsOpen: true },
 }
 
 export const Untitled: Story = {
@@ -119,5 +135,4 @@ export const Unavailable: Story = {
   args: { state: null },
 }
 export const Publishing: Story = { args: { publishing: true } }
-export const ControlsOpen: Story = { args: { controlsOpen: true } }
 export const HubOpen: Story = { args: { hubOpen: true } }

@@ -21,6 +21,7 @@ export function ReviewThreadReplyForm({
   replyFailed,
   replyDisabled,
   replying,
+  submitDisabled = false,
   copy,
   onKeepDraft,
   onDiscardDraft,
@@ -33,6 +34,7 @@ export function ReviewThreadReplyForm({
     !replyBodyTooLong &&
     !replyDisabled &&
     !replying &&
+    !submitDisabled &&
     !confirmingDiscard &&
     !blockedLabel
   const submitTooltip = isMacPlatform()
