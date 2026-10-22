@@ -56,7 +56,9 @@
 }
 
 .thread-sample__card {
+  margin-inline-start: 0;
   margin-bottom: 0.5rem;
+  padding-inline: var(--hub-space-8);
 }
 
 /* Shared rows isolate their hover layer; lift the open menu's entire row above siblings. */
@@ -65,7 +67,7 @@
 }
 
 .thread-sample__card::before {
-  inset-inline: calc(-1 * var(--hub-space-12)) var(--hub-space-4);
+  inset-inline: 0 var(--hub-space-4);
 }
 
 .thread-sample__card:not(.thread-sample__card--resolved) .review-comment-row__author,
@@ -78,7 +80,11 @@
 }
 
 .thread-sample__card-button {
-  padding-inline-end: 1.75rem;
+  padding-inline-end: calc(var(--brand-control-small-size) + var(--hub-space-4));
+}
+
+.thread-sample__card-button::after {
+  inset-inline: 0 var(--hub-space-4);
 }
 
 .thread-sample__heading {
@@ -137,7 +143,7 @@
 .thread-sample__menu {
   position: absolute;
   top: 0.25rem;
-  right: 0.25rem;
+  inset-inline-end: var(--hub-space-8);
 }
 
 /* Brand's implicit label still names the icon button without a visible tooltip. */

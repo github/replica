@@ -63,7 +63,7 @@ export const BlockedNotes: Story = {
         ...meta.args.threads[0]!,
         id: 2,
         author: "Jordan Lee",
-        body: "Keep the project description visible beside the save action.",
+        body: "Keep the project description visible beside the save action while editing longer project details.",
         status: "blocked",
         retryStatus: "blocked",
       },

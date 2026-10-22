@@ -305,6 +305,38 @@ try {
           const firstActions = rows.first().getByRole("button", {
             name: /^Improvement actions:/,
           })
+          const geometry = await rows.first().evaluate((row) => {
+            const bounds = row.getBoundingClientRect()
+            const listElement = row.closest(".thread-sample__list")
+            const list = listElement.getBoundingClientRect()
+            const filter = document
+              .querySelector('.thread-sample__filters button[aria-haspopup="true"]')
+              .getBoundingClientRect()
+            const avatar = row.querySelector(".hub-user-avatar").getBoundingClientRect()
+            const actions = row
+              .querySelector('button[aria-haspopup="menu"]')
+              .getBoundingClientRect()
+            const body = row.querySelector(".review-comment-row__body").getBoundingClientRect()
+            const hover = getComputedStyle(row, "::before")
+            return {
+              avatarOffset: avatar.left - filter.left,
+              hoverGutter: bounds.left + parseFloat(hover.insetInlineStart) - list.left,
+              actionInset: list.right - actions.right,
+              actionWidth: actions.width,
+              textGap: actions.left - body.right,
+              scrollOverflow: listElement.scrollWidth - listElement.clientWidth,
+            }
+          })
+          console.log(JSON.stringify({ viewport: viewport.width, colorScheme, geometry }))
+          assert.ok(Math.abs(geometry.avatarOffset) < 0.5, "Avatar aligns with Active notes")
+          assert.ok(Math.abs(geometry.hoverGutter - 8) < 0.5, "Hover retains its 8px left gutter")
+          assert.ok(
+            Math.abs(geometry.actionInset - 16) < 0.5,
+            "Actions retain the ordinary comment's 16px right inset",
+          )
+          assert.ok(geometry.actionWidth >= 32, "Action hit target is not reduced")
+          assert.ok(geometry.textGap >= 4, "Wrapped row text stays clear of actions")
+          assert.equal(geometry.scrollOverflow, 0, "Rows do not overflow horizontally")
           await firstActions.click()
           await menu.getByRole("menuitem", { name: "Retry", exact: true }).waitFor()
           const deleteItem = menu.getByRole("menuitem", {
