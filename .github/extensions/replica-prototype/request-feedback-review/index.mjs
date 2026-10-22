@@ -1,22 +1,31 @@
+import { readHubObject } from "../read-hub-object/index.mjs"
 const requests = new Map()
-
 export async function requestFeedbackReview(context, session, hub, target, options = {}) {
+  const value = readHubObject(target)
   if (
-    !target ||
-    typeof target.repository !== "string" ||
-    typeof target.branch !== "string" ||
-    typeof target.hubOrigin !== "string"
+    !value ||
+    typeof value.repository !== "string" ||
+    typeof value.branch !== "string" ||
+    typeof value.hubOrigin !== "string"
   )
     throw failure(422, "Refresh Hub status before requesting a feedback review.")
   if (!hub) throw failure(409, "Connect to Hub before requesting a feedback review.")
-
-  const key = JSON.stringify([target.hubOrigin, target.repository, target.branch])
+  const verifiedTarget = {
+    repository: value.repository,
+    branch: value.branch,
+    hubOrigin: value.hubOrigin,
+  }
+  const key = JSON.stringify([
+    verifiedTarget.hubOrigin,
+    verifiedTarget.repository,
+    verifiedTarget.branch,
+  ])
   const active = requests.get(context.stateFile)
   if (active) {
     if (active.key !== key) throw failure(409, "A feedback review request is already in progress.")
     return active.pending
   }
-  const pending = sendReview(session, hub, target, options)
+  const pending = sendReview(session, hub, verifiedTarget, options)
   requests.set(context.stateFile, { key, pending })
   try {
     return await pending
@@ -24,7 +33,6 @@ export async function requestFeedbackReview(context, session, hub, target, optio
     requests.delete(context.stateFile)
   }
 }
-
 async function sendReview(session, hub, target, { verifyCurrent } = {}) {
   const connectionId = await hub.connectionKey(target.repository)
   if (!connectionId) throw failure(401, "Connect to Hub before requesting a feedback review.")
@@ -41,11 +49,17 @@ async function sendReview(session, hub, target, { verifyCurrent } = {}) {
   }
   await verify()
   const catalog = await session.rpc?.skills?.list?.()
-  const skill = catalog?.skills?.find(
-    (entry) =>
+  const skills = readHubObject(catalog)?.skills
+  if (skills != null && !Array.isArray(skills))
+    throw new Error("Copilot returned an invalid skill catalog.")
+  const skill = skills?.some((value) => {
+    const entry = readHubObject(value)
+    if (!entry) throw new Error("Copilot returned an invalid skill catalog.")
+    return (
       (entry.name === "review-hub-feedback" || entry.commandName === "review-hub-feedback") &&
-      entry.enabled === true,
-  )
+      entry.enabled === true
+    )
+  })
   if (!skill)
     throw failure(
       409,
@@ -74,7 +88,6 @@ async function sendReview(session, hub, target, { verifyCurrent } = {}) {
   })
   return { requested: true }
 }
-
 function failure(statusCode, message) {
   return Object.assign(new Error(message), { statusCode })
 }
