@@ -8,7 +8,7 @@ export function runCommand(
   | {
       ok: false
       error: string
-      exitCode?: string | number
+      exitCode?: string | number | null
       stdout?: string
       stderr?: string
     }
