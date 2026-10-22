@@ -2,7 +2,7 @@
 
 Repository readers can discuss specific elements or highlighted regions inside a Prototype preview. Hub keeps those conversations with the Prototype branch so they remain available across Builds.
 
-Author-owned [Pick & polish notes](prototype-canvas.md#improvement-note-persistence) use separate `ImprovementComment` records, not review conversations. Ordinary interfaces, summaries, unread state, notifications, and learning exclude them. Authorized paired comment list APIs include them only with an explicit `improvement_notes=include` or `only` filter; the default is `exclude`. The dedicated improvement-note collection returns only the authenticated creator's notes.
+Author-owned [Pick & polish notes](prototype-canvas.md#pick--polish) use separate `ImprovementComment` records, not review conversations. Ordinary interfaces, summaries, unread state, notifications, and learning exclude them. Authorized paired comment list APIs include them only with an explicit `improvement_notes=include` or `only` filter; the default is `exclude`. The dedicated improvement-note collection returns only the authenticated creator's notes.
 
 ## Conversations
 
@@ -132,7 +132,7 @@ Hub uses Action Cable for the small change notice. The notice contains no commen
 
 Production uses Solid Cable to write notices in asynchronous batches before delivering them. A saved comment does not wait for its notice to be written. Solid Cable reports failed notice writes through Rails error reporting rather than raising them to the caller; reconnecting review pages reload conversations through the authorized API. Canvas revocation saves the revoked grant before queuing its disconnect notice, so the API rejects the revoked credential even while delivery is pending.
 
-The Copilot canvas reads these same conversations for the current checkout through a repository-scoped Hub connection. It can act on existing threads and start an anchored conversation when the local checkout matches the successful Build. Posting or selecting a pin preserves the comments panel's current state, just as in Hub. Hub sends invalidation notices to the extension, which reloads comments through the authorized API. A local bridge places safely matched targets on the dev-server preview; uncertain targets stay visible in the list without a marker. See [Prototype canvas](prototype-canvas.md).
+The Copilot canvas's agent actions read these same conversations through a repository-scoped Hub connection and can explicitly act on existing threads. Pick & polish is the default native canvas selection and sidebar workflow; its creator-owned notes replace ordinary review controls and pins in that preview. Start new team conversations on the published Build in Hub. Legacy renderers without Pick & polish retain their anchored conversation controls and local review pins. See [Prototype canvas](prototype-canvas.md#pairing-and-review) for the two modes.
 
 Browser and canvas comment endpoints share their listing, creation, editing, and deletion actions through `ReviewCommentActions`. Their controllers retain separate authentication: the browser uses its Session and anti-forgery token, while the canvas uses a repository-scoped bearer token.
 

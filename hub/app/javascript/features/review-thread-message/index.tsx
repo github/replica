@@ -6,6 +6,7 @@ import { HubVisuallyHidden } from "@components/hub-visually-hidden"
 import { MentionInput } from "@components/mention-input"
 import { MentionText } from "@components/mention-text"
 import { HubUserAvatar } from "@components/hub-user-avatar"
+import { ReviewMessageHeading } from "@components/review-message-heading"
 import { ReviewConfirmationPanel } from "@features/review-confirmation-panel"
 import { ReviewCommentReactions } from "@features/review-comment-reactions"
 import { ReviewRelativeTime } from "@features/review-relative-time"
@@ -67,15 +68,16 @@ export function ReviewThreadMessage({
 
   return (
     <article className="review-thread-message" data-review-message-id={comment.id}>
-      <div className="review-thread-message__header">
-        <HubUserAvatar src={comment.author.avatarUrl} size={28} />
-
-        <span className="review-thread-message__byline">
-          <strong className="review-thread-message__identity">{author}</strong>
-          <ReviewRelativeTime value={comment.createdAt} />
-          {comment.editedAt ? <span>{copy.editedLabel}</span> : null}
-        </span>
-
+      <ReviewMessageHeading
+        visual={<HubUserAvatar src={comment.author.avatarUrl} size={28} />}
+        author={author}
+        metadata={
+          <>
+            <ReviewRelativeTime value={comment.createdAt} />
+            {comment.editedAt ? <span>{copy.editedLabel}</span> : null}
+          </>
+        }
+      >
         {onMarkUnread || canEdit || canDelete ? (
           menuDisabled ? (
             <div title={actionLabel}>
@@ -189,7 +191,7 @@ export function ReviewThreadMessage({
             </Tooltip>
           )
         ) : null}
-      </div>
+      </ReviewMessageHeading>
 
       {editing ? (
         <form

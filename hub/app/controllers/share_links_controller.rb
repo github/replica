@@ -6,6 +6,7 @@ class ShareLinksController < SuperglueController
   before_action :load_share_link_context
   before_action :require_public_sharing, only: %i[create destroy]
   before_action :validate_control_parameters, only: [ :create, :destroy ]
+  before_action :validate_management_build, only: %i[create destroy]
 
   rescue_from GithubClient::Error, with: :repository_unavailable
   rescue_from SharingSetting::Disabled, SharingSetting::Changed, with: :public_sharing_disabled
@@ -23,7 +24,7 @@ class ShareLinksController < SuperglueController
     share_link = create_share_link
     return if performed?
 
-    redirect_to management_path(share_link.build.number), status: :see_other
+    redirect_to management_path, status: :see_other
   rescue ShareLink::InvalidExpiration, ActiveRecord::RecordInvalid => error
     invalid_share_link(error)
   end
@@ -32,9 +33,8 @@ class ShareLinksController < SuperglueController
   # @route DELETE /repositories/:repository_github_id/prototypes/:prototype_id/share_links/:id (repository_prototype_share_link)
   def destroy
     share_link = @prototype.share_links.find(params[:id])
-    build_number = share_link.build.number
     share_link.destroy!
-    redirect_to management_path(build_number), status: :see_other
+    redirect_to management_path, status: :see_other
   end
 
   private
@@ -78,13 +78,21 @@ class ShareLinksController < SuperglueController
     builds.find_by!(number: positive_build_number(params[:build]))
   end
 
-  # Returns the management page for the selected Build.
-  def management_path(build_number)
+  # Returns to the same default or explicitly selected management view.
+  def management_path
     repository_prototype_share_links_path \
       @repository.route_id,
       @prototype,
       **@control_parameters,
-      build: build_number
+      **(@management_build_number ? { build: @management_build_number } : {})
+  end
+
+  def validate_management_build
+    value = params[:management_build]
+    return if value.nil?
+
+    number = positive_build_number(value)
+    @management_build_number = @prototype.builds.where(state: "successful").find_by!(number:).number
   end
 
   def validate_control_parameters
@@ -114,7 +122,7 @@ class ShareLinksController < SuperglueController
   def invalid_share_link(error)
     record_security_audit(outcome: "failed")
     redirect_to \
-      management_path(positive_build_number(params.dig(:share_link, :build_number))),
+      management_path,
       alert: share_link_errors(error).to_sentence,
       status: :see_other
   end

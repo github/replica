@@ -1863,7 +1863,14 @@ exit 1
       const asset = await fetch(new URL("/assets/renderer.js", server.url))
       assert.equal(asset.status, 200)
       assert.match(await asset.text(), /renderer-vendor\.js/)
-      for (const name of ["renderer-vendor.js", "renderer-rolldown-runtime.js"]) {
+      for (const name of [
+        "renderer-vendor.js",
+        "renderer-rolldown-runtime.js",
+        "renderer-improvement-notes-prototype.js",
+        "renderer-improvement-notes-vendor.js",
+        "renderer-prototype-canvas-thread-sample.js",
+        "renderer-prototype-canvas-improvement-threads.js",
+      ]) {
         const chunk = await fetch(new URL(`/assets/${name}`, server.url))
         assert.equal(chunk.status, 200)
         assert.equal(chunk.headers.get("content-type"), "text/javascript; charset=utf-8")

@@ -17,6 +17,7 @@ const PAGE_DATA: ShareLinksIndexPageData = {
     ...story.args.data.form,
     buildLabel: "Build 2",
   },
+  managementBuildNumber: 2,
   buildOptions: [
     {
       number: 2,
@@ -161,7 +162,17 @@ describe("ShareLinksIndexPage()", () => {
     expect(form?.querySelector('input[name="authenticity_token"]')).toHaveValue(
       PAGE_DATA.authenticityToken,
     )
+    expect(form?.querySelector('input[name="management_build"]')).toHaveValue("2")
     expect(screen.getByRole("button", { name: "Create share link" })).toBeInTheDocument()
+  })
+
+  it("omits management selection from every default-view mutation form", () => {
+    const { container } = render(
+      <ShareLinksIndexPage data={{ ...PAGE_DATA, managementBuildNumber: undefined }} />,
+      { wrapper: HubThemeProvider },
+    )
+
+    expect(container.querySelectorAll('input[name="management_build"]')).toHaveLength(0)
   })
 
   it("shows verification success and leaves creation to the user", () => {
@@ -224,6 +235,7 @@ describe("ShareLinksIndexPage()", () => {
     expect(form?.querySelector('input[name="authenticity_token"]')).toHaveValue(
       PAGE_DATA.authenticityToken,
     )
+    expect(form?.querySelector('input[name="management_build"]')).toHaveValue("2")
     expect(fireEvent.submit(form!)).toBe(false)
     expect(fireEvent.submit(form!)).toBe(true)
     expect(confirm).toHaveBeenCalledWith(link.deletePrompt)
