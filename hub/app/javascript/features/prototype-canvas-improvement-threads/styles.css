@@ -1,0 +1,241 @@
+.thread-sample {
+  --hub-sidebar-top: var(--canvas-preview-top, 8.5rem);
+}
+
+.thread-sample__content {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.thread-sample__toolbar {
+  flex: none;
+  margin: 0;
+  padding: 0.75rem 1rem;
+  color: var(--hub-fg-muted);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.thread-sample__toolbar {
+  border-bottom: 1px solid var(--hub-border-muted);
+}
+
+.thread-sample__filters {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--base-size-8);
+}
+
+.thread-sample__empty {
+  padding: var(--base-size-8);
+  color: var(--hub-fg-muted);
+}
+
+.thread-sample__fix-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--hub-space-8);
+}
+
+.thread-sample__error,
+.thread-sample__target-status {
+  flex: none;
+  margin: 0;
+  padding: var(--hub-space-8);
+  color: var(--hub-fg-muted);
+  overflow-wrap: anywhere;
+}
+
+.thread-sample__list {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  padding: 0.5rem;
+}
+
+.thread-sample__card {
+  margin-inline-start: 0;
+  margin-bottom: 0.5rem;
+  padding-inline: var(--hub-space-8);
+}
+
+/* Shared rows isolate their hover layer; lift the open menu's entire row above siblings. */
+.thread-sample__card:has(.thread-sample__menu button[aria-expanded="true"]) {
+  z-index: 1;
+}
+
+.thread-sample__card::before {
+  inset-inline: 0 var(--hub-space-4);
+}
+
+.thread-sample__card:not(.thread-sample__card--resolved) .review-comment-row__author,
+.thread-sample__card:not(.thread-sample__card--resolved) .review-comment-row__body {
+  color: var(--hub-fg-default);
+}
+
+.thread-sample__card:not(.thread-sample__card--resolved) .review-comment-row__author {
+  font-weight: 600;
+}
+
+.thread-sample__card-button {
+  padding-inline-end: calc(var(--brand-control-small-size) + var(--hub-space-4));
+}
+
+.thread-sample__card-button::after {
+  inset-inline: 0 var(--hub-space-4);
+}
+
+.thread-sample__heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--base-size-4) var(--base-size-8);
+}
+
+.thread-sample__heading .review-comment-row__author {
+  flex: 0 1 auto;
+}
+
+.thread-sample__status {
+  max-width: 100%;
+  color: var(--hub-fg-muted);
+  font-size: 0.6875rem;
+}
+
+.thread-sample__status--ready {
+  padding: var(--base-size-2) var(--base-size-8);
+  border: var(--brand-borderWidth-thin) solid var(--hub-fg-success);
+  border-radius: var(--brand-borderRadius-full);
+  background: transparent;
+  color: var(--hub-fg-success);
+}
+
+.thread-sample__card svg {
+  flex-shrink: 0;
+}
+
+.thread-sample__metadata {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.375rem;
+  margin: var(--base-size-4) 0 0 1.75rem;
+  font-size: 0.6875rem;
+  color: var(--hub-fg-muted);
+  overflow-wrap: anywhere;
+}
+
+.thread-sample__metadata code {
+  font-size: inherit;
+}
+
+.thread-sample__follow-ups {
+  display: flex;
+  align-items: center;
+  gap: var(--base-size-4);
+  margin: 0.5rem 0 0 1.75rem;
+  color: var(--hub-fg-default);
+  font-size: 0.75rem;
+}
+
+.thread-sample__menu {
+  position: absolute;
+  top: 0.25rem;
+  inset-inline-end: var(--hub-space-8);
+}
+
+/* Brand's implicit label still names the icon button without a visible tooltip. */
+.thread-sample__menu button[aria-haspopup="menu"] + [popover][aria-hidden="true"] {
+  visibility: hidden;
+}
+
+.thread-sample__menu-item {
+  column-gap: var(--base-size-8);
+}
+
+.thread-sample__menu-item + .thread-sample__menu-item {
+  margin-block-start: var(--base-size-4);
+}
+
+.thread-sample__surface {
+  z-index: 40;
+}
+
+.thread-sample__markers {
+  z-index: 20;
+}
+
+.thread-sample__marker {
+  position: absolute;
+  pointer-events: auto;
+}
+
+.thread-sample__conversation .review-thread-conversation__header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.thread-sample__close {
+  grid-column: 3;
+  grid-row: 1;
+  justify-self: end;
+}
+
+.thread-sample__copilot-avatar {
+  background: var(--hub-fg-success);
+}
+
+[data-color-mode="dark"] .thread-sample__copilot-avatar {
+  background: var(--hub-success-emphasis);
+}
+
+.thread-sample__copilot-avatar img {
+  padding: 0.375rem;
+  object-fit: contain;
+}
+
+.thread-sample__resolve {
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: end;
+}
+
+.thread-sample__conversation h3 {
+  flex: 1;
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+.thread-sample__delete,
+.thread-sample__delete span {
+  color: var(--hub-fg-danger);
+}
+
+.thread-sample__menu-item.thread-sample__delete:not([aria-disabled="true"]):hover {
+  cursor: default;
+}
+
+.thread-sample__quote {
+  margin-block-end: var(--hub-space-16);
+  margin-inline: 0;
+  padding-inline-start: 1rem;
+  border-inline-start: 3px solid var(--hub-border-default);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.thread-sample__delete-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--hub-space-8);
+}
+
+.thread-sample__delete-confirm {
+  --brand-button-primary-bgColor-rest: var(--hub-danger-emphasis);
+  --brand-button-primary-bgColor-hover: var(--hub-danger-emphasis);
+  --brand-button-primary-bgColor-active: var(--hub-danger-emphasis);
+  --brand-button-primary-fgColor-rest: var(--hub-fg-on-danger);
+}

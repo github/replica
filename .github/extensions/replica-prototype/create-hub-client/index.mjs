@@ -605,7 +605,10 @@ export function createHubClient(context, options = {}) {
         )
       )
         throw new Error("Hub returned invalid learnings.")
-      return { text: result.text, memories: memories.map(({ id, digest }) => ({ id, digest })) }
+      return {
+        text: result.text,
+        memories: memories.map(({ id, digest }) => ({ id, digest })),
+      }
     },
     async activity() {
       const { target, credential } = await connected()

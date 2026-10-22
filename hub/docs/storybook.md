@@ -101,6 +101,8 @@ Deleted stories need no after screenshot; explain removed UI in the PR. Omit the
 
 ## Story ownership
 
+`Components/Prototype canvas/Improvement threads` is the presentation workbench for [Pick & polish](prototype-canvas.md#pick--polish). Small fixtures render the real conversation component with pins, active notes, a Copilot answer, no pending work and an identity error. They do not implement a second prototype app, selection bridge, storage, synchronization or agent workflow. The former `Improvement notes prototype` stories and their standalone simulated app have been removed.
+
 Keep `stories.tsx` beside the code it presents:
 
 ```text

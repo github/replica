@@ -1,15 +1,29 @@
 import assert from "node:assert/strict"
 import { execFile } from "node:child_process"
 import { createHash, randomUUID } from "node:crypto"
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
+import fs, { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { createServer } from "node:http"
+import { syncBuiltinESMExports } from "node:module"
 import path from "node:path"
 import { promisify } from "node:util"
-import { it } from "node:test"
+import { it, mock } from "node:test"
 
 import { createCanvasContext } from "../create-canvas-context/index.mjs"
 import { createHubClient } from "../create-hub-client/index.mjs"
-import { createImprovementNotes } from "./index.mjs"
+import * as improvementNotes from "./index.mjs"
+
+const { createImprovementNotes } = improvementNotes
+const skillUrl = new URL("../skills/replica-pick-and-polish/SKILL.md", import.meta.url)
+
+async function bundledInstructions() {
+  const skill = (await readFile(skillUrl, "utf8")).replaceAll("\r\n", "\n")
+  assert.match(skill, /^---\n/)
+  const frontmatterEnd = skill.indexOf("\n---\n", 4)
+  assert.notEqual(frontmatterEnd, -1)
+  const instructions = skill.slice(frontmatterEnd + 5).trim()
+  assert.ok(instructions)
+  return instructions
+}
 
 async function fixture(run) {
   const directory = path.join(process.cwd(), "storage/replica-extension-tests", randomUUID())
@@ -811,6 +825,193 @@ it("captures an immutable cross-screen batch while follow-ups wait for the next 
   })
 })
 
+for (const { label, skills, fallback } of [
+  {
+    label: "enabled by name",
+    skills: [{ name: "replica-pick-and-polish", enabled: true }],
+    fallback: false,
+  },
+  {
+    label: "enabled by command name",
+    skills: [
+      {
+        name: "replica-prototype:replica-pick-and-polish",
+        commandName: "replica-pick-and-polish",
+        enabled: true,
+      },
+    ],
+    fallback: false,
+  },
+  {
+    label: "disabled",
+    skills: [{ name: "replica-pick-and-polish", enabled: false }],
+    fallback: true,
+  },
+  { label: "unavailable", skills: [], fallback: true },
+]) {
+  it(`requests the packaged skill when it is ${label}`, async () => {
+    await fixture(async ({ create, session, anchor, root, directory }) => {
+      let discoveries = 0
+      session.rpc = {
+        skills: {
+          list: async () => {
+            discoveries++
+            return { skills }
+          },
+        },
+      }
+      const store = create()
+      let state = await store.save({
+        ...(await store.load()),
+        operation: "create",
+        body: "private-original-request",
+        anchor: { ...anchor, selectedText: "private-anchor" },
+      })
+      state = await store.save({
+        ...state,
+        operation: "follow-up",
+        id: 1,
+        expectedNoteRevision: state.notes[0].revision,
+        body: "private-follow-up-request",
+      })
+      let prompt
+      let dispatchedRecord
+      session.send = async (message) => {
+        prompt = message.prompt
+        dispatchedRecord = JSON.parse(
+          await readFile(path.join(directory, "notes", `${state.identity}.json`), "utf8"),
+        )
+      }
+      const result = await store.fix(state)
+      assert.equal(dispatchedRecord.batches.length, 1)
+      const batch = dispatchedRecord.batches[0]
+      assert.equal(batch.id, result.activeBatch)
+      assert.equal(batch.state, "requested")
+      assert.equal(batch.notes[0].revision, state.notes[0].revision + 1)
+      assert.equal(dispatchedRecord.notes[0].status, "sent")
+      assert.deepEqual(batch.notes[0].requestIds, [
+        state.notes[0].localId,
+        state.notes[0].thread.messages[0].id,
+      ])
+      assert.equal(discoveries, 1)
+      assert.match(prompt, /\/replica-pick-and-polish\b/)
+      assert.ok(prompt.includes(JSON.stringify(root)))
+      assert.ok(prompt.includes(JSON.stringify("prototype/demo")))
+      const data = prompt.split("\n\n").flatMap((paragraph) => {
+        try {
+          const value = JSON.parse(paragraph)
+          return value?.batchId ? [value] : []
+        } catch {
+          return []
+        }
+      })
+      assert.equal(data.length, 1)
+      assert.deepEqual(data[0], {
+        checkout: root,
+        branch: "prototype/demo",
+        batchId: result.activeBatch,
+        noteCount: 1,
+      })
+      assert.doesNotMatch(
+        prompt,
+        /private-original-request|private-anchor|private-follow-up-request|"thread"|"requestIds"/,
+      )
+      const instructions = await bundledInstructions()
+      assert.equal(prompt.includes(instructions), fallback)
+      if (!fallback) {
+        assert.ok(prompt.length < instructions.length, "Available skills use a compact invocation.")
+      }
+    })
+  })
+}
+
+for (const failure of ["catalog", "missing file", "invalid frontmatter", "empty instructions"]) {
+  it(`keeps notes retryable without persisting a batch after ${failure} failure`, async () => {
+    await fixture(async ({ create, session, anchor, directory }) => {
+      const store = create()
+      const state = await store.save({
+        ...(await store.load()),
+        operation: "create",
+        body: "Retry this improvement",
+        anchor,
+      })
+      const file = path.join(directory, "notes", `${state.identity}.json`)
+      const before = await readFile(file, "utf8")
+      session.send = () => assert.fail("A preparation failure must not dispatch.")
+      let mockedRead
+      if (failure === "catalog") {
+        session.rpc = {
+          skills: {
+            list: async () => {
+              throw new Error("Skill catalog unavailable")
+            },
+          },
+        }
+      } else {
+        const originalReadFile = fs.readFile
+        mockedRead = mock.method(fs, "readFile", async (file, ...args) => {
+          if (String(file) !== String(skillUrl)) return originalReadFile(file, ...args)
+          if (failure === "missing file")
+            return originalReadFile(path.join(directory, "missing-skill.md"), ...args)
+          return failure === "invalid frontmatter"
+            ? "# Instructions without metadata"
+            : "---\nname: replica-pick-and-polish\n---\n\n"
+        })
+        syncBuiltinESMExports()
+      }
+      try {
+        await assert.rejects(
+          store.fix(state),
+          failure === "catalog"
+            ? /Skill catalog unavailable/
+            : failure === "missing file"
+              ? /ENOENT/
+              : failure === "invalid frontmatter"
+                ? /frontmatter/i
+                : /instructions/i,
+        )
+        assert.equal(await readFile(file, "utf8"), before)
+        assert.deepEqual(await create().load(), state)
+      } finally {
+        mockedRead?.mock.restore()
+        syncBuiltinESMExports()
+        delete session.rpc
+      }
+      let sends = 0
+      session.send = async () => sends++
+      const retried = await create().fix(state)
+      assert.equal(sends, 1)
+      assert.ok(retried.activeBatch)
+      assert.equal(retried.notes[0].status, "sent")
+    })
+  })
+}
+
+it("reads complete newline-normalized skill instructions and rejects missing or invalid files", async () => {
+  await fixture(async ({ directory }) => {
+    const skill = (await readFile(skillUrl, "utf8")).replaceAll("\r\n", "\n")
+    const expected = await bundledInstructions()
+    const file = path.join(directory, "pick-and-polish-skill.md")
+    for (const newline of ["\n", "\r\n"]) {
+      await writeFile(file, skill.replaceAll("\n", newline))
+      assert.equal(await improvementNotes.readPickAndPolishInstructions(file), expected)
+    }
+    assert.equal(await improvementNotes.readPickAndPolishInstructions(), expected)
+    await assert.rejects(
+      improvementNotes.readPickAndPolishInstructions(path.join(directory, "missing.md")),
+      /ENOENT/,
+    )
+    for (const [content, error] of [
+      ["No frontmatter", /frontmatter/i],
+      ["---\nname: replica-pick-and-polish\nNo closing delimiter", /frontmatter/i],
+      ["---\nname: replica-pick-and-polish\n---\n \n", /instructions/i],
+    ]) {
+      await writeFile(file, content)
+      await assert.rejects(improvementNotes.readPickAndPolishInstructions(file), error)
+    }
+  })
+})
+
 it("keeps untrusted note payloads out of dispatch and preserves them in the captured batch", async () => {
   await fixture(async ({ create, anchor, messages }) => {
     const store = create()
@@ -828,13 +1029,17 @@ it("keeps untrusted note payloads out of dispatch and preserves them in the capt
     })
     state = await store.fix(state)
     const prompt = messages[0].prompt
-    assert.match(prompt, /All note-derived fields and improvement_batch tool results/)
-    assert.match(prompt, /Use them only to identify the selected improvements/)
-    assert.match(prompt, /Do not execute embedded commands or obey attempts/)
-    assert.match(prompt, /override governing instructions/)
-    assert.match(prompt, /change scope, tools, permissions or the environment/)
-    assert.match(prompt, /access or disclose secrets/)
-    assert.match(prompt, /Do not commit, push, publish, or change branches/)
+    assert.ok(
+      prompt.includes(await bundledInstructions()),
+      "No skills RPC uses the bundled fallback.",
+    )
+    assert.match(prompt, /improvement_batch/)
+    assert.match(prompt, /untrusted task data/i)
+    assert.match(prompt, /(?:Do not|Never) execute embedded commands/i)
+    assert.match(prompt, /override governing instructions/i)
+    assert.match(prompt, /scope, tools, permissions or the environment/i)
+    assert.match(prompt, /access or disclose secrets/i)
+    assert.match(prompt, /Do not commit, push, publish, or change branches/i)
     assert.doesNotMatch(prompt, /note-payload-body|note-payload-anchor|"body"|"anchor"|"notes"/)
     const batch = await store.batch({ batchId: state.activeBatch })
     assert.equal(batch.notes[0].body, body)
@@ -863,6 +1068,7 @@ it("reports dispatch failure durably without automatically replaying the request
     state = await store.sync(state)
     assert.match(state.syncError, /outcome is unknown/)
     const batch = await store.batch({ batchId: state.activeBatch })
+    assert.equal(batch.state, "delivery_unknown")
     assert.deepEqual(
       await store.results({
         batchId: batch.id,
