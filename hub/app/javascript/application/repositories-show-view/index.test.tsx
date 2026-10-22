@@ -16,6 +16,9 @@ const state = vi.hoisted(() => ({
 vi.mock("@hooks/use-page-data", () => ({
   usePageData: () => state.data,
 }))
+vi.mock("@hooks/use-prototype-listing", () => ({
+  usePrototypeListing: () => ({}),
+}))
 vi.mock("@pages/repositories-show-page", () => ({
   RepositoriesShowPage: ({ managingPrototypes }: { managingPrototypes: boolean }) => (
     <output>{managingPrototypes ? "Managing prototypes" : "Idle"}</output>
