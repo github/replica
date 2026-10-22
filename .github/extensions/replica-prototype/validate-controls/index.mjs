@@ -1,8 +1,7 @@
 import { ControlsValidationError, validateControlsDocument } from "../assets/controls-validator.mjs"
-
+import { readHubObject } from "../read-hub-object/index.mjs"
 const MAX_BYTES = 256_000
 const MAX_ISSUES = 50
-
 /** Validates the definitions the running prototype actually serves, as the Controls panel loads them. */
 export async function validateControls(prototypeUrl, request = globalThis.fetch) {
   const url = new URL("/controls.replica.json", prototypeUrl).href
@@ -19,7 +18,6 @@ export async function validateControls(prototypeUrl, request = globalThis.fetch)
       { cause: error },
     )
   }
-
   // Dev servers commonly answer unknown paths with their HTML app shell.
   if (
     response.status === 404 ||
@@ -33,15 +31,17 @@ export async function validateControls(prototypeUrl, request = globalThis.fetch)
     await response.body?.cancel()
     throw new Error(`The prototype server returned HTTP ${response.status} for ${url}.`)
   }
-
   const reader = response.body?.getReader()
   const chunks = []
   let byteLength = 0
   if (reader) {
     try {
       while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
+        const chunk = await reader.read()
+        if (chunk.done) break
+        const value = chunk.value
+        if (!(value instanceof Uint8Array))
+          throw new Error("The prototype server returned an invalid response stream.")
         byteLength += value.byteLength
         if (byteLength > MAX_BYTES) {
           await reader.cancel()
@@ -59,7 +59,6 @@ export async function validateControls(prototypeUrl, request = globalThis.fetch)
     bytes.set(chunk, offset)
     offset += chunk.byteLength
   }
-
   let document
   try {
     document = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes))
@@ -71,7 +70,6 @@ export async function validateControls(prototypeUrl, request = globalThis.fetch)
       },
     ])
   }
-
   try {
     validateControlsDocument(document)
   } catch (error) {
@@ -80,7 +78,6 @@ export async function validateControls(prototypeUrl, request = globalThis.fetch)
   }
   return { status: "valid", url, issues: [] }
 }
-
 function invalid(url, issues) {
   return {
     status: "invalid",
@@ -92,7 +89,6 @@ function invalid(url, issues) {
     ...(issues.length > MAX_ISSUES && { truncated: true }),
   }
 }
-
 /** Issue text can echo the served document, so keep it to bounded single-line plain text. */
 export function plainText(value, limit) {
   const text = String(value ?? "")
@@ -101,13 +97,13 @@ export function plainText(value, limit) {
     .trim()
   return text.length > limit ? `${text.slice(0, limit - 1)}…` : text
 }
-
 /** Returns only the expected validation fields, so the canvas action never relays anything else. */
-export function projectValidation(result) {
+export function projectValidation(input) {
+  const result = readHubObject(input)
   if (
     !result ||
     typeof result !== "object" ||
-    !["valid", "invalid", "missing"].includes(result.status) ||
+    (result.status !== "valid" && result.status !== "invalid" && result.status !== "missing") ||
     typeof result.url !== "string" ||
     !Array.isArray(result.issues)
   )
@@ -116,9 +112,9 @@ export function projectValidation(result) {
     status: result.status,
     url: result.url,
     origin: new URL(result.url).origin,
-    issues: result.issues.slice(0, MAX_ISSUES).map((issue) => ({
-      path: plainText(issue?.path, 256) || "/",
-      message: plainText(issue?.message, 500),
+    issues: result.issues.slice(0, MAX_ISSUES).map((input) => ({
+      path: plainText(readHubObject(input)?.path, 256) || "/",
+      message: plainText(readHubObject(input)?.message, 500),
     })),
     ...(result.truncated === true && { truncated: true }),
   }

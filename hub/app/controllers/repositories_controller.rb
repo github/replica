@@ -23,8 +23,13 @@ class RepositoriesController < SuperglueController
     load_repository_workspace
     return if performed?
 
-    @prototypes = @repository.reviewable_prototypes.active.registered
-      .includes(:author, :current_build).order(registered_at: :desc, id: :desc)
+    @listing = @repository.prototype_listing.page \
+      user: Current.user,
+      query: params[:q],
+      author: params[:author],
+      page: params[:page]
+    @prototypes = @listing.prototypes
+    ActiveRecord::Associations::Preloader.new(records: @prototypes, associations: [ :author, :current_build ]).call
     prototype_ids = @prototypes.map(&:id)
     @latest_builds = @prototypes.filter_map(&:current_build).index_by(&:prototype_id)
     missing_prototype_ids = prototype_ids - @latest_builds.keys
@@ -47,6 +52,8 @@ class RepositoriesController < SuperglueController
         @candidate_check_failed = true
       end
     end
+  rescue Repository::PrototypeListing::InvalidQuery
+    head :bad_request
   end
 
   # @route POST /repositories/:github_id/poll (poll_repository)

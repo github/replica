@@ -1,9 +1,35 @@
 import assert from "node:assert/strict"
-import { mkdtemp, rm } from "node:fs/promises"
+import { mkdtemp, rm, readdir, readFile, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { it } from "node:test"
 import { requestCommentingFix } from "./index.mjs"
+
+it("rejects a corrupt saved request without dispatching another repair prompt", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "replica-fix-"))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const context = { repositoryPath: root, stateFile: "current-session" }
+  const options = { directory: path.join(root, "private") }
+  let sends = 0
+  const session = {
+    send: async () => {
+      sends += 1
+    },
+  }
+  await requestCommentingFix(context, session, options)
+  const file = path.join(
+    options.directory,
+    (await readdir(options.directory)).find((name) => name.endsWith(".fix")),
+  )
+  const corrupt = JSON.stringify({ requestedAt: "not a timestamp" })
+  await writeFile(file, corrupt)
+  await assert.rejects(
+    requestCommentingFix(context, session, options),
+    /Invalid saved commenting repair request/,
+  )
+  assert.equal(sends, 1)
+  assert.equal(await readFile(file, "utf8"), corrupt)
+})
 
 it("sends a bounded explicit request to the current chat without claiming setup succeeded", async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "replica-fix-"))

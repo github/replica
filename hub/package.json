@@ -20,7 +20,7 @@
     "extension:modules:build": "node script/build-extension-modules.mjs",
     "extension:test": "npm run controls:runtime:test && node --test ../.github/extensions/replica-prototype/**/*.test.mjs",
     "format": "prettier --write .",
-    "lint": "eslint . ../.github/extensions/replica-prototype ../packages/learning && prettier --check . '../eslint.config.mjs' '../.github/extensions/replica-prototype/**/*.{mjs,mts}' '../.github/extensions/replica-prototype/*.json' '../packages/learning/**/*.{mjs,mts,json}' --config .prettierrc.json",
+    "lint": "eslint . ../.github/extensions/replica-prototype ../packages/learning && prettier --check . '../eslint.config.mjs' '../.github/extensions/replica-prototype/**/*.{mjs,mts,ts}' '../.github/extensions/replica-prototype/*.json' '../packages/learning/**/*.{mjs,mts,json}' --config .prettierrc.json",
     "storybook": "STORYBOOK_DISABLE_TELEMETRY=1 storybook dev --host 0.0.0.0 --port 6006 --initial-path /story/hub-design-overview--taxonomy",
     "storybook:build": "STORYBOOK_DISABLE_TELEMETRY=1 storybook build --output-dir storybook-static",
     "test": "vitest run",

@@ -29,6 +29,8 @@
 #  index_prototypes_on_active_branch                              (repository_id,branch_name) UNIQUE WHERE branch_deleted_at IS NULL
 #  index_prototypes_on_author_id                                  (author_id)
 #  index_prototypes_on_current_build_id                           (current_build_id)
+#  index_prototypes_on_gallery_author                             (repository_id,author_id,registered_at,id) WHERE branch_deleted_at IS NULL AND registered_at IS NOT NULL
+#  index_prototypes_on_gallery_order                              (repository_id,registered_at,id) WHERE branch_deleted_at IS NULL AND registered_at IS NOT NULL
 #  index_prototypes_on_repository_id                              (repository_id)
 #
 # Foreign Keys

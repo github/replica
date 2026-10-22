@@ -124,6 +124,13 @@ class GalleryTest < ActionDispatch::IntegrationTest
     assert_response :success
     data = JSON.parse(response.body).fetch("data")
     assert_empty data.fetch("prototypes")
+    assert_equal 0, data.fetch("listing").fetch("matchingCount")
+    assert_equal 1, data.fetch("listing").fetch("page")
+    assert_equal 1, data.fetch("listing").fetch("pageCount")
+    assert_equal repository_path(repository.route_id), data.fetch("listing").fetch("pagePath")
+    %w[previousPath nextPath newestPath].each do |key|
+      assert_not data.fetch("listing").key?(key)
+    end
     assert_equal "No prototypes yet", data.fetch("emptyHeading")
     assert_equal "Build prototype", data.fetch("buildPrototypeLabel")
     assert_equal repository_new_prototype_path(repository.github_id), data.fetch("newPrototypePath")
@@ -135,7 +142,10 @@ class GalleryTest < ActionDispatch::IntegrationTest
     sign_in
     repository = Repository.find_by!(github_id: 2001)
     prototype = prototypes.create(repository:, branch_name: "prototype/welcome")
-    prototype.register!(name: "Welcome", description: "Try the new welcome flow.")
+    prototype.register! \
+      name: "Welcome",
+      description: "Try the new welcome flow.",
+      author: User.find_by!(github_id: 1001)
     build_with_state(prototype, 1, "successful", "a", Time.current)
     latest = build_with_state(prototype, 2, "running", "b", Time.current)
     latest.commit_author.record!(commit_payload(latest.commit_sha))

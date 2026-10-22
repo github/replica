@@ -1,9 +1,9 @@
 import { constants } from "node:fs"
 import { open } from "node:fs/promises"
 import path from "node:path"
-
+import { readErrorCode } from "../read-error-code/index.mjs"
+import { readHubObject } from "../read-hub-object/index.mjs"
 const MAXIMUM_FILE_BYTES = 16_384
-
 export async function readPrototypeStartPage(repositoryPath) {
   let file
   try {
@@ -20,7 +20,7 @@ export async function readPrototypeStartPage(repositoryPath) {
     const content = new TextDecoder("utf-8", { fatal: true }).decode(buffer.subarray(0, bytesRead))
     return { localStartPage: parsePrototypeStartPage(content) }
   } catch (error) {
-    if (error?.code === "ENOENT") return { localStartPage: null }
+    if (readErrorCode(error) === "ENOENT") return { localStartPage: null }
     return {
       localStartPage: null,
       localStartPageError: `Could not read .prototype: ${error instanceof Error ? error.message : String(error)}`,
@@ -29,9 +29,8 @@ export async function readPrototypeStartPage(repositoryPath) {
     await file?.close()
   }
 }
-
 export function parsePrototypeStartPage(content) {
-  const data = JSON.parse(content)
+  const data = readHubObject(JSON.parse(content))
   const route = data?.startPage
   if (
     typeof route !== "string" ||
@@ -45,7 +44,7 @@ export function parsePrototypeStartPage(content) {
     })
   )
     throw new Error("startPage must be a local route, including an optional query or fragment.")
-  const pathname = decodeURIComponent(route.split(/[?#]/)[0])
+  const pathname = decodeURIComponent(route.split(/[?#]/)[0] ?? "")
   if (
     pathname.startsWith("//") ||
     pathname.includes("\\") ||

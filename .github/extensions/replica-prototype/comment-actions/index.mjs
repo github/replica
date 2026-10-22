@@ -1,3 +1,6 @@
+import { readHubError } from "../read-hub-error/index.mjs"
+import { readHubObject } from "../read-hub-object/index.mjs"
+import { uuidInputPattern } from "../identity-patterns/index.mjs"
 const targetSchema = {
   type: "object",
   additionalProperties: false,
@@ -151,7 +154,6 @@ const definitions = [
     required: ["target", "threadId", "activityVersion"],
   },
 ]
-
 export function commentActions(invoke, CanvasError) {
   return definitions.map(({ name, description, properties, required }) => ({
     name,
@@ -165,40 +167,43 @@ export function commentActions(invoke, CanvasError) {
     handler: async (ctx) => {
       try {
         return await invoke(ctx.instanceId, name, ctx.input ?? {})
-      } catch (error) {
-        if (error instanceof CanvasError) throw error
-        const code = [
-          "stale_comment_target",
-          "reply_delivery_unknown",
-          "comment_response_limit",
-          "comment_snapshot_expired",
-        ].includes(error.code)
-          ? error.code
-          : error.statusCode === 401
-            ? "hub_disconnected"
-            : error.statusCode === 403
-              ? "hub_access_denied"
-              : error.statusCode === 404
-                ? "comments_not_found"
-                : error.statusCode === 413 && /^(list|get)_/.test(name)
-                  ? "comment_response_limit"
-                  : error.statusCode === 429
-                    ? "rate_limited"
-                    : error.statusCode === 409
-                      ? "comment_conflict"
-                      : error.statusCode === 400 || error.statusCode === 422
-                        ? "invalid_comment_request"
-                        : "comment_action_failed"
-        const mutationWarning =
-          {
-            reply_to_comment:
-              " A reply may have been posted. Preserve its request ID and inspect Hub before deciding what to do.",
-            mark_comment_read:
-              " The thread may have been marked read. Inspect Hub before deciding what to do.",
-            resolve_comment:
-              " The thread may have been resolved and marked read. Inspect Hub before deciding what to do.",
-          }[name] ?? ""
-        const failureMessage = {
+      } catch (caught) {
+        if (caught instanceof CanvasError) throw caught
+        const error = readHubError(caught)
+        const code =
+          typeof error.code === "string" &&
+          [
+            "stale_comment_target",
+            "reply_delivery_unknown",
+            "comment_response_limit",
+            "comment_snapshot_expired",
+          ].includes(error.code)
+            ? error.code
+            : error.statusCode === 401
+              ? "hub_disconnected"
+              : error.statusCode === 403
+                ? "hub_access_denied"
+                : error.statusCode === 404
+                  ? "comments_not_found"
+                  : error.statusCode === 413 && /^(list|get)_/.test(name)
+                    ? "comment_response_limit"
+                    : error.statusCode === 429
+                      ? "rate_limited"
+                      : error.statusCode === 409
+                        ? "comment_conflict"
+                        : error.statusCode === 400 || error.statusCode === 422
+                          ? "invalid_comment_request"
+                          : "comment_action_failed"
+        const mutationWarnings = {
+          reply_to_comment:
+            " A reply may have been posted. Preserve its request ID and inspect Hub before deciding what to do.",
+          mark_comment_read:
+            " The thread may have been marked read. Inspect Hub before deciding what to do.",
+          resolve_comment:
+            " The thread may have been resolved and marked read. Inspect Hub before deciding what to do.",
+        }
+        const mutationWarning = mutationWarnings[name] ?? ""
+        const failureMessages = {
           list_comments: "Could not retrieve comments.",
           list_repository_comments: "Could not retrieve repository comments.",
           list_repository_comment_summaries: "Could not retrieve repository comment summaries.",
@@ -208,8 +213,10 @@ export function commentActions(invoke, CanvasError) {
           reply_to_comment: "Could not complete the reply action.",
           mark_comment_read: "Could not complete the mark-read action.",
           resolve_comment: "Could not complete the resolution action.",
-        }[name]
-        const message = {
+        }
+        const failureMessage = failureMessages[name]
+        const rateLimitMessage = readHubObject(error)?.rateLimitMessage
+        const messages = {
           stale_comment_target: `The Hub or checkout target changed. Retrieve comments again.${mutationWarning}`,
           hub_disconnected: "Connect to Hub before accessing comments.",
           hub_access_denied: "Hub repository access was denied.",
@@ -225,13 +232,15 @@ export function commentActions(invoke, CanvasError) {
             "The comment snapshot is unavailable for this Hub identity. Retrieve comments again.",
           invalid_comment_request: "Invalid comment input, cursor, read version, or thread state.",
           rate_limited:
-            error.rateLimitMessage ||
+            (typeof rateLimitMessage === "string" && rateLimitMessage) ||
             "Too many comment changes. No changes were made. Wait 60 seconds, then try again.",
           comment_action_failed: `${failureMessage}${mutationWarning}`,
-        }[code]
+        }
+        const message = messages[code]
+        if (message === undefined)
+          throw new Error("Missing comment action error message.", { cause: caught })
         throw new CanvasError(code, message)
       }
     },
   }))
 }
-import { uuidInputPattern } from "../identity-patterns/index.mjs"

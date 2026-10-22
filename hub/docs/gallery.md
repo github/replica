@@ -60,6 +60,18 @@ Operators configure the video through the [deployment settings](deployment.md#we
 
 ## Browse prototypes
 
+Prototypes appear in pages of up to 24, newest registration first. Numbered navigation with **Previous** and **Next** uses the same Primer Brand pagination component as Manage prototypes and keeps the current search and author filter. Hub loads card and Build data only for the selected page. New registrations or removals can shift records between pages while browsing.
+
+The header groups the Author dropdown beside search, followed by the gallery/list controls. On narrow screens, these controls stack in that order, keeping filtering separate from presentation.
+
+Search matches prototype names, descriptions, branches, and registration authors across the full selected repository, not only the visible page. Search treats punctuation such as `%` and `_` literally. SQLite's built-in matching ignores ASCII letter case; non-ASCII letters retain SQLite's case behavior. The count shows all matches, with the number shown on the current page when fewer are displayed.
+
+The **Author** dropdown puts **Me** first, followed by **All authors** and searchable pages of the repository's registration authors. Long labels and options truncate with an ellipsis rather than widening the dropdown or scrolling horizontally; hovering reveals their full text. **Me** uses the signed-in person's saved identity. Cards and the list's **Author** column show the first person who added the prototype to Hub; later commits by another person do not change attribution or author-filter results. Prototypes without a saved author remain visible with no author filter and display **Author unavailable**. Local mode keeps its existing local-identity presentation and applies author filters to saved registration authors.
+
+Search and author filters combine. Applying either starts again at the newest matching page. Choose **All authors** to remove the author filter. The URL preserves applied search, author, and page state across reloads and browser history. Switching repositories starts without those filters. Author choices load in bounded pages and are not restricted to authors on the visible prototype page; **More** loads the next page of authors. Clearing or changing author-option search starts its choices from the beginning. An empty author collection leaves the pinned options available without an empty-state message; a search with no matches shows **No matching authors**.
+
+While Hub fetches results, it keeps the previous cards visible and announces the update. A failed request keeps those cards with an explicit error and **Retry**. No matches has its own empty state, separate from a repository with no prototypes. A page beyond the remaining results shows the last available page.
+
 An empty Prototypes page shows a branch Octicon, a heading, and guidance. For GitHub repositories, **Build prototype** opens **Create**. Local repositories keep their branch-discovery guidance without offering the Copilot app flow.
 
 The **Create** sidebar link opens a centered brief composer for the selected repository, with **What should we create?** above it and the **Templates** catalog below. Choose a template inside the composer before **Add details**, or open a catalog card to preview it first. The picker starts with **Default**. Choosing another template includes its quoted route, query, and fragment in the prompt and instructs the agent to set it as the new prototype's landing page through `startPage` in `.prototype`. Choosing Default removes that extra context. Catalog search does not change the selected template, brief, or saved details. Unavailable or corrupt template metadata returns an explicit service failure rather than an incomplete collection.
@@ -130,7 +142,7 @@ Local repositories omit workflow installation. Hub checks committed local branch
 
 The Prototypes page orders prototypes by when they were first added to Hub, newest first. New prototypes appear at the top left of the gallery and at the top of the list. Editing details or publishing another Build does not change that order.
 
-The Prototypes page filters the current repository's gallery and list as you type in the header search. Search matches prototype names, descriptions, branch names, and owners; Command K (or Control K) focuses the field. The count above the collection reflects matching prototypes, and clearing the search restores the full list.
+Command K (or Control K) focuses the Prototypes search field. Clearing search keeps the selected author.
 
 Opening a prototype from its card or list row uses in-app navigation rather than reloading the document. List links use normal text colors without underlines. Hovering or focusing an owner's profile link underlines the name; selecting it opens that profile instead of the prototype. The **passing** and **not passing** badges use lowercase text and have no icons. The review shell opens the latest successful Build. Its controls stay above the rounded preview.
 Gallery cards and Build details show the top of each full-height screenshot in a fixed preview. Hovering a preview scrolls through the remaining image; on touch devices or with reduced motion enabled, scroll the preview manually. In those modes, list screenshots remain manual scroll areas while the rest of each row opens the prototype. Older viewport-height screenshots stay at the top without scrolling.

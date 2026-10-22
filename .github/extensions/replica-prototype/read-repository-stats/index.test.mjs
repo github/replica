@@ -171,12 +171,14 @@ describe("readRepositoryStats()", () => {
           conclusion: "success",
           headSha: "b".repeat(40),
           headBranch: "prototype",
+          databaseId: 125,
         },
         {
           status: "completed",
           conclusion: "failure",
           headSha: "c".repeat(40),
           headBranch: "prototype",
+          databaseId: 124,
         },
       ]
       await writeFile(path.join(workspace, "gh-runs.json"), JSON.stringify(runs))
@@ -245,6 +247,24 @@ esac
         const refreshed = await readRepositoryStats(context)
         assert.equal(refreshed.workflow.state, status === "completed" ? "failed" : "in_progress")
         assert.equal(refreshed.workflow.run.conclusion, expectedConclusion)
+      }
+
+      for (const invalidRuns of [
+        null,
+        { runs },
+        [null],
+        [{ ...runs[0], headSha: 123 }],
+        [{ ...runs[0], headBranch: null }],
+        [{ ...runs[0], databaseId: "7" }],
+        [{ ...runs[0], databaseId: {} }],
+        [{ ...runs[0], databaseId: 0 }],
+        [{ ...runs[0], databaseId: Number.MAX_SAFE_INTEGER + 1 }],
+      ]) {
+        await writeFile(path.join(workspace, "gh-runs.json"), JSON.stringify(invalidRuns))
+        const unavailable = await readRepositoryStats(context)
+        assert.equal(unavailable.workflow.state, "unavailable")
+        assert.equal(unavailable.workflow.run, null)
+        assert.match(unavailable.workflow.detail, /invalid workflow data/)
       }
     } finally {
       delete process.env.TEST_COMMIT

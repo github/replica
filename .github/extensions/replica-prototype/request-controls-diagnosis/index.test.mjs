@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { mkdtemp, rm } from "node:fs/promises"
+import { mkdtemp, rm, readdir, readFile, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { it } from "node:test"
@@ -14,6 +14,36 @@ const evidence = {
   hasStorageError: false,
   previewUrl: "http://localhost:5173/settings?view=demo#details",
 }
+
+it("rejects a corrupt diagnosis receipt without replaying its chat request", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "replica-controls-diagnosis-"))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const context = {
+    repositoryPath: root,
+    stateFile: "current-session",
+    normalizedUrl: "http://localhost:5173/",
+  }
+  const options = { directory: path.join(root, "private") }
+  let sends = 0
+  const session = {
+    send: async () => {
+      sends += 1
+    },
+  }
+  await requestControlsDiagnosis(context, session, evidence, options)
+  const file = path.join(
+    options.directory,
+    (await readdir(options.directory)).find((name) => name.endsWith(".diagnosis")),
+  )
+  const corrupt = JSON.stringify({ requestedAt: "not a timestamp" })
+  await writeFile(file, corrupt)
+  await assert.rejects(
+    requestControlsDiagnosis(context, session, evidence, options),
+    /Invalid saved Controls diagnosis request/,
+  )
+  assert.equal(sends, 1)
+  assert.equal(await readFile(file, "utf8"), corrupt)
+})
 
 it("requests evidence-based diagnosis and a confirmed repair proposal in the current chat", async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "replica-controls-diagnosis-"))
