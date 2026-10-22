@@ -15,7 +15,9 @@ if !@access_denied
   json.submitPath copilot_connection_path
   json.billingLabel(credential ? copilot_billing_t("billing", organization:) : nil)
   json.setupLabel(
-    if !credential
+    if !credential && CopilotConnection.organization_billing? && GithubAppConfiguration.current&.owner_type == "User"
+      t("copilot_connection.organization.personal_app")
+    elsif !credential
       copilot_billing_t("no_token")
     elsif !confirmed
       t("copilot_connection.organization.unconfirmed", organization:)

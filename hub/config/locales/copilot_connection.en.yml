@@ -42,7 +42,8 @@ en:
     organization:
       description: A Hub administrator connects Copilot once for the whole Hub. Hub then asks Copilot to suggest learnings from prototype review comments, with tokens from Hub's GitHub App, so it works while everyone is signed out.
       billing: "Copilot bills the usage to the %{organization} organization, which installed Hub's GitHub App, and applies its Copilot policies and budgets."
-      no_token: Hub's GitHub App has no active installation on an organization, so Hub cannot bill Copilot to one. Install the App on an organization, or the person who runs Hub can remove REPLICA_COPILOT_BILLING and give Hub a token instead.
+      no_token: Hub's GitHub App has no active installation on its organization, so Hub cannot bill Copilot to it. Install the App on its organization, or the person who runs Hub can remove REPLICA_COPILOT_BILLING and give Hub a token instead.
+      personal_app: Hub's GitHub App belongs to a personal account, and Copilot bills only organizations for an App's requests. Reset the GitHub App and create it again under the organization, or the person who runs Hub can remove REPLICA_COPILOT_BILLING and give Hub a token instead.
       unconfirmed: "Hub bills Copilot to an organization only after a Hub administrator confirms it, so Hub stopped looking for learnings. Connect Copilot to let Copilot bill %{organization}."
       refused: "Copilot refused Hub's GitHub App on %{date}, so Hub stopped looking for learnings. Check that the App has the Copilot Requests organization permission and that %{organization} allows Copilot requests from GitHub Apps, then check Copilot again."
       connect:

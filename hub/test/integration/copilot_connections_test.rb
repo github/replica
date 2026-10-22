@@ -171,17 +171,21 @@ class CopilotConnectionsTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "with organization billing, the page and a connection attempt say the App needs an organization installation" do
+  test "with organization billing, the page tells a personal-account App from an organization App without an active installation" do
     Rails.configuration.x.copilot_billing = "organization"
     @configuration.update!(owner_type: "User")
 
     get copilot_connection_path, as: :json
-    assert_equal I18n.t("copilot_connection.organization.no_token"), data.fetch("setupLabel")
+    assert_equal I18n.t("copilot_connection.organization.personal_app"), data.fetch("setupLabel")
 
     post copilot_connection_path, params: { confirmed: "1" }
 
     assert_redirected_to copilot_connection_path
     assert_equal I18n.t("copilot_connection.organization.errors.no_token"), flash[:alert]
+
+    @configuration.update!(owner_type: "Organization", installation_state: "suspended", suspended_at: Time.current)
+    get copilot_connection_path, as: :json
+    assert_equal I18n.t("copilot_connection.organization.no_token"), data.fetch("setupLabel")
   end
 
   test "a successful check reports cancellation instead of restoring a disconnected connection" do
