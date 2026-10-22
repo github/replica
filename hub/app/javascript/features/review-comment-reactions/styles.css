@@ -24,7 +24,7 @@
   min-width: 0;
   min-height: 0;
   padding: 0;
-  background: transparent;
+  background: var(--hub-counter-background, transparent);
   font-size: 0.75rem;
   line-height: 1;
 }

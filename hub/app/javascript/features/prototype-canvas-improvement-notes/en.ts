@@ -1,0 +1,31 @@
+export const copy = {
+  title: "Pick & polish",
+  localAuthor: "Local author",
+  bridgeUnavailable:
+    "Annotation needs the updated Replica preview bridge. Reconnect or reload the preview after updating the canvas.",
+  sourceUnavailable:
+    "You can still save this improvement locally, but it cannot sync without a captured source.",
+  annotate: "Pick & polish",
+  openNotes: (count: number) => `Open improvement notes (${count})`,
+  notes: "Pick & polish",
+  selectHint:
+    "Click an element or drag a rectangle. For a keyboard region, focus the preview, press Shift+Enter, then use arrows and Enter to choose two corners. Escape exits annotation mode.",
+  regionSmall: "Choose a larger region, at least 8 preview pixels wide and high.",
+  add: "Add improvement note",
+  label: "What should change?",
+  placeholder: "Describe the improvement you want Copilot to make...",
+  save: "Save note",
+  cancel: "Cancel",
+  discard: "Discard draft",
+  keep: "Keep writing",
+  discardTitle: "Discard your unsaved note?",
+  discardBody: "Your saved notes will stay unchanged.",
+  editAction: "Edit",
+  previewUnavailable: "The preview selection is unavailable. Try selecting the target again.",
+  saved: "Note added.",
+  storageLoading: "Loading your notes...",
+  branchChanged: "The prototype branch changed. Close this draft and select the target again.",
+  workChanged: "The open improvements changed while syncing. Review them and select Fix all again.",
+  closeComposer: "Close note composer",
+  closeDiscard: "Close discard confirmation",
+}

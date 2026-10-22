@@ -389,7 +389,7 @@ export function PrototypeCanvasHubPanel({
   }, [open, onClose])
   const editingCurrent = editing && draftIdentity === identity
   const anchorKey = JSON.stringify(
-    threads.map(({ root }) => ({ id: root.id, anchor: root.anchor })),
+    config.pickAndPolish ? [] : threads.map(({ root }) => ({ id: root.id, anchor: root.anchor })),
   )
 
   const loadComments = useCallback(async () => {
@@ -550,7 +550,7 @@ export function PrototypeCanvasHubPanel({
 
   const startSelection = useCallback(
     async (mode: "element" | "area") => {
-      if (!bridgeReady || !canCreateComment || selectionBlocked) return
+      if (config.pickAndPolish || !bridgeReady || !canCreateComment || selectionBlocked) return
       const requestedIdentity = identity
       const selectionRequest = ++selectionRequestRef.current
       selectionRevisionRef.current = undefined
@@ -591,6 +591,7 @@ export function PrototypeCanvasHubPanel({
       }
     },
     [
+      config.pickAndPolish,
       bridgeReady,
       canCreateComment,
       config.token,
@@ -748,6 +749,7 @@ export function PrototypeCanvasHubPanel({
         return
       }
       if (data.type === "replica:canvas:selected") {
+        if (config.pickAndPolish) return
         const parsed = REVIEW_ANCHOR_SCHEMA.safeParse(data.anchor)
         if (!parsed.success) {
           sendBridge("replica:canvas:cancel-selection")
@@ -811,6 +813,7 @@ export function PrototypeCanvasHubPanel({
     identity,
     anchorKey,
     config.prototypeUrl,
+    config.pickAndPolish,
     config.previewUrl,
     frameRef,
     onRouteChange,
@@ -1094,7 +1097,7 @@ export function PrototypeCanvasHubPanel({
   return (
     <MentionProvider source={mentionSource}>
       {commentingRecovery.visible ? <CommentingRecovery {...commentingRecovery} /> : null}
-      {canLoadComments && reviewControlsTarget
+      {canLoadComments && reviewControlsTarget && !config.pickAndPolish
         ? createPortal(
             <div
               className="canvas-review-controls review-shell__comment-actions"
