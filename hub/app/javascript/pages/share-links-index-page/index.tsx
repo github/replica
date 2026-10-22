@@ -44,6 +44,13 @@ export function ShareLinksIndexPage({
                 <>
                   <input type="hidden" name="authenticity_token" value={data.authenticityToken} />
                   <input type="hidden" name="control_query" value={sourceControlQuery} />
+                  {data.managementBuildNumber ? (
+                    <input
+                      type="hidden"
+                      name="management_build"
+                      value={data.managementBuildNumber}
+                    />
+                  ) : null}
                   <input
                     type="hidden"
                     name="share_link[build_number]"
@@ -78,6 +85,7 @@ export function ShareLinksIndexPage({
                 url: withControlQuery(shareLink.url, controlSettings?.query ?? ""),
               }}
               controlQuery={sourceControlQuery}
+              managementBuildNumber={data.managementBuildNumber}
               copiedLabel={data.copiedLabel}
               copyErrorLabel={data.copyErrorLabel}
               copyLabel={data.copyLabel}
