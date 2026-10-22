@@ -62,4 +62,22 @@ class GithubAppConfiguration::TokensTest < ActiveSupport::TestCase
       assert_raises(GithubClient::InvalidResponse) { configuration.tokens.installation }
     end
   end
+
+  test "creates a new Copilot token for every request with only the Copilot permission, never the cached installation token" do
+    configuration = github_app_configurations.create_installed
+    stub_github_installation_token
+    configuration.tokens.installation
+    stub_github_copilot_token("copilot-token-1", "copilot-token-2")
+
+    assert_equal %w[copilot-token-1 copilot-token-2], [ configuration.tokens.copilot, configuration.tokens.copilot ]
+  end
+
+  test "rejects a Copilot token that GitHub reports with another permission or without the Copilot permission" do
+    configuration = github_app_configurations.create_installed
+    [ { organization_copilot_requests: "read", contents: "read" }, { metadata: "read" } ].each do |permissions|
+      stub_github_copilot_token("copilot-token", permissions:)
+
+      assert_raises(GithubClient::InvalidResponse, permissions.inspect) { configuration.tokens.copilot }
+    end
+  end
 end

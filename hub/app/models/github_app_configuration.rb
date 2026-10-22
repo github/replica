@@ -125,6 +125,12 @@ class GithubAppConfiguration < ApplicationRecord
     { configuration_id: id, credential_revision: }
   end
 
+  # Whether the App has an active installation on an organization, the only kind of installation
+  # whose own tokens Copilot accepts and bills.
+  def organization_installation?
+    owner_type == "Organization" && installation_state == "active"
+  end
+
   # Refreshes the installation and its repositories from GitHub.
   def synchronize_repositories!
     return if LocalDevelopment.enabled?
