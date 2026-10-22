@@ -235,7 +235,7 @@ function PublicationDemo({
 
 const configuredPrototypeUrl: unknown = import.meta.env.VITE_STORYBOOK_PROTOTYPE_URL
 const meta = {
-  title: "Components/Prototype canvas/Publication example",
+  title: "Prototype canvas/Publication example",
   component: PublicationDemo,
   parameters: {
     layout: "fullscreen",

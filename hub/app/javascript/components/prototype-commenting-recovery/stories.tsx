@@ -29,7 +29,7 @@ function RecoveryExample(props: ComponentProps<typeof CommentingRecovery>) {
 }
 
 const meta = {
-  title: "Components/Prototype canvas/Commenting recovery",
+  title: "Prototype canvas/Commenting recovery",
   component: CommentingRecovery,
   render: (args) => <RecoveryExample {...args} />,
   args: {

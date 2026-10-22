@@ -4,7 +4,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HubIconButton } from "."
 
 const meta = {
-  title: "Components/Brand-based: Icon Button",
+  title: "Components/Icon Button",
   component: HubIconButton,
   args: {
     icon: HistoryIcon,

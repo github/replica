@@ -206,7 +206,7 @@ function ConnectedDemo({
 }
 
 const meta = {
-  title: "Components/Prototype canvas/Hub panel",
+  title: "Prototype canvas/Hub panel",
   component: PrototypeCanvasHubPanel,
   args: {
     config: {

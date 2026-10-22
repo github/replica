@@ -8,7 +8,7 @@ import { githubEmpty, githubPrototype } from "@/storybook/fixtures/repositories"
 import { RepositoryNavigation } from "."
 
 const meta = {
-  title: "Features/Repository Navigation",
+  title: "Hub/Features/Repository Navigation",
   component: RepositoryNavigation,
   args: {
     collapsed: false,

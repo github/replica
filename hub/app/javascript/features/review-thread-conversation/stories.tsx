@@ -14,7 +14,7 @@ function successfulAction() {
 }
 
 const meta = {
-  title: "Features/Review/Thread Conversation",
+  title: "Hub/Features/Review/Thread Conversation",
   component: ReviewThreadConversation,
   args: {
     thread: singleReviewThread,

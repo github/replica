@@ -32,7 +32,7 @@ const secondResolution = {
 } as const
 
 const meta = {
-  title: "Features/Review/Comment Markers",
+  title: "Hub/Features/Review/Comment Markers",
   component: ReviewCommentMarkers,
   args: {
     threads: [],

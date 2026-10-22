@@ -4,7 +4,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { PublishChangesDialog } from "."
 
 const meta = {
-  title: "Components/Prototype canvas/Publish changes dialog",
+  title: "Prototype canvas/Publish changes dialog",
   component: PublishChangesDialog,
   args: {
     busy: false,

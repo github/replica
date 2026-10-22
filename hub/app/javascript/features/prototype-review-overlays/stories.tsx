@@ -12,7 +12,7 @@ function unchanged() {
 }
 
 const meta = {
-  title: "Components/Prototype canvas/Review overlays",
+  title: "Prototype canvas/Review overlays",
   component: CanvasReviewOverlays,
   parameters: { layout: "fullscreen" },
   decorators: [

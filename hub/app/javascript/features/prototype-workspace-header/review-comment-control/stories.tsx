@@ -7,7 +7,7 @@ import { ReviewCommentControl } from "."
 function noop() {}
 
 const meta = {
-  title: "Features/Review/Comment Control",
+  title: "Hub/Features/Review/Comment Control",
   component: ReviewCommentControl,
   parameters: {
     docs: {

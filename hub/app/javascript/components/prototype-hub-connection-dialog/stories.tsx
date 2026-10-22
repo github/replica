@@ -29,7 +29,7 @@ function ConnectionDemo(args: ComponentProps<typeof HubConnectionDialog>) {
 }
 
 const meta = {
-  title: "Components/Prototype canvas/Hub connection dialog",
+  title: "Prototype canvas/Hub connection dialog",
   component: HubConnectionDialog,
   args: {
     status: {

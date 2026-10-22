@@ -43,7 +43,7 @@ const preview: Preview = {
     options: {
       storySort: {
         method: "alphabetical",
-        order: ["Hub Design", "Foundations", "Components", "Features", "Pages"],
+        order: ["Components", "Prototype canvas", "Hub", ["Design", "Pages", "Features"]],
       },
     },
     viewport: {

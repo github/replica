@@ -10,7 +10,7 @@ const config = {
 }
 
 const meta = {
-  title: "Components/Prototype canvas/Toolbar",
+  title: "Prototype canvas/Toolbar",
   component: Toolbar,
   args: {
     config,

@@ -24,7 +24,7 @@ function SidebarDemo(props: ComponentProps<typeof HubSidebar>) {
 }
 
 const meta = {
-  title: "Components/Brand-based: Sidebar",
+  title: "Components/Sidebar",
   component: HubSidebar,
   render: (args) => <SidebarDemo {...args} />,
   args: {

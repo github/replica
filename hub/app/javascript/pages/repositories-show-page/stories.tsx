@@ -56,7 +56,7 @@ const data: RepositoriesShowPageData = {
 }
 
 const meta = {
-  title: "Pages/Repositories/Show",
+  title: "Hub/Pages/Repositories/Show",
   component: RepositoriesShowPage,
   args: { data },
   parameters: { layout: "fullscreen" },

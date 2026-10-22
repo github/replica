@@ -25,7 +25,7 @@ function ServerConnection({ scenario }: { scenario: string }) {
 }
 
 const meta = {
-  title: "Components/Prototype canvas/Server connection",
+  title: "Prototype canvas/Server connection",
   component: ServerConnection,
   parameters: {
     layout: "fullscreen",

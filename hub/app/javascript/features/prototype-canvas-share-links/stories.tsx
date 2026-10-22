@@ -59,7 +59,7 @@ const state: SharingState = {
 }
 
 const meta = {
-  title: "Components/Prototype canvas/Share links page",
+  title: "Prototype canvas/Share links page",
   component: ShareLinksPage,
   parameters: { layout: "fullscreen" },
   decorators: [

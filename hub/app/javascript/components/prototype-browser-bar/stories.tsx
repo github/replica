@@ -5,7 +5,7 @@ import { BrowserBar } from "."
 import { copy } from "@utils/prototype-canvas/en"
 
 const meta = {
-  title: "Components/Prototype canvas/Browser bar",
+  title: "Prototype canvas/Browser bar",
   component: BrowserBar,
   decorators: [
     (Story) => (

@@ -165,7 +165,7 @@ npm run dev -- --host 0.0.0.0 --port 38763
 
 In another devcontainer terminal, run `cd hub && npm run storybook` (forward ports
 38763 and 6006). Open
-`http://localhost:6006/?path=/story/components-prototype-canvas-publication-example--playground`,
+`http://localhost:6006/?path=/story/prototype-canvas-publication-example--playground`,
 then select **Edit details** in the toolbar. Use Storybook Controls to switch scenarios; set `prototypeUrl` if
 the forwarded starter URL differs from `http://127.0.0.1:38763/`.
 

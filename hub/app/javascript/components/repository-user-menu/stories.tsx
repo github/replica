@@ -5,7 +5,7 @@ import { authenticatedHeaderData } from "@/storybook/fixtures/authenticated-head
 import { RepositoryUserMenu } from "."
 
 const meta = {
-  title: "Components/Brand-based: Repository User Menu",
+  title: "Components/Repository User Menu",
   component: RepositoryUserMenu,
   args: {
     accountMenuLabel: authenticatedHeaderData.accountMenuLabel,

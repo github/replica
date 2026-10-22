@@ -40,7 +40,7 @@ const data: BuildsShowPageData = {
 }
 
 const meta = {
-  title: "Pages/Builds/Show",
+  title: "Hub/Pages/Builds/Show",
   component: BuildsShowPage,
   args: { data },
   parameters: { layout: "fullscreen" },

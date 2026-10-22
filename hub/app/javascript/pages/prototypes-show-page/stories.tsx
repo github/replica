@@ -233,7 +233,7 @@ function ReviewStory({ data, iframeRef, review, ...pageProps }: PrototypesShowPa
 }
 
 const meta = {
-  title: "Pages/Prototype Review",
+  title: "Hub/Pages/Prototype Review",
   component: PrototypesShowPage,
   render: (args, context) => <ReviewStory key={context.id} {...args} />,
   args: {

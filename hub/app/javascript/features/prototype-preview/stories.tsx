@@ -7,7 +7,7 @@ import { PrototypePreview } from "."
 
 const previewUrl = new URL("prototype-preview/index.html", window.location.href).toString()
 const meta = {
-  title: "Features/Prototype Preview",
+  title: "Hub/Features/Prototype Preview",
   component: PrototypePreview,
   args: {
     address: previewUrl,

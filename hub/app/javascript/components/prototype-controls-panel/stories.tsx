@@ -187,7 +187,7 @@ function PanelExample({
 }
 
 const meta = {
-  title: "Components/Prototype canvas/Controls panel",
+  title: "Prototype canvas/Controls panel",
   component: PanelExample,
   parameters: { layout: "padded" },
   args: { failure: false },

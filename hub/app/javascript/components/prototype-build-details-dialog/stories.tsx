@@ -5,7 +5,7 @@ import { BuildDetailsDialog } from "."
 import { copy } from "@utils/prototype-canvas/en"
 
 const meta = {
-  title: "Components/Prototype canvas/Build details dialog",
+  title: "Prototype canvas/Build details dialog",
   component: BuildDetailsDialog,
   args: {
     state: {

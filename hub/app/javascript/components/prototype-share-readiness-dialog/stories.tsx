@@ -13,7 +13,7 @@ function example(name: string) {
 }
 
 const meta = {
-  title: "Components/Prototype canvas/Share readiness dialog",
+  title: "Prototype canvas/Share readiness dialog",
   component: ShareReadinessDialog,
   args: {
     readiness: example("Disconnected"),

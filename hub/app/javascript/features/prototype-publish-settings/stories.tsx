@@ -6,7 +6,7 @@ import { PublishSettings } from "."
 import "../prototype-canvas-hub-panel/styles.css"
 
 const meta = {
-  title: "Components/Prototype canvas/Publish settings",
+  title: "Prototype canvas/Publish settings",
   component: PublishSettings,
   args: {
     preference: {
