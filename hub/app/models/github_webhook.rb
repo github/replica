@@ -29,6 +29,7 @@ class GithubWebhook
   def initialize(configuration:, body:, delivery_id:, event:, signature:)
     @configuration = configuration
     @credential_snapshot = configuration.credential_snapshot
+    @installation_snapshot = configuration.installation_snapshot
     @body = body
     @delivery_id = delivery_id
     @event = event
@@ -50,12 +51,12 @@ class GithubWebhook
     end
     delivery = find_delivery!
     if delivery.processed?
-      GithubAppConfiguration.with_credentials!(**credential_snapshot) do
+      with_delivery_configuration! do
         WebhookRedelivery.complete!(configuration:, guid: delivery_id)
       end
       return delivery.build
     end
-    claimed = GithubAppConfiguration.with_credentials!(**credential_snapshot) { delivery.start_processing! }
+    claimed = with_delivery_configuration! { delivery.start_processing! }
     return if !claimed
     if block_given? && !yield(delivery, installation.fetch("id").to_i)
       delivery.allow_retry!
@@ -67,7 +68,7 @@ class GithubWebhook
     when "workflow_run" then record_workflow_run!(payload)
     else record_installation!(payload)
     end
-    GithubAppConfiguration.with_credentials!(**credential_snapshot) do
+    with_delivery_configuration! do
       if delivery.finish_processing!(build:)
         WebhookRedelivery.complete!(configuration:, guid: delivery_id)
       end
@@ -83,7 +84,16 @@ class GithubWebhook
 
   private
 
-  attr_reader :body, :configuration, :credential_snapshot, :delivery_id, :event, :signature
+  attr_reader :body, :configuration, :credential_snapshot, :installation_snapshot, :delivery_id, :event, :signature
+
+  # Installation notifications can change identity; pushes and workflow runs cannot.
+  def with_delivery_configuration!(&block)
+    if event.in?(%w[push workflow_run])
+      configuration.with_installation!(snapshot: installation_snapshot, &block)
+    else
+      GithubAppConfiguration.with_credentials!(**credential_snapshot, &block)
+    end
+  end
 
   # Confirms the delivery body matches a signature made with a saved secret.
   # @see https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries
@@ -121,7 +131,7 @@ class GithubWebhook
     raise Rejected, "Invalid webhook delivery ID" if !valid_id
 
     digest = Digest::SHA256.hexdigest(body)
-    delivery = GithubAppConfiguration.with_credentials!(**credential_snapshot) do
+    delivery = with_delivery_configuration! do
       WebhookDelivery.find_or_create_by!(github_delivery_id: delivery_id) do |record|
         record.event = event
         record.payload_sha256 = digest
@@ -169,7 +179,7 @@ class GithubWebhook
     return if branch_name.nil? || !repository.build_branch?(branch_name)
 
     if payload.fetch("deleted") == true
-      repository.branch_presence.record_deletion!(branch_name:, configuration:)
+      repository.branch_presence.record_deletion!(branch_name:, configuration:, installation: installation_snapshot)
       return
     end
     return if payload.fetch("deleted") != false
@@ -193,7 +203,7 @@ class GithubWebhook
     expected_current_build_id = recovery ? head&.current_build_id : :any
     expected_head_observation_revision = head&.head_observation_revision || 0
     branch_head = !recovery || current_branch_head?(repository, branch_name, commit_sha)
-    GithubAppConfiguration.with_credentials!(**credential_snapshot) do
+    configuration.with_installation!(snapshot: installation_snapshot) do
       repository.build_discoveries.record! \
         branch_name:,
         commit_sha:,
@@ -218,6 +228,7 @@ class GithubWebhook
       branch_name:,
       observed:,
       configuration:,
+      installation: installation_snapshot,
       default_branch: default_branch
     matches = Build.joins(:prototype).where(
       prototypes: { repository_id: repository.id, branch_name: }, commit_sha:
@@ -237,7 +248,7 @@ class GithubWebhook
       previous_commit_sha.present? && observed.current_build&.commit_sha == previous_commit_sha
     return build if !accepted_head_change && (matches.many? || build.prototype.branch_deleted_at.nil?)
 
-    GithubAppConfiguration.with_credentials!(**credential_snapshot) do
+    configuration.with_installation!(snapshot: installation_snapshot) do
       repository.build_discoveries.record! \
         branch_name:,
         commit_sha:,
@@ -279,7 +290,7 @@ class GithubWebhook
     repository = Repository.active.find_by(github_id: repository_payload.fetch("id").to_i)
     return if repository.nil?
 
-    GithubAppConfiguration.with_credentials!(**credential_snapshot) do
+    configuration.with_installation!(snapshot: installation_snapshot) do
       repository.workflow_run_discoveries.record! \
         payload.fetch("workflow_run"),
         action: payload.fetch("action"),
@@ -289,9 +300,11 @@ class GithubWebhook
 
   # Confirms a push belongs to this Hub's current App installation.
   def verify_installation!(installation)
-    matches = configuration.installation_id.present? &&
-      installation.fetch("id").to_i == configuration.installation_id
-    raise Rejected, "Webhook is for another GitHub App installation" if !matches
+    configuration.with_installation!(snapshot: installation_snapshot) do
+      installation_id = installation_snapshot.fetch(:installation_id)
+      matches = installation_id.present? && installation.fetch("id").to_i == installation_id
+      raise Rejected, "Webhook is for another GitHub App installation" if !matches
+    end
   end
 
   # Extracts only Git branch refs and leaves tags or malformed refs ineligible.

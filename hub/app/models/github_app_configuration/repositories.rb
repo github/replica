@@ -10,10 +10,11 @@ class GithubAppConfiguration::Repositories < ActiveRecord::AssociatedObject
   def synchronize!(snapshot: nil)
     return remove_all! if record.installation_state != "active"
 
+    installation = record.installation_snapshot
     attributes = snapshot || self.snapshot
     now = Time.current
 
-    record.with_installation! do
+    record.with_installation!(snapshot: installation) do
       active_ids = attributes.map { _1.fetch(:github_id) }
       attributes.each { synchronize_repository!(_1.merge(synchronized_at: now)) }
       Repository.active.where.not(github_id: active_ids).update_all \

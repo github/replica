@@ -86,6 +86,8 @@ The new owner installs the same App in their own account and selects its reposit
 
 Installation notifications and the existing five-minute Build checks restore repository access after GitHub confirms the replacement installation. This also recovers a transfer completed before upgrading Hub, or one whose notifications were missed. Run `replica:github:poll` to check immediately. Transient GitHub failures do not count as proof that an installation was removed; failed jobs remain visible in the queue and a later check retries.
 
+Branch and workflow results remain bound to the owner and installation that started the poll or webhook processing. If a transfer replaces that installation before a result is saved, Hub rejects the old work even when the same repository is already available again.
+
 The **GitHub App** administration page shows installation state and instructions when installation is needed. `replica:github:diagnose` reports an owner awaiting synchronization or an installation that is no longer present without changing the saved configuration. If diagnosis cannot reach GitHub, it reports failure instead. No console edits, credential replacement, or local reset are needed for an ordinary ownership transfer.
 
 ## Routine App administration

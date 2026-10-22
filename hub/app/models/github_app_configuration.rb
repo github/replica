@@ -129,6 +129,12 @@ class GithubAppConfiguration < ApplicationRecord
     { configuration_id: id, credential_revision: }
   end
 
+  # Binds GitHub results to the owner and installation that requested them.
+  def installation_snapshot
+    credential_snapshot.merge \
+      owner_github_id:, owner_type:, installation_id:, installation_account_github_id:, installation_state:
+  end
+
   # Refreshes the installation and its repositories from GitHub.
   def synchronize_repositories!
     return if LocalDevelopment.enabled?
@@ -137,11 +143,13 @@ class GithubAppConfiguration < ApplicationRecord
     installation.synchronize!
   end
 
-  # Prevents work for a previous owner or installation from restoring repository access.
-  def with_installation!
-    identity = attributes.slice("owner_github_id", "installation_id", "installation_state")
-    self.class.with_credentials!(**credential_snapshot) do
-      raise Superseded if !self.class.uncached { self.class.where(id:, **identity).exists? }
+  # Rejects old installation results in the transaction that would persist them.
+  def with_installation!(snapshot: installation_snapshot)
+    credentials = snapshot.slice(:configuration_id, :credential_revision)
+    identity = snapshot.except(:configuration_id, :credential_revision)
+    self.class.with_credentials!(**credentials) do
+      valid = self.class.uncached { self.class.where(id: snapshot.fetch(:configuration_id), **identity).exists? }
+      raise Superseded, "GitHub App installation changed; start again" if !valid
 
       yield
     end
