@@ -1,8 +1,7 @@
 import { execFile } from "node:child_process"
 import { promisify } from "node:util"
-
+import { readErrorCode } from "../read-error-code/index.mjs"
 const execFileAsync = promisify(execFile)
-
 export async function runCommand(command, args, cwd, options = {}) {
   try {
     const { stdout } = await execFileAsync(command, args, {
@@ -15,22 +14,34 @@ export async function runCommand(command, args, cwd, options = {}) {
     })
     return { ok: true, stdout }
   } catch (error) {
-    if (error?.code === "ENOENT") {
+    if (readErrorCode(error) === "ENOENT") {
       return { ok: false, error: `${command} is not installed.` }
     }
-
-    const detail =
-      typeof error?.stderr === "string" && error.stderr.trim()
-        ? error.stderr.trim()
-        : error instanceof Error
-          ? error.message
-          : String(error)
+    const stdout =
+      typeof error === "object" &&
+      error !== null &&
+      "stdout" in error &&
+      typeof error.stdout === "string"
+        ? error.stdout
+        : ""
+    const stderr =
+      typeof error === "object" &&
+      error !== null &&
+      "stderr" in error &&
+      typeof error.stderr === "string"
+        ? error.stderr
+        : ""
+    const detail = stderr.trim()
+      ? stderr.trim()
+      : error instanceof Error
+        ? error.message
+        : String(error)
     return {
       ok: false,
       error: detail,
-      exitCode: error.code,
-      stdout: typeof error.stdout === "string" ? error.stdout : "",
-      stderr: typeof error.stderr === "string" ? error.stderr : "",
+      exitCode: readErrorCode(error),
+      stdout,
+      stderr,
     }
   }
 }
