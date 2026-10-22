@@ -29,7 +29,7 @@ OTEL_EXPORTER_OTLP_TRACES_PROTOCOL=http/protobuf
 
 This example assumes a Collector named `otel-collector` is reachable from Hub on a trusted private container network. Hub does not install or start that service. Use HTTPS for endpoints outside a trusted private network.
 
-Restart every Hub web and job container after changing these settings. No image rebuild is needed. Docker Compose already passes the private `.env` to Hub; other container platforms must pass the variables to every process themselves.
+Apply every tracing configuration change to all Hub web and job processes. With the Compose bundle, run `./replica up`; it recreates Hub with the private `.env`. Other container platforms must recreate or restart every process with the changed variables. No image rebuild is needed.
 
 ### Check traces with a local viewer
 
@@ -44,7 +44,7 @@ docker run --rm -d \
   mcr.microsoft.com/aspire/dashboard:latest
 ```
 
-Add this endpoint to Hub's private `.env`, then restart Hub:
+Add this endpoint to Hub's private `.env`:
 
 ```dotenv
 OTEL_TRACES_EXPORTER=otlp
@@ -52,9 +52,11 @@ OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://replica-otel-dashboard:18890/v1/traces
 OTEL_EXPORTER_OTLP_TRACES_PROTOCOL=http/protobuf
 ```
 
+Run `./replica up` to recreate Hub with the changed environment.
+
 Open <http://localhost:18888/traces>, use Hub, and confirm Rails requests and jobs appear. The command exposes the unsecured dashboard only on the local machine and leaves its OTLP receiver on the private Compose network. It is for temporary local inspection, not production retention.
 
-When inspection is complete, first set `OTEL_TRACES_EXPORTER=none` or configure a replacement recipient, then restart every Hub web and job container. Stop the local viewer afterward with `docker stop replica-otel-dashboard`. Stopping it while Hub still targets it causes later batches to fail and log delivery errors.
+When inspection is complete, first set `OTEL_TRACES_EXPORTER=none` or configure a replacement recipient, then run `./replica up`. Stop the local viewer afterward with `docker stop replica-otel-dashboard`. Stopping it while Hub still targets it causes later batches to fail and log delivery errors. On another container platform, recreate or restart every Hub web and job process with the replacement configuration before stopping the viewer.
 
 | Setting | Purpose |
 | --- | --- |
@@ -112,7 +114,7 @@ Set `REPLICA_OTEL_INCLUDE_SENSITIVE_DATA=true` to include SQL query text, serial
 
 Filtering is key-based, not a guarantee that exported data contains no personal information or secrets. SQL text can contain literal values, exception messages and stack traces can contain application data, and positional or free-text job arguments lack field names to filter. SQL bind values are not attached separately. Serialized model arguments may include Global IDs. Configure your APM's access and retention policies accordingly, and apply additional Collector filtering if needed. Operator-supplied resource attributes are exported as configured.
 
-The deployment operator controls the sensitive-data flag through environment configuration. Restart every web and job process when enabling or disabling it. The new setting applies to diagnostics collected by those processes; data already sent remains subject to the recipient's retention policy.
+The deployment operator controls the sensitive-data flag through environment configuration. Compose deployments apply a change with `./replica up`; other platforms must recreate or restart every web and job process. The new setting applies to diagnostics collected by those processes; data already sent remains subject to the recipient's retention policy.
 
 Hub always excludes raw HTTP URL paths and queries, request and response headers and bodies, arbitrary span events, span links, SQL bind values, and error status descriptions from export. When sensitive diagnostics are enabled, exception events retain only `exception.type`, `exception.message`, and `exception.stacktrace`. HTTP span names use methods and route templates instead of concrete URLs.
 
