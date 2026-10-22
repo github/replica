@@ -1,14 +1,13 @@
 import { access } from "node:fs/promises"
 import path from "node:path"
-
 import { readRepositoryName } from "../read-repository-name/index.mjs"
 import { runCommand } from "../run-command/index.mjs"
 import { readRemoteBranch } from "../read-remote-branch/index.mjs"
 import { readWorkingTreeChanges } from "../working-tree-changes/index.mjs"
+import { readErrorCode } from "../read-error-code/index.mjs"
+import { readHubObject } from "../read-hub-object/index.mjs"
 import { gitShaPattern } from "../identity-patterns/index.mjs"
-
 const WORKFLOW_PATH = ".github/workflows/replica.yml"
-
 export async function readRepositoryStats(context) {
   const [branchResult, commitResult, statusResult, workflowExists, repositoryResult] =
     await Promise.all([
@@ -18,7 +17,6 @@ export async function readRepositoryStats(context) {
       fileExists(path.join(context.repositoryPath, WORKFLOW_PATH)),
       readRepositoryName(context.repositoryPath),
     ])
-
   const branchName = branchResult.ok ? branchResult.stdout.trim() : null
   const detached = branchName === "HEAD"
   const localBranch = detached ? null : branchName
@@ -27,7 +25,7 @@ export async function readRepositoryStats(context) {
     ? null
     : detached
       ? "The current Git checkout has a detached HEAD."
-      : branchResult.error || "The current Git branch is unavailable."
+      : (!branchResult.ok && branchResult.error) || "The current Git branch is unavailable."
   const repository = repositoryResult.repository || context.target.repository
   const commitSha =
     commitResult.ok && gitShaPattern.test(commitResult.stdout.trim())
@@ -57,17 +55,12 @@ export async function readRepositoryStats(context) {
     runCommand("git", ["rev-parse", "HEAD"], context.repositoryPath),
     readRepositoryName(context.repositoryPath),
   ])
-  if (
+  const checkoutChanged =
     !latestBranch.ok ||
     !latestCommit.ok ||
     latestBranch.stdout.trim() !== branchName ||
     latestCommit.stdout.trim() !== commitSha ||
     latestRepository.repository !== repositoryResult.repository
-  ) {
-    remoteBranch.state = "unknown"
-    remoteBranch.error = "The checkout changed during the check. Refresh publication status."
-  }
-
   return {
     branch,
     branchError,
@@ -80,12 +73,17 @@ export async function readRepositoryStats(context) {
     workingTreeError: statusResult.error ?? null,
     replicaWorkflowExists: workflowExists,
     workflow,
-    remoteBranch,
+    remoteBranch: checkoutChanged
+      ? {
+          ...remoteBranch,
+          state: "unknown",
+          error: "The checkout changed during the check. Refresh publication status.",
+        }
+      : remoteBranch,
     urlHost: context.urlHost,
     refreshedAt: new Date().toISOString(),
   }
 }
-
 async function readBranchComparison(repositoryPath) {
   const upstream = await runCommand(
     "git",
@@ -108,7 +106,6 @@ async function readBranchComparison(repositoryPath) {
     branch = "main"
     source = "local"
   }
-
   const result = await runCommand(
     "git",
     ["rev-list", "--left-right", "--count", `${branch}...HEAD`],
@@ -126,7 +123,6 @@ async function readBranchComparison(repositoryPath) {
   }
   return { branch, source, behind: Number(counts[1]), error: null }
 }
-
 async function readWorkflowStatus({
   repositoryPath,
   repository,
@@ -155,7 +151,6 @@ async function readWorkflowStatus({
       run: null,
     }
   }
-
   const result = await runCommand(
     "gh",
     [
@@ -176,7 +171,6 @@ async function readWorkflowStatus({
     ],
     repositoryPath,
   )
-
   if (!result.ok) {
     return {
       state: "unavailable",
@@ -184,7 +178,6 @@ async function readWorkflowStatus({
       run: null,
     }
   }
-
   let runs
   try {
     runs = JSON.parse(result.stdout)
@@ -195,16 +188,20 @@ async function readWorkflowStatus({
       run: null,
     }
   }
-
   if (
     !Array.isArray(runs) ||
-    runs.some(
-      (candidate) =>
-        !candidate ||
-        typeof candidate.status !== "string" ||
-        typeof candidate.headSha !== "string" ||
-        typeof candidate.headBranch !== "string",
-    )
+    !runs.every((candidate) => {
+      const run = readHubObject(candidate)
+      return Boolean(
+        run &&
+        typeof run.status === "string" &&
+        typeof run.headSha === "string" &&
+        typeof run.headBranch === "string" &&
+        typeof run.databaseId === "number" &&
+        Number.isSafeInteger(run.databaseId) &&
+        run.databaseId > 0,
+      )
+    })
   ) {
     return { state: "unavailable", detail: "GitHub CLI returned invalid workflow data.", run: null }
   }
@@ -227,13 +224,11 @@ async function readWorkflowStatus({
       run: null,
     }
   }
-
   const run = {
     ...candidate,
     conclusion:
       candidate.status !== "completed" && candidate.conclusion === "" ? null : candidate.conclusion,
   }
-
   if (run.status !== "completed") {
     return {
       state: "in_progress",
@@ -247,7 +242,6 @@ async function readWorkflowStatus({
       repository,
       runId: run.databaseId,
     })
-
     return {
       state: "succeeded",
       detail: "The latest Replica workflow completed successfully.",
@@ -260,25 +254,22 @@ async function readWorkflowStatus({
       versionCount: successfulRuns.length,
     }
   }
-
   return {
     state: "failed",
     detail: `The latest Replica workflow finished with ${formatStatus(run.conclusion || "an unknown result")}.`,
     run,
   }
 }
-
 async function readWorkflowActor({ repositoryPath, repository, runId }) {
-  if (!repository || !runId) {
+  if (!repository || !runId || (typeof runId !== "string" && typeof runId !== "number")) {
     return {
       actor: null,
       error: "The workflow publisher is unavailable.",
     }
   }
-
   const runResult = await runCommand(
     "gh",
-    ["api", `repos/${repository}/actions/runs/${runId}`],
+    ["api", `repos/${repository}/actions/runs/${String(runId)}`],
     repositoryPath,
   )
   if (!runResult.ok) {
@@ -287,7 +278,6 @@ async function readWorkflowActor({ repositoryPath, repository, runId }) {
       error: runResult.error,
     }
   }
-
   let workflowRun
   try {
     workflowRun = JSON.parse(runResult.stdout)
@@ -297,51 +287,47 @@ async function readWorkflowActor({ repositoryPath, repository, runId }) {
       error: "GitHub CLI returned invalid workflow actor data.",
     }
   }
-
-  const login = workflowRun?.actor?.login
+  const actor = readHubObject(readHubObject(workflowRun)?.actor)
+  const login = actor?.login
   if (typeof login !== "string" || login === "") {
     return {
       actor: null,
       error: "The workflow publisher is unavailable.",
     }
   }
-
   const profileResult = await runCommand(
     "gh",
     ["api", `users/${encodeURIComponent(login)}`],
     repositoryPath,
   )
-  let profile = null
+  let profile
   if (profileResult.ok) {
     try {
-      profile = JSON.parse(profileResult.stdout)
+      profile = readHubObject(JSON.parse(profileResult.stdout))
     } catch {
-      profile = null
+      profile = undefined
     }
   }
-
   return {
     actor: {
       login,
       name: typeof profile?.name === "string" && profile.name.trim() ? profile.name.trim() : null,
-      avatarUrl: workflowRun.actor.avatar_url || profile?.avatar_url || null,
+      avatarUrl: actor?.avatar_url || profile?.avatar_url || null,
     },
     error: profileResult.ok ? null : profileResult.error,
   }
 }
-
 async function fileExists(filePath) {
   try {
     await access(filePath)
     return true
   } catch (error) {
-    if (error?.code === "ENOENT") {
+    if (readErrorCode(error) === "ENOENT") {
       return false
     }
     throw error
   }
 }
-
 function formatStatus(value) {
   return String(value).replaceAll("_", " ")
 }
