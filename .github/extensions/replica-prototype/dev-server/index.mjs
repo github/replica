@@ -5,12 +5,12 @@ import os from "node:os"
 import path from "node:path"
 import { setTimeout as delay } from "node:timers/promises"
 import { stripVTControlCharacters } from "node:util"
-
 import { discoverPrototypeServers } from "../discover-prototype-servers/index.mjs"
 import { createPrivateStore } from "../private-store/index.mjs"
 import { runCommand } from "../run-command/index.mjs"
 import { createStartupStatus, publicStartupError, StartupError } from "../startup-error/index.mjs"
-
+import { readErrorCode } from "../read-error-code/index.mjs"
+import { readHubObject } from "../read-hub-object/index.mjs"
 const supportedCommand =
   /^(?:vite(?=\s|$)(?!\s+(?:build|preview)\b)|next\s+dev\b|astro\s+dev\b|webpack\s+serve\b|webpack-dev-server\b|vue-cli-service\s+serve\b|react-scripts\s+start\b)/
 const lockfiles = {
@@ -19,7 +19,6 @@ const lockfiles = {
   yarn: ["yarn.lock"],
   bun: ["bun.lock", "bun.lockb"],
 }
-
 async function readOptional(file) {
   try {
     const info = await lstat(file)
@@ -27,11 +26,10 @@ async function readOptional(file) {
       throw new StartupError(`Cannot read linked, non-file, or oversized ${path.basename(file)}.`)
     return await readFile(file)
   } catch (error) {
-    if (error.code === "ENOENT") return null
+    if (readErrorCode(error) === "ENOENT") return null
     throw error
   }
 }
-
 export async function readDevScripts(directory) {
   const content = await readOptional(path.join(directory, "package.json"))
   if (!content)
@@ -41,7 +39,7 @@ export async function readDevScripts(directory) {
     }
   let manifest
   try {
-    manifest = JSON.parse(content.toString("utf8"))
+    manifest = readHubObject(JSON.parse(content.toString("utf8")))
   } catch {
     throw new StartupError("Cannot read dev scripts: package.json is not valid JSON.")
   }
@@ -55,9 +53,13 @@ export async function readDevScripts(directory) {
   )
   const managers = present.filter(({ files }) => files.some((file) => file !== null))
   const declared = manifest.packageManager
-  if (declared != null && !/^(npm|pnpm|yarn|bun)@\d[^ \t\r\n]*$/.test(declared))
+  if (
+    declared != null &&
+    (typeof declared !== "string" || !/^(npm|pnpm|yarn|bun)@\d[^ \t\r\n]*$/.test(declared))
+  )
     throw new StartupError("Unsupported packageManager. Start your server manually.")
-  const manager = declared?.split("@")[0] || managers[0]?.manager || "npm"
+  const manager =
+    (typeof declared === "string" && declared.split("@")[0]) || managers[0]?.manager || "npm"
   if (managers.some((entry) => entry.manager !== manager))
     throw new StartupError("Conflicting package managers. Start your server manually.")
   const revision = createHash("sha256").update(content)
@@ -66,17 +68,19 @@ export async function readDevScripts(directory) {
     for (const file of entry.files) revision.update(file || "missing")
   }
   const fingerprint = revision.digest("hex")
+  const manifestScripts = readHubObject(manifest.scripts)
   const scripts = ["dev", "start", "serve"].flatMap((name) => {
-    const command = manifest.scripts?.[name]
+    const command = manifestScripts?.[name]
     if (
       typeof command !== "string" ||
       !supportedCommand.test(command.trim()) ||
       /[;&|`$<>\r\n]/.test(command)
     )
       return []
-    const hooks = [`pre${name}`, `post${name}`]
-      .filter((hook) => typeof manifest.scripts?.[hook] === "string")
-      .map((hook) => `${hook}: ${manifest.scripts[hook]}`)
+    const hooks = [`pre${name}`, `post${name}`].flatMap((hook) => {
+      const script = manifestScripts?.[hook]
+      return typeof script === "string" ? [`${hook}: ${script}`] : []
+    })
     return [
       {
         id: `${fingerprint}:${name}`,
@@ -96,7 +100,6 @@ export async function readDevScripts(directory) {
       : "No supported dev, start, or serve script in this directory. Start your server manually.",
   }
 }
-
 export function createDevServerManager({
   discover = discoverPrototypeServers,
   command = runCommand,
@@ -108,39 +111,38 @@ export function createDevServerManager({
   const entries = new Map()
   const children = new Set()
   let closed = false
-
   function stop(entry) {
     if (entry.stopping) return entry.stopping
     const child = entry.child
     entry.child = null
     if (!child?.pid) {
-      children.delete(child)
+      if (child) children.delete(child)
       return Promise.resolve()
     }
+    const pid = child.pid
     function signal(value) {
       try {
-        process.kill(-child.pid, value)
+        process.kill(-pid, value)
       } catch (error) {
-        if (error.code !== "ESRCH") throw error
+        if (readErrorCode(error) !== "ESRCH") throw error
       }
     }
-    async function terminateChild() {
+    async function terminateChild(child) {
       const exited =
         child.exitCode !== null || child.signalCode !== null
           ? Promise.resolve()
-          : new Promise((resolve) => child.once("exit", resolve))
+          : new Promise((resolve) => child.once("exit", () => resolve()))
       signal("SIGTERM")
       await delay(500)
       signal("SIGKILL")
       await exited
       children.delete(child)
     }
-    entry.stopping = terminateChild().finally(() => {
+    entry.stopping = terminateChild(child).finally(() => {
       entry.stopping = null
     })
     return entry.stopping
   }
-
   async function start(entry, id) {
     await entry.stopping
     const plan = await readDevScripts(entry.directory)
@@ -148,7 +150,7 @@ export function createDevServerManager({
     if (!script)
       throw new StartupError("Dev scripts changed or are unavailable. Scan again before starting.")
     const found = await discover(entry.directory)
-    if (found.servers.length === 1) return found.servers[0].url
+    if (found.servers.length === 1 && found.servers[0]) return found.servers[0].url
     if (found.servers.length > 1)
       throw new StartupError("Servers are already running. Scan again and choose one to connect.")
     await stop(entry)
@@ -161,7 +163,7 @@ export function createDevServerManager({
     if (!version.ok)
       throw new StartupError(`${script.manager} is unavailable. Install it yourself, then retry.`)
     const latest = await discover(entry.directory)
-    if (latest.servers.length === 1) return latest.servers[0].url
+    if (latest.servers.length === 1 && latest.servers[0]) return latest.servers[0].url
     if (latest.servers.length > 1)
       throw new StartupError("Servers are already running. Scan again and choose one to connect.")
     // Revalidate after the preflight: the click authorizes only the displayed manifest.
@@ -200,10 +202,13 @@ export function createDevServerManager({
         })
       }
     })
-    const deadline = Date.now() + timeout
-    while (Date.now() < deadline) {
+    function checkStartup() {
       if (failure) throw failure
       if (entry.released || closed) throw new StartupError("The prototype panel was closed.")
+    }
+    const deadline = Date.now() + timeout
+    while (Date.now() < deadline) {
+      checkStartup()
       const processes = await command("ps", ["-axo", "pid=,pgid="], entry.directory)
       if (!processes.ok)
         throw new StartupError("Cannot identify the started server: ps is unavailable.")
@@ -214,14 +219,13 @@ export function createDevServerManager({
         }),
       )
       const result = await discover(entry.directory)
-      if (failure) throw failure
-      if (entry.released || closed) throw new StartupError("The prototype panel was closed.")
+      checkStartup()
       const servers = result.servers.filter((server) => owned.has(server.pid))
       if (servers.length > 1)
         throw new StartupError(
           "The script started multiple servers and was stopped. Start it manually, then scan and choose one.",
         )
-      if (servers.length === 1) {
+      if (servers.length === 1 && servers[0]) {
         entry.message = "Dev server ready."
         return servers[0].url
       }
@@ -231,7 +235,6 @@ export function createDevServerManager({
       "The dev server did not serve an HTML page within 30 seconds. Check the output below, then retry or start it manually.",
     )
   }
-
   function retire(entry) {
     if (entry.retiring) return entry.retiring
     entry.released = true
@@ -245,7 +248,6 @@ export function createDevServerManager({
     })
     return entry.retiring
   }
-
   return {
     terminate() {
       // Process exit cannot await teardown, including an in-flight graceful stop.
@@ -254,7 +256,7 @@ export function createDevServerManager({
         try {
           process.kill(-child.pid, "SIGKILL")
         } catch (error) {
-          if (error.code !== "ESRCH") throw error
+          if (readErrorCode(error) !== "ESRCH") throw error
         }
       }
       children.clear()
@@ -262,14 +264,14 @@ export function createDevServerManager({
     async acquire(directory) {
       directory = await realpath(directory)
       if (closed) throw new Error("The dev server manager is closed.")
-      let entry = entries.get(directory)
-      while (entry?.retiring) {
-        await entry.retiring
+      let candidate = entries.get(directory)
+      while (candidate?.retiring) {
+        await candidate.retiring
         if (closed) throw new Error("The dev server manager is closed.")
-        entry = entries.get(directory)
+        candidate = entries.get(directory)
       }
-      if (!entry) {
-        entry = {
+      if (!candidate) {
+        candidate = {
           directory,
           users: 0,
           child: null,
@@ -278,8 +280,9 @@ export function createDevServerManager({
           message: "",
           released: false,
         }
-        entries.set(directory, entry)
+        entries.set(directory, candidate)
       }
+      const entry = candidate
       entry.users += 1
       let released = false
       return {

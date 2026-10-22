@@ -26,7 +26,7 @@ import { REVIEW_ANCHOR_SCHEMA } from "@utils/review-anchor/schemas"
 import type { AnchorResolution, ReviewAnchor, ReviewRoute } from "@utils/review-anchor/types"
 import {
   REVIEW_COMMENT_MUTATION_SCHEMA,
-  REVIEW_COMMENT_PAGE_SCHEMA,
+  REVIEW_COMMENTS_SCHEMA,
 } from "@utils/review-comment/schemas"
 import type { ReviewComment, ReviewReactionContent } from "@utils/review-comment/types"
 import type { ReviewCommentMutation } from "@hooks/use-review-comments/types"
@@ -389,7 +389,7 @@ export function PrototypeCanvasHubPanel({
   }, [open, onClose])
   const editingCurrent = editing && draftIdentity === identity
   const anchorKey = JSON.stringify(
-    threads.slice(0, 200).map(({ root }) => ({ id: root.id, anchor: root.anchor })),
+    config.pickAndPolish ? [] : threads.map(({ root }) => ({ id: root.id, anchor: root.anchor })),
   )
 
   const loadComments = useCallback(async () => {
@@ -405,34 +405,23 @@ export function PrototypeCanvasHubPanel({
     setLoading(true)
     setCommentsLoadFailed(false)
     try {
-      const loaded: ReviewComment[] = []
-      let nextCursor: string | null = null
-      for (let pageNumber = 0; pageNumber < 100; pageNumber += 1) {
-        const page = REVIEW_COMMENT_PAGE_SCHEMA.parse(
-          await request(
-            `/api/hub/comments${
-              nextCursor || draftRevisionId
-                ? `?${new URLSearchParams({
-                    ...(nextCursor ? { cursor: nextCursor } : {}),
-                    ...(draftRevisionId ? { local_revision_id: String(draftRevisionId) } : {}),
-                  })}`
-                : ""
-            }`,
-            config.token,
-          ),
-        )
-        loaded.push(...page.comments)
-        nextCursor = page.nextCursor
-        if (!nextCursor) break
-        if (pageNumber === 99) throw new Error(copy.commentPagesExceeded)
-      }
+      const collection = REVIEW_COMMENTS_SCHEMA.parse(
+        await request(
+          `/api/hub/comments${
+            draftRevisionId
+              ? `?${new URLSearchParams({ local_revision_id: String(draftRevisionId) })}`
+              : ""
+          }`,
+          config.token,
+        ),
+      )
       if (
         commentIdentityRef.current !== requestedIdentity ||
         commentLoadRevisionRef.current !== loadRevision ||
         commentMutationRevisionRef.current !== commentMutationRevision
       )
         return
-      setCommentState({ identity: requestedIdentity, items: loaded })
+      setCommentState({ identity: requestedIdentity, items: collection.comments })
       setCommentsLoadFailed(false)
       setError("")
     } catch (cause) {
@@ -561,7 +550,7 @@ export function PrototypeCanvasHubPanel({
 
   const startSelection = useCallback(
     async (mode: "element" | "area") => {
-      if (!bridgeReady || !canCreateComment || selectionBlocked) return
+      if (config.pickAndPolish || !bridgeReady || !canCreateComment || selectionBlocked) return
       const requestedIdentity = identity
       const selectionRequest = ++selectionRequestRef.current
       selectionRevisionRef.current = undefined
@@ -602,6 +591,7 @@ export function PrototypeCanvasHubPanel({
       }
     },
     [
+      config.pickAndPolish,
       bridgeReady,
       canCreateComment,
       config.token,
@@ -705,7 +695,7 @@ export function PrototypeCanvasHubPanel({
       }
       if (data.type === "replica:canvas:resolved") {
         if (data.protocolVersion !== 1 || !reviewRoute(data.route)) return
-        if (!Array.isArray(data.results) || data.results.length > 200) return
+        if (!Array.isArray(data.results)) return
         lastResponse = Date.now()
         setBridgeReady(true)
         setBridgeProblem("")
@@ -759,6 +749,7 @@ export function PrototypeCanvasHubPanel({
         return
       }
       if (data.type === "replica:canvas:selected") {
+        if (config.pickAndPolish) return
         const parsed = REVIEW_ANCHOR_SCHEMA.safeParse(data.anchor)
         if (!parsed.success) {
           sendBridge("replica:canvas:cancel-selection")
@@ -822,6 +813,7 @@ export function PrototypeCanvasHubPanel({
     identity,
     anchorKey,
     config.prototypeUrl,
+    config.pickAndPolish,
     config.previewUrl,
     frameRef,
     onRouteChange,
@@ -1105,7 +1097,7 @@ export function PrototypeCanvasHubPanel({
   return (
     <MentionProvider source={mentionSource}>
       {commentingRecovery.visible ? <CommentingRecovery {...commentingRecovery} /> : null}
-      {canLoadComments && reviewControlsTarget
+      {canLoadComments && reviewControlsTarget && !config.pickAndPolish
         ? createPortal(
             <div
               className="canvas-review-controls review-shell__comment-actions"

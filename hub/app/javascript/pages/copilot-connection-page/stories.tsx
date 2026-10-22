@@ -27,7 +27,7 @@ const shared = {
 }
 
 const verification =
-  "This change requires GitHub verification within the last five minutes on this browser. If asked to verify, return and confirm again. Verification never submits this change."
+  "This change requires GitHub verification within the last five minutes on this browser. If verification is required, Hub continues your confirmed change after it succeeds."
 
 const connect = {
   label: "Connect Copilot",
@@ -68,7 +68,7 @@ const connected: AvailableData = {
 }
 
 const meta = {
-  title: "Pages/Security/Copilot",
+  title: "Hub/Pages/Security/Copilot",
   component: CopilotConnectionPage,
   parameters: { layout: "fullscreen" },
   args: { data },

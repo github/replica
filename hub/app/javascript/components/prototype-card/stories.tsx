@@ -5,7 +5,7 @@ import { welcomePrototype } from "@/storybook/fixtures/prototypes"
 import { PrototypeCard } from "."
 
 const meta = {
-  title: "Components/Hub-built: Prototype Card",
+  title: "Components/Prototype Card",
   component: PrototypeCard,
   args: {
     prototype: welcomePrototype,

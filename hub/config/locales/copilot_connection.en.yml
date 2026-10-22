@@ -14,7 +14,7 @@ en:
     no_token: Hub has no Copilot token. The person who runs Hub sets REPLICA_COPILOT_TOKEN to a fine-grained personal access token whose only permission is Copilot requests, then restarts Hub.
     billing: Copilot counts the usage toward the Copilot plan of the person who owns the token in REPLICA_COPILOT_TOKEN.
     empty: Learnings stays off until a Hub administrator connects Copilot.
-    verification: This change requires GitHub verification within the last five minutes on this browser. If asked to verify, return and confirm again. Verification never submits this change.
+    verification: This change requires GitHub verification within the last five minutes on this browser. If verification is required, Hub continues your confirmed change after it succeeds.
     connect:
       label: Connect Copilot
       consequence: Hub will ask Copilot, with the configured token, to read new review comments from every repository on this Hub and suggest learnings, including while you are signed out. Copilot never sees who wrote a comment. The usage counts toward the Copilot plan of the token's owner. Hub checks the token with Copilot first, and never stores or shows it.

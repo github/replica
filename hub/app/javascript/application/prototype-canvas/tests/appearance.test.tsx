@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest"
 import tokenStyles from "@/tokens/base.css?inline"
 import fieldStyles from "@components/prototype-controls-fields/styles.css?inline"
 import composerStyles from "@features/review-comment-composer/styles.css?inline"
-import conversationStyles from "@features/review-thread-conversation/styles.css?inline"
+import conversationStyles from "@components/review-conversation-frame/styles.css?inline"
 import markerStyles from "@features/review-comment-markers/styles.css?inline"
 
 import { sharingFixture } from "./sharing-fixture"

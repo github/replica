@@ -6,7 +6,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HubSegmentedControl } from "."
 
 const meta = {
-  title: "Components/Hub-built: Segmented Control",
+  title: "Components/Segmented Control",
   component: HubSegmentedControl,
   args: {
     "aria-label": "Density",

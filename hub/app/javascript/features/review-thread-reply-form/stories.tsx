@@ -8,7 +8,7 @@ import { ReviewThreadReplyForm } from "."
 function noop() {}
 
 const meta = {
-  title: "Features/Review/Thread Reply Form",
+  title: "Hub/Features/Review/Thread Reply Form",
   component: ReviewThreadReplyForm,
   args: {
     blockedLabel: null,

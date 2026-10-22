@@ -9,6 +9,7 @@ export interface ShareLinkData extends ShareLinkDisplayData {
 
 export interface ShareLinkItemProps {
   controlQuery?: string
+  managementBuildNumber?: number
   authenticityToken: string
   shareLink: ShareLinkData
   copiedLabel: string

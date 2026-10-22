@@ -6,7 +6,7 @@ Adding, editing, pausing, resuming, or deleting an analytics destination require
 
 Only the isolated local-development analytics demo differs: its local developer may edit configured local repositories without a GitHub proof. The exception lives in that analytics controller, not the reusable gate. Local mode requires development, an explicit opt-in flag, and a localhost Hub origin; production rejects it. Demo editing never creates freshness or exempts unrelated sensitive operations.
 
-For example, adding an analytics destination after that window opens **Verify with GitHub** instead of saving it. Complete the check, return to analytics, and submit again. Hub does not keep or replay the original mutation. Analytics credentials must be entered again; they never enter OAuth state, challenge records, or a callback URL.
+For example, adding an analytics destination after that window opens **Verify with GitHub** before saving it. Complete the check and Hub continues the action you already submitted, without asking you to enter the settings again. Hub temporarily encrypts the selected operation and its submitted settings, including credentials, in the challenge record. Settings never enter OAuth state, callback URLs, browser continuation forms, or security logs.
 
 ## Scope and proof
 
@@ -16,11 +16,13 @@ GitHub may reuse its signed-in browser session. **Fresh authorization is not a g
 
 The window is strictly less than five minutes: at exactly five minutes, Hub requires another check. The challenge expires after 15 minutes. Hub binds it to a server-selected purpose, initiating credential, immutable GitHub identity, one-use state, and expiry. It extends the existing state/PKCE flow and registered `/auth/github/callback`; existing deployments need no App reset or callback change.
 
-The callback rechecks that the Session exists or the grant still has active access. It checks challenge expiry again under the initiating credential's lock and records one verification time on both records. Removed, revoked, expired, mismatched, cancelled, or failed challenges cannot renew a credential. Success updates only the initiating credential and redirects to a safe server-selected page. That page confirms success and asks the person to submit the action again within five minutes. It never executes the sensitive action.
+The callback rechecks that the Session exists or the grant still has active access. It checks challenge expiry again under the initiating credential's lock and records one verification time on both records. Removed, revoked, expired, mismatched, cancelled, or failed challenges cannot renew a credential. Success updates only the initiating credential. For a saved browser action, Hub then opens a continuation page that automatically submits an opaque, one-use reference to the original CSRF-protected route. A **Continue** button is available if automatic submission does not run. The original controller rechecks permissions, confirmation, target state and freshness before changing anything and reports the actual result.
+
+Continuation covers administrator role changes, analytics destination changes, deployment sharing settings, ending all sessions, GitHub App reset and credential replacement, webhook rotation and Copilot connection changes. Hub saves only explicitly allowed fields for these operations, not arbitrary requests. Each action is bound to its original browser Session, GitHub identity, purpose, route and HTTP method. Other input cannot replace the saved selection. The continuation expires with the 15-minute challenge and still needs fresh proof when submitted. An atomic claim removes the saved fields before one execution attempt; refreshes, repeated callbacks and duplicate submissions cannot execute it again. A failed or interrupted attempt requires checking the current state before explicitly trying again.
 
 ## Browser and canvas flow
 
-Browser mutations without fresh identity redirect to the explicit challenge page. Both Verify and Cancel use CSRF-protected forms. Failure reports that no sensitive changes were made.
+Browser mutations without fresh identity redirect to the explicit challenge page. Verify, Cancel and continuation use CSRF-protected forms. Cancelling or failing verification discards the saved action without executing it. Expired encrypted payloads are removed by hourly challenge cleanup. Submitted payloads are limited to 128 KiB; private keys retain their 16 KiB limit. Unsupported or oversized input reports a visible failure rather than silently dropping the action.
 
 Reading or cancelling an unrelated challenge does not interrupt a pending GitHub check. Starting another check replaces the browser's state only after Hub binds the new challenge. An invalid operator-enrollment secret also leaves the pending check intact.
 
@@ -47,7 +49,7 @@ Controllers include `FreshAuthorizationRequired` and call `require_fresh_authori
 
 OAuth checks bind independently to the deployment session generation and the initiating App configuration and credential revision. Replacement credentials invalidate old in-flight checks and stored freshness without revoking live Sessions/connections or changing the session generation. A callback checks both snapshots before exchange and again before Session issuance, enrollment, or proof renewal. Reset removes the configuration and advances the session cutoff, so an old callback cannot restore credentials.
 
-Challenge requests and successful, denied, or failed start, verification, and cancellation decisions use the separate security audit with the initiating actor and credential. Validation-only failures when reading unknown, expired, or foreign challenges do not create persistent security records; ordinary request logs and visible failure messages remain. Sensitive actions also retain their existing audit records. Challenges retain no credentials or raw mutation payloads and expire through hourly cleanup. They never enter analytics.
+Challenge requests and successful, denied, or failed start, verification, and cancellation decisions use the separate security audit with the initiating actor and credential. Validation-only failures when reading unknown, expired, or foreign challenges do not create persistent security records; ordinary request logs and visible failure messages remain. Continued sensitive actions retain their existing audit records and rate limits. Challenges retain only the encrypted, allowed fields needed for continuation and expire through hourly cleanup. They never enter analytics.
 
 ## Setup and recovery commands
 

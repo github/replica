@@ -540,6 +540,7 @@ it("creates a document-positioned element overlay outside a positioned body", ()
     {
       type: "replica:canvas:ready",
       protocolVersion: 1,
+      improvementSelection: true,
       nonce: "selection",
       route: { pathname: "/", search: "", hash: "" },
     },

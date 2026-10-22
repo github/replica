@@ -16,14 +16,15 @@
     "build": "npm run typecheck && vite build",
     "dev": "vite dev",
     "extension:assets:check": "node ../.github/extensions/replica-prototype/check-assets/index.mjs",
-    "extension:build": "vite build --config vite.prototype-canvas.config.mjs && node script/build-prototype-preview-bridge.mjs",
+    "extension:build": "npm run extension:modules:build && vite build --config vite.prototype-canvas.config.mjs && node script/build-prototype-preview-bridge.mjs",
+    "extension:modules:build": "node script/build-extension-modules.mjs",
     "extension:test": "npm run controls:runtime:test && node --test ../.github/extensions/replica-prototype/**/*.test.mjs",
     "format": "prettier --write .",
-    "lint": "eslint . ../.github/extensions/replica-prototype ../packages/learning && prettier --check . '../eslint.config.mjs' '../.github/extensions/replica-prototype/**/*.mjs' '../.github/extensions/replica-prototype/*.json' '../packages/learning/**/*.{mjs,mts,json}' --config .prettierrc.json",
+    "lint": "eslint . ../.github/extensions/replica-prototype ../packages/learning && prettier --check . '../eslint.config.mjs' '../.github/extensions/replica-prototype/**/*.{mjs,mts,ts}' '../.github/extensions/replica-prototype/*.json' '../packages/learning/**/*.{mjs,mts,json}' --config .prettierrc.json",
     "storybook": "STORYBOOK_DISABLE_TELEMETRY=1 storybook dev --host 0.0.0.0 --port 6006 --initial-path /story/hub-design-overview--taxonomy",
     "storybook:build": "STORYBOOK_DISABLE_TELEMETRY=1 storybook build --output-dir storybook-static",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && tsc --project ../.github/extensions/replica-prototype/tsconfig.json"
   },
   "dependencies": {
     "@primer/octicons-react": "19.40.0",
@@ -37,6 +38,7 @@
     "zod": "4.6.5"
   },
   "devDependencies": {
+    "@github/copilot-sdk": "1.0.16",
     "@eslint/js": "10.0.1",
     "@storybook/addon-a11y": "10.6.1",
     "@storybook/addon-docs": "10.6.1",

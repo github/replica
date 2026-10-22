@@ -148,7 +148,7 @@ const data: AnalyticsPageData = {
 }
 
 const meta = {
-  title: "Pages/Repositories/Analytics",
+  title: "Hub/Pages/Repositories/Analytics",
   component: AnalyticsPage,
   args: { data },
   parameters: { layout: "fullscreen", a11y: { test: "error" } },

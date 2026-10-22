@@ -3,7 +3,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { BackgroundsGallery } from "."
 
 const meta = {
-  title: "Components/Hub-built: Backgrounds",
+  title: "Components/Backgrounds",
   component: BackgroundsGallery,
   parameters: {
     layout: "fullscreen",

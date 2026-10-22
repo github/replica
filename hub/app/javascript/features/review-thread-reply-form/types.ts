@@ -8,6 +8,7 @@ export interface ReviewThreadReplyFormProps {
   replyFailed: boolean
   replyDisabled: boolean
   replying: boolean
+  submitDisabled?: boolean
   copy: ReviewCommentsCopy
   onKeepDraft: () => void
   onDiscardDraft: () => void

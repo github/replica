@@ -1,7 +1,10 @@
 require "open3"
 require "test_helper"
+require_relative "../support/authorization_continuation_helpers"
 
 class CopilotConnectionsTest < ActionDispatch::IntegrationTest
+  include AuthorizationContinuationHelpers
+
   CLI = Rails.root.join("test/fixtures/files/fake-replica-learning.mjs").to_s
 
   setup do
@@ -298,20 +301,16 @@ class CopilotConnectionsTest < ActionDispatch::IntegrationTest
     CopilotConnection.private_class_method(:check!)
   end
 
-  test "connecting needs fresh GitHub proof and never replays" do
+  test "connecting continues after fresh GitHub proof without another confirmation" do
     @session.update!(fresh_authorized_at: nil)
 
     post copilot_connection_path, params: connect_params
     challenge = FreshAuthorization.last
     assert_equal "copilot_connection", challenge.purpose
     assert_redirected_to fresh_authorization_path(challenge.public_id)
-    post fresh_authorization_path(challenge.public_id)
-    state = Rack::Utils.parse_query(URI(response.location).query).fetch("state")
-    get github_authentication_callback_path, params: { code: "code", state: }
-    assert_redirected_to copilot_connection_path
-    assert_nil CopilotConnection.current, "verification never submits the change"
-
-    post copilot_connection_path, params: connect_params
+    form = verify_pending_action(challenge, path: copilot_connection_path, method: "post")
+    assert_nil CopilotConnection.current
+    continue_pending_action(form)
 
     assert_equal I18n.t("copilot_connection.connected"), flash[:notice]
     assert CopilotConnection.current
@@ -333,7 +332,7 @@ class CopilotConnectionsTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "disconnecting needs fresh GitHub proof, never replays, and leaves the token with the operator" do
+  test "disconnecting continues after fresh proof and leaves the token with the operator" do
     post copilot_connection_path, params: connect_params
     @session.update!(fresh_authorized_at: nil)
 
@@ -341,13 +340,9 @@ class CopilotConnectionsTest < ActionDispatch::IntegrationTest
     challenge = FreshAuthorization.last
     assert_equal "copilot_disconnection", challenge.purpose
     assert_redirected_to fresh_authorization_path(challenge.public_id)
-    post fresh_authorization_path(challenge.public_id)
-    state = Rack::Utils.parse_query(URI(response.location).query).fetch("state")
-    get github_authentication_callback_path, params: { code: "code", state: }
-    assert_redirected_to copilot_connection_path
-    assert CopilotConnection.current, "verification never submits the change"
-
-    delete copilot_connection_path, params: { confirmed: "1" }
+    form = verify_pending_action(challenge, path: copilot_connection_path, method: "delete")
+    assert CopilotConnection.current
+    continue_pending_action(form)
 
     assert_redirected_to copilot_connection_path
     assert_equal I18n.t("copilot_connection.disconnected"), flash[:notice]

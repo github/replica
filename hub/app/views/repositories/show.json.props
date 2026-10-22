@@ -39,9 +39,7 @@ end
 json.prototypesHeading t("repositories.show.prototypes_heading")
 json.alert flash[:alert]
 json.notice flash[:notice]
-json.prototypesCountLabel t("repositories.show.prototype_count", count: @prototypes.length)
-json.prototypeCountUnitOne t("repositories.show.prototype_count_unit_one")
-json.prototypeCountUnitOther t("repositories.show.prototype_count_unit_other")
+json.prototypesCountLabel t("repositories.show.prototype_count", count: @listing.matching_count)
 json.searchLabel t("repositories.show.search")
 json.clearSearchLabel t("repositories.show.clear_search")
 json.noSearchResultsHeading t("repositories.show.no_search_results_heading")
@@ -58,6 +56,34 @@ json.noBuildLabel t("repositories.show.no_build")
 json.emptyHeading t("repositories.show.empty_heading")
 json.emptyLabel t(@repository.local? ? "repositories.show.local_empty" : "repositories.show.empty")
 json.buildPrototypeLabel t("repositories.show.build_prototype")
+
+listing_params = { q: @listing.query.presence, author: @listing.author.presence }.compact
+json.listing do
+  json.query @listing.query
+  json.author @listing.author
+  author_label = if @listing.author == "me"
+    t("repositories.show.filters.me")
+  elsif @listing.author_user
+    "@#{@listing.author_user.login}"
+  elsif @listing.author.present?
+    t("repositories.show.unknown_author")
+  else
+    t("repositories.show.filters.all_authors")
+  end
+  json.authorLabel author_label
+  json.matchingCount @listing.matching_count
+  json.page @listing.page
+  json.pageCount @listing.page_count
+  json.pagePath repository_path(@repository.route_id, **listing_params)
+  json.authorsPath repository_prototype_authors_path(@repository.route_id)
+  json.path repository_path(@repository.route_id)
+  json.copy do
+    %w[author me all_authors search_authors more_authors first_authors no_authors loading retry
+      authors_failed results_failed previous next pagination updating shown].each do |key|
+      json.set! key.camelize(:lower), t("repositories.show.filters.#{key}", count: @prototypes.length)
+    end
+  end
+end
 
 if @repository_writable
   json.managePrototypesPath repository_prototype_management_path(@repository.route_id)
@@ -136,24 +162,19 @@ json.prototypes do
         json.ownerLabel "@#{Current.user.login}"
         json.url nil
       end
-    elsif latest_build&.commit_author_login
+    elsif prototype.author
       json.author do
-        json.avatarUrl latest_build.commit_author_avatar_url
-        json.label t("repositories.show.card_author", login: latest_build.commit_author_login)
-        json.ownerLabel "@#{latest_build.commit_author_login}"
-        json.url latest_build.commit_author.profile_url
+        json.avatarUrl prototype.author.avatar_url
+        json.label t("repositories.show.card_author", login: prototype.author.login)
+        json.ownerLabel "@#{prototype.author.login}"
+        json.url "#{Rails.configuration.x.github_url}/#{CGI.escapeURIComponent(prototype.author.login)}"
       end
     else
       json.author do
         json.avatarUrl nil
 
-        if latest_build&.commit_author_name
-          json.label t("repositories.show.card_author_name", name: latest_build.commit_author_name)
-          json.ownerLabel latest_build.commit_author_name
-        else
-          json.label t("repositories.show.unknown_author")
-          json.ownerLabel t("repositories.show.unknown_author")
-        end
+        json.label t("repositories.show.unknown_author")
+        json.ownerLabel t("repositories.show.unknown_author")
 
         json.url nil
       end

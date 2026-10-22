@@ -6,7 +6,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HubAlert } from "."
 
 const meta = {
-  title: "Components/Hub-built: Alert",
+  title: "Components/Alert",
   component: HubAlert,
   args: { title: "The Build could not be published", variant: "critical" },
 } satisfies Meta<typeof HubAlert>
