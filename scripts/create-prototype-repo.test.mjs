@@ -850,12 +850,10 @@ for (const [source, extraSkills, activeContext] of [
   ["starters/coreai", 11, true],
 ]) {
   test(`${source} composes with shared guidance without collisions or broken links`, t => {
-    const consumer = join(workspace(t), "consumer")
-    cpSync(join(root, "starters/shared"), consumer, { recursive: true })
-    for (const entry of readdirSync(join(root, source))) {
-      if (["node_modules", "dist"].includes(entry)) continue
-      cpSync(join(root, source, entry), join(consumer, entry), { recursive: true, errorOnExist: true, force: false })
-    }
+    const directory = workspace(t)
+    const consumer = join(directory, "consumer")
+    const result = run(consumer, directory, script, ["--starter", source.split("/").at(-1)])
+    assert.equal(result.status, 0, result.stderr)
     assertContextBundle(consumer)
     assertBrowserSetup(consumer)
     assert.equal(readdirSync(join(consumer, ".agents/skills")).length, skillNames.length + extraSkills)
