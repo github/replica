@@ -139,6 +139,7 @@ const PROTOTYPES_SHOW_PAGE_DATA: PrototypesShowPageData = {
   },
   authenticityToken: "token",
   branchName: "prototype/welcome",
+  buildPinned: false,
   prototypeName: "Welcome prototype",
   prototypeDescription: "A simpler welcome experience for repository contributors.",
   showPrototypeInfo: false,
@@ -202,7 +203,7 @@ const PROTOTYPES_SHOW_PAGE_DATA: PrototypesShowPageData = {
     },
   ],
   buildSelectionLabel: "Choose build",
-  branchPath: "/repositories/2001/prototypes/1?build=2",
+  branchPath: "/repositories/2001/prototypes/1",
   closeLabel: "Close",
   collapseNavigationLabel: "Collapse sidebar",
   currentUser: { avatarUrl: null, login: "octocat", name: "Octocat" },
@@ -238,7 +239,7 @@ const PROTOTYPES_SHOW_PAGE_DATA: PrototypesShowPageData = {
   repositorySelectorLabel: "Choose repository. github/prototype selected",
   reviewCommentsPath: "/repositories/2001/prototypes/1/review_comments",
   shareLinksLabel: "Share links",
-  shareLinksPath: "/repositories/2001/prototypes/1/share_links?build=2",
+  shareLinksPath: "/repositories/2001/prototypes/1/share_links",
   reviewComments: {
     bodyMaximumBytes: 10_000,
     copy: {
@@ -434,6 +435,7 @@ function TestPage({
   alert,
   onOpenApp,
   detailsEditPath = PROTOTYPES_SHOW_PAGE_DATA.detailsEditPath,
+  buildPinned = PROTOTYPES_SHOW_PAGE_DATA.buildPinned,
   selectedBuild = PROTOTYPES_SHOW_PAGE_DATA.selectedBuild,
   startPage = PROTOTYPES_SHOW_PAGE_DATA.startPage,
   prototypeDescription = PROTOTYPES_SHOW_PAGE_DATA.prototypeDescription,
@@ -445,6 +447,7 @@ function TestPage({
   alert?: string
   onOpenApp?: (url: string) => void
   detailsEditPath?: string | null
+  buildPinned?: boolean
   selectedBuild?: PrototypesShowPageData["selectedBuild"] | null
   startPage?: string | null
   prototypeDescription?: string | null
@@ -474,6 +477,7 @@ function TestPage({
       data={{
         ...PROTOTYPES_SHOW_PAGE_DATA,
         detailsEditPath: detailsEditPath ?? undefined,
+        buildPinned,
         selectedBuild: selectedBuild ?? undefined,
         startPage,
         prototypeDescription,
@@ -541,7 +545,7 @@ describe("PrototypesShowPage()", () => {
   })
 
   beforeEach(() => {
-    window.history.replaceState({}, "", "/repositories/2001/prototypes/1?build=2")
+    window.history.replaceState({}, "", "/repositories/2001/prototypes/1")
     BRIDGE.route = { pathname: "/", search: "", hash: "" }
     vi.stubGlobal(
       "ResizeObserver",
@@ -637,9 +641,10 @@ describe("PrototypesShowPage()", () => {
   })
 
   it("lets the owner edit details without leaving the selected build", () => {
+    window.history.replaceState({}, "", "/repositories/2001/prototypes/1?build=2")
     render(
       <HubThemeProvider>
-        <TestPage initialInfoOpen />
+        <TestPage initialInfoOpen buildPinned />
       </HubThemeProvider>,
     )
 
@@ -734,6 +739,22 @@ describe("PrototypesShowPage()", () => {
       ).toHaveFocus()
     },
   )
+
+  it("does not pin the displayed Build when editing details from the default view", () => {
+    render(
+      <HubThemeProvider>
+        <TestPage initialInfoOpen />
+      </HubThemeProvider>,
+    )
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "Welcome prototype" })).getByRole("button", {
+        name: "Edit details",
+      }),
+    )
+    const form = document.querySelector<HTMLFormElement>("#prototype-description-edit")!
+    expect(new FormData(form).get("return_to")).toBe("review")
+    expect(new FormData(form).has("build")).toBe(false)
+  })
 
   it("allows setting and clearing the start page in the review edit form", () => {
     render(
@@ -1181,6 +1202,7 @@ describe("PrototypesShowPage()", () => {
     const addressBar = document.querySelector(".review-shell__address-bar")
     const frame = screen.getByTitle("prototype/welcome, build 2 preview")
     const url = window.location.href
+    expect(new URL(url).searchParams.has("build")).toBe(false)
     expect(addressBar).toBeInTheDocument()
     expect(addressBar).toContainElement(screen.getByRole("textbox", { name: "Preview URL" }))
     expect(
@@ -1398,7 +1420,7 @@ describe("PrototypesShowPage()", () => {
     expect(screen.getAllByRole("heading", { name: "Welcome prototype" }).length).toBeGreaterThan(0)
     expect(screen.getByRole("link", { name: "Welcome prototype" })).toHaveAttribute(
       "href",
-      "/repositories/2001/prototypes/1?build=2",
+      "/repositories/2001/prototypes/1",
     )
     expect(screen.getByRole("link", { name: "Welcome prototype" })).toHaveAttribute(
       "data-sg-visit",
@@ -1439,7 +1461,7 @@ describe("PrototypesShowPage()", () => {
     })
     expect(close).toHaveAttribute("href", "/repositories/2001")
     expect(close).toHaveAttribute("data-sg-visit", "true")
-    expect(close).toHaveTextContent("Close")
+    expect(close).not.toHaveTextContent("Close")
     expect(close).toHaveClass("review-shell__close-action")
     expect(close.className).toContain("Button--size-small")
     expect(close).toHaveAccessibleDescription("Close")
@@ -1509,7 +1531,7 @@ describe("PrototypesShowPage()", () => {
     fireEvent.click(moreActions)
     const menu = screen.getByRole("menu", { name: "More actions" })
     for (const [label, path] of [
-      ["Share links", "/repositories/2001/prototypes/1/share_links?build=2"],
+      ["Share links", "/repositories/2001/prototypes/1/share_links"],
       ["History", "/repositories/2001/prototypes/1/builds"],
       ["Build details", "/repositories/2001/prototypes/1/builds/2"],
     ]) {
@@ -1518,7 +1540,7 @@ describe("PrototypesShowPage()", () => {
       ).toHaveAttribute("href", path)
     }
     fireEvent.click(within(menu).getByRole("menuitem", { name: "Share links" }).querySelector("a")!)
-    expect(visit).toHaveBeenLastCalledWith("/repositories/2001/prototypes/1/share_links?build=2", {
+    expect(visit).toHaveBeenLastCalledWith("/repositories/2001/prototypes/1/share_links", {
       method: "GET",
       dataset: { sgVisit: "true" },
     })

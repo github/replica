@@ -6,6 +6,7 @@ export const publicationCopy = {
   retry: "Retry status",
   retryPublish: "Retry publish",
   requested: "Requested",
+  awaitingCopilot: "Waiting for Copilot",
   publishBranch: "Publish",
   publishChanges: "Publish changes",
   registration: "Publishing",
@@ -24,7 +25,8 @@ export const publicationCopy = {
   changed: "The checkout changed. Refresh publication status.",
   unknown: (error?: string) =>
     `Remote branch status is unknown. ${error || "Check GitHub access and retry."}`,
-  pending: "Pushing branch to repository.",
+  pending:
+    "Copilot received the publish request in chat and has not pushed this branch yet. Follow its progress in chat.",
   checkingHub: "Checking the Hub connection.",
   disconnected: "Connect to the hub before publishing this prototype.",
   hubUnavailable: "Hub verification is unavailable. Restore access and retry.",

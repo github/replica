@@ -31,7 +31,9 @@ Replica has four parts:
 
 **Ready to make prototypes?** Follow [Get started with Replica](docs/getting-started.md) to install the GitHub Copilot app, add your team's prototyping repository, install the canvas, and create your first prototype. It also covers connecting to Hub, publishing, sharing and commenting, and adding controls.
 
-**Setting up Replica for your organization?** Follow [environment setup](docs/prototype-environment.md) to create your team's prototyping repository, add your design system and guidance, and deploy Hub. Your organization deploys and runs Hub on its own infrastructure. GitHub doesn't host it.
+**Creating a prototyping repository?** Point your agent at [prototype repository setup](docs/prototype-repository-setup.md). It covers new and existing repositories, getting the starter running locally, and continuing with product guidance or a shared team baseline. Local prototyping needs no Hub.
+
+**Setting up Replica for your organization?** Follow [environment setup](docs/prototype-environment.md) to add shared guidance and starting pages, deploy Hub, and connect publishing and team feedback. Your organization deploys and runs Hub on its own infrastructure. GitHub doesn't host it.
 
 **How did setup go?** [Share your feedback](https://survey.alchemer.com/s3/9055055/Replica-feedback). It helps us make Replica easier to start.
 

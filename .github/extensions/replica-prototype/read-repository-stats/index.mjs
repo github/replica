@@ -4,6 +4,8 @@ import path from "node:path"
 import { readRepositoryName } from "../read-repository-name/index.mjs"
 import { runCommand } from "../run-command/index.mjs"
 import { readRemoteBranch } from "../read-remote-branch/index.mjs"
+import { readWorkingTreeChanges } from "../working-tree-changes/index.mjs"
+import { gitShaPattern } from "../identity-patterns/index.mjs"
 
 const WORKFLOW_PATH = ".github/workflows/replica.yml"
 
@@ -12,7 +14,7 @@ export async function readRepositoryStats(context) {
     await Promise.all([
       runCommand("git", ["rev-parse", "--abbrev-ref", "HEAD"], context.repositoryPath),
       runCommand("git", ["rev-parse", "HEAD"], context.repositoryPath),
-      runCommand("git", ["status", "--porcelain"], context.repositoryPath),
+      readWorkingTreeChanges(context.repositoryPath),
       fileExists(path.join(context.repositoryPath, WORKFLOW_PATH)),
       readRepositoryName(context.repositoryPath),
     ])
@@ -28,14 +30,10 @@ export async function readRepositoryStats(context) {
       : branchResult.error || "The current Git branch is unavailable."
   const repository = repositoryResult.repository || context.target.repository
   const commitSha =
-    commitResult.ok && /^[0-9a-f]{40}$/.test(commitResult.stdout.trim())
+    commitResult.ok && gitShaPattern.test(commitResult.stdout.trim())
       ? commitResult.stdout.trim()
       : null
-  const workingTree = statusResult.ok
-    ? statusResult.stdout.trim() === ""
-      ? "clean"
-      : "changed"
-    : "unavailable"
+  const workingTree = statusResult.state
   const [comparison, workflow, remoteBranch] = await Promise.all([
     localBranch
       ? readBranchComparison(context.repositoryPath)
@@ -79,7 +77,7 @@ export async function readRepositoryStats(context) {
     commitSha,
     publishedUrl: context.target.publishedUrl,
     workingTree,
-    workingTreeError: statusResult.ok ? null : statusResult.error,
+    workingTreeError: statusResult.error ?? null,
     replicaWorkflowExists: workflowExists,
     workflow,
     remoteBranch,

@@ -19,6 +19,7 @@ import { Tooltip } from "@primer/react-brand"
 
 import { RepositoryNavigationItem } from "@components/repository-navigation-item"
 import { RepositorySelector } from "@components/repository-selector"
+import type { RepositorySelectorStatus } from "@components/repository-selector/types"
 import { WorkspaceNavigation } from "@components/workspace-navigation"
 
 import type { WorkspaceSidebarData } from "./types"
@@ -39,12 +40,14 @@ export function WorkspaceSidebar({
   inboxPreview,
   onInboxClick,
   onCollapsedChange,
+  repositoryChoices,
 }: {
   collapsed: boolean
   data: WorkspaceSidebarData
   inboxPreview?: (close: () => void) => ReactNode
   onInboxClick?: MouseEventHandler<HTMLAnchorElement>
   onCollapsedChange: (collapsed: boolean) => void
+  repositoryChoices?: RepositorySelectorStatus
 }) {
   const repository = data.repository
   const repositoryLinks = repository
@@ -107,6 +110,7 @@ export function WorkspaceSidebar({
             menuLabel={repository.repositoryMenuLabel}
             repositories={repository.repositories}
             selectedRepositoryId={repository.selectedRepositoryId}
+            status={repositoryChoices}
           />
         ) : null
       }

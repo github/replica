@@ -64,6 +64,52 @@ describe("RepositorySelector()", () => {
     expect(screen.getByRole("menuitem", { name: "github/empty" })).toBeInTheDocument()
   })
 
+  it("shows loading and retry states without losing the current repository", () => {
+    const retry = vi.fn()
+    const status = {
+      loading: true,
+      failed: false,
+      loadingLabel: "Loading repositories...",
+      errorLabel: "Hub could not load all repository choices.",
+      retryLabel: "Retry repository choices",
+      onRetry: retry,
+    }
+    const { rerender } = render(<RepositorySelector {...data} status={status} />)
+    expect(screen.getByRole("status")).toHaveTextContent(status.loadingLabel)
+    fireEvent.click(screen.getByRole("button", { name: data.ariaLabel }))
+    expect(screen.getByRole("menuitem", { name: status.loadingLabel })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    )
+    expect(screen.getByRole("link", { name: "github/prototype" })).toBeInTheDocument()
+
+    rerender(<RepositorySelector {...data} status={{ ...status, loading: false, failed: true }} />)
+    expect(screen.getByRole("status")).toHaveTextContent(status.errorLabel)
+    expect(screen.getByRole("menuitem", { name: status.errorLabel })).toBeVisible()
+    fireEvent.click(screen.getByRole("menuitem", { name: status.retryLabel }))
+    expect(retry).toHaveBeenCalledOnce()
+  })
+
+  it.each(["Enter", " "])("retries repository choices with %s", (key) => {
+    const retry = vi.fn()
+    render(
+      <RepositorySelector
+        {...data}
+        status={{
+          loading: false,
+          failed: true,
+          loadingLabel: "Loading repositories...",
+          errorLabel: "Hub could not load all repository choices.",
+          retryLabel: "Retry repository choices",
+          onRetry: retry,
+        }}
+      />,
+    )
+    fireEvent.click(screen.getByRole("button", { name: data.ariaLabel }))
+    fireEvent.keyDown(screen.getByRole("menuitem", { name: "Retry repository choices" }), { key })
+    expect(retry).toHaveBeenCalledOnce()
+  })
+
   it.each(["Enter", " "])("activates a repository link with %s", (key) => {
     const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {})
     render(<RepositorySelector {...data} />)

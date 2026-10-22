@@ -1,28 +1,14 @@
-import { ThemeProvider } from "@primer/react-brand"
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import { createRef } from "react"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { octocatRootComment } from "@/storybook/fixtures/review/comments"
 import { reviewCommentsCopy } from "@utils/review-comment/en"
-
 import { importedPrototype, publicationHub } from "@utils/resolve-prototype-publication/fixtures"
 
-import { HubPanel } from "."
+import { renderPrototypeCanvasHubPanel } from "./test-support/render-prototype-canvas-hub-panel"
 
-beforeEach(() => {
-  const controls = document.createElement("div")
-  controls.id = "canvas-review-controls"
-  document.body.append(controls)
-})
-
-afterEach(() => {
-  document.getElementById("canvas-review-controls")?.remove()
-  vi.restoreAllMocks()
-  vi.unstubAllGlobals()
-})
-
-describe("HubPanel()", () => {
+describe("PrototypeCanvasHubPanel()", () => {
   it("opens an earlier comment Build on the selected Hub rather than the loopback canvas", async () => {
     vi.stubGlobal(
       "fetch",
@@ -33,27 +19,18 @@ describe("HubPanel()", () => {
         )
       }),
     )
-    render(
-      <ThemeProvider>
-        <HubPanel
-          config={{ name: "Welcome", prototypeUrl: "http://localhost:4321/", token: "local" }}
-          frameRef={createRef<HTMLIFrameElement>()}
-          status={{
-            ...publicationHub,
-            state: "connected",
-            prototype: {
-              ...importedPrototype,
-              build: { ...importedPrototype.build!, number: 2 },
-            },
-          }}
-          onStatusChange={async () => {}}
-          onSelectHub={async () => {}}
-          onConnect={() => {}}
-          open={false}
-          onClose={() => {}}
-        />
-      </ThemeProvider>,
-    )
+    renderPrototypeCanvasHubPanel({
+      config: { name: "Welcome", prototypeUrl: "http://localhost:4321/", token: "local" },
+      status: {
+        ...publicationHub,
+        state: "connected",
+        prototype: {
+          ...importedPrototype,
+          build: { ...importedPrototype.build!, number: 2 },
+        },
+      },
+      open: false,
+    })
     fireEvent.click(await screen.findByRole("button", { name: /^Comments, 1/ }))
 
     const buildLink = screen.getByRole("link", { name: "build 1" })
@@ -81,20 +58,11 @@ describe("HubPanel()", () => {
       )
     })
     vi.stubGlobal("fetch", fetchMock)
-    render(
-      <ThemeProvider>
-        <HubPanel
-          config={{ name: "Welcome", prototypeUrl: "http://localhost:4321/", token: "local" }}
-          frameRef={createRef<HTMLIFrameElement>()}
-          status={{ ...publicationHub, state: "connected", prototype: importedPrototype }}
-          onStatusChange={async () => {}}
-          onSelectHub={async () => {}}
-          onConnect={() => {}}
-          open={false}
-          onClose={() => {}}
-        />
-      </ThemeProvider>,
-    )
+    renderPrototypeCanvasHubPanel({
+      config: { name: "Welcome", prototypeUrl: "http://localhost:4321/", token: "local" },
+      status: { ...publicationHub, state: "connected", prototype: importedPrototype },
+      open: false,
+    })
     fireEvent.click(await screen.findByRole("button", { name: /^Comments, 1/ }))
     fireEvent.click(screen.getByRole("button", { name: /Please align this control/ }))
     const dialog = screen.getByRole("dialog", { name: reviewCommentsCopy.threadHeading })
@@ -145,20 +113,11 @@ describe("HubPanel()", () => {
       )
     })
     vi.stubGlobal("fetch", fetchMock)
-    const view = render(
-      <ThemeProvider>
-        <HubPanel
-          config={{ name: "Welcome", prototypeUrl: "http://localhost:4321/", token: "local" }}
-          frameRef={createRef<HTMLIFrameElement>()}
-          status={{ ...publicationHub, state: "connected", prototype: importedPrototype }}
-          onStatusChange={async () => {}}
-          onSelectHub={async () => {}}
-          onConnect={() => {}}
-          open={false}
-          onClose={() => {}}
-        />
-      </ThemeProvider>,
-    )
+    const view = renderPrototypeCanvasHubPanel({
+      config: { name: "Welcome", prototypeUrl: "http://localhost:4321/", token: "local" },
+      status: { ...publicationHub, state: "connected", prototype: importedPrototype },
+      open: false,
+    })
     fireEvent.click(await screen.findByRole("button", { name: /^Comments, 1/ }))
     fireEvent.click(screen.getByRole("button", { name: /Please align this control/ }))
     const dialog = screen.getByRole("dialog", { name: reviewCommentsCopy.threadHeading })
@@ -173,25 +132,16 @@ describe("HubPanel()", () => {
         ([input, options]) => input === "/api/hub/comments/1/replies" && options?.method === "POST",
       ),
     ).toHaveLength(1)
-    view.rerender(
-      <ThemeProvider>
-        <HubPanel
-          config={{ name: "Welcome", prototypeUrl: "http://localhost:4321/", token: "local" }}
-          frameRef={createRef<HTMLIFrameElement>()}
-          status={{
-            ...publicationHub,
-            state: "connected",
-            hubOrigin: "https://other-hub.example.test",
-            prototype: importedPrototype,
-          }}
-          onStatusChange={async () => {}}
-          onSelectHub={async () => {}}
-          onConnect={() => {}}
-          open={false}
-          onClose={() => {}}
-        />
-      </ThemeProvider>,
-    )
+    view.rerender({
+      config: { name: "Welcome", prototypeUrl: "http://localhost:4321/", token: "local" },
+      status: {
+        ...publicationHub,
+        state: "connected",
+        hubOrigin: "https://other-hub.example.test",
+        prototype: importedPrototype,
+      },
+      open: false,
+    })
     await waitFor(() => expect(screen.queryByText(message)).not.toBeInTheDocument())
     expect(
       fetchMock.mock.calls.filter(
@@ -214,29 +164,34 @@ describe("HubPanel()", () => {
         body: "Please update this heading.",
         viewerLastSeenActivityVersion: 2,
       }
+      let commentCreated = false
       const fetchMock = vi.fn<typeof fetch>().mockImplementation((input, options) => {
         if (input === "/api/hub/events") return Promise.reject(new Error("Offline"))
-        if (input === "/api/hub/comments" && options?.method === "POST")
+        if (input === "/api/hub/status")
+          return Promise.resolve(
+            Response.json({ ...publicationHub, state: "connected", prototype: importedPrototype }),
+          )
+        if (input === "/api/hub/comments" && options?.method === "POST") {
+          commentCreated = true
           return Promise.resolve(Response.json({ comments: [created] }, { status: 201 }))
+        }
         return Promise.resolve(
-          Response.json({ comments: [octocatRootComment], hasMore: false, nextCursor: null }),
+          Response.json({
+            comments: [octocatRootComment, ...(commentCreated ? [created] : [])],
+            hasMore: false,
+            nextCursor: null,
+          }),
         )
       })
       vi.stubGlobal("fetch", fetchMock)
-      const view = render(
-        <ThemeProvider>
-          <iframe ref={frameRef} title="Prototype" src="about:blank" onLoad={onFrameLoad} />
-          <HubPanel
-            config={{ name: "Welcome", prototypeUrl: "http://localhost:4321/", token: "local" }}
-            frameRef={frameRef}
-            status={{ ...publicationHub, state: "connected", prototype: importedPrototype }}
-            onStatusChange={async () => {}}
-            onSelectHub={async () => {}}
-            onConnect={() => {}}
-            open={false}
-            onClose={() => {}}
-          />
-        </ThemeProvider>,
+      const view = renderPrototypeCanvasHubPanel(
+        {
+          config: { name: "Welcome", prototypeUrl: "http://localhost:4321/", token: "local" },
+          frameRef,
+          status: { ...publicationHub, state: "connected", prototype: importedPrototype },
+          open: false,
+        },
+        <iframe ref={frameRef} title="Prototype" src="about:blank" onLoad={onFrameLoad} />,
       )
       const toggle = await screen.findByRole("button", { name: /^Comments, 1/ })
       await waitFor(() => expect(onFrameLoad).toHaveBeenCalled())
@@ -328,6 +283,10 @@ describe("HubPanel()", () => {
       fireEvent.click(
         await screen.findByRole("menuitem", { name: reviewCommentsCopy.commentOnElementLabel }),
       )
+      await screen.findByRole("button", { name: reviewCommentsCopy.cancelSelectionLabel })
+      expect(
+        screen.queryByRole("button", { name: "Unread thread started by @octocat" }),
+      ).not.toBeInTheDocument()
       expect(toggle).toHaveAttribute("aria-expanded", String(commentsOpen))
       receive({ type: "replica:canvas:selected", anchor: created.anchor })
       fireEvent.change(screen.getByRole("textbox", { name: reviewCommentsCopy.composerLabel }), {

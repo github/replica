@@ -38,6 +38,29 @@ function mount(overrides: Partial<Parameters<typeof useCanvasPublication>[0]> = 
 }
 
 describe("useCanvasPublication()", () => {
+  it("refuses a commit choice for an unchecked checkout even when called outside the disabled dialog control", async () => {
+    const { result, props, fetch } = mount()
+    const respond = fetch.getMockImplementation()!
+    fetch.mockImplementation((path, options) =>
+      path === "/api/publish/prepare"
+        ? Promise.resolve(
+            Response.json({
+              target: publishPreparation(props.state!).target,
+              workingTree: "unavailable",
+              workingTreeError: "Git status timed out.",
+              remember: true,
+            }),
+          )
+        : respond(path, options),
+    )
+    await act(async () => result.current.publish())
+    expect(result.current.publishDialog).not.toBeNull()
+    await act(async () => result.current.choosePublish("commit-changes", true))
+    expect(result.current.publishDialog).not.toBeNull()
+    expect(fetch.mock.calls.some(([path]) => path === "/api/publish")).toBe(false)
+    expect(fetch.mock.calls.some(([path]) => path === "/api/publish/preference")).toBe(false)
+  })
+
   it("blocks preparation until a pending publishing-preference save settles", async () => {
     const { result, rerender, props, fetch } = mount({ preferenceSaving: true })
     expect(result.current.busy).toBe(true)

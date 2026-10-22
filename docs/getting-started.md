@@ -2,7 +2,7 @@
 
 Create an interactive prototype with GitHub Copilot, publish it to Replica Hub, and collect feedback from your team. This guide helps you join your organization's prototyping environment and create your first shared prototype.
 
-You can create and try prototypes locally without Hub. Publishing and team comments need a Hub hosted by your organization, a connected GitHub repository, and the repository's Replica build workflow. Ask your team for its Hub URL and repository, or follow [environment setup](prototype-environment.md) if you are setting these up for the first time.
+You can create and try prototypes locally without Hub. To create a repository rather than join an existing one, follow [prototype repository setup](prototype-repository-setup.md). Publishing and team comments need a Hub hosted by your organization, a connected GitHub repository, and the repository's Replica build workflow. Ask your team for its Hub URL and repository, or follow [environment setup](prototype-environment.md) if you are setting up shared hosting for the first time.
 
 ## 1. Download the GitHub Copilot app
 

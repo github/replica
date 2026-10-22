@@ -1,30 +1,13 @@
-import { ThemeProvider } from "@primer/react-brand"
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import { createRef } from "react"
-import { afterEach, beforeAll, expect, it, vi } from "vitest"
+import { expect, it, vi } from "vitest"
 
 import { octocatRootComment } from "@/storybook/fixtures/review/comments"
 import { reviewCommentsCopy } from "@utils/review-comment/en"
 import type { ReviewAnchor } from "@utils/review-anchor/types"
-
-import { HubPanel } from "."
 import { importedPrototype, publicationHub } from "@utils/resolve-prototype-publication/fixtures"
 
-beforeAll(() => {
-  Object.defineProperty(HTMLDialogElement.prototype, "showModal", {
-    configurable: true,
-    value(this: HTMLDialogElement) {
-      this.open = true
-    },
-  })
-})
-
-afterEach(() => {
-  document.getElementById("canvas-review-controls")?.remove()
-  vi.useRealTimers()
-  vi.restoreAllMocks()
-  vi.unstubAllGlobals()
-})
+import { renderPrototypeCanvasHubPanel } from "./test-support/render-prototype-canvas-hub-panel"
 
 it("waits for loading, validates compatibility, recovers from late responses, and clears readiness on reload", async () => {
   vi.useFakeTimers()
@@ -33,30 +16,24 @@ it("waits for loading, validates compatibility, recovers from late responses, an
   const fetch = vi.fn()
   vi.stubGlobal("fetch", fetch)
   const frameRef = createRef<HTMLIFrameElement>()
-  const view = render(
-    <ThemeProvider>
-      <iframe ref={frameRef} title="Prototype" />
-      <HubPanel
-        config={{
-          name: "Welcome",
-          prototypeUrl: "http://localhost:4321",
-          previewUrl: "http://127.0.0.1:12345",
-          token: "local",
-        }}
-        frameRef={frameRef}
-        status={{
-          state: "undiscovered",
-          repositoryAuthorized: true,
-          repository: "github/prototype",
-          branch: "prototype/welcome",
-        }}
-        onStatusChange={async () => {}}
-        onSelectHub={async () => {}}
-        onConnect={() => {}}
-        open={false}
-        onClose={() => {}}
-      />
-    </ThemeProvider>,
+  const view = renderPrototypeCanvasHubPanel(
+    {
+      config: {
+        name: "Welcome",
+        prototypeUrl: "http://localhost:4321",
+        previewUrl: "http://127.0.0.1:12345",
+        token: "local",
+      },
+      frameRef,
+      status: {
+        state: "undiscovered",
+        repositoryAuthorized: true,
+        repository: "github/prototype",
+        branch: "prototype/welcome",
+      },
+      open: false,
+    },
+    <iframe ref={frameRef} title="Prototype" />,
   )
   function respond(
     protocolVersion?: number,
@@ -113,9 +90,6 @@ it.each([
 ])(
   "ignores incompatible targeting messages until a compatible ready response: $type $reason",
   async (message) => {
-    const controls = document.createElement("div")
-    controls.id = "canvas-review-controls"
-    document.body.append(controls)
     const nonce = "00000000-0000-4000-8000-000000000002"
     vi.spyOn(crypto, "randomUUID").mockReturnValue(nonce)
     vi.stubGlobal(
@@ -123,6 +97,14 @@ it.each([
       vi.fn((path: string) => {
         if (path === "/api/hub/events")
           return Promise.reject(new Error("Live connection unavailable"))
+        if (path === "/api/hub/status")
+          return Promise.resolve(
+            Response.json({
+              ...publicationHub,
+              state: "connected",
+              prototype: importedPrototype,
+            }),
+          )
         return Promise.resolve(
           new Response(JSON.stringify({ comments: [], hasMore: false, nextCursor: null })),
         )
@@ -130,20 +112,14 @@ it.each([
     )
     const frameRef = createRef<HTMLIFrameElement>()
     const onFrameLoad = vi.fn()
-    const view = render(
-      <ThemeProvider>
-        <iframe ref={frameRef} title="Prototype" src="about:blank" onLoad={onFrameLoad} />
-        <HubPanel
-          config={{ name: "Welcome", prototypeUrl: "http://localhost:4321", token: "local" }}
-          frameRef={frameRef}
-          status={{ ...publicationHub, state: "connected", prototype: importedPrototype }}
-          onStatusChange={async () => {}}
-          onSelectHub={async () => {}}
-          onConnect={() => {}}
-          open={false}
-          onClose={() => {}}
-        />
-      </ThemeProvider>,
+    const view = renderPrototypeCanvasHubPanel(
+      {
+        config: { name: "Welcome", prototypeUrl: "http://localhost:4321", token: "local" },
+        frameRef,
+        status: { ...publicationHub, state: "connected", prototype: importedPrototype },
+        open: false,
+      },
+      <iframe ref={frameRef} title="Prototype" src="about:blank" onLoad={onFrameLoad} />,
     )
     function respond(data: Record<string, unknown>) {
       act(() => {
@@ -168,7 +144,7 @@ it.each([
       await screen.findByRole("menuitem", { name: reviewCommentsCopy.commentOnElementLabel }),
     )
     expect(
-      screen.getByRole("button", { name: reviewCommentsCopy.cancelSelectionLabel }),
+      await screen.findByRole("button", { name: reviewCommentsCopy.cancelSelectionLabel }),
     ).toBeVisible()
 
     respond({ ...ready, protocolVersion: 99 })
@@ -200,6 +176,7 @@ it.each([
       fireEvent.click(
         await screen.findByRole("menuitem", { name: reviewCommentsCopy.commentOnElementLabel }),
       )
+      await screen.findByRole("button", { name: reviewCommentsCopy.cancelSelectionLabel })
       respond({ type: "replica:canvas:selected", anchor: octocatRootComment.anchor })
     }
     expect(screen.getByRole("textbox", { name: reviewCommentsCopy.composerLabel })).toBeVisible()
@@ -210,9 +187,6 @@ it.each([
 it.each(["area", "element"] as const)(
   "clears a rejected $0 selection, shows its failure, and allows a valid retry",
   async (kind) => {
-    const controls = document.createElement("div")
-    controls.id = "canvas-review-controls"
-    document.body.append(controls)
     const nonce = "00000000-0000-4000-8000-000000000003"
     vi.spyOn(crypto, "randomUUID").mockReturnValue(nonce)
     vi.stubGlobal(
@@ -220,6 +194,14 @@ it.each(["area", "element"] as const)(
       vi.fn((path: string) => {
         if (path === "/api/hub/events")
           return Promise.reject(new Error("Live connection unavailable"))
+        if (path === "/api/hub/status")
+          return Promise.resolve(
+            Response.json({
+              ...publicationHub,
+              state: "connected",
+              prototype: importedPrototype,
+            }),
+          )
         return Promise.resolve(
           new Response(JSON.stringify({ comments: [], hasMore: false, nextCursor: null })),
         )
@@ -227,20 +209,14 @@ it.each(["area", "element"] as const)(
     )
     const frameRef = createRef<HTMLIFrameElement>()
     const onFrameLoad = vi.fn()
-    const view = render(
-      <ThemeProvider>
-        <iframe ref={frameRef} title="Prototype" src="about:blank" onLoad={onFrameLoad} />
-        <HubPanel
-          config={{ name: "Welcome", prototypeUrl: "http://localhost:4321", token: "local" }}
-          frameRef={frameRef}
-          status={{ ...publicationHub, state: "connected", prototype: importedPrototype }}
-          onStatusChange={async () => {}}
-          onSelectHub={async () => {}}
-          onConnect={() => {}}
-          open={false}
-          onClose={() => {}}
-        />
-      </ThemeProvider>,
+    const view = renderPrototypeCanvasHubPanel(
+      {
+        config: { name: "Welcome", prototypeUrl: "http://localhost:4321", token: "local" },
+        frameRef,
+        status: { ...publicationHub, state: "connected", prototype: importedPrototype },
+        open: false,
+      },
+      <iframe ref={frameRef} title="Prototype" src="about:blank" onLoad={onFrameLoad} />,
     )
     function respond(data: Record<string, unknown>, origin = "http://localhost:4321") {
       act(() => {
@@ -302,6 +278,7 @@ it.each(["area", "element"] as const)(
     })
     fireEvent.click(screen.getByRole("button", { name: reviewCommentsCopy.commentMenuLabel }))
     fireEvent.click(await screen.findByRole("menuitem", { name: selectionLabel }))
+    await screen.findByRole("button", { name: reviewCommentsCopy.cancelSelectionLabel })
 
     respond({ type: "replica:canvas:selected", anchor: invalidAnchor }, "https://untrusted.example")
     respond({ type: "replica:canvas:selected", anchor: invalidAnchor, nonce: "stale" })
@@ -331,6 +308,7 @@ it.each(["area", "element"] as const)(
 
     fireEvent.click(screen.getByRole("button", { name: reviewCommentsCopy.commentMenuLabel }))
     fireEvent.click(await screen.findByRole("menuitem", { name: selectionLabel }))
+    await screen.findByRole("button", { name: reviewCommentsCopy.cancelSelectionLabel })
     expect(screen.queryByRole("alert")).not.toBeInTheDocument()
     respond({ type: "replica:canvas:selected", anchor: validAnchor })
     expect(screen.getByRole("textbox", { name: reviewCommentsCopy.composerLabel })).toBeVisible()

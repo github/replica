@@ -10,6 +10,7 @@ import type { RepositoryWorkspaceData } from "@features/repository-workspace/typ
 import { HubWorkspace } from "@features/hub-workspace"
 import type { HubWorkspaceData } from "@features/hub-workspace/types"
 import repositoryStories from "@pages/repositories-show-page/stories"
+import managementStories from "@pages/prototype-management-page/stories"
 import inboxStories from "@pages/notifications-page/stories"
 
 import AnalyticsView from "../../views/analytics/show"
@@ -78,6 +79,8 @@ vi.mock("@hooks/use-page-data", () => ({
   usePageData: () => {
     const data = {
       ...repositoryStories.args.data,
+      management: managementStories.args.data.management,
+      repositoryChoices: managementStories.args.data.repositoryChoices,
       notificationInbox: inboxStories.args.data.notificationInbox,
       notificationsPath: "/notifications",
       notificationsLabel: "Inbox",
@@ -95,6 +98,9 @@ vi.mock("@hooks/use-page-data", () => ({
       },
     }
   },
+}))
+vi.mock("@hooks/use-page-section", () => ({
+  usePageSection: () => ({ loading: false, failed: false, retry: () => {} }),
 }))
 vi.mock("@hooks/use-hub-theme", () => ({
   useHubTheme: () => ({ resolvedColorMode: "light" }),

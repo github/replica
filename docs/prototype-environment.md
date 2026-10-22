@@ -4,6 +4,8 @@ Give your organization a shared place to create prototypes with its own componen
 
 This guide is for the people setting up and maintaining that environment, not everyone creating a prototype. It covers the starter repository, design-system guidance, Docker deployment, GitHub connection, and handoff to your team. If your organization already has an environment, follow [Get started with Replica](getting-started.md) to join it instead.
 
+For a local prototype repository without hosted publishing or comments, use [prototype repository setup](prototype-repository-setup.md). It does not require the server, domain, Docker, or GitHub App described below.
+
 The linked technical guides own deployment configuration, access rules, and recovery procedures. Keep them open as you work through the steps below.
 
 ## Who should be involved
@@ -22,23 +24,9 @@ Install [GitHub CLI](https://cli.github.com/) on the author's computer for canva
 
 ## 1. Create the team's prototype repository
 
-Start with Replica Starter in a new directory, separate from your live product and the Replica source checkout. In a terminal on your computer, go to the folder where you keep projects and download the installer:
+Follow steps 1 through 3 of [prototype repository setup](prototype-repository-setup.md) to create an independent starter, open a fresh Copilot session, and verify its local preview. Then return here to prepare the team's guidance and starting pages.
 
-```sh
-curl -fLSs https://raw.githubusercontent.com/github/replica/main/scripts/install-starter.sh -o install-starter.sh
-```
-
-Read the downloaded script before running it. Choose a new destination that does not already exist:
-
-```sh
-bash install-starter.sh my-prototype
-```
-
-The installer creates an independent, uncommitted Git repository with no remote. It needs no GitHub credentials and publishes nothing. From a local Replica checkout, use [`scripts/create-prototype-repo.sh`](../scripts/create-prototype-repo.sh) instead, with a new destination outside that checkout.
-
-In the Copilot app, click **+** beside **Projects**, choose **Local folder or repository**, and select `my-prototype`. Start a fresh session so Copilot discovers the starter's local skills. Ask Copilot to install the dependencies, reviewing commands before approval.
-
-Create an empty GitHub repository in your organization for this environment. Connect the local repository to it as `origin`, review the starter files, make the initial commit, and push the default branch. Ask an engineer to help with these Git steps if needed. Give prototype authors write access and reviewers read access. Keep production credentials and real customer data out of it.
+Use a GitHub repository in your organization for this shared environment. Give prototype authors write access and reviewers read access. Keep production credentials and real customer data out of it. Continue below to prepare guidance and starting pages before inviting the team.
 
 ## 2. Add your product and design-system guidance
 
@@ -56,7 +44,7 @@ Add a small set of representative pages with sample data, such as a list, a deta
 
 The hub always offers **Default**, which opens the repository's root page. To offer additional templates, declare their names, descriptions, and routes in `.github/replica.json`. See [template configuration](../hub/docs/github-actions-builds.md#uploaded-artifact) for the format and limits, and [templates in the hub](../hub/docs/gallery.md#templates) for how people use them.
 
-Review the pages and guidance together, then commit them to the team's default branch. New prototypes start from that shared version without changing it.
+Review the pages and guidance together, then follow [share the baseline on GitHub](prototype-repository-setup.md#share-the-baseline-on-github) to create or use the intended organization repository, connect `origin`, and commit and push the reviewed baseline when authorized. For an existing shared repository, merge through its contribution process. Verify the actual default branch contains the baseline before continuing to Hub setup. New prototypes start from that shared version without changing it.
 
 ## 4. Deploy the hub
 

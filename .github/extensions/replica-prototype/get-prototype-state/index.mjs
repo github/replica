@@ -5,6 +5,7 @@ import { runCommand } from "../run-command/index.mjs"
 import {
   capturePublishTarget,
   continuesPublishTarget,
+  sameCheckout,
   samePublishTarget,
 } from "../publish-target/index.mjs"
 
@@ -94,20 +95,39 @@ async function synchronizePublishRequest(context, state) {
       state.publishRequest.error =
         "No completed push was observed. Check Copilot chat and retry when ready."
       return
-    } else if (!(
-      state.stats.remoteBranch?.state === "present" &&
-      state.stats.remoteBranch.remoteSha === state.stats.commitSha &&
-      (state.publishRequest.remoteState === "absent" ||
-        (state.publishRequest.remoteState === "present" &&
-          state.publishRequest.remoteSha !== state.stats.commitSha) ||
-        (state.stats.workflow.run?.databaseId &&
-          state.stats.workflow.run.databaseId !== state.publishRequest.workflowRunId))
-    )) {
+    } else if (!observedNewPush(state)) {
       return
     }
+  }
+  if (
+    state.publishRequest.state === "failed" &&
+    (!state.publishRequest.target ||
+      sameCheckout(state.publishRequest.target, await capturePublishTarget(context))) &&
+    observedNewPush(state)
+  ) {
+    // A later push of the current HEAD supersedes the failed request; its workflow and Build
+    // evidence now describe publication.
+    delete state.publishRequest.outcome
+    delete state.publishRequest.reportedAt
+    state.publishRequest.state = "idle"
+    state.publishRequest.error = null
   }
   if (state.publishRequest.state === "requested") {
     state.publishRequest.state = "idle"
     state.publishRequest.error = null
   }
+}
+
+function observedNewPush(state) {
+  const request = state.publishRequest
+  return (
+    state.stats.remoteBranch?.state === "present" &&
+    state.stats.remoteBranch.remoteSha === state.stats.commitSha &&
+    (request.remoteState === "absent" ||
+      (request.remoteState === "present" && request.remoteSha !== state.stats.commitSha) ||
+      Boolean(
+        state.stats.workflow.run?.databaseId &&
+        state.stats.workflow.run.databaseId !== request.workflowRunId,
+      ))
+  )
 }

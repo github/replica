@@ -1098,6 +1098,38 @@ class LocalDevelopmentTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "loads local management sections independently and rechecks branch existence before registration" do
+    path = create_repository("management")
+    git!(path, "branch", "prototype/local")
+
+    in_local_mode do
+      post local_authentication_path
+      repository = Repository.find_by!(name_with_owner: "local/management")
+      prototype = prototypes.create(repository:, branch_name: "prototype/local")
+      management_path = repository_prototype_management_path(repository.route_id)
+
+      get management_path
+      assert_response :success
+      assert_includes response.body, '"unlisted":[]'
+
+      get management_path, params: { props_at: "data.repositoryChoices" }, as: :json
+      assert_response :success
+      assert_includes response.body, '"path":"data.repositoryChoices"'
+      assert_includes response.body, "local/management"
+      assert_not_includes response.body, "prototype/local"
+
+      get management_path, params: { props_at: "data.management" }, as: :json
+      assert_response :success
+      assert_includes response.body, '"branchName":"prototype/local"'
+      git!(path, "branch", "-D", "prototype/local")
+
+      patch repository_prototype_registration_path(repository.route_id, prototype),
+        params: { prototype: { name: "Deleted locally" } }
+      assert_response :not_found
+      assert_not prototype.reload.registered?
+    end
+  end
+
   test "builds an exact commit and lists it after registration without changing the checkout" do
     SharingSetting.create!(id: 1, public_sharing_enabled: true)
     path = create_repository("one", buildable: true)
@@ -1136,6 +1168,11 @@ class LocalDevelopmentTest < ActionDispatch::IntegrationTest
       assert_includes response.body, '"recentBranches":[]'
 
       get repository_prototype_management_path(repository.route_id)
+      assert_response :success
+      assert_includes response.body, '"unlisted":[]'
+      get repository_prototype_management_path(repository.route_id),
+        params: { props_at: "data.management" },
+        headers: { "Accept" => "application/json" }
       assert_response :success
       assert_includes response.body, "prototype/welcome"
 

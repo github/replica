@@ -43,6 +43,7 @@ export function ReviewCommentsSidebar({
       {notice}
 
       <ReviewCommentFilterControls
+        compact={!frame}
         filters={filters}
         participants={participants}
         showPins={showPins}
@@ -70,7 +71,9 @@ export function ReviewCommentsSidebar({
                 thread={thread}
                 currentBuildNumber={currentBuildNumber}
                 buildHref={
-                  buildLinkOrigin ? new URL(thread.root.buildPath, buildLinkOrigin).href : undefined
+                  buildLinkOrigin && thread.root.buildPath
+                    ? new URL(thread.root.buildPath, buildLinkOrigin).href
+                    : undefined
                 }
                 resolution={resolutions.get(thread.root.id)}
                 selected={selectedThreadId === thread.root.id}

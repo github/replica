@@ -7,12 +7,12 @@ export function usePrototypeViewerUrl({
   selectedBuild,
   route,
   initiallyMinimized,
-  pinBuild = true,
+  buildSelection = "preserve",
 }: {
   selectedBuild?: { number: number; previewUrl: string }
   route: ReviewRoute | null
   initiallyMinimized: boolean
-  pinBuild?: boolean
+  buildSelection?: "preserve" | "ignore"
 }) {
   const [, refreshUrl] = useState(0)
   useEffect(() => {
@@ -35,7 +35,7 @@ export function usePrototypeViewerUrl({
     (view.previewUrl === selectedBuild?.previewUrl ? view.minimized : initiallyMinimized)
   const url = new URL(window.location.href)
 
-  if (!pinBuild) {
+  if (buildSelection === "ignore") {
     url.searchParams.delete("build")
     url.searchParams.delete("before")
   }
@@ -43,13 +43,14 @@ export function usePrototypeViewerUrl({
   if (selectedBuild) {
     const preview = new URL(selectedBuild.previewUrl)
     const previousPath =
-      !pinBuild || url.searchParams.get("build") === String(selectedBuild.number)
+      buildSelection === "ignore" ||
+      !url.searchParams.has("build") ||
+      url.searchParams.get("build") === String(selectedBuild.number)
         ? url.searchParams.get("return_path")
         : null
     const destination = route
       ? `${route.pathname}${route.search}${route.hash}`
       : (previousPath ?? `${preview.pathname}${preview.search}${preview.hash}`)
-    if (pinBuild) url.searchParams.set("build", String(selectedBuild.number))
     url.searchParams.set("return_path", destination)
     if (minimized) url.searchParams.set("view", "minimized")
     else url.searchParams.delete("view")
@@ -57,10 +58,10 @@ export function usePrototypeViewerUrl({
 
   const viewerUrl = url.toString()
   useEffect(() => {
-    if ((selectedBuild || !pinBuild) && window.location.href !== viewerUrl) {
+    if ((selectedBuild || buildSelection === "ignore") && window.location.href !== viewerUrl) {
       window.history.replaceState(window.history.state, "", viewerUrl)
     }
-  }, [selectedBuild, pinBuild, viewerUrl])
+  }, [selectedBuild, buildSelection, viewerUrl])
 
   return {
     viewerUrl,

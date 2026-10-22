@@ -30,7 +30,7 @@ const data: GithubAppPageData = {
 }
 
 const meta = {
-  title: "Pages/Security/GitHub App",
+  title: "Hub/Pages/Security/GitHub App",
   component: GithubAppPage,
   parameters: { layout: "fullscreen" },
   args: { data },

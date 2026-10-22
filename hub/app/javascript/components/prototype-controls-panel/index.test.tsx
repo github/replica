@@ -141,6 +141,32 @@ beforeEach(() => {
 })
 
 describe("ControlsPanel()", () => {
+  it("links to the Controls README only in the genuine empty state", () => {
+    const empty: PanelState = { ...ready, scopes: [], status: "no-controls" }
+    const view = render(<Example state={empty} />)
+    const link = screen.getByRole("link", { name: "Learn more" })
+    expect(link).toHaveAttribute(
+      "href",
+      "https://github.com/github/replica/blob/main/starter/README.md#prototype-controls",
+    )
+    expect(link).toHaveAttribute("target", "_blank")
+    expect(link).toHaveAttribute("rel", "noopener noreferrer")
+    expect(link).toHaveAccessibleName("Learn more")
+    expect(screen.getByText(/^No active controls\./)).toBeVisible()
+    for (const state of [
+      ready,
+      { ...empty, loading: true },
+      { ...empty, status: "missing-runtime" as const, error: "Connection unavailable" },
+      { ...empty, status: "invalid-config" as const },
+      { ...empty, storageError: "Could not save" },
+      { ...empty, reconnectRequired: true },
+      { ...empty, scopeErrors: [{ scope: "settings", error: "Invalid settings" }] },
+    ]) {
+      view.rerender(<Example state={state} />)
+      expect(screen.queryByRole("link", { name: "Learn more" })).not.toBeInTheDocument()
+    }
+  })
+
   it("shows loading, concise failures and one explicit fix action, then clears on recovery", async () => {
     const controller = createControls({
       version: 1,

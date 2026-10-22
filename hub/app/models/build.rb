@@ -78,6 +78,7 @@ class Build < ApplicationRecord
   after_update :record_analytics_publication, if: -> { saved_change_to_state? && state == "successful" }
   has_many :webhook_deliveries, dependent: :nullify
   has_many :review_comments, dependent: :restrict_with_exception
+  has_many :improvement_comments, dependent: :restrict_with_exception
   has_many :share_links, dependent: :restrict_with_exception
 
   has_object :package_import

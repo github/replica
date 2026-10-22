@@ -22,7 +22,7 @@ class Repository::Authorization < ActiveRecord::AssociatedObject
   # Returns the user's current normalized GitHub permission.
   def permission_for(
     user, fresh: false, configuration: GithubAppConfiguration.current,
-    cache: Rails.cache
+    cache: Rails.cache, payload: nil
   )
     return "none" if record.installation_state != "active"
     if LocalDevelopment.enabled?
@@ -37,9 +37,14 @@ class Repository::Authorization < ActiveRecord::AssociatedObject
       fetch_permission(user, configuration)
     else
       cache.fetch(cache_key(user), expires_in: CACHE_TTL) do
-        fetch_permission(user, configuration)
+        fetch_permission(user, configuration, payload:)
       end
     end
+  end
+
+  # Avoids fetching selector permissions that are still cached.
+  def cached_permission(user, cache: Rails.cache)
+    cache.read(cache_key(user))
   end
 
   # Reports whether one normalized permission meets the required level.
@@ -50,10 +55,12 @@ class Repository::Authorization < ActiveRecord::AssociatedObject
   private
 
   # Reads effective permission and verifies GitHub returned the expected user.
-  def fetch_permission(user, configuration)
+  def fetch_permission(user, configuration, payload: nil)
     return "none" if configuration.nil? || configuration.installation_state != "active"
 
-    payload = configuration.github_client.repositories.permission \
+    raise payload if payload.is_a?(GithubClient::Error)
+
+    payload ||= configuration.github_client.repositories.permission \
       record,
       user,
       token: configuration.tokens.installation

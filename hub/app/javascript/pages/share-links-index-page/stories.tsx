@@ -21,7 +21,7 @@ const shareLink = {
 const data: ShareLinksIndexPageData = {
   ...prototypeWorkspaceData,
   alert: null,
-  closePath: "/repositories/2001/prototypes/1?build=1",
+  closePath: "/repositories/2001/prototypes/1",
   copyErrorLabel: "Copy failed",
   copiedLabel: "Copied",
   copyLabel: "Copy link",
@@ -50,7 +50,7 @@ const data: ShareLinksIndexPageData = {
   openLabel: "Open",
   pageTitle: "Share links",
   shareLinksLabel: "Share links",
-  shareLinksPath: "/repositories/2001/prototypes/1/share_links?build=1",
+  shareLinksPath: "/repositories/2001/prototypes/1/share_links",
   shareLinks: [],
   publicSharingEnabled: true,
   disabledLabel:
@@ -58,7 +58,7 @@ const data: ShareLinksIndexPageData = {
 }
 
 const meta = {
-  title: "Pages/Share Links",
+  title: "Hub/Pages/Share Links",
   component: ShareLinksIndexPage,
   args: { data },
   parameters: { layout: "fullscreen" },

@@ -20,6 +20,7 @@ Keep shared rules in root guides and project-specific rules in the affected proj
 - Separate accepted requirements from proposed implementation choices.
 - Follow existing patterns and implement one complete user flow at a time.
 - Update the canonical guide when its behavior or rules change.
+- For Hub or canvas UI changes, story maintenance, and their PRs, follow the [Storybook coverage, cleanup, and screenshot requirements](hub/docs/storybook.md#ui-changes-and-pull-request-evidence).
 - Use conventional commit style for commits and PR titles, such as `fix(hub): retain prototype history`.
 - Write PR descriptions as short, simple English paragraphs for first-time readers. Include accurate Mermaid diagrams when they clarify the proposal; use before/after diagrams when helpful.
 - Omit validation sections, checklists, and routine test/CI summaries from PR descriptions. Mention only known verification gaps that affect the change, not disclaimers about drafting the description.
@@ -35,7 +36,7 @@ Follow the [commit and PR conventions](CONTRIBUTING.md#commits-and-pull-requests
 
 Hub releases use `hub-v*` tags. The starter follows `main` and has no separate release process. Start a new agent session after copying the starter so its local skills are discovered.
 
-To create a local prototype repository, download and review `scripts/install-starter.sh` with `curl`, then run it without `gh`, credentials, or a clone. From a local Replica checkout, use `scripts/create-prototype-repo.sh <destination>` instead. Choose a new destination outside this checkout; either path creates an independent, uncommitted repository. Start a fresh agent session there before invoking its `/setup-skills` skill; the running session in this checkout will not discover the copied skills. Use an existing Node.js installation matching `engines.node` in [starter/package.json](starter/package.json). On macOS or Linux, obtain approval before installing nodenv, node-build, or Node.js or changing shell configuration; do not install them automatically.
+For requests to create a prototype repository or set up an existing repository for prototyping, read [prototype repository setup](docs/prototype-repository-setup.md) before acting. It owns target selection, starter installation, the fresh-session handoff, and the path from local preview to optional guidance, a team baseline, or Hub.
 
 ## Browser validation and Playwright fallback
 

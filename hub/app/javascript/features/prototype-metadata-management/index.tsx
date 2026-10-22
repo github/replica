@@ -6,6 +6,7 @@ import { Button, FormControl, Heading, Pagination, Text, TextInput } from "@prim
 
 import { HubAlert } from "@components/hub-alert"
 import { HubIconButton } from "@components/hub-icon-button"
+import { HubSpinner } from "@components/hub-spinner"
 
 import type { PrototypeMetadataEntry, PrototypeMetadataManagementData } from "./types"
 
@@ -15,9 +16,15 @@ import "./styles.css"
 export function PrototypeMetadataManagement({
   authenticityToken,
   data,
+  loading = false,
+  loadFailed = false,
+  onRetry,
 }: {
   authenticityToken: string
   data: PrototypeMetadataManagementData
+  loading?: boolean
+  loadFailed?: boolean
+  onRetry?: () => void
 }) {
   const [selected, setSelected] = useState<{
     entry: PrototypeMetadataEntry
@@ -53,12 +60,28 @@ export function PrototypeMetadataManagement({
         </Heading>
       </div>
 
-      <section className="prototype-metadata__section" aria-labelledby={unlistedHeadingId}>
+      <section
+        className="prototype-metadata__section"
+        aria-labelledby={unlistedHeadingId}
+        aria-busy={loading}
+      >
         <Heading as="h3" size="6" id={unlistedHeadingId}>
           {data.unlistedHeading}
         </Heading>
-        {data.candidateCheckFailed ? (
-          <HubAlert title={data.candidateCheckFailedLabel} variant="warning" layout="compact" />
+        {loading ? (
+          <div className="prototype-metadata__loading" role="status">
+            <HubSpinner decorative size="small" />
+            <Text>{data.candidateLoadingLabel}</Text>
+          </div>
+        ) : loadFailed || data.candidateCheckFailed ? (
+          <>
+            <HubAlert title={data.candidateCheckFailedLabel} variant="warning" layout="compact" />
+            {onRetry ? (
+              <Button type="button" variant="secondary" size="small" onClick={onRetry}>
+                {data.candidateRetryLabel}
+              </Button>
+            ) : null}
+          </>
         ) : data.unlisted.length ? (
           <>
             <Text as="p">{data.unlistedDescription}</Text>
@@ -83,7 +106,7 @@ export function PrototypeMetadataManagement({
           <Text as="p">{data.emptyLabel}</Text>
         )}
 
-        {!data.candidateCheckFailed && data.candidatePageCount > 1 ? (
+        {!loading && !loadFailed && !data.candidateCheckFailed && data.candidatePageCount > 1 ? (
           <Pagination
             pageCount={data.candidatePageCount}
             currentPage={data.candidatePage}

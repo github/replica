@@ -3,7 +3,7 @@ import { readdir, readFile } from "node:fs/promises"
 import { fileURLToPath } from "node:url"
 
 export async function checkAssets({
-  assets = new URL("../assets/", import.meta.url),
+  assets = new URL("../", import.meta.url),
   build = () => execFileSync("npm", ["run", "extension:build"], { stdio: "inherit" }),
 } = {}) {
   const before = await snapshot(assets)

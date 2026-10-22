@@ -65,13 +65,17 @@ describe("App()", () => {
       await Promise.resolve()
     })
     await waitFor(() =>
-      expect(within(sidebar).getByRole("button", { name: "Publish" })).toHaveAttribute(
+      expect(within(sidebar).getByRole("button", { name: "Waiting for Copilot" })).toHaveAttribute(
         "aria-busy",
         "true",
       ),
     )
-    expect(within(sidebar).getByRole("button", { name: "Publish" })).toBeDisabled()
-    expect(within(sidebar).getByText("Pushing branch to repository.")).toBeInTheDocument()
+    expect(within(sidebar).getByRole("button", { name: "Waiting for Copilot" })).toBeDisabled()
+    expect(
+      within(sidebar).getByText(
+        "Copilot received the publish request in chat and has not pushed this branch yet. Follow its progress in chat.",
+      ),
+    ).toBeInTheDocument()
     expect(
       within(sidebar).queryByText(/Uncommitted changes are not included/),
     ).not.toBeInTheDocument()
@@ -194,7 +198,9 @@ describe("App()", () => {
     const view = render(
       <App config={{ name: "First", prototypeUrl: "http://localhost:4321/", token: "local" }} />,
     )
-    await waitFor(() => expect(screen.getByRole("button", { name: "Publish" })).toBeDisabled())
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Waiting for Copilot" })).toBeDisabled(),
+    )
     const hubButton = screen.getByRole("button", { name: "Edit details" })
     fireEvent.click(hubButton)
     const closeHub = within(screen.getByRole("complementary", { name: "Hub" })).getByRole(

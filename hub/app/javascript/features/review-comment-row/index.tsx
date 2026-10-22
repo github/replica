@@ -23,8 +23,9 @@ export function ReviewCommentRow({
   const { root } = thread
   const author = root.author.name || `@${root.author.login}`
   const selectionDisabled = selectionBlocked && !selected
-  const buildLabel = copy.buildLabel.replace("%{number}", root.buildNumber.toString())
-  const showBuildLink = root.buildNumber !== currentBuildNumber
+  const buildLabel = copy.buildLabel.replace("%{number}", root.buildNumber?.toString() ?? "")
+  const showBuildLink =
+    root.buildNumber !== null && root.buildPath !== null && root.buildNumber !== currentBuildNumber
   const replyCountLabel =
     thread.replies.length === 1
       ? copy.replyCountOneLabel
@@ -74,7 +75,7 @@ export function ReviewCommentRow({
                   <span className="review-comment-row__build">
                     (
                     <a
-                      href={buildHref || root.buildPath}
+                      href={buildHref || root.buildPath || undefined}
                       target={buildHref ? "_blank" : undefined}
                       rel={buildHref ? "noopener noreferrer" : undefined}
                     >

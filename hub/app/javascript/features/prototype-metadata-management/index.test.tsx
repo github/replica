@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, within } from "@testing-library/react"
-import { describe, it } from "vitest"
+import { describe, it, vi } from "vitest"
 
 import { PrototypeMetadataManagement } from "."
 import type { PrototypeMetadataManagementData } from "./types"
@@ -29,6 +29,9 @@ const data: PrototypeMetadataManagementData = {
   descriptionMaximumLength: 500,
   candidateCheckFailed: false,
   candidateCheckFailedLabel: "Hub could not check which branches you can add.",
+  candidateLoadingLabel: "Checking branches you can add...",
+  candidateRetryLabel: "Retry branch check",
+  candidateDataPath: "/repositories/2001/prototypes/manage?props_at=data.management",
   candidatePage: 1,
   candidatePageCount: 1,
   candidatePagePath: "/repositories/2001/prototypes/manage",
@@ -68,6 +71,30 @@ HTMLDialogElement.prototype.close = function () {
 }
 
 describe("PrototypeMetadataManagement()", () => {
+  it("shows loading instead of empty results while keeping registered edits available", () => {
+    render(<PrototypeMetadataManagement authenticityToken="token" data={data} loading />)
+    expect(screen.getByRole("status")).toHaveTextContent(data.candidateLoadingLabel)
+    expect(screen.queryByText(data.emptyLabel)).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "Add to Hub: prototype/new" }),
+    ).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Edit details: prototype/welcome" })).toBeEnabled()
+  })
+
+  it("offers an explicit retry when the async branch request fails", () => {
+    const retry = vi.fn()
+    render(
+      <PrototypeMetadataManagement
+        authenticityToken="token"
+        data={data}
+        loadFailed
+        onRetry={retry}
+      />,
+    )
+    expect(screen.getByText(data.candidateCheckFailedLabel)).toBeVisible()
+    fireEvent.click(screen.getByRole("button", { name: data.candidateRetryLabel }))
+    expect(retry).toHaveBeenCalledOnce()
+  })
   it("shows repository metadata import errors in the editor", () => {
     const message = "Could not import .prototype: fix the file or set the start page here."
     render(

@@ -77,7 +77,8 @@ const data: PrototypesShowPageData = {
     },
   ],
   buildSelectionLabel: "Choose build",
-  branchPath: "/repositories/2001/prototypes/1?build=1",
+  branchPath: "/repositories/2001/prototypes/1",
+  buildPinned: false,
   closeLabel: "Close",
   collapseNavigationLabel: "Collapse sidebar",
   emptyHeading: "No successful Build yet",
@@ -110,7 +111,7 @@ const data: PrototypesShowPageData = {
   repositorySelectorLabel: "Choose repository. github/prototype selected",
   reviewCommentsPath: "/repositories/2001/prototypes/1/review_comments",
   shareLinksLabel: "Share links",
-  shareLinksPath: "/repositories/2001/prototypes/1/share_links?build=1",
+  shareLinksPath: "/repositories/2001/prototypes/1/share_links",
   reviewComments: {
     bodyMaximumBytes: 10_000,
     copy: reviewCommentsCopy,
@@ -233,7 +234,7 @@ function ReviewStory({ data, iframeRef, review, ...pageProps }: PrototypesShowPa
 }
 
 const meta = {
-  title: "Pages/Prototype Review",
+  title: "Hub/Pages/Prototype Review",
   component: PrototypesShowPage,
   render: (args, context) => <ReviewStory key={context.id} {...args} />,
   args: {
@@ -319,10 +320,6 @@ export const EditingDetails: Story = {
 export const EditingDetailsWithoutStartPage: Story = {
   ...EditingDetails,
   args: { initialInfoOpen: false, data: { ...data, startPage: null } },
-}
-
-export const CompactBranchInput: Story = {
-  args: { initialInfoOpen: false },
 }
 
 export const ExpandedBranchInput: Story = {

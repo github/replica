@@ -3,12 +3,11 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 
 import { octocatRootComment } from "@/storybook/fixtures/review/comments"
 import { reviewCommentsCopy } from "@utils/review-comment/en"
-
 import type { HubStatus } from "@utils/prototype-canvas/types"
 import { publicationCopy } from "@utils/resolve-prototype-publication/en"
 import { importedPrototype, publicationHub } from "@utils/resolve-prototype-publication/fixtures"
 
-import { HubPanel } from "."
+import { PrototypeCanvasHubPanel } from "."
 
 const canvasPreview = `<!doctype html>
 <html lang="en">
@@ -51,17 +50,40 @@ document.getElementById("save").addEventListener("click", () => {
 function ConnectedDemo({
   preview = false,
   rateLimited = false,
+  commentsState = "single",
+  failure,
   ...props
-}: ComponentProps<typeof HubPanel> & { preview?: boolean; rateLimited?: boolean }) {
+}: ComponentProps<typeof PrototypeCanvasHubPanel> & {
+  preview?: boolean
+  rateLimited?: boolean
+  commentsState?: "single" | "empty" | "loading" | "failed" | "live-failed"
+  failure?: "metadata" | "disconnect"
+}) {
   const [ready, setReady] = useState(false)
   const [open, setOpen] = useState(!preview)
   const frameRef = useRef<HTMLIFrameElement>(null)
 
   useEffect(() => {
     const originalFetch = window.fetch.bind(window)
-    let comments = [octocatRootComment]
+    const startingComment = props.status?.reviewRevision?.id
+      ? {
+          ...octocatRootComment,
+          buildNumber: null,
+          buildPath: null,
+          draftRevisionId: props.status.reviewRevision.id,
+          viewerLastSeenActivityVersion: octocatRootComment.activityVersion,
+        }
+      : octocatRootComment
+    let comments = commentsState === "empty" ? [] : [startingComment]
     window.fetch = (input, init) => {
       const path = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
+      if (
+        (failure === "metadata" && path === "/api/hub/metadata") ||
+        (failure === "disconnect" && path === "/api/hub/disconnect")
+      )
+        return Promise.resolve(Response.json({ error: "Hub returned HTTP 503." }, { status: 503 }))
+      if (path === "/api/hub/metadata" || path === "/api/hub/disconnect")
+        return Promise.resolve(Response.json({}))
       if (
         rateLimited &&
         path.startsWith("/api/hub/comments") &&
@@ -78,6 +100,10 @@ function ConnectedDemo({
           ),
         )
       if (path === "/api/hub/events") {
+        if (commentsState === "live-failed")
+          return Promise.resolve(
+            Response.json({ error: "Live updates are unavailable." }, { status: 503 }),
+          )
         return Promise.resolve(
           new Response(
             new ReadableStream({
@@ -88,7 +114,15 @@ function ConnectedDemo({
           ),
         )
       }
-      if (path === "/api/hub/comments") {
+      if (path === "/api/hub/comments" || path.startsWith("/api/hub/comments?")) {
+        if (commentsState === "loading") return new Promise(() => {})
+        if (commentsState === "failed")
+          return Promise.resolve(
+            Response.json(
+              { error: "Could not load comments. Retry when Hub is available." },
+              { status: 503 },
+            ),
+          )
         if (init?.method === "POST") {
           if (typeof init.body !== "string")
             return Promise.reject(new Error("Expected a JSON comment request."))
@@ -96,7 +130,7 @@ function ConnectedDemo({
             review_comment: { body: string; anchor: typeof octocatRootComment.anchor }
           }
           const created = {
-            ...octocatRootComment,
+            ...startingComment,
             id: 2,
             body: review_comment.body,
             anchor: review_comment.anchor,
@@ -112,7 +146,7 @@ function ConnectedDemo({
           }),
         )
       }
-      if (path === "/api/hub/discovery") {
+      if (path === "/api/hub/discovery" || path === "/api/hub/status") {
         return Promise.resolve(
           new Response(JSON.stringify(props.status), {
             status: 200,
@@ -123,6 +157,10 @@ function ConnectedDemo({
       if (path.startsWith("/api/hub/comments/")) {
         return Promise.resolve(new Response("{}", { status: 200 }))
       }
+      if (path.startsWith("/api/"))
+        return Promise.resolve(
+          Response.json({ error: "This action is unavailable in this fixture." }, { status: 409 }),
+        )
       return originalFetch(input, init)
     }
     const initial = window.setTimeout(() => setReady(true), 0)
@@ -130,7 +168,7 @@ function ConnectedDemo({
       window.clearTimeout(initial)
       window.fetch = originalFetch
     }
-  }, [props.status, rateLimited])
+  }, [props.status, rateLimited, commentsState, failure])
 
   return (
     <div
@@ -151,7 +189,7 @@ function ConnectedDemo({
         />
       ) : null}
       {ready ? (
-        <HubPanel
+        <PrototypeCanvasHubPanel
           {...props}
           frameRef={preview ? frameRef : props.frameRef}
           config={
@@ -168,8 +206,8 @@ function ConnectedDemo({
 }
 
 const meta = {
-  title: "Components/Prototype canvas/Hub panel",
-  component: HubPanel,
+  title: "Prototype canvas/Hub panel",
+  component: PrototypeCanvasHubPanel,
   args: {
     config: {
       prototypeUrl: "http://localhost:4321/",
@@ -189,7 +227,7 @@ const meta = {
     open: true,
     onClose: () => {},
   },
-} satisfies Meta<typeof HubPanel>
+} satisfies Meta<typeof PrototypeCanvasHubPanel>
 
 export default meta
 type Story = StoryObj<typeof meta>
@@ -488,6 +526,7 @@ export const Connected: Story = {
       repository: "local/example",
       branch: "prototype/welcome",
       commitSha: "a".repeat(40),
+      reviewRevision: publicationHub.reviewRevision,
       hubOrigin: "http://replica.localhost:19500",
       prototype: {
         id: 1,
@@ -588,6 +627,65 @@ export const RateLimited: Story = {
   render: (args) => <ConnectedDemo {...args} preview rateLimited />,
 }
 
+export const LocalDraftComments: Story = {
+  ...PinWithCommentsClosed,
+  args: {
+    ...Connected.args,
+    status: {
+      ...publicationHub,
+      state: "connected",
+      reviewRevision: {
+        ...publicationHub.reviewRevision!,
+        id: 7,
+        buildNumber: null,
+        clean: false,
+      },
+      prototype: {
+        ...importedPrototype,
+        registered: false,
+        published: false,
+        build: null,
+        currentBuild: null,
+        buildState: null,
+        versionCount: 0,
+      },
+    },
+  },
+  play: async ({ canvas }) => {
+    await canvas.findByRole("button", { name: "Thread started by @octocat" })
+  },
+}
+
+export const LocalCommentsBeforeFirstPublish: Story = {
+  ...LocalDraftComments,
+  args: {
+    ...LocalDraftComments.args,
+    status: {
+      ...LocalDraftComments.args!.status!,
+      state: "undiscovered",
+      repositoryAuthorized: true,
+      viewerLogin: "octocat",
+      prototype: undefined,
+      reviewRevision: {
+        ...LocalDraftComments.args!.status!.reviewRevision!,
+        prototypeId: null,
+      },
+    },
+  },
+}
+
+export const LocalCommentUploadFailed: Story = {
+  ...LocalDraftComments,
+  args: {
+    ...LocalDraftComments.args,
+    status: {
+      ...LocalDraftComments.args!.status!,
+      localCommentsError:
+        "Local comments not synced: Hub is unavailable. Your drafts are kept on this device.",
+    },
+  },
+}
+
 export const PostedCommentWithCommentsClosed: Story = {
   ...PinWithCommentsClosed,
   play: async ({ canvas, canvasElement, userEvent }) => {
@@ -625,4 +723,114 @@ export const PreviewMarker: Story = {
       </button>
     </div>
   ),
+}
+
+export const CheckingConnection: Story = { args: { status: null } }
+export const AccessDenied: Story = {
+  args: {
+    status: {
+      ...meta.args.status,
+      state: "denied",
+      message: "Your repository access was removed. Reconnect after access is restored.",
+    },
+  },
+}
+export const InvalidDiscovery: Story = {
+  args: {
+    status: {
+      ...meta.args.status,
+      state: "undiscovered",
+      discovery: { state: "invalid", message: "The repository Hub URL must use HTTPS." },
+    },
+  },
+}
+export const Connecting: Story = { args: { connecting: true } }
+export const ReadOnly: Story = {
+  ...Connected,
+  play: undefined,
+  args: {
+    status: {
+      ...Connected.args!.status!,
+      prototype: { ...Connected.args!.status!.prototype!, canEdit: false, canRegister: false },
+    },
+  },
+}
+export const OlderBuild: Story = {
+  ...Connected,
+  play: undefined,
+  args: { status: { ...Connected.args!.status!, commitSha: "b".repeat(40) } },
+}
+export const UnknownBuildAuthor: Story = {
+  ...Connected,
+  play: undefined,
+  args: {
+    status: {
+      ...Connected.args!.status!,
+      prototype: {
+        ...Connected.args!.status!.prototype!,
+        build: {
+          ...Connected.args!.status!.prototype!.build!,
+          author: { login: null, name: null, avatarUrl: null },
+        },
+      },
+    },
+  },
+}
+export const EditingMetadata: Story = {
+  ...Connected,
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(await canvas.findByRole("button", { name: "Edit details" }))
+    await canvas.findByRole("textbox", { name: "Name" })
+  },
+}
+export const MetadataSaveFailed: Story = {
+  ...EditingMetadata,
+  render: (args) => <ConnectedDemo {...args} failure="metadata" />,
+  play: async (context) => {
+    await EditingMetadata.play?.(context)
+    await context.userEvent.click(context.canvas.getByRole("button", { name: "Save metadata" }))
+    await context.canvas.findByRole("alert")
+  },
+}
+export const DisconnectFailed: Story = {
+  ...Connected,
+  render: (args) => <ConnectedDemo {...args} failure="disconnect" />,
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(await canvas.findByRole("button", { name: "Disconnect Hub" }))
+    await canvas.findByRole("alert")
+  },
+}
+export const CommentsEmpty: Story = {
+  ...CanvasComments,
+  render: (args) => <ConnectedDemo {...args} commentsState="empty" />,
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(await canvas.findByRole("button", { name: /^Comments, 0/ }))
+    await canvas.findByRole("complementary", { name: reviewCommentsCopy.heading })
+  },
+}
+export const CommentsLoading: Story = {
+  ...CommentsEmpty,
+  render: (args) => <ConnectedDemo {...args} commentsState="loading" />,
+}
+export const CommentsFailed: Story = {
+  ...CommentsEmpty,
+  render: (args) => <ConnectedDemo {...args} commentsState="failed" />,
+}
+export const LiveUpdatesFailed: Story = {
+  ...CanvasComments,
+  render: (args) => <ConnectedDemo {...args} commentsState="live-failed" />,
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(await canvas.findByRole("button", { name: /^Comments, 1/ }))
+    await canvas.findByRole("complementary", { name: reviewCommentsCopy.heading })
+  },
+}
+export const ReviewRevisionFailed: Story = {
+  ...LocalDraftComments,
+  args: {
+    status: {
+      ...LocalDraftComments.args!.status!,
+      reviewError: "Could not prepare this checkout for commenting. Retry after reconnecting.",
+    },
+  },
+  play: LiveUpdatesFailed.play,
 }

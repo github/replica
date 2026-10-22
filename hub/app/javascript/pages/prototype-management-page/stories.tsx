@@ -22,6 +22,15 @@ const data: PrototypeManagementPageData = {
   repositoryMenuLabel: "Repositories",
   repositorySelectorLabel: "Choose repository. github/prototype selected",
   selectedRepositoryId: "2001",
+  sectionLoadId: "management-story",
+  repositoryChoices: {
+    repositories: [githubPrototype, githubEmpty],
+    path: "/repositories/2001/prototypes/manage?props_at=data.repositoryChoices",
+    loadingLabel: "Loading repositories...",
+    errorLabel: "Hub could not load all repository choices.",
+    retryLabel: "Retry repository choices",
+    failed: false,
+  },
   management: {
     heading: "Manage prototypes",
     unlistedHeading: "Available branches",
@@ -34,6 +43,9 @@ const data: PrototypeManagementPageData = {
       "No branches available to add. When you create a new branch, it will appear here so you can add it to Hub.",
     candidateCheckFailed: false,
     candidateCheckFailedLabel: "Hub could not check which branches you can add.",
+    candidateLoadingLabel: "Checking branches you can add...",
+    candidateRetryLabel: "Retry branch check",
+    candidateDataPath: "/repositories/2001/prototypes/manage?props_at=data.management",
     candidatePage: 1,
     candidatePageCount: 1,
     candidatePagePath: "/repositories/2001/prototypes/manage",
@@ -96,7 +108,7 @@ const data: PrototypeManagementPageData = {
 }
 
 const meta = {
-  title: "Pages/Prototypes/Manage",
+  title: "Hub/Pages/Prototypes/Manage",
   component: PrototypeManagementPage,
   args: { data },
   parameters: { layout: "fullscreen" },
@@ -106,6 +118,25 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Multiple: Story = {}
+
+export const Loading: Story = {
+  args: {
+    candidates: { loading: true, failed: false, retry: () => {} },
+    repositoryChoices: { loading: true, failed: false, retry: () => {} },
+    data: {
+      ...data,
+      repositoryChoices: { ...data.repositoryChoices, repositories: [githubPrototype] },
+      management: { ...data.management, unlisted: [], candidatePageCount: 0 },
+    },
+  },
+}
+
+export const Retry: Story = {
+  args: {
+    candidates: { loading: false, failed: true, retry: () => {} },
+    repositoryChoices: { loading: false, failed: true, retry: () => {} },
+  },
+}
 
 export const EditStartPage: Story = {
   play: async ({ canvas, userEvent }) => {
@@ -201,6 +232,10 @@ export const Local: Story = {
       repositories: [{ id: "1", nameWithOwner: "local/example", path: "/repositories/1" }],
       repositorySelectorLabel: "Choose repository. local/example selected",
       selectedRepositoryId: "1",
+      repositoryChoices: {
+        ...data.repositoryChoices,
+        repositories: [{ id: "1", nameWithOwner: "local/example", path: "/repositories/1" }],
+      },
       management: {
         ...data.management,
         candidatePagePath: "/repositories/1/prototypes/manage",

@@ -11,7 +11,7 @@ function submitComment() {
 function discardComment() {}
 
 const meta = {
-  title: "Features/Review/Comment Composer",
+  title: "Hub/Features/Review/Comment Composer",
   component: ReviewCommentComposer,
   args: {
     anchorPoint: { x: 360, y: 180 },
@@ -42,8 +42,6 @@ type Story = StoryObj<typeof meta>
 
 export const Default: Story = {}
 
-export const Dark: Story = { globals: { colorMode: "night" } }
-
 export const SubmitShortcut: Story = {
   play: async ({ canvas, userEvent }) => {
     await userEvent.type(
@@ -57,5 +55,19 @@ export const SubmitShortcut: Story = {
 export const Creating: Story = {
   args: {
     creating: true,
+  },
+}
+
+export const SubmissionFailed: Story = {
+  args: {
+    submitError: "Hub is temporarily unavailable. Your comment is still here. Try saving again.",
+    onSubmit: () => Promise.resolve(false),
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.type(
+      canvas.getByRole("textbox", { name: reviewCommentsCopy.composerLabel }),
+      "Please align this control with the content above it.",
+    )
+    await userEvent.click(canvas.getByRole("button", { name: reviewCommentsCopy.submitLabel }))
   },
 }

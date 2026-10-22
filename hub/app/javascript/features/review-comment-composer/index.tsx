@@ -23,6 +23,7 @@ export function ReviewCommentComposer({
   bodyMaximumBytes,
   copy,
   creating,
+  submitError,
   onSubmit,
   onDiscard,
 }: ReviewCommentComposerProps) {
@@ -33,7 +34,7 @@ export function ReviewCommentComposer({
   const wasConfirmingDiscard = useRef(false)
   const { cardRef, position } = useReviewCardPosition({
     anchorPoint,
-    layoutKey: `${confirmingDiscard}:${createFailed}`,
+    layoutKey: `${confirmingDiscard}:${createFailed}:${submitError ?? ""}`,
     preserveVerticalSide: true,
   })
   const bodyBytes = TEXT_ENCODER.encode(draft).length
@@ -148,6 +149,7 @@ export function ReviewCommentComposer({
             <HubAlert
               variant="critical"
               title={copy.createErrorLabel}
+              description={submitError}
               className="review-comment-composer__banner"
             />
           ) : null}

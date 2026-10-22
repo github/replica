@@ -4,6 +4,7 @@ import { presentPrototypeState } from "@utils/present-prototype-state"
 import { request } from "@utils/prototype-canvas-request"
 import { resolvePublication, type Publication } from "@utils/resolve-prototype-publication"
 import { publicationCopy } from "@utils/resolve-prototype-publication/en"
+import { publishChangesCopy } from "@hooks/use-canvas-publish-preference/en"
 import type {
   HubStatus,
   PrototypeState,
@@ -96,25 +97,37 @@ export function useCanvasPublication({
     }
     if (publication.action === "none" || inFlight.current || publishDialog) return
 
+    await prepareAndPublish()
+  }
+
+  async function prepareAndPublish() {
+    if (preferenceSaving || inFlight.current) return
+
     inFlight.current = true
     setPublishing(true)
     setError("")
+    setPublishDialogError("")
     try {
       const preparation = await request<PublishPreparation>("/api/publish/prepare", token, {
         method: "POST",
         body: "{}",
       })
-      if (preparation.workingTree === "changed" && !preparation.remember) {
-        setPublishDialogError("")
+      if (
+        preparation.workingTree === "unavailable" ||
+        (preparation.workingTree === "changed" && !preparation.remember)
+      ) {
         setPublishDialog({ preparation })
       } else {
+        setPublishDialog(null)
         await performPublish(
           preparation,
           preparation.workingTree === "changed" ? "commit-changes" : "committed-only",
         )
       }
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause))
+      const message = cause instanceof Error ? cause.message : String(cause)
+      setError(message)
+      setPublishDialogError(message)
     } finally {
       inFlight.current = false
       setPublishing(false)
@@ -167,6 +180,10 @@ export function useCanvasPublication({
 
   async function choosePublish(mode: PublishMode, remember: boolean) {
     if (preferenceSaving || !publishDialog || inFlight.current) return
+    if (publishDialog.preparation.workingTree === "unavailable" && mode !== "committed-only") {
+      setPublishDialogError(publishChangesCopy.checkFailed)
+      return
+    }
     inFlight.current = true
     setPublishing(true)
     try {
@@ -186,6 +203,7 @@ export function useCanvasPublication({
     publishDialogError,
     closePublishDialog: () => setPublishDialog(null),
     choosePublish,
+    retryPublishCheck: prepareAndPublish,
     publish,
     retry,
   }

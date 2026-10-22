@@ -30,6 +30,9 @@ export interface PrototypeMetadataManagementData {
   descriptionMaximumLength: number
   candidateCheckFailed: boolean
   candidateCheckFailedLabel: string
+  candidateLoadingLabel: string
+  candidateRetryLabel: string
+  candidateDataPath: string
   candidatePage: number
   candidatePageCount: number
   candidatePagePath: string

@@ -4,9 +4,10 @@ import os from "node:os"
 import path from "node:path"
 import { promisify } from "node:util"
 
-import { normalizeHubOrigin } from "../hub-client/index.mjs"
+import { normalizeHubOrigin } from "../normalize-hub-origin/index.mjs"
 import { createPrivateStore } from "../private-store/index.mjs"
 import { readCanvasRepository } from "../read-canvas-repository/index.mjs"
+import { gitShaPattern } from "../identity-patterns/index.mjs"
 
 const execFileAsync = promisify(execFile)
 const TTL = 5 * 60_000
@@ -92,7 +93,7 @@ export async function discoverHub(context, options = {}) {
       )
       defaultBranch = metadata.defaultBranchRef?.name
       sourceRevision = metadata.defaultBranchRef?.target?.oid
-      if (!defaultBranch || !/^[0-9a-f]{40}$/.test(sourceRevision || ""))
+      if (!defaultBranch || !gitShaPattern.test(sourceRevision || ""))
         throw new Error("GitHub did not return a default-branch commit.")
       const data = await query(
         "query($owner:String!,$name:String!,$expression:String!){repository(owner:$owner,name:$name){nameWithOwner object(expression:$expression){__typename ... on Blob{text byteSize isTruncated}}}}",

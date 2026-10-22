@@ -1,13 +1,13 @@
 import { XIcon } from "@primer/octicons-react"
 import { Button, Heading } from "@primer/react-brand"
 import { useCallback, useEffect, useId, useRef, useState } from "react"
-import type { CSSProperties } from "react"
 
 import { ReviewThreadReplyForm } from "@features/review-thread-reply-form"
 import { ReviewThreadMessage } from "@features/review-thread-message"
 import { HubAlert } from "@components/hub-alert"
 import { HubIconButton } from "@components/hub-icon-button"
 import { HubVisuallyHidden } from "@components/hub-visually-hidden"
+import { ReviewConversationFrame } from "@components/review-conversation-frame"
 import { useEmojiBurst } from "@hooks/use-emoji-burst"
 import { useReviewCardPosition } from "@hooks/use-review-card-position"
 import { useReviewThreadConversation } from "@hooks/use-review-thread-conversation"
@@ -112,10 +112,6 @@ export function ReviewThreadConversation({
       comments.map((comment) => comment.reactions.length).join(","),
     ].join(":"),
   })
-  const positionStyle = {
-    "--review-thread-left": `${position.left}px`,
-    "--review-thread-top": `${position.top}px`,
-  } as CSSProperties
   const blockedLabel = state.replyBlocked
     ? thread.root.deletedAt
       ? copy.deletedReplyBlockedLabel
@@ -241,16 +237,11 @@ export function ReviewThreadConversation({
   }, [actions, cardRef, state.confirmingDiscard, state.confirmingEditDiscard])
 
   return (
-    <section
+    <ReviewConversationFrame
       ref={cardRef}
-      role="dialog"
       aria-labelledby={headingId}
-      className={`review-thread-conversation${
-        anchorPoint
-          ? " review-thread-conversation--anchored"
-          : " review-thread-conversation--docked"
-      }`}
-      style={positionStyle}
+      anchored={Boolean(anchorPoint)}
+      position={position}
       onKeyDown={(event) => {
         if (
           event.key !== "Escape" ||
@@ -273,21 +264,23 @@ export function ReviewThreadConversation({
             {copy.threadHeading}
           </Heading>
 
-          <Button
-            size="small"
-            disabled={state.draftActive || mutation !== null}
-            aria-busy={
-              mutation !== null &&
-              "commentId" in mutation &&
-              mutation.commentId === thread.root.id &&
-              (mutation.kind === "resolve" || mutation.kind === "reopen")
-            }
-            onClick={() => {
-              void actions.changeResolution()
-            }}
-          >
-            {state.resolved ? copy.reopenLabel : copy.resolveLabel}
-          </Button>
+          {thread.root.buildNumber !== null ? (
+            <Button
+              size="small"
+              disabled={state.draftActive || mutation !== null}
+              aria-busy={
+                mutation !== null &&
+                "commentId" in mutation &&
+                mutation.commentId === thread.root.id &&
+                (mutation.kind === "resolve" || mutation.kind === "reopen")
+              }
+              onClick={() => {
+                void actions.changeResolution()
+              }}
+            >
+              {state.resolved ? copy.reopenLabel : copy.resolveLabel}
+            </Button>
+          ) : null}
           {mutation &&
           "commentId" in mutation &&
           mutation.commentId === thread.root.id &&
@@ -415,38 +408,44 @@ export function ReviewThreadConversation({
               onAddReaction={(content) => onAddReaction(comment.id, content)}
               onRemoveReaction={(content) => onRemoveReaction(comment.id, content)}
               onBurstReaction={burst}
-              onMarkUnread={comment.kind === "root" ? () => void markUnread() : undefined}
+              onMarkUnread={
+                comment.kind === "root" && thread.root.buildNumber !== null
+                  ? () => void markUnread()
+                  : undefined
+              }
               markUnreadDisabled={readPending || unreadPending || mutation !== null}
             />
           ))}
         </div>
 
-        <div
-          className={`review-thread-conversation__footer${
-            blockedLabel && !state.confirmingDiscard
-              ? " review-thread-conversation__footer--blocked"
-              : ""
-          }`}
-        >
-          <ReviewThreadReplyForm
-            blockedLabel={blockedLabel}
-            confirmingDiscard={state.confirmingDiscard}
-            replyDraft={state.replyDraft}
-            replyBodyTooLong={state.replyBodyTooLong}
-            replyFailed={state.replyFailed}
-            replyDisabled={mutation !== null || state.editingCommentId !== null}
-            replying={mutation?.kind === "reply" && mutation.commentId === thread.root.id}
-            copy={copy}
-            onKeepDraft={actions.keepDraft}
-            onDiscardDraft={actions.discardAndClose}
-            onSubmit={() => {
-              void actions.submitReply()
-            }}
-            onDraftChange={actions.changeReplyDraft}
-          />
-        </div>
+        {thread.root.buildNumber !== null || state.confirmingDiscard ? (
+          <div
+            className={`review-thread-conversation__footer${
+              blockedLabel && !state.confirmingDiscard
+                ? " review-thread-conversation__footer--blocked"
+                : ""
+            }`}
+          >
+            <ReviewThreadReplyForm
+              blockedLabel={blockedLabel}
+              confirmingDiscard={state.confirmingDiscard}
+              replyDraft={state.replyDraft}
+              replyBodyTooLong={state.replyBodyTooLong}
+              replyFailed={state.replyFailed}
+              replyDisabled={mutation !== null || state.editingCommentId !== null}
+              replying={mutation?.kind === "reply" && mutation.commentId === thread.root.id}
+              copy={copy}
+              onKeepDraft={actions.keepDraft}
+              onDiscardDraft={actions.discardAndClose}
+              onSubmit={() => {
+                void actions.submitReply()
+              }}
+              onDraftChange={actions.changeReplyDraft}
+            />
+          </div>
+        ) : null}
       </div>
       {canvas}
-    </section>
+    </ReviewConversationFrame>
   )
 }

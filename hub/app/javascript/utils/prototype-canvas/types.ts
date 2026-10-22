@@ -103,6 +103,7 @@ export type HubPrototype = {
 
 export type HubStatus = {
   repositoryAuthorized?: boolean
+  viewerLogin?: string
   canPublish?: boolean
   localStartPage?: string | null
   localStartPageError?: string
@@ -127,6 +128,20 @@ export type HubStatus = {
   repository?: string
   branch?: string
   commitSha?: string
+  reviewRevision?: {
+    id: number | null
+    treeSha: string
+    commitSha: string
+    clean: boolean
+    prototypeId: number | null
+    repository?: string
+    branch?: string
+    buildNumber: number | null
+    hubOrigin: string
+    connectionId: string
+  }
+  reviewError?: string
+  localCommentsError?: string
   prototype?: HubPrototype
   registrationError?: string
   registrationReason?: string
@@ -139,6 +154,8 @@ export type CanvasConfig = {
   previewUrl?: string
   name: string
   token: string
+  improvementThreadsSample?: boolean
+  pickAndPolish?: boolean
 }
 
 export type PublishPreparation = {
@@ -149,8 +166,15 @@ export type PublishPreparation = {
     originFingerprint: string | null
     pushFingerprint: string | null
   }
-  workingTree: "clean" | "changed"
+  workingTree: "clean" | "changed" | "unavailable"
+  workingTreeError?: string
+  changes?: {
+    files: PublishChangeList
+    localSkills: PublishChangeList
+  }
   remember: boolean
 }
+
+export type PublishChangeList = { paths: string[]; total: number }
 
 export type PublishMode = "commit-changes" | "committed-only"

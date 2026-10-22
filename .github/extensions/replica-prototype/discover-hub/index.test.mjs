@@ -8,7 +8,7 @@ import { describe, it } from "node:test"
 import { discoverHub } from "./index.mjs"
 import { startCanvasServer } from "../start-canvas-server/index.mjs"
 import { createCanvasContext } from "../create-canvas-context/index.mjs"
-import { createHubOriginStore } from "../hub-origin-store/index.mjs"
+import { createHubOriginStore } from "../create-hub-origin-store/index.mjs"
 import { createPrivateStore } from "../private-store/index.mjs"
 import { runCommand } from "../run-command/index.mjs"
 

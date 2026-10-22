@@ -34,7 +34,7 @@ const removalData: HubAdminConfirmationPageData = {
 }
 
 const meta = {
-  title: "Pages/Security/Hub administrator confirmation",
+  title: "Hub/Pages/Security/Hub administrator confirmation",
   component: HubAdminConfirmationPage,
   parameters: { layout: "fullscreen" },
   args: { data },

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto"
 
 import { normalizeBranch, resolveRepository } from "../create-canvas-context/index.mjs"
+import { gitShaPattern } from "../identity-patterns/index.mjs"
 import { runCommand } from "../run-command/index.mjs"
 
 export async function capturePublishTarget(context) {
@@ -24,7 +25,7 @@ export async function capturePublishTarget(context) {
   ) {
     throw new Error("The canvas branch no longer matches the current checkout. Refresh it first.")
   }
-  const commitSha = head.ok && /^[0-9a-f]{40}$/.test(head.stdout.trim()) ? head.stdout.trim() : null
+  const commitSha = head.ok && gitShaPattern.test(head.stdout.trim()) ? head.stdout.trim() : null
   if (!commitSha) throw new Error("The current checkout commit could not be verified.")
   return {
     repository,
@@ -37,7 +38,7 @@ export async function capturePublishTarget(context) {
   }
 }
 
-function sameCheckout(left, right) {
+export function sameCheckout(left, right) {
   return (
     left?.repository === right.repository &&
     left?.branch === right.branch &&
@@ -53,7 +54,7 @@ export function samePublishTarget(left, right) {
 export async function continuesPublishTarget(context, original, current) {
   if (!sameCheckout(original, current)) return false
   if (samePublishTarget(original, current)) return true
-  if (!/^[0-9a-f]{40}$/.test(original.commitSha)) return false
+  if (!gitShaPattern.test(original.commitSha)) return false
   const ancestor = await runCommand(
     "git",
     ["merge-base", "--is-ancestor", original.commitSha, current.commitSha],

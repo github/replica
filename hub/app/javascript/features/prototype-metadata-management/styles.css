@@ -14,6 +14,12 @@
   gap: var(--hub-space-8);
 }
 
+.prototype-metadata__loading {
+  display: flex;
+  align-items: center;
+  gap: var(--hub-space-8);
+}
+
 .prototype-metadata h2,
 .prototype-metadata h3,
 .prototype-metadata p {

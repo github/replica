@@ -57,7 +57,7 @@ const data: RepositoriesShowPageData = {
 }
 
 const meta = {
-  title: "Pages/Repositories/Show",
+  title: "Hub/Pages/Repositories/Show",
   component: RepositoriesShowPage,
   args: {
     data,
@@ -402,19 +402,6 @@ export const FreshLocalExample: Story = {
         },
       ],
       prototypesPath: "/repositories/1",
-    },
-  },
-}
-
-export const WriterWithoutUnlistedBranches: Story = {
-  args: {
-    data: {
-      ...data,
-      managePrototypesLabel: "Manage prototypes",
-      managePrototypesPath: "/repositories/2001/prototypes/manage",
-      prototypes: [welcomePrototype],
-      prototypesCountLabel: "1 prototype",
-      workflowInstallation: undefined,
     },
   },
 }

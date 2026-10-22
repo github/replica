@@ -43,8 +43,9 @@ const COMMON_COMMENT_FIELDS = {
 const ROOT_COMMENT_SCHEMA = z.object({
   ...COMMON_COMMENT_FIELDS,
   kind: z.literal("root"),
-  buildNumber: IDENTIFIER_SCHEMA,
-  buildPath: z.string().startsWith("/"),
+  buildNumber: IDENTIFIER_SCHEMA.nullable(),
+  buildPath: z.string().startsWith("/").nullable(),
+  draftRevisionId: IDENTIFIER_SCHEMA.nullable().optional(),
   anchor: REVIEW_ANCHOR_SCHEMA,
   resolvedAt: NULLABLE_DATE_TIME_SCHEMA,
   resolvedBy: AUTHOR_SCHEMA.nullable(),
@@ -63,18 +64,11 @@ export const REVIEW_COMMENT_SCHEMA = z.discriminatedUnion("kind", [
   REPLY_COMMENT_SCHEMA,
 ])
 
-export const REVIEW_COMMENT_PAGE_SCHEMA = z.discriminatedUnion("hasMore", [
-  z.object({
-    comments: z.array(REVIEW_COMMENT_SCHEMA),
-    nextCursor: z.string().min(1),
-    hasMore: z.literal(true),
-  }),
-  z.object({
-    comments: z.array(REVIEW_COMMENT_SCHEMA),
-    nextCursor: z.null(),
-    hasMore: z.literal(false),
-  }),
-])
+export const REVIEW_COMMENTS_SCHEMA = z.object({
+  comments: z.array(REVIEW_COMMENT_SCHEMA),
+  nextCursor: z.null(),
+  hasMore: z.literal(false),
+})
 
 export const REVIEW_COMMENT_MUTATION_SCHEMA = z.object({
   comments: z.array(REVIEW_COMMENT_SCHEMA).min(1).max(2),

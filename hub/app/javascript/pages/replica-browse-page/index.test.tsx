@@ -1090,7 +1090,11 @@ describe("ReplicaBrowsesShowView()", () => {
   )
 
   it("does not minimize a direct link before a successful Build exists", () => {
-    window.history.replaceState(null, "", "/repositories/2001/replica?view=minimized")
+    window.history.replaceState(
+      null,
+      "",
+      "/repositories/2001/replica?view=minimized&build=99&before=invalid",
+    )
     vi.mocked(usePageData).mockReturnValue({
       ...replicaBrowseData,
       selectedBuild: undefined,
@@ -1108,5 +1112,7 @@ describe("ReplicaBrowsesShowView()", () => {
     expect(screen.getByRole("heading", { name: "No replica build yet" })).toBeInTheDocument()
     expect(screen.queryByRole("toolbar")).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: /minimize|maximize/i })).not.toBeInTheDocument()
+    expect(new URL(window.location.href).searchParams.has("build")).toBe(false)
+    expect(new URL(window.location.href).searchParams.has("before")).toBe(false)
   })
 })

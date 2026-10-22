@@ -11,7 +11,7 @@ type ItemStoryArgs = {
 }
 
 const meta = {
-  title: "Components/Hub-built: Repository Navigation Item",
+  title: "Components/Repository Navigation Item",
   component: RepositoryNavigationItem,
   render: (args: ItemStoryArgs) => <RepositoryNavigationItem {...args} />,
   args: {

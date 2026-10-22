@@ -27,7 +27,7 @@ export default defineConfig(
   js.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
   {
-    files: ["**/*.{ts,tsx}"],
+    files: ["**/*.{ts,tsx,mts}", "../.github/extensions/replica-prototype/**/*.mts"],
     languageOptions: {
       globals: { ...globals.browser, ...globals.node },
       parserOptions: { projectService: true, tsconfigRootDir: import.meta.dirname },
@@ -103,6 +103,7 @@ export default defineConfig(
       "script/**/*.mjs",
       "test/**/*.mjs",
       "../.github/extensions/replica-prototype/**/*.mjs",
+      "../.github/extensions/replica-prototype/**/*.d.mts",
       "app/javascript/utils/prototype-controls/**/*.mjs",
       "app/javascript/utils/prototype-controls/**/*.d.mts",
       "../packages/learning/**/*.mjs",

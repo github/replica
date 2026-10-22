@@ -1,5 +1,6 @@
 import type { MouseEventHandler, PropsWithChildren, ReactNode } from "react"
 
+import type { RepositorySelectorStatus } from "@components/repository-selector/types"
 import { RepositoryNavigation } from "@features/repository-navigation"
 import { WorkspaceFrame } from "@features/workspace-frame"
 
@@ -12,11 +13,13 @@ export function RepositoryWorkspace({
   defaultNavigationCollapsed = false,
   inboxPreview,
   onInboxClick,
+  repositoryChoices,
 }: PropsWithChildren<{
   data: RepositoryWorkspaceData
   defaultNavigationCollapsed?: boolean
   inboxPreview?: (close: () => void) => ReactNode
   onInboxClick?: MouseEventHandler<HTMLAnchorElement>
+  repositoryChoices?: RepositorySelectorStatus
 }>) {
   return (
     <WorkspaceFrame
@@ -28,6 +31,7 @@ export function RepositoryWorkspace({
           onCollapsedChange={onCollapsedChange}
           inboxPreview={inboxPreview}
           onInboxClick={onInboxClick}
+          repositoryChoices={repositoryChoices}
         />
       )}
     >

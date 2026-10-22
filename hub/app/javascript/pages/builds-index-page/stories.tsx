@@ -10,7 +10,7 @@ const data: BuildsIndexPageData = {
   ...prototypeWorkspaceData,
   builds: [],
   buildsHeading: "History",
-  closePath: "/repositories/2001/prototypes/1?build=1",
+  closePath: "/repositories/2001/prototypes/1",
   emptyLabel: "No Builds have been recorded.",
   pageTitle: "prototype/welcome Builds",
   nextPageLabel: "Older Builds",
@@ -18,11 +18,11 @@ const data: BuildsIndexPageData = {
   newestPageLabel: "Newest Builds",
   newestPagePath: null,
   shareLinksLabel: "Share links",
-  shareLinksPath: "/repositories/2001/prototypes/1/share_links?build=1",
+  shareLinksPath: "/repositories/2001/prototypes/1/share_links",
 }
 
 const meta = {
-  title: "Pages/Builds/Index",
+  title: "Hub/Pages/Builds/Index",
   component: BuildsIndexPage,
   args: { data },
   parameters: { layout: "fullscreen" },

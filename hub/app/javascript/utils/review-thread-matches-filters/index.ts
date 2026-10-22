@@ -18,7 +18,13 @@ export function reviewThreadMatchesFilters(
   ) {
     return false
   }
-  if (filters.currentBuildOnly && root.buildNumber !== context.selectedBuildNumber) return false
+  if (
+    filters.currentBuildOnly &&
+    (context.selectedDraftRevisionId != null
+      ? root.draftRevisionId !== context.selectedDraftRevisionId
+      : root.buildNumber !== context.selectedBuildNumber)
+  )
+    return false
   if (
     filters.participant !== null &&
     !thread.participants.some(
@@ -55,7 +61,7 @@ export function reviewThreadMatchesFilters(
     root.body ?? "",
     root.author.login,
     root.author.name ?? "",
-    root.buildNumber.toString(),
+    root.buildNumber?.toString() ?? "",
     ...thread.replies.flatMap((reply) => [
       reply.body ?? "",
       reply.author.login,

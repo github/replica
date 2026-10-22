@@ -3,7 +3,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { CopyableTextInput } from "."
 
 const meta = {
-  title: "Components/Brand-based: Copyable Text Input",
+  title: "Components/Copyable Text Input",
   component: CopyableTextInput,
   args: {
     value: "https://replica.example/share/12345678-1234-1234-1234-123456789abc",

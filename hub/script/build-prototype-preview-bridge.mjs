@@ -1,8 +1,14 @@
+import { copyFile } from "node:fs/promises"
+
 import { build } from "vite"
 
 import { viteAliases } from "../vite-aliases.ts"
 
 const assets = new URL("../../.github/extensions/replica-prototype/assets/", import.meta.url)
+await copyFile(
+  new URL("../public/avatar-placeholder.svg", import.meta.url),
+  new URL("avatar-placeholder.svg", assets),
+)
 await build({
   configFile: false,
   publicDir: false,
@@ -22,6 +28,29 @@ await build({
       formats: ["es"],
       name: "ReplicaCanvasBridge",
       fileName: () => "canvas-bridge.js",
+    },
+  },
+})
+
+await build({
+  configFile: false,
+  publicDir: false,
+  logLevel: "warn",
+  resolve: {
+    alias: {
+      "@utils": new URL("../app/javascript/utils/", import.meta.url).pathname,
+    },
+  },
+  build: {
+    emptyOutDir: false,
+    minify: true,
+    rolldownOptions: { output: { minify: true } },
+    outDir: assets.pathname,
+    lib: {
+      entry: new URL("../app/javascript/utils/review-anchor/validate-anchor.ts", import.meta.url)
+        .pathname,
+      formats: ["es"],
+      fileName: () => "review-anchor-validation.mjs",
     },
   },
 })

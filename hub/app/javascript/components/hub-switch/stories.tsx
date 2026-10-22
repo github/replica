@@ -5,7 +5,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HubSwitch } from "."
 
 const meta = {
-  title: "Components/Hub-built: Switch",
+  title: "Components/Switch",
   component: HubSwitch,
   args: {
     "aria-label": "Show comment pins",

@@ -9,7 +9,7 @@ const videoUrl: unknown = import.meta.env.VITE_WELCOME_VIDEO_URL
 const videoPosterUrl: unknown = import.meta.env.VITE_WELCOME_VIDEO_POSTER_URL
 
 const meta = {
-  title: "Pages/Welcome",
+  title: "Hub/Pages/Welcome",
   component: WelcomePage,
   parameters: { layout: "fullscreen" },
   decorators: [

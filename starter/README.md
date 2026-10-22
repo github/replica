@@ -1,6 +1,6 @@
 # Replica Starter
 
-A minimal starting point for a new prototype. Download and review `scripts/install-starter.sh` from `github/replica` to create an independent, uncommitted repository without cloning Replica. From a local Replica checkout, run `./scripts/create-prototype-repo.sh ../my-prototype` instead. Both paths copy this starter without source history or a remote. Open the new repository in a fresh agent session so it discovers the skills, then use `/setup-skills` to draft context from your product and design-system sources. Review and approve the drafts before building a prototype. See the [Replica setup guide](https://github.com/github/replica/blob/main/docs/prototype-environment.md#1-create-the-teams-prototype-repository) for commands.
+A minimal starting point for a new prototype. Download and review `scripts/install-starter.sh` from `github/replica` to create an independent, uncommitted repository without cloning Replica. From a local Replica checkout, run `./scripts/create-prototype-repo.sh ../my-prototype` instead. Both paths copy this starter without source history or a remote. Open the new repository in a fresh agent session so it discovers the skills, then use `/setup-skills` to draft context from your product and design-system sources. Review and approve the drafts before building a prototype. See [prototype repository setup](https://github.com/github/replica/blob/main/docs/prototype-repository-setup.md) for commands and the path from local preview to optional guidance and a shared baseline.
 
 The app has hash-based routing, a start page, a linked sub-page, and a scaffolded activity example. Replace the example pages with your prototype.
 
@@ -35,6 +35,14 @@ Existing prototypes can adopt `src/app/create-prototype-history/` and its use in
 Deliberately excluded: any styling system (Primer, Tailwind, or otherwise),
 GitHub product UI, bundled product templates, and anything specific to a
 particular prototype. Add what your project actually needs.
+
+## Improve guidance from review feedback
+
+Run `/review-hub-feedback` with an approved Hub connection to find reusable themes across prototype reviews. It leaves repository files and Hub feedback unchanged, saves the evidence in private session artifacts, and offers a choice of findings to investigate. Its confidence scores describe theme relevance, not proof of a defect.
+
+After selecting findings, use `/prepare-feedback-proposals` to compare them with existing repository guidance. The skill presents a solution for each investigation: a proposed guidance change, an already-covered finding, a clarification needed, or a suggestion for a separate environment investigation. Every proposed edit is shown before you approve it. Asking for proposals does not authorize edits; only explicit approval of displayed changes does.
+
+The proposal skill changes only reusable repository guidance. It does not fix prototypes or change components, templates, skills, dependencies or configuration. You can decline all proposals. In the same session it uses the saved review; in another session, explicitly select or attach the private review artifact. If that artifact is unavailable, run a new review rather than relying on the summary. Start a fresh agent session after updating starter skills so both skills are discovered.
 
 ## Prototype controls
 
