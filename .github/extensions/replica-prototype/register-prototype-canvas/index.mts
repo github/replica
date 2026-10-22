@@ -1009,9 +1009,19 @@ export async function registerPrototypeCanvas(
             contextOptions.sessionWorkspacePath,
             contextOptions.repositoryPath,
           )
-          const input = suppliedInput.prototypeUrl
-            ? suppliedInput
-            : { ...prototypeInput(await connection.read()), ...suppliedInput }
+          let input = suppliedInput
+          if (!suppliedInput.prototypeUrl) {
+            try {
+              input = { ...prototypeInput(await connection.read()), ...suppliedInput }
+            } catch (error) {
+              const failure = new CanvasError(
+                "saved_connection_invalid",
+                "Could not restore the saved prototype connection. Open this canvas with a valid prototypeUrl, then use connect_prototype with that URL to save a replacement.",
+              )
+              failure.cause = error
+              throw failure
+            }
+          }
           let entry = existing
           if (!entry) {
             let devServer

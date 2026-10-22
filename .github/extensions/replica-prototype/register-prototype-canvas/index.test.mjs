@@ -1709,7 +1709,10 @@ esac
           session: { workingDirectory: context.repositoryPath },
         }
         try {
-          await assert.rejects(canvas.open(ctx), /prototype connection|HTTP or HTTPS/)
+          await assert.rejects(canvas.open(ctx), {
+            code: "saved_connection_invalid",
+            message: /saved prototype connection.*valid prototypeUrl.*connect_prototype/,
+          })
           assert.equal(checked, false)
         } finally {
           await canvas.onClose(ctx)
@@ -1793,6 +1796,17 @@ esac
           await (await fetch(overridden.url)).text(),
           /http:\/\/localhost:4321\/different/,
         )
+        const connection = prototypeConnection(context.sessionWorkspacePath, context.repositoryPath)
+        assert.equal((await connection.read()).prototypeUrl, "file:///invalid-saved-connection")
+        await explicit.actions
+          .find((action) => action.name === "connect_prototype")
+          .handler({
+            ...openContext,
+            input: { prototypeUrl: "http://localhost:4321/different" },
+          })
+        assert.equal((await connection.read()).prototypeUrl, "http://localhost:4321/different")
+        await explicit.onClose(openContext)
+        assert.equal((await explicit.open(openContext)).status, "Prototype connected")
       } finally {
         await canvas.onClose(openContext)
         await restored?.onClose({ ...openContext, instanceId: "fresh-panel" })
