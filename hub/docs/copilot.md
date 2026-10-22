@@ -1,12 +1,19 @@
 # Copilot
 
-A Hub administrator connects Copilot once for the whole Hub, which turns on [Learnings](learnings.md): Hub asks Copilot to suggest learnings from prototype review comments. Hub makes its Copilot requests with a token that the person who runs Hub provides, so they work while everyone is signed out and nobody has to copy prompts into a Copilot session. Hub never stores the token.
+A Hub administrator connects Copilot once for the whole Hub, which turns on [Learnings](learnings.md): Hub asks Copilot to suggest learnings from prototype review comments. Hub makes these Copilot requests itself, so they work while everyone is signed out and nobody has to copy prompts into a Copilot session. Hub never stores a Copilot token.
+
+The person who runs Hub chooses who Copilot bills with `REPLICA_COPILOT_BILLING`:
+
+| `REPLICA_COPILOT_BILLING` | Hub asks Copilot with | Copilot bills |
+| --- | --- | --- |
+| `token_owner`, the default | The token in `REPLICA_COPILOT_TOKEN` | The Copilot plan of the token's owner |
+| `organization` | A new one-hour token from Hub's GitHub App for each request | The organization that installed Hub's GitHub App |
 
 ```text
-The person who runs Hub creates a token with only the Copilot requests permission
-  -> puts it in REPLICA_COPILOT_TOKEN and restarts Hub
+The person who runs Hub gives Hub a token, or turns on organization billing
+  -> restarts Hub
 A Hub administrator chooses Connect Copilot
-  -> Hub checks that Copilot answers with the token
+  -> Hub checks that Copilot answers
   -> Hub records who connected Copilot
 ```
 
@@ -22,42 +29,56 @@ A Hub administrator chooses Connect Copilot
 
 Hub reads one environment variable, so it needs no code for any secret store. Hub checks that Copilot accepts the token; it does not inspect its permissions. The operator must verify that the configured token has only the intended permission. The secret remains in the deployment's secret store or private environment file and in Hub's running processes, not in its database.
 
+## Bill your organization
+
+With organization billing, Hub's GitHub App makes Copilot requests with its own installation token, and Copilot bills the organization that installed the App instead of a person. GitHub offers this as a [public preview](https://docs.github.com/en/copilot/how-tos/copilot-sdk/auth/server-to-server-tokens). The organization needs Copilot Business or Copilot Enterprise, and Hub's App must be installed on that organization; an App installed on a personal account cannot use it.
+
+1. The App's owner opens the App's settings on GitHub, under **Permissions & events**, and sets the **Copilot requests** organization permission to **Read-only**. Read-only still lets the App spend the organization's AI credits.
+2. An organization owner reviews and approves the updated permissions. GitHub's guide to [managing GitHub Apps that use your organization's Copilot](https://docs.github.com/en/copilot/how-tos/administer-copilot/manage-for-organization/manage-app-copilot-access) explains how to find the App's usage and how to block it. The App's usage counts against the organization's Copilot budget; GitHub has no budget for one App, and only a budget with **Stop usage when budget limit is reached** stops spending.
+3. The person who runs Hub sets `REPLICA_COPILOT_BILLING=organization` where they keep Hub's other settings, then restarts Hub. Hub then ignores `REPLICA_COPILOT_TOKEN`.
+4. A Hub administrator connects Copilot on the **Copilot** page, whose confirmation names the organization. Hub never moves an existing connection to an organization's bill. After the person who runs Hub turns on organization billing, or when Hub's App gets a new installation, Hub stops making Copilot requests until an administrator connects Copilot again.
+
+GitHub also requires the organization to be enabled for Copilot requests from GitHub App installations. Until it is, Copilot refuses Hub's App, and the **Copilot** page says so.
+
+For each Copilot request, Hub's App creates a new installation token that holds only the Copilot requests permission and expires after an hour. Hub refuses a token that GitHub reports with any other permission, passes it only to `replica-learning` for that one command, and never stores it. The token cannot read or change repositories. Anyone who can read Hub's database and its encryption keys holds the App's private key, so they can also create these tokens and spend the organization's Copilot budget until an organization owner removes the permission or suspends the App.
+
 ## Connect Copilot
 
-1. Open **Copilot** in the sidebar's lower group, or go to `/copilot`. Without a token, the page says how to give Hub one.
-2. Read what Hub will do with Copilot, check the confirmation, and choose **Connect Copilot**. Like Hub's other administrator settings, this needs a [fresh GitHub authorization](fresh-authorization.md) on the same browser Session within the last five minutes. If GitHub asks you to verify, return and confirm again; verification never submits the change.
-3. Hub checks the token with a Copilot request that lists the models it may use. If Copilot answers, Hub connects Copilot and records who connected it.
+1. Open **Copilot** in the sidebar's lower group, or go to `/copilot`. When Hub has no token, or its App is not installed on an organization for organization billing, the page says what to set up.
+2. Read what Hub will do with Copilot and who Copilot will bill, check the confirmation, and choose **Connect Copilot**. Like Hub's other administrator settings, this needs a [fresh GitHub authorization](fresh-authorization.md) on the same browser Session within the last five minutes. If GitHub asks you to verify, return and confirm again; verification never submits the change.
+3. Hub checks the token, or a new App token, with a Copilot request that lists the models it may use. If Copilot answers, Hub connects Copilot and records who connected it.
 
 If another administrator disconnects or replaces the connection while Hub checks the token, Hub cancels the earlier check and leaves that change intact.
 
-Copilot counts the usage toward the plan of the token's owner and applies their organization's Copilot policies, including which models they may use.
+With a token, Copilot counts the usage toward the plan of the token's owner and applies their organization's Copilot policies, including which models they may use. With organization billing, Copilot bills the organization that installed Hub's App and applies that organization's policies.
 
 ## What Hub keeps
 
 | Item | Where | Who can see it |
 | --- | --- | --- |
-| The token | Only in Hub's environment, never in its database | Nobody. Hub never shows, exports, or logs it |
+| The operator's token | Only in Hub's environment, never in its database | Nobody. Hub never shows, exports, or logs it |
+| A token from Hub's App | Only in memory, for the one command that uses it | Nobody. Hub never shows, exports, or logs it |
 | Who connected Copilot, when, and when Copilot last answered or refused | Hub's database | Hub administrators |
-| The token's SHA-256 digest | Hub's database | Nobody. It tells Hub whether a refusal belongs to the token it has now |
+| The SHA-256 digest of the operator's token, or of the App installation's identity | Hub's database | Nobody. It tells Hub whether a refusal belongs to the token or installation it uses now |
 | Copilot usage that Learnings runs reported over the last 30 days | Hub's database | Hub administrators, on the **Copilot** page |
 | Connections, disconnections, and refusals | [Security audit](security-audit.md) | Hub administrators |
 
-Hub passes the token only to `replica-learning`, as `COPILOT_GITHUB_TOKEN`, when it makes a Copilot request. That command runs without Hub's other secrets, keeps Copilot's state in a new private directory, and gives Copilot no tools.
+Hub passes a token only to `replica-learning`, as `COPILOT_GITHUB_TOKEN`, when it makes a Copilot request. That command runs without Hub's other secrets, keeps Copilot's state in a new private directory, and gives Copilot no tools.
 
-A token with only the Copilot requests permission cannot read or change repositories. Someone who copies it can make Copilot requests that count toward its owner's plan, until it expires or its owner deletes it on GitHub.
+A token with only the Copilot requests permission cannot read or change repositories. Someone who copies the operator's token can make Copilot requests that count toward its owner's plan, until it expires or its owner deletes it on GitHub. Someone who copies a token from Hub's App can make Copilot requests billed to the organization until it expires, within an hour.
 
 ## When the connection ends
 
-- **An administrator disconnects it.** **Disconnect Copilot** needs confirmation and fresh GitHub verification on the same browser Session. Hub stops making Copilot requests. The token stays where it is kept; to end it, its owner deletes it on GitHub.
+- **An administrator disconnects it.** **Disconnect Copilot** needs confirmation and fresh GitHub verification on the same browser Session. Hub stops making Copilot requests. The operator's token stays where it is kept, and Hub's App keeps its Copilot requests permission. To end them, the token's owner deletes the token on GitHub, or the App's owner removes the permission.
 - **The person who connected it stops being a Hub administrator.** Hub disconnects Copilot in the same change as the role. Another administrator can connect it again.
-- **Copilot refuses the token.** For example, it expired, its owner deleted it, or its owner lost Copilot. Hub records the refusal in the security audit, stops looking for learnings, and offers **Check the token again**. People can still decide on suggestions, and agents still get accepted learnings. A refusal belongs to the token Copilot refused. Replacing it using the procedure below lets Hub use Copilot again.
-- **The token is removed.** Hub stops making Copilot requests, and the page says Hub has no token.
+- **Copilot refuses the token or Hub's App.** For example, the token expired, its owner deleted it, or its owner lost Copilot. With organization billing, GitHub may not create a token because the App lacks the Copilot requests permission, or Copilot may refuse the App because the organization does not allow its requests. Hub records the refusal in the security audit, stops looking for learnings, and offers **Check the token again**, or **Check Copilot again** with organization billing. People can still decide on suggestions, and agents still get accepted learnings. A refusal belongs to the token or App installation Copilot refused. Replacing the token using the procedure below, or fixing the App's permission or the organization's settings and checking again, lets Hub use Copilot again.
+- **The token is removed, or the App's organization installation ends.** Hub stops making Copilot requests, and the page says what Hub needs.
 
 [Ending all Hub sessions](session-revocation.md) and resetting the GitHub App leave the Copilot connection as it is, because the token is neither a browser credential nor the App's.
 
 ## Replace the token
 
-Token changes require a full stop/start, not a rolling restart. Before starting any process with a replacement token, stop **all** Hub web and job-worker processes using the old token and wait for them, their learning commands and their Copilot SDK/runtime children to exit. A lost Ruby worker does not prove its child command stopped; confirm no old-token learning writer or SDK child remains. Pause any automatic restart or scaling that could bring an old configuration back. This also applies when adding or removing the token on a running deployment.
+Token changes require a full stop/start, not a rolling restart. Before starting any process with a replacement token, stop **all** Hub web and job-worker processes using the old token and wait for them, their learning commands and their Copilot SDK/runtime children to exit. A lost Ruby worker does not prove its child command stopped; confirm no old-token learning writer or SDK child remains. Pause any automatic restart or scaling that could bring an old configuration back. This also applies when adding or removing the token, or changing `REPLICA_COPILOT_BILLING`, on a running deployment. Tokens from Hub's App need no replacement, because Hub creates a new one for each request.
 
 The default Compose bundle runs Hub and its job workers in one container with local persistent storage. Run `./replica down` and confirm that container and its children have stopped before changing the token, then run `./replica up` after updating the configuration. The named data volume is retained. On another platform, use its equivalent full-stop procedure; if old and new token processes cannot be kept from overlapping, do not rotate this way.
 
@@ -77,7 +98,7 @@ This cleanup applies only to databases that ran the earlier pre-release credenti
 
 ## Local development
 
-[Local development](local-development.md) has no Copilot page and ignores `REPLICA_COPILOT_TOKEN`. Learnings there asks Copilot as whoever is signed in to the GitHub CLI or Copilot CLI where Hub runs; see [Learnings](learnings.md#local-development).
+[Local development](local-development.md) has no Copilot page and ignores `REPLICA_COPILOT_TOKEN` and `REPLICA_COPILOT_BILLING`. Learnings there asks Copilot as whoever is signed in to the GitHub CLI or Copilot CLI where Hub runs; see [Learnings](learnings.md#local-development).
 
 ## Operations
 

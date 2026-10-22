@@ -18,7 +18,7 @@ Other boundaries:
 ## Repository access
 
 - Hub stores each person's GitHub ID, but not their OAuth token.
-- Learnings makes Copilot requests with `REPLICA_COPILOT_TOKEN`, a token the person who runs Hub provides with only the Copilot requests permission. Hub passes it only to `replica-learning` and never stores it. See [Copilot](copilot.md).
+- Learnings makes Copilot requests with `REPLICA_COPILOT_TOKEN`, a token the person who runs Hub provides with only the Copilot requests permission. With organization billing, Hub's GitHub App instead creates a one-hour token for each request that holds only that permission. Hub passes either token only to `replica-learning` and never stores it. See [Copilot](copilot.md).
 - Every repository page checks the person's current GitHub access.
 - Signed-out pages reveal no setup, installation, or repository details.
 - If GitHub cannot confirm access, Hub denies that repository request.
