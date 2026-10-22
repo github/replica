@@ -25,7 +25,7 @@ function previewFrame(aspectRatio: string): Decorator {
 }
 
 const meta = {
-  title: "Components/Hub-built: Scrolling Screenshot",
+  title: "Components/Scrolling Screenshot",
   component: ScrollingScreenshot,
   args: {
     alt: "Full-height desktop screenshot of the welcome prototype",

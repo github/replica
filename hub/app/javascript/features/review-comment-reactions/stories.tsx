@@ -45,7 +45,7 @@ function ReactionDemo(props: ReviewCommentReactionsProps) {
 }
 
 const meta = {
-  title: "Features/Review/Comment Reactions",
+  title: "Hub/Features/Review/Comment Reactions",
   component: ReviewCommentReactions,
   render: (args) => <ReactionDemo {...args} />,
   parameters: {

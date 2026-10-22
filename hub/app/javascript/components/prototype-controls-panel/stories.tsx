@@ -51,6 +51,10 @@ function PanelExample({
   collapsed = false,
   controlFailure = false,
   loading = false,
+  status,
+  reconnectRequired = false,
+  resetting = false,
+  diagnosis = "success",
 }: {
   failure?: boolean
   scopeFailure?: boolean
@@ -58,6 +62,10 @@ function PanelExample({
   collapsed?: boolean
   controlFailure?: boolean
   loading?: boolean
+  status?: PanelState["status"]
+  reconnectRequired?: boolean
+  resetting?: boolean
+  diagnosis?: "success" | "pending" | "failed"
 }) {
   const controller = createControls(declaration)
   const snapshot = useSyncExternalStore(
@@ -90,14 +98,19 @@ function PanelExample({
     }
   const state: PanelState = {
     runtimeAvailable: !failed,
-    status: failed ? "missing-runtime" : "ready",
-    scopes: failed ? [] : [scope],
+    status: status ?? (failed ? "missing-runtime" : "ready"),
+    scopes: failed || status ? [] : [scope],
     scopeErrors: scopeFailure
       ? [{ scope: "brokenPage", error: "The title default exceeds maxLength." }]
       : [],
     loading,
-    resetting: false,
-    error: failed ? copy.controlsLocalConnectionFailed : "",
+    resetting,
+    reconnectRequired,
+    error: failed
+      ? copy.controlsLocalConnectionFailed
+      : reconnectRequired
+        ? "The controls command limit was reached. Retry the connection to continue."
+        : "",
     storageError: storageFailed ? copy.controlsLocalStorageFailed : "",
     notice: "",
   }
@@ -141,7 +154,12 @@ function PanelExample({
             state={state}
             layout={layout}
             onLayoutChange={setLayout}
-            onDiagnose={() => Promise.resolve({ requested: true })}
+            onDiagnose={() => {
+              if (diagnosis === "pending") return new Promise(() => {})
+              if (diagnosis === "failed")
+                return Promise.reject(new Error("Could not reach Copilot. Try again."))
+              return Promise.resolve({ requested: true })
+            }}
             connection={{
               retry: () => {
                 setFailed(false)
@@ -169,7 +187,7 @@ function PanelExample({
 }
 
 const meta = {
-  title: "Components/Prototype canvas/Controls panel",
+  title: "Prototype canvas/Controls panel",
   component: PanelExample,
   parameters: { layout: "padded" },
   args: { failure: false },
@@ -185,6 +203,33 @@ export const StorageFailure: Story = { args: { storageFailure: true } }
 export const ScopeFailure: Story = { args: { scopeFailure: true } }
 export const ControlFailure: Story = { args: { controlFailure: true } }
 export const Loading: Story = { args: { controlFailure: true, loading: true } }
+export const NoControls: Story = { args: { status: "no-controls" } }
+export const UnsupportedRuntime: Story = {
+  args: { status: "unsupported-runtime", failure: true },
+}
+export const InvalidConfiguration: Story = { args: { status: "invalid-config" } }
+export const ReconnectionRequired: Story = { args: { reconnectRequired: true } }
+export const Resetting: Story = { args: { resetting: true } }
+export const DiagnosisPending: Story = {
+  args: { failure: true, diagnosis: "pending" },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: "Diagnose with Copilot" }))
+  },
+}
+export const DiagnosisRequested: Story = {
+  args: { failure: true },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: "Diagnose with Copilot" }))
+    await canvas.findByRole("button", { name: "Requested in chat" })
+  },
+}
+export const DiagnosisFailed: Story = {
+  args: { failure: true, diagnosis: "failed" },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: "Diagnose with Copilot" }))
+    await canvas.findByText("Could not reach Copilot. Try again.")
+  },
+}
 export const PageSpecific: Story = { render: () => <PageControlsExample /> }
 export const AllControls: Story = {
   render: () => <AllControlsExample />,
