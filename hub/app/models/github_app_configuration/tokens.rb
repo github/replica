@@ -8,6 +8,7 @@ class GithubAppConfiguration::Tokens < ActiveRecord::AssociatedObject
   # other permission, even read-only repository metadata, could read the repositories the App's
   # installation covers.
   COPILOT_PERMISSIONS = { organization_copilot_requests: "read" }.freeze
+  COPILOT_PERMISSION_ERROR = "The permissions requested are not granted to this installation.".freeze
 
   # Creates a short-lived token that authenticates as the GitHub App.
   def app
@@ -57,13 +58,14 @@ class GithubAppConfiguration::Tokens < ActiveRecord::AssociatedObject
   # which Copilot bills to the organization that installed the App. Hub never reuses it, never uses it
   # for other GitHub requests, and never stores it. Raises CopilotPermissionMissing when the
   # installation has not granted the App's Copilot Requests organization permission.
-  def copilot
-    raise GithubClient::InvalidResponse, "The GitHub App installation is not active" if record.installation_state != "active"
+  def copilot(snapshot: record.copilot_snapshot)
+    GithubAppConfiguration.with_copilot_installation!(snapshot) { }
 
     payload = record.github_client.installations.create_token \
-      record.installation_id,
+      snapshot.fetch(:installation_id),
       token: app,
       permissions: COPILOT_PERMISSIONS
+    GithubAppConfiguration.with_copilot_installation!(snapshot) { }
     raise KeyError if !payload.is_a?(Hash)
 
     token = payload.fetch("token")
@@ -77,12 +79,20 @@ class GithubAppConfiguration::Tokens < ActiveRecord::AssociatedObject
 
     token
   rescue GithubClient::Error => error
-    raise if error.status != 422
+    raise if !copilot_permission_missing?(error)
 
     raise CopilotPermissionMissing.new \
       "The GitHub App installation has not granted the Copilot Requests organization permission",
       status: error.status
   rescue KeyError, TypeError, ArgumentError
     raise GithubClient::InvalidResponse, "GitHub returned an incomplete installation token"
+  end
+
+  private
+
+  # Recognizes the exact observed GitHub validation response, not every possible HTTP 422.
+  def copilot_permission_missing?(error)
+    error.status == 422 && error.response.is_a?(Hash) &&
+      error.response["message"] == COPILOT_PERMISSION_ERROR
   end
 end

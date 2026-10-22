@@ -232,14 +232,14 @@ class CopilotConnectionTest < ActiveSupport::TestCase
   end
 
   test "with organization billing, connects with a new App token, ignores the operator's token, and keeps only the installation's digest" do
-    github_app_configurations.create_installed
+    configuration = github_app_configurations.create_installed
     Rails.configuration.x.copilot_billing = "organization"
     Rails.configuration.x.copilot_token = "no-copilot-token"
     stub_github_copilot_token("copilot-user-token", "app-token-2", "app-token-3")
 
     connection = CopilotConnection.connect!(actor: @admin, browser_session: @session)
 
-    assert_equal Digest::SHA256.hexdigest("github-app-installation:456"), connection.token_digest
+    assert_equal CopilotConnection.digest(configuration.copilot_credential), connection.token_digest
     assert_equal %w[app-token-2 app-token-3], [ connection.access_token!, connection.access_token! ]
   end
 
@@ -267,11 +267,18 @@ class CopilotConnectionTest < ActiveSupport::TestCase
     assert_raises(Learning::Error) { CopilotConnection.connect!(actor: @admin, browser_session: @session) }
     assert_not connection.reload.refused?
 
-    stub_github_copilot_token(error_status: 422)
+    stub_github_copilot_token(error_status: 422, error_body: github_copilot_permission_missing_error)
     assert_raises(CopilotConnection::PermissionMissing) do
       CopilotConnection.connect!(actor: @admin, browser_session: @session)
     end
     assert connection.reload.refused?
+
+    connection.update!(refused_at: nil)
+    stub_github_copilot_token \
+      error_status: 422,
+      error_body: { message: "Validation Failed", errors: [ { code: "abuse" } ] }
+    assert_raises(Learning::Error) { CopilotConnection.connect!(actor: @admin, browser_session: @session) }
+    assert_not connection.reload.refused?
   end
 
   test "turning on organization billing leaves a connection made with a token unusable until an administrator connects again" do
@@ -311,6 +318,51 @@ class CopilotConnectionTest < ActiveSupport::TestCase
 
     reconnected = CopilotConnection.connect!(actor: @admin, browser_session: @session)
     assert_equal "renewed-user-token", reconnected.access_token!
+  end
+
+  test "organization billing stays bound to the exact App configuration an administrator confirmed" do
+    changes = {
+      "replacement configuration" => lambda do |configuration|
+        id = configuration.id
+        configuration.delete
+        github_app_configurations.create_installed(id: id + 100)
+      end,
+      "App identity" => ->(configuration) { configuration.update_columns(github_app_id: 999) },
+      "App client identity" => ->(configuration) { configuration.update_columns(client_id: "Iv1.replacement") },
+      "credential revision" => lambda do |configuration|
+        configuration.update_columns(credential_revision: configuration.credential_revision + 1)
+      end,
+      "installation" => ->(configuration) { configuration.update_columns(installation_id: 789) },
+      "organization owner" => ->(configuration) { configuration.update_columns(owner_github_id: 654) },
+      "organization owner type" => ->(configuration) { configuration.update_columns(owner_type: "User") },
+      "suspended installation" => ->(configuration) { configuration.update_columns(installation_state: "suspended") },
+      "removed installation" => ->(configuration) { configuration.update_columns(installation_state: "removed") }
+    }
+
+    changes.each do |label, change|
+      CopilotConnection.delete_all
+      GithubAppConfiguration.delete_all
+      configuration = github_app_configurations.create_installed
+      connection = connect_copilot_for_organization(@admin)
+
+      change.call(configuration)
+      installation_id = GithubAppConfiguration.current.installation_id
+      mint = stub_github_copilot_token("unconfirmed-token", installation_id:)
+
+      assert_not connection.reload.usable?, label
+      assert_raises(CopilotConnection::Refused, label) { connection.access_token! }
+      assert_not_requested mint
+    end
+  end
+
+  test "organization billing confirmation survives a non-billing configuration write" do
+    configuration = github_app_configurations.create_installed
+    connection = connect_copilot_for_organization(@admin)
+    configuration.touch
+    stub_github_copilot_token("still-confirmed-token")
+
+    assert connection.reload.usable?
+    assert_equal "still-confirmed-token", connection.access_token!
   end
 
   test "Hub starts with organization billing and refuses a billing choice it does not know" do

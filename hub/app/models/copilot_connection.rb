@@ -96,7 +96,7 @@ class CopilotConnection < ApplicationRecord
       return token if !organization_billing?
 
       configuration = GithubAppConfiguration.current
-      "github-app-installation:#{configuration.installation_id}" if configuration&.organization_installation?
+      configuration.copilot_credential if configuration&.organization_installation?
     end
 
     # A credential's SHA-256 digest, which tells credentials apart without keeping them.
@@ -129,6 +129,7 @@ class CopilotConnection < ApplicationRecord
           if current&.id != earlier&.id || CopilotConnectionState.current.generation != generation
             raise ChangeDenied, :connection_changed
           end
+          raise ChangeDenied, :connection_changed if self.credential != credential
 
           where(singleton_key: 1).delete_all
           connection = create! \
@@ -173,12 +174,14 @@ class CopilotConnection < ApplicationRecord
       return credential if !organization_billing?
 
       configuration = GithubAppConfiguration.current
-      raise Refused, "Hub's GitHub App is not installed on an organization." if configuration.nil?
+      if configuration.nil? || configuration.copilot_credential != credential
+        raise GithubAppConfiguration::Superseded, "GitHub App installation changed; start again"
+      end
 
-      configuration.tokens.copilot
+      configuration.tokens.copilot(snapshot: configuration.copilot_snapshot)
     rescue GithubAppConfiguration::Tokens::CopilotPermissionMissing
       raise PermissionMissing, "Hub's GitHub App does not have the Copilot Requests organization permission."
-    rescue GithubClient::Error => error
+    rescue GithubAppConfiguration::Superseded, GithubClient::Error => error
       raise Learning::Error.new("GitHub did not create a Copilot token for Hub's GitHub App: #{error.message}",
         code: "unavailable")
     end
@@ -256,7 +259,14 @@ class CopilotConnection < ApplicationRecord
     raise Refused, "A Hub administrator must connect Copilot again before Hub bills the organization." if !confirmed?
     raise Refused, "#{user.login} is no longer a Hub administrator." if !usable?
 
-    self.class.copilot_token(credential)
+    token = self.class.copilot_token(credential)
+    reload
+    if self.class.credential != credential || refused? || !confirmed? ||
+        !User.where(id: user_id, hub_admin: true).exists?
+      raise Refused, "The Copilot connection changed while Hub created a token."
+    end
+
+    token
   rescue ActiveRecord::RecordNotFound
     raise Refused, "An administrator disconnected Copilot."
   end

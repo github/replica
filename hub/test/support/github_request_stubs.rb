@@ -30,11 +30,14 @@ module GithubRequestStubs
   # Stubs the new token Hub's GitHub App creates for each Copilot request, which may ask only for
   # the Copilot Requests organization permission. GitHub answers with each token in turn and repeats
   # the last, reporting the given permissions, or fails every request with error_status.
-  def stub_github_copilot_token(*tokens, installation_id: 456, error_status: nil,
+  def stub_github_copilot_token(*tokens, installation_id: 456, error_status: nil, error_body: nil,
     permissions: { organization_copilot_requests: "read" })
     request = stub_request(:post, "#{GITHUB_API_URL}/app/installations/#{installation_id}/access_tokens")
       .with(body: { permissions: { organization_copilot_requests: "read" } })
-    return request.to_return(status: error_status, body: JSON.generate(message: "Validation Failed")) if error_status
+    if error_status
+      body = error_body || { message: "Validation Failed" }
+      return request.to_return(status: error_status, body: JSON.generate(body))
+    end
 
     responses = tokens.map do |token|
       {
@@ -44,6 +47,11 @@ module GithubRequestStubs
       }
     end
     request.to_return(*responses)
+  end
+
+  # The observed installation-token refusal when requested permissions were not granted.
+  def github_copilot_permission_missing_error
+    { message: "The permissions requested are not granted to this installation." }
   end
 
   # Stubs GitHub's OAuth exchange and stable user profile response.

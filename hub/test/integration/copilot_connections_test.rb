@@ -156,11 +156,14 @@ class CopilotConnectionsTest < ActionDispatch::IntegrationTest
 
   test "with organization billing, connects nothing when the App lacks the Copilot permission or GitHub fails" do
     Rails.configuration.x.copilot_billing = "organization"
-    {
-      422 => [ "copilot_connection.errors.permission_missing", "denied" ],
-      500 => [ "copilot_connection.organization.errors.unavailable", "failed" ]
-    }.each do |status, (alert, outcome)|
-      stub_github_copilot_token(error_status: status)
+    failures = [
+      [ 422, github_copilot_permission_missing_error, "copilot_connection.errors.permission_missing", "denied" ],
+      [ 422, { message: "Validation Failed", errors: [ { code: "abuse" } ] },
+        "copilot_connection.organization.errors.unavailable", "failed" ],
+      [ 500, nil, "copilot_connection.organization.errors.unavailable", "failed" ]
+    ]
+    failures.each do |status, body, alert, outcome|
+      stub_github_copilot_token(error_status: status, error_body: body)
 
       post copilot_connection_path, params: { confirmed: "1" }
 
@@ -169,6 +172,32 @@ class CopilotConnectionsTest < ActionDispatch::IntegrationTest
       assert_nil CopilotConnection.current
       assert_equal outcome, SecurityAuditEvent.where(action: "copilot_connection.connect").last.outcome, "HTTP #{status}"
     end
+  end
+
+  test "with organization billing, a changed App configuration during token minting connects nothing" do
+    Rails.configuration.x.copilot_billing = "organization"
+    request = stub_request(:post, "#{GITHUB_API_URL}/app/installations/456/access_tokens")
+      .with(body: { permissions: { organization_copilot_requests: "read" } })
+      .to_return do
+        @configuration.update_columns(credential_revision: @configuration.credential_revision + 1)
+        {
+          status: 201,
+          body: JSON.generate(
+            token: "copilot-user-token",
+            expires_at: 1.hour.from_now.iso8601,
+            permissions: { organization_copilot_requests: "read" }
+          ),
+          headers: { "Content-Type" => "application/json" }
+        }
+      end
+
+    post copilot_connection_path, params: { confirmed: "1" }
+
+    assert_redirected_to copilot_connection_path
+    assert_nil CopilotConnection.current
+    assert_not_equal I18n.t("copilot_connection.connected"), flash[:notice]
+    assert_empty SecurityAuditEvent.where(action: "copilot_connection.connect", outcome: "succeeded")
+    assert_requested request
   end
 
   test "with organization billing, the page tells a personal-account App from an organization App without an active installation" do
