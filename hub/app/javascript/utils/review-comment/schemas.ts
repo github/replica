@@ -64,18 +64,11 @@ export const REVIEW_COMMENT_SCHEMA = z.discriminatedUnion("kind", [
   REPLY_COMMENT_SCHEMA,
 ])
 
-export const REVIEW_COMMENT_PAGE_SCHEMA = z.discriminatedUnion("hasMore", [
-  z.object({
-    comments: z.array(REVIEW_COMMENT_SCHEMA),
-    nextCursor: z.string().min(1),
-    hasMore: z.literal(true),
-  }),
-  z.object({
-    comments: z.array(REVIEW_COMMENT_SCHEMA),
-    nextCursor: z.null(),
-    hasMore: z.literal(false),
-  }),
-])
+export const REVIEW_COMMENTS_SCHEMA = z.object({
+  comments: z.array(REVIEW_COMMENT_SCHEMA),
+  nextCursor: z.null(),
+  hasMore: z.literal(false),
+})
 
 export const REVIEW_COMMENT_MUTATION_SCHEMA = z.object({
   comments: z.array(REVIEW_COMMENT_SCHEMA).min(1).max(2),

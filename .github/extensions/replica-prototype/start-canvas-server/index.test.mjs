@@ -1190,7 +1190,7 @@ exit 1
       assert.equal(commentReads.length, 3)
       assert.ok(commentReads.every(({ method }) => method === "GET"))
       assert.ok(commentReads.every(({ activity }) => activity === undefined))
-      assert.ok(commentReads.some(({ path }) => path.endsWith("/review_comments?pageSize=25")))
+      assert.ok(commentReads.some(({ path }) => path.endsWith("/review_comments")))
       assert.ok(!JSON.stringify(agentPage).includes("rp_secret"))
       const beforeRepositoryComments = calls.length
       const repositoryPage = await canvas.reviewAction("list_repository_comments", {})
@@ -1203,9 +1203,7 @@ exit 1
         repositoryReads.every(({ method, activity }) => method === "GET" && activity === undefined),
       )
       assert.ok(
-        repositoryReads.some(
-          ({ path }) => path === "/api/canvas/repositories/5/review_comments?pageSize=25",
-        ),
+        repositoryReads.some(({ path }) => path === "/api/canvas/repositories/5/review_comments"),
       )
       assert.ok(!JSON.stringify(repositoryPage).includes("rp_secret"))
       const beforeCompactReads = calls.length

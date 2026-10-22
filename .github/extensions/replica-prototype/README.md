@@ -106,13 +106,7 @@ For example, retrieve full unresolved, unread conversations on an open instance:
 }
 ```
 
-Hub returns flat comment pages. The extension collects and groups those pages, then filters
-whole conversations locally. Each action scans at most four pages of 25 messages. If
-`scanComplete` is false, an empty `threads` array is **not** a final empty result: call
-the same list action again with `nextCursor`, the returned `target`, and the same filters.
-No filtered result is returned until collection is complete. Collection traverses the pages
-twice: the first pass captures root activity versions, and the second captures messages while
-checking those versions. Changed threads return a conflict instead of a complete snapshot.
+Hub returns the complete flat comment collection. The extension reads it twice, checking root activity versions before grouping and filtering whole conversations locally. Changed threads return a conflict instead of a complete snapshot. Filtered results always describe the completed collection; `scanComplete` is true.
 
 Once `scanComplete` is true, pages contain up to ten roots and ten replies per root within a 64 KiB budget for the entire serialized UTF-8 JSON response, including metadata and cursors. This is a conservative payload budget, not a measured model safety threshold. If the next full thread page does not fit, the list returns fewer roots. A single large thread returns fewer replies with an actual-offset reply cursor. Both thread retrieval actions enforce the same budget. Root text, anchors and individual replies are never truncated or summarized; a root or root-plus-next-reply envelope that cannot fit returns `comment_response_limit` instead of an oversized response or a non-progressing page. List and reply cursors retain their snapshot-bound format and point to the actual consumed offset.
 Results include text, authors, timestamps, resolution, the connected user's unread state,
@@ -123,10 +117,7 @@ oldest first. Follow list `nextCursor` for additional roots. Use `get_comment_th
 reply; continuation responses contain only their reply page. Never present partial results
 as complete. Deleted messages retain placeholders without their text.
 
-Snapshots are private files under this Copilot session's workspace, not another Hub source
-of truth. They survive provider reloads, are limited to 32 MiB per collection, and are bound
-to the Hub, repository, checkout branch and connected user; prototype snapshots also bind the prototype ID. Exceeding that limit returns an
-explicit error, not truncated results. `capturedAt` identifies when collection started.
+Snapshots are private files under this Copilot session's workspace, not another Hub source of truth. They survive provider reloads and are bound to the Hub, repository, checkout branch and connected user; prototype snapshots also bind the prototype ID. `capturedAt` identifies when collection started.
 Collection spans several Hub requests and is not an atomic snapshot. Its exposed activity
 versions never include activity missing from the captured messages; later activity may still
 arrive and leave the snapshot out of date. Start a new scan with the same list action to refresh filters
@@ -134,7 +125,7 @@ or read state. Snapshots from older, unverified collection formats expire after 
 Both thread actions check current root activity and reject a changed thread before returning
 a captured reply page.
 
-Repository collection uses one paginated stream across prototypes, not an unbounded scan per prototype. Hub pages use creation time and ID, newest first; completed conversations retain newest-root-first order and oldest-reply-first order. A conflict or access failure stops the entire collection with an explicit error, not a success-shaped partial result. An authorized repository with no comments returns a completed empty result. Repository snapshots have a distinct `scope: "repository"` target and do not issue reply request IDs. Their targets cannot be passed to prototype-specific actions or mutations.
+Repository collection uses one full response across prototypes, not a separate request per prototype. Hub orders comments by creation time and ID, newest first; completed conversations retain newest-root-first order and oldest-reply-first order. A conflict or access failure stops the entire collection with an explicit error, not a success-shaped partial result. An authorized repository with no comments returns a completed empty result. Repository snapshots have a distinct `scope: "repository"` target and do not issue reply request IDs. Their targets cannot be passed to prototype-specific actions or mutations.
 
 ### Compact comment triage and selected threads
 
@@ -191,8 +182,7 @@ Resolution's activity check is best-effort: new activity can arrive between the 
 existing Hub write. No backend change is made to make it atomic. The extension does not silently
 retry uncertain writes. Access failures, stale targets, malformed inputs, changed threads,
 missing snapshots and unfinished checks return explicit errors rather than empty results.
-Current-thread checks have a 30-second budget plus at most one in-flight ten-second Hub request;
-if they cannot finish, no mutation is submitted.
+Current-thread checks fetch the complete collection once. A failed or timed-out check submits no mutation.
 
 The agent actions do not create starting comments, switch the checkout or canvas prototype, filter by Build,
 edit or delete messages, react, reopen conversations, or change state automatically.

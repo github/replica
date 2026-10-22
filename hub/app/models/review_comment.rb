@@ -182,24 +182,6 @@ class ReviewComment < ApplicationRecord
   validate :deletion_is_permanent, on: :update
 
   class << self
-    # Returns comments newest first with a signed token for the next page.
-    def page_for(prototype, cursor:, page_size:)
-      paginate \
-        where(prototype:).includes(:build, :user, :resolved_by, :reactions, comment_mentions: :github_identity),
-        purpose: "prototype/#{prototype.id}",
-        cursor:,
-        page_size:
-    end
-
-    # Returns one bounded stream across every reviewable branch in the repository.
-    def page_for_repository(repository, viewer:, cursor:, page_size:)
-      paginate \
-        where(prototype: repository.reviewable_prototypes).includes(:prototype, :build, :user, :resolved_by, :reactions, comment_mentions: :github_identity),
-        purpose: "repository/#{repository.id}/viewer/#{viewer.id}",
-        cursor:,
-        page_size:
-    end
-
     # Reads only visible starting comments, with filters bound into the cursor.
     def summary_page_for_repository(repository, viewer:, cursor:, page_size:, filters:, &fits)
       relation = roots.not_deleted.where(prototype: repository.reviewable_prototypes)

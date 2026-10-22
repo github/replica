@@ -86,6 +86,7 @@ class CanvasApi::PrototypesController < CanvasApi::BaseController
       startPageSet: prototype.start_page_set_at.present?,
       startPageImportError: prototype.start_page_import_error,
       viewerLogin: Current.user.login,
+      viewerId: Current.user.id,
       registered: prototype.registered?,
       canEdit: @repository.authorization.sufficient?(@repository_permission, minimum: :write),
       canManageShareLinks: can_manage_share_links,
