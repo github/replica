@@ -1,6 +1,7 @@
 import { readHubError } from "../read-hub-error/index.mjs"
 import { readHubObject } from "../read-hub-object/index.mjs"
 import { uuidInputPattern } from "../identity-patterns/index.mjs"
+import type { CanvasAction, CanvasJsonSchema } from "@github/copilot-sdk/extension"
 
 export type CommentActionContext = { instanceId: string; input?: unknown }
 export type CommentActionName =
@@ -56,7 +57,7 @@ const threadProperties = {
 const definitions: {
   name: CommentActionName
   description: string
-  properties: Record<string, unknown>
+  properties: Record<string, CanvasJsonSchema>
   required: string[]
 }[] = [
   {
@@ -179,7 +180,10 @@ const definitions: {
   },
 ]
 
-export function commentActions(invoke: CommentActionInvoker, CanvasError: CanvasErrorConstructor) {
+export function commentActions(
+  invoke: CommentActionInvoker,
+  CanvasError: CanvasErrorConstructor,
+): CanvasAction[] {
   return definitions.map(({ name, description, properties, required }) => ({
     name,
     description,

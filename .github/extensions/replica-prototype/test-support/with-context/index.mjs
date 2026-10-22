@@ -2,9 +2,7 @@ import { randomUUID } from "node:crypto"
 import { mkdir, rm } from "node:fs/promises"
 import path from "node:path"
 import { execFileSync } from "node:child_process"
-
 import { createCanvasContext } from "../../create-canvas-context/index.mjs"
-
 export async function withContext(run) {
   const workspace = path.join(process.cwd(), "storage/replica-extension-tests", randomUUID())
   await mkdir(workspace, { recursive: true })

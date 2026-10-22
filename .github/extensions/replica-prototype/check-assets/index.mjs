@@ -1,7 +1,6 @@
 import { execFileSync } from "node:child_process"
 import { readdir, readFile } from "node:fs/promises"
 import { fileURLToPath } from "node:url"
-
 export async function checkAssets({
   assets = new URL("../", import.meta.url),
   build = () => execFileSync("npm", ["run", "extension:build"], { stdio: "inherit" }),
@@ -10,26 +9,25 @@ export async function checkAssets({
   await build()
   const after = await snapshot(assets)
   const paths = new Set([...before.keys(), ...after.keys()])
-  const differences = [...paths].filter(
-    (name) => !before.has(name) || !after.has(name) || !before.get(name).equals(after.get(name)),
-  )
-
+  const differences = [...paths].filter((name) => {
+    const previous = before.get(name)
+    const current = after.get(name)
+    return !previous || !current || !previous.equals(current)
+  })
   if (differences.length) {
     throw new Error(
       `Extension assets differ after build (changed, missing, or unexpected): ${differences.sort().join(", ")}`,
     )
   }
 }
-
 async function snapshot(assets) {
   const files = new Map()
-
   async function visit(directory, prefix = "") {
     let entries
     try {
       entries = await readdir(directory, { withFileTypes: true })
     } catch (error) {
-      if (error?.code === "ENOENT") return
+      if (error instanceof Error && "code" in error && error.code === "ENOENT") return
       throw error
     }
     for (const entry of entries) {
@@ -48,11 +46,9 @@ async function snapshot(assets) {
       }
     }
   }
-
   await visit(assets)
   return files
 }
-
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   await checkAssets()
 }

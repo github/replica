@@ -1,6 +1,9 @@
-export type PrototypeServerStatus = Awaited<ReturnType<typeof checkPrototypeServer>>
+export type PrototypeServerStatus = { available: true } | { available: false; message: string }
 
-export async function checkPrototypeServer(prototypeUrl: string, request = globalThis.fetch) {
+export async function checkPrototypeServer(
+  prototypeUrl: string,
+  request = globalThis.fetch,
+): Promise<PrototypeServerStatus> {
   try {
     const response = await request(prototypeUrl, {
       redirect: "manual",

@@ -26,9 +26,7 @@ import { projectControlsStatus } from "../controls-status/index.mjs"
 import { improvementBatchResult } from "../improvement-batch-result/index.mjs"
 import { createLearningsHook } from "../create-learnings-hook/index.mjs"
 import { gitShaPattern as COMMIT_PATTERN } from "../identity-patterns/index.mjs"
-
 export { improvementBatchResult } from "../improvement-batch-result/index.mjs"
-
 const HUB_STATES = new Set([
   "connected",
   "denied",
@@ -71,13 +69,10 @@ const PUBLISH_STATES = new Set([...WORKFLOW_STATES, "requested"])
 const WORKING_TREE_STATES = new Set(["clean", "changed", "unavailable"])
 const REPOSITORY_PATTERN = /^[A-Za-z0-9-]+\/[A-Za-z0-9_.-]+$/
 const BRANCH_PATTERN = /^[\p{L}\p{N}_][\p{L}\p{N}._/+=@-]{0,254}$/u
-
 class WorkflowStatusError extends Error {}
-
 export function projectHubStatus(status) {
-  if (!isRecord(status) || !HUB_STATES.has(status.state))
+  if (!isRecord(status) || typeof status.state !== "string" || !HUB_STATES.has(status.state))
     throw new Error("Hub returned an invalid status.")
-
   const result = { state: status.state }
   for (const field of ["repository", "branch", "commitSha"]) {
     if (status[field] != null) result[field] = statusText(status[field], field)
@@ -93,17 +88,17 @@ export function projectHubStatus(status) {
   if (status.registrationReason != null)
     result.registrationReason = registrationReason(status.registrationReason)
   if (status.state !== "connected") {
-    result.message = {
+    const messages = {
       denied: "Hub repository access is denied.",
       disconnected: "Connect to Hub before publishing.",
       pairing: "Approve the pending Hub connection.",
       unavailable: "Hub status is unavailable. Inspect the canvas Hub panel for details.",
       unconfigured: "Enter a Hub URL to connect.",
       undiscovered: "Hub has not discovered this branch yet.",
-    }[status.state]
+    }
+    result.message = messages[status.state]
     return result
   }
-
   const prototype = status.prototype
   if (!isRecord(prototype) || !result.hubOrigin)
     throw new Error("Hub returned an invalid prototype status.")
@@ -112,9 +107,16 @@ export function projectHubStatus(status) {
   const branch = statusText(prototype.branch, "prototype branch")
   if (!/^\S+$/u.test(branch)) throw new Error("Hub returned an invalid prototype branch.")
   const { registered, canRegister, published } = prototype
-  if ([registered, canRegister, published].some((value) => typeof value !== "boolean"))
+  if (
+    typeof registered !== "boolean" ||
+    typeof canRegister !== "boolean" ||
+    typeof published !== "boolean"
+  )
     throw new Error("Hub returned invalid prototype permissions or publication status.")
-  if (prototype.buildState !== null && !BUILD_STATES.has(prototype.buildState))
+  if (
+    prototype.buildState !== null &&
+    (typeof prototype.buildState !== "string" || !BUILD_STATES.has(prototype.buildState))
+  )
     throw new Error("Hub returned an invalid Build state.")
   const versionCount = nonnegativeInteger(prototype.versionCount, "Build count")
   if (!Object.hasOwn(prototype, "build")) throw new Error("Hub returned an invalid Build.")
@@ -154,25 +156,21 @@ export function projectHubStatus(status) {
   }
   return result
 }
-
 function registrationReason(value) {
   const reason = statusText(value, "registration reason", 128)
   if (!/^[a-z][a-z0-9_]{0,127}$/.test(reason))
     throw new Error("Hub returned an invalid registration reason.")
   return reason
 }
-
 export function projectPrototypeStatus(state) {
   if (!isRecord(state) || !isRecord(state.stats) || !isRecord(state.publishRequest))
     throw new Error("Prototype refresh returned an invalid status.")
-
   const stats = state.stats
   const request = state.publishRequest
   const remote = stats.remoteBranch
   const workflow = stats.workflow
   if (!isRecord(remote) || !isRecord(workflow))
     throw new Error("Prototype refresh returned an invalid status.")
-
   const branch = optionalIdentifier(stats.branch, BRANCH_PATTERN, "checkout branch")
   const repository = optionalIdentifier(stats.repository, REPOSITORY_PATTERN, "repository")
   const commitSha = optionalIdentifier(stats.commitSha, COMMIT_PATTERN, "checkout commit")
@@ -187,13 +185,15 @@ export function projectPrototypeStatus(state) {
     (remote.repository !== repository || remote.branch !== branch || remote.commitSha !== commitSha)
   )
     throw new Error("Prototype refresh returned an invalid remote branch identity.")
-
   const workflowState = statusEnum(workflow.state, WORKFLOW_STATES, "workflow state")
   const requestState = statusEnum(request.state, REQUEST_STATES, "publish request state")
-  const publishState = statusEnum(state.publishStatus?.state, PUBLISH_STATES, "publish state")
+  const publishState = statusEnum(
+    isRecord(state.publishStatus) ? state.publishStatus.state : undefined,
+    PUBLISH_STATES,
+    "publish state",
+  )
   if (publishState !== (requestState === "idle" ? workflowState : requestState))
     throw new Error("Prototype refresh returned an inconsistent publish state.")
-
   let run = null
   if (workflow.run != null) {
     if (!isRecord(workflow.run))
@@ -235,7 +235,6 @@ export function projectPrototypeStatus(state) {
     throw new Error("Prototype refresh returned an invalid workflow run.")
   if (run && stats.replicaWorkflowExists !== true)
     throw new Error("Prototype refresh returned an invalid workflow status.")
-
   const projectedRequest = { state: requestState }
   if (requestState !== "idle") {
     if (!Object.hasOwn(request, "workflowRunId") || !Object.hasOwn(request, "buildNumber"))
@@ -266,19 +265,21 @@ export function projectPrototypeStatus(state) {
       "previous Build number",
     )
   }
-
   if (
     typeof stats.replicaWorkflowExists !== "boolean" ||
+    typeof stats.workingTree !== "string" ||
     !WORKING_TREE_STATES.has(stats.workingTree)
   )
     throw new Error("Prototype refresh returned an invalid checkout status.")
-  const projectedWorkflow = { state: workflowState, run }
+  const projectedWorkflow = {
+    state: workflowState,
+    run,
+  }
   if (workflowState === "succeeded")
     projectedWorkflow.versionCount = statusNonnegativeInteger(
       workflow.versionCount,
       "workflow run count",
     )
-
   return {
     stateId: requiredIdentifier(state.stateId, /^[0-9a-f]{24}$/, "state ID"),
     publishRequest: projectedRequest,
@@ -300,7 +301,6 @@ export function projectPrototypeStatus(state) {
     },
   }
 }
-
 function isRecord(value) {
   return (
     value !== null &&
@@ -308,7 +308,6 @@ function isRecord(value) {
     (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null)
   )
 }
-
 function statusText(value, field, maxLength = 255) {
   if (
     typeof value !== "string" ||
@@ -316,8 +315,8 @@ function statusText(value, field, maxLength = 255) {
     value.length > maxLength ||
     [...value].some(
       (character) =>
-        character.codePointAt(0) < 32 ||
-        character.codePointAt(0) === 127 ||
+        character.charCodeAt(0) < 32 ||
+        character.charCodeAt(0) === 127 ||
         character === "\u2028" ||
         character === "\u2029",
     )
@@ -325,56 +324,47 @@ function statusText(value, field, maxLength = 255) {
     throw new Error(`Hub returned an invalid ${field}.`)
   return value
 }
-
 function nonnegativeInteger(value, field) {
-  if (!Number.isSafeInteger(value) || value < 0)
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0)
     throw new Error(`Hub returned an invalid ${field}.`)
   return value
 }
-
 function positiveInteger(value, field) {
   const number = nonnegativeInteger(value, field)
   if (number === 0) throw new Error(`Hub returned an invalid ${field}.`)
   return number
 }
-
 function statusEnum(value, allowed, field, ErrorType = Error) {
-  if (!allowed.has(value)) throw new ErrorType(`Prototype refresh returned an invalid ${field}.`)
+  if (typeof value !== "string" || !allowed.has(value))
+    throw new ErrorType(`Prototype refresh returned an invalid ${field}.`)
   return value
 }
-
 function requiredIdentifier(value, pattern, field) {
   if (typeof value !== "string" || !pattern.test(value))
     throw new Error(`Prototype refresh returned an invalid ${field}.`)
   return value
 }
-
 function optionalIdentifier(value, pattern, field) {
   return value == null ? null : requiredIdentifier(value, pattern, field)
 }
-
 function optionalNonnegativeInteger(value, field) {
   if (value == null) return null
   return statusNonnegativeInteger(value, field)
 }
-
 function optionalPositiveStatusInteger(value, field) {
   if (value == null) return null
   return positiveStatusInteger(value, field)
 }
-
 function statusNonnegativeInteger(value, field) {
-  if (!Number.isSafeInteger(value) || value < 0)
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0)
     throw new Error(`Prototype refresh returned an invalid ${field}.`)
   return value
 }
-
 function positiveStatusInteger(value, field) {
   const number = statusNonnegativeInteger(value, field)
   if (number === 0) throw new Error(`Prototype refresh returned an invalid ${field}.`)
   return number
 }
-
 export function metadataUpdateAcknowledgement(response, input) {
   if (
     !isRecord(response) ||
@@ -385,17 +375,18 @@ export function metadataUpdateAcknowledgement(response, input) {
     throw new Error("Hub did not confirm the prototype metadata update.")
   return { updated: true, registered: true }
 }
-
 export function projectLiveState(value, prototypeUrl) {
   if (
     !isRecord(value) ||
     typeof value.address !== "string" ||
     typeof value.addressDraft !== "string" ||
     value.addressDraft.length > 2048 ||
-    !["light", "dark"].includes(value.appearance) ||
+    (value.appearance !== "light" && value.appearance !== "dark") ||
     typeof value.canGoBack !== "boolean" ||
     typeof value.canGoForward !== "boolean" ||
+    typeof value.historyIndex !== "number" ||
     !Number.isSafeInteger(value.historyIndex) ||
+    typeof value.historyLength !== "number" ||
     !Number.isSafeInteger(value.historyLength) ||
     value.historyLength < 1 ||
     value.historyIndex < 0 ||
@@ -441,7 +432,6 @@ export function projectLiveState(value, prototypeUrl) {
           },
   }
 }
-
 export async function registerPrototypeCanvas(
   sdk,
   discover = discoverPrototypeServers,
@@ -452,7 +442,6 @@ export async function registerPrototypeCanvas(
     sdk || (await import("@github/copilot-sdk/extension"))
   const servers = new Map()
   const devServers = createDevServerManager({ discover })
-
   const session = await joinSession({
     hooks: {
       onUserPromptSubmitted: createLearningsHook(canvasOptions.hubOptions),
@@ -621,7 +610,7 @@ export async function registerPrototypeCanvas(
             },
             handler: async (ctx) => {
               const entry = requireOpenPrototypeEntry(ctx.instanceId)
-              const { selector, expectedLabel, route } = ctx.input ?? {}
+              const { selector, expectedLabel, route } = isRecord(ctx.input) ? ctx.input : {}
               if (
                 !isRecord(ctx.input) ||
                 Object.keys(ctx.input).length !== 3 ||
@@ -694,10 +683,11 @@ export async function registerPrototypeCanvas(
             handler: async (ctx) => {
               const entry = requireOpenPrototypeEntry(ctx.instanceId)
               const input = ctx.input ?? {}
-              const timeoutMs = input.timeoutMs ?? 0
+              const timeoutMs = isRecord(input) ? (input.timeoutMs ?? 0) : undefined
               if (
                 !isRecord(input) ||
                 Object.keys(input).some((key) => key !== "timeoutMs") ||
+                typeof timeoutMs !== "number" ||
                 !Number.isInteger(timeoutMs) ||
                 timeoutMs < 0 ||
                 timeoutMs > 10_000
@@ -779,7 +769,11 @@ export async function registerPrototypeCanvas(
                 },
               },
             },
-            handler: (ctx) => connectPrototype(ctx.instanceId, ctx.input.prototypeUrl),
+            handler: (ctx) =>
+              connectPrototype(
+                ctx.instanceId,
+                isRecord(ctx.input) ? ctx.input.prototypeUrl : undefined,
+              ),
           },
           {
             name: "refresh_status",
@@ -791,15 +785,15 @@ export async function registerPrototypeCanvas(
             },
             handler: async (ctx) => {
               const entry = requireOpenPrototypeEntry(ctx.instanceId)
-
               try {
                 const [state, hubStatus] = await Promise.all([
                   refreshPrototypeStatus(await currentCanvasContext(entry.context)),
                   entry.prototype.getHubStatus(),
                 ])
-                const projected = projectPrototypeStatus(state)
-                projected.hubStatus = projectHubStatus(hubStatus)
-                return projected
+                return {
+                  ...projectPrototypeStatus(state),
+                  hubStatus: projectHubStatus(hubStatus),
+                }
               } catch (error) {
                 throw new CanvasError(
                   "refresh_failed",
@@ -839,7 +833,7 @@ export async function registerPrototypeCanvas(
                   properties: {
                     repository: { type: "string" },
                     branch: { type: "string" },
-                    commitSha: { type: "string", pattern: COMMIT_PATTERN.source },
+                    commitSha: { type: "string", pattern: "^[0-9a-f]{40}$" },
                     originFingerprint: { type: ["string", "null"] },
                     pushFingerprint: { type: ["string", "null"] },
                     canvasInstanceId: { type: "string" },
@@ -853,7 +847,18 @@ export async function registerPrototypeCanvas(
             },
             handler: async (ctx) => {
               const entry = requireOpenPrototypeEntry(ctx.instanceId)
-              const { target, outcome, reason } = ctx.input
+              const { target, outcome, reason } = isRecord(ctx.input) ? ctx.input : {}
+              if (
+                !isRecord(target) ||
+                typeof target.repository !== "string" ||
+                typeof target.branch !== "string" ||
+                typeof target.commitSha !== "string" ||
+                (target.originFingerprint !== null &&
+                  typeof target.originFingerprint !== "string") ||
+                (target.pushFingerprint !== null && typeof target.pushFingerprint !== "string") ||
+                (target.mode !== "commit-changes" && target.mode !== "committed-only")
+              )
+                throw new CanvasError("publish_result_rejected", "Provide a valid publish target.")
               if (target.canvasInstanceId !== ctx.instanceId)
                 throw new CanvasError(
                   "publish_result_rejected",
@@ -865,11 +870,21 @@ export async function registerPrototypeCanvas(
                   outcome,
                   reason,
                   mode: target.mode,
-                  target,
+                  target: {
+                    repository: target.repository,
+                    branch: target.branch,
+                    commitSha: target.commitSha,
+                    originFingerprint: target.originFingerprint,
+                    pushFingerprint: target.pushFingerprint,
+                    canvasInstanceId: target.canvasInstanceId,
+                    mode: target.mode,
+                  },
                 })
               } catch (error) {
                 throw new CanvasError(
-                  error?.statusCode === 409 ? "publish_result_rejected" : "publish_result_failed",
+                  error instanceof Error && "statusCode" in error && error.statusCode === 409
+                    ? "publish_result_rejected"
+                    : "publish_result_failed",
                   error instanceof Error ? error.message : "Could not report the publish result.",
                 )
               }
@@ -897,10 +912,19 @@ export async function registerPrototypeCanvas(
             },
             handler: async (ctx) => {
               const entry = requireOpenPrototypeEntry(ctx.instanceId)
-
               try {
-                const response = await entry.prototype.updateMetadata(ctx.input)
-                return metadataUpdateAcknowledgement(response, ctx.input)
+                if (
+                  !isRecord(ctx.input) ||
+                  typeof ctx.input.name !== "string" ||
+                  (ctx.input.description !== undefined && typeof ctx.input.description !== "string")
+                )
+                  throw new Error("Provide a prototype name and optional description.")
+                const input = {
+                  name: ctx.input.name,
+                  description: ctx.input.description,
+                }
+                const response = await entry.prototype.updateMetadata(input)
+                return metadataUpdateAcknowledgement(response, input)
               } catch (error) {
                 throw toCanvasError("metadata_update_failed", error)
               }
@@ -908,30 +932,46 @@ export async function registerPrototypeCanvas(
           },
         ],
         open: async (ctx) => {
+          const suppliedInput = prototypeInput(ctx.input)
           const existing = servers.get(ctx.instanceId)
           if (
-            !ctx.input?.prototypeUrl &&
-            ctx.input?.improvementThreadsSample === undefined &&
+            !suppliedInput.prototypeUrl &&
+            suppliedInput.improvementThreadsSample === undefined &&
             existing
           ) {
             await prototypeStatus(existing)
             return openResult(existing)
           }
+          const repositoryPath = ctx.session?.workingDirectory
+          if (!session.workspacePath || !repositoryPath)
+            throw new Error(
+              "Connecting a prototype requires a session workspace and working directory.",
+            )
           const contextOptions = {
             sessionId: ctx.sessionId,
             sessionWorkspacePath: session.workspacePath,
-            repositoryPath: ctx.session?.workingDirectory,
+            repositoryPath,
           }
           const connection = prototypeConnection(
             contextOptions.sessionWorkspacePath,
             contextOptions.repositoryPath,
           )
-          const input = ctx.input?.prototypeUrl
-            ? ctx.input
-            : {
-                ...(existing?.input ?? (await connection.read())),
-                ...ctx.input,
+          let input = suppliedInput
+          if (!suppliedInput.prototypeUrl) {
+            try {
+              input = {
+                ...(existing?.input ?? prototypeInput(await connection.read())),
+                ...suppliedInput,
               }
+            } catch (error) {
+              const failure = new CanvasError(
+                "saved_connection_invalid",
+                "Could not restore the saved prototype connection. Open this canvas with a valid prototypeUrl, then use connect_prototype with that URL to save a replacement.",
+              )
+              failure.cause = error
+              throw failure
+            }
+          }
           let entry = existing
           if (!entry) {
             let devServer
@@ -961,8 +1001,8 @@ export async function registerPrototypeCanvas(
               input,
               contextOptions,
               connection,
+              instanceId: ctx.instanceId,
             }
-            entry.instanceId = ctx.instanceId
             servers.set(ctx.instanceId, entry)
           }
           try {
@@ -981,29 +1021,29 @@ export async function registerPrototypeCanvas(
           if (!entry) {
             return
           }
-
           servers.delete(ctx.instanceId)
           await closeEntry(entry)
         },
       }),
     ],
   })
-
   if (!sdk) {
     process.once("exit", () => devServers.terminate())
     for (const signal of ["SIGTERM", "SIGINT"]) {
-      process.once(signal, async () => {
-        try {
-          await closeAll()
-        } catch (error) {
-          console.error("Could not close Replica prototype servers:", error)
-        } finally {
-          process.exit(0)
-        }
+      process.once(signal, () => {
+        void closeForSignal()
       })
     }
   }
-
+  async function closeForSignal() {
+    try {
+      await closeAll()
+    } catch (error) {
+      console.error("Could not close Replica prototype servers:", error)
+    } finally {
+      process.exit(0)
+    }
+  }
   async function closeAll() {
     try {
       await Promise.all([...servers.values()].map(closeEntry))
@@ -1012,27 +1052,30 @@ export async function registerPrototypeCanvas(
       await devServers.close()
     }
   }
-
   async function connectPrototype(instanceId, prototypeUrl) {
     const entry = servers.get(instanceId)
     if (!entry) {
       throw new CanvasError("canvas_not_open", "Open the Replica prototype canvas first.")
     }
+    if (typeof prototypeUrl !== "string")
+      throw new CanvasError("connect_failed", "prototypeUrl must be a valid HTTP or HTTPS URL.")
     const result = await activatePrototype(entry, { ...entry.input, prototypeUrl }, true)
     if (!result.connected) {
       throw new CanvasError("prototype_unavailable", result.message)
     }
     return result
   }
-
   async function activatePrototype(entry, input, persist) {
     if (entry.connecting) {
       throw new CanvasError("prototype_connecting", "This panel is already connecting.")
     }
     entry.connecting = true
     try {
+      const prototypeUrl = input.prototypeUrl
+      if (!prototypeUrl) throw new Error("prototypeUrl must be a valid HTTP or HTTPS URL.")
       const context = await createCanvasContext({
         ...input,
+        prototypeUrl,
         ...entry.contextOptions,
       })
       const status = await checkServer(context.normalizedUrl)
@@ -1063,7 +1106,8 @@ export async function registerPrototypeCanvas(
       }
       if (
         entry.prototype &&
-        (entry.context.stateId !== context.stateId ||
+        (!entry.context ||
+          entry.context.stateId !== context.stateId ||
           entry.context.normalizedUrl !== context.normalizedUrl ||
           entry.context.name !== context.name ||
           entry.context.improvementThreadsSample !== context.improvementThreadsSample)
@@ -1082,19 +1126,19 @@ export async function registerPrototypeCanvas(
       entry.connecting = false
     }
   }
-
   async function prototypeStatus(entry) {
-    if (entry.kind !== "prototype") return { available: false }
+    if (entry.kind !== "prototype")
+      return { available: false, message: "Prototype server unavailable." }
+    if (!entry.context) throw new Error("The connected prototype has no canvas context.")
     const context = entry.context
     const status = await checkServer(context.normalizedUrl)
     if (entry.context !== context || entry.connecting || entry.closed) return { available: true }
     if (!status.available) {
       entry.kind = "missing"
-      entry.disconnect(status.message)
+      entry.disconnect()
     }
     return status
   }
-
   function openResult(entry) {
     return {
       title: "Preview",
@@ -1102,25 +1146,21 @@ export async function registerPrototypeCanvas(
       url: entry.url,
     }
   }
-
   async function closeEntry(entry) {
     entry.closed = true
     entry.agentCommands?.close()
     await Promise.all([entry.close(), entry.prototype?.close(), entry.devServer?.release()])
   }
-
   function requireOpenPrototypeEntry(instanceId) {
     const entry = requireOpenEntry(instanceId)
-    if (entry.kind !== "prototype") {
+    if (!isConnectedEntry(entry)) {
       throw new CanvasError(
         "prototype_url_missing",
         "Scan for running servers in the canvas and select Connect.",
       )
     }
-
     return entry
   }
-
   function requireOpenEntry(instanceId) {
     const entry = servers.get(instanceId)
     if (!entry) {
@@ -1135,7 +1175,45 @@ export async function registerPrototypeCanvas(
     if (error instanceof CanvasError) {
       return error
     }
-
     return new CanvasError(code, error instanceof Error ? error.message : String(error))
   }
+}
+function isConnectedEntry(entry) {
+  return (
+    entry.kind === "prototype" &&
+    entry.context !== undefined &&
+    entry.prototype !== undefined &&
+    entry.agentCommands !== undefined
+  )
+}
+function prototypeInput(value) {
+  if (value == null) return {}
+  if (!isRecord(value)) throw new Error("The prototype connection must be an object.")
+  const input = {}
+  if (value.improvementThreadsSample !== undefined) {
+    if (typeof value.improvementThreadsSample !== "boolean")
+      throw new Error("The prototype connection has an invalid improvementThreadsSample.")
+    input.improvementThreadsSample = value.improvementThreadsSample
+  }
+  for (const field of [
+    "prototypeUrl",
+    "name",
+    "repository",
+    "branch",
+    "commitSha",
+    "publishedUrl",
+  ]) {
+    const fieldValue = value[field]
+    if (fieldValue === undefined) continue
+    if (typeof fieldValue !== "string")
+      throw new Error(`The prototype connection has an invalid ${field}.`)
+    if (field === "prototypeUrl" || field === "publishedUrl") {
+      const url = URL.parse(fieldValue)
+      if (!url) throw new Error(`${field} must be a valid HTTP or HTTPS URL.`)
+      if (url.protocol !== "http:" && url.protocol !== "https:")
+        throw new Error(`${field} must use HTTP or HTTPS.`)
+    }
+    input[field] = fieldValue
+  }
+  return input
 }
