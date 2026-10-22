@@ -216,13 +216,15 @@ class HubTracingTest < ActiveSupport::TestCase
 
   test "exporter replaces a timed-out OTLP connection before the next batch" do
     collector = TCPServer.new("127.0.0.1", 0)
-    connections = []
+    accepted_connections = Queue.new
+    completed_connections = Queue.new
     first_request = Queue.new
     release_first_response = Queue.new
     server = Thread.new do
       2.times do |index|
+        client = nil
         client = collector.accept
-        connections << client.peeraddr.fetch(1)
+        accepted_connections << index
         read_http_request(client)
         if index.zero?
           first_request << true
@@ -232,6 +234,7 @@ class HubTracingTest < ActiveSupport::TestCase
       rescue Errno::EPIPE, IOError
       ensure
         client&.close
+        completed_connections << index if client
       end
     end
     factories = 0
@@ -244,12 +247,14 @@ class HubTracingTest < ActiveSupport::TestCase
 
     first_export = Thread.new { exporter.export(originals, timeout: 0.05) }
     Timeout.timeout(1) { first_request.pop }
+    assert_equal 0, Timeout.timeout(1) { accepted_connections.pop }
     assert_equal OpenTelemetry::SDK::Trace::Export::TIMEOUT, Timeout.timeout(1) { first_export.value }
     release_first_response << true
     assert_equal OpenTelemetry::SDK::Trace::Export::SUCCESS, exporter.export(originals, timeout: 1)
+    assert_equal 1, Timeout.timeout(1) { accepted_connections.pop }
+    assert_equal [ 0, 1 ], 2.times.map { Timeout.timeout(1) { completed_connections.pop } }
     Timeout.timeout(1) { server.value }
     assert_equal 2, factories
-    assert_equal 2, connections.size
   ensure
     release_first_response&.push(true)
     first_export&.join(1)
@@ -291,6 +296,7 @@ class HubTracingTest < ActiveSupport::TestCase
     reader, writer = IO.pipe
     pid = fork do
       reader.close
+      exporter.reset_after_fork
       result = exporter.export(named_batch(template, "child after fork"), timeout: 1)
       shutdown = exporter.shutdown(timeout: 1)
       writer.write(Marshal.dump(export: result, shutdown:))
@@ -325,7 +331,7 @@ class HubTracingTest < ActiveSupport::TestCase
     server&.join(1)
   end
 
-  test "forked flush and shutdown replace inherited delegates before use" do
+  test "explicit fork reset replaces inherited delegates before flush and shutdown" do
     %i[force_flush shutdown].each do |operation|
       calls = []
       factories = 0
@@ -345,6 +351,7 @@ class HubTracingTest < ActiveSupport::TestCase
       reader, writer = IO.pipe
       pid = fork do
         reader.close
+        exporter.reset_after_fork
         result = exporter.public_send(operation, timeout: 1)
         writer.write(Marshal.dump(factories:, calls:, result:))
         writer.close

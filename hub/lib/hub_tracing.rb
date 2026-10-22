@@ -60,6 +60,7 @@ module HubTracing
     require "opentelemetry/instrumentation/action_pack"
     require "opentelemetry/instrumentation/active_job"
     require "opentelemetry/instrumentation/net/http"
+    require_relative "hub_tracing/batch_span_processor"
     require_relative "hub_tracing/exporter"
     require_relative "hub_tracing/data_filter"
     require_relative "hub_tracing/propagator"
@@ -67,7 +68,7 @@ module HubTracing
     span_exporter = Exporter.new(include_sensitive_data: include_sensitive_data) do
       OpenTelemetry::Exporter::OTLP::Exporter.new
     end
-    processor = OpenTelemetry::SDK::Trace::Export::BatchSpanProcessor.new(span_exporter)
+    processor = BatchSpanProcessor.new(span_exporter)
     OpenTelemetry::SDK.configure do |config|
       resource_service_name = \
         OpenTelemetry::SDK::Resources::Resource.default.attribute_enumerator.to_h["service.name"]

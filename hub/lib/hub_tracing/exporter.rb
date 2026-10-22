@@ -24,6 +24,15 @@ module HubTracing
       @pid = Process.pid
     end
 
+    def reset_after_fork
+      pid = Process.pid
+      return if @pid == pid
+
+      @exporter = @exporter_factory.call
+      @mutex = Mutex.new
+      @pid = pid
+    end
+
     def export(spans, timeout: nil)
       synchronize_exporter(timeout:) do |remaining_timeout|
         export_with_deadline(spans, timeout: remaining_timeout)
@@ -46,7 +55,6 @@ module HubTracing
 
     def synchronize_exporter(timeout:)
       deadline = monotonic_time + timeout if timeout
-      replace_inherited_exporter if @pid != Process.pid
       return TIMEOUT_RESULT unless lock_before(deadline)
 
       begin
@@ -57,13 +65,6 @@ module HubTracing
       ensure
         @mutex.unlock
       end
-    end
-
-    def replace_inherited_exporter
-      exporter = @exporter_factory.call
-      @mutex = Mutex.new
-      @exporter = exporter
-      @pid = Process.pid
     end
 
     def lock_before(deadline)
