@@ -308,6 +308,40 @@ class PrototypeRegistrationsTest < ActionDispatch::IntegrationTest
     assert_equal "A new direction", prototype.description
   end
 
+  test "keeps review edits unpinned after saving or a validation failure in the default view" do
+    payload = repository_payload(2001, "github/prototype")
+    stub_github_sign_in(repositories: [ payload ], permissions: { 2001 => "push" })
+    sign_in
+    repository = Repository.find_by!(github_id: 2001)
+    prototype = prototypes.create(repository:, branch_name: "prototype/welcome")
+    prototype.register!(name: "Welcome", author: User.find_by!(login: "octocat"))
+    builds.create_successful(prototype:)
+    path = repository_prototype_registration_path(repository.github_id, prototype)
+    review_path = repository_prototype_path(repository.github_id, prototype)
+
+    patch path, params: {
+      return_to: "review",
+      prototype: { name: "Updated", start_page: "/settings?tab=profile#details" }
+    }
+    assert_redirected_to review_path
+    assert_equal "Updated", prototype.reload.name
+    assert_equal "/settings?tab=profile#details", prototype.start_page
+    follow_redirect!
+    assert_response :success
+    assert_includes response.body, '"buildPinned":false'
+
+    patch path, params: {
+      return_to: "review",
+      prototype: { start_page: "https://example.com/elsewhere" }
+    }
+    assert_redirected_to review_path
+    follow_redirect!
+    assert_response :success
+    assert_includes response.body, "must be a route"
+    assert_includes response.body, '"buildPinned":false'
+    assert_equal "/settings?tab=profile#details", prototype.reload.start_page
+  end
+
   test "returns an edit from the review dialog to its selected successful Build" do
     payload = repository_payload(2001, "github/prototype")
     stub_github_sign_in(repositories: [ payload ], permissions: { 2001 => "push" })

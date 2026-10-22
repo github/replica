@@ -7,6 +7,7 @@ import type { usePrototypeReview } from "@hooks/use-prototype-review"
 import type { ReviewCommentsCopy } from "@utils/review-comment/types"
 
 export interface PrototypesShowPageData extends PrototypeWorkspaceData {
+  buildPinned: boolean
   mentionCandidatesPath?: string
   mentionCopy?: MentionSource["copy"]
   initialCommentId?: number
