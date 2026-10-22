@@ -11,7 +11,7 @@ Read the [root instructions](../AGENTS.md) and [shared guides](../docs/README.md
 - [Shared documentation conventions](../docs/documentation-conventions.md) for discussions, product decisions, prose, and handoffs.
 - [Testing and operations](docs/testing-and-operations.md) for review and verification.
 - [Architecture](docs/architecture.md) and the affected product guide for system boundaries and current behavior.
-- [Storybook](docs/storybook.md#ui-changes-and-pull-request-evidence) for UI changes, story coverage, and PR screenshots.
+- [Storybook](docs/storybook.md#ui-changes-and-pull-request-evidence) for UI changes, story coverage and cleanup, and PR screenshots.
 
 ## Working rules
 

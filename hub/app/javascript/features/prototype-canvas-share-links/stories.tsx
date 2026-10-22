@@ -85,20 +85,6 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Empty: Story = {}
-export const MandatorySevenDayMaximum: Story = {
-  args: {
-    state: {
-      ...state,
-      context: {
-        ...state.context!,
-        prototype: {
-          ...state.context!.prototype,
-          shareLinkExpirationOptions: ["one_day", "seven_days"],
-        },
-      },
-    },
-  },
-}
 export const ThirtyDayMaximum: Story = {
   args: {
     state: {

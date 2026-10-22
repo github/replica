@@ -72,11 +72,6 @@ export const Single: Story = {
   },
 }
 
-export const Dark: Story = {
-  ...Single,
-  globals: { colorMode: "night" },
-}
-
 export const UpperRightPin: Story = {
   args: {
     threads: [singleReviewThread],

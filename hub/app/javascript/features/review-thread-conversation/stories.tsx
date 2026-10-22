@@ -92,8 +92,6 @@ export const ReadOnlyConversation: Story = {
   },
 }
 
-export const Dark: Story = { globals: { colorMode: "night" } }
-
 export const Multiple: Story = {
   args: {
     thread: repliedReviewThread,

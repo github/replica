@@ -64,4 +64,3 @@ export const TruncatedChanges: Story = {
     },
   },
 }
-export const Dark: Story = { globals: { colorMode: "night" } }

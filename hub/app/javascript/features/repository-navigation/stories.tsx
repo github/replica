@@ -96,17 +96,6 @@ export const HubAdministratorCollapsed: Story = {
   args: { ...HubAdministrator.args, collapsed: true },
 }
 
-export const RepositoryAdministrator: Story = {
-  args: {
-    data: {
-      ...meta.args.data,
-      securityAuditLabel: "Security audit",
-      securityAuditPath: "/repositories/2001/security_audit",
-    },
-  },
-  play: HubAdministrator.play,
-}
-
 export const OrdinaryAccountMenu: Story = {
   play: HubAdministrator.play,
 }

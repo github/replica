@@ -30,3 +30,20 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Ready: Story = {}
+
+export const WithControls: Story = {
+  args: {
+    controlsIdentity: "storybook-preview-controls",
+    address: new URL("/prototype-preview/build-controls/index.html", window.location.href).href,
+    previewUrl: new URL("/prototype-preview/build-controls/index.html", window.location.href).href,
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(await canvas.findByRole("button", { name: "Controls" }))
+    await canvas.findByRole("textbox", { name: "Title" })
+  },
+}
+
+export const MinimizedControls: Story = {
+  ...WithControls,
+  args: { ...WithControls.args, minimized: true },
+}

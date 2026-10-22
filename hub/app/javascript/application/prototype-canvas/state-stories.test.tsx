@@ -10,6 +10,8 @@ import * as connectionStories from "@components/prototype-hub-connection-dialog/
 import * as controlsStories from "@components/prototype-controls-panel/stories"
 import * as hubStories from "@features/prototype-canvas-hub-panel/stories"
 import * as sharingStories from "@features/prototype-canvas-share-links/stories"
+import * as overlayStories from "@features/prototype-review-overlays/stories"
+import { reviewCommentsCopy } from "@utils/review-comment/en"
 
 const annotations = {
   decorators: [
@@ -26,8 +28,21 @@ const connection = composeStories(connectionStories, annotations)
 const controls = composeStories(controlsStories, annotations)
 const hub = composeStories(hubStories, annotations)
 const sharing = composeStories(sharingStories, annotations)
+const overlays = composeStories(overlayStories, annotations)
 
 describe("Canvas state stories", () => {
+  it("shows the failed comment state without losing the draft", async () => {
+    await overlays.CommentFailed.run({
+      canvas: within(document.body),
+      userEvent: userEvent.setup(),
+    })
+    expect(screen.getByText("Could not save your comment. Your draft is still here.")).toBeVisible()
+    expect(screen.getByRole("textbox", { name: reviewCommentsCopy.composerLabel })).toHaveValue(
+      "Please align this control with the content above it.",
+    )
+    expect(screen.getByRole("button", { name: reviewCommentsCopy.submitLabel })).toBeEnabled()
+  })
+
   it.each([
     ["invalid address", browser.InvalidAddress],
     ["cross-origin address", browser.CrossOriginAddress],

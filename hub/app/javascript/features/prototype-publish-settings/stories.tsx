@@ -49,4 +49,3 @@ export const Saving: Story = { args: { preference: { ...meta.args.preference, sa
 export const SaveFailed: Story = {
   args: { preference: { ...meta.args.preference, error: "Settings storage is unavailable." } },
 }
-export const Dark: Story = { globals: { colorMode: "night" } }

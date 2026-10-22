@@ -317,16 +317,3 @@ export const FreshLocalExample: Story = {
     },
   },
 }
-
-export const WriterWithoutUnlistedBranches: Story = {
-  args: {
-    data: {
-      ...data,
-      managePrototypesLabel: "Manage prototypes",
-      managePrototypesPath: "/repositories/2001/prototypes/manage",
-      prototypes: [welcomePrototype],
-      prototypesCountLabel: "1 prototype",
-      workflowInstallation: undefined,
-    },
-  },
-}

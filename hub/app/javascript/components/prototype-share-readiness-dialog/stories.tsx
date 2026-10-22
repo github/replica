@@ -58,10 +58,6 @@ export const Ready: Story = {
     readiness: { kind: "ready", title: readinessCopy.ready, detail: readinessCopy.readyDetail },
   },
 }
-export const Narrow: Story = {
-  ...Unpublished,
-  globals: { viewport: { value: "mobile" } },
-}
 export const WaitingForCopilot: Story = { args: { readiness: example("Waiting for Copilot") } }
 export const Queued: Story = { args: { readiness: example("Build queued") } }
 export const Building: Story = { args: { readiness: example("Building") } }

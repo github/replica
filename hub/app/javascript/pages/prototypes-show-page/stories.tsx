@@ -321,10 +321,6 @@ export const EditingDetailsWithoutStartPage: Story = {
   args: { initialInfoOpen: false, data: { ...data, startPage: null } },
 }
 
-export const CompactBranchInput: Story = {
-  args: { initialInfoOpen: false },
-}
-
 export const ExpandedBranchInput: Story = {
   args: { initialInfoOpen: false, initialComposerExpanded: true },
 }

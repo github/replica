@@ -113,4 +113,12 @@ export const CommentFailed: Story = {
       submitError: "Could not save your comment. Your draft is still here.",
     },
   },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.type(
+      canvas.getByRole("textbox", { name: reviewCommentsCopy.composerLabel }),
+      "Please align this control with the content above it.",
+    )
+    await userEvent.click(canvas.getByRole("button", { name: reviewCommentsCopy.submitLabel }))
+    await canvas.findByText("Could not save your comment. Your draft is still here.")
+  },
 }

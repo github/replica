@@ -275,26 +275,11 @@ export const Playground: Story = {
   },
 }
 export const Queued: Story = { args: { scenario: "Build queued" } }
-export const Loading: Story = { args: { scenario: "Loading" } }
-export const UnpublishedBranch: Story = { args: { scenario: "Unpublished branch" } }
 export const UnpushedChanges: Story = { args: { scenario: "Unpushed changes" } }
 export const AwaitingBuild: Story = { args: { scenario: "Awaiting build" } }
 export const Building: Story = { args: { scenario: "Building" } }
-export const RemoteCheckFailed: Story = { args: { scenario: "Remote check failed" } }
-export const DetachedCheckout: Story = { args: { scenario: "Detached checkout" } }
 export const Disconnected: Story = { args: { scenario: "Disconnected" } }
-export const ExpiredConnection: Story = { args: { scenario: "Expired connection" } }
-export const HubImportFailed: Story = { args: { scenario: "Hub import failed" } }
-export const WorkflowCheckFailed: Story = { args: { scenario: "Workflow check failed" } }
-export const WorkflowMissing: Story = { args: { scenario: "Workflow missing" } }
 export const CheckingRemoteBranch: Story = { args: { scenario: "Checking remote branch" } }
-export const HubUnavailable: Story = { args: { scenario: "Hub unavailable" } }
-export const HubAccessDenied: Story = { args: { scenario: "Hub access denied" } }
-export const CheckoutChanged: Story = { args: { scenario: "Checkout changed" } }
-export const DefaultBranch: Story = { args: { scenario: "Default branch" } }
-export const BranchAuthorshipRequired: Story = { args: { scenario: "Branch authorship required" } }
-export const RepositoryMismatch: Story = { args: { scenario: "Repository mismatch" } }
-export const AlreadyRegistered: Story = { args: { scenario: "Already registered" } }
 export const WaitingForCopilot: Story = {
   args: { scenario: "Waiting for Copilot" },
   render: (args) => (

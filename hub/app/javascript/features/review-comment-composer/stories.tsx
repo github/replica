@@ -42,8 +42,6 @@ type Story = StoryObj<typeof meta>
 
 export const Default: Story = {}
 
-export const Dark: Story = { globals: { colorMode: "night" } }
-
 export const SubmitShortcut: Story = {
   play: async ({ canvas, userEvent }) => {
     await userEvent.type(

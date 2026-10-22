@@ -60,10 +60,6 @@ export const Tinted: Story = {
   ],
 }
 
-export const Narrow: Story = {
-  globals: { viewport: { value: "mobile" } },
-}
-
 export const NoHistory: Story = { args: { canGoBack: false, canGoForward: false } }
 export const ForwardHistory: Story = { args: { canGoBack: true, canGoForward: true } }
 export const CrossOriginAddress: Story = {
