@@ -41,18 +41,27 @@ module HubTracing
     unless protocol == "http/protobuf"
       raise ArgumentError, "Hub tracing supports only the http/protobuf OTLP protocol"
     end
-    trace_endpoint = ENV.key?("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")
-    endpoint = ENV["OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"] || ENV["OTEL_EXPORTER_OTLP_ENDPOINT"]
+    endpoint_name = if ENV.key?("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")
+      "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"
+    elsif ENV.key?("OTEL_EXPORTER_OTLP_ENDPOINT")
+      "OTEL_EXPORTER_OTLP_ENDPOINT"
+    end
+    unless endpoint_name
+      raise ArgumentError,
+        "Hub tracing requires OTEL_EXPORTER_OTLP_TRACES_ENDPOINT or OTEL_EXPORTER_OTLP_ENDPOINT"
+    end
+    endpoint = ENV.fetch(endpoint_name)
     begin
-      uri = URI.parse(endpoint.to_s)
+      uri = URI.parse(endpoint)
     rescue URI::InvalidURIError
-      raise ArgumentError, "OTLP endpoint must be an absolute HTTP(S) URL", cause: nil
+      raise ArgumentError, "#{endpoint_name} must be an absolute HTTP(S) URL", cause: nil
     end
     unless %w[http https].include?(uri.scheme) && uri.host && !uri.host.empty? &&
         !uri.userinfo && !uri.query && !uri.fragment
-      raise ArgumentError, "OTLP endpoint must be an absolute HTTP(S) URL without credentials, query, or fragment"
+      raise ArgumentError,
+        "#{endpoint_name} must be an absolute HTTP(S) URL without credentials, query, or fragment"
     end
-    if trace_endpoint && uri.path.empty?
+    if endpoint_name == "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT" && uri.path.empty?
       raise ArgumentError, "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT must include a request path"
     end
     validate_otlp_headers!

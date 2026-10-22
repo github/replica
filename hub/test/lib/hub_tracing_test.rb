@@ -90,8 +90,16 @@ class HubTracingTest < ActiveSupport::TestCase
       { "REPLICA_OTEL_UNTRACED_HOSTS" => "::1/128" }
     ].each do |invalid|
       header_name = invalid.keys.find { _1.match?(/\AOTEL_EXPORTER_OTLP(?:_TRACES)?_HEADERS\z/) }
-      expected_message = header_name &&
+      endpoint_name = invalid.keys.find { _1.match?(/\AOTEL_EXPORTER_OTLP(?:_TRACES)?_ENDPOINT\z/) }
+      expected_message = if header_name
         "#{header_name} must contain comma-separated URL-encoded key=value headers"
+      elsif endpoint_name && invalid.fetch(endpoint_name).nil?
+        "Hub tracing requires OTEL_EXPORTER_OTLP_TRACES_ENDPOINT or OTEL_EXPORTER_OTLP_ENDPOINT"
+      elsif endpoint_name == "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT" &&
+          invalid.fetch(endpoint_name) == "http://collector.example"
+        "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT must include a request path"
+      end
+      expected_prefix = "#{endpoint_name} " if endpoint_name && !expected_message
       configuration = {
         "OTEL_TRACES_EXPORTER" => "otlp",
         "OTEL_EXPORTER_OTLP_ENDPOINT" => "http://collector.example"
@@ -101,10 +109,12 @@ class HubTracingTest < ActiveSupport::TestCase
           HubTracing.start!
         rescue ArgumentError => error
           expected_message = #{expected_message.inspect}
-          if expected_message
-            abort "unsanitized OTLP header error" unless error.message == expected_message
-            abort "OTLP header error retained its cause" if error.cause
-          end
+          expected_prefix = #{expected_prefix.inspect}
+          abort "unexpected configuration error: \#{error.message}" \
+            if expected_message && error.message != expected_message
+          abort "configuration error did not name #{endpoint_name}: \#{error.message}" \
+            if expected_prefix && !error.message.start_with?(expected_prefix)
+          abort "configuration error retained its cause" if error.cause
           puts error.full_message(highlight: false)
           exit 42
         end

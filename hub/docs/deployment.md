@@ -52,7 +52,9 @@ OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://replica-otel-dashboard:18890/v1/traces
 OTEL_EXPORTER_OTLP_TRACES_PROTOCOL=http/protobuf
 ```
 
-Open <http://localhost:18888/traces>, use Hub, and confirm Rails requests and jobs appear. The command exposes the unsecured dashboard only on the local machine and leaves its OTLP receiver on the private Compose network. It is for temporary local inspection, not production retention. Stop it with `docker stop replica-otel-dashboard`.
+Open <http://localhost:18888/traces>, use Hub, and confirm Rails requests and jobs appear. The command exposes the unsecured dashboard only on the local machine and leaves its OTLP receiver on the private Compose network. It is for temporary local inspection, not production retention.
+
+When inspection is complete, first set `OTEL_TRACES_EXPORTER=none` or configure a replacement recipient, then restart every Hub web and job container. Stop the local viewer afterward with `docker stop replica-otel-dashboard`. Stopping it while Hub still targets it causes later batches to fail and log delivery errors.
 
 | Setting | Purpose |
 | --- | --- |
