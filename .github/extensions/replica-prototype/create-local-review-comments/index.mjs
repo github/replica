@@ -18,10 +18,13 @@ function storedDraft(input) {
   const value = readHubObject(input)
   const comment = readHubObject(value?.comment)
   const author = readHubObject(comment?.author)
+  const savedAnchor = readHubObject(comment?.anchor)
   if (
     !value ||
     !comment ||
     !author ||
+    !savedAnchor ||
+    (savedAnchor.kind !== "element" && savedAnchor.kind !== "area") ||
     typeof value.treeSha !== "string" ||
     !/^[0-9a-f]{40}$/.test(value.treeSha) ||
     (value.prototypeId !== null &&
@@ -66,7 +69,7 @@ function storedDraft(input) {
       id: comment.id,
       kind: "root",
       body: comment.body,
-      anchor: anchor(comment.anchor),
+      anchor: { ...savedAnchor, kind: savedAnchor.kind },
       draftRevisionId: comment.draftRevisionId,
       createdAt: comment.createdAt,
       updatedAt: comment.updatedAt,

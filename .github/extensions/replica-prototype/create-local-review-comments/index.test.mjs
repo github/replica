@@ -65,6 +65,8 @@ describe("createLocalReviewComments()", () => {
       for (const corrupt of [
         {},
         [{ ...saved[0], comment: { ...saved[0].comment, author: null } }],
+        [{ ...saved[0], comment: { ...saved[0].comment, anchor: null } }],
+        [{ ...saved[0], comment: { ...saved[0].comment, anchor: { kind: "script" } } }],
         [{ ...saved[0], sendingAt: "2026-10-21T12:00:00Z" }],
       ]) {
         const text = JSON.stringify(corrupt)
