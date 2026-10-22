@@ -103,6 +103,80 @@ class HubTracingTest < ActiveSupport::TestCase
     assert discarded, "timed-out delegate was not discarded"
   end
 
+  test "flush times out while another export holds the lifecycle lock" do
+    entered = Queue.new
+    release = Queue.new
+    flush_calls = 0
+    delegate = Object.new
+    delegate.define_singleton_method(:export) do |_, timeout:|
+      entered << true
+      release.pop
+      OpenTelemetry::SDK::Trace::Export::SUCCESS
+    end
+    delegate.define_singleton_method(:force_flush) do |timeout:|
+      flush_calls += 1
+      OpenTelemetry::SDK::Trace::Export::SUCCESS
+    end
+    delegate.define_singleton_method(:shutdown) do |timeout:|
+      OpenTelemetry::SDK::Trace::Export::SUCCESS
+    end
+    exporter = HubTracing::Exporter.new { delegate }
+    export = Thread.new { exporter.export([], timeout: nil) }
+    Timeout.timeout(1) { entered.pop }
+
+    flush = Thread.new { exporter.force_flush(timeout: 0.01) }
+
+    assert flush.join(0.2), "flush waited beyond its caller timeout"
+    assert_equal OpenTelemetry::SDK::Trace::Export::TIMEOUT, flush.value
+    assert_equal 0, flush_calls
+  ensure
+    release&.push(true)
+    export&.join(1)
+    flush&.join(1)
+    exporter&.shutdown(timeout: 1)
+  end
+
+  test "flush passes only its remaining timeout after waiting for the lifecycle lock" do
+    entered = Queue.new
+    release = Queue.new
+    flush_started = Queue.new
+    flush_timeouts = Queue.new
+    delegate = Object.new
+    delegate.define_singleton_method(:export) do |_, timeout:|
+      entered << true
+      release.pop
+      OpenTelemetry::SDK::Trace::Export::SUCCESS
+    end
+    delegate.define_singleton_method(:force_flush) do |timeout:|
+      flush_timeouts << timeout
+      OpenTelemetry::SDK::Trace::Export::SUCCESS
+    end
+    delegate.define_singleton_method(:shutdown) do |timeout:|
+      OpenTelemetry::SDK::Trace::Export::SUCCESS
+    end
+    exporter = HubTracing::Exporter.new { delegate }
+    export = Thread.new { exporter.export([], timeout: nil) }
+    Timeout.timeout(1) { entered.pop }
+    flush = Thread.new do
+      flush_started << true
+      exporter.force_flush(timeout: 1)
+    end
+    Timeout.timeout(1) { flush_started.pop }
+    Timeout.timeout(1) { Thread.pass until flush.status == "sleep" }
+    sleep 0.05
+    release << true
+
+    assert_equal OpenTelemetry::SDK::Trace::Export::SUCCESS, Timeout.timeout(1) { flush.value }
+    remaining = Timeout.timeout(1) { flush_timeouts.pop }
+    assert_operator remaining, :>, 0
+    assert_operator remaining, :<, 1
+  ensure
+    release&.push(true)
+    export&.join(1)
+    flush&.join(1)
+    exporter&.shutdown(timeout: 1)
+  end
+
   test "exporter replaces a timed-out OTLP connection before the next batch" do
     collector = TCPServer.new("127.0.0.1", 0)
     connections = []

@@ -12,6 +12,7 @@ module HubTracing
     ].freeze
     SENSITIVE_ATTRIBUTES = %w[db.query.text replica.job.arguments].freeze
     EXCEPTION_ATTRIBUTES = %w[exception.type exception.message exception.stacktrace].freeze
+    TIMEOUT_RESULT = OpenTelemetry::SDK::Trace::Export::TIMEOUT
 
     def initialize(include_sensitive_data: false, &exporter_factory)
       raise ArgumentError, "exporter factory is required" unless exporter_factory
@@ -24,22 +25,38 @@ module HubTracing
     end
 
     def export(spans, timeout: nil)
-      synchronize_exporter { export_with_deadline(spans, timeout:) }
+      synchronize_exporter(timeout:) do |remaining_timeout|
+        export_with_deadline(spans, timeout: remaining_timeout)
+      end
     end
 
     def shutdown(timeout: nil)
-      synchronize_exporter { @exporter.shutdown(timeout:) }
+      synchronize_exporter(timeout:) do |remaining_timeout|
+        @exporter.shutdown(timeout: remaining_timeout)
+      end
     end
 
     def force_flush(timeout: nil)
-      synchronize_exporter { @exporter.force_flush(timeout:) }
+      synchronize_exporter(timeout:) do |remaining_timeout|
+        @exporter.force_flush(timeout: remaining_timeout)
+      end
     end
 
     private
 
-    def synchronize_exporter(&operation)
+    def synchronize_exporter(timeout:)
+      deadline = monotonic_time + timeout if timeout
       replace_inherited_exporter if @pid != Process.pid
-      @mutex.synchronize(&operation)
+      return TIMEOUT_RESULT unless lock_before(deadline)
+
+      begin
+        remaining_timeout = deadline && deadline - monotonic_time
+        return TIMEOUT_RESULT if remaining_timeout && remaining_timeout <= 0
+
+        yield remaining_timeout
+      ensure
+        @mutex.unlock
+      end
     end
 
     def replace_inherited_exporter
@@ -47,6 +64,23 @@ module HubTracing
       @mutex = Mutex.new
       @exporter = exporter
       @pid = Process.pid
+    end
+
+    def lock_before(deadline)
+      return @mutex.lock unless deadline
+
+      loop do
+        return true if @mutex.try_lock
+
+        remaining = deadline - monotonic_time
+        return false if remaining <= 0
+
+        sleep([ remaining, 0.001 ].min)
+      end
+    end
+
+    def monotonic_time
+      Process.clock_gettime(Process::CLOCK_MONOTONIC)
     end
 
     def export_with_deadline(spans, timeout:)
@@ -59,7 +93,7 @@ module HubTracing
     rescue Timeout::Error
       replace_timed_out_exporter
       OpenTelemetry.handle_error(message: "OTLP export exceeded its deadline; trace batch dropped")
-      OpenTelemetry::SDK::Trace::Export::TIMEOUT
+      TIMEOUT_RESULT
     end
 
     def replace_timed_out_exporter

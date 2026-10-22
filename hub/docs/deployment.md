@@ -80,7 +80,7 @@ Sentry documents a direct OTLP trace endpoint. Datadog provides a Collector expo
 
 The deployment operator controls the destination and credentials. Restrict recipients and network access through your deployment's outbound-network policy. Hub's repository analytics destination settings do not configure or restrict tracing.
 
-For mutual TLS, the exporter accepts `OTEL_EXPORTER_OTLP_TRACES_CLIENT_CERTIFICATE` and `OTEL_EXPORTER_OTLP_TRACES_CLIENT_KEY`, pointing to mounted client certificate and key files. Keep certificate verification enabled.
+For mutual TLS, the exporter accepts `OTEL_EXPORTER_OTLP_TRACES_CLIENT_CERTIFICATE` and `OTEL_EXPORTER_OTLP_TRACES_CLIENT_KEY`, pointing to a mounted client certificate and RSA private key. Keep certificate verification enabled.
 
 ### Trace-context boundaries
 
