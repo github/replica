@@ -120,6 +120,587 @@ function repositoryClient(comments = [{ ...root, prototype: firstPrototype }]) {
   return hub
 }
 
+function improvementNote(overrides = {}) {
+  const localId = randomUUID()
+  const requestId = randomUUID()
+  const snapshotAuthor = {
+    id: 42,
+    login: "mona_historical",
+    avatarUrl: "https://avatars.githubusercontent.com/u/42",
+  }
+  return {
+    id: 7,
+    kind: "improvement_note",
+    localId,
+    revision: 3,
+    status: "open",
+    body: "Improve the Save button",
+    anchor: root.anchor,
+    thread: {
+      originalStatus: "ready",
+      originalAuthor: snapshotAuthor,
+      messages: [
+        {
+          id: requestId,
+          role: "author",
+          body: "Keep its keyboard shortcut",
+          status: "open",
+          author: snapshotAuthor,
+        },
+        {
+          id: randomUUID(),
+          role: "copilot",
+          body: "The original request is ready; the shortcut needs follow-up.",
+          status: "ready",
+          requestIds: [localId],
+        },
+      ],
+    },
+    author: person,
+    createdAt: time,
+    updatedAt: "2026-10-03T10:00:00Z",
+    deletedAt: null,
+    buildNumber: 2,
+    viewerCanEdit: true,
+    viewerCanDelete: true,
+    ...overrides,
+  }
+}
+
+function improvementClient(comments, repositoryScope = false) {
+  const hub = repositoryScope ? repositoryClient(comments) : client(comments)
+  const request = hub.request
+  hub.request = async (route, options) => {
+    const url = new URL(route, hub.origin)
+    if (!url.pathname.endsWith("/review_comments")) return request(route, options)
+    hub.calls.push({ route, options })
+    const filter = url.searchParams.get("improvement_notes") ?? "exclude"
+    assert.ok(["exclude", "include", "only"].includes(filter))
+    const prototypeId = url.pathname.match(/\/prototypes\/(\d+)\//)?.[1]
+    return {
+      comments: structuredClone(
+        hub.comments.filter(
+          (record) =>
+            (!prototypeId || !repositoryScope || record.prototype.id === Number(prototypeId)) &&
+            (filter === "include" || (record.kind === "improvement_note") === (filter === "only")),
+        ),
+      ),
+      hasMore: false,
+      nextCursor: null,
+    }
+  }
+  return hub
+}
+
+describe("improvement note snapshot retrieval", () => {
+  for (const repositoryScope of [false, true]) {
+    const listing = repositoryScope ? "list_repository_comments" : "list_comments"
+    const reading = repositoryScope ? "get_repository_comment_thread" : "get_comment_thread"
+    function scoped(record) {
+      return repositoryScope ? { ...record, prototype: firstPrototype } : record
+    }
+
+    it(`${listing} keeps default exclusion and emits the requested Hub filter`, async () => {
+      await withStore(async (store) => {
+        const hub = improvementClient([scoped(root), scoped(improvementNote())], repositoryScope)
+        for (const improvementNotes of [undefined, "exclude", "include", "only"]) {
+          const start = hub.calls.length
+          const page = await reviewAction(
+            hub,
+            listing,
+            improvementNotes === undefined ? {} : { improvementNotes },
+            store,
+          )
+          assert.deepEqual(
+            page.threads.map((item) => item.kind).sort(),
+            improvementNotes === "include"
+              ? ["improvement_note", "root"]
+              : improvementNotes === "only"
+                ? ["improvement_note"]
+                : ["root"],
+          )
+          const reads = hub.calls
+            .slice(start)
+            .filter(({ route }) => route.includes("/review_comments"))
+          assert.equal(reads.length, 2)
+          for (const { route, options } of reads) {
+            const actual = new URL(route, hub.origin).searchParams.get("improvement_notes")
+            if (improvementNotes === undefined || improvementNotes === "exclude")
+              assert.ok(actual === null || actual === "exclude")
+            else assert.equal(actual, improvementNotes)
+            assert.equal(options.method, undefined)
+          }
+        }
+      })
+    })
+
+    it(`${reading} preserves real Hub requests and answers without colliding with review IDs`, async () => {
+      await withStore(async (store) => {
+        const note = scoped(improvementNote())
+        const hub = improvementClient([scoped(root), scoped(reply(8)), note], repositoryScope)
+        const page = await reviewAction(hub, listing, { improvementNotes: "include" }, store)
+        const ordinary = page.threads.find((item) => item.kind === "root")
+        const improvement = page.threads.find((item) => item.kind === "improvement_note")
+        assert.equal(ordinary.id, 7)
+        assert.deepEqual(
+          ordinary.replies.map((item) => item.id),
+          [8],
+        )
+        assert.equal(improvement.id, "improvement_note-7")
+        for (const key of [
+          "kind",
+          "localId",
+          "revision",
+          "status",
+          "body",
+          "anchor",
+          "thread",
+          "author",
+          "createdAt",
+          "updatedAt",
+          "buildNumber",
+          "deletedAt",
+        ])
+          assert.deepEqual(improvement[key], note[key])
+        assert.equal(improvement.replies, undefined)
+        assert.equal(improvement.replyRequestId, undefined)
+        assert.equal(improvement.unread, undefined)
+        assert.equal(improvement.threadComplete, true)
+        assert.equal(improvement.repliesHasMore, false)
+        assert.equal(improvement.repliesNextCursor, null)
+        if (repositoryScope) assert.deepEqual(improvement.prototype, firstPrototype)
+        const result = await reviewAction(
+          hub,
+          reading,
+          { target: page.target, snapshotId: page.snapshotId, threadId: improvement.id },
+          store,
+        )
+        assert.deepEqual(result.thread.thread, note.thread)
+        assert.equal(result.thread.id, improvement.id)
+        assert.equal(result.thread.replyRequestId, undefined)
+        const freshRead = new URL(hub.calls.at(-1).route, hub.origin)
+        assert.ok(["include", "only"].includes(freshRead.searchParams.get("improvement_notes")))
+        if (repositoryScope) assert.match(freshRead.pathname, /\/prototypes\/3\/review_comments$/)
+        assert.ok(hub.calls.every(({ options }) => !options.method && !options.interactive))
+      })
+    })
+
+    it(`${reading} returns bounded lossless note continuations after storage reload`, async () => {
+      await withStore(async (store, workspace) => {
+        const note = scoped(improvementNote())
+        note.thread.messages = Array.from({ length: 14 }, () => {
+          const id = randomUUID()
+          return [
+            { id, role: "author", status: "open", body: "😀".repeat(2400) },
+            {
+              id: randomUUID(),
+              role: "copilot",
+              status: "ready",
+              body: ["\\", '"', "\n"].join("").repeat(500),
+              requestIds: [note.localId, id],
+            },
+          ]
+        }).flat()
+        const hub = improvementClient([note], repositoryScope)
+        const page = await reviewAction(hub, listing, { improvementNotes: "only" }, store)
+        assert.ok(Buffer.byteLength(JSON.stringify(page)) <= 64 * 1024)
+        let thread = page.threads[0]
+        assert.equal(thread.threadComplete, false)
+        assert.equal(thread.repliesHasMore, true)
+        const messages = [...thread.thread.messages]
+        const cursors = new Set()
+        const reloaded = createCommentStore(workspace)
+        while (thread.repliesHasMore) {
+          assert.ok(!cursors.has(thread.repliesNextCursor))
+          cursors.add(thread.repliesNextCursor)
+          const result = await reviewAction(
+            hub,
+            reading,
+            {
+              target: page.target,
+              snapshotId: page.snapshotId,
+              threadId: "improvement_note-7",
+              cursor: thread.repliesNextCursor,
+            },
+            reloaded,
+          )
+          assert.ok(Buffer.byteLength(JSON.stringify(result)) <= 64 * 1024)
+          thread = result.thread
+          assert.ok(thread.thread.messages.length > 0)
+          assert.equal(thread.thread.originalStatus, note.thread.originalStatus)
+          assert.deepEqual(thread.thread.originalAuthor, note.thread.originalAuthor)
+          assert.equal(thread.replyRequestId, undefined)
+          assert.equal(thread.replies, undefined)
+          messages.push(...thread.thread.messages)
+        }
+        assert.equal(thread.repliesNextCursor, null)
+        assert.deepEqual(messages, note.thread.messages)
+      })
+    })
+  }
+
+  it("notes have no read state, resolve only at resolved status, and match root creation dates", async () => {
+    await withStore(async (store) => {
+      const notes = ["open", "sent", "ready", "blocked", "resolved"].map((status, index) =>
+        improvementNote({
+          id: index + 1,
+          status,
+          thread: { originalStatus: status === "resolved" ? "ready" : status, messages: [] },
+        }),
+      )
+      const hub = improvementClient([root, ...notes])
+      for (const read of ["read", "unread"]) {
+        const page = await reviewAction(
+          hub,
+          "list_comments",
+          { improvementNotes: "include", read },
+          store,
+        )
+        assert.ok(page.threads.every((item) => item.kind === "root"))
+      }
+      for (const [resolution, ids] of [
+        ["resolved", ["improvement_note-5"]],
+        [
+          "unresolved",
+          ["improvement_note-1", "improvement_note-2", "improvement_note-3", "improvement_note-4"],
+        ],
+      ]) {
+        const page = await reviewAction(
+          hub,
+          "list_comments",
+          { improvementNotes: "only", resolution },
+          store,
+        )
+        assert.deepEqual(page.threads.map((item) => item.id).sort(), ids)
+      }
+      for (const [from, to, count] of [
+        [time, "2026-10-02T00:00:00Z", 5],
+        ["2026-09-30T00:00:00Z", time, 0],
+        ["2026-10-03T00:00:00Z", "2026-10-04T00:00:00Z", 0],
+      ]) {
+        const page = await reviewAction(
+          hub,
+          "list_comments",
+          { improvementNotes: "only", from, to },
+          store,
+        )
+        assert.equal(page.threads.length, count)
+      }
+      const tombstone = improvementNote({ body: null, thread: null, deletedAt: time })
+      const deleted = await reviewAction(
+        improvementClient([tombstone]),
+        "list_comments",
+        { improvementNotes: "only" },
+        store,
+      )
+      assert.equal(deleted.threads[0].body, null)
+      assert.equal(deleted.threads[0].thread, null)
+      assert.equal(deleted.threads[0].deletedAt, time)
+    })
+  })
+
+  it("binds list continuations to improvement filters without conflating numeric and note cursors", async () => {
+    await withStore(async (store) => {
+      const hub = improvementClient(
+        Array.from({ length: 12 }, (_, index) => improvementNote({ id: index + 1 })),
+      )
+      const page = await reviewAction(hub, "list_comments", { improvementNotes: "only" }, store)
+      assert.equal(page.hasMore, true)
+      for (const improvementNotes of ["exclude", "include", undefined]) {
+        const before = hub.calls.filter(({ route }) => route.includes("/review_comments")).length
+        await assert.rejects(
+          reviewAction(
+            hub,
+            "list_comments",
+            {
+              target: page.target,
+              cursor: page.nextCursor,
+              ...(improvementNotes ? { improvementNotes } : {}),
+            },
+            store,
+          ),
+          { code: "invalid_comment_request" },
+        )
+        assert.equal(
+          hub.calls.filter(({ route }) => route.includes("/review_comments")).length,
+          before,
+        )
+      }
+      const next = await reviewAction(
+        hub,
+        "list_comments",
+        { target: page.target, cursor: page.nextCursor, improvementNotes: "only" },
+        store,
+      )
+      assert.equal(next.hasMore, false)
+      assert.deepEqual(
+        [...page.threads, ...next.threads].map((item) => item.id),
+        Array.from({ length: 12 }, (_, index) => `improvement_note-${12 - index}`),
+      )
+    })
+  })
+
+  it("rejects an indivisible note message rather than dropping or truncating it", async () => {
+    await withStore(async (store) => {
+      const note = improvementNote({
+        body: "\u0000".repeat(9999) + "x",
+        thread: {
+          originalStatus: "open",
+          messages: [{ id: randomUUID(), role: "author", status: "open", body: "x".repeat(10000) }],
+        },
+      })
+      await assert.rejects(
+        reviewAction(
+          improvementClient([note]),
+          "list_comments",
+          { improvementNotes: "only" },
+          store,
+        ),
+        { code: "comment_response_limit", statusCode: 413 },
+      )
+    })
+  })
+
+  it("continues version two review snapshots without the new filter after storage reload", async () => {
+    await withStore(async (store, workspace) => {
+      const hub = client(Array.from({ length: 12 }, (_, index) => ({ ...root, id: index + 1 })))
+      const page = await reviewAction(hub, "list_comments", {}, store)
+      const file = `snapshot-${page.snapshotId}.json`
+      const saved = await store.read(file)
+      assert.equal(saved.scanVersion, 2)
+      delete saved.filters.improvementNotes
+      await store.write(file, saved)
+      const reloaded = createCommentStore(workspace)
+      for (const filter of [{}, { improvementNotes: "exclude" }]) {
+        const next = await reviewAction(
+          hub,
+          "list_comments",
+          { target: page.target, cursor: page.nextCursor, ...filter },
+          reloaded,
+        )
+        assert.deepEqual(
+          next.threads.map((item) => item.id),
+          [2, 1],
+        )
+        assert.equal(next.hasMore, false)
+        assert.equal(next.snapshotId, page.snapshotId)
+      }
+      for (const improvementNotes of ["include", "only", null])
+        await assert.rejects(
+          reviewAction(
+            hub,
+            "list_comments",
+            { target: page.target, cursor: page.nextCursor, improvementNotes },
+            reloaded,
+          ),
+          { code: "invalid_comment_request" },
+        )
+      assert.equal(hub.calls.filter(({ route }) => route.includes("/review_comments")).length, 2)
+    })
+  })
+
+  it("rejects reply cursors exchanged between review and note threads with the same numeric ID", async () => {
+    await withStore(async (store) => {
+      const note = improvementNote()
+      note.thread.messages = Array.from({ length: 11 }, () => ({
+        id: randomUUID(),
+        role: "author",
+        status: "open",
+        body: "Follow up",
+      }))
+      const hub = improvementClient([
+        root,
+        ...Array.from({ length: 11 }, (_, index) => reply(index + 8)),
+        note,
+      ])
+      const page = await reviewAction(hub, "list_comments", { improvementNotes: "include" }, store)
+      const review = page.threads.find((item) => item.id === 7)
+      const improvement = page.threads.find((item) => item.id === "improvement_note-7")
+      assert.equal(review.repliesHasMore, true)
+      assert.equal(improvement.repliesHasMore, true)
+      for (const [threadId, cursor] of [
+        [review.id, improvement.repliesNextCursor],
+        [improvement.id, review.repliesNextCursor],
+      ])
+        await assert.rejects(
+          reviewAction(
+            hub,
+            "get_comment_thread",
+            { target: page.target, snapshotId: page.snapshotId, threadId, cursor },
+            store,
+          ),
+          { code: "invalid_comment_request" },
+        )
+      assert.equal(hub.calls.filter(({ route }) => route.includes("/review_comments")).length, 2)
+    })
+  })
+
+  it("rejects same-revision content changes between scans and before thread retrieval", async () => {
+    await withStore(async (store) => {
+      const original = improvementNote()
+      const changes = [
+        (note) => {
+          note.revision++
+        },
+        (note) => {
+          note.body = "Changed original request"
+        },
+        (note) => {
+          note.thread.messages[0].status = "sent"
+          note.status = "sent"
+        },
+        (note) => {
+          note.thread.messages[1].body = "Changed answer"
+        },
+        (note) => {
+          note.thread.messages[1].requestIds.push(note.thread.messages[0].id)
+        },
+        (note) => {
+          note.thread.originalAuthor.login = "renamed_mona"
+        },
+        (note) => {
+          note.anchor = { ...note.anchor, selector: "#different" }
+        },
+      ]
+      for (const change of changes) {
+        for (const phase of ["scan", "thread"]) {
+          const hub = improvementClient([structuredClone(original)])
+          if (phase === "scan") {
+            const request = hub.request
+            let reads = 0
+            hub.request = async (route, options) => {
+              const response = await request(route, options)
+              if (route.includes("/review_comments") && ++reads === 1) change(hub.comments[0])
+              return response
+            }
+            await assert.rejects(
+              reviewAction(hub, "list_comments", { improvementNotes: "only" }, store),
+              { code: "comment_conflict" },
+            )
+          } else {
+            const page = await reviewAction(
+              hub,
+              "list_comments",
+              { improvementNotes: "only" },
+              store,
+            )
+            change(hub.comments[0])
+            await assert.rejects(
+              reviewAction(
+                hub,
+                "get_comment_thread",
+                {
+                  target: page.target,
+                  snapshotId: page.snapshotId,
+                  threadId: "improvement_note-7",
+                },
+                store,
+              ),
+              { code: "comment_conflict" },
+            )
+          }
+        }
+      }
+    })
+  })
+
+  it("rejects malformed note responses and preserves denial on the second scan", async () => {
+    await withStore(async (store) => {
+      const note = improvementNote()
+      const invalidNotes = [
+        { ...note, localId: "not-a-uuid" },
+        { ...note, revision: 0 },
+        { ...note, status: "resolved-ish" },
+        { ...note, thread: { ...note.thread, messages: null } },
+        { ...note, thread: { ...note.thread, messages: [{ ...note.thread.messages[0], id: 1 }] } },
+        {
+          ...note,
+          thread: {
+            ...note.thread,
+            messages: [{ ...note.thread.messages[1], requestIds: [randomUUID()] }],
+          },
+        },
+      ]
+      for (const malformed of invalidNotes)
+        await assert.rejects(
+          reviewAction(
+            improvementClient([malformed]),
+            "list_comments",
+            { improvementNotes: "include" },
+            store,
+          ),
+          { code: "invalid_comment_request" },
+        )
+      const hub = improvementClient([note])
+      const request = hub.request
+      let reads = 0
+      hub.request = async (route, options) => {
+        if (route.includes("/review_comments") && ++reads === 2)
+          throw Object.assign(new Error("Denied"), { statusCode: 403 })
+        return request(route, options)
+      }
+      await assert.rejects(
+        reviewAction(hub, "list_comments", { improvementNotes: "only" }, store),
+        { statusCode: 403 },
+      )
+    })
+  })
+
+  it("rejects invalid improvement filters before any Hub request", async () => {
+    await withStore(async (store) => {
+      const hub = improvementClient([])
+      for (const action of ["list_comments", "list_repository_comments"])
+        for (const improvementNotes of [null, "", "all", true, 1, [], {}])
+          await assert.rejects(reviewAction(hub, action, { improvementNotes }, store), {
+            code: "invalid_comment_request",
+          })
+      assert.deepEqual(hub.calls, [])
+    })
+  })
+
+  it("rejects invalid note IDs, review-only opt-ins and namespaced mutations before any Hub request", async () => {
+    await withStore(async (store) => {
+      const hub = improvementClient([])
+      for (const threadId of [
+        "improvement_note-0",
+        "improvement_note-7:0",
+        "improvement_note-9007199254740992",
+      ])
+        await assert.rejects(
+          reviewAction(
+            hub,
+            "get_comment_thread",
+            { target, snapshotId: randomUUID(), threadId },
+            store,
+          ),
+          { code: "invalid_comment_request" },
+        )
+      await assert.rejects(
+        reviewAction(
+          hub,
+          "list_repository_comment_summaries",
+          { improvementNotes: "include" },
+          store,
+        ),
+        { code: "invalid_comment_request" },
+      )
+      for (const action of ["mark_comment_read", "resolve_comment", "reply_to_comment"])
+        await assert.rejects(
+          reviewAction(
+            hub,
+            action,
+            action === "reply_to_comment"
+              ? { target, threadId: "improvement_note-7", body: "Reply", requestId: randomUUID() }
+              : { target, threadId: "improvement_note-7", activityVersion: 2 },
+            store,
+          ),
+          { code: "invalid_comment_request" },
+        )
+      assert.deepEqual(hub.calls, [])
+    })
+  })
+})
+
 const compactRoot = {
   id: root.id,
   body: root.body,
