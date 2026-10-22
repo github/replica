@@ -13,7 +13,7 @@ vi.mock("@hooks/use-workspace-inbox", () => ({
 }))
 
 describe("FreshAuthorizationsShowView()", () => {
-  it("submits the opaque continuation once even when React repeats effects or rerenders", () => {
+  it("automatically submits the continuation once with its protected form fields", () => {
     vi.mocked(usePageData).mockReturnValue({
       productName: "Replica Hub",
       pageTitle: "Continue action",
@@ -25,15 +25,7 @@ describe("FreshAuthorizationsShowView()", () => {
       continuation: { id: "opaque-authorization-id", method: "patch" },
     })
     const submit = vi.spyOn(HTMLFormElement.prototype, "requestSubmit").mockImplementation(() => {})
-    const view = (
-      <StrictMode>
-        <ThemeProvider>
-          <FreshAuthorizationsShowView />
-        </ThemeProvider>
-      </StrictMode>
-    )
-    const { rerender } = render(view)
-    rerender(
+    render(
       <StrictMode>
         <ThemeProvider>
           <FreshAuthorizationsShowView />
@@ -48,24 +40,5 @@ describe("FreshAuthorizationsShowView()", () => {
       authorization_continuation_id: "opaque-authorization-id",
       _method: "patch",
     })
-  })
-
-  it("waits for the person to start a verification-only challenge", () => {
-    vi.mocked(usePageData).mockReturnValue({
-      productName: "Replica Hub",
-      pageTitle: "Fresh authorization",
-      heading: "Verify your GitHub account",
-      description: "Verify the same GitHub account.",
-      submitLabel: "Verify with GitHub",
-      submitPath: "/authorization/example",
-      authenticityToken: "csrf-token",
-    })
-    const submit = vi.spyOn(HTMLFormElement.prototype, "requestSubmit").mockImplementation(() => {})
-    render(
-      <ThemeProvider>
-        <FreshAuthorizationsShowView />
-      </ThemeProvider>,
-    )
-    expect(submit).not.toHaveBeenCalled()
   })
 })

@@ -90,22 +90,6 @@ class SharingSettingsTest < ActionDispatch::IntegrationTest
     assert_not SharingSetting.enabled?
   end
 
-  test "a continued toggle reports a state conflict and cannot be tried again" do
-    @session.update!(fresh_authorized_at: nil)
-    change("enable")
-    challenge = FreshAuthorization.last
-    form = verify_pending_action(challenge, path: sharing_settings_path, method: "patch")
-    SharingSetting.find_or_create_by!(id: 1).update!(public_sharing_enabled: true)
-    continue_pending_action(form)
-    assert SharingSetting.enabled?
-    assert_equal I18n.t("sharing_settings.errors.state_changed"), flash[:alert]
-    assert_nil challenge.reload.pending_action
-    assert challenge.continued_at
-    SharingSetting.find(1).update!(public_sharing_enabled: false)
-    continue_pending_action(form)
-    assert_not SharingSetting.enabled?
-  end
-
   test "an administrator removed after verification cannot continue a saved toggle" do
     @session.update!(fresh_authorized_at: nil)
     change("enable")

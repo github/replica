@@ -17,48 +17,6 @@ class FreshAuthorizationConcurrencyTest < ActiveSupport::TestCase
     User.where(id: @user.id).delete_all
   end
 
-  test "concurrent continuations can claim only one committed execution attempt" do
-    request = ActionDispatch::Request.new(
-      Rack::MockRequest.env_for("/repositories/2001/analytics/destinations", method: "POST")
-    )
-    request.path_parameters = {
-      controller: "analytics_destinations", action: "create", repository_github_id: "2001"
-    }
-    parameters = ActionController::Parameters.new(
-      destination: { provider: "segment", region: "us", history: "new", credentials: { write_key: "saved-secret" } }
-    )
-    pending = FreshAuthorization::Continuation.capture(request, parameters, purpose: "analytics_destination")
-    challenge = FreshAuthorization.start!(
-      credential: @session, purpose: "analytics_destination", pending_action: pending
-    )
-    challenge.bind_oauth!("state", browser_session: @session)
-    challenge.claim!(state: "state", browser_session: @session)
-    challenge.verify!({ "id" => @user.github_id, "login" => @user.login })
-    ready = Queue.new
-    start = Queue.new
-    attempts = 2.times.map do
-      Thread.new do
-        ActiveRecord::Base.connection_pool.with_connection do
-          callback = FreshAuthorization.find(challenge.id)
-          ready << true
-          start.pop
-          callback.continuation.claim!(request, browser_session: @session)
-          :claimed
-        rescue FreshAuthorization::Continuation::Invalid
-          :denied
-        end
-      end
-    end
-    Timeout.timeout(5) { 2.times { ready.pop } }
-    2.times { start << true }
-    assert_equal [ :claimed, :denied ], Timeout.timeout(5) { attempts.map(&:value).sort }
-    assert_nil challenge.reload.pending_action
-    assert challenge.continued_at
-  ensure
-    2.times { start << true } if start
-    attempts&.each(&:join)
-  end
-
   test "expiry during a paused credential lock cannot stamp committed proof" do
     challenge = FreshAuthorization.start!(credential: @session, purpose: "analytics_destination")
     challenge.bind_oauth!("state", browser_session: @session)

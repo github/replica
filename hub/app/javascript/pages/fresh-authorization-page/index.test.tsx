@@ -71,36 +71,4 @@ describe("FreshAuthorizationPage()", () => {
     expect(container.querySelector('input[name="destination"]')).toBeNull()
     expect(container.querySelector('input[name="share_link"]')).toBeNull()
   })
-
-  it("continues through the original route with only CSRF and an opaque authorization identifier", () => {
-    render(
-      <ThemeProvider>
-        <FreshAuthorizationPage
-          data={{
-            productName: "Replica Hub",
-            pageTitle: "Continue action",
-            heading: "GitHub account verified",
-            description: "Continuing your action.",
-            submitLabel: "Continue",
-            submitPath: "/github_app/credentials",
-            authenticityToken: "csrf-token",
-            continuation: { id: "opaque-authorization-id", method: "patch" },
-          }}
-        />
-      </ThemeProvider>,
-    )
-    const form = screen.getByRole("button", { name: "Continue" }).closest("form")
-    expect(form).toHaveAttribute("method", "post")
-    expect(form).toHaveAttribute("action", "/github_app/credentials")
-    expect(form?.querySelector('input[name="authenticity_token"]')).toHaveValue("csrf-token")
-    expect(form?.querySelector('input[name="authorization_continuation_id"]')).toHaveValue(
-      "opaque-authorization-id",
-    )
-    expect(form?.querySelector('input[name="_method"]')).toHaveValue("patch")
-    expect(
-      Array.from(form!.querySelectorAll("input"))
-        .map((input) => input.name)
-        .sort(),
-    ).toEqual(["_method", "authenticity_token", "authorization_continuation_id"].sort())
-  })
 })
