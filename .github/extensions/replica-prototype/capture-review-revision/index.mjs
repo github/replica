@@ -1,11 +1,17 @@
 import { mkdtemp, rm } from "node:fs/promises"
-import os from "node:os"
 import path from "node:path"
 
 import { runCommand } from "../run-command/index.mjs"
+import { gitShaPattern } from "../identity-patterns/index.mjs"
 
 export async function captureReviewRevision(context) {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "replica-review-"))
+  const gitDirectory = await runCommand(
+    "git",
+    ["rev-parse", "--absolute-git-dir"],
+    context.repositoryPath,
+  )
+  if (!gitDirectory.ok) throw new Error("Could not locate the local review Git directory.")
+  const directory = await mkdtemp(path.join(gitDirectory.stdout.trim(), "replica-review-"))
   const env = { ...process.env, GIT_INDEX_FILE: path.join(directory, "index") }
   const config = ["-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null"]
   async function git(args, optional = false) {
@@ -26,7 +32,7 @@ export async function captureReviewRevision(context) {
     const head = (await git(["rev-parse", "HEAD"])).stdout.trim()
     const branch = (await git(["branch", "--show-current"])).stdout.trim()
     const headTree = (await git(["rev-parse", "HEAD^{tree}"])).stdout.trim()
-    if (!/^[0-9a-f]{40}$/.test(head) || !branch)
+    if (!gitShaPattern.test(head) || !branch)
       throw new Error("Open a committed, named branch before commenting.")
     await git(["read-tree", head])
     const files = (
@@ -83,7 +89,7 @@ export async function captureReviewRevision(context) {
     const untracked = (await git(["ls-files", "--others", "--exclude-standard"])).stdout
     if (currentHead !== head || currentBranch !== branch || !remaining.ok || untracked)
       throw new Error("The checkout changed while capturing this review revision. Try again.")
-    if (!/^[0-9a-f]{40}$/.test(treeSha))
+    if (!gitShaPattern.test(treeSha))
       throw new Error("Could not verify the local review source tree.")
     return { treeSha, commitSha: head, clean: treeSha === headTree }
   } finally {

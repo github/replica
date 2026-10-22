@@ -11,6 +11,7 @@ type CanvasContextInput = {
   branch?: unknown
   commitSha?: unknown
   publishedUrl?: string | null
+  improvementThreadsSample?: boolean
   sessionId?: string
   sessionWorkspacePath?: string
   repositoryPath?: string
@@ -30,6 +31,7 @@ export async function createCanvasContext({
   branch,
   commitSha,
   publishedUrl,
+  improvementThreadsSample = false,
   sessionId,
   sessionWorkspacePath,
   repositoryPath,
@@ -46,6 +48,8 @@ export async function createCanvasContext({
   }
 
   const normalizedUrl = normalizePrototypeUrl(prototypeUrl)
+  if (typeof improvementThreadsSample !== "boolean")
+    throw new Error("improvementThreadsSample must be a boolean.")
   const stateUrl = new URL(normalizedUrl)
   stateUrl.hash = ""
   const resolvedRepositoryPath = path.resolve(repositoryPath)
@@ -81,6 +85,7 @@ export async function createCanvasContext({
     stateFile: path.join(stateDirectory, `${stateId}.json`),
     stateId,
     urlHost: new URL(normalizedUrl).host,
+    ...(improvementThreadsSample ? { improvementThreadsSample: true } : {}),
   }
 }
 
@@ -107,6 +112,7 @@ export async function currentCanvasContext(context: CanvasContext): Promise<Canv
     repository: currentRepository,
     branch: currentBranch,
     publishedUrl: context.target.publishedUrl,
+    improvementThreadsSample: context.improvementThreadsSample,
     sessionId: context.sessionId,
     sessionWorkspacePath: context.sessionWorkspacePath,
     repositoryPath: context.repositoryPath,

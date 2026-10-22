@@ -68,6 +68,10 @@ Plugin/Hub compatibility uses the supported Canvas interface, not matching relea
 
 Contributors can load uncommitted changes from a local Replica checkout with `copilot --plugin-dir` instead of editing an installed copy. See the [contributor workflow](../../../hub/docs/prototype-canvas.md#contributor-workflow) for local setup and asset build commands.
 
+## Improvement-note persistence
+
+New improvements remain local until their captured source matches a successful published Build, including on branches with an older Build. Clients capture the source without changing the real Git index. Capture failures or missing provenance still allow local use but prevent synchronization. Once uploaded, later changes retain the original Build identity and remain tied to their creator. See the [persistence guide](../../../hub/docs/prototype-canvas.md#improvement-note-persistence) for the runtime API.
+
 ## Learnings
 
 When this repository has a Hub connection and a Hub administrator connected Copilot, each prompt you submit gets the [learnings](../../../hub/docs/learnings.md) your repository's administrators accepted in Hub. The extension never sends your prompt to Hub. Copilot treats the learnings as guidance from your team, not as commands. Its first successful answer replaces earlier learning context, including after a restart or session resume; an empty answer explicitly clears it. Later unchanged answers add nothing. When learnings change, or Learnings is turned off, the next successful answer replaces the earlier guidance. It adds nothing when Hub's answer is not in the form that `replica-learning` writes. It never delays a prompt by more than three seconds and never fails it. Without a Hub connection it adds nothing and never asks you to connect. If you connected before the approval page mentioned learnings, disconnect and connect again to get them.
