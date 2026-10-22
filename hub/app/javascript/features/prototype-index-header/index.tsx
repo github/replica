@@ -4,6 +4,8 @@ import type { ReactNode } from "react"
 import { XIcon } from "@primer/octicons-react"
 import { Heading, Text } from "@primer/react-brand"
 
+import { HubIconButton } from "@components/hub-icon-button"
+
 import "./styles.css"
 
 /** Heads the prototype collection and filters its contents. */
@@ -13,20 +15,26 @@ export function PrototypeIndexHeader({
   heading,
   headingAs = "h1",
   onSearchChange,
+  onSearchSubmit,
   searchLabel,
   searchQuery,
+  searchMaxLength,
   searchShortcutEnabled = true,
   tools,
+  trailingTools,
 }: {
   action?: ReactNode
   clearSearchLabel: string
   heading: string
   headingAs?: "h1" | "h2"
   onSearchChange: (query: string) => void
+  onSearchSubmit?: () => void
   searchLabel: string
   searchQuery: string
+  searchMaxLength?: number
   searchShortcutEnabled?: boolean
   tools?: ReactNode
+  trailingTools?: ReactNode
 }) {
   const searchInputRef = useRef<HTMLInputElement>(null)
 
@@ -67,19 +75,26 @@ export function PrototypeIndexHeader({
             placeholder={searchLabel}
             value={searchQuery}
             onChange={(event) => onSearchChange(event.target.value)}
+            maxLength={searchMaxLength}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+                event.preventDefault()
+                onSearchSubmit?.()
+              }
+            }}
           />
           {searchQuery ? (
-            <button
-              type="button"
+            <HubIconButton
               className="prototype-index-header__clear-search"
+              icon={XIcon}
+              variant="invisible"
+              size="small"
               aria-label={clearSearchLabel}
               onClick={() => {
                 onSearchChange("")
                 searchInputRef.current?.focus()
               }}
-            >
-              <XIcon size={16} aria-hidden="true" />
-            </button>
+            />
           ) : null}
           <kbd aria-hidden="true">
             <span className="prototype-index-header__shortcut-symbol">⌘</span>
@@ -93,6 +108,10 @@ export function PrototypeIndexHeader({
             </Text>
           </kbd>
         </div>
+
+        {trailingTools ? (
+          <div className="prototype-index-header__trailing-tools">{trailingTools}</div>
+        ) : null}
       </div>
     </header>
   )

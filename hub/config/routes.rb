@@ -112,6 +112,7 @@ Rails.application.routes.draw do
           constraints: { memory_id: /mem_[0-9a-f]{24}/ }
       end
       get "new", to: "new_prototypes#show", as: :new_prototype
+      resources :prototype_authors, only: :index
       get "replica", to: "replica_browses#show", as: :replica_browse
       resources :templates, only: %i[index show], constraints: { id: /[a-z0-9]+(?:-[a-z0-9]+)*/ }
       get "templates/:template_id/builds/:build_id/screenshots/:size", to: "template_screenshots#show",
