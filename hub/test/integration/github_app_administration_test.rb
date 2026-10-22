@@ -64,12 +64,18 @@ class GithubAppAdministrationTest < ActionDispatch::IntegrationTest
     assert_redirected_to fresh_authorization_path(challenge.public_id)
     form = verify_pending_action(challenge, path: github_app_credentials_path, method: "patch")
     assert_equal "client-secret", @configuration.reload.client_secret
+    new_tempfile = Tempfile.method(:new)
+    Tempfile.define_singleton_method(:new) do |*|
+      raise Minitest::Assertion, "Continuation must not create a temporary file"
+    end
     continue_pending_action(form)
     assert_redirected_to github_app_path
     assert_equal "replacement-client-secret", @configuration.reload.client_secret
     assert_equal github_app_configurations.test_private_key, @configuration.private_key
     assert_equal I18n.t("github_app.credentials.saved"), flash[:notice]
     assert_not FreshAuthorization.exists?(challenge.id)
+  ensure
+    Tempfile.define_singleton_method(:new, new_tempfile) if new_tempfile
   end
 
   test "confirmed server-side webhook start and finish are separately authorized" do
@@ -165,7 +171,7 @@ class GithubAppAdministrationTest < ActionDispatch::IntegrationTest
     patch github_app_credentials_path, params: { client_secret: "never-store-this" }
     assert_equal I18n.t("github_app.errors.confirmation_required"), flash[:alert]
     patch github_app_credentials_path,
-      params: confirmation.merge(client_secret: "never-store-this", private_key: "not-an-upload")
+      params: confirmation.merge(client_secret: "never-store-this", private_key: github_app_configurations.test_private_key)
     assert_equal I18n.t("github_app.errors.invalid_credentials"), flash[:alert]
     assert_not_includes flash.to_hash.to_s, "never-store-this"
     assert_not_requested :get, "#{GITHUB_API_URL}/app"

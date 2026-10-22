@@ -4,7 +4,6 @@ module FreshAuthorizationRequired
 
   included do
     before_action :restore_authorized_action
-    around_action :close_authorization_upload, prepend: true
     rescue_from FreshAuthorization::Continuation::Invalid, with: :continuation_unavailable
   end
 
@@ -50,22 +49,8 @@ module FreshAuthorizationRequired
     challenge = FreshAuthorization.find_by(public_id: params[:authorization_continuation_id])
     raise FreshAuthorization::Continuation::Invalid if challenge.nil?
 
-    attributes = challenge.continuation.claim!(request, browser_session: Current.session)
-    if controller_path == "github_app_credentials"
-      @authorization_upload = Tempfile.new("replica-credentials")
-      @authorization_upload.write(attributes.delete("private_key"))
-      @authorization_upload.rewind
-      attributes["private_key"] = ActionDispatch::Http::UploadedFile.new(
-        tempfile: @authorization_upload, filename: "private-key.pem", type: "application/x-pem-file"
-      )
-    end
-    self.params = ActionController::Parameters.new(request.path_parameters).merge(attributes)
-  end
-
-  def close_authorization_upload
-    yield
-  ensure
-    @authorization_upload&.close!
+    @continued_action_parameters = challenge.continuation.claim!(request, browser_session: Current.session)
+    self.params = ActionController::Parameters.new(request.path_parameters).merge(@continued_action_parameters)
   end
 
   def continuation_unavailable
