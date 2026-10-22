@@ -114,7 +114,7 @@ The deployment operator controls the sensitive-data flag through environment con
 
 Hub always excludes raw HTTP URL paths and queries, request and response headers and bodies, arbitrary span events, span links, SQL bind values, and error status descriptions from export. When sensitive diagnostics are enabled, exception events retain only `exception.type`, `exception.message`, and `exception.stacktrace`. HTTP span names use methods and route templates instead of concrete URLs.
 
-Active Job execution continues the enqueueing trace when the job's serialized context is available. The SDK's bounded background queue exports batches outside the request path and resets its worker after process forks. Hub allows up to five seconds to flush at normal process exit. Collector or provider outages are logged and may drop traces; delivery is not durable and does not gate successful Hub requests. Forced termination can lose pending spans.
+Active Job execution and Hub's parallel GitHub calls continue their submitting trace when context is available. The SDK's bounded background queue exports batches outside the request path and resets its worker after process forks. Hub allows up to five seconds to flush at normal process exit. Collector or provider outages are logged and may drop traces; a timed-out HTTP connection is discarded before the next batch. Delivery is not durable and does not gate successful Hub requests. Forced termination can lose pending spans.
 
 Health checks at `/up` are excluded. Asset compilation with `SECRET_KEY_BASE_DUMMY` does not initialize tracing. This integration does not enable browser monitoring, metric or log export, or vendor-native error reporting. Providers that discard OTLP span events may not display the exported exceptions.
 

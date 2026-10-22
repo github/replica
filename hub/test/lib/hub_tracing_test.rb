@@ -1,5 +1,6 @@
 require "test_helper"
 require "open3"
+require "socket"
 require "opentelemetry/sdk"
 require "opentelemetry/exporter/otlp"
 require "opentelemetry/sdk/trace/export/in_memory_span_exporter"
@@ -43,6 +44,7 @@ class HubTracingTest < ActiveSupport::TestCase
       { "REPLICA_OTEL_TRUST_INCOMING_CONTEXT" => "credential-canary" },
       { "REPLICA_OTEL_TRUST_INCOMING_CONTEXT" => "" },
       { "REPLICA_OTEL_TRUST_INCOMING_CONTEXT" => "yes" },
+      { "REPLICA_OTEL_UNTRACED_HOSTS" => "" },
       { "REPLICA_OTEL_UNTRACED_HOSTS" => "upstream.example," },
       { "REPLICA_OTEL_UNTRACED_HOSTS" => ",upstream.example" },
       { "REPLICA_OTEL_UNTRACED_HOSTS" => "upstream.example, ,other.example" }
@@ -69,6 +71,7 @@ class HubTracingTest < ActiveSupport::TestCase
     delegate = Object.new
     entered = false
     completed = false
+    discarded = false
     delegate.define_singleton_method(:export) do |_, timeout:|
       entered = true
       sleep 0.25
@@ -77,11 +80,61 @@ class HubTracingTest < ActiveSupport::TestCase
     rescue StandardError
       OpenTelemetry::SDK::Trace::Export::SUCCESS
     end
-    exporter = HubTracing::Exporter.new(delegate)
+    delegate.define_singleton_method(:shutdown) do |timeout:|
+      discarded = true
+      OpenTelemetry::SDK::Trace::Export::SUCCESS
+    end
+    exporter = HubTracing::Exporter.new { delegate }
 
     assert_equal OpenTelemetry::SDK::Trace::Export::TIMEOUT, exporter.export([], timeout: 0.01)
     assert entered, "delegate was never called"
     refute completed, "delegate continued beyond the export deadline"
+    assert discarded, "timed-out delegate was not discarded"
+  end
+
+  test "exporter replaces a timed-out OTLP connection before the next batch" do
+    collector = TCPServer.new("127.0.0.1", 0)
+    connections = []
+    first_request = Queue.new
+    release_first_response = Queue.new
+    server = Thread.new do
+      2.times do |index|
+        client = collector.accept
+        connections << client.peeraddr.fetch(1)
+        read_http_request(client)
+        if index.zero?
+          first_request << true
+          release_first_response.pop
+        end
+        client.write("HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+      rescue Errno::EPIPE, IOError
+      ensure
+        client&.close
+      end
+    end
+    factories = 0
+    endpoint = "http://127.0.0.1:#{collector.local_address.ip_port}/v1/traces"
+    exporter = HubTracing::Exporter.new do
+      factories += 1
+      OpenTelemetry::Exporter::OTLP::Exporter.new(endpoint:)
+    end
+    originals, provider, _sensitive = traced_spans
+
+    first_export = Thread.new { exporter.export(originals, timeout: 0.05) }
+    Timeout.timeout(1) { first_request.pop }
+    assert_equal OpenTelemetry::SDK::Trace::Export::TIMEOUT, Timeout.timeout(1) { first_export.value }
+    release_first_response << true
+    assert_equal OpenTelemetry::SDK::Trace::Export::SUCCESS, exporter.export(originals, timeout: 1)
+    Timeout.timeout(1) { server.value }
+    assert_equal 2, factories
+    assert_equal 2, connections.uniq.size
+  ensure
+    release_first_response&.push(true)
+    first_export&.join(1)
+    exporter&.shutdown(timeout: 1)
+    provider&.shutdown(timeout: 1)
+    collector&.close
+    server&.join(1)
   end
 
   test "expired export deadlines do not send spans" do
@@ -91,7 +144,10 @@ class HubTracingTest < ActiveSupport::TestCase
       calls += 1
       OpenTelemetry::SDK::Trace::Export::SUCCESS
     end
-    exporter = HubTracing::Exporter.new(delegate)
+    delegate.define_singleton_method(:shutdown) do |timeout:|
+      OpenTelemetry::SDK::Trace::Export::SUCCESS
+    end
+    exporter = HubTracing::Exporter.new { delegate }
 
     [ 0, -1 ].each do |timeout|
       assert_equal OpenTelemetry::SDK::Trace::Export::TIMEOUT, exporter.export([], timeout:)
@@ -254,12 +310,20 @@ class HubTracingTest < ActiveSupport::TestCase
       true
     end.to_return(status: 200, body: "")
     delegate = OpenTelemetry::Exporter::OTLP::Exporter.new(endpoint: "http://collector.example/v1/traces")
-    [ HubTracing::Exporter.new(delegate, include_sensitive_data:), requests, intake ]
+    [ HubTracing::Exporter.new(include_sensitive_data:) { delegate }, requests, intake ]
   end
 
   def decoded_spans(payload)
     decoded = Opentelemetry::Proto::Collector::Trace::V1::ExportTraceServiceRequest.decode(payload)
     decoded.resource_spans.flat_map(&:scope_spans).flat_map(&:spans)
+  end
+
+  def read_http_request(socket)
+    request = +""
+    request << socket.readpartial(1024) until request.include?("\r\n\r\n")
+    headers, body = request.split("\r\n\r\n", 2)
+    content_length = headers[/\r\nContent-Length:\s*(\d+)/i, 1].to_i
+    socket.read(content_length - body.bytesize) if body.bytesize < content_length
   end
 
   def run_startup(configuration, script)

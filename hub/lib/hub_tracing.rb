@@ -12,9 +12,13 @@ module HubTracing
 
     include_sensitive_data = boolean_setting("REPLICA_OTEL_INCLUDE_SENSITIVE_DATA")
     trust_incoming_context = boolean_setting("REPLICA_OTEL_TRUST_INCOMING_CONTEXT")
-    untraced_hosts = ENV.fetch("REPLICA_OTEL_UNTRACED_HOSTS", "").split(",", -1).map(&:strip)
-    untraced_hosts = [] unless ENV.key?("REPLICA_OTEL_UNTRACED_HOSTS")
-    if untraced_hosts.any?(&:empty?)
+    untraced_hosts = if ENV.key?("REPLICA_OTEL_UNTRACED_HOSTS")
+      ENV.fetch("REPLICA_OTEL_UNTRACED_HOSTS").split(",", -1).map(&:strip)
+    else
+      []
+    end
+    if ENV.key?("REPLICA_OTEL_UNTRACED_HOSTS") &&
+        (untraced_hosts.empty? || untraced_hosts.any?(&:empty?))
       raise ArgumentError, "REPLICA_OTEL_UNTRACED_HOSTS must contain nonempty comma-separated hostnames"
     end
     untraced_hosts = untraced_hosts.map do |host|
@@ -46,9 +50,9 @@ module HubTracing
     require_relative "hub_tracing/data_filter"
     require_relative "hub_tracing/propagator"
 
-    span_exporter = Exporter.new \
-      OpenTelemetry::Exporter::OTLP::Exporter.new,
-      include_sensitive_data: include_sensitive_data
+    span_exporter = Exporter.new(include_sensitive_data: include_sensitive_data) do
+      OpenTelemetry::Exporter::OTLP::Exporter.new
+    end
     processor = OpenTelemetry::SDK::Trace::Export::BatchSpanProcessor.new(span_exporter)
     OpenTelemetry::SDK.configure do |config|
       config.service_name = ENV.fetch("OTEL_SERVICE_NAME", "replica-hub")
