@@ -11,6 +11,10 @@
   gap: 0.5rem;
 }
 
+.review-comment-filter-controls--compact .review-comment-filter-controls__search {
+  gap: var(--hub-space-4);
+}
+
 .review-comment-filter-controls__search-field {
   position: relative;
   flex: 1;
@@ -29,6 +33,12 @@
   color: var(--hub-fg-default);
   font-size: var(--brand-text-size-100);
   line-height: 1.25rem;
+}
+
+.review-comment-filter-controls--compact .review-comment-filter-controls__input {
+  height: var(--hub-space-32);
+  min-height: var(--hub-space-32);
+  padding: 0 0.625rem;
 }
 
 .review-comment-filter-controls__input:focus {
@@ -50,7 +60,8 @@
   transform: translateY(-50%);
 }
 
-.review-comment-filter-controls .review-comment-filter-controls__button {
+.review-comment-filter-controls:not(.review-comment-filter-controls--compact)
+  .review-comment-filter-controls__button {
   border-color: transparent;
 }
 

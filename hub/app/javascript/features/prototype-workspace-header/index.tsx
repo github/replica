@@ -10,7 +10,7 @@ import {
   SunIcon,
   XIcon,
 } from "@primer/octicons-react"
-import { ActionMenu, Button, Tooltip } from "@primer/react-brand"
+import { ActionMenu, Tooltip } from "@primer/react-brand"
 import { NavigationContext } from "@thoughtbot/superglue"
 import { useContext, useState } from "react"
 import type { CSSProperties, KeyboardEvent, MouseEvent } from "react"
@@ -43,7 +43,7 @@ export function PrototypeWorkspaceHeader({
   }
   const [buildMenu, setBuildMenu] = useState({
     align: "end" as "start" | "end",
-    width: 304,
+    maxWidth: null as number | null,
     height: 460,
   })
   const dark = resolvedColorMode === "dark"
@@ -162,16 +162,14 @@ export function PrototypeWorkspaceHeader({
         <span className="review-shell__controls-toolbar" ref={onControlsToolbarMount} />
       ) : null}
 
-      {!data.browseReplica && reviewControls ? (
-        <PrototypeReviewControls {...reviewControls} noBuild={!data.selectedBuild} />
-      ) : null}
-
       {!data.browseReplica && data.buildOptions.length > 0 ? (
         <div
           className="review-shell__build-menu"
           style={
             {
-              "--review-shell-build-menu-width": `${buildMenu.width}px`,
+              "--review-shell-build-menu-max-width": buildMenu.maxWidth
+                ? `${buildMenu.maxWidth}px`
+                : undefined,
               "--review-shell-build-menu-height": `${buildMenu.height}px`,
             } as CSSProperties
           }
@@ -197,10 +195,10 @@ export function PrototypeWorkspaceHeader({
                   Math.min(window.innerWidth, scrollport?.right ?? window.innerWidth) - 8
                 const spaceBefore = bounds.right - left
                 const spaceAfter = right - bounds.left
-                const align = spaceBefore >= 304 || spaceBefore >= spaceAfter ? "end" : "start"
+                const align = spaceBefore >= spaceAfter ? "end" : "start"
                 setBuildMenu({
                   align,
-                  width: Math.max(0, Math.min(304, align === "end" ? spaceBefore : spaceAfter)),
+                  maxWidth: Math.max(0, align === "end" ? spaceBefore : spaceAfter),
                   height: Math.max(
                     0,
                     Math.min(window.innerHeight, scrollport?.bottom ?? window.innerHeight) -
@@ -265,6 +263,10 @@ export function PrototypeWorkspaceHeader({
         </div>
       ) : null}
 
+      {!data.browseReplica && reviewControls ? (
+        <PrototypeReviewControls {...reviewControls} noBuild={!data.selectedBuild} />
+      ) : null}
+
       {!data.browseReplica ? (
         <Tooltip text={data.moreActionsLabel} type="description">
           <div className="review-shell__more-menu">
@@ -301,22 +303,18 @@ export function PrototypeWorkspaceHeader({
       ) : null}
 
       <div className="review-shell__actions-scroller">
-        <Tooltip text={data.closeLabel} type="description">
-          <Button
-            as="a"
-            href={data.closePath ? controlPath(data.closePath) : data.repositoryPath}
-            data-sg-visit="true"
-            aria-label={
-              data.closePath ? data.closeLabel : "Close and return to the prototype gallery"
-            }
-            variant="secondary"
-            size="small"
-            className="review-shell__close-action"
-            trailingVisual={<XIcon />}
-          >
-            <span className="review-shell__action-label">{data.closeLabel}</span>
-          </Button>
-        </Tooltip>
+        <HubIconButton
+          as="a"
+          href={data.closePath ? controlPath(data.closePath) : data.repositoryPath}
+          icon={XIcon}
+          size="small"
+          className="review-shell__close-action"
+          data-sg-visit="true"
+          aria-label={
+            data.closePath ? data.closeLabel : "Close and return to the prototype gallery"
+          }
+          description={data.closeLabel}
+        />
       </div>
     </PrototypeWorkspaceHeaderLayout>
   )

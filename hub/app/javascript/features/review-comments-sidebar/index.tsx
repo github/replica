@@ -43,6 +43,7 @@ export function ReviewCommentsSidebar({
       {notice}
 
       <ReviewCommentFilterControls
+        compact={!frame}
         filters={filters}
         participants={participants}
         showPins={showPins}
