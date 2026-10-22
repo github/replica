@@ -353,7 +353,7 @@ class CopilotConnectionTest < ActiveSupport::TestCase
 
       assert_not connection.reload.usable?, label
       assert_raises(CopilotConnection::Refused, label) { connection.access_token! }
-      assert_not_requested mint
+      assert_requested mint, times: 1
     end
   end
 
