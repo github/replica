@@ -14,6 +14,7 @@ import { readPrototypeStartPage } from "../read-prototype-start-page/index.mjs"
 import { refreshPrototypeStatus } from "../refresh-prototype-status/index.mjs"
 import { renderCanvasHtml } from "../render-canvas-html/index.mjs"
 import { requestPublish } from "../request-publish/index.mjs"
+import { requestFeedbackReview } from "../request-feedback-review/index.mjs"
 import { preparePublish } from "../prepare-publish/index.mjs"
 import { createPublishPreferences } from "../publish-preferences/index.mjs"
 import { samePublishTarget } from "../publish-target/index.mjs"
@@ -317,6 +318,18 @@ export async function startCanvasServer(initialContext, session, options = {}) {
         publishPreferences,
         localComments,
         localScope,
+        async (expectedContext, expectedHub) => {
+          const selected = await hubClient()
+          if (
+            context.stateFile !== expectedContext.stateFile ||
+            context.normalizedUrl !== expectedContext.normalizedUrl ||
+            selected?.origin !== expectedHub.origin
+          )
+            throw httpError(
+              409,
+              "Hub or canvas changed. Refresh before requesting a feedback review.",
+            )
+        },
       )
     } catch (error) {
       sendJson(
@@ -428,6 +441,7 @@ async function routeRequest(
   publishPreferences,
   localComments,
   localScope,
+  verifyFeedbackContext,
 ) {
   const requestUrl = new URL(request.url || "/", "http://127.0.0.1")
 
@@ -577,6 +591,16 @@ async function routeRequest(
   }
   if (requestUrl.pathname.startsWith("/api/hub/") && !hub) {
     throw httpError(409, "Enter a Hub URL before connecting.")
+  }
+  if (request.method === "POST" && requestUrl.pathname === "/api/hub/feedback-review") {
+    sendJson(
+      response,
+      202,
+      await requestFeedbackReview(context, session, hub, await readJson(request), {
+        verifyCurrent: () => verifyFeedbackContext(context, hub),
+      }),
+    )
+    return
   }
   if (
     request.method === "POST" &&

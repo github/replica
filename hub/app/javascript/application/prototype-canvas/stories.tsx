@@ -30,6 +30,10 @@ function PublicationDemo({
     if (!fixture) throw new Error(`Unknown publication example: ${scenario}`)
     let state: PrototypeState | null = structuredClone(fixture.state)
     let hub: HubStatus | null = structuredClone(fixture.hub)
+    if (onImproveContext && hub) {
+      hub.repositoryAuthorized = true
+      hub.canReviewFeedback = true
+    }
     let remember = false
     if (withShareLinks && hub?.prototype)
       hub.prototype = { ...hub.prototype, canManageShareLinks: true }
@@ -96,7 +100,10 @@ function PublicationDemo({
       else if (path === "/api/hub/status") data = hub
       else if (path === "/api/hub/open" || path === "/api/hub/activity") data = hub
       else if (path === "/api/hub/discovery") data = hub
-      else if (
+      else if (path === "/api/hub/feedback-review" && onImproveContext) {
+        onImproveContext()
+        data = { requested: true }
+      } else if (
         path === "/api/publish/prepare" &&
         state?.stats.repository &&
         state.stats.branch &&
@@ -224,15 +231,12 @@ function PublicationDemo({
       window.clearTimeout(timer)
       window.fetch = originalFetch
     }
-  }, [scenario, withShareLinks, withComments])
+  }, [scenario, withShareLinks, withComments, onImproveContext])
   return (
     <div className="publication-demo">
       <div className="publication-demo-canvas">
         {ready ? (
-          <App
-            config={{ prototypeUrl, name: "Welcome prototype", token: "fixture-only" }}
-            onImproveContext={onImproveContext}
-          />
+          <App config={{ prototypeUrl, name: "Welcome prototype", token: "fixture-only" }} />
         ) : null}
       </div>
     </div>
@@ -334,7 +338,7 @@ export const ImproveContext: Story = {
     docs: {
       description: {
         story:
-          "Presentation for a connected repository maintainer. Improve context records a Storybook action without running a skill or calling Hub. The live canvas keeps it hidden until backend eligibility and dispatch are connected.",
+          "A connected repository maintainer can request feedback review through Improve context. This story records the request without running a skill or calling Hub.",
       },
     },
   },

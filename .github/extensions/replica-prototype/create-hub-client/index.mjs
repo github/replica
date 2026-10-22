@@ -312,6 +312,7 @@ export function createHubClient(context, options = {}) {
             repositoryAuthorized: true,
             reviewConnectionId: connectionIdentity(credential),
             canPublish: connection.canPublish,
+            canReviewFeedback: connection.canReviewFeedback === true,
             viewerLogin: connection.viewerLogin,
             repository: target.repository,
             commitSha: target.commitSha,
@@ -341,6 +342,7 @@ export function createHubClient(context, options = {}) {
             repositoryAuthorized: true,
             reviewConnectionId: connectionIdentity(credential),
             canPublish: connection.canPublish,
+            canReviewFeedback: connection.canReviewFeedback === true,
             viewerLogin: connection.viewerLogin,
             repository: target.repository,
             branch: target.branch,
@@ -397,6 +399,7 @@ export function createHubClient(context, options = {}) {
           branch: target.branch,
           commitSha: target.commitSha,
           prototype,
+          canReviewFeedback: prototype.canReviewFeedback === true,
           ...(reason ? { registrationReason: reason } : {}),
           ...(registrationError ? { registrationError } : {}),
         }
@@ -591,7 +594,10 @@ export function createHubClient(context, options = {}) {
         )
       )
         throw new Error("Hub returned invalid learnings.")
-      return { text: result.text, memories: memories.map(({ id, digest }) => ({ id, digest })) }
+      return {
+        text: result.text,
+        memories: memories.map(({ id, digest }) => ({ id, digest })),
+      }
     },
     async activity() {
       const { target, credential } = await connected()

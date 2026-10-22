@@ -67,7 +67,7 @@ describe("Toolbar()", () => {
     expect(screen.getByRole("button", { name: "More actions" })).toHaveFocus()
   })
 
-  it("explains context improvement on hover and keyboard focus without running it", async () => {
+  it("explains feedback review on hover and keyboard focus without running it", async () => {
     const onImproveContext = vi.fn()
     render(
       <ThemeProvider>
@@ -76,9 +76,7 @@ describe("Toolbar()", () => {
     )
     fireEvent.click(screen.getByRole("button", { name: "More actions" }))
     const item = screen.getByRole("menuitem", { name: "Improve context" })
-    expect(item).toHaveAccessibleDescription(
-      "Run a skill to improve repository context from user feedback.",
-    )
+    expect(item).toHaveAccessibleDescription("Review user feedback for reusable themes in chat.")
     const tooltip = document.getElementById(item.getAttribute("aria-describedby")!)!
     fireEvent.mouseEnter(item)
     await waitFor(() => expect(tooltip.matches(":popover-open")).toBe(true))

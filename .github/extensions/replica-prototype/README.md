@@ -16,7 +16,7 @@ After a live action times out, `get_action_diagnostics` reads bounded request an
 
 ## Install
 
-Choose either the current main branch or your organization's approved release. Both use [the same catalog](../../plugin/marketplace.json) and install the plugin with its bundled renderer and publish skill. If the `replica` marketplace is already registered, follow [Update or switch source](#update-or-switch-source) instead of adding it again.
+Choose either the current main branch or your organization's approved release. Both use [the same catalog](../../plugin/marketplace.json) and install the plugin with its bundled renderer, publishing skill and feedback-review skill. If the `replica` marketplace is already registered, follow [Update or switch source](#update-or-switch-source) instead of adding it again.
 
 To follow the repository's default branch:
 
@@ -75,6 +75,8 @@ When this repository has a Hub connection and a Hub administrator connected Copi
 Copilot CLI runs extensions only while its extensions feature is on. In Copilot CLI 1.0.96 that is an experimental feature: start Copilot CLI with `--experimental`, or run `/experimental on`. In prompt mode (`copilot -p`), it loads a repository's project copy only when `GITHUB_COPILOT_PROMPT_MODE_EXTENSIONS=true`.
 
 ## Agent access to Hub comments
+
+For connected users with GitHub Admin or Maintain access, **More actions → Improve context** requests the bundled `/review-hub-feedback` skill in the current chat. Hub checks permission again on click. The skill identifies reusable feedback themes; it does not generate solutions or edit context. See [maintainer feedback review](../../../hub/docs/prototype-canvas.md#maintainer-feedback-review) for access and recovery.
 
 Agents can use actions on the existing `replica-prototype` canvas to retrieve conversations for the current prototype or every reviewable prototype in the checkout's repository, across all Builds. Both use the approved repository connection. Repository retrieval requires a Hub deployment with the repository comments API; it needs no migration, MCP server or separate comment store. Open the canvas, but no running or connected local preview is required for comment actions. They reuse the saved Hub selection and approved credentials; missing authorization still requires connecting to Hub. Preview interactions and publishing still require a connected local preview.
 

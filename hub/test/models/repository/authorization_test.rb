@@ -108,6 +108,63 @@ class Repository::AuthorizationTest < ActiveSupport::TestCase
     assert_equal "read", repository.authorization.permission_for(user, fresh: true, configuration:, payload:)
   end
 
+  test "recognizes GitHub's maintain role, which the legacy permission reports as write" do
+    user = users.create
+    repository = repositories.create
+    configuration = installed_configuration
+    client = permission_client(user, "write", role_name: "maintain")
+    configuration.define_singleton_method(:github_client) { client }
+
+    assert_equal "maintain", repository.authorization.permission_for(user, fresh: true, configuration:)
+    assert repository.authorization.authorized?(user, minimum: :write, fresh: true, configuration:)
+    assert repository.authorization.authorized?(user, minimum: :maintain, fresh: true, configuration:)
+    assert_not repository.authorization.authorized?(user, minimum: :admin, fresh: true, configuration:)
+  end
+
+  test "ranks maintain above write and below admin" do
+    user = users.create
+    repository = repositories.create
+    configuration = installed_configuration
+    {
+      [ "write", "write" ] => false,
+      [ "push", nil ] => false,
+      [ "read", "triage" ] => false,
+      [ "admin", "admin" ] => true
+    }.each do |(permission, role_name), maintainer|
+      client = permission_client(user, permission, role_name:)
+      configuration.define_singleton_method(:github_client) { client }
+
+      assert_equal maintainer,
+        repository.authorization.authorized?(user, minimum: :maintain, fresh: true, configuration:),
+        "#{permission}/#{role_name.inspect}"
+    end
+  end
+
+  test "rejects a maintain role that GitHub reports for another stable user" do
+    user = users.create
+    repository = repositories.create
+    configuration = installed_configuration
+    client = permission_client(user, "write", role_name: "maintain", github_id: 9999)
+    configuration.define_singleton_method(:github_client) { client }
+
+    assert_equal "none", repository.authorization.permission_for(user, fresh: true, configuration:)
+  end
+
+  test "a fresh check sees a maintainer's demotion despite a cached maintain permission" do
+    user = users.create
+    repository = repositories.create
+    configuration = installed_configuration
+    cache = ActiveSupport::Cache::MemoryStore.new
+    client = permission_client(user, "write", role_name: "maintain")
+    configuration.define_singleton_method(:github_client) { client }
+    assert repository.authorization.authorized?(user, minimum: :maintain, configuration:, cache:)
+
+    client = permission_client(user, "write", role_name: "write")
+    configuration.define_singleton_method(:github_client) { client }
+
+    assert_not repository.authorization.authorized?(user, minimum: :maintain, fresh: true, configuration:, cache:)
+  end
+
   private
 
   def installed_configuration
@@ -116,11 +173,11 @@ class Repository::AuthorizationTest < ActiveSupport::TestCase
     configuration
   end
 
-  def permission_client(user, permission, github_id: user.github_id)
+  def permission_client(user, permission, github_id: user.github_id, role_name: nil)
     Object.new.tap do |client|
       github_repositories = Object.new
       github_repositories.define_singleton_method(:permission) do |_repository, _user, token:|
-        { "permission" => permission, "user" => { "id" => github_id } }
+        { "permission" => permission, "role_name" => role_name, "user" => { "id" => github_id } }.compact
       end
       client.define_singleton_method(:repositories) { github_repositories }
     end

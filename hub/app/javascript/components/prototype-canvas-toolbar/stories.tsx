@@ -50,7 +50,7 @@ export const ImproveContext: Story = {
     docs: {
       description: {
         story:
-          "Presentation for a connected repository maintainer. The action is recorded in Storybook only; Hub eligibility and skill dispatch are not connected.",
+          "Presentation for a connected repository maintainer. This story records the action without running a skill or calling Hub.",
       },
     },
   },

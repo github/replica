@@ -39,6 +39,8 @@ type Props = {
   onShare?: () => void
   shareButtonRef?: RefObject<HTMLButtonElement | null>
   onImproveContext?: () => void
+  improvingContext?: boolean
+  feedbackMessage?: { kind: "notice" | "error"; message: string }
 }
 
 export function Toolbar({
@@ -61,6 +63,8 @@ export function Toolbar({
   onShare,
   shareButtonRef,
   onImproveContext,
+  improvingContext = false,
+  feedbackMessage,
 }: Props) {
   const status = state?.publishStatus ?? {
     state: "unavailable" as const,
@@ -171,11 +175,17 @@ export function Toolbar({
       </div>
 
       {onImproveContext ? (
-        <ActionMenu size="small" selectionVariant="none" menuAlignment="end">
+        <ActionMenu
+          size="small"
+          selectionVariant="none"
+          menuAlignment="end"
+          disabled={improvingContext}
+        >
           <ActionMenu.IconButton
             icon={KebabHorizontalIcon}
             variant="secondary"
             aria-label={copy.moreActions}
+            aria-busy={improvingContext}
           />
           <ActionMenu.Overlay aria-label={copy.moreActions}>
             <ImproveContextAction
@@ -197,6 +207,14 @@ export function Toolbar({
             </ImproveContextAction>
           </ActionMenu.Overlay>
         </ActionMenu>
+      ) : null}
+      {feedbackMessage ? (
+        <p
+          className="canvas-feedback-message"
+          role={feedbackMessage.kind === "error" ? "alert" : "status"}
+        >
+          {feedbackMessage.message}
+        </p>
       ) : null}
     </header>
   )

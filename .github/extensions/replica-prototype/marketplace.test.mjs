@@ -16,10 +16,21 @@ it("resolves the marketplace's relative source to the shipped plugin", async () 
   )
   const manifest = JSON.parse(await readFile(new URL(`${plugin.source}/plugin.json`, root)))
   assert.equal(manifest.name, plugin.name)
-  assert.equal(manifest.version, "1.4.0")
+  assert.equal(manifest.version, "1.5.0")
   const skill = await readFile(
     new URL(`${plugin.source}/skills/replica-publish-prototype/SKILL.md`, root),
     "utf8",
   )
   assert.match(skill.replaceAll("\r\n", "\n"), /^---\nname: replica-publish-prototype\n/)
+  const reviewSkill = (
+    await readFile(new URL(`${plugin.source}/skills/review-hub-feedback/SKILL.md`, root), "utf8")
+  ).replaceAll("\r\n", "\n")
+  assert.match(reviewSkill, /^---\nname: review-hub-feedback\n/)
+  assert.equal(
+    reviewSkill,
+    (
+      await readFile(new URL("starter/.agents/skills/review-hub-feedback/SKILL.md", root), "utf8")
+    ).replaceAll("\r\n", "\n"),
+    "The shipped review skill matches its canonical starter source.",
+  )
 })
