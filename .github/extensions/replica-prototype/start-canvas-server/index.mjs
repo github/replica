@@ -44,7 +44,15 @@ const ASSET_PATHS = new Map([
       fileUrl: new URL("../assets/renderer.css", import.meta.url),
     },
   ],
-  ...["renderer.js", "renderer-vendor.js", "renderer-rolldown-runtime.js"].map((name) => [
+  ...[
+    "renderer.js",
+    "renderer-vendor.js",
+    "renderer-rolldown-runtime.js",
+    "renderer-improvement-notes-prototype.js",
+    "renderer-improvement-notes-vendor.js",
+    "renderer-prototype-canvas-thread-sample.js",
+    "renderer-prototype-canvas-improvement-threads.js",
+  ].map((name) => [
     `/assets/${name}`,
     {
       contentType: "text/javascript; charset=utf-8",

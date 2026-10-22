@@ -94,15 +94,21 @@ const ASSET_PATHS = new Map<string, Asset>([
       fileUrl: new URL("../assets/renderer.css", import.meta.url),
     },
   ],
-  ...["renderer.js", "renderer-vendor.js", "renderer-rolldown-runtime.js"].map(
-    (name): [string, Asset] => [
-      `/assets/${name}`,
-      {
-        contentType: "text/javascript; charset=utf-8",
-        fileUrl: new URL(`../assets/${name}`, import.meta.url),
-      },
-    ],
-  ),
+  ...[
+    "renderer.js",
+    "renderer-vendor.js",
+    "renderer-rolldown-runtime.js",
+    "renderer-improvement-notes-prototype.js",
+    "renderer-improvement-notes-vendor.js",
+    "renderer-prototype-canvas-thread-sample.js",
+    "renderer-prototype-canvas-improvement-threads.js",
+  ].map((name): [string, Asset] => [
+    `/assets/${name}`,
+    {
+      contentType: "text/javascript; charset=utf-8",
+      fileUrl: new URL(`../assets/${name}`, import.meta.url),
+    },
+  ]),
   ...["Hubot-Sans.woff2", "MonaSansMonoVF-wght.woff2", "MonaSansVF-wdth-wght-opsz.woff2"].map(
     (name): [string, Asset] => [
       `/assets/${name}`,
