@@ -50,7 +50,9 @@ function isPublicationState(value: unknown): value is PublicationState {
     typeof state.updatedAt === "string" &&
     request &&
     (request.state === "idle" || request.state === "requested" || request.state === "failed") &&
-    nullableText(request.requestedAt) &&
+    (request.state === "idle"
+      ? request.requestedAt === null || isTimestamp(request.requestedAt)
+      : isTimestamp(request.requestedAt)) &&
     (request.error === undefined || nullableText(request.error)) &&
     (request.target == null || isPublishTarget(request.target)) &&
     (request.mode === undefined ||
@@ -61,9 +63,16 @@ function isPublicationState(value: unknown): value is PublicationState {
       request.outcome === "blocked" ||
       request.outcome === "canceled" ||
       request.outcome === "failed") &&
-    (request.reportedAt === undefined || typeof request.reportedAt === "string") &&
+    (request.reportedAt === undefined || isTimestamp(request.reportedAt)) &&
+    (request.remoteState === undefined || typeof request.remoteState === "string") &&
+    (request.remoteSha === undefined || isCommitShaOrNull(request.remoteSha)) &&
+    (request.workflowRunId === undefined ||
+      request.workflowRunId === null ||
+      (typeof request.workflowRunId === "number" &&
+        Number.isSafeInteger(request.workflowRunId) &&
+        request.workflowRunId > 0)) &&
     stats &&
-    nullableText(stats.refreshedAt) &&
+    (stats.refreshedAt === null || isTimestamp(stats.refreshedAt)) &&
     nullableText(stats.commitSha) &&
     workflow &&
     typeof workflow.state === "string" &&
@@ -80,11 +89,19 @@ function isPublishTarget(value: unknown): value is PublishTarget {
     nullableText(target.repository) &&
     typeof target.branch === "string" &&
     typeof target.commitSha === "string" &&
+    isCommitShaOrNull(target.commitSha) &&
     nullableText(target.originFingerprint) &&
     nullableText(target.pushFingerprint),
   )
 }
 
+function isTimestamp(value: unknown): value is string {
+  return typeof value === "string" && Number.isFinite(Date.parse(value))
+}
+
+function isCommitShaOrNull(value: unknown): value is string | null {
+  return value === null || (typeof value === "string" && /^[0-9a-f]{40}$/.test(value))
+}
 function nullableText(value: unknown) {
   return value === null || typeof value === "string"
 }

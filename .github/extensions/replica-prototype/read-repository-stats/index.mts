@@ -230,7 +230,10 @@ async function readWorkflowStatus({
         run &&
         typeof run.status === "string" &&
         typeof run.headSha === "string" &&
-        typeof run.headBranch === "string",
+        typeof run.headBranch === "string" &&
+        typeof run.databaseId === "number" &&
+        Number.isSafeInteger(run.databaseId) &&
+        run.databaseId > 0,
       )
     })
   ) {

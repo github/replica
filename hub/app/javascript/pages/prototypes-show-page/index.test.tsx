@@ -1439,7 +1439,7 @@ describe("PrototypesShowPage()", () => {
     })
     expect(close).toHaveAttribute("href", "/repositories/2001")
     expect(close).toHaveAttribute("data-sg-visit", "true")
-    expect(close).toHaveTextContent("Close")
+    expect(close).not.toHaveTextContent("Close")
     expect(close).toHaveClass("review-shell__close-action")
     expect(close.className).toContain("Button--size-small")
     expect(close).toHaveAccessibleDescription("Close")

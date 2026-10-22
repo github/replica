@@ -263,7 +263,7 @@ export function createHubClient(context, options = {}) {
       typeof pending.verificationUrl !== "string" ||
       typeof pending.expiresAt !== "string" ||
       !Number.isFinite(Date.parse(pending.expiresAt)) ||
-      (pending.refreshToken !== undefined && typeof pending.refreshToken !== "string") ||
+      (pending.refreshToken != null && typeof pending.refreshToken !== "string") ||
       (pending.retryAfter !== undefined && typeof pending.retryAfter !== "number") ||
       (pending.nextPollAt !== undefined && typeof pending.nextPollAt !== "number")
     )
@@ -276,7 +276,7 @@ export function createHubClient(context, options = {}) {
       userCode: pending.userCode,
       verificationUrl: pending.verificationUrl,
       expiresAt: pending.expiresAt,
-      refreshToken: pending.refreshToken,
+      refreshToken: typeof pending.refreshToken === "string" ? pending.refreshToken : undefined,
       retryAfter: pending.retryAfter,
       nextPollAt: pending.nextPollAt,
     }
