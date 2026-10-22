@@ -1,24 +1,32 @@
 import assert from "node:assert/strict"
+import { mkdtemp, realpath, rm } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
 import { describe, it } from "node:test"
 
 import { runCommand } from "./index.mjs"
 
 describe("runCommand()", () => {
   it("preserves literal arguments, the working directory and the supplied environment", async () => {
-    const cwd = process.cwd()
-    const argument = "$(printf not-a-shell)"
-    const result = await runCommand(
-      process.execPath,
-      [
-        "-e",
-        "process.stdout.write(JSON.stringify([process.cwd(), process.argv[1], process.env.REPLICA_COMMAND_TEST]))",
-        argument,
-      ],
-      cwd,
-      { env: { REPLICA_COMMAND_TEST: "present" } },
-    )
-    assert.equal(result.ok, true)
-    assert.deepEqual(JSON.parse(result.stdout), [cwd, argument, "present"])
+    const directory = await mkdtemp(path.join(os.tmpdir(), "replica-run-command-"))
+    try {
+      const cwd = await realpath(directory)
+      const argument = "$(printf not-a-shell)"
+      const result = await runCommand(
+        process.execPath,
+        [
+          "-e",
+          "process.stdout.write(JSON.stringify([process.cwd(), process.argv[1], process.env.REPLICA_COMMAND_TEST]))",
+          argument,
+        ],
+        cwd,
+        { env: { REPLICA_COMMAND_TEST: "present" } },
+      )
+      assert.equal(result.ok, true)
+      assert.deepEqual(JSON.parse(result.stdout), [cwd, argument, "present"])
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
   })
 
   it("reports a missing executable without inventing process output", async () => {
