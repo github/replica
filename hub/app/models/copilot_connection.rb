@@ -71,10 +71,12 @@ class CopilotConnection < ApplicationRecord
       credential = self.credential
       return if credential.nil?
 
-      billing_confirmation_verifier.generate \
+      payload = {
         "billing" => organization_billing? ? "organization" : "token_owner",
         "credential_digest" => digest(credential),
         "organization" => organization
+      }
+      billing_confirmation_verifier.generate(payload)
     end
 
     # Returns the still-current credential behind a signed confirmation, or rejects a stale form.
@@ -144,11 +146,11 @@ class CopilotConnection < ApplicationRecord
       begin
         token = copilot_token(credential)
         ensure_connect_unchanged! \
-          earlier:,
-          generation:,
-          credential:,
+          earlier: earlier,
+          generation: generation,
+          credential: credential,
           actor: live_actor,
-          browser_session:
+          browser_session: browser_session
         check!(token)
       rescue Refused
         earlier&.refuse!(credential:)
@@ -221,9 +223,9 @@ class CopilotConnection < ApplicationRecord
 
     # Rejects a minted token before Copilot sees it when the connection or administrator changed.
     def ensure_connect_unchanged!(earlier:, generation:, credential:, actor:, browser_session:)
+      authorized!(actor: actor, browser_session: browser_session)
       uncached do
         transaction do
-          authorized!(actor:, browser_session:)
           changed = current&.id != earlier&.id ||
             CopilotConnectionState.current.generation != generation ||
             self.credential != credential
