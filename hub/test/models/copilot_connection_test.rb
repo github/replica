@@ -346,6 +346,7 @@ class CopilotConnectionTest < ActiveSupport::TestCase
       Rails.configuration.x.copilot_billing = "organization"
       stub_github_copilot_token("copilot-user-token")
       connection = CopilotConnection.connect!(actor: @admin, browser_session: @session)
+      WebMock.reset_executed_requests!
 
       change.call(configuration)
       installation_id = GithubAppConfiguration.current.installation_id
@@ -353,7 +354,7 @@ class CopilotConnectionTest < ActiveSupport::TestCase
 
       assert_not connection.reload.usable?, label
       assert_raises(CopilotConnection::Refused, label) { connection.access_token! }
-      assert_requested mint, times: 1
+      assert_not_requested mint
     end
   end
 
