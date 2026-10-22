@@ -88,9 +88,10 @@ class GithubAppDualBarrierConcurrencyTest < ActiveSupport::TestCase
   end
 
   test "credential repair during prepared installation cannot apply status repositories or success audit" do
-    @configuration.update!(installation_id: nil, installation_state: "not_installed")
+    @configuration.update! \
+      installation_id: nil, installation_account_github_id: nil, installation_state: "not_installed"
     stub_request(:get, "#{GITHUB_API_URL}/app/installations/456")
-      .to_return(status: 200, body: JSON.generate(id: 456,
+      .to_return(status: 200, body: JSON.generate(id: 456, app_id: @configuration.github_app_id,
         account: github_app_configurations.manifest_credentials.fetch("owner")))
     before = @repository.attributes
     url = "#{GITHUB_API_URL}/installation/repositories?page=1&per_page=100"

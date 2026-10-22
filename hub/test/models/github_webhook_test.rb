@@ -13,6 +13,9 @@ class GithubWebhookTest < ActiveSupport::TestCase
     payload = webhook_payload
     payload["installation"] = payload.fetch("installation").merge("id" => 789)
     body = JSON.generate(payload)
+    stub_github_app(configuration:)
+    stub_github_account_installation \
+      account: { id: 321, login: "github", type: "Organization" }, installation_id: 789
     installation_repositories = configuration.repositories
     installation_repositories.define_singleton_method(:synchronize!) do
       raise GithubClient::Error, "GitHub is temporarily unavailable"
@@ -27,20 +30,22 @@ class GithubWebhookTest < ActiveSupport::TestCase
     assert_equal "active", configuration.installation_state
   end
 
-  test "reconciles a repository selection update before recording it" do
+  test "a repository selection notification makes selected repositories available" do
     configuration = github_app_configurations.create
     payload = webhook_payload.merge("action" => "added")
-    reconciled = nil
-    installation = Object.new
-    installation.define_singleton_method(:reconcile!) { |id| reconciled = id }
-    configuration.define_singleton_method(:installation) { installation }
+    stub_github_app(configuration:)
+    stub_github_account_installation \
+      account: { id: 321, login: "github", type: "Organization" }
+    stub_github_installation_token
+    stub_github_repositories([ repository_payload(2001, "github/prototype") ])
 
     process_webhook \
       configuration:,
       body: JSON.generate(payload),
       event: "installation_repositories"
 
-    assert_equal 456, reconciled
+    assert Repository.active.exists?(github_id: 2001)
+    assert WebhookDelivery.sole.processed?
   end
 
   test "rejects an invalid signature" do
@@ -428,20 +433,21 @@ class GithubWebhookTest < ActiveSupport::TestCase
     configuration = installed_configuration
     configuration.update!(installation_id: 789)
     track_recovery(configuration:, event: "installation", installation_id: 456)
+    stub_github_app(configuration:)
     stub_request(:get, "https://api.github.com/app/installations/456")
       .to_return(status: 404, body: "{}")
-
-    assert_raises(GithubClient::NotFound) do
-      process_webhook(configuration:, body: JSON.generate(webhook_payload))
-    end
-    assert_equal 789, configuration.reload.installation_id
-    assert_equal "active", configuration.installation_state
-    assert_not WebhookDelivery.sole.processed?
-    assert_not_requested :post, "https://api.github.com/app/installations/456/access_tokens"
-
     replacement = webhook_payload.fetch("installation").merge("id" => 789)
     stub_request(:get, "https://api.github.com/app/installations/789")
       .to_return(status: 200, body: JSON.generate(replacement))
+    stub_github_installation_token(installation_id: 789)
+    stub_github_repositories([])
+
+    process_webhook(configuration:, body: JSON.generate(webhook_payload))
+    assert_equal 789, configuration.reload.installation_id
+    assert_equal "active", configuration.installation_state
+    assert WebhookDelivery.sole.processed?
+    assert_not_requested :post, "https://api.github.com/app/installations/456/access_tokens"
+
     installation_repositories = configuration.repositories
     installation_repositories.define_singleton_method(:synchronize!) do
       raise GithubClient::Error, "GitHub is temporarily unavailable"
@@ -491,8 +497,9 @@ class GithubWebhookTest < ActiveSupport::TestCase
     payload = webhook_payload
     payload["installation"] = payload.fetch("installation").merge("id" => 789)
     track_recovery(configuration:, event: "installation", installation_id: 789)
-    request = stub_request(:get, "https://api.github.com/app/installations/789")
-      .to_return(status: 200, body: JSON.generate(payload.fetch("installation")))
+    stub_github_app(configuration:)
+    request = stub_github_account_installation \
+      account: { id: 321, login: "github", type: "Organization" }, installation_id: 789
     installation_repositories = configuration.repositories
     installation_repositories.define_singleton_method(:synchronize!) do
       raise GithubClient::Error, "GitHub is temporarily unavailable"

@@ -76,6 +76,20 @@ An upgraded Hub does not automatically grant these write permissions to an exist
 
 Production usually receives GitHub notifications for pushes, workflows, and installation changes. Both environments also poll GitHub so Hub can recover missed changes; local development relies on polling because it has no public tunnel.
 
+## App ownership transfers
+
+Hub detects an ownership transfer by asking GitHub for the configured App's current owner. This uses the existing App credentials, not organization audit-log access. Hub accepts the response only for the same App ID, updates the owner and App slug, and records the transfer in its security audit.
+
+An App transfer can uninstall the App. Hub marks the previous installation and its repositories unavailable without deleting Builds, files, reviews, users, or administrator roles. Existing browser Sessions and canvas grants are retained, but they do not bypass repository checks while the installation is unavailable. Hub does not promise uninterrupted repository access during a transfer.
+
+The new owner installs the same App in their own account and selects its repositories. Hub accepts only an installation in the App owner's account; installing it in another organization is not supported. Hub stores the installation account separately so delayed removal notices for the previous account cannot remove a replacement installation.
+
+Installation notifications and the existing five-minute Build checks restore repository access after GitHub confirms the replacement installation. This also recovers a transfer completed before upgrading Hub, or one whose notifications were missed. Run `replica:github:poll` to check immediately. Transient GitHub failures do not count as proof that an installation was removed; failed jobs remain visible in the queue and a later check retries.
+
+Branch and workflow results remain bound to the owner and installation that started the poll or webhook processing. If a transfer replaces that installation before a result is saved, Hub rejects the old work even when the same repository is already available again.
+
+The **GitHub App** administration page shows installation state and instructions when installation is needed. `replica:github:diagnose` reports an owner awaiting synchronization or an installation that is no longer present without changing the saved configuration. If diagnosis cannot reach GitHub, it reports failure instead. No console edits, credential replacement, or local reset are needed for an ordinary ownership transfer.
+
 ## Routine App administration
 
 An existing Hub administrator opens **GitHub App** from the deployment security audit, or `/github_app`. For example, choose **Replace App credentials**, supply replacements from the same App's GitHub settings, confirm, and save. Every App mutation requires current persisted administrator permission, deliberate confirmation, and GitHub verification of the same browser Session within the last five minutes. If verification is needed, Hub continues the confirmed operation after it succeeds, rechecking permissions and the App's saved version. The role does not grant repository access.

@@ -271,7 +271,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_22_160000) do
     t.string "webhook_rotation_state", default: "idle", null: false
     t.string "webhook_request_token"
     t.datetime "webhook_request_expires_at"
+    t.bigint "installation_account_github_id"
     t.index ["singleton_key"], name: "index_github_app_configurations_on_singleton_key", unique: true
+    t.check_constraint "(installation_id IS NULL AND installation_account_github_id IS NULL) OR (installation_id IS NOT NULL AND installation_account_github_id IS NOT NULL AND installation_account_github_id > 0)", name: "github_app_configurations_installation_account"
     t.check_constraint "(installation_state = 'not_installed' AND installation_id IS NULL) OR (installation_state <> 'not_installed' AND installation_id IS NOT NULL)", name: "github_app_configurations_installation_identity"
     t.check_constraint "(webhook_request_token IS NULL AND webhook_request_expires_at IS NULL) OR (webhook_rotation_state = 'pending' AND webhook_request_token IS NOT NULL AND webhook_request_expires_at IS NOT NULL)", name: "github_app_configurations_webhook_request"
     t.check_constraint "(webhook_rotation_state = 'idle' AND previous_webhook_secret IS NULL) OR (webhook_rotation_state IN ('pending', 'confirmed') AND previous_webhook_secret IS NOT NULL)", name: "github_app_configurations_webhook_rotation"

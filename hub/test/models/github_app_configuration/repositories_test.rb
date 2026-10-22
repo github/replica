@@ -27,7 +27,7 @@ class GithubAppConfiguration::RepositoriesTest < ActiveSupport::TestCase
 
   test "marks every repository removed for an inactive installation" do
     configuration = github_app_configurations.create \
-      installation_id: 456, installation_state: "suspended"
+      installation_id: 456, installation_account_github_id: 321, installation_state: "suspended"
     repository = repositories.create
 
     configuration.repositories.synchronize!
