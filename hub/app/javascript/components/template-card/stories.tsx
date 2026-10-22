@@ -5,7 +5,7 @@ import { templatesData } from "@/storybook/fixtures/templates"
 import { TemplateCard } from "."
 
 const meta = {
-  title: "Components/Hub-built: Template Card",
+  title: "Components/Template Card",
   component: TemplateCard,
   args: {
     template: templatesData.templates[1]!,

@@ -7,7 +7,7 @@ import { templatesData } from "@/storybook/fixtures/templates"
 import { TemplatePicker } from "."
 
 const meta = {
-  title: "Components/Hub-built: Template Picker",
+  title: "Components/Template Picker",
   component: TemplatePicker,
   args: {
     templates: templatesData.templates.map((template) => ({

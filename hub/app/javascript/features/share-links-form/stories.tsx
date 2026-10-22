@@ -3,7 +3,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { ShareLinksForm } from "."
 
 const meta = {
-  title: "Features/Share Links/Form",
+  title: "Hub/Features/Share Links/Form",
   component: ShareLinksForm,
   args: {
     data: {

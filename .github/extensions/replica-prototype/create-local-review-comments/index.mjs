@@ -4,6 +4,7 @@ import path from "node:path"
 import { isDeepStrictEqual } from "node:util"
 
 import { createPrivateStore } from "../private-store/index.mjs"
+import { gitShaPattern } from "../identity-patterns/index.mjs"
 import { runCommand } from "../run-command/index.mjs"
 
 export function createLocalReviewComments(context, options = {}) {
@@ -81,7 +82,7 @@ export function createLocalReviewComments(context, options = {}) {
       if (
         !Number.isSafeInteger(revision.id) ||
         revision.id < 1 ||
-        !/^[0-9a-f]{40}$/.test(revision.treeSha) ||
+        !gitShaPattern.test(revision.treeSha) ||
         !attributes.anchor ||
         !["element", "area"].includes(attributes.anchor.kind)
       )
@@ -146,7 +147,7 @@ export function createLocalReviewComments(context, options = {}) {
     },
     async sync(scope, build, hub) {
       if (!(await entries(scope)).length) return
-      if (!/^[0-9a-f]{40}$/.test(build.commitSha))
+      if (!gitShaPattern.test(build.commitSha))
         throw new Error("Hub returned an invalid Build commit.")
       if (!Number.isFinite(Date.parse(build.publishedAt)))
         throw new Error("Hub did not return the Build publication time.")
@@ -165,20 +166,11 @@ export function createLocalReviewComments(context, options = {}) {
           if (draft.treeSha !== tree.stdout.trim()) continue
           if (Date.parse(build.publishedAt) < Date.parse(draft.comment.createdAt)) continue
           if (draft.sendingAt) {
-            const remote = []
-            let cursor
-            do {
-              const page = await hub.request(
-                `${base}${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`,
-                {
-                  expectedTarget: scope,
-                  connectionScope: { identity: scope.connectionId },
-                },
-              )
-              remote.push(...page.comments)
-              cursor = page.hasMore ? page.nextCursor : null
-            } while (cursor)
-            const saved = remote.some(
+            const remote = await hub.request(base, {
+              expectedTarget: scope,
+              connectionScope: { identity: scope.connectionId },
+            })
+            const saved = remote.comments.some(
               (comment) =>
                 comment.kind === "root" &&
                 comment.buildNumber === draft.sendingBuildNumber &&

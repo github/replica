@@ -1,12 +1,10 @@
 import { randomUUID } from "node:crypto"
 
+import { uuidInputPattern as UUID } from "../identity-patterns/index.mjs"
+
 const THREAD_LIMIT = 10
 const REPLY_LIMIT = 10
 const RESPONSE_MAXIMUM_BYTES = 64 * 1024
-const SCAN_PAGE_SIZE = 25
-const SCAN_PAGES_PER_ACTION = 4
-const SNAPSHOT_MAXIMUM_BYTES = 32 * 1024 * 1024
-const UUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i
 const REVIEW_CONTENT_TRUST = Object.freeze({
   source: "hub_review_comments",
   untrusted: true,
@@ -117,17 +115,15 @@ function message(value, repositoryScope = false) {
   }
 }
 
-function continuation(page) {
+async function completeComments(hub, base, options) {
+  const collection = await hub.request(base, options)
   if (
-    !Array.isArray(page.comments) ||
-    page.comments.length > SCAN_PAGE_SIZE ||
-    typeof page.hasMore !== "boolean" ||
-    (page.hasMore
-      ? typeof page.nextCursor !== "string" || !page.nextCursor
-      : page.nextCursor !== null)
+    !Array.isArray(collection?.comments) ||
+    collection.hasMore !== false ||
+    collection.nextCursor !== null
   )
     invalid()
-  return page.nextCursor === null ? null : text(page.nextCursor, 4096)
+  return collection.comments
 }
 
 function directContinuation(page, records, pageSize) {
@@ -294,74 +290,44 @@ async function snapshot(store, id, target) {
 }
 
 async function scan(hub, store, value, base, options) {
-  for (let i = 0; i < SCAN_PAGES_PER_ACTION && !value.complete; i++) {
-    const query = new URLSearchParams({ pageSize: String(SCAN_PAGE_SIZE) })
-    if (value.hubCursor) query.set("cursor", value.hubCursor)
-    const page = await hub.request(`${base}?${query}`, options)
-    const next = continuation(page)
-    if (next && next === value.hubCursor) invalid()
-    const records = page.comments.map((record) =>
-      message(record, value.target.scope === "repository"),
+  if (value.complete) return
+  const repositoryScope = value.target.scope === "repository"
+  const first = (await completeComments(hub, base, options)).map((record) =>
+    message(record, repositoryScope),
+  )
+  const versions = new Map(
+    first.filter((item) => item.kind === "root").map((root) => [root.id, root.activityVersion]),
+  )
+  // A second read checks that collected messages belong to unchanged root versions.
+  const comments = (await completeComments(hub, base, options)).map((record) =>
+    message(record, repositoryScope),
+  )
+  const roots = new Map(
+    comments.filter((item) => item.kind === "root").map((root) => [root.id, root]),
+  )
+  if (
+    roots.size !== versions.size ||
+    [...roots.values()].some((root) => versions.get(root.id) !== root.activityVersion)
+  )
+    fail("comment_conflict", "Threads changed during collection. Retrieve comments again.", 409)
+  const ids = new Set()
+  for (const record of comments) {
+    if (
+      ids.has(record.id) ||
+      (record.kind === "reply" &&
+        (!roots.has(record.rootId) ||
+          (repositoryScope && roots.get(record.rootId).prototype.id !== record.prototype.id)))
     )
-    if (value.baseline) {
-      for (const root of records.filter((item) => item.kind === "root"))
-        if (value.baseline[root.id] !== root.activityVersion)
-          fail(
-            "comment_conflict",
-            "Thread changed during collection. Retrieve comments again.",
-            409,
-          )
-    }
-    value.comments.push(...records)
-    value.hubCursor = next
-    if (!page.hasMore) {
-      if (!value.baseline) {
-        // A second traversal brackets its messages with the first traversal's root versions.
-        value.baseline = Object.fromEntries(
-          value.comments
-            .filter((item) => item.kind === "root")
-            .map((root) => [root.id, root.activityVersion]),
-        )
-        value.comments = []
-      } else {
-        if (
-          value.comments.filter((item) => item.kind === "root").length !==
-          Object.keys(value.baseline).length
-        )
-          fail(
-            "comment_conflict",
-            "Threads changed during collection. Retrieve comments again.",
-            409,
-          )
-        if (value.target.scope === "repository") {
-          const roots = new Map(
-            value.comments.filter((item) => item.kind === "root").map((root) => [root.id, root]),
-          )
-          const ids = new Set()
-          for (const record of value.comments) {
-            if (
-              ids.has(record.id) ||
-              (record.kind === "reply" &&
-                roots.get(record.rootId)?.prototype.id !== record.prototype.id)
-            )
-              fail(
-                "comment_conflict",
-                "Conversations changed during collection. Retrieve comments again.",
-                409,
-              )
-            ids.add(record.id)
-          }
-        }
-        value.complete = true
-      }
-    }
-    if (Buffer.byteLength(JSON.stringify(value)) > SNAPSHOT_MAXIMUM_BYTES)
       fail(
-        "comment_scan_limit",
-        "The comment collection exceeds the extension's 32 MiB snapshot limit.",
+        "comment_conflict",
+        "Conversations changed during collection. Retrieve comments again.",
+        409,
       )
-    await store.write(`snapshot-${value.id}.json`, value)
+    ids.add(record.id)
   }
+  value.comments = comments
+  value.complete = true
+  await store.write(`snapshot-${value.id}.json`, value)
 }
 
 function replies(value, threadId) {
@@ -474,23 +440,10 @@ function list(value, offset = 0) {
 }
 
 async function freshRoot(hub, base, threadId, options) {
-  let next = null
-  const deadline = Date.now() + 30_000
-  do {
-    const query = new URLSearchParams({ pageSize: String(SCAN_PAGE_SIZE) })
-    if (next) query.set("cursor", next)
-    const page = await hub.request(`${base}?${query}`, options)
-    const following = continuation(page)
-    if (following && following === next) invalid()
-    const root = page.comments.find((item) => item.kind === "root" && item.id === threadId)
-    if (root) return message(root)
-    next = following
-    if (next && Date.now() >= deadline)
-      fail(
-        "comment_check_incomplete",
-        "Could not finish checking the current thread. No mutation was submitted.",
-      )
-  } while (next)
+  const comments = await completeComments(hub, base, options)
+  const root = comments.find((item) => item.kind === "root" && item.id === threadId)
+  if (root) return message(root)
+
   fail("comments_not_found", "The thread no longer exists in this prototype.", 404)
 }
 
@@ -640,24 +593,11 @@ export async function reviewAction(hub, action, input = {}, store) {
             filters: filter,
             capturedAt: new Date().toISOString(),
             comments: [],
-            hubCursor: null,
             complete: false,
           }
       if (JSON.stringify(value.filters) !== JSON.stringify(filter)) invalid()
       if (position?.kind === "list" && !value.complete) invalid()
       await scan(hub, store, value, base, options)
-      if (!value.complete)
-        return boundedResponse({
-          contentTrust: REVIEW_CONTENT_TRUST,
-          target,
-          snapshotId: id,
-          capturedAt: value.capturedAt,
-          scanComplete: false,
-          threads: [],
-          hasMore: true,
-          nextCursor: `${id}:scan`,
-          message: "Still collecting Hub pages. No final filter results are available yet.",
-        })
       return list(value, position?.kind === "list" ? position.offset : 0)
     })
   }

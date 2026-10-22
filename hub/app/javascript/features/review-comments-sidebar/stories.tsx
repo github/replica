@@ -14,7 +14,7 @@ import { ReviewCommentsSidebar } from "."
 function noop() {}
 
 const meta = {
-  title: "Features/Review/Comments Sidebar",
+  title: "Hub/Features/Review/Comments Sidebar",
   component: ReviewCommentsSidebar,
   args: {
     threads: [],

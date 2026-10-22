@@ -59,7 +59,7 @@ const state: SharingState = {
 }
 
 const meta = {
-  title: "Components/Prototype canvas/Share links page",
+  title: "Prototype canvas/Share links page",
   component: ShareLinksPage,
   parameters: { layout: "fullscreen" },
   decorators: [
@@ -85,20 +85,6 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Empty: Story = {}
-export const MandatorySevenDayMaximum: Story = {
-  args: {
-    state: {
-      ...state,
-      context: {
-        ...state.context!,
-        prototype: {
-          ...state.context!.prototype,
-          shareLinkExpirationOptions: ["one_day", "seven_days"],
-        },
-      },
-    },
-  },
-}
 export const ThirtyDayMaximum: Story = {
   args: {
     state: {
@@ -334,5 +320,62 @@ export const InsufficientPermission: Story = {
         prototype: { ...state.context!.prototype, canManageShareLinks: false },
       },
     },
+  },
+}
+
+export const PermissionUnknown: Story = {
+  args: {
+    state: {
+      ...state,
+      context: {
+        ...state.context!,
+        prototype: { ...state.context!.prototype, canManageShareLinks: undefined },
+      },
+    },
+  },
+}
+export const ExpiredLink: Story = {
+  args: {
+    state: { ...state, links: [{ ...link, expiresAt: "2020-01-01T00:00:00Z" }] },
+  },
+}
+export const NeverExpires: Story = {
+  args: { state: { ...state, links: [{ ...link, expiresAt: null }] } },
+}
+export const CreatedLinkRecovery: Story = {
+  args: {
+    state: {
+      ...state,
+      stale: true,
+      created: link,
+      error: "The link was created, but the list could not be refreshed. Copy it below or retry.",
+    },
+  },
+}
+export const RefreshingExistingLinks: Story = {
+  args: { state: { ...state, loading: true, links: [link] } },
+}
+export const ControlSettingsSaving: Story = {
+  args: {
+    state: { ...state, links: [link] },
+    controlSettings: { included: true, pending: true, onChange: () => undefined },
+  },
+}
+export const ControlSettingsFailed: Story = {
+  args: {
+    state: { ...state, links: [link] },
+    controlSettings: {
+      included: true,
+      blocked: true,
+      error: "Could not save control settings. Retry before sharing this configuration.",
+      onChange: () => undefined,
+    },
+  },
+}
+export const InvalidLabel: Story = {
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.type(canvas.getByRole("textbox", { name: "Label" }), "   ")
+    await userEvent.click(canvas.getByRole("button", { name: shareCopy.create }))
+    await canvas.findByRole("alert")
   },
 }
