@@ -6,9 +6,6 @@ import type { ChecksState } from "@utils/prototype-checks/types"
 
 const checksState: ChecksState = {
   state: "ready",
-  pages: [],
-  availablePages: [],
-  unknown: [],
   checks: ["TypeScript", "Lint", "Unit tests", "Accessibility", "Primer usage"].map(
     (name, index) => ({
       id: `check-${index}`,

@@ -17,9 +17,6 @@ describe("App()", () => {
             new Response(
               JSON.stringify({
                 state: "unconfigured",
-                pages: [],
-                availablePages: [],
-                unknown: [],
                 checks: [],
               }),
             ),

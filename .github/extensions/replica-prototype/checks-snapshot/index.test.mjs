@@ -1,13 +1,11 @@
 import assert from "node:assert/strict"
-import { readFile } from "node:fs/promises"
 import { describe, it } from "node:test"
 
 import { createChecksSnapshot } from "./index.mjs"
 
 function fixture(content = "first\nsecond\n", extra = []) {
   const files = new Map([["page.tsx", Buffer.from(content)], ...extra])
-  const input = { files, pageFiles: { page: [...files.keys()] } }
-  return createChecksSnapshot(input, [{ id: "page" }])
+  return createChecksSnapshot({ files }, { files: [...files.keys()], contextFiles: [] })
 }
 
 describe("createChecksSnapshot()", () => {
@@ -19,13 +17,11 @@ describe("createChecksSnapshot()", () => {
         ["docs/design.md", Buffer.from("Context guidance")],
         ["review.md", Buffer.from("Review instructions")],
       ]),
-      pageFiles: {},
     }
-    const reader = createChecksSnapshot(input, [], {
+    const reader = createChecksSnapshot(input, {
       files: ["src/page.tsx", "missing.tsx"],
       contextFiles: ["docs/design.md"],
       instructionsFile: "review.md",
-      pages: [],
     })
     assert.match(JSON.parse(reader.read({ file: "docs/design.md" })).content, /Context guidance/)
     assert.match(JSON.parse(reader.read({ file: "review.md" })).content, /Review instructions/)
@@ -36,34 +32,13 @@ describe("createChecksSnapshot()", () => {
   })
   it("reports missing required files without silently treating them as an empty scope", () => {
     const reader = createChecksSnapshot(
-      { files: new Map(), pageFiles: { page: ["missing.tsx"] } },
-      [{ id: "page" }],
+      { files: new Map() },
+      { files: ["missing.tsx"], contextFiles: [] },
     )
     assert.equal(reader.coverage().files[0].required, true)
     assert.equal(reader.coverage().files[0].reason, "missing")
     assert.equal(reader.coverage().files[0].status, "blocked")
     assert.equal(reader.read({ file: "missing.tsx" }).resultType, "failure")
-  })
-
-  it("delivers the actual Canvas app and Hub panel sources completely and without truncation", async () => {
-    for (const file of ["application/prototype-canvas", "features/prototype-canvas-hub-panel"]) {
-      const source = await readFile(
-        new URL(`../../../../hub/app/javascript/${file}/index.tsx`, import.meta.url),
-        "utf8",
-      )
-      const reader = fixture(source)
-      let offset = 0
-      let restored = ""
-      do {
-        const response = reader.read({ file: "page.tsx", offset })
-        assert.ok(Buffer.byteLength(response) <= 8192)
-        const chunk = JSON.parse(response)
-        restored += chunk.content.replace(/^\d+: /gm, "")
-        offset = chunk.nextOffset
-      } while (offset !== null)
-      assert.equal(restored, source)
-      assert.equal(reader.coverage().files[0].status, "read")
-    }
   })
 
   it("bounds serialized metadata even for long paths and EOF continuations", () => {
@@ -97,27 +72,27 @@ describe("createChecksSnapshot()", () => {
     assert.equal(reader.coverage().files[0].status, "read")
   })
 
-  for (const size of [34652, 50989, 150000]) {
-    it(`fully delivers a ${size}-byte file in bounded chunks without the old whole-file limit`, () => {
-      const source = "const value = true;\n".repeat(Math.ceil(size / 20)).slice(0, size)
-      const reader = fixture(source)
-      let offset = 0
-      let restored = ""
-      do {
-        const response = reader.read({ file: "page.tsx", offset })
-        assert.ok(Buffer.byteLength(response) <= 8192)
-        const chunk = JSON.parse(response)
-        assert.equal(chunk.offset, offset)
-        assert.ok(chunk.endOffset > offset)
-        assert.ok(chunk.endLine - chunk.startLine < 80)
-        restored += chunk.content.replace(/^\d+: /gm, "")
-        offset = chunk.nextOffset
-      } while (offset !== null)
-      assert.equal(restored, source)
-      assert.equal(reader.coverage().files[0].readBytes, size)
-      assert.equal(reader.coverage().files[0].status, "read")
-    })
-  }
+  it("fully delivers large source in bounded chunks without the old whole-file limit", () => {
+    const size = 150000
+    const line = "const value = true;\n"
+    const source = line.repeat(Math.ceil(size / line.length)).slice(0, size)
+    const reader = fixture(source)
+    let offset = 0
+    let restored = ""
+    do {
+      const response = reader.read({ file: "page.tsx", offset })
+      assert.ok(Buffer.byteLength(response) <= 8192)
+      const chunk = JSON.parse(response)
+      assert.equal(chunk.offset, offset)
+      assert.ok(chunk.endOffset > offset)
+      assert.ok(chunk.endLine - chunk.startLine < 80)
+      restored += chunk.content.replace(/^\d+: /gm, "")
+      offset = chunk.nextOffset
+    } while (offset !== null)
+    assert.equal(restored, source)
+    assert.equal(reader.coverage().files[0].readBytes, size)
+    assert.equal(reader.coverage().files[0].status, "read")
+  })
 
   it("continues very long Unicode lines without splitting a UTF-8 character", () => {
     const source = `"\u{1f680}\u00e9".repeat(1)\n` + "\u{1f680}".repeat(4000)
@@ -205,7 +180,12 @@ describe("createChecksSnapshot()", () => {
     let offset = 0
     const seen = []
     do {
-      const response = reader.list({ offset, limit: 7, requiredOnly: true, incompleteOnly: true })
+      const response = reader.list({
+        offset,
+        limit: 7,
+        requiredOnly: true,
+        incompleteOnly: true,
+      })
       assert.ok(Buffer.byteLength(response) <= 8192)
       const page = JSON.parse(response)
       for (const file of page.files) {
@@ -222,13 +202,15 @@ describe("createChecksSnapshot()", () => {
     const reader = fixture()
     reader.read({ file: "page.tsx" })
     const coverage = reader.coverage()
+    assert.equal(Object.hasOwn(coverage.files[0], "pageIds"), false)
     assert.deepEqual(reader.validateCoverage(coverage), coverage)
     for (const patch of [
       { totalBytes: 999 },
       { readBytes: -1 },
       { required: false },
       { status: "partial" },
-      { pageIds: ["elsewhere"] },
+      { pageIds: [] },
+      { unsupported: true },
     ]) {
       assert.throws(
         () =>

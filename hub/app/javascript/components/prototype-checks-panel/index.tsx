@@ -25,11 +25,6 @@ export function ChecksPanel({
   onClose: () => void
 }) {
   const closeButton = useRef<HTMLButtonElement>(null)
-  const [scopeSelection, setScopeSelection] = useState<{ key?: string; pageIds: string[] } | null>(
-    null,
-  )
-  const additionalPages =
-    scopeSelection?.key === state?.selectionKey ? (scopeSelection?.pageIds ?? []) : []
   const [selected, setSelected] = useState<Record<string, string[]>>({})
   const [requested, setRequested] = useState<string | null>(null)
   useEffect(() => {
@@ -62,72 +57,10 @@ export function ChecksPanel({
         {state?.state === "unconfigured" ? (
           <HubAlert title={copy.unconfigured} variant="info" layout="compact" />
         ) : null}
-        {state?.state === "no_pages" ? <p>{copy.noPages}</p> : null}
         {state && state.state !== "unconfigured" ? (
           <p role="status">
             <strong>{summary.description}</strong>
           </p>
-        ) : null}
-        {state?.state === "scope_required" ? (
-          <section aria-label={copy.scope}>
-            <h3>{copy.scope}</h3>
-            <p>{copy.scopeDescription}</p>
-            <ul>
-              {state.unknown.map((file) => (
-                <li key={file}>
-                  <code>{file}</code>
-                </li>
-              ))}
-            </ul>
-            {state.availablePages
-              .filter((page) => !state.pages.some((included) => included.id === page.id))
-              .map((page) => (
-                <label key={page.id} className="canvas-checks-choice">
-                  <Checkbox
-                    checked={additionalPages.includes(page.id)}
-                    onChange={(event) =>
-                      setScopeSelection((previous) => {
-                        const ids =
-                          previous?.key === state.selectionKey ? (previous?.pageIds ?? []) : []
-                        return {
-                          key: state.selectionKey,
-                          pageIds: event.target.checked
-                            ? [...ids, page.id]
-                            : ids.filter((id) => id !== page.id),
-                        }
-                      })
-                    }
-                  />
-                  {page.name} <code>{page.route}</code>
-                </label>
-              ))}
-            <Button
-              size="small"
-              disabled={busy || !state.selectionKey}
-              onClick={() => {
-                if (state.selectionKey)
-                  void onAction({
-                    action: "scope",
-                    key: state.selectionKey,
-                    pageIds: additionalPages,
-                  })
-              }}
-            >
-              {copy.confirmScope}
-            </Button>
-          </section>
-        ) : null}
-        {state?.pages.length ? (
-          <section aria-label={copy.pages}>
-            <h3>{copy.pages}</h3>
-            <ul>
-              {state.pages.map((page) => (
-                <li key={page.id}>
-                  {page.name} <code>{page.route}</code>
-                </li>
-              ))}
-            </ul>
-          </section>
         ) : null}
         {state?.checks.length ? (
           <div className="canvas-checks-actions">
@@ -184,9 +117,7 @@ export function ChecksPanel({
               <Button
                 size="small"
                 variant="secondary"
-                disabled={
-                  busy || check.status === "not_applicable" || (!running && state.state !== "ready")
-                }
+                disabled={busy || (!running && state.state !== "ready")}
                 onClick={() =>
                   void onAction({ action: running ? "cancel" : "run", checkIds: [check.id] })
                 }

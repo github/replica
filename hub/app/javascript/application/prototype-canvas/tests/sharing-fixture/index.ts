@@ -39,9 +39,6 @@ export function sharingFixture(
         case "/api/checks":
           data = {
             state: "unconfigured",
-            pages: [],
-            availablePages: [],
-            unknown: [],
             checks: [],
           }
           break

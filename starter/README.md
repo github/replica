@@ -21,6 +21,7 @@ Existing prototypes can adopt `src/app/create-prototype-history/` and its use in
 ## What's included
 
 - Vite, React, TypeScript
+- ESLint with GitHub, TypeScript and React Hooks rules, available through `npm run lint`
 - Optional Controls authoring guidance using `public/controls.replica.json`
 - Hash-based routing via TanStack Router (`src/app/router.tsx`)
 - A start page, sub-page, and seed-backed activity example
@@ -38,36 +39,29 @@ particular prototype. Add what your project actually needs.
 
 ## Example quality checks
 
-The removable `.replica/checks.json` examples provide **Accessibility source
-review (GitHub example)** and **Code-quality source review (GitHub example)**,
-inspired by `github/prototyping`. Both run only when requested in the Canvas
-checks sidebar, report individual outcomes, and use the repository's
-approved conventions without requiring Primer or another component library.
+The removable `.replica/checks.json` examples provide **Accessibility source review (GitHub example)** and **Lint**. Both run only when requested in the Canvas checks sidebar and do not require Primer or another component library.
 
-The examples use independent read-only agents, not browser or command runners.
-Accessibility covers semantic names, keyboard/focus implementation, forms and
-feedback, and content/motion. Code quality covers type safety and source-visible
-lint patterns, React correctness, asynchronous errors and maintainability.
-Browser-only evidence and actual ESLint, TypeScript and test outcomes remain
-unverified; these are source reviews, not accessibility certification
-or passing tool output.
+Accessibility uses an independent read-only agent to review semantic names, keyboard/focus implementation, forms and feedback, and content/motion. It assesses source evidence, not rendered accessibility or certification.
 
-Use an updated Replica extension source snapshot; this capability is not supplied
-by the pinned Vite plugin. After the new repository has an initial commit, create
-your prototype branch from `main` before changing pages. The manifest uses `main`
-as its explicit baseline; set `base` to your actual starting ref when adopting
-the examples elsewhere.
+Lint runs the installed ESLint directly through `npm run lint` in this checkout, without an agent or a Docker container. Run `npm ci` to install the starter's dependencies first. Exit zero passes, exit one reports lint failures, and configuration or execution errors remain execution errors. The same lint command runs in CI. TypeScript compilation and tests remain separate commands.
 
-Update `pages`, routes and shared dependency patterns as the prototype grows.
-Unmapped files require scope confirmation instead of guessing which pages changed.
+The starter uses the official [`eslint-plugin-github`](https://github.com/github/eslint-plugin-github) recommended rules, browser rules for app source, and React rules for components, alongside TypeScript and React Hooks rules. GitHub's internal application rules are not enabled. The neutral starter allows English copy, existing dotted filenames and explicit JSON/TypeScript imports; TypeScript checks resolve typed imports instead of ESLint's Node resolver. Tooling scripts may write console output.
+
+GitHub's plugin declares ESLint 10 support, but its import and JSX accessibility dependencies still declare peer support only through ESLint 9. npm currently warns about those upstream peer declarations during installation; the starter retains ESLint 10 rather than installing an unsupported ESLint release.
+
+Canvas commands have your normal user permissions and can read or change files and access the network, just like terminal commands. Use non-mutating check scripts. Lint does not use `--fix`; automatic execution remains opt-in.
+
+Use an updated Replica extension source snapshot; this capability is not supplied by the pinned Vite plugin. Checks capture saved files on a named prototype branch after its initial commit; no base branch or page mapping is needed.
+
+Every check declares `inputs.include` and optional `inputs.exclude`. Update those patterns as the prototype grows so relevant source and tooling changes invalidate results.
 Customize the expectations, assessment inputs, context and instruction files, remove one check entry to
 keep the other, or delete `.replica/checks.json` and `.replica/checks/` to remove
 both examples. Generated controls bindings remain ignored; check configuration
 and instructions are committed source.
 
-The manifest's `$schema` reference points to `.replica/checks.schema.json` for autocomplete and diagnostics in JSON editors that support schemas. Run `npm run checks:validate` locally or in CI to check the config, page references and guidance files without running the checks. This command needs only Node.js and works without installing packages or opening Canvas. Editor diagnostics do not replace the command: JSON Schema cannot verify repository files or every cross-reference. Keep the schema and standalone `.replica/validate-checks.mjs` with the repository when copying these examples.
+The Replica plugin owns the checks schema and validator; this repository needs no schema copy or validation script. Its `validate_checks` Canvas action reads the saved configuration and verifies its structure and guidance files without running checks, requiring a preview or connecting to Hub. Ordinary JSON editors do not get schema-based autocomplete automatically.
 
-With an updated Replica plugin, ask an agent to set up or change checks, or invoke `/replica-setup-checks`. The plugin skill reuses these resources, writes configuration and repository-specific guidance, and runs validation before handing off. New checks stay manual unless you opt into automatic execution.
+With an updated Replica plugin, ask an agent to set up or change checks, or invoke `/replica-setup-checks`. The bundled skill reads the plugin's schema, writes configuration and repository-specific guidance, and validates before handing off. It reuses an open Canvas or opens one in validation mode without starting a preview or automatic checks. New checks stay manual unless you opt into automatic execution.
 
 ## Prototype controls
 

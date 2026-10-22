@@ -5,9 +5,6 @@ import type { ChecksState } from "@utils/prototype-checks/types"
 
 const state: ChecksState = {
   state: "ready",
-  pages: [{ id: "settings", name: "Settings", route: "/settings" }],
-  availablePages: [],
-  unknown: [],
   checks: [
     {
       id: "lint",
@@ -73,7 +70,6 @@ export const Passed: Story = {
             files: [
               {
                 file: "src/settings.tsx",
-                pageIds: ["settings"],
                 required: true,
                 status: "read",
                 readBytes: 50989,
@@ -107,7 +103,7 @@ export const Passed: Story = {
   },
 }
 export const Unconfigured: Story = {
-  args: { state: { ...state, state: "unconfigured", pages: [], checks: [] } },
+  args: { state: { ...state, state: "unconfigured", checks: [] } },
 }
 export const IncompleteReadCoverage: Story = {
   args: {
@@ -133,7 +129,6 @@ export const IncompleteReadCoverage: Story = {
             files: [
               {
                 file: "src/settings.tsx",
-                pageIds: ["settings"],
                 required: true,
                 status: "partial",
                 reason: "partial_read",
@@ -142,7 +137,6 @@ export const IncompleteReadCoverage: Story = {
               },
               {
                 file: "src/use-settings.ts",
-                pageIds: ["settings"],
                 required: true,
                 status: "unread",
                 reason: "not_read",
@@ -151,7 +145,6 @@ export const IncompleteReadCoverage: Story = {
               },
               {
                 file: "src/image.png",
-                pageIds: ["settings"],
                 required: false,
                 status: "blocked",
                 reason: "binary",
@@ -162,17 +155,6 @@ export const IncompleteReadCoverage: Story = {
           },
         },
       ],
-    },
-  },
-}
-export const ScopeRequired: Story = {
-  args: {
-    state: {
-      ...state,
-      state: "scope_required",
-      unknown: ["src/dynamic-layout.tsx"],
-      selectionKey: "example",
-      availablePages: [{ id: "account", name: "Account", route: "/account" }],
     },
   },
 }
@@ -204,7 +186,6 @@ export const Findings: Story = {
               id: "button",
               severity: "error",
               criterionId: "usage",
-              pageId: "settings",
               title: "Use the approved button",
               description: "Replace this custom button with the design-system component.",
               evidence: "The Settings page renders a custom button.",

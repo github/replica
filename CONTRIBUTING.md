@@ -64,6 +64,7 @@ Replica Starter requires npm and a Node.js version matching `engines.node` in [s
 node --version
 cd starter
 npm ci
+npm run lint
 npm run typecheck
 npm test
 npm run build

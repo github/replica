@@ -15,10 +15,7 @@ beforeEach(() => vi.stubGlobal("fetch", fetchMock))
 const state: ChecksState = {
   state: "ready",
   error: null,
-  fingerprint: "current",
-  pages: [],
-  availablePages: [],
-  unknown: [],
+  branch: "current",
   checks: [],
 }
 
@@ -44,10 +41,10 @@ it("ignores a slow status response belonging to the previous canvas token", asyn
   hook.rerender({ token: "second" })
   await waitFor(() => expect(hook.result.current.state).toEqual(state))
   await act(async () => {
-    finish(response({ ...state, fingerprint: "obsolete" }))
+    finish(response({ ...state, branch: "obsolete" }))
     await Promise.resolve()
   })
-  expect(hook.result.current.state?.fingerprint).toBe("current")
+  expect(hook.result.current.state?.branch).toBe("current")
 })
 
 it("marks previously current results unavailable when polling fails", async () => {

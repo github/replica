@@ -4,14 +4,8 @@ export const checksCopy = {
   loading: "Loading checks...",
   unconfigured:
     "Add .replica/checks.json to define this repository's checks, assessment inputs and guidance.",
-  noPages: "No affected prototype pages.",
   outdated: "Out of date",
   error: "Checks need attention",
-  scope: "Confirm affected pages",
-  scopeDescription:
-    "These changed files have no declared page dependencies. Select any additional pages they affect, or confirm that they affect none.",
-  confirmScope: "Confirm page scope",
-  pages: "Assessed pages",
   runAll: "Run all",
   run: "Run",
   retry: "Retry",
@@ -31,7 +25,7 @@ export const checksCopy = {
       "Read coverage was not recorded. Run this check again to verify its source coverage.",
     incomplete:
       "Required source was not fully read. See Read coverage for missing or partial files.",
-    no_source: "No required source files were available for this page.",
+    no_source: "No required source files were available for this check.",
   },
   selectForFix: (title: string) => `Select ${title} for a fix`,
   severity: { error: "Error", warning: "Warning", info: "Information" },
@@ -46,6 +40,5 @@ export const checksCopy = {
     execution_error: "Execution error",
     cancelled: "Cancelled",
     out_of_date: "Out of date",
-    not_applicable: "Not applicable",
   },
 }

@@ -3,8 +3,7 @@ export const copy = {
   loading: "Loading checks",
   error: "Check status is unavailable",
   unconfigured: "No checks configured",
-  noPages: "No applicable checks",
-  scope: "Confirm affected pages",
+  noChecks: "No checks configured",
   failed: "failed",
   unverified: "unverified",
   statuses: {

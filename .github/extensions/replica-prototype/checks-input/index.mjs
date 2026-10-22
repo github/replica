@@ -7,13 +7,12 @@ import { promisify } from "node:util"
 
 import { validateChecksConfig } from "../checks-config/index.mjs"
 import { validateChecksGuidance } from "../checks-config/files.mjs"
-import { matchesCheckFile as matches } from "../checks-file-matches/index.mjs"
 
 const execute = promisify(execFile)
 const MAX_BYTES = 64 * 1024 * 1024
 const SECRET = /(^|\/)(\.env(?:\..*)?|\.npmrc|\.netrc|id_(?:rsa|ed25519)|[^/]*\.(?:pem|key))$/
 
-export async function captureChecksInput(repositoryPath, baseline, selection) {
+export async function captureChecksInput(repositoryPath) {
   const { stdout: topLevel } = await execute("git", ["rev-parse", "--show-toplevel"], {
     cwd: repositoryPath,
     timeout: 10000,
@@ -108,81 +107,7 @@ export async function captureChecksInput(repositoryPath, baseline, selection) {
   const document = files.get(".replica/checks.json")
   if (!document) throw new Error("Track .replica/checks.json or remove it from Git ignore rules.")
   const config = validateChecksConfig(JSON.parse(document.toString("utf8")))
-  const savedBase = baseline?.[`${branch.trim()}:${config.base}`]
-  let pinnedBase = savedBase?.sha
-  if (pinnedBase) {
-    try {
-      await git("merge-base", "--is-ancestor", pinnedBase, "HEAD")
-    } catch (error) {
-      if (error.code !== 1) throw error
-      pinnedBase = undefined
-    }
-  }
-  const base =
-    pinnedBase ??
-    (
-      await git(
-        "merge-base",
-        "HEAD",
-        (await git("rev-parse", "--verify", "--end-of-options", `${config.base}^{commit}`)).trim(),
-      )
-    ).trim()
-  const baseFiles = new Map(
-    (await git("ls-tree", "-r", "-z", base))
-      .split("\0")
-      .filter(Boolean)
-      .map((entry) => {
-        const separator = entry.indexOf("\t")
-        return [entry.slice(separator + 1), entry.slice(0, separator).split(" ")[2]]
-      }),
-  )
-  const changed = new Set()
-  // Compare captured contents, not a moving git diff, including deletions and untracked inputs.
-  for (const name of new Set([...baseFiles.keys(), ...files.keys()])) {
-    if (
-      SECRET.test(name) ||
-      name === ".replica/checks.json" ||
-      (config.ignore ?? []).some((pattern) => matches(pattern, name))
-    )
-      continue
-    const content = files.get(name)
-    if (!baseFiles.has(name)) {
-      if (content) changed.add(name)
-      continue
-    }
-    const oldHash = baseFiles.get(name)
-    if (!content || blobHash(content, oldHash.length) !== oldHash) changed.add(name)
-  }
-  const pages = (config.pages ?? []).filter((page) =>
-    [...changed].some((name) => page.inputs.some((pattern) => matches(pattern, name))),
-  )
-  const guidanceFiles = new Set(
-    config.checks.flatMap((check) => [
-      ...(check.context ?? []),
-      ...(check.runner.type === "agent" ? [check.runner.instructions] : []),
-    ]),
-  )
-  const unknown = [...changed].filter(
-    (name) =>
-      !guidanceFiles.has(name) &&
-      !(config.pages ?? []).some((page) => page.inputs.some((pattern) => matches(pattern, name))),
-  )
   const fileHashes = new Map([...files].map(([name, content]) => [name, hash(content)]))
-  const selectionKey = hash(
-    JSON.stringify({
-      base,
-      branch: branch.trim(),
-      pages: config.pages,
-      changed: [...changed].map((name) => [name, fileHashes.get(name) ?? null]),
-    }),
-  )
-  const resolved = selection?.key === selectionKey
-  const selectedPages = resolved
-    ? (config.pages ?? []).filter(
-        (page) =>
-          pages.some((included) => included.id === page.id) || selection.pageIds.includes(page.id),
-      )
-    : pages
   for (const check of config.checks) {
     for (const file of [
       ...(check.context ?? []),
@@ -191,16 +116,6 @@ export async function captureChecksInput(repositoryPath, baseline, selection) {
       validateChecksGuidance(files.get(file), file, check.id)
     }
   }
-  const fingerprint = hash(
-    JSON.stringify([
-      branch.trim(),
-      head.trim(),
-      base,
-      config,
-      selectedPages.map((page) => page.id),
-      [...fileHashes],
-    ]),
-  )
   for (const [name, device, inode, modified, changedTime, size] of versions) {
     const current = await stat(path.join(root, name))
     if (
@@ -221,39 +136,15 @@ export async function captureChecksInput(repositoryPath, baseline, selection) {
     throw new Error("The checkout changed while capturing checks. Retry.")
   return {
     repositoryPath: root,
-    state:
-      config.checks.some((check) => check.targets) && unknown.length && !resolved
-        ? "scope_required"
-        : config.checks.some((check) => !check.targets) || selectedPages.length
-          ? "ready"
-          : "no_pages",
+    state: "ready",
     branch: branch.trim(),
     head: head.trim(),
     config,
     files,
     fileHashes,
-    base,
-    baseline: { branch: branch.trim(), ref: config.base, sha: base },
-    pages: selectedPages,
-    unknown,
-    selectionKey,
-    fingerprint,
-    pageFiles: Object.fromEntries(
-      selectedPages.map((page) => [
-        page.id,
-        [...files.keys()].filter((name) => page.inputs.some((pattern) => matches(pattern, name))),
-      ]),
-    ),
   }
 }
 
 function hash(value) {
   return createHash("sha256").update(value).digest("hex")
-}
-
-function blobHash(content, hashLength) {
-  return createHash(hashLength === 64 ? "sha256" : "sha1")
-    .update(`blob ${content.length}\0`)
-    .update(content)
-    .digest("hex")
 }

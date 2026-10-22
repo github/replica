@@ -86,7 +86,7 @@ function readJsonObject(filePath, label) {
     return value
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error)
-    throw new Error(`Cannot parse ${label}: ${detail}.`)
+    throw new Error(`Cannot parse ${label}: ${detail}.`, { cause: error })
   }
 }
 

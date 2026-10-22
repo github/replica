@@ -41,9 +41,6 @@ describe("Toolbar()", () => {
       }
       const checksState: ChecksState = {
         state: "ready",
-        pages: [],
-        availablePages: [],
-        unknown: [],
         checks: [check],
       }
       const onChecks = vi.fn()

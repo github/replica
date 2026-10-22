@@ -17,14 +17,13 @@ async function fixture(test) {
   const config = {
     $schema: "https://unavailable.invalid/schema.json",
     version: 2,
-    base: "main",
     checks: [
       {
         id: "command",
         name: "Command",
+        inputs: { include: ["src/**"] },
         runner: {
           type: "command",
-          image: "not-installed:latest",
           command: [
             process.execPath,
             "-e",

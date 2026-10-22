@@ -17,7 +17,7 @@ const temporary = await mkdtemp(join(tmpdir(), "replica-checks-validator-"))
 const require = createRequire(import.meta.url)
 const check = process.argv.includes("--check")
 
-async function bundle(entry, format) {
+async function bundle(entry) {
   const result = await build({
     configFile: false,
     publicDir: false,
@@ -27,7 +27,7 @@ async function bundle(entry, format) {
       write: false,
       target: "node24",
       minify: true,
-      lib: { entry, formats: [format], fileName: "validator" },
+      lib: { entry, formats: ["cjs"], fileName: "validator" },
       rollupOptions: { external: (id) => id.startsWith("node:") },
     },
   })
@@ -55,11 +55,7 @@ async function save(url, source) {
 try {
   const entry = join(temporary, "shape.cjs")
   await writeFile(entry, standaloneCode(ajv, ajv.compile(schema)))
-  await save(new URL("shape.cjs", directory), await bundle(entry, "cjs"))
-  await save(new URL("../../starter/.replica/checks.schema.json", import.meta.url), schemaSource)
-  const command = await bundle(new URL("validate.mjs", directory).pathname, "es")
-  await save(new URL("standalone.js", directory), command)
-  await save(new URL("../../starter/.replica/validate-checks.mjs", import.meta.url), command)
+  await save(new URL("shape.cjs", directory), await bundle(entry))
 } finally {
   await rm(temporary, { recursive: true, force: true })
 }

@@ -3,7 +3,7 @@ import type { ChecksState } from "@utils/prototype-checks/types"
 import { copy } from "./en"
 
 export function summarizePrototypeChecks(state?: ChecksState | null, error?: string | null) {
-  const checks = (state?.checks ?? []).filter((check) => check.status !== "not_applicable")
+  const checks = state?.checks ?? []
   const unavailable = !!error || state?.state === "error"
   const confirmed = state?.state === "ready" && !unavailable
   const passed = confirmed
@@ -18,10 +18,7 @@ export function summarizePrototypeChecks(state?: ChecksState | null, error?: str
   const running = checks.some((check) => ["queued", "running"].includes(check.status))
   const loading = !state || state.state === "loading"
   const warning =
-    unavailable ||
-    state?.state === "scope_required" ||
-    unverified > 0 ||
-    checks.some((check) => check.status === "execution_error")
+    unavailable || unverified > 0 || checks.some((check) => check.status === "execution_error")
   const status = unavailable
     ? "warning"
     : loading || running
@@ -51,11 +48,9 @@ export function summarizePrototypeChecks(state?: ChecksState | null, error?: str
       ? copy.loading
       : state.state === "unconfigured"
         ? copy.unconfigured
-        : state.state === "scope_required"
-          ? copy.scope
-          : checks.length === 0
-            ? copy.noPages
-            : details
+        : checks.length === 0
+          ? copy.noChecks
+          : details
 
   return {
     label: checks.length ? `${passed}/${checks.length}` : copy.title,

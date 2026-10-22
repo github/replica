@@ -3,12 +3,12 @@
 ## Prototype quality checks
 
 The source extension adds **Prototype checks** to the canvas toolbar. Its right-hand
-sidebar shows affected pages, individual outcomes, evidence and findings.
-Checks have no numeric scores, weights or points. The toolbar shows current passing checks over all applicable
+sidebar shows individual outcomes, evidence and findings.
+Checks have no numeric scores, weights or points. The toolbar shows current passing checks over all configured
 checks, including manual checks. It shows a spinner while checks
 are queued or running, an X for confirmed failures, a warning for execution errors
-or inconclusive results, and a checkmark when all applicable checks pass. Pending
-or outdated checks have no icon. The tooltip explains the counts; no applicable
+or inconclusive results, and a checkmark when all configured checks pass. Pending
+or outdated checks have no icon. The tooltip explains the counts; no configured
 checks displays **Checks** instead of `0/0`. The count uses a pill-shaped counter
 with neutral, active, success, danger or attention colors matching its state.
 Icons and tooltip text communicate the status without relying on color.
@@ -26,23 +26,12 @@ provides the runners and report contract, not a built-in Primer compliance
 analyzer. Keep product rules, design-system guidance and scenario scripts in the
 consuming repository.
 
-The [starter's removable examples](../../starter/README.md#example-quality-checks)
-include manual-run accessibility and code-quality source reviews inspired by
-`github/prototyping`. They respect approved consuming-repository conventions and
-do not require Primer. Their outcomes assess source evidence, not browser
-accessibility or successful lint/typecheck/test execution. Owners can replace the
-examples with command/browser checks or delete the manifest and instruction files.
+The [starter's removable examples](../../starter/README.md#example-quality-checks) include a manual accessibility source review and a real ESLint check. The review respects approved consuming-repository conventions and does not require Primer; browser-only evidence remains unverified. Lint runs the starter's installed `npm run lint` command without an agent or Docker. Owners can customize the checks or delete the manifest and instruction files.
 
-Replica also enables these examples for its own Canvas source through the root
-`.replica/checks.json`, reusing the starter's instruction files. A manifest only
+Replica also enables an accessibility source review and its existing Hub lint command through the root `.replica/checks.json`. Hub's command uses its documented development environment; the checks framework adds no container of its own. A manifest only
 inside `starter/` configures copied prototype repositories, not this checkout's
 open Canvas. The root manifest declares Canvas renderer, shared UI and runtime
 dependencies; it does not assess the demo iframe as a rendered accessibility audit.
-Its baseline is the remote default ref `origin/main`, rather than a potentially
-stale local `main`.
-The baseline stays pinned while it remains an ancestor of the current branch.
-After a rebase or history rewrite removes that ancestor, checks pin a new merge
-base with the configured ref and invalidate results from the previous snapshot.
 
 Completed reviews show **What was checked** as a checklist using the configured
 criterion names and **Passed**, **Failed** or **Needs verification** labels.
@@ -50,39 +39,22 @@ Expand an individual row for its evidence. Version 2 reports enforce at most 400
 characters per criterion's evidence; agents give short source pointers and keep
 detailed corrective guidance in findings.
 
-### Configuration and page scope
+### Configuration and assessment files
 
 For example:
 
 ```json
 {
   "version": 2,
-  "base": "main",
   "concurrency": 1,
   "debounceMs": 2000,
-  "ignore": ["README.md", "checks/**", ".github/**"],
-  "pages": [
-    {
-      "id": "settings",
-      "name": "Settings",
-      "route": "/settings",
-      "inputs": ["src/settings/**", "src/components/**", "src/styles/**"]
-    },
-    {
-      "id": "account",
-      "name": "Account",
-      "route": "/account",
-      "inputs": ["src/account/**", "src/components/**", "src/styles/**"]
-    }
-  ],
   "checks": [
     {
       "id": "lint",
       "name": "Lint",
       "runner": {
         "type": "command",
-        "image": "prototype-checks:local",
-        "command": ["eslint", "src"],
+        "command": ["npm", "run", "lint"],
         "report": "exit-code"
       },
       "inputs": { "include": ["src/**", "package.json", "eslint.config.mjs"] },
@@ -104,55 +76,11 @@ For example:
 }
 ```
 
-`base` is explicit: use the prototype's starting commit or a named base branch.
-On first assessment, Replica pins its merge base with HEAD privately for this
-session/checkout/branch and reference. Advancing the base branch does not move that
-pin. Changing the configured reference deliberately establishes a new pin.
-An unavailable base blocks checks rather than guessing from an upstream.
+Every check requires a nonempty `inputs.include`; optional `inputs.exclude` removes matches. Patterns use repository-relative paths and `*` / `**`. Include source, shared dependencies, configuration, wrappers and package/lockfiles that can affect the outcome. All configured checks can run without a Git baseline, changed-page inference or scope confirmation. A check assesses its full declared source, including existing issues.
 
-Each check's `inputs.include` declares assessment files; `inputs.exclude` removes
-matches. Patterns use repository-relative paths and `*` / `**`.
-`context` names exact repository guidance files, and `runner.instructions` names
-an agent's review procedure. Guidance is readable but is not required assessment
-source, even when an input glob also matches it. Missing guidance, invalid UTF-8
-or guidance over 100,000 bytes blocks execution with a visible error.
+`context` names exact repository guidance files, and `runner.instructions` names an agent's review procedure. Guidance is readable but is not required assessment source, even when an input glob also matches it. Missing guidance, invalid UTF-8 or guidance over 100,000 bytes blocks execution with a visible error.
 
-`pages` is optional. A check without `targets` assesses its repository inputs and
-does not require a page or changed route. Without explicit `inputs`, it includes
-all captured repository files except the manifest, its context and instructions.
-Use explicit inputs to avoid requiring an agent to review unrelated files.
-
-Page `inputs` are a reusable dependency map, using repository-relative paths
-and `*` / `**` patterns. Include shared components, layout, styles and other
-dependencies in every affected page. Replica compares saved contents, including
-staged, unstaged, untracked and deleted files, with the pinned base. It checks the
-full included pages: an existing problem on a changed or dependent page counts;
-an unrelated page does not.
-
-Scope compares saved bytes with committed Git blobs. Use a plain-source checkout
-for repositories that transform working files through LFS, custom clean filters
-or working-tree encodings. Replica does not execute repository-defined Git
-filters on the host.
-
-Replica does not claim automatic knowledge of dynamic routing or import impact.
-Changed files outside all declared page inputs and `ignore` rules require
-**Confirm page scope**. Authors select additional affected pages, or explicitly
-confirm no additional impact. Changes to those unknown inputs invalidate the
-confirmation. `ignore` excludes files from page impact discovery, not assessment input or snapshot
-identity. It is not a substitute for a check's `inputs.exclude`.
-
-Checks restrict page applicability with `targets: ["settings"]`. Without explicit
-check inputs, their scope is the union of applicable pages' dependency files.
-With explicit inputs, those inputs define assessment scope while targets determine
-applicability. Repository-wide checks omit targets. If any targeted checks have
-unresolved page impact, scope confirmation still blocks execution.
-
-Optional
-`scenarios` declare `{ id, name, pageId, viewport: { width, height }, expectations,
-state? }`. Expectations are a nonempty string array; state is a small JSON object
-interpreted by the repository's runner. Scenarios use the declared page route and
-are included only when that page is in scope. Scripts own fixture setup and
-assertions, not Replica or the live preview.
+Browser-test scripts own routes, viewport, fixtures, scenario setup and assertions. Declare their files in inputs or context so edits invalidate results. Replica schedules the check and validates its report rather than maintaining a page or scenario registry.
 
 Unknown fields, duplicate IDs, invalid paths and missing guidance block execution.
 Criteria are optional named expectations, not a scoring rubric. Version 1
@@ -161,68 +89,53 @@ settings under `runner`, and remove `weight` and criterion `points`.
 
 ### Validate configuration
 
-Ask an agent to set up prototype checks or invoke the plugin's `/replica-setup-checks` skill. It discovers existing commands and guidance, resolves each check's scope and manual/automatic policy, creates `.replica/checks.json`, and validates it with the shared command. It generates configuration against Replica's schema, not a new schema. The plugin bundles the schema and standalone validator so this also works without the starter or a monorepo checkout. Install the updated plugin and start a fresh session to discover the skill.
+Ask an agent to set up prototype checks or invoke the plugin's `/replica-setup-checks` skill. It discovers existing commands and guidance, resolves each check's scope and manual/automatic policy, creates `.replica/checks.json`, and validates it through the canvas's `validate_checks` action. It generates configuration against Replica's schema, not a new schema. The plugin bundles the schema and validator, so this also works without the starter or a monorepo checkout. Install the updated plugin and start a fresh session to discover the skill.
 
-The version 2 [JSON Schema](../../.github/extensions/replica-prototype/checks-config/schema.v2.json) defines the configuration's structure. The runtime uses a validator generated from that schema, rather than a separate set of structural rules. Repository cross-references, unique IDs and guidance-file checks remain semantic validation.
+The version 2 [JSON Schema](../../.github/extensions/replica-prototype/checks-config/schema.v2.json) defines the configuration's structure. The runtime uses a validator generated from that schema, rather than a separate set of structural rules. Unique IDs and guidance-file checks remain semantic validation.
 
-The starter includes a local schema and a standalone validation command. Its `.replica/checks.json` begins with:
+The schema stays in the plugin; the skill reads it in place instead of copying it into the consuming repository. Configuration needs no `$schema` reference. A command check can begin with:
 
 ```json
 {
-  "$schema": "./checks.schema.json",
   "version": 2,
-  "base": "main",
   "checks": [
     {
       "id": "lint",
       "name": "Lint",
       "runner": {
         "type": "command",
-        "image": "prototype-checks:local",
-        "command": ["eslint", "src"],
+        "command": ["npm", "run", "lint"],
         "report": "exit-code"
-      }
+      },
+      "inputs": { "include": ["src/**", "package*.json", "eslint.config.mjs"] }
     }
   ]
 }
 ```
 
-JSON editors and language servers that support `$schema` can offer completion, descriptions and diagnostics while the file is edited. They do not automatically correct the file. An AI receives these diagnostics only when its host exposes them; a schema does not add language-server integration to a host. The `$schema` property is optional metadata. Replica always validates against its own versioned schema and never fetches that URI.
+Ordinary JSON editors no longer receive schema-based completion and diagnostics automatically. The plugin's skill and Canvas provide validation. Existing `$schema` metadata remains accepted for compatibility; Replica always validates against its own versioned schema and never fetches that URI.
 
-From a copied prototype repository, run:
+On an open Replica canvas, invoke `validate_checks` with no input. Unlike Controls validation, which reads a served public asset, this action reads `.replica/checks.json` directly from the current Git checkout. It also works from subdirectories and before the first commit. It needs no Git baseline, Docker, running preview or Hub connection, and never runs the configured checks. A disconnected canvas can validate configuration.
 
-```sh
-npm run checks:validate
-```
+If no Canvas is open, the setup skill opens one with `{"mode":"validation"}`. This mode skips saved preview restoration and dev-server setup, so it does not connect a preview or start automatic checks. It preserves already-open panels without probing or replacing their previews. A later ordinary open, an explicit `connect_prototype` action or the user's **Connect** button can turn a validation-only panel into a preview. Combining validation mode with `prototypeUrl` is rejected. Omitting `mode` keeps ordinary preview behavior.
 
-The command needs only the repository's supported Node.js runtime: no package installation, Git baseline, Docker, Copilot session or running preview. It validates structure, page references, unique IDs and on-disk context/instruction files, then exits nonzero with diagnostics on failure. It never runs the configured checks. File checks reject missing files, symbolic links, nonregular files, invalid UTF-8, NUL bytes and guidance over 100,000 bytes. Snapshot capture still checks Git availability, tracked/ignored inputs, snapshot limits and whether the checkout changes during capture.
+The action returns `status: "valid"`, `"invalid"` or `"missing"`, the repository-relative `file`, and bounded plain-text `issues` with JSON-pointer paths. It validates structure, unique IDs and on-disk context/instruction files. A missing manifest returns `"missing"`; configuration errors return `"invalid"`; unexpected checkout or file-access failures fail the action explicitly. File checks reject missing files, symbolic links, nonregular files, invalid UTF-8, NUL bytes and guidance over 100,000 bytes. Snapshot capture separately checks the named branch, tracked/ignored inputs, snapshot limits and whether the checkout changes during capture.
 
-Use the same command as a CI step before build or publication. Existing repositories can copy `checks.schema.json` and `validate-checks.mjs` from `starter/.replica/` into their own `.replica/`, add the `$schema` reference, and run `node .replica/validate-checks.mjs`. Both files are self-contained; do not fetch or execute a URL supplied by a config.
+Consumer repositories keep `.replica/checks.json` and check-specific guidance. Full validation requires the plugin; the starter ships no schema copy, standalone CLI or CI validation command. Existing custom schema files and tooling need not be removed.
 
-Replica contributors can run `npm run checks:validate` from `hub/` to check both repository examples, or validate another repository from this checkout:
+Replica retains an internal contributor command for checking its examples in local checks and CI. Run `npm run checks:validate` from `hub/`, or validate another repository from this monorepo checkout:
 
 ```sh
 node .github/extensions/replica-prototype/checks-config/validate.mjs /path/to/prototype
 ```
 
-After changing the canonical schema or validator source, run `npm run checks:schema:generate` from `hub/`. Commit the generated runtime validator, bundled standalone command, starter schema and standalone starter command together. `npm run checks:schema:check` detects drift and runs with example validation as part of `npm run extension:test` in local checks and CI.
+After changing the canonical schema, run `npm run checks:schema:generate` from `hub/` and commit the generated runtime validator. `npm run checks:schema:check` detects drift and runs with example validation as part of `npm run extension:test` in local checks and CI.
 
 ### Runners and result contract
 
-Command checks require Docker and an **already installed**, repository-selected
-runtime image. Replica does not pull images or install dependencies. Prepare and
-review the image separately; it must supply `/usr/bin/timeout`, the configured
-executable, dependencies and any browser engine. For Node ESM wrappers, tooling
-installed at `/node_modules` is resolvable from the mounted `/snapshot`; source
-`node_modules` is never copied or mounted.
+Command checks launch an asynchronous local process in the Git checkout, using installed executables and project dependencies. `runner.command` supplies the executable and arguments without an implicit shell; use the repository's existing package script, such as `["npm", "run", "lint"]`. Replica does not install dependencies. Remove the obsolete `runner.image` field from existing command configuration.
 
-The container has only readonly mounts for that check's source, context and run metadata,
-a disposable `/tmp`, no network, no Docker socket, no capabilities and no
-credential mounts. It runs as a nonroot user, with one CPU, 1 GiB memory, a bounded
-process count and an in-container deadline. Writable test/build artifacts belong
-in `/tmp`, never `/snapshot`. A browser script starts its own preview and fresh
-browser inside the container; its isolated loopback remains available, while
-network access to Hub or other services does not. Do not inherit authentication.
+Commands inherit the extension host's environment, filesystem permissions and network access. They are not sandboxed and may change the checkout, so configure non-mutating verification commands and enable automatic execution only for trusted scripts. Assessment inputs determine freshness, not filesystem access or an executable allowlist. Output is bounded; cancellation and deadlines stop the owned process group on macOS/Linux. Browser checks use installed test tooling and their own fresh browser and fixtures, not an existing authenticated session.
 
 Agent checks start a separate SDK runtime using the installed `copilot` executable
 on the host's PATH (or an absolute `COPILOT_CLI_PATH`) and normal runtime
@@ -232,7 +145,7 @@ runtime. They expose only immutable `list_snapshot` and
 extensions disabled. Managed permission requirements are never automatically
 approved. Source-only reviews must return `unverified` for required rendered
 evidence. For rendered accessibility/scenario assertions, configure a command
-wrapper with a browser-capable image rather than claiming a source review is a
+wrapper with locally installed browser tooling rather than claiming a source review is a
 browser test.
 
 Agent source reads are paginated rather than returned as whole files.
@@ -267,9 +180,8 @@ Keep declarations focused: a broad pattern requires reviewing every matching
 text file, not a sample.
 
 Command wrappers read the JSON file at `REPLICA_CHECK_CONTEXT`. It supplies
-`version`, `checkId`, `fingerprint`, `scope.files`, `scope.contextFiles`, optional
-applicable `pages`, `criteria` and `scenarios`. Repository-owned command wrappers
-must be declared as context so they are present in the isolated snapshot.
+`version`, `checkId`, `fingerprint`, `scope.files`, `scope.contextFiles` and `criteria`. The fingerprint identifies this check's effective assessment inputs, not the whole checkout or an individual execution. Copy it unchanged into the report. Repository-owned command wrappers
+should be declared in inputs or context so changes invalidate their results.
 
 The default command `report: "json"` returns **only** one JSON result on stdout;
 write incidental logs to stderr. A valid assessment, including failed quality
@@ -279,7 +191,7 @@ are execution errors, not quality failures.
 For ordinary tools, use `report: "exit-code"` instead. Exit zero passes; by default
 exit one is a quality failure. Configure `failureExitCodes`, such as `[1, 2]`,
 only for documented tool failure codes from 1 through 123. Other codes, timeouts
-and Docker errors remain execution errors. The adapter uses bounded command
+and process-start failures remain execution errors. The adapter uses bounded command
 output as its summary. Exit-code checks have no individual criteria or findings;
 use a JSON wrapper for those details.
 
@@ -301,7 +213,6 @@ use a JSON wrapper for those details.
     {
       "id": "unused-variable",
       "severity": "error",
-      "pageId": "settings",
       "criterionId": "clean",
       "title": "Remove the unused variable",
       "description": "The saved settings page declares a variable it never uses.",
@@ -320,8 +231,7 @@ at most 400 characters. With no configured criteria, the array may be omitted.
 Optional `limitations` lists work not verified and missing evidence.
 
 Findings have a unique ID, severity (`error`, `warning` or `info`), title,
-description and evidence. `pageId` and `criterionId` are optional, but when
-present must reference supplied pages and configured criteria. File locations
+description and evidence. Optional `criterionId` must reference a configured criterion. File locations
 must reference assessment source; a line requires a file. Detailed descriptions
 are limited to 2,000 characters and evidence to 1,000. Reports allow at most 200
 findings and 20 limitations. Duplicate or missing criteria, unsupported fields
@@ -346,74 +256,51 @@ One polling loop schedules checks while Canvas is open, independently of sidebar
 
 Changing `automatic`, `debounceMs` or `concurrency` affects scheduling, not assessment freshness. Already requested work remains owned until it finishes, becomes obsolete, or is cancelled explicitly.
 
-Runs assess bounded immutable snapshots of saved files, not unsaved editor
-buffers. Credential-like files and source `node_modules` are excluded. Symlinks,
-unstable captures and oversized snapshots block execution rather than reading
-outside the checkout or silently omitting source. An unsafe or failed capture
-blocks new work and obsoletes owned work whose relevance cannot be established.
+Agent reviews assess bounded immutable snapshots of saved files, not unsaved editor buffers. Credential-like files and source `node_modules` are excluded from snapshots. Symlinks, unstable captures and oversized snapshots block execution rather than reading outside the checkout or silently omitting source. An unsafe or failed capture blocks new work and obsoletes owned work whose relevance cannot be established.
+
+Local commands read the live saved checkout and its installed dependencies. Replica captures declared assessment inputs for freshness and rechecks them before accepting completion; it does not copy or restrict the command's working files.
 
 Each check has a content-based assessment fingerprint covering its own
-definition, scoped source paths and bytes, context, instructions, and supplied
-page/scenario metadata. Only applicable scenarios participate. Object key order
+definition, scoped source paths and bytes, context and instructions. Object key order
 does not affect identity; missing explicit input files differ from empty files,
-and glob additions, removals and renames change identity. Page file inventories
-contain only supplied assessment source, including for repository-wide checks
-whose pages are not in the changed-page selection.
+and glob additions, removals and renames change identity.
 
 Sibling check definitions, scheduling settings and unrelated files do not
-invalidate a scoped check. Checks without explicit inputs still assess their
-default page dependencies or captured repository files, so use explicit inputs
-when a narrower scope is intended. HEAD and base commit IDs are provenance, not
+invalidate a scoped check. Every check declares its assessment files explicitly. HEAD is provenance, not
 assessment content: a commit or rebase with unchanged effective inputs can
 reuse results. Branch switches remain a separate execution and fix-safety
-boundary. Changes to page applicability or supplied scenarios still invalidate
-the affected assessment, including changes caused by a new baseline or confirmed
-page selection.
+boundary.
 
-The original whole-snapshot fingerprint remains bound to the worker report.
-Replica reuses a result only when its assessment fingerprint and branch match,
-then validates the report against that original run identity and the matching
-current scoped source. Relevant edits discard obsolete queued work and cancel
+The same per-check fingerprint identifies worker reports, saved results and assessment freshness. A separate internal run ID owns each execution and guards late completion. Replica validates worker results before accepting them and saved reports when their assessment first becomes current; rendering reuses the normalized result without repeating validation. Results are reusable only when their fingerprint and branch match. Relevant edits discard obsolete queued work and cancel
 only affected running checks. Late completions cannot replace a newer run or
 make an obsolete assessment current. Queue deduplication and automatic scheduling
 use the same per-check identity as freshness.
 
 Relevance covers declared inputs and runner configuration, not hidden external
-dependencies. Retargeting an installed image tag or changing host tools without a
-configuration/source change is not detected automatically; pin images by digest
-or request a manual rerun when the environment changes.
+dependencies. Changing installed tools without a configuration/source change is not detected automatically; include package and lockfiles in inputs and request a manual rerun when the environment changes.
 
 Each check's execution state is separate from its assessment outcome. A completed
 check can fail or remain unverified; an execution error has no quality outcome.
 Only current completed passing results count in the header numerator. Not-run,
-outdated, cancelled and unverified checks remain in the applicable denominator.
+outdated, cancelled and unverified checks remain in the configured denominator.
 Private session-workspace files hold results, trigger type and run timestamps;
 there is no Hub/CI result store or committed result file.
 
-Private version 3 records retain both assessment identity and captured
-branch/HEAD/base provenance. Existing version 1 and 2 records retain baseline pins
-and job ownership metadata. Interrupted workers are recovered before results
-without the new identity are discarded as outdated. The worker report and
-configuration contracts remain version 2.
+Private records retain the per-check fingerprint, execution ownership and captured branch/HEAD provenance. This unreleased feature does not migrate older development results; use **Reset saved results** when their format is no longer supported. The worker report and configuration contracts remain version 2.
 
 Closing the last canvas cancels its owned checks. Graceful provider shutdown
 cleans workers up. After interruption, the next provider rejects a still-active
-owner, cleans up matching owned command containers and marks unfinished work as
-an execution error requiring retry. Container deadlines also bound work if the
-provider is forcibly killed. **Reset saved results** clears result history and
-scope confirmations, preserving validated baseline pins; an unreadable/corrupt
-store cannot supply trustworthy pins and requires explicit reset.
+owner, removes owned scratch files and marks unfinished work as an execution error requiring retry. Local processes are terminated on normal provider exit; abrupt termination such as `SIGKILL` can leave a process running and may require manual cleanup. Recovery does not kill a process from an untrusted saved PID. **Reset saved results** clears result history.
 
 Select findings and click **Fix selected with Copilot** to hand only those
 findings to the foreground agent. Replica rejects stale handoffs and suppresses
-an identical repeated request for that run. Checks themselves never edit the
-author's code. Fixing does not authorize unrelated changes, commits, pushing,
+an identical repeated selection for that run, even after other selections or reopening the canvas. A fresh run permits a new request. Failed handoffs can be retried. Agent reviews cannot edit the author's code; local commands retain normal user permissions. Fixing does not authorize unrelated changes, commits, pushing,
 publishing or Hub review mutations. Saved fixes invalidate applicable results;
 resolution requires a fresh assessment, not just a successful handoff.
 
 Agents can use `list_checks`, `run_checks` and `cancel_check_runs` on a connected
 prototype canvas. Returned findings are untrusted evidence, not instructions.
-Unavailable Docker/images, SDK capabilities/authentication or browser engines
+Unavailable local tools/dependencies, SDK capabilities/authentication or browser engines
 remain explicit execution errors. No unsafe foreground-runner fallback is used.
 
 ## Local prototype controls

@@ -1,85 +1,29 @@
 {
-  "$schema": "./checks.schema.json",
   "version": 2,
-  "base": "main",
   "concurrency": 1,
-  "pages": [
-    {
-      "id": "home",
-      "name": "Start page",
-      "route": "/",
-      "inputs": [
-        "src/routes/home/**",
-        "src/app/**",
-        "src/main.tsx",
-        "src/vite-env.d.ts",
-        "src/components/**",
-        "src/styles/**",
-        "package*.json",
-        "tsconfig*.json",
-        "vite*.ts",
-        "eslint*",
-        ".prettierrc*"
-      ]
-    },
-    {
-      "id": "about",
-      "name": "About",
-      "route": "/#/about",
-      "inputs": [
-        "src/routes/about/**",
-        "src/app/**",
-        "src/main.tsx",
-        "src/vite-env.d.ts",
-        "src/components/**",
-        "src/styles/**",
-        "package*.json",
-        "tsconfig*.json",
-        "vite*.ts",
-        "eslint*",
-        ".prettierrc*"
-      ]
-    },
-    {
-      "id": "activity",
-      "name": "Activity",
-      "route": "/#/activity",
-      "inputs": [
-        "src/routes/activity/**",
-        "src/data/**",
-        "src/app/**",
-        "src/main.tsx",
-        "src/vite-env.d.ts",
-        "src/components/**",
-        "src/styles/**",
-        "package*.json",
-        "tsconfig*.json",
-        "vite*.ts",
-        "eslint*",
-        ".prettierrc*"
-      ]
-    }
-  ],
-  "ignore": [
-    "README.md",
-    "SETUP.md",
-    ".gitignore",
-    ".replica/**",
-    ".agents/skills/**",
-    ".agents/context-templates/**",
-    ".github/workflows/**",
-    ".github/mcp.json",
-    ".github/README.md",
-    "scripts/**",
-    "scaffold-templates/**",
-    "prototype-scaffold.config.mjs"
-  ],
   "checks": [
     {
       "id": "github-a11y-source",
       "name": "Accessibility source review (GitHub example)",
       "runner": { "type": "agent", "instructions": ".replica/checks/github-a11y.md" },
-      "targets": ["home", "about", "activity"],
+      "inputs": {
+        "include": [
+          "src/routes/home/**",
+          "src/routes/about/**",
+          "src/routes/activity/**",
+          "src/data/**",
+          "src/app/**",
+          "src/main.tsx",
+          "src/vite-env.d.ts",
+          "src/components/**",
+          "src/styles/**",
+          "package*.json",
+          "tsconfig*.json",
+          "vite*.ts",
+          "eslint*",
+          ".prettierrc*"
+        ]
+      },
       "context": ["AGENTS.md"],
       "automatic": false,
       "timeoutSeconds": 300,
@@ -103,31 +47,19 @@
       ]
     },
     {
-      "id": "github-code-quality-source",
-      "name": "Code-quality source review (GitHub example)",
-      "runner": { "type": "agent", "instructions": ".replica/checks/github-code-quality.md" },
-      "targets": ["home", "about", "activity"],
-      "context": ["AGENTS.md"],
+      "id": "lint",
+      "name": "Lint",
+      "runner": {
+        "type": "command",
+        "command": ["npm", "run", "lint"],
+        "report": "exit-code",
+        "failureExitCodes": [1]
+      },
+      "inputs": {
+        "include": ["src/**", "scripts/**", "*.mjs", "*.ts", "package*.json", "tsconfig*.json"]
+      },
       "automatic": false,
-      "timeoutSeconds": 300,
-      "criteria": [
-        {
-          "id": "typing-and-lint-patterns",
-          "name": "Type safety and lint patterns"
-        },
-        {
-          "id": "react-correctness",
-          "name": "React hooks and state"
-        },
-        {
-          "id": "errors-and-async",
-          "name": "Errors and async behavior"
-        },
-        {
-          "id": "maintainability",
-          "name": "Maintainability"
-        }
-      ]
+      "timeoutSeconds": 120
     }
   ]
 }

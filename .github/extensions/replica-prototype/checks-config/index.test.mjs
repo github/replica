@@ -6,22 +6,13 @@ import { validateChecksConfig } from "./index.mjs"
 function config() {
   return {
     version: 2,
-    base: "main",
-    pages: [
-      {
-        id: "page",
-        name: "Page",
-        route: "/page",
-        inputs: ["src/page.tsx", "src/shared/**"],
-      },
-    ],
     checks: [
       {
         id: "lint",
         name: "Lint",
+        inputs: { include: ["src/page.tsx", "src/shared/**"] },
         runner: {
           type: "command",
-          image: "node:24",
           command: ["node", "checks/lint.mjs"],
         },
         criteria: [{ id: "clean", name: "No relevant diagnostics" }],
@@ -31,8 +22,13 @@ function config() {
 }
 
 describe("validateChecksConfig()", () => {
-  it("accepts declarative page/shared dependencies and bounded command checks", () => {
+  it("accepts explicit file inputs and bounded command checks without a base reference", () => {
     assert.equal(validateChecksConfig(config()).checks[0].runner.type, "command")
+  })
+  it("rejects the removed command image field rather than silently ignoring it", () => {
+    const value = config()
+    value.checks[0].runner.image = "legacy-checks-image"
+    assert.throws(() => validateChecksConfig(value), /image|unknown|unsupported|additional/i)
   })
   it("accepts schema-location metadata without using it to choose the validator", () => {
     const value = config()
@@ -54,7 +50,7 @@ describe("validateChecksConfig()", () => {
       "src/page?.tsx",
     ]) {
       const value = config()
-      value.pages[0].inputs = [invalid]
+      value.checks[0].inputs.include = [invalid]
       assert.throws(() => validateChecksConfig(value), /file reference/)
     }
     for (const field of ["weight", "points", "scoring"]) {
@@ -77,23 +73,10 @@ describe("validateChecksConfig()", () => {
   it("rejects unknown fields in nested configuration objects", () => {
     for (const select of [
       (value) => value,
-      (value) => value.pages[0],
       (value) => value.checks[0],
       (value) => value.checks[0].runner,
       (value) => value.checks[0].criteria[0],
       (value) => (value.checks[0].inputs = { include: ["src/**"] }),
-      (value) => {
-        value.checks[0].scenarios = [
-          {
-            id: "default",
-            name: "Default",
-            pageId: "page",
-            viewport: { width: 1280, height: 720 },
-            expectations: ["Page is readable."],
-          },
-        ]
-        return value.checks[0].scenarios[0]
-      },
     ]) {
       const value = config()
       select(value).unsupported = true
@@ -101,61 +84,52 @@ describe("validateChecksConfig()", () => {
     }
   })
   it("accepts agent instruction references without commands", () => {
-    const value = config()
-    value.checks[0] = {
-      ...value.checks[0],
-      runner: { type: "agent", instructions: "checks/review.md" },
+    const value = {
+      version: 2,
+      checks: [
+        {
+          id: "review",
+          name: "Review",
+          inputs: { include: ["src/**"] },
+          criteria: [],
+          runner: { type: "agent", instructions: "checks/review.md" },
+        },
+      ],
     }
     assert.equal(validateChecksConfig(value).checks[0].runner.type, "agent")
   })
-  it("validates bounded scenarios against the check's declared page targets", () => {
-    const value = config()
-    value.checks[0].scenarios = [
-      {
-        id: "keyboard",
-        name: "Keyboard scenario",
-        pageId: "page",
-        viewport: { width: 1280, height: 720 },
-        state: { expanded: true },
-        expectations: ["The menu is reachable with a keyboard."],
-      },
-    ]
-    assert.equal(validateChecksConfig(value).checks[0].scenarios[0].pageId, "page")
-    value.checks[0].scenarios[0].pageId = "unknown"
-    assert.throws(() => validateChecksConfig(value), /page/)
-    value.checks[0].scenarios[0].pageId = "page"
-    value.checks[0].scenarios[0].viewport.width = 0
-    assert.throws(() => validateChecksConfig(value), /viewport/i)
+  it("rejects invalid schema metadata, empty checks and unsupported structural branches", () => {
+    for (const change of [
+      (value) => (value.$schema = 2),
+      (value) => (value.version = 3),
+      (value) => (value.checks = []),
+      (value) => (value.checks[0].runner.type = "shell"),
+      (value) => (value.checks[0].runner.capabilities = ["write"]),
+      (value) => (value.checks[0].name = "   "),
+    ]) {
+      const value = config()
+      change(value)
+      assert.throws(() => validateChecksConfig(value))
+    }
   })
-  it("retains semantic page targeting, unique IDs and serialized scenario-state limits", () => {
+  it("rejects removed impact and page fields instead of preserving compatibility", () => {
+    for (const [target, field, oldValue] of [
+      ["root", "base", "main"],
+      ["root", "pages", []],
+      ["root", "ignore", ["docs/**"]],
+      ["check", "targets", ["page"]],
+      ["check", "scenarios", []],
+    ]) {
+      const value = config()
+      ;(target === "root" ? value : value.checks[0])[field] = oldValue
+      assert.throws(() => validateChecksConfig(value), /unknown|unsupported|additional/i)
+    }
     const value = config()
-    value.pages.push({ ...value.pages[0], id: "other", route: "/other" })
-    value.checks[0].targets = ["page"]
-    value.checks[0].scenarios = [
-      {
-        id: "default",
-        name: "Default",
-        pageId: "other",
-        viewport: { width: 1280, height: 720 },
-        state: { text: "x".repeat(15989) },
-        expectations: ["Page is readable."],
-      },
-    ]
-    assert.throws(() => validateChecksConfig(value), /page|target/i)
-    value.checks[0].scenarios[0].pageId = "page"
-    assert.doesNotThrow(() => validateChecksConfig(value))
-    value.checks[0].scenarios[0].state.text += "x"
-    assert.throws(() => validateChecksConfig(value), /state|16000/i)
-    delete value.checks[0].scenarios
-    value.pages[1].id = "page"
-    assert.throws(() => validateChecksConfig(value), /unique|duplicate/i)
-    value.pages.pop()
     value.checks.push(structuredClone(value.checks[0]))
     assert.throws(() => validateChecksConfig(value), /unique|duplicate/i)
   })
-  it("accepts repository-wide checks without pages or criteria and keeps inputs separate from context", () => {
+  it("keeps explicit inputs separate from context and requires a nonempty include on every check", () => {
     const value = config()
-    delete value.pages
     delete value.checks[0].criteria
     value.checks[0].inputs = {
       include: ["src/**/*.tsx"],
@@ -163,9 +137,13 @@ describe("validateChecksConfig()", () => {
     }
     value.checks[0].context = ["docs/design.md"]
     const normalized = validateChecksConfig(value)
-    assert.deepEqual(normalized.pages, [])
+    assert.equal(Object.hasOwn(normalized, "pages"), false)
     assert.deepEqual(normalized.checks[0].inputs, value.checks[0].inputs)
     assert.deepEqual(normalized.checks[0].context, ["docs/design.md"])
+    for (const inputs of [undefined, {}, { exclude: ["src/generated/**"] }, { include: [] }]) {
+      value.checks[0].inputs = inputs
+      assert.throws(() => validateChecksConfig(value), /input|include|propert|field/i)
+    }
   })
   it("rejects legacy configs with an actionable version-two migration error", () => {
     assert.throws(() => validateChecksConfig({ ...config(), version: 1 }), /version.*2|v2/i)
@@ -184,12 +162,10 @@ describe("validateChecksConfig()", () => {
     for (const runner of [
       {
         type: "command",
-        image: "node:24",
         command: ["node"],
         instructions: "checks/review.md",
       },
       { type: "agent", instructions: "checks/review.md", command: ["node"] },
-      { type: "agent", instructions: "checks/review.md", image: "node:24" },
       { type: "agent", instructions: "checks/review.md", report: "json" },
       {
         type: "agent",
@@ -198,7 +174,6 @@ describe("validateChecksConfig()", () => {
       },
       {
         type: "command",
-        image: "node:24",
         command: ["node"],
         report: "exit-code",
       },

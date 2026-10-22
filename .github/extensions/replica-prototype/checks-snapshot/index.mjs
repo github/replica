@@ -2,38 +2,14 @@ const replyLimit = 8192
 const binaryAssets =
   /\.(png|jpe?g|gif|webp|avif|ico|woff2?|ttf|otf|eot|pdf|mp4|webm|ogg|mp3|wav|zip|gz|wasm)$/i
 
-export function createChecksSnapshot(input, pages, checkScope) {
-  const scope = new Map()
-  if (checkScope) {
-    for (const file of checkScope.files) {
-      scope.set(
-        file,
-        pages
-          .filter((page) =>
-            (checkScope.pageFiles?.[page.id] ?? input.pageFiles[page.id])?.includes(file),
-          )
-          .map((page) => page.id),
-      )
-    }
-  } else {
-    for (const page of pages) {
-      for (const file of new Set(input.pageFiles[page.id])) {
-        const ids = scope.get(file) ?? []
-        ids.push(page.id)
-        scope.set(file, ids)
-      }
-    }
-  }
+export function createChecksSnapshot(input, checkScope) {
+  const scope = new Set(checkScope.files)
   const names = [
-    ...new Set(
-      checkScope
-        ? [
-            ...scope.keys(),
-            ...checkScope.contextFiles,
-            ...(checkScope.instructionsFile ? [checkScope.instructionsFile] : []),
-          ]
-        : [...input.files.keys(), ...scope.keys()],
-    ),
+    ...new Set([
+      ...scope,
+      ...checkScope.contextFiles,
+      ...(checkScope.instructionsFile ? [checkScope.instructionsFile] : []),
+    ]),
   ].sort()
   const visible = new Set(names)
   const metadata = new Map()
@@ -54,10 +30,8 @@ export function createChecksSnapshot(input, pages, checkScope) {
         reason = "invalid_utf8"
       }
     }
-    const pageIds = scope.get(file) ?? []
     const value = {
       file,
-      pageIds,
       totalBytes: content?.length ?? 0,
       required: scope.has(file) && !binaryAssets.test(file),
       reason,
@@ -186,7 +160,7 @@ export function createChecksSnapshot(input, pages, checkScope) {
           index++
           continue
         }
-        files.push({ ...value, pageIds: undefined, nextOffset: nextUnread(value.file) })
+        files.push({ ...value, nextOffset: nextUnread(value.file) })
         if (
           Buffer.byteLength(JSON.stringify({ files, nextOffset: null })) +
             String(names.length).length >
@@ -237,7 +211,10 @@ export function createChecksSnapshot(input, pages, checkScope) {
           !Number.isSafeInteger(entry.readBytes) ||
           entry.totalBytes !== known.totalBytes ||
           entry.required !== known.required ||
-          JSON.stringify(entry.pageIds) !== JSON.stringify(known.pageIds) ||
+          Object.keys(entry).some(
+            (key) =>
+              !["file", "totalBytes", "required", "reason", "readBytes", "status"].includes(key),
+          ) ||
           entry.reason !== reason
         )
           throw new Error("Source-read coverage does not match the captured source.")

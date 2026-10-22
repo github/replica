@@ -7,13 +7,13 @@
     "node": "^24.15.0 || ^26.0.0"
   },
   "scripts": {
-    "checks:validate": "node .replica/validate-checks.mjs",
     "dev": "vite",
     "build": "vite build",
     "preview": "npm run build && vite preview",
     "scaffold": "node scripts/scaffold-prototype.mjs",
-    "format": "prettier --write src scripts scaffold-templates/neutral prototype-scaffold.config.mjs vite-aliases.ts vite.config.ts vite.config.test.ts vitest.config.ts",
-    "format:check": "prettier --check src scripts scaffold-templates/neutral prototype-scaffold.config.mjs vite-aliases.ts vite.config.ts vite.config.test.ts vitest.config.ts",
+    "lint": "eslint .",
+    "format": "prettier --write src scripts scaffold-templates/neutral eslint.config.mjs eslint.config.test.ts prototype-scaffold.config.mjs vite-aliases.ts vite.config.ts vite.config.test.ts vitest.config.ts",
+    "format:check": "prettier --check src scripts scaffold-templates/neutral eslint.config.mjs eslint.config.test.ts prototype-scaffold.config.mjs vite-aliases.ts vite.config.ts vite.config.test.ts vitest.config.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
@@ -24,15 +24,21 @@
     "react-dom": "19.3.0"
   },
   "devDependencies": {
+    "@eslint/js": "10.0.1",
     "@testing-library/jest-dom": "7.0.1",
     "@testing-library/react": "16.1.0",
     "@types/node": "26.6.4",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "@vitejs/plugin-react": "6.1.2",
+    "eslint": "10.12.0",
+    "eslint-plugin-github": "6.1.2",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "globals": "17.13.0",
     "jsdom": "30.1.2",
     "prettier": "3.9.9",
     "typescript": "npm:@typescript/typescript6@6.0.2",
+    "typescript-eslint": "8.71.1",
     "vite": "8.3.4",
     "vitest": "5.0.3"
   }

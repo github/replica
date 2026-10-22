@@ -1,42 +1,40 @@
 import validateShape from "./shape.cjs"
 
+export class ChecksConfigError extends Error {
+  constructor(message, issues = [{ path: "/", message }]) {
+    super(message)
+    this.issues = issues
+  }
+}
+
 export function validateChecksConfig(value) {
   if (value && typeof value === "object" && value.version !== 2)
-    throw new Error(
+    throw new ChecksConfigError(
       "Checks configuration must use version 2. Remove scoring fields and configure a runner object.",
     )
   if (!validateShape(value)) {
     const details = validateShape.errors.slice(0, 8).map((error) => {
-      const location = error.instancePath || "/"
-      if (error.keyword === "additionalProperties")
-        return `${location}: Unknown checks configuration field: ${error.params.additionalProperty}.`
-      return `${location}: ${error.message} (${error.schemaPath}).`
+      return {
+        path: error.instancePath || "/",
+        message:
+          error.keyword === "additionalProperties"
+            ? `Unknown checks configuration field: ${error.params.additionalProperty}.`
+            : `${error.message} (${error.schemaPath}).`,
+      }
     })
-    throw new Error(`Invalid checks configuration or file reference:\n${details.join("\n")}`)
+    throw new ChecksConfigError(
+      `Invalid checks configuration or file reference:\n${details.map((issue) => `${issue.path}: ${issue.message}`).join("\n")}`,
+      details,
+    )
   }
-  unique(value.pages ?? [], "page")
   unique(value.checks, "check")
   for (const check of value.checks) {
-    if (check.targets?.some((id) => !(value.pages ?? []).some((page) => page.id === id)))
-      throw new Error(`Check ${check.id} has unknown target pages.`)
     unique(check.criteria ?? [], "criterion")
-    unique(check.scenarios ?? [], "scenario")
-    for (const scenario of check.scenarios ?? []) {
-      if (
-        !(value.pages ?? []).some((page) => page.id === scenario.pageId) ||
-        (check.targets && !check.targets.includes(scenario.pageId))
-      )
-        throw new Error(`Check ${check.id} scenarios must target a page assessed by their check.`)
-      if (scenario.state !== undefined && JSON.stringify(scenario.state).length > 16000)
-        throw new Error(
-          `Check ${check.id} scenario state must be a JSON object under 16000 characters.`,
-        )
-    }
   }
-  return { ...value, pages: value.pages ?? [] }
+  return value
 }
 
 function unique(values, label) {
   if (new Set(values.map((value) => value.id)).size !== values.length)
-    throw new Error(`Use unique lowercase ${label} IDs.`)
+    throw new ChecksConfigError(`Use unique lowercase ${label} IDs.`)
 }

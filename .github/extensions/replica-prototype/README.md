@@ -6,15 +6,16 @@ The Replica prototype canvas puts a local prototype in the Copilot app alongside
 
 The source extension also adds a **Prototype checks** toolbar control. Repository
 owners configure version 2 `.replica/checks.json` with assessment inputs, guidance,
-optional page dependencies and command or agent runners. Checks report pass,
-fail or unverified outcomes rather than scores. They run in independent,
-read-only background workers; selecting findings and requesting a fix engages
+and command or agent runners. Every check declares its files through `inputs.include`, with optional exclusions. Checks report pass,
+fail or unverified outcomes rather than scores. Commands run as local background processes with the checkout's installed tools; agent reviews use read-only snapshots. Selecting findings and requesting a fix engages
 the foreground agent explicitly. See [Prototype quality checks](../../../hub/docs/prototype-canvas.md#prototype-quality-checks)
-for configuration, runtime-image requirements, result contracts and limitations.
+for configuration, execution permissions, result contracts and limitations.
 
-The versioned [configuration schema](checks-config/schema.v2.json) also powers the runtime validator. The starter includes a local schema reference and a dependency-free `npm run checks:validate` command for editor feedback and local/CI validation. JSON language servers provide completion and diagnostics, not automatic correction; AI access to those diagnostics depends on its host.
+Each report uses the same per-check fingerprint as freshness; unrelated checkout changes do not change its identity. Rendering reuses validated results. The repository's accessibility example excludes unit tests, component stories and the generated Controls validator while retaining review fixtures and tooling inputs.
 
-Ask an agent to set up prototype checks, or invoke `/replica-setup-checks`. The plugin's bundled skill creates configuration and repository guidance, installs the shared schema and standalone validator when needed, and validates the final config. It works in repositories without the starter. Schema validity and actual check outcomes remain separate; automatic execution is opt-in.
+The plugin's versioned [configuration schema](checks-config/schema.v2.json) also powers its runtime validator. The canvas's `validate_checks` action validates the checkout's configuration and guidance files without running checks or requiring a preview. Consumer repositories need only their configuration and check-specific guidance, not schema copies or validator scripts. Ordinary JSON editors no longer receive schema-based suggestions automatically.
+
+Ask an agent to set up prototype checks, or invoke `/replica-setup-checks`. The plugin's bundled skill reads its schema, creates configuration and repository guidance, and validates the saved config through `validate_checks`. If Canvas is closed, the skill opens it with `{"mode":"validation"}`; this skips preview restoration and dev-server setup, without starting automatic checks. Existing previews stay unchanged. It works in repositories without the starter. Schema validity and actual check outcomes remain separate; automatic execution is opt-in.
 
 ## Local prototype controls
 

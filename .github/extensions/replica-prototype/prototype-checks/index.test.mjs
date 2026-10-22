@@ -1,46 +1,46 @@
 import assert from "node:assert/strict"
 import { createHash } from "node:crypto"
 import { mkdtemp, rm } from "node:fs/promises"
-import os from "node:os"
 import path from "node:path"
 import { describe, it } from "node:test"
 import { setTimeout } from "node:timers/promises"
+import { fileURLToPath } from "node:url"
 
 import { createPrototypeChecks } from "./index.mjs"
 import { createPrivateStore } from "../private-store/index.mjs"
 import { createChecksSnapshot } from "../checks-snapshot/index.mjs"
+import { createCheckAssessment } from "../checks-assessment/index.mjs"
+import { resolveCheckScope } from "../checks-scope/index.mjs"
 
-function input(fingerprint = "one") {
+const directory = fileURLToPath(new URL(".", import.meta.url))
+
+function input(revision = "one") {
   return {
     state: "ready",
-    fingerprint,
     branch: "prototype",
-    head: "a".repeat(40),
-    base: "b".repeat(40),
-    baseline: { branch: "prototype", ref: "main", sha: "b".repeat(40) },
-    pages: [{ id: "page", name: "Page", route: "/page", inputs: ["page.tsx"] }],
-    unknown: [],
-    pageFiles: { page: ["page.tsx"] },
+    head: createHash("sha1").update(revision).digest("hex"),
     files: new Map([["page.tsx", Buffer.from("source")]]),
     config: {
-      base: "main",
       concurrency: 1,
       checks: [
         {
           id: "lint",
           name: "Lint",
+          inputs: { include: ["page.tsx"] },
           runner: { type: "command" },
           criteria: [{ id: "clean" }],
         },
         {
           id: "review",
           name: "Review",
+          inputs: { include: ["page.tsx"] },
           runner: { type: "agent", instructions: "review.md" },
           criteria: [{ id: "clean" }],
         },
         {
           id: "advice",
           name: "Advice",
+          inputs: { include: ["page.tsx"] },
           runner: { type: "agent", instructions: "review.md" },
           criteria: [{ id: "clean" }],
         },
@@ -49,19 +49,19 @@ function input(fingerprint = "one") {
   }
 }
 
-function editedInput(fingerprint = "two") {
-  const snapshot = input(fingerprint)
-  snapshot.files.set("page.tsx", Buffer.from(`edited source ${fingerprint}`))
+function editedInput(revision = "two") {
+  const snapshot = input(revision)
+  snapshot.files.set("page.tsx", Buffer.from(`edited source ${revision}`))
   return snapshot
 }
 
 function result(check, snapshot) {
-  const reader = createChecksSnapshot(snapshot, snapshot.pages)
+  const reader = createChecksSnapshot(snapshot, resolveCheckScope(check, snapshot))
   reader.read({ file: "page.tsx" })
   return {
     version: 2,
     checkId: check.id,
-    fingerprint: snapshot.fingerprint,
+    fingerprint: createCheckAssessment(check, snapshot).fingerprint,
     outcome: check.id === "review" ? "fail" : "pass",
     summary: "Observed fixture.",
     criteria: [
@@ -78,7 +78,7 @@ function result(check, snapshot) {
 
 async function fixture(test, options = {}) {
   const { session = foregroundSession(), ...managerOptions } = options
-  const root = await mkdtemp(path.join(os.tmpdir(), "replica-check-manager-"))
+  const root = await mkdtemp(path.join(directory, ".manager-test-"))
   const checks = createPrototypeChecks(
     { repositoryPath: root, sessionWorkspacePath: root },
     session,
@@ -95,6 +95,32 @@ async function fixture(test, options = {}) {
     await rm(root, { recursive: true, force: true })
   })
   return checks
+}
+
+async function restartFixture(test) {
+  const root = await mkdtemp(path.join(directory, ".restart-test-"))
+  const context = { repositoryPath: root, sessionWorkspacePath: root }
+  const key = createHash("sha256").update(`${root}\0${root}`).digest("hex")
+  const store = createPrivateStore(path.join(root, "replica-checks", key))
+  const managers = []
+  test.after(async () => {
+    for (const checks of managers) await checks.close()
+    await rm(root, { recursive: true, force: true })
+  })
+  return {
+    store,
+    open(session = {}, options = {}) {
+      const checks = createPrototypeChecks(context, session, {
+        isolated: true,
+        poll: false,
+        capture: async () => input(),
+        runner: result,
+        ...options,
+      })
+      managers.push(checks)
+      return checks
+    },
+  }
 }
 
 function foregroundSession(processing = false) {
@@ -143,9 +169,7 @@ describe("createPrototypeChecks()", () => {
     await checks.action("run", { checkIds: ["lint"] })
     const completed = (await settled(checks)).checks[0]
     snapshot = structuredClone(snapshot)
-    snapshot.fingerprint = "unrelated-commit"
     snapshot.head = "c".repeat(40)
-    snapshot.base = "d".repeat(40)
     snapshot.files.set("README.md", Buffer.from("Unrelated documentation"))
     snapshot.config.concurrency = 3
     snapshot.config.debounceMs = 8000
@@ -155,11 +179,14 @@ describe("createPrototypeChecks()", () => {
     assert.equal(current.status, "completed")
     assert.equal(current.outcome, "pass")
     assert.equal(current.runId, completed.runId)
-    assert.equal(current.fingerprint, "one")
-    assert.equal(typeof current.assessmentFingerprint, "string")
-    assert.equal(current.assessmentFingerprint, completed.assessmentFingerprint)
+    assert.equal(current.fingerprint, completed.fingerprint)
+    assert.equal(
+      current.fingerprint,
+      createCheckAssessment(snapshot.config.checks[0], snapshot).fingerprint,
+    )
+    assert.equal(Object.hasOwn(current, "assessmentFingerprint"), false)
+    assert.equal(Object.hasOwn(await checks.action("status"), "fingerprint"), false)
     snapshot.files.set("page.tsx", Buffer.from("Relevant edit"))
-    snapshot.fingerprint = "relevant-edit"
     assert.equal((await checks.action("status")).checks[0].status, "out_of_date")
   })
 
@@ -182,7 +209,6 @@ describe("createPrototypeChecks()", () => {
     await checks.action("run", { checkIds: ["lint"] })
     await waitFor(() => signal)
     snapshot = structuredClone(snapshot)
-    snapshot.fingerprint = "sibling-edit"
     snapshot.files.set("sibling.ts", Buffer.from("Changed sibling source"))
     snapshot.config.checks[1].timeoutSeconds = 60
     const state = await checks.action("run", { checkIds: ["lint"] })
@@ -192,7 +218,10 @@ describe("createPrototypeChecks()", () => {
     const complete = await settled(checks)
     assert.equal(calls, 1)
     assert.equal(complete.checks[0].outcome, "pass")
-    assert.equal(complete.checks[0].fingerprint, "one")
+    assert.equal(
+      complete.checks[0].fingerprint,
+      createCheckAssessment(snapshot.config.checks[0], snapshot).fingerprint,
+    )
   })
 
   it("aborts work on a branch switch even when assessment bytes are identical", async (test) => {
@@ -230,8 +259,8 @@ describe("createPrototypeChecks()", () => {
     const checks = await fixture(test, {
       capture: async () => snapshot,
       runner: async (check, captured, { signal }) => {
-        calls.push({ fingerprint: captured.fingerprint, signal })
-        await (captured.fingerprint === "one" ? oldCompletion.promise : newCompletion.promise)
+        calls.push({ head: captured.head, signal })
+        await (captured.head === input().head ? oldCompletion.promise : newCompletion.promise)
         return result(check, captured)
       },
     })
@@ -249,12 +278,15 @@ describe("createPrototypeChecks()", () => {
     assert.equal(calls.length, 1)
     oldCompletion.resolve()
     await waitFor(() => calls.length === 2)
-    assert.equal(calls[1].fingerprint, "three")
+    assert.equal(calls[1].head, input("three").head)
     assert.equal((await checks.action("status")).checks[0].runId, latest.checks[0].runId)
     newCompletion.resolve()
     const state = await settled(checks)
     assert.equal(state.checks[0].runId, latest.checks[0].runId)
-    assert.equal(state.checks[0].fingerprint, "three")
+    assert.equal(
+      state.checks[0].fingerprint,
+      createCheckAssessment(snapshot.config.checks[0], snapshot).fingerprint,
+    )
     assert.equal(state.checks[0].outcome, "pass")
     assert.equal(calls.length, 2)
   })
@@ -285,9 +317,8 @@ describe("createPrototypeChecks()", () => {
     assert.equal(complete.checks.find((check) => check.id === "advice").status, "not_run")
     assert.equal(complete.checks[2].outcome, null)
   })
-  it("completes repository-wide checks without pages and preserves semantic uncertainty", async (test) => {
+  it("runs every configured check without page gating and preserves semantic uncertainty", async (test) => {
     const snapshot = input()
-    snapshot.pages = []
     const checks = await fixture(test, {
       capture: async () => snapshot,
       runner: (check, current) => ({
@@ -296,13 +327,19 @@ describe("createPrototypeChecks()", () => {
         summary: "Rendered behavior still needs verification.",
       }),
     })
-    await checks.action("run", { checkIds: ["lint"] })
+    await checks.action("run")
     const state = await settled(checks)
     assert.equal(state.checks[0].status, "completed")
     assert.equal(state.checks[0].outcome, "unverified")
     assert.equal(state.checks[0].summary, "Rendered behavior still needs verification.")
     assert.ok(!state.checks[0].error)
-    assert.deepEqual(state.pages, [])
+    assert.ok(state.checks.every((check) => check.status === "completed"))
+    for (const field of ["pages", "availablePages", "unknown", "selectionKey"])
+      assert.equal(Object.hasOwn(state, field), false)
+    await assert.rejects(
+      checks.action("scope", { key: "legacy", pageIds: [] }),
+      /unknown|unsupported|action/i,
+    )
   })
   it("marks saved results out of date after edits and never accepts obsolete late completions", async (test) => {
     let current = input()
@@ -333,6 +370,48 @@ describe("createPrototypeChecks()", () => {
     assert.equal(state.checks[1].status, "execution_error")
     assert.equal(state.checks[1].outcome, null)
     assert.match(state.checks[1].error, /Browser unavailable/)
+  })
+  it("rejects malformed worker reports before storing a completed outcome", async (test) => {
+    const checks = await fixture(test, {
+      runner: (check, snapshot) => ({
+        ...result(check, snapshot),
+        criteria: [],
+      }),
+    })
+    await checks.action("run", { checkIds: ["lint"] })
+    const state = await settled(checks)
+    assert.equal(state.checks[0].status, "execution_error")
+    assert.equal(state.checks[0].outcome, null)
+    assert.ok(state.checks[0].error)
+  })
+  it("keeps normalized uncertainty and report data stable across subsequent status reads", async (test) => {
+    let raw
+    const checks = await fixture(test, {
+      runner: (check, snapshot) => {
+        raw = {
+          ...result(check, snapshot),
+          limitations: ["Browser verification unavailable"],
+        }
+        delete raw.readCoverage
+        return raw
+      },
+    })
+    await checks.action("run", { checkIds: ["advice"] })
+    const completed = (await settled(checks)).checks[2]
+    assert.equal(completed.outcome, "unverified")
+    assert.equal(completed.criteria[0].status, "unverified")
+    raw.limitations[0] = "Mutated after completion"
+    raw.criteria[0].evidence = "Mutated after completion"
+    completed.limitations[0] = "Mutated public view"
+    completed.criteria[0].evidence = "Mutated public view"
+    for (let read = 0; read < 2; read++) {
+      const current = (await checks.action("status")).checks[2]
+      assert.equal(current.status, "completed")
+      assert.equal(current.outcome, "unverified")
+      assert.equal(current.criteria[0].status, "unverified")
+      assert.equal(current.criteria[0].evidence, "Observed fixture.")
+      assert.deepEqual(current.limitations, ["Browser verification unavailable"])
+    }
   })
   it("cancels owned work and rejects stale fix handoffs", async (test) => {
     const checks = await fixture(test, {
@@ -367,20 +446,20 @@ describe("createPrototypeChecks()", () => {
     assert.equal(state.checks[0].outcome, null)
     assert.deepEqual(state.checks[0].findings, [])
   })
-  it("hands only current selected findings to the foreground and deduplicates identical requests", async (test) => {
+  it("hands off exact selections once per run, including after other selections and a restart", async (test) => {
     const prompts = []
+    const { open } = await restartFixture(test)
     let snapshot = input()
     snapshot.config.checks[1].inputs = { include: ["page.tsx"] }
-    const checks = await fixture(test, {
+    const session = { send: async (message) => prompts.push(message) }
+    const options = {
       capture: async () => snapshot,
-      session: { send: async (message) => prompts.push(message) },
       runner: (check, snapshot) => ({
         ...result(check, snapshot),
         findings: [
           {
             id: "issue",
             severity: "error",
-            pageId: "page",
             criterionId: "clean",
             title: "Observed issue",
             description: "Fix the observed fixture.",
@@ -390,7 +469,6 @@ describe("createPrototypeChecks()", () => {
           {
             id: "unselected",
             severity: "warning",
-            pageId: "page",
             criterionId: "clean",
             title: "Leave this alone",
             description: "Not requested.",
@@ -398,7 +476,8 @@ describe("createPrototypeChecks()", () => {
           },
         ],
       }),
-    })
+    }
+    let checks = open(session, options)
     await checks.action("run", { checkIds: ["review"] })
     const state = await settled(checks)
     assert.equal(prompts.length, 0)
@@ -408,7 +487,6 @@ describe("createPrototypeChecks()", () => {
       findingIds: ["issue"],
     }
     snapshot = structuredClone(snapshot)
-    snapshot.fingerprint = "unrelated"
     snapshot.files.set("README.md", Buffer.from("Unrelated edit"))
     await checks.action("fix", selection)
     await checks.action("fix", selection)
@@ -416,17 +494,103 @@ describe("createPrototypeChecks()", () => {
     assert.match(prompts[0].prompt, /user explicitly requested/)
     assert.match(prompts[0].prompt, /Observed issue/)
     assert.doesNotMatch(prompts[0].prompt, /Leave this alone/)
+    assert.equal(
+      JSON.parse(prompts[0].prompt.split("\n\n").at(-1)).fingerprint,
+      state.checks[1].fingerprint,
+    )
+    await checks.action("fix", { ...selection, findingIds: ["unselected"] })
+    assert.deepEqual(
+      JSON.parse(prompts[1].prompt.split("\n\n").at(-1)).findings.map((finding) => finding.id),
+      ["unselected"],
+    )
+    await checks.close()
+    checks = open(session, options)
+    await checks.action("fix", selection)
+    assert.equal(prompts.length, 2)
+    await checks.action("fix", {
+      ...selection,
+      findingIds: ["issue", "unselected"],
+    })
+    await checks.action("fix", {
+      ...selection,
+      findingIds: ["unselected", "issue"],
+    })
+    assert.equal(prompts.length, 3)
+    assert.deepEqual(
+      JSON.parse(prompts[2].prompt.split("\n\n").at(-1)).findings.map((finding) => finding.id),
+      ["issue", "unselected"],
+    )
     await checks.action("run", { checkIds: ["review"] })
     const rerun = await settled(checks)
     await assert.rejects(checks.action("fix", selection), /out of date/)
+    await checks.action("fix", { ...selection, runId: rerun.checks[1].runId })
+    assert.equal(prompts.length, 4)
     snapshot.files.set("page.tsx", Buffer.from("Relevant edit"))
-    snapshot.fingerprint = "relevant"
     await assert.rejects(
       checks.action("fix", { ...selection, runId: rerun.checks[1].runId }),
       /out of date/,
     )
-    assert.equal(prompts.length, 1)
+    assert.equal(prompts.length, 4)
   })
+  it("retries a selected fix after the foreground handoff fails", async (test) => {
+    const prompts = []
+    const checks = await fixture(test, {
+      session: {
+        send: async (message) => {
+          prompts.push(message)
+          if (prompts.length === 1) throw new Error("Foreground unavailable")
+        },
+      },
+      runner: (check, snapshot) => ({
+        ...result(check, snapshot),
+        findings: [
+          {
+            id: "issue",
+            severity: "error",
+            criterionId: "clean",
+            title: "Observed issue",
+            description: "Fix the observed fixture.",
+            evidence: "page.tsx evidence",
+            file: "page.tsx",
+          },
+        ],
+      }),
+    })
+    await checks.action("run", { checkIds: ["review"] })
+    const state = await settled(checks)
+    const selection = {
+      checkId: "review",
+      runId: state.checks[1].runId,
+      findingIds: ["issue"],
+    }
+    await assert.rejects(checks.action("fix", selection), /Foreground unavailable/)
+    assert.deepEqual(await checks.action("fix", selection), {
+      requested: true,
+    })
+    await checks.action("fix", selection)
+    assert.equal(prompts.length, 2)
+    assert.deepEqual(prompts[1], prompts[0])
+  })
+  for (const [label, receipts] of [
+    ["non-array", "a".repeat(64)],
+    ["non-string", [null]],
+    ["invalid digest", ["not-a-receipt"]],
+  ]) {
+    it(`withholds saved results with ${label} fix receipts`, async (test) => {
+      const { store, open } = await restartFixture(test)
+      const first = open()
+      await first.action("run", { checkIds: ["review"] })
+      await settled(first)
+      await first.close()
+      const saved = await store.read("results.json")
+      saved.records.review.fixReceipts = receipts
+      await store.write("results.json", saved)
+      const second = open()
+      const state = await second.action("status")
+      assert.equal(state.state, "error")
+      assert.ok(!state.checks.some((check) => check.outcome))
+    })
+  }
   it("runs missing opted-in checks after an idle bootstrap and does not repeat current assessments", async (test) => {
     test.mock.timers.enable({ apis: ["setInterval", "Date"], now: 0 })
     let snapshot = input()
@@ -469,7 +633,7 @@ describe("createPrototypeChecks()", () => {
       poll: true,
       capture: async () => snapshot,
       runner: (check, current) => {
-        calls.push(current.fingerprint)
+        calls.push(current.head)
         return result(check, current)
       },
     })
@@ -479,10 +643,12 @@ describe("createPrototypeChecks()", () => {
     snapshot.config.debounceMs = 4000
     await checks.action("status")
     session.emit("assistant.idle", { agentId: "child" })
-    session.emit("session.idle", { data: { parentToolCallId: "legacy-child" } })
+    session.emit("session.idle", {
+      data: { parentToolCallId: "legacy-child" },
+    })
     session.emit("assistant.turn_end")
     test.mock.timers.tick(10000)
-    await checks.action("status")
+    assert.equal((await settled(checks)).checks[0].status, "not_run")
     assert.deepEqual(calls, [])
     snapshot = editedInput("busy-latest")
     snapshot.config.checks[0].automatic = true
@@ -496,7 +662,9 @@ describe("createPrototypeChecks()", () => {
     snapshot.config.debounceMs = 4000
     await checks.action("status")
     session.emit("user.message", { agentId: "child" })
-    session.emit("assistant.turn_start", { data: { parentToolCallId: "legacy-child" } })
+    session.emit("assistant.turn_start", {
+      data: { parentToolCallId: "legacy-child" },
+    })
     test.mock.timers.tick(2000)
     await checks.action("status")
     assert.deepEqual(calls, [])
@@ -504,7 +672,7 @@ describe("createPrototypeChecks()", () => {
     test.mock.timers.tick(2000)
     await checks.action("status")
     await settled(checks)
-    assert.deepEqual(calls, ["latest"])
+    assert.deepEqual(calls, [input("latest").head])
   })
 
   it("does not let a stale idle bootstrap override a newer foreground busy event", async (test) => {
@@ -533,7 +701,7 @@ describe("createPrototypeChecks()", () => {
     bootstrap.resolve({ processing: false })
     await opening
     test.mock.timers.tick(10000)
-    await checks.action("status")
+    assert.equal((await settled(checks)).checks[0].status, "not_run")
     assert.equal(calls, 0)
     session.emit("session.idle")
     test.mock.timers.tick(2000)
@@ -663,7 +831,7 @@ describe("createPrototypeChecks()", () => {
       ["lint", "advice", "review"],
     )
     assert.equal(complete.checks[1].runId, queued.checks[1].runId)
-    assert.equal(complete.checks[1].fingerprint, "one")
+    assert.equal(complete.checks[1].fingerprint, queued.checks[1].fingerprint)
   })
 
   it("promotes a queued automatic assessment on explicit Run without changing its identity or duplicating work", async (test) => {
@@ -702,14 +870,14 @@ describe("createPrototypeChecks()", () => {
     const complete = await settled(checks)
     assert.deepEqual(calls, ["lint", "review"])
     assert.equal(complete.checks[1].runId, queued.runId)
-    assert.equal(complete.checks[1].fingerprint, "one")
+    assert.equal(complete.checks[1].fingerprint, queued.fingerprint)
     assert.equal(complete.checks[1].outcome, "fail")
   })
 
   it("keeps a shared manager subscribed until the last canvas closes and stops further polling", async (test) => {
     test.mock.timers.enable({ apis: ["setInterval", "Date"], now: 0 })
     const session = foregroundSession(true)
-    const root = await mkdtemp(path.join(os.tmpdir(), "replica-check-lifecycle-"))
+    const root = await mkdtemp(path.join(directory, ".lifecycle-test-"))
     const context = { repositoryPath: root, sessionWorkspacePath: root }
     const snapshot = input()
     snapshot.config.checks[0].automatic = true
@@ -742,7 +910,6 @@ describe("createPrototypeChecks()", () => {
     await settled(second)
     assert.equal(calls, 1)
     snapshot.files.set("page.tsx", Buffer.from("Edit before closing"))
-    snapshot.fingerprint = "closing-edit"
     await second.action("status")
     await second.close()
     assert.equal(session.subscriptions, 0)
@@ -778,14 +945,12 @@ describe("createPrototypeChecks()", () => {
     calls.length = 0
     test.mock.timers.tick(1000)
     snapshot = structuredClone(snapshot)
-    snapshot.fingerprint = "lint-edit"
     snapshot.files.set("page.tsx", Buffer.from("Lint edit"))
     await checks.action("status")
     test.mock.timers.tick(1000)
     await checks.action("status")
     test.mock.timers.tick(1000)
     snapshot = structuredClone(snapshot)
-    snapshot.fingerprint = "sibling-edit"
     snapshot.files.set("sibling.ts", Buffer.from("Sibling edit"))
     await checks.action("status")
     test.mock.timers.tick(1000)
@@ -799,6 +964,81 @@ describe("createPrototypeChecks()", () => {
     test.mock.timers.tick(10000)
     await checks.action("status")
     assert.deepEqual(calls, ["lint", "review"])
+  })
+
+  it("starts a new quiet period when automatic checks are re-enabled for an outdated assessment", async (test) => {
+    test.mock.timers.enable({ apis: ["setInterval", "Date"], now: 0 })
+    let snapshot = input()
+    snapshot.config.checks[0].automatic = true
+    let calls = 0
+    const checks = await fixture(test, {
+      poll: true,
+      capture: async () => snapshot,
+      runner: (check, current) => {
+        calls++
+        return result(check, current)
+      },
+    })
+    await checks.action("run", { checkIds: ["lint"] })
+    await settled(checks)
+    snapshot = editedInput()
+    snapshot.config.checks[0].automatic = false
+    await checks.action("status")
+    test.mock.timers.tick(6000)
+    assert.equal((await settled(checks)).checks[0].status, "out_of_date")
+    snapshot.config.checks[0].automatic = true
+    await checks.action("status")
+    test.mock.timers.tick(1000)
+    assert.equal((await settled(checks)).checks[0].status, "out_of_date")
+    assert.equal(calls, 1)
+    test.mock.timers.tick(1000)
+    assert.equal((await settled(checks)).checks[0].status, "completed")
+    assert.equal(calls, 2)
+  })
+
+  it("removes running and queued checks without reviving their records when the IDs are reused", async (test) => {
+    const completion = Promise.withResolvers()
+    test.after(() => completion.resolve())
+    const { store, open } = await restartFixture(test)
+    let snapshot = input()
+    const definitions = snapshot.config.checks
+    const calls = []
+    const checks = open(
+      {},
+      {
+        capture: async () => snapshot,
+        runner: async (check, captured, { signal }) => {
+          calls.push({ id: check.id, signal })
+          await completion.promise
+          return result(check, captured)
+        },
+      },
+    )
+    await checks.action("run", { checkIds: ["lint"] })
+    await waitFor(() => calls.length === 1)
+    const queued = await checks.action("run", { checkIds: ["review"] })
+    assert.equal(queued.checks[1].status, "queued")
+    snapshot = structuredClone(snapshot)
+    snapshot.config.checks = [definitions[2]]
+    const removed = await checks.action("status")
+    assert.deepEqual(
+      removed.checks.map((check) => check.id),
+      ["advice"],
+    )
+    assert.equal(calls[0].signal.aborted, true)
+    assert.deepEqual((await store.read("results.json")).records, {})
+    snapshot.config.checks = definitions
+    const restored = await checks.action("status")
+    assert.equal(restored.checks[0].status, "not_run")
+    assert.equal(restored.checks[1].status, "not_run")
+    completion.resolve()
+    await checks.action("run", { checkIds: ["lint", "review"] })
+    const complete = await settled(checks)
+    assert.deepEqual(calls.map((call) => call.id).sort(), ["lint", "lint", "review"])
+    assert.equal(complete.checks[0].outcome, "pass")
+    assert.equal(complete.checks[1].outcome, "fail")
+    assert.notEqual(complete.checks[0].runId, queued.checks[0].runId)
+    assert.notEqual(complete.checks[1].runId, queued.checks[1].runId)
   })
 
   it("reruns a reverted automatic assessment without reviving its obsolete worker", async (test) => {
@@ -818,7 +1058,7 @@ describe("createPrototypeChecks()", () => {
       poll: true,
       capture: async () => snapshot,
       runner: async (check, captured, { signal }) => {
-        calls.push({ fingerprint: captured.fingerprint, signal })
+        calls.push({ head: captured.head, signal })
         await (calls.length === 1 ? oldCompletion.promise : newCompletion.promise)
         return result(check, captured)
       },
@@ -836,7 +1076,7 @@ describe("createPrototypeChecks()", () => {
     assert.equal(calls[0].signal.aborted, true)
     test.mock.timers.tick(1000)
     snapshot = structuredClone(assessmentA)
-    snapshot.fingerprint = "assessment-a-returned"
+    snapshot.head = input("assessment-a-returned").head
     const reverted = await checks.action("status")
     assert.equal(reverted.checks[0].status, "out_of_date")
     assert.equal(reverted.checks[0].outcome, null)
@@ -851,8 +1091,8 @@ describe("createPrototypeChecks()", () => {
     oldCompletion.resolve()
     await waitFor(() => calls.length === 2)
     assert.deepEqual(
-      calls.map((call) => call.fingerprint),
-      ["assessment-a", "assessment-a-returned"],
+      calls.map((call) => call.head),
+      [input("assessment-a").head, input("assessment-a-returned").head],
     )
     const running = await checks.action("status")
     assert.equal(running.checks[0].status, "running")
@@ -863,10 +1103,13 @@ describe("createPrototypeChecks()", () => {
     assert.equal(complete.checks[0].status, "completed")
     assert.equal(complete.checks[0].outcome, "pass")
     assert.equal(complete.checks[0].runId, queued.checks[0].runId)
-    assert.equal(complete.checks[0].fingerprint, "assessment-a-returned")
+    assert.equal(
+      complete.checks[0].fingerprint,
+      createCheckAssessment(snapshot.config.checks[0], snapshot).fingerprint,
+    )
   })
 
-  for (const terminal of ["pass", "fail", "unverified", "execution_error", "cancelled"]) {
+  for (const terminal of ["completed", "execution_error", "cancelled"]) {
     it(`does not automatically retry a current ${terminal} assessment but permits manual retry`, async (test) => {
       test.mock.timers.enable({ apis: ["setInterval", "Date"], now: 0 })
       let snapshot = input()
@@ -880,10 +1123,7 @@ describe("createPrototypeChecks()", () => {
           calls++
           if (terminal === "execution_error") throw new Error("Runner unavailable")
           if (terminal === "cancelled") await setTimeout(1000, undefined, { signal })
-          return {
-            ...result(check, current),
-            outcome: terminal === "cancelled" ? "pass" : terminal,
-          }
+          return result(check, current)
         },
       })
       await checks.action("run", { checkIds: ["lint"] })
@@ -892,12 +1132,8 @@ describe("createPrototypeChecks()", () => {
         await checks.action("cancel", { checkIds: ["lint"] })
       }
       const completed = await settled(checks)
-      assert.equal(
-        completed.checks[0].status,
-        ["execution_error", "cancelled"].includes(terminal) ? terminal : "completed",
-      )
+      assert.equal(completed.checks[0].status, terminal)
       snapshot = structuredClone(snapshot)
-      snapshot.fingerprint = "unrelated-edit"
       snapshot.files.set("README.md", Buffer.from("Unrelated edit"))
       await checks.action("status")
       test.mock.timers.tick(10000)
@@ -914,8 +1150,7 @@ describe("createPrototypeChecks()", () => {
 
   it("catches up only eligible missing and outdated assessments after reopening, not saved terminal or interrupted work", async (test) => {
     test.mock.timers.enable({ apis: ["setInterval", "Date"], now: 0 })
-    const root = await mkdtemp(path.join(os.tmpdir(), "replica-check-catch-up-"))
-    const context = { repositoryPath: root, sessionWorkspacePath: root }
+    const { store, open } = await restartFixture(test)
     const snapshot = input()
     const ids = [
       "pass",
@@ -942,18 +1177,10 @@ describe("createPrototypeChecks()", () => {
         outcome: ["fail", "unverified"].includes(check.id) ? check.id : "pass",
       }),
     }
-    const first = createPrototypeChecks(context, foregroundSession(true), options)
-    let second
-    test.after(async () => {
-      await first.close()
-      await second?.close()
-      await rm(root, { recursive: true, force: true })
-    })
+    const first = open(foregroundSession(true), options)
     await first.action("run")
     await settled(first)
     await first.close()
-    const key = createHash("sha256").update(`${root}\0${root}`).digest("hex")
-    const store = createPrivateStore(path.join(root, "replica-checks", key))
     const saved = await store.read("results.json")
     for (const id of ["execution-error", "cancelled"]) {
       saved.records[id].status = id === "execution-error" ? "execution_error" : id
@@ -964,14 +1191,12 @@ describe("createPrototypeChecks()", () => {
     saved.records.interrupted.result = null
     await store.write("results.json", saved)
     snapshot.files.set("outdated.ts", Buffer.from("Edited"))
-    snapshot.fingerprint = "reopened"
     snapshot.config.checks.push(
       { ...snapshot.config.checks[0], id: "missing" },
       { ...snapshot.config.checks[0], id: "manual", automatic: false },
-      { ...snapshot.config.checks[0], id: "unrelated-page", targets: ["other"] },
     )
     const calls = []
-    second = createPrototypeChecks(context, foregroundSession(), {
+    const second = open(foregroundSession(), {
       ...options,
       poll: true,
       runner: (check, current) => {
@@ -985,7 +1210,7 @@ describe("createPrototypeChecks()", () => {
       opened.checks.find((check) => check.id === "interrupted").status,
       "execution_error",
     )
-    snapshot.state = "scope_required"
+    snapshot.state = "error"
     await second.action("status")
     test.mock.timers.tick(2000)
     await second.action("status")
@@ -1000,263 +1225,185 @@ describe("createPrototypeChecks()", () => {
       const restored = complete.checks.find((check) => check.id === id)
       assert.equal(restored.outcome, id)
       assert.equal(restored.runId, saved.records[id].runId)
-      assert.equal(restored.fingerprint, "one")
+      assert.equal(restored.fingerprint, saved.records[id].fingerprint)
     }
     for (const id of ["execution-error", "cancelled", "interrupted"])
       assert.equal(complete.checks.find((check) => check.id === id).runId, saved.records[id].runId)
     assert.equal(complete.checks.find((check) => check.id === "manual").status, "not_run")
-    assert.equal(
-      complete.checks.find((check) => check.id === "unrelated-page").status,
-      "not_applicable",
-    )
     await second.action("run", { checkIds: ["interrupted"] })
     await settled(second)
     assert.ok(calls.includes("interrupted"))
   })
 
-  it("restores complete results and their pinned baseline after provider restart", async (test) => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "replica-check-restart-"))
-    test.after(() => rm(root, { recursive: true, force: true }))
-    const context = { repositoryPath: root, sessionWorkspacePath: root }
+  it("restores complete file assessments and saves only records after provider restart", async (test) => {
+    const { store, open } = await restartFixture(test)
     const session = { send: async () => {} }
-    const options = {
-      isolated: true,
-      poll: false,
-      capture: async () => input(),
-      runner: result,
-    }
-    const first = createPrototypeChecks(context, session, options)
+    const first = open(session)
     await first.action("run", { checkIds: ["lint", "review"] })
     assert.equal((await settled(first)).checks[1].outcome, "fail")
     await first.close()
-    const key = createHash("sha256").update(`${root}\0${root}`).digest("hex")
-    const store = createPrivateStore(path.join(root, "replica-checks", key))
     const saved = await store.read("results.json")
-    assert.equal(saved.version, 3)
-    assert.equal(saved.records.lint.fingerprint, "one")
-    assert.equal(saved.records.lint.result.fingerprint, "one")
-    assert.equal(typeof saved.records.lint.assessmentFingerprint, "string")
+    assert.equal(saved.version, 5)
+    assert.deepEqual(Object.keys(saved).sort(), ["records", "version"])
+    const fingerprint = createCheckAssessment(input().config.checks[0], input()).fingerprint
+    assert.equal(saved.records.lint.fingerprint, fingerprint)
+    assert.equal(saved.records.lint.result.fingerprint, fingerprint)
+    assert.equal(Object.hasOwn(saved.records.lint, "assessmentFingerprint"), false)
     assert.equal(saved.records.lint.branch, "prototype")
     assert.equal(saved.records.lint.head, input().head)
-    assert.equal(saved.records.lint.base, input().base)
-    const second = createPrototypeChecks(context, session, {
-      ...options,
-      capture: async (directory, baselines) => {
-        assert.deepEqual(baselines["prototype:main"], input().baseline)
+    assert.equal(Object.hasOwn(saved.records.lint, "base"), false)
+    const second = open(session, {
+      capture: async (...args) => {
+        assert.equal(args.length, 1)
         const current = input("new-head")
         current.head = "c".repeat(40)
         return current
       },
     })
-    test.after(() => second.close())
     const restored = await second.action("status")
     assert.equal(restored.checks[0].outcome, "pass")
     assert.equal(restored.checks[1].outcome, "fail")
-    assert.equal(restored.checks[0].fingerprint, "one")
-    assert.equal(restored.checks[0].assessmentFingerprint, saved.records.lint.assessmentFingerprint)
+    assert.equal(restored.checks[0].fingerprint, fingerprint)
     const persisted = await store.read("results.json")
-    assert.equal(persisted.records.lint.result.fingerprint, "one")
-    assert.equal(persisted.records.lint.fingerprint, "one")
+    assert.equal(persisted.records.lint.result.fingerprint, fingerprint)
+    assert.equal(persisted.records.lint.fingerprint, fingerprint)
     assert.deepEqual(
       (await second.action("status")).checks[1].readCoverage,
       result(input().config.checks[1], input()).readCoverage,
     )
   })
-  it("migrates legacy result bodies without losing baseline, scope selection or job metadata", async (test) => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "replica-check-migration-"))
-    const context = { repositoryPath: root, sessionWorkspacePath: root }
-    const options = { isolated: true, poll: false, capture: async () => input(), runner: result }
-    const first = createPrototypeChecks(context, {}, options)
-    let second
-    test.after(async () => {
-      await first.close()
-      await second?.close()
-      await rm(root, { recursive: true, force: true })
-    })
+  it("requires an explicit reset for old saved formats instead of migrating their results", async (test) => {
+    const { store, open } = await restartFixture(test)
+    const first = open()
     await first.action("run", { checkIds: ["lint"] })
     await settled(first)
     await first.close()
-    const key = createHash("sha256").update(`${root}\0${root}`).digest("hex")
-    const store = createPrivateStore(path.join(root, "replica-checks", key))
     const saved = await store.read("results.json")
-    const metadata = {
-      runId: saved.records.lint.runId,
-      ownerPid: saved.records.lint.ownerPid,
-      runner: saved.records.lint.runner,
-      requestedAt: saved.records.lint.requestedAt,
-      startedAt: saved.records.lint.startedAt,
-      finishedAt: saved.records.lint.finishedAt,
-      trigger: saved.records.lint.trigger,
-    }
-    saved.version = 1
-    saved.selection = { key: "saved-scope", pageIds: ["page"] }
-    saved.lastComplete = { score: 100, branch: "prototype", checkedAt: "2026-10-07T12:00:00Z" }
-    saved.records.lint.result = {
-      version: 1,
-      checkId: "lint",
-      fingerprint: "one",
-      score: 100,
-      criteria: [{ id: "clean", pageId: "page", status: "pass", evidence: "Legacy evidence." }],
-      findings: [],
-    }
+    saved.version = 4
     await store.write("results.json", saved)
-    second = createPrototypeChecks(
-      context,
-      {},
-      {
-        ...options,
-        capture: async (directory, baselines, selection) => {
-          assert.deepEqual(baselines["prototype:main"], input().baseline)
-          assert.deepEqual(selection, saved.selection)
-          return input()
-        },
-      },
-    )
+    const second = open()
     const state = await second.action("status")
-    assert.equal(state.state, "ready")
-    assert.equal(state.checks[0].status, "out_of_date")
-    assert.equal(state.checks[0].outcome, null)
-    assert.deepEqual(state.checks[0].findings, [])
-    assert.equal("lastComplete" in state, false)
-    const migrated = await store.read("results.json")
-    assert.equal(migrated.version, 3)
-    assert.equal("lastComplete" in migrated, false)
-    assert.equal(migrated.records.lint.result, null)
-    for (const [field, value] of Object.entries(metadata))
-      assert.equal(migrated.records.lint[field], value)
-  })
-  it("loads version 2 reports but invalidates records without assessment identity or provenance", async (test) => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "replica-check-v2-migration-"))
-    const key = createHash("sha256").update(`${root}\0${root}`).digest("hex")
-    const store = createPrivateStore(path.join(root, "replica-checks", key))
-    await store.write("results.json", {
-      version: 2,
-      baselines: { "prototype:main": input().baseline },
-      selection: null,
-      records: {
-        lint: {
-          runId: "12345678-1234-1234-1234-123456789abc",
-          ownerPid: process.pid,
-          runner: "command",
-          fingerprint: "one",
-          status: "completed",
-          result: result(input().config.checks[0], input()),
-        },
-      },
-    })
-    const checks = createPrototypeChecks(
-      { repositoryPath: root, sessionWorkspacePath: root },
-      {},
-      { isolated: true, poll: false, capture: async () => input(), runner: result },
-    )
-    test.after(async () => {
-      await checks.close()
-      await rm(root, { recursive: true, force: true })
-    })
-    const state = await checks.action("status")
-    assert.equal(state.state, "ready")
-    assert.equal(state.checks[0].status, "out_of_date")
-    assert.equal(state.checks[0].outcome, null)
-    assert.equal((await store.read("results.json")).version, 3)
+    assert.equal(state.state, "error")
+    assert.match(state.error, /reset|incompatible|format|version/i)
+    assert.ok(!state.checks.some((check) => check.outcome))
+    assert.deepEqual(await store.read("results.json"), saved)
+    const reset = await second.action("reset")
+    assert.equal(reset.state, "ready")
+    assert.equal(reset.checks[0].status, "not_run")
+    assert.equal((await store.read("results.json")).version, 5)
   })
 
-  it("rejects saved reports rebound to a newer run fingerprint despite matching assessment content", async (test) => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "replica-check-result-identity-"))
-    const context = { repositoryPath: root, sessionWorkspacePath: root }
-    const options = { isolated: true, poll: false, capture: async () => input(), runner: result }
-    const first = createPrototypeChecks(context, {}, options)
-    let second
-    test.after(async () => {
-      await first.close()
-      await second?.close()
-      await rm(root, { recursive: true, force: true })
-    })
+  it("rejects saved reports with a different assessment fingerprint on every status read", async (test) => {
+    const { store, open } = await restartFixture(test)
+    const first = open()
     await first.action("run", { checkIds: ["lint"] })
     await settled(first)
     await first.close()
-    const key = createHash("sha256").update(`${root}\0${root}`).digest("hex")
-    const store = createPrivateStore(path.join(root, "replica-checks", key))
     const saved = await store.read("results.json")
-    saved.records.lint.result.fingerprint = "new-head"
+    saved.records.lint.result.fingerprint = "0".repeat(64)
     await store.write("results.json", saved)
-    second = createPrototypeChecks(
-      context,
+    const second = open(
       {},
       {
-        ...options,
         capture: async () => input("new-head"),
       },
     )
-    const state = await second.action("status")
-    assert.equal(state.state, "error")
-    assert.ok(state.error)
-    assert.ok(!state.checks.some((check) => check.outcome))
-  })
-  it("checks active legacy ownership before discarding incompatible result bodies", async (test) => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "replica-check-owned-migration-"))
-    const key = createHash("sha256").update(`${root}\0${root}`).digest("hex")
-    const store = createPrivateStore(path.join(root, "replica-checks", key))
-    const record = {
-      runId: "12345678-1234-1234-1234-123456789abc",
-      ownerPid: process.pid,
-      runner: "command",
-      fingerprint: "one",
-      status: "running",
-      result: { version: 1, checkId: "lint", fingerprint: "one", criteria: [], findings: [] },
+    for (let read = 0; read < 2; read++) {
+      const state = await second.action("status")
+      assert.equal(state.state, "error")
+      assert.ok(state.error)
+      assert.ok(!state.checks.some((check) => check.outcome))
     }
-    await store.write("results.json", {
-      version: 1,
-      baselines: { "prototype:main": input().baseline },
-      selection: null,
-      records: { lint: record },
+  })
+  it("validates a previously outdated saved report when its source becomes current and keeps rejecting corrupt coverage", async (test) => {
+    const { store, open } = await restartFixture(test)
+    const first = open()
+    await first.action("run", { checkIds: ["advice"] })
+    assert.equal((await settled(first)).checks[2].outcome, "pass")
+    await first.close()
+    const saved = await store.read("results.json")
+    saved.records.advice.result.readCoverage.files[0].totalBytes += 1
+    await store.write("results.json", saved)
+    let snapshot = editedInput()
+    const second = open({}, { capture: async () => snapshot })
+    const outdated = await second.action("status")
+    assert.equal(outdated.state, "ready")
+    assert.equal(outdated.checks[2].status, "out_of_date")
+    snapshot = input()
+    for (let read = 0; read < 2; read++) {
+      const state = await second.action("status")
+      assert.equal(state.state, "error")
+      assert.ok(!state.checks.some((check) => check.outcome))
+      await assert.rejects(
+        second.action("fix", {
+          checkId: "advice",
+          runId: saved.records.advice.runId,
+          findingIds: ["issue"],
+        }),
+        /coverage|out of date|unavailable/i,
+      )
+    }
+  })
+  for (const field of ["branch", "fingerprint", "result version"]) {
+    it(`rejects a current-format saved record with invalid ${field}`, async (test) => {
+      const { store, open } = await restartFixture(test)
+      const first = open()
+      await first.action("run", { checkIds: ["lint"] })
+      await settled(first)
+      await first.close()
+      const saved = await store.read("results.json")
+      if (field === "branch") delete saved.records.lint.branch
+      if (field === "fingerprint") saved.records.lint.fingerprint = "not-a-digest"
+      if (field === "result version") saved.records.lint.result.version = 1
+      await store.write("results.json", saved)
+      const state = await open().action("status")
+      assert.equal(state.state, "error")
+      assert.ok(!state.checks.some((check) => check.outcome))
     })
-    const checks = createPrototypeChecks(
-      { repositoryPath: root, sessionWorkspacePath: root },
-      {},
-      { isolated: true, poll: false, capture: async () => input(), runner: result },
-    )
-    test.after(async () => {
-      await checks.close()
-      await rm(root, { recursive: true, force: true })
-    })
+  }
+  it("preserves current-format work owned by a live provider instead of adopting it", async (test) => {
+    const { store, open } = await restartFixture(test)
+    const first = open()
+    await first.action("run", { checkIds: ["lint"] })
+    await settled(first)
+    await first.close()
+    const saved = await store.read("results.json")
+    const record = saved.records.lint
+    record.status = "running"
+    record.ownerPid = process.pid
+    record.result = null
+    await store.write("results.json", saved)
+    const checks = open()
     const state = await checks.action("status")
     assert.equal(state.state, "error")
     assert.match(state.error, /active|alive|provider/i)
     assert.deepEqual((await store.read("results.json")).records.lint, record)
   })
-  it("withholds corrupted saved results and preserves validated pins on explicit reset", async (test) => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "replica-check-invalid-state-"))
-    let first
-    let second
-    test.after(async () => {
-      await first?.close()
-      await second?.close()
-      await rm(root, { recursive: true, force: true })
-    })
-    const context = { repositoryPath: root, sessionWorkspacePath: root }
+  it("withholds corrupted saved results and clears records on explicit reset", async (test) => {
+    const { store, open } = await restartFixture(test)
     const session = { send: async () => {} }
-    const options = { isolated: true, poll: false, capture: async () => input(), runner: result }
-    first = createPrototypeChecks(context, session, options)
+    const first = open(session)
     await first.action("run", { checkIds: ["lint"] })
     await settled(first)
     await first.close()
-    const key = createHash("sha256").update(`${root}\0${root}`).digest("hex")
-    const store = createPrivateStore(path.join(root, "replica-checks", key))
     const saved = await store.read("results.json")
     saved.records.lint.result.criteria = []
     await store.write("results.json", saved)
-    second = createPrototypeChecks(context, session, options)
+    const second = open(session)
     const blocked = await second.action("status")
     assert.equal(blocked.state, "error")
     assert.equal(blocked.checks[0].outcome, null)
     assert.ok(blocked.error)
+    const repeated = await second.action("status")
+    assert.equal(repeated.state, "error")
+    assert.equal(repeated.checks[0].outcome, null)
     const reset = await second.action("reset")
     assert.equal(reset.state, "ready")
     assert.equal(reset.checks[0].outcome, null)
     assert.equal(reset.checks[0].status, "not_run")
-    assert.deepEqual(
-      (await store.read("results.json")).baselines["prototype:main"],
-      input().baseline,
-    )
+    assert.deepEqual(await store.read("results.json"), {
+      version: 5,
+      records: {},
+    })
   })
 })

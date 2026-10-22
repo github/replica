@@ -467,7 +467,7 @@ async function routeRequest(
     if (
       !input ||
       typeof input.action !== "string" ||
-      !["run", "cancel", "scope", "fix", "reset"].includes(input.action)
+      !["run", "cancel", "fix", "reset"].includes(input.action)
     )
       throw httpError(422, "Choose a supported prototype check action.")
     sendJson(response, 200, await checks.action(input.action, input))

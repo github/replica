@@ -7,7 +7,6 @@ import { ChecksReadCoverage } from "./index"
 const files: CheckReadCoverage["files"] = [
   {
     file: "read.tsx",
-    pageIds: ["page"],
     required: true,
     status: "read",
     readBytes: 50000,
@@ -15,7 +14,6 @@ const files: CheckReadCoverage["files"] = [
   },
   {
     file: "partial.tsx",
-    pageIds: ["page"],
     required: true,
     status: "partial",
     reason: "partial_read",
@@ -24,7 +22,6 @@ const files: CheckReadCoverage["files"] = [
   },
   {
     file: "unread.ts",
-    pageIds: ["page"],
     required: true,
     status: "unread",
     reason: "not_read",
@@ -33,7 +30,6 @@ const files: CheckReadCoverage["files"] = [
   },
   {
     file: "blocked.ts",
-    pageIds: ["page"],
     required: true,
     status: "blocked",
     reason: "invalid_utf8",
@@ -42,7 +38,6 @@ const files: CheckReadCoverage["files"] = [
   },
   {
     file: "asset.png",
-    pageIds: ["page"],
     required: false,
     status: "blocked",
     reason: "binary",

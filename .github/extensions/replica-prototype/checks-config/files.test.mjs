@@ -23,20 +23,20 @@ async function fixture(test) {
     repository,
     config: {
       version: 2,
-      base: "main",
       checks: [
         {
           id: "first",
           name: "First review",
+          inputs: { include: ["src/**"] },
           runner: { type: "agent", instructions: "guidance/review.md" },
           context: ["guidance/context.md"],
         },
         {
           id: "second",
           name: "Second review",
+          inputs: { include: ["src/**"] },
           runner: {
             type: "command",
-            image: "node:24",
             command: ["never-run-this-command"],
           },
         },

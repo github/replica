@@ -7,9 +7,6 @@ import { summarizePrototypeChecks } from "."
 function state(checks: Partial<CheckState>[]): ChecksState {
   return {
     state: "ready",
-    pages: [],
-    availablePages: [],
-    unknown: [],
     checks: checks.map((check, index) => ({
       id: `check-${index}`,
       name: `Check ${index}`,
@@ -35,7 +32,6 @@ describe("summarizePrototypeChecks()", () => {
         {},
         { status: "out_of_date", outcome: "pass" },
         { status: "not_run" },
-        { status: "not_applicable" },
       ]),
     )
     expect(result.label).toBe("3/5")
@@ -92,7 +88,7 @@ describe("summarizePrototypeChecks()", () => {
     expect(result.status).toBe("warning")
   })
 
-  it("shows success only when every applicable check has a current passing outcome", () => {
+  it("shows success only when every configured check has a current passing outcome", () => {
     expect(summarizePrototypeChecks(state([{}, {}]))).toMatchObject({
       label: "2/2",
       status: "passed",
@@ -103,13 +99,13 @@ describe("summarizePrototypeChecks()", () => {
     })
   })
 
-  it("does not present cached passes as current when fetching status fails or scope is unknown", () => {
+  it("does not present cached passes as current when fetching status fails", () => {
     const previous = state([{}])
     expect(summarizePrototypeChecks(previous, "Connection failed")).toMatchObject({
       label: "0/1",
       status: "warning",
     })
-    expect(summarizePrototypeChecks({ ...previous, state: "scope_required" })).toMatchObject({
+    expect(summarizePrototypeChecks({ ...previous, state: "error" })).toMatchObject({
       label: "0/1",
       status: "warning",
     })
@@ -129,17 +125,11 @@ describe("summarizePrototypeChecks()", () => {
     ).toMatchObject({ label: "1/2", status: "warning" })
   })
 
-  it("avoids a zero denominator and distinguishes initial loading from no applicable checks", () => {
+  it("avoids a zero denominator and distinguishes initial loading from unconfigured checks", () => {
     expect(summarizePrototypeChecks(null)).toMatchObject({
       label: "Checks",
       status: "running",
     })
-    const notApplicable = summarizePrototypeChecks(state([{ status: "not_applicable" }]))
-    expect(notApplicable).toMatchObject({
-      label: "Checks",
-      status: "neutral",
-    })
-    expect(notApplicable.description).toContain("No applicable checks")
     const unconfigured = summarizePrototypeChecks({ ...state([]), state: "unconfigured" })
     expect(unconfigured).toMatchObject({
       label: "Checks",

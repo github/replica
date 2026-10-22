@@ -1,5 +1,5 @@
 import { createChecksSnapshot } from "../checks-snapshot/index.mjs"
-import { resolveCheckScope } from "../checks-scope/index.mjs"
+import { createCheckAssessment } from "../checks-assessment/index.mjs"
 
 const outcomes = ["pass", "fail", "unverified"]
 const idPattern = /^[a-zA-Z0-9_-]{1,64}$/
@@ -18,10 +18,19 @@ export function validateChecksResult(value, check, input) {
     "coverageReason",
     "scope",
   ])
+  const { fingerprint, scope } = createCheckAssessment(check, input)
+  if (value.scope !== undefined) {
+    object(value.scope, ["files", "contextFiles"])
+    if (
+      JSON.stringify(value.scope.files) !== JSON.stringify(scope.files) ||
+      JSON.stringify(value.scope.contextFiles) !== JSON.stringify(scope.contextFiles)
+    )
+      throw new Error("The check returned mismatched assessment scope.")
+  }
   if (
     value.version !== 2 ||
     value.checkId !== check.id ||
-    value.fingerprint !== input.fingerprint ||
+    value.fingerprint !== fingerprint ||
     !outcomes.includes(value.outcome) ||
     !text(value.summary, 400) ||
     !Array.isArray(value.findings) ||
@@ -30,7 +39,6 @@ export function validateChecksResult(value, check, input) {
       256000
   )
     throw new Error("The check returned an invalid or mismatched version 2 result.")
-  const scope = resolveCheckScope(check, input)
   const definitions = check.criteria ?? []
   const expected = new Set(definitions.map((criterion) => criterion.id))
   const criteria = value.criteria === undefined ? [] : value.criteria
@@ -63,7 +71,6 @@ export function validateChecksResult(value, check, input) {
       "evidence",
       "file",
       "line",
-      "pageId",
       "criterionId",
     ])
     if (
@@ -76,13 +83,12 @@ export function validateChecksResult(value, check, input) {
       !text(finding.evidence, 1000) ||
       (finding.criterionId !== undefined &&
         !definitions.some((criterion) => criterion.id === finding.criterionId)) ||
-      (finding.pageId !== undefined && !scope.pages.some((page) => page.id === finding.pageId)) ||
       (finding.file !== undefined && !scope.files.includes(finding.file)) ||
       (finding.line !== undefined &&
         (!finding.file || !Number.isSafeInteger(finding.line) || finding.line < 1))
     )
       throw new Error(
-        "Findings need a unique ID, severity and in-scope evidence; page and criterion references must be configured.",
+        "Findings need a unique ID, severity and in-scope evidence; criterion references must be configured.",
       )
     ids.add(finding.id)
   }
@@ -91,7 +97,7 @@ export function validateChecksResult(value, check, input) {
   const readCoverage =
     value.readCoverage === undefined
       ? undefined
-      : createChecksSnapshot(input, scope.pages, scope).validateCoverage(value.readCoverage)
+      : createChecksSnapshot(input, scope).validateCoverage(value.readCoverage)
   let coverageReason
   if (check.runner.type === "agent") {
     const required = readCoverage?.files.filter((file) => file.required)
@@ -122,16 +128,15 @@ export function validateChecksResult(value, check, input) {
   return {
     version: 2,
     checkId: check.id,
-    fingerprint: input.fingerprint,
+    fingerprint,
     outcome,
     summary: value.summary,
     criteria: normalized,
     findings: value.findings.map((finding) => ({ ...finding })),
-    limitations: value.limitations ?? [],
+    limitations: [...(value.limitations ?? [])],
     scope: {
       files: scope.files,
       contextFiles: scope.contextFiles,
-      pages: scope.pages.map((page) => page.id),
     },
     ...(readCoverage ? { readCoverage } : {}),
     ...(coverageReason ? { coverageReason } : {}),

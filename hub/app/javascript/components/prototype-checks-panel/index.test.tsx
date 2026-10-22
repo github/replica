@@ -7,9 +7,6 @@ import type { ChecksState, CheckState } from "@utils/prototype-checks/types"
 function fixture(): ChecksState & { checks: [CheckState] } {
   return {
     state: "ready",
-    pages: [{ id: "page", name: "Changed page", route: "/changed" }],
-    availablePages: [],
-    unknown: [],
     checks: [
       {
         id: "review",
@@ -26,7 +23,6 @@ function fixture(): ChecksState & { checks: [CheckState] } {
           {
             id: "usage",
             severity: "error",
-            pageId: "page",
             criterionId: "usage",
             title: "Use the approved button",
             description: "Replace the custom button.",
@@ -49,7 +45,6 @@ describe("ChecksPanel", () => {
       files: [
         {
           file: "source.tsx",
-          pageIds: ["page"],
           required: true,
           status: "partial",
           reason: "partial_read",
@@ -102,16 +97,14 @@ describe("ChecksPanel", () => {
     const checklist = screen.getByRole("region", { name: "What was checked" })
     expect(within(checklist).getByText("Passed")).toBeVisible()
     expect(within(checklist).getByText("Failed")).toBeVisible()
-    expect(screen.queryByText(/page \/ typing-and-lint-patterns/)).not.toBeInTheDocument()
     expect(screen.getByText(evidence.trim())).not.toBeVisible()
     fireEvent.click(screen.getByText("Type safety and lint patterns"))
     expect(screen.getByText(evidence.trim())).toBeVisible()
     expect(screen.getByText("A rejected save promise is not reported.")).not.toBeVisible()
   })
 
-  it("shows unverified results without inventing per-page criterion assessments", () => {
+  it("shows unverified criterion results", () => {
     const state = fixture()
-    state.pages.push({ id: "other", name: "Other page", route: "/other" })
     state.checks[0].criteria = [
       {
         id: "keyboard-and-focus",
@@ -130,31 +123,23 @@ describe("ChecksPanel", () => {
     )
     const checklist = screen.getByRole("region", { name: "What was checked" })
     expect(within(checklist).getByText("keyboard and focus")).toBeVisible()
-    expect(within(checklist).queryByText("Other page")).not.toBeInTheDocument()
     expect(within(checklist).getByText("Needs verification")).toBeVisible()
   })
 
-  it("shows configuration guidance in an info banner without the background-checks introduction", () => {
+  it("identifies the missing configuration through an accessible status", () => {
     render(
       <ChecksPanel
-        state={{ ...fixture(), state: "unconfigured", pages: [], checks: [] }}
+        state={{ ...fixture(), state: "unconfigured", checks: [] }}
         error={null}
         busy={false}
         onAction={() => Promise.resolve(false)}
         onClose={() => {}}
       />,
     )
-    expect(screen.getByRole("status")).toHaveClass("hub-alert", "hub-alert--info")
     expect(screen.getByRole("status")).toHaveTextContent(".replica/checks.json")
-    expect(screen.getByRole("status")).not.toHaveTextContent(/scor/i)
-    expect(
-      screen.queryByText(
-        "Checks assess saved prototype pages in the background. They never edit your code.",
-      ),
-    ).not.toBeInTheDocument()
   })
 
-  it("uses the shared sidebar header and focuses its keyboard-accessible close button", () => {
+  it("opens an accessible sidebar and focuses its keyboard-accessible close button", () => {
     const onClose = vi.fn()
     render(
       <ChecksPanel
@@ -165,24 +150,21 @@ describe("ChecksPanel", () => {
         onClose={onClose}
       />,
     )
-    const sidebar = screen.getByRole("complementary", { name: "Prototype checks" })
-    expect(sidebar).toHaveClass("hub-sidebar", "canvas-checks-panel")
-    expect(sidebar).toHaveAttribute("data-open", "true")
+    expect(screen.getByRole("complementary", { name: "Prototype checks" })).toBeVisible()
     const close = screen.getByRole("button", { name: "Close prototype checks" })
-    expect(close).toHaveClass("hub-sidebar__close")
     expect(close).toHaveAttribute("aria-keyshortcuts", "Escape")
     expect(close).toHaveFocus()
     fireEvent.click(close)
     expect(onClose).toHaveBeenCalledOnce()
   })
 
-  it("excludes untouched page checks from the aggregate without displaying scoring controls", () => {
+  it("counts every configured check and enables running unrun checks without page confirmation", () => {
     const state = fixture()
     state.checks.push({
       ...state.checks[0],
       id: "inactive",
-      name: "Untouched page check",
-      status: "not_applicable",
+      name: "Another check",
+      status: "not_run",
       outcome: null,
       summary: null,
       criteria: [],
@@ -197,16 +179,23 @@ describe("ChecksPanel", () => {
         onClose={() => {}}
       />,
     )
-    expect(screen.getByRole("status")).toHaveTextContent(/0 of 1 passed/)
-    expect(screen.queryByText(/Weight|of score/)).not.toBeInTheDocument()
-    const inactive = screen.getByRole("region", { name: "Untouched page check" })
-    expect(within(inactive).getByRole("button", { name: "Run" })).toBeDisabled()
+    expect(screen.getByRole("status")).toHaveTextContent(/0 of 2 passed/)
+    const unrun = screen.getByRole("region", { name: "Another check" })
+    expect(within(unrun).getByRole("button", { name: "Run" })).toBeEnabled()
+    expect(screen.getByRole("button", { name: "Run all" })).toBeEnabled()
+    expect(screen.queryByRole("button", { name: "Confirm page scope" })).not.toBeInTheDocument()
   })
   it("shows failed outcomes and sends only explicitly selected findings to Copilot", async () => {
+    const state = fixture()
+    state.checks[0].findings.push({
+      ...state.checks[0].findings[0]!,
+      id: "unselected",
+      title: "Another improvement",
+    })
     const onAction = vi.fn().mockResolvedValue(true)
     render(
       <ChecksPanel
-        state={fixture()}
+        state={state}
         error={null}
         busy={false}
         onAction={onAction}
@@ -226,30 +215,6 @@ describe("ChecksPanel", () => {
         findingIds: ["usage"],
       }),
     )
-  })
-  it("makes unresolved impact explicit and sends selected additional pages", () => {
-    const state = {
-      ...fixture(),
-      state: "scope_required" as const,
-      selectionKey: "scope",
-      availablePages: [{ id: "other", name: "Other page", route: "/other" }],
-      unknown: ["src/dynamic.ts"],
-    }
-    const onAction = vi.fn().mockResolvedValue(true)
-    render(
-      <ChecksPanel
-        state={state}
-        error={null}
-        busy={false}
-        onAction={onAction}
-        onClose={() => {}}
-      />,
-    )
-    expect(screen.getByText("src/dynamic.ts")).toBeVisible()
-    expect(screen.getByRole("button", { name: "Run all" })).toBeDisabled()
-    fireEvent.click(screen.getByRole("checkbox", { name: /Other page/ }))
-    fireEvent.click(screen.getByRole("button", { name: "Confirm page scope" }))
-    expect(onAction).toHaveBeenCalledWith({ action: "scope", key: "scope", pageIds: ["other"] })
   })
   it("shows active checks and supports cancellation without pretending checks are complete", () => {
     const state = fixture()

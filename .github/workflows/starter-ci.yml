@@ -42,6 +42,7 @@ jobs:
           cache-dependency-path: starter/package-lock.json
       - run: npm ci --engine-strict
       - run: npm run format:check
+      - run: npm run lint
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
