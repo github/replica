@@ -1,13 +1,11 @@
 import { randomUUID } from "node:crypto"
-
+import { readHubObject } from "../read-hub-object/index.mjs"
 // Allow the 8 KiB Controls query plus the underlying prototype route.
 export const MAX_RELOAD_ADDRESS_LENGTH = 16_384
-
 export function agentCommands() {
   let pending = null
   const queue = []
   const history = []
-
   function stage(command, name) {
     command.trace.push({ stage: name, elapsedMs: Date.now() - command.queuedAt })
   }
@@ -20,16 +18,16 @@ export function agentCommands() {
       stages: command.trace.map((entry) => ({ ...entry })),
     }
   }
-
   function startNext() {
-    if (pending || !queue.length) return
+    if (pending) return
     const command = queue.shift()
+    if (!command) return
     const timer = setTimeout(() => {
       pending = null
       command.outcome = "timeout"
       command.reject(
         new Error(
-          `The live canvas did not respond. Request ${command.id}; last stage: ${command.trace.at(-1).stage}. Keep its panel open and try again.`,
+          `The live canvas did not respond. Request ${command.id}; last stage: ${command.trace.at(-1)?.stage}. Keep its panel open and try again.`,
         ),
       )
       startNext()
@@ -37,7 +35,6 @@ export function agentCommands() {
     command.timer = timer
     pending = command
   }
-
   return {
     invoke(type, input = {}, timeoutMs = 5_000) {
       return new Promise((resolve, reject) => {
@@ -70,17 +67,19 @@ export function agentCommands() {
       stage(pending, "delivered")
       return { id: pending.id, type: pending.type, input: pending.input }
     },
-    progress({ id, stage: name }, rendererId) {
+    progress(input, rendererId) {
+      const { id, stage: name } = readHubObject(input) ?? {}
       if (!pending || pending.id !== id || pending.rendererId !== rendererId)
         throw new Error("No matching canvas action is pending for this renderer.")
-      const stages = ["handler started", "status collected"]
-      if (!stages.includes(name)) throw new Error("Invalid canvas action stage.")
+      if (name !== "handler started" && name !== "status collected")
+        throw new Error("Invalid canvas action stage.")
       if (!pending.trace.some((entry) => entry.stage === name)) stage(pending, name)
     },
     diagnostics() {
       return { requests: history.map(diagnostic) }
     },
-    complete(result, rendererId) {
+    complete(input, rendererId) {
+      const result = readHubObject(input)
       if (!pending || result?.id !== pending.id || typeof result.ok !== "boolean") {
         throw new Error("No matching canvas action is pending.")
       }

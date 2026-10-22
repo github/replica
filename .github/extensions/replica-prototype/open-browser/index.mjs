@@ -1,5 +1,4 @@
 import { runCommand } from "../run-command/index.mjs"
-
 export async function openBrowser(url, { platform = process.platform, run = runCommand } = {}) {
   const target = new URL(url)
   if (!["http:", "https:"].includes(target.protocol) || target.username || target.password) {
