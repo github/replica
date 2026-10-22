@@ -18,17 +18,15 @@ en:
       prototype_count:
         one: 1 prototype
         other: "%{count} prototypes"
-      prototype_count_unit_one: prototype
-      prototype_count_unit_other: prototypes
       search: Search prototypes
       clear_search: Clear search
       no_search_results_heading: No prototypes found
-      no_search_results_description: Try a different search, or clear the current search to browse all prototypes.
+      no_search_results_description: Try a different search or author, or clear the filters to browse all prototypes.
       view: Prototype layout
       gallery_view: Gallery view
       list_view: List view
       prototype_column: Prototype
-      owner_column: Owner
+      owner_column: Author
       build_column: Build
       passing: passing
       not_passing: not passing
@@ -49,6 +47,23 @@ en:
       unknown_author: Author unavailable
       screenshot_alt: "Desktop screenshot of %{branch}, build %{number}"
       preview_fallback: No successful preview is available.
+      filters:
+        author: Author
+        me: Me
+        all_authors: All authors
+        search_authors: Search authors
+        more_authors: More
+        first_authors: First authors
+        no_authors: No matching authors
+        loading: Loading authors
+        retry: Retry
+        authors_failed: Hub could not load authors. Try again.
+        results_failed: Hub could not load prototypes. Your previous results are still shown.
+        previous: Previous
+        next: Next
+        pagination: Prototype pages
+        updating: Updating prototypes
+        shown: "%{count} shown"
       workflow:
         heading: Prototype workflow
         different_heading: Replica workflow update available
