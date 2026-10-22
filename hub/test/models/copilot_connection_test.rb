@@ -344,7 +344,7 @@ class CopilotConnectionTest < ActiveSupport::TestCase
       GithubAppConfiguration.delete_all
       configuration = github_app_configurations.create_installed
       Rails.configuration.x.copilot_billing = "organization"
-      stub_github_copilot_token("confirmed-token")
+      stub_github_copilot_token("copilot-user-token")
       connection = CopilotConnection.connect!(actor: @admin, browser_session: @session)
 
       change.call(configuration)
@@ -360,7 +360,7 @@ class CopilotConnectionTest < ActiveSupport::TestCase
   test "organization billing confirmation survives a non-billing configuration write" do
     configuration = github_app_configurations.create_installed
     Rails.configuration.x.copilot_billing = "organization"
-    stub_github_copilot_token("confirmed-token")
+    stub_github_copilot_token("copilot-user-token")
     connection = CopilotConnection.connect!(actor: @admin, browser_session: @session)
     configuration.touch
     stub_github_copilot_token("still-confirmed-token")
