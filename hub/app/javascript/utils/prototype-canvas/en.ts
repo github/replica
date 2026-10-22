@@ -104,6 +104,7 @@ export const copy = {
   hubPublicationUnavailable: "Connect to Hub to verify publication.",
   editDetails: "Edit details",
   improveContext: "Improve context",
+  improveContextDescription: "Run a skill to improve repository context from user feedback.",
   moreActions: "More actions",
   startPageHint: "Paste a prototype URL or route. Leave blank to start at /.",
   requestFailed: "The request failed.",

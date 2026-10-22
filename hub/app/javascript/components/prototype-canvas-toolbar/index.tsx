@@ -7,7 +7,7 @@ import {
   UploadIcon,
 } from "@primer/octicons-react"
 import { ActionMenu, Button, Tooltip } from "@primer/react-brand"
-import type { RefObject } from "react"
+import type { ComponentProps, RefObject } from "react"
 
 import { ControlsToggle } from "../prototype-controls-toggle"
 import { HubIconButton } from "@components/hub-icon-button"
@@ -178,7 +178,7 @@ export function Toolbar({
             aria-label={copy.moreActions}
           />
           <ActionMenu.Overlay aria-label={copy.moreActions}>
-            <ActionMenu.Item
+            <ImproveContextAction
               className="canvas-more-action"
               leadingVisual={<SparkleIcon size={16} />}
               onClick={onImproveContext}
@@ -194,11 +194,19 @@ export function Toolbar({
               }}
             >
               {copy.improveContext}
-            </ActionMenu.Item>
+            </ImproveContextAction>
           </ActionMenu.Overlay>
         </ActionMenu>
       ) : null}
     </header>
+  )
+}
+
+function ImproveContextAction(props: ComponentProps<typeof ActionMenu.Item>) {
+  return (
+    <Tooltip text={copy.improveContextDescription} type="description" direction="w">
+      <ActionMenu.Item {...props} />
+    </Tooltip>
   )
 }
 
