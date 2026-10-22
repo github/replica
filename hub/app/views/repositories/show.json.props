@@ -167,7 +167,7 @@ json.prototypes do
         json.avatarUrl prototype.author.avatar_url
         json.label t("repositories.show.card_author", login: prototype.author.login)
         json.ownerLabel "@#{prototype.author.login}"
-        json.url "https://github.com/#{prototype.author.login}"
+        json.url "#{Rails.configuration.x.github_url}/#{CGI.escapeURIComponent(prototype.author.login)}"
       end
     else
       json.author do
