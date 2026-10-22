@@ -28,6 +28,32 @@ class HubTracingTest < ActiveSupport::TestCase
     end
   end
 
+  test "disabled Rails eager loading does not load tracing SDK or support files" do
+    environment = ENV.keys.grep(/\A(?:OTEL_|REPLICA_OTEL_)/).to_h { |key| [ key, nil ] }
+      .merge("RAILS_ENV" => "test", "SECRET_KEY_BASE_DUMMY" => nil)
+    script = <<~RUBY
+      require_relative "config/environment"
+      Rails.application.eager_load!
+      abort "tracing SDK loaded while disabled" if defined?(OpenTelemetry::SDK)
+      support_files = $LOADED_FEATURES.grep(%r{/lib/hub_tracing/})
+      abort "tracing support files loaded while disabled: \#{support_files.join(", ")}" if support_files.any?
+      %i[Exporter DataFilter Propagator].each do |name|
+        abort "\#{name} loaded while tracing disabled" if HubTracing.const_defined?(name, false)
+      end
+      puts "eager loaded without tracing"
+    RUBY
+    output, error, status = Open3.capture3 \
+      environment,
+      RbConfig.ruby,
+      "-rbundler/setup",
+      "-e",
+      script,
+      chdir: Rails.root
+
+    assert status.success?, "#{output}\n#{error}"
+    assert_includes output, "eager loaded without tracing"
+  end
+
   test "invalid enabled configuration fails without printing endpoint credentials" do
     [
       { "OTEL_EXPORTER_OTLP_ENDPOINT" => nil },
