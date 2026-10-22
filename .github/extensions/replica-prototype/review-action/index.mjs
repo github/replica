@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto"
 
 import { uuidInputPattern as UUID } from "../identity-patterns/index.mjs"
+import { checkThread, validMessageBody } from "../improvement-note-thread/index.mjs"
 
 const THREAD_LIMIT = 10
 const REPLY_LIMIT = 10
@@ -22,6 +23,14 @@ function invalid() {
 
 function positive(value) {
   return Number.isSafeInteger(value) && value > 0
+}
+
+function noteId(value) {
+  return (
+    typeof value === "string" &&
+    /^improvement_note-[1-9]\d*$/.test(value) &&
+    positive(Number(value.slice("improvement_note-".length)))
+  )
 }
 
 function text(value, bytes, nullable = false) {
@@ -51,7 +60,12 @@ function instant(value) {
 function chronological(left, right) {
   const a = instant(left.createdAt)
   const b = instant(right.createdAt)
-  return a < b ? -1 : a > b ? 1 : left.id - right.id
+  if (a !== b) return a < b ? -1 : 1
+  const leftId =
+    typeof left.id === "number" ? left.id : Number(left.id.slice("improvement_note-".length))
+  const rightId =
+    typeof right.id === "number" ? right.id : Number(right.id.slice("improvement_note-".length))
+  return leftId - rightId || left.kind.localeCompare(right.kind, "en")
 }
 
 function author(value) {
@@ -64,18 +78,20 @@ function author(value) {
 }
 
 function message(value, repositoryScope = false) {
-  if (!value || !positive(value.id) || !["root", "reply"].includes(value.kind)) invalid()
+  if (!value || !positive(value.id) || !["root", "reply", "improvement_note"].includes(value.kind))
+    invalid()
+  const improvement = value.kind === "improvement_note"
   const deletedAt = date(value.deletedAt, true)
   const body = text(value.body, 10000, deletedAt !== null)
   if (deletedAt && body !== null) invalid()
   const result = {
-    id: value.id,
+    id: improvement ? `improvement_note-${value.id}` : value.id,
     kind: value.kind,
     body,
     author: author(value.author),
     createdAt: date(value.createdAt),
     updatedAt: date(value.updatedAt),
-    editedAt: date(value.editedAt, true),
+    ...(!improvement ? { editedAt: date(value.editedAt, true) } : {}),
     deletedAt,
   }
   if (repositoryScope) {
@@ -93,14 +109,41 @@ function message(value, repositoryScope = false) {
   }
   if (
     !positive(value.buildNumber) ||
-    !positive(value.activityVersion) ||
-    !(
-      value.viewerLastSeenActivityVersion === null || positive(value.viewerLastSeenActivityVersion)
-    ) ||
     !value.anchor ||
     typeof value.anchor !== "object" ||
     Array.isArray(value.anchor) ||
     Buffer.byteLength(JSON.stringify(value.anchor)) > 16384
+  )
+    invalid()
+  if (improvement) {
+    if (
+      !UUID.test(value.localId ?? "") ||
+      !positive(value.revision) ||
+      !["open", "sent", "ready", "blocked", "resolved"].includes(value.status) ||
+      (deletedAt ? value.thread !== null : !validMessageBody(body, "author"))
+    )
+      invalid()
+    if (!deletedAt) {
+      try {
+        checkThread(value.thread, value.localId)
+      } catch (error) {
+        if (error.statusCode !== 422) throw error
+        invalid()
+      }
+    }
+    return {
+      ...result,
+      localId: value.localId,
+      revision: value.revision,
+      status: value.status,
+      buildNumber: value.buildNumber,
+      anchor: value.anchor,
+      thread: value.thread,
+    }
+  }
+  if (
+    !positive(value.activityVersion) ||
+    !(value.viewerLastSeenActivityVersion === null || positive(value.viewerLastSeenActivityVersion))
   )
     invalid()
   return {
@@ -213,16 +256,23 @@ function summary(value) {
   }
 }
 
-function filters(input) {
+function filters(input, improvements = false) {
   const result = {
     resolution: input.resolution ?? "all",
     read: input.read ?? "all",
     from: input.from ?? null,
     to: input.to ?? null,
+    ...(improvements
+      ? {
+          improvementNotes:
+            input.improvementNotes === undefined ? "exclude" : input.improvementNotes,
+        }
+      : {}),
   }
   if (
     !["all", "unresolved", "resolved"].includes(result.resolution) ||
-    !["all", "unread", "read"].includes(result.read)
+    !["all", "unread", "read"].includes(result.read) ||
+    (improvements && !["exclude", "include", "only"].includes(result.improvementNotes))
   )
     invalid()
   for (const key of ["from", "to"]) {
@@ -260,18 +310,33 @@ function cursor(value) {
     if (first !== undefined || second !== undefined) invalid()
     return { id, kind }
   }
-  if (!/^(0|[1-9]\d*)$/.test(first ?? "") || !Number.isSafeInteger(Number(first))) invalid()
+  if (
+    !noteId(first) &&
+    (!/^(0|[1-9]\d*)$/.test(first ?? "") || !Number.isSafeInteger(Number(first)))
+  )
+    invalid()
   if (kind === "list") {
-    if (second !== undefined) invalid()
+    if (second !== undefined || noteId(first)) invalid()
     return { id, kind, offset: Number(first) }
   }
   if (
-    !positive(Number(first)) ||
+    !(positive(Number(first)) || noteId(first)) ||
     !/^(0|[1-9]\d*)$/.test(second ?? "") ||
     !Number.isSafeInteger(Number(second))
   )
     invalid()
-  return { id, kind, threadId: Number(first), offset: Number(second) }
+  return { id, kind, threadId: noteId(first) ? first : Number(first), offset: Number(second) }
+}
+
+function activity(root) {
+  if (root.kind !== "improvement_note") return root.activityVersion
+  const note = { ...root }
+  delete note.prototype
+  return JSON.stringify(note)
+}
+
+function commentsRoute(base, improvementNotes = "exclude") {
+  return improvementNotes === "exclude" ? base : `${base}?improvement_notes=${improvementNotes}`
 }
 
 async function snapshot(store, id, target) {
@@ -296,18 +361,18 @@ async function scan(hub, store, value, base, options) {
     message(record, repositoryScope),
   )
   const versions = new Map(
-    first.filter((item) => item.kind === "root").map((root) => [root.id, root.activityVersion]),
+    first.filter((item) => item.kind !== "reply").map((root) => [root.id, activity(root)]),
   )
   // A second read checks that collected messages belong to unchanged root versions.
   const comments = (await completeComments(hub, base, options)).map((record) =>
     message(record, repositoryScope),
   )
   const roots = new Map(
-    comments.filter((item) => item.kind === "root").map((root) => [root.id, root]),
+    comments.filter((item) => item.kind !== "reply").map((root) => [root.id, root]),
   )
   if (
     roots.size !== versions.size ||
-    [...roots.values()].some((root) => versions.get(root.id) !== root.activityVersion)
+    [...roots.values()].some((root) => versions.get(root.id) !== activity(root))
   )
     fail("comment_conflict", "Threads changed during collection. Retrieve comments again.", 409)
   const ids = new Set()
@@ -331,6 +396,8 @@ async function scan(hub, store, value, base, options) {
 }
 
 function replies(value, threadId) {
+  if (noteId(threadId))
+    return value.comments.find((item) => item.id === threadId)?.thread?.messages ?? []
   return value.comments
     .filter((item) => item.kind === "reply" && item.rootId === threadId)
     .sort(chronological)
@@ -355,7 +422,14 @@ function thread(value, root, offset, all, count, replyRequestId) {
   const hasMore = offset + count < all.length
   return {
     ...root,
-    replies: all.slice(offset, offset + count),
+    ...(root.kind === "improvement_note"
+      ? {
+          thread:
+            root.thread === null
+              ? null
+              : { ...root.thread, messages: all.slice(offset, offset + count) },
+        }
+      : { replies: all.slice(offset, offset + count) }),
     threadComplete: offset === 0 && !hasMore,
     repliesHasMore: hasMore,
     repliesNextCursor: hasMore ? `${value.id}:reply:${root.id}:${offset + count}` : null,
@@ -365,7 +439,10 @@ function thread(value, root, offset, all, count, replyRequestId) {
 
 function boundedThread(value, root, offset, all, envelope) {
   if (offset > all.length) invalid()
-  const replyRequestId = value.target.scope === "repository" ? undefined : randomUUID()
+  const replyRequestId =
+    value.target.scope === "repository" || root.kind === "improvement_note"
+      ? undefined
+      : randomUUID()
   const maximum = Math.min(REPLY_LIMIT, all.length - offset)
   // A reply continuation must consume a message, never return its own cursor unchanged.
   const minimum = maximum === 0 ? 0 : 1
@@ -390,10 +467,18 @@ function list(value, offset = 0) {
   for (const records of grouped.values()) records.sort(chronological)
   const roots = value.comments
     .filter((item) => {
-      if (item.kind !== "root") return false
+      if (item.kind === "reply") return false
       const filter = value.filters
-      if (filter.resolution !== "all" && (filter.resolution === "resolved") !== !!item.resolvedAt)
+      const improvement = item.kind === "improvement_note"
+      if (
+        (improvement && filter.improvementNotes === "exclude") ||
+        (!improvement && filter.improvementNotes === "only")
+      )
         return false
+      const resolved = improvement ? item.status === "resolved" : !!item.resolvedAt
+      if (filter.resolution !== "all" && (filter.resolution === "resolved") !== resolved)
+        return false
+      if (improvement && filter.read !== "all") return false
       if (filter.read !== "all" && (filter.read === "unread") !== item.unread) return false
       if (filter.from || filter.to) {
         const from = filter.from ? instant(filter.from) : null
@@ -426,8 +511,14 @@ function list(value, offset = 0) {
   }
   const threads = []
   for (const root of roots.slice(offset, offset + THREAD_LIMIT)) {
-    const all = grouped.get(root.id) ?? []
-    const replyRequestId = value.target.scope === "repository" ? undefined : randomUUID()
+    const all =
+      root.kind === "improvement_note"
+        ? (root.thread?.messages ?? [])
+        : (grouped.get(root.id) ?? [])
+    const replyRequestId =
+      value.target.scope === "repository" || root.kind === "improvement_note"
+        ? undefined
+        : randomUUID()
     const candidate = thread(value, root, 0, all, Math.min(REPLY_LIMIT, all.length), replyRequestId)
     if (fitsResponse(envelope([...threads, candidate]))) {
       threads.push(candidate)
@@ -440,8 +531,16 @@ function list(value, offset = 0) {
 }
 
 async function freshRoot(hub, base, threadId, options) {
-  const comments = await completeComments(hub, base, options)
-  const root = comments.find((item) => item.kind === "root" && item.id === threadId)
+  const comments = await completeComments(
+    hub,
+    commentsRoute(base, noteId(threadId) ? "only" : "exclude"),
+    options,
+  )
+  const root = comments.find((item) =>
+    noteId(threadId)
+      ? item.kind === "improvement_note" && `improvement_note-${item.id}` === threadId
+      : item.kind === "root" && item.id === threadId,
+  )
   if (root) return message(root)
 
   fail("comments_not_found", "The thread no longer exists in this prototype.", 404)
@@ -452,8 +551,16 @@ export async function reviewAction(hub, action, input = {}, store) {
   if (!store) throw new Error("Comment actions require private session storage.")
   if (!input || typeof input !== "object" || Array.isArray(input)) invalid()
   const allowed = {
-    list_comments: ["resolution", "read", "from", "to", "cursor", "target"],
-    list_repository_comments: ["resolution", "read", "from", "to", "cursor", "target"],
+    list_comments: ["resolution", "read", "from", "to", "improvementNotes", "cursor", "target"],
+    list_repository_comments: [
+      "resolution",
+      "read",
+      "from",
+      "to",
+      "improvementNotes",
+      "cursor",
+      "target",
+    ],
     get_comment_thread: ["target", "threadId", "snapshotId", "cursor"],
     get_repository_comment_thread: ["target", "threadId", "snapshotId", "cursor"],
     list_repository_comment_summaries: ["resolution", "from", "to", "pageSize", "cursor", "target"],
@@ -479,7 +586,11 @@ export async function reviewAction(hub, action, input = {}, store) {
   ].includes(action)
   const readingThread = ["get_comment_thread", "get_repository_comment_thread"].includes(action)
   if (input.target && (input.target.scope === "repository") !== repositoryScope) invalid()
-  if (!listing && (!positive(input.threadId) || !input.target)) invalid()
+  if (
+    !listing &&
+    (!(positive(input.threadId) || (readingThread && noteId(input.threadId))) || !input.target)
+  )
+    invalid()
   if (directThread && !positive(input.prototypeId)) invalid()
   const pageSize = input.pageSize ?? 200
   if (direct && (!positive(pageSize) || pageSize > 200)) invalid()
@@ -492,7 +603,7 @@ export async function reviewAction(hub, action, input = {}, store) {
     (!text(input.body, 10000).trim() || !UUID.test(input.requestId ?? ""))
   )
     invalid()
-  const filter = listing ? filters(input) : null
+  const filter = listing ? filters(input, !direct) : null
   const position = !direct && input.cursor !== undefined ? cursor(input.cursor) : null
   if (input.cursor !== undefined && !input.target) invalid()
   const checkout = await hub.checkout()
@@ -595,9 +706,10 @@ export async function reviewAction(hub, action, input = {}, store) {
             comments: [],
             complete: false,
           }
-      if (JSON.stringify(value.filters) !== JSON.stringify(filter)) invalid()
+      const savedFilters = { improvementNotes: "exclude", ...value.filters }
+      if (Object.entries(filter).some(([key, entry]) => savedFilters[key] !== entry)) invalid()
       if (position?.kind === "list" && !value.complete) invalid()
-      await scan(hub, store, value, base, options)
+      await scan(hub, store, value, commentsRoute(base, filter.improvementNotes), options)
       return list(value, position?.kind === "list" ? position.offset : 0)
     })
   }
@@ -611,13 +723,13 @@ export async function reviewAction(hub, action, input = {}, store) {
       invalid()
     const value = await snapshot(store, input.snapshotId, target)
     if (!value.complete) invalid()
-    const root = value.comments.find((item) => item.kind === "root" && item.id === input.threadId)
+    const root = value.comments.find((item) => item.kind !== "reply" && item.id === input.threadId)
     if (!root) fail("comments_not_found", "Thread not present in this snapshot.", 404)
     const threadBase = repositoryScope
       ? `/api/canvas/repositories/${target.repositoryId}/prototypes/${root.prototype.id}/review_comments`
       : base
     const current = await freshRoot(hub, threadBase, input.threadId, options)
-    if (current.activityVersion !== root.activityVersion)
+    if (activity(current) !== activity(root))
       fail("comment_conflict", "Thread changed. Retrieve a new comment snapshot.", 409)
     return boundedThread(value, root, position?.offset ?? 0, replies(value, root.id), (item) => ({
       contentTrust: REVIEW_CONTENT_TRUST,
