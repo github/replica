@@ -362,6 +362,7 @@ class GithubAppConfiguration::AdministrationTest < ActiveSupport::TestCase
   def installation_payload
     {
       "id" => 456,
+      "app_id" => 123,
       "account" => { "id" => 321, "login" => "github", "type" => "Organization" }
     }
   end

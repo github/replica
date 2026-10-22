@@ -10,6 +10,17 @@ class GithubClient::Installations
     transport.request(:get, "/app/installations/#{id.to_i}", token:)
   end
 
+  # Finds this App's installation in its current owner's account.
+  def for_account(login:, type:, token:)
+    unless %w[Organization User].include?(type) &&
+        login.is_a?(String) && login.match?(/\A[A-Za-z0-9][A-Za-z0-9-]*\z/)
+      raise GithubClient::InvalidResponse, "GitHub returned an invalid installation account"
+    end
+
+    scope = type == "Organization" ? "orgs" : "users"
+    transport.request(:get, "/#{scope}/#{CGI.escape(login)}/installation", token:)
+  end
+
   # Creates one access token for a GitHub App installation, limited to the given permissions when
   # there are any.
   def create_token(id, token:, permissions: nil)

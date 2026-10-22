@@ -41,6 +41,18 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Configured: Story = {}
+export const InstallationRequired: Story = {
+  args: {
+    data: {
+      ...data,
+      installation: "Installation 456: removed",
+      paragraphs: [
+        ...data.paragraphs,
+        "Install this App in the github account and select its repositories. Hub checks GitHub automatically and restores access after installation.",
+      ],
+    },
+  },
+}
 export const NotConfigured: Story = {
   args: {
     data: {

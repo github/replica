@@ -5,15 +5,15 @@ class GithubAppConfiguration::BuildDiscovery < ActiveRecord::AssociatedObject
     record.synchronize_repositories!
     return if record.installation_state != "active"
 
+    installation = record.installation_snapshot
     repositories = repository ? Repository.active.where(id: repository.id) : Repository.active
-    repositories.find_each { discover_repository!(_1) }
+    repositories.find_each { discover_repository!(_1, installation:) }
   end
 
   private
 
   # Records current branch commits and workflow states for one repository.
-  def discover_repository!(repository)
-    credentials = record.credential_snapshot
+  def discover_repository!(repository, installation:)
     observations = repository.branch_presence.observations
     current_branches = observations.values.select { |prototype| prototype.branch_deleted_at.nil? && prototype.reviewable? }
       .map(&:branch_name)
@@ -25,18 +25,19 @@ class GithubAppConfiguration::BuildDiscovery < ActiveRecord::AssociatedObject
         branch_name:,
         commit_sha:,
         observed: observations[branch_name],
-        configuration: record
+        configuration: record,
+        installation:
     end
     observations.each do |branch_name, observed|
       next if heads.key?(branch_name)
 
-      GithubAppConfiguration.with_credentials!(**credentials) do
+      record.with_installation!(snapshot: installation) do
         repository.branch_presence.record_missing!(branch_name:, observed:)
       end
     end
     runs = workflow_runs(repository)
     observed_run_ids = runs.filter_map do |run|
-      build = GithubAppConfiguration.with_credentials!(**credentials) do
+      build = record.with_installation!(snapshot: installation) do
         repository.workflow_run_discoveries.record!(run)
       end
       if build&.github_workflow_run_id == run.fetch("id") &&
@@ -44,7 +45,7 @@ class GithubAppConfiguration::BuildDiscovery < ActiveRecord::AssociatedObject
         build.github_workflow_run_id
       end
     end
-    reconcile_saved_workflow_runs!(repository, observed_run_ids, credentials:)
+    reconcile_saved_workflow_runs!(repository, observed_run_ids, installation:)
   rescue KeyError, TypeError, ArgumentError, Repository::WorkflowRunDiscoveries::InvalidRun
     raise \
       GithubClient::InvalidResponse,
@@ -64,7 +65,7 @@ class GithubAppConfiguration::BuildDiscovery < ActiveRecord::AssociatedObject
   end
 
   # Fetches exact saved runs whose completion was not present in the newest run list.
-  def reconcile_saved_workflow_runs!(repository, observed_run_ids, credentials:)
+  def reconcile_saved_workflow_runs!(repository, observed_run_ids, installation:)
     builds = Build.joins(:prototype).where \
       prototypes: { repository_id: repository.id },
       state: %w[queued running],
@@ -76,11 +77,11 @@ class GithubAppConfiguration::BuildDiscovery < ActiveRecord::AssociatedObject
         repository,
         build.github_workflow_run_id,
         token: record.tokens.installation
-      GithubAppConfiguration.with_credentials!(**credentials) do
+      record.with_installation!(snapshot: installation) do
         repository.workflow_run_discoveries.record!(run)
       end
     rescue GithubClient::NotFound
-      GithubAppConfiguration.with_credentials!(**credentials) do
+      record.with_installation!(snapshot: installation) do
         build.workflow_run.fail_missing!
       end
     end

@@ -4,6 +4,35 @@ module GithubRequestStubs
 
   private
 
+  # Stubs the authenticated App identity without granting access to other endpoints.
+  def stub_github_app(configuration: GithubAppConfiguration.current, owner: nil, app_id: nil, slug: nil)
+    stub_request(:get, "#{GITHUB_API_URL}/app")
+      .with { |request| request.headers["Authorization"].to_s.start_with?("Bearer ") }
+      .to_return \
+        status: 200,
+        body: JSON.generate(
+          id: app_id || configuration.github_app_id,
+          slug: slug || configuration.app_slug,
+          owner: owner || {
+            id: configuration.owner_github_id,
+            login: configuration.owner_login,
+            type: configuration.owner_type
+          }
+        ),
+        headers: { "Content-Type" => "application/json" }
+  end
+
+  # Stubs the configured App's installation in one exact account.
+  def stub_github_account_installation(account:, installation_id: 456, app_id: 123, status: 200, payload: nil)
+    scope = account.fetch(:type) == "Organization" ? "orgs" : "users"
+    stub_request(:get, "#{GITHUB_API_URL}/#{scope}/#{account.fetch(:login)}/installation")
+      .with { |request| request.headers["Authorization"].to_s.start_with?("Bearer ") }
+      .to_return \
+        status:,
+        body: JSON.generate(payload || { id: installation_id, app_id:, account:, suspended_at: nil }),
+        headers: { "Content-Type" => "application/json" }
+  end
+
   # Checks the account-specific landing page while completing an already stubbed sign-in.
   def sign_in_to_hub(github_id: 1001)
     user = User.find_by(github_id:)

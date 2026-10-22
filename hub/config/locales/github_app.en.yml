@@ -9,6 +9,7 @@ en:
     verification: GitHub must have verified this browser's account within the last five minutes. If verification is required, Hub temporarily encrypts your submitted settings and continues your confirmed change after it succeeds.
     identity: "App %{app_id} - %{owner} (%{owner_type}, identity %{owner_id})"
     installation: "Installation %{installation_id}: %{state}"
+    installation_required: "Install this App in the %{owner} account and select its repositories. Hub checks GitHub automatically and restores access after installation."
     busy: A webhook update is in progress. Wait for it to finish before changing the App.
     credentials:
       heading: Replace App credentials

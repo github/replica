@@ -38,6 +38,7 @@ section :github do
     attributes = {
       singleton_key: 1,
       installation_id: 456,
+      installation_account_github_id: overrides.fetch(:owner_github_id, attributes_for.fetch(:owner_github_id)),
       installation_state: "active",
       installed_at: Time.current
     }.merge(overrides)
