@@ -709,11 +709,7 @@ function receiveCanvasMessage(event: MessageEvent<unknown>) {
     return
   }
 
-  if (
-    data.type !== "replica:canvas:resolve" ||
-    !Array.isArray(data.anchors) ||
-    data.anchors.length > 200
-  ) {
+  if (data.type !== "replica:canvas:resolve" || !Array.isArray(data.anchors)) {
     return
   }
 

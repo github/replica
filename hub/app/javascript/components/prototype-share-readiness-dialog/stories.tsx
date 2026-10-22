@@ -13,7 +13,7 @@ function example(name: string) {
 }
 
 const meta = {
-  title: "Components/Prototype canvas/Share readiness dialog",
+  title: "Prototype canvas/Share readiness dialog",
   component: ShareReadinessDialog,
   args: {
     readiness: example("Disconnected"),
@@ -58,7 +58,43 @@ export const Ready: Story = {
     readiness: { kind: "ready", title: readinessCopy.ready, detail: readinessCopy.readyDetail },
   },
 }
-export const Narrow: Story = {
-  ...Unpublished,
-  globals: { viewport: { value: "mobile" } },
+export const WaitingForCopilot: Story = { args: { readiness: example("Waiting for Copilot") } }
+export const Queued: Story = { args: { readiness: example("Build queued") } }
+export const Building: Story = { args: { readiness: example("Building") } }
+export const AwaitingBuild: Story = { args: { readiness: example("Awaiting build") } }
+export const Registering: Story = { args: { readiness: example("Automatic publication") } }
+export const RegistrationFailed: Story = {
+  args: { readiness: example("Automatic publication failed") },
+}
+export const CheckoutChanged: Story = {
+  args: {
+    readiness: {
+      kind: "restricted",
+      title: readinessCopy.changed,
+      detail: readinessCopy.changedDetail,
+    },
+  },
+}
+export const Busy: Story = { args: { readiness: example("Unpublished branch"), busy: true } }
+export const DetachedCheckout: Story = { args: { readiness: example("Detached checkout") } }
+export const MissingWorkflow: Story = { args: { readiness: example("Workflow missing") } }
+export const HubUnavailable: Story = { args: { readiness: example("Hub unavailable") } }
+export const HubAccessDenied: Story = { args: { readiness: example("Hub access denied") } }
+export const DefaultBranch: Story = { args: { readiness: example("Default branch") } }
+export const BranchAuthorshipRequired: Story = {
+  args: { readiness: example("Branch authorship required") },
+}
+export const RepositoryMismatch: Story = { args: { readiness: example("Repository mismatch") } }
+export const AlreadyRegistered: Story = { args: { readiness: example("Already registered") } }
+export const LocalRepository: Story = {
+  args: {
+    readiness: resolveShareReadiness(
+      publicationExamples["Published"]!.state,
+      { ...publicationExamples["Published"]!.hub!, discovery: { state: "local" } },
+      resolvePublication(
+        publicationExamples["Published"]!.state,
+        publicationExamples["Published"]!.hub,
+      ),
+    ),
+  },
 }

@@ -21,10 +21,12 @@ import { requestCommentingFix } from "../request-commenting-fix/index.mjs"
 import { requestControlsDiagnosis } from "../request-controls-diagnosis/index.mjs"
 import { reviewAction } from "../review-action/index.mjs"
 import { createCommentStore } from "../comment-store/index.mjs"
+import { createImprovementNotes } from "../improvement-notes/index.mjs"
 import { createShareLinks } from "../share-links/index.mjs"
 import { startPreviewProxy } from "../start-preview-proxy/index.mjs"
 import { captureReviewRevision } from "../capture-review-revision/index.mjs"
 import { createLocalReviewComments } from "../create-local-review-comments/index.mjs"
+import { uuidInputPattern } from "../identity-patterns/index.mjs"
 import { createReviewerProfile } from "../create-reviewer-profile/index.mjs"
 
 const ASSET_PATHS = new Map([
@@ -68,6 +70,9 @@ export async function startCanvasServer(initialContext, session, options = {}) {
   const source = await readFile(new URL("../assets/canvas-bridge.js", import.meta.url), "utf8")
   const hubConnection = createHubConnection(() => context, options.hubOptions)
   const { hubClient, refreshDiscovery, selectHubOrigin, discoveries } = hubConnection
+  const improvementNotes = createImprovementNotes(() => context, session, hubClient, {
+    directory: options.improvementNotesDirectory,
+  })
   const localComments = createLocalReviewComments(initialContext, {
     directory: options.localCommentsDirectory,
   })
@@ -315,6 +320,7 @@ export async function startCanvasServer(initialContext, session, options = {}) {
         options.agentCommands,
         shareLinks,
         publishPreferences,
+        improvementNotes,
         localComments,
         localScope,
       )
@@ -391,6 +397,7 @@ export async function startCanvasServer(initialContext, session, options = {}) {
     getHubStatus: hubStatus,
     reviewAction: async (action, input) => reviewAction(await hubClient(), action, input, comments),
     updateMetadata,
+    improvementNotes,
     close: async () => {
       options.agentCommands?.close()
       for (const stream of streams) stream.end()
@@ -426,6 +433,7 @@ async function routeRequest(
   agentCommands,
   shareLinks,
   publishPreferences,
+  improvementNotes,
   localComments,
   localScope,
 ) {
@@ -451,6 +459,26 @@ async function routeRequest(
   }
 
   requireToken(request, token)
+  if (requestUrl.pathname === "/api/improvement-notes/capture" && request.method === "POST") {
+    sendJson(response, 200, await improvementNotes.capture())
+    return
+  }
+  if (requestUrl.pathname === "/api/improvement-notes" && request.method === "GET") {
+    sendJson(response, 200, await improvementNotes.load())
+    return
+  }
+  if (requestUrl.pathname === "/api/improvement-notes" && request.method === "POST") {
+    sendJson(response, 200, await improvementNotes.save(await readJson(request, 1_550_000)))
+    return
+  }
+  if (
+    request.method === "POST" &&
+    ["/api/improvement-notes/sync", "/api/improvement-notes/fix"].includes(requestUrl.pathname)
+  ) {
+    const action = requestUrl.pathname.endsWith("/fix") ? "fix" : "sync"
+    sendJson(response, 200, await improvementNotes[action](await readJson(request)))
+    return
+  }
   const sharingRoute =
     /^\/api\/hub\/share-links\/(context|list|create|delete|open|controls-preference|authorize)$/.exec(
       requestUrl.pathname,
@@ -615,21 +643,16 @@ async function routeRequest(
     const status = await hub.status()
     if (!status.repositoryAuthorized) throw httpError(403, "Connect to Hub before commenting.")
     const scope = await localScope(hub, status)
-    const cursor = requestUrl.searchParams.get("cursor")
-    const page = status.prototype
-      ? await hub.request(
-          `${await reviewPath(hub)}${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`,
-        )
+    const collection = status.prototype
+      ? await hub.request(await reviewPath(hub))
       : { comments: [], hasMore: false, nextCursor: null }
     const revision = requestUrl.searchParams.get("local_revision_id")
-    const drafts = cursor
-      ? []
-      : (await localComments.list(scope)).filter(
-          (comment) => !revision || comment.draftRevisionId === Number(revision),
-        )
+    const drafts = (await localComments.list(scope)).filter(
+      (comment) => !revision || comment.draftRevisionId === Number(revision),
+    )
     sendJson(response, 200, {
-      ...page,
-      comments: [...page.comments, ...drafts],
+      ...collection,
+      comments: [...collection.comments, ...drafts],
     })
     return
   }
@@ -932,11 +955,7 @@ function validRoute(route) {
 }
 
 function validAgentResult(result) {
-  if (
-    !boundedString(result.id, 36) ||
-    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(result.id)
-  )
-    return false
+  if (!boundedString(result.id, 36) || !uuidInputPattern.test(result.id)) return false
   if (result.ok === false)
     return (
       hasKeys(result, ["id", "ok", "error"]) &&

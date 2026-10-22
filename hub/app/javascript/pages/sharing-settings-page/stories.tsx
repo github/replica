@@ -31,7 +31,7 @@ const data: SharingSettingsPageData = {
 }
 
 const meta = {
-  title: "Pages/Security/Public sharing",
+  title: "Hub/Pages/Security/Public sharing",
   component: SharingSettingsPage,
   parameters: { layout: "fullscreen" },
   args: { data },

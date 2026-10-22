@@ -11,6 +11,7 @@ const compilation = spawnSync(
   ["--project", project, "--noEmit", "false", "--listEmittedFiles"],
   { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] },
 )
+
 if (compilation.error) throw compilation.error
 if (compilation.status !== 0) {
   process.stdout.write(compilation.stdout ?? "")

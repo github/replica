@@ -34,7 +34,7 @@ class ReviewCommentsTest < ActionDispatch::IntegrationTest
     assert_nil payload.fetch("nextCursor")
   end
 
-  test "follows stable cursor pages without a total collection cap" do
+  test "returns the complete collection in newest first order" do
     time = Time.current.change(usec: 0)
     rows = 203.times.map do |index|
       {
@@ -50,48 +50,12 @@ class ReviewCommentsTest < ActionDispatch::IntegrationTest
     end
     ReviewComment.insert_all!(rows)
     expected_ids = ReviewComment.where(prototype: @prototype).order(created_at: :desc, id: :desc).ids
-    actual_ids = []
-    cursor = nil
-
-    loop do
-      params = { pageSize: 200 }
-      params[:cursor] = cursor if cursor
-      get @path, params: params
-      assert_response :success
-      payload = JSON.parse(response.body)
-      actual_ids.concat(payload.fetch("comments").pluck("id"))
-      break if !payload.fetch("hasMore")
-
-      cursor = payload.fetch("nextCursor")
-    end
-
-    assert_equal expected_ids, actual_ids
-    assert_equal actual_ids.uniq, actual_ids
-  end
-
-  test "rejects malformed cursors and page sizes" do
-    get @path, params: { cursor: "invalid" }
-    assert_response :bad_request
-
-    get @path, params: { pageSize: ReviewComment::MAXIMUM_PAGE_SIZE + 1 }
-    assert_response :bad_request
-
-    get "#{@path}?pageSize[]=2"
-    assert_response :bad_request
-  end
-
-  test "does not accept a signed cursor for another Prototype" do
-    create_comment(@first_build, "First comment", created_at: 2.minutes.ago)
-    create_comment(@second_build, "Second comment", created_at: 1.minute.ago)
-    get @path, params: { pageSize: 1 }
+    get @path
     assert_response :success
-    cursor = JSON.parse(response.body).fetch("nextCursor")
-    other_prototype = prototypes.create(repository: @repository, branch_name: "prototype/other")
-    other_path = repository_prototype_review_comments_path(@repository.github_id, other_prototype)
-
-    get other_path, params: { cursor: }
-
-    assert_response :bad_request
+    payload = JSON.parse(response.body)
+    assert_equal expected_ids, payload.fetch("comments").pluck("id")
+    assert_equal false, payload.fetch("hasMore")
+    assert_nil payload.fetch("nextCursor")
   end
 
   test "returns the same canonical comment from creation and listing" do
