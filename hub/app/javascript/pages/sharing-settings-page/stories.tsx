@@ -27,11 +27,11 @@ const data: SharingSettingsPageData = {
     "Anyone with a new share link can view its fixed Build without signing in. Previously revoked links stay revoked.",
   confirmLabel: "I understand and confirm this deployment-wide change.",
   verification:
-    "This change requires GitHub verification within the last five minutes on this browser. If asked to verify, return and confirm again. Verification never submits this change.",
+    "This change requires GitHub verification within the last five minutes on this browser. If verification is required, Hub continues your confirmed change after it succeeds.",
 }
 
 const meta = {
-  title: "Pages/Security/Public sharing",
+  title: "Hub/Pages/Security/Public sharing",
   component: SharingSettingsPage,
   parameters: { layout: "fullscreen" },
   args: { data },

@@ -1,9 +1,7 @@
 import { createHash } from "node:crypto"
 import { homedir } from "node:os"
 import path from "node:path"
-
 import { createPrivateStore } from "../private-store/index.mjs"
-
 export function createPublishPreferences(
   directory = path.join(
     process.env.COPILOT_HOME || path.join(homedir(), ".copilot"),

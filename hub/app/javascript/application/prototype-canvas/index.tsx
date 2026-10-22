@@ -1,5 +1,5 @@
 import { ThemeProvider } from "@primer/react-brand"
-import { useCallback, useLayoutEffect, useRef, useState } from "react"
+import { lazy, Suspense, useCallback, useLayoutEffect, useRef, useState } from "react"
 
 import { AppDialogs } from "@features/prototype-canvas-dialogs"
 import { BrowserBar } from "@components/prototype-browser-bar"
@@ -28,6 +28,18 @@ import "./styles.css"
 
 type Props = { config: CanvasConfig }
 
+const ImprovementNotesPrototype = lazy(() =>
+  import("@features/prototype-canvas-improvement-notes").then((module) => ({
+    default: module.ImprovementNotesPrototype,
+  })),
+)
+
+const PrototypeCanvasThreadSample = lazy(() =>
+  import("@features/prototype-canvas-thread-sample").then((module) => ({
+    default: module.PrototypeCanvasThreadSample,
+  })),
+)
+
 /** Composes canvas workflows while preserving the preview across panels and dialogs. */
 export function App({ config }: Props) {
   const shellRef = useRef<HTMLElement>(null)
@@ -47,6 +59,7 @@ export function App({ config }: Props) {
     collapsedGroups: {},
   })
   const [hubOpen, setHubOpen] = useState(false)
+  const [improvementControls, setImprovementControls] = useState<HTMLDivElement | null>(null)
   const [buildDetailsOpen, setBuildDetailsOpen] = useState(false)
   const closeHub = useCallback(() => {
     setHubOpen(false)
@@ -198,6 +211,7 @@ export function App({ config }: Props) {
 
         <Toolbar
           toolbarRef={toolbarRef}
+          improvementControlsRef={setImprovementControls}
           config={config}
           state={publication.presentedState}
           prototypeName={
@@ -254,6 +268,33 @@ export function App({ config }: Props) {
           open={hubOpen}
           onClose={closeHub}
         />
+
+        {config.improvementThreadsSample ? (
+          <Suspense fallback={<p role="status">{copy.improvementNotesLoading}</p>}>
+            <PrototypeCanvasThreadSample />
+          </Suspense>
+        ) : config.pickAndPolish ? (
+          <Suspense
+            fallback={
+              <p className="visually-hidden" role="status">
+                {copy.improvementNotesLoading}
+              </p>
+            }
+          >
+            <ImprovementNotesPrototype
+              canvas={{
+                token: config.token,
+                frameRef,
+                toolbarTarget: improvementControls,
+                prototypeUrl: config.prototypeUrl,
+                previewUrl: config.previewUrl,
+                hubOpen,
+                onOpenNotes: () => setHubOpen(false),
+                onNavigate: navigate,
+              }}
+            />
+          </Suspense>
+        ) : null}
 
         {controlsOpen && controls.connection && controlsState ? (
           <ControlsPanel

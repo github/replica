@@ -6,7 +6,7 @@ Share links let prototype authors show one successful Build to people who do not
 
 Public sharing is **off by default for new and upgraded deployments**. For example, after an upgrade an old public URL returns not found even if its original expiration is still in the future. The upgrade permanently revokes every existing link and pending preview handoff.
 
-A Hub administrator opens **Public sharing** from the deployment security audit, or `/sharing_settings`, to enable new links. Changes require deliberate confirmation and [fresh GitHub authorization](fresh-authorization.md) on that same browser Session. An OAuth callback never replays a toggle. Repository administrators and Build authors cannot change this deployment setting, and Hub administrators do not gain repository-content access.
+A Hub administrator opens **Public sharing** from the deployment security audit, or `/sharing_settings`, to enable new links. Changes require deliberate confirmation and [fresh GitHub authorization](fresh-authorization.md) on that same browser Session. Successful verification continues the confirmed change through its normal permission checks. Repository administrators and Build authors cannot change this deployment setting, and Hub administrators do not gain repository-content access.
 
 Disabling permanently revokes all links and pending handoffs in the same transaction as the policy change and its security audit. It blocks anonymous share pages, preview authorization, cookies, files, browser routes and controls. Enabling later permits **new links only**; no revoked link returns. Signed-in previews, reviews and immutable Builds remain unchanged.
 

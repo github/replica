@@ -1,7 +1,7 @@
 import { useState } from "react"
 
 import { GearIcon, GitBranchIcon, SearchIcon } from "@primer/octicons-react"
-import { Button, Text } from "@primer/react-brand"
+import { Button, Pagination, Text } from "@primer/react-brand"
 
 import { HubAlert } from "@components/hub-alert"
 import { HubEmptyState } from "@components/hub-empty-state"
@@ -10,8 +10,10 @@ import { PrototypeCard } from "@components/prototype-card"
 import { PrototypeViewModeControl } from "@components/prototype-view-mode-control"
 import type { PrototypeViewMode } from "@components/prototype-view-mode-control/types"
 import { PrototypeIndexHeader } from "@features/prototype-index-header"
+import { PrototypeAuthorFilter } from "@features/prototype-author-filter"
 import { RepositoryWorkspace } from "@features/repository-workspace"
 import { WorkflowInstallation } from "@features/workflow-installation"
+import type { PrototypeListingControls } from "@utils/prototype-listing/types"
 
 import type { RepositoriesShowPageData } from "./types"
 
@@ -20,24 +22,21 @@ import "./styles.css"
 /** Shows branches after the server confirms repository access. */
 export function RepositoriesShowPage({
   data,
+  controls,
   managingPrototypes = false,
 }: {
   data: RepositoriesShowPageData
+  controls: PrototypeListingControls
   managingPrototypes?: boolean
 }) {
   const [view, setView] = useState<PrototypeViewMode>("gallery")
-  const [searchQuery, setSearchQuery] = useState("")
-  const normalizedQuery = searchQuery.trim().toLowerCase()
-  const visiblePrototypes = data.prototypes.filter((prototype) =>
-    `${prototype.name} ${prototype.description ?? ""} ${prototype.author.ownerLabel} ${prototype.branchName}`
-      .toLowerCase()
-      .includes(normalizedQuery),
-  )
-  const countLabel = normalizedQuery
-    ? `${visiblePrototypes.length} ${
-        visiblePrototypes.length === 1 ? data.prototypeCountUnitOne : data.prototypeCountUnitOther
-      }`
-    : data.prototypesCountLabel
+  const filtered = Boolean(data.listing.query || data.listing.author)
+  const visiblePrototypes = data.prototypes
+  function pageHref(page: number) {
+    const url = new URL(data.listing.pagePath, window.location.origin)
+    if (page > 1) url.searchParams.set("page", String(page))
+    return `${url.pathname}${url.search}`
+  }
   const managePrototypesLabelIndex = data.managePrototypesLabel
     ? data.emptyLabel.indexOf(data.managePrototypesLabel)
     : -1
@@ -81,27 +80,59 @@ export function RepositoriesShowPage({
           }
           clearSearchLabel={data.clearSearchLabel}
           heading={data.prototypesHeading}
-          onSearchChange={setSearchQuery}
+          onSearchChange={controls.onQueryChange}
+          onSearchSubmit={controls.onQuerySubmit}
           searchLabel={data.searchLabel}
-          searchQuery={searchQuery}
+          searchQuery={controls.query}
+          searchMaxLength={200}
           tools={
             <div className="repository-detail__toolbar" data-view={view}>
               <Text size="100" className="repository-detail__count" aria-live="polite">
-                {countLabel}
+                {data.prototypesCountLabel}
+                {data.listing.matchingCount > data.prototypes.length
+                  ? ` (${data.listing.copy.shown})`
+                  : ""}
               </Text>
 
-              <PrototypeViewModeControl
-                ariaLabel={data.viewLabel}
-                galleryLabel={data.galleryViewLabel}
-                listLabel={data.listViewLabel}
-                onChange={setView}
-                value={view}
+              <PrototypeAuthorFilter
+                key={data.listing.authorsPath}
+                listing={data.listing}
+                onChange={controls.onAuthorChange}
+                onSearch={controls.loadAuthors}
               />
             </div>
           }
+          trailingTools={
+            <PrototypeViewModeControl
+              ariaLabel={data.viewLabel}
+              galleryLabel={data.galleryViewLabel}
+              listLabel={data.listViewLabel}
+              onChange={setView}
+              value={view}
+            />
+          }
         />
 
-        <div className="repository-detail__body">
+        <div
+          className="repository-detail__body"
+          aria-busy={controls.pending}
+          role="region"
+          aria-label={data.prototypesHeading}
+          tabIndex={-1}
+          data-prototype-results
+        >
+          {controls.pending ? <Text role="status">{data.listing.copy.updating}</Text> : null}
+          {controls.error ? (
+            <HubAlert
+              title={data.listing.copy.resultsFailed}
+              variant="critical"
+              action={
+                <Button variant="secondary" size="small" onClick={controls.onRetry}>
+                  {data.listing.copy.retry}
+                </Button>
+              }
+            />
+          ) : null}
           {data.alert ? <HubAlert title={data.alert} variant="critical" layout="compact" /> : null}
           {data.notice ? <HubAlert title={data.notice} variant="info" layout="compact" /> : null}
 
@@ -159,13 +190,11 @@ export function RepositoriesShowPage({
             />
           ) : null}
 
-          {normalizedQuery && visiblePrototypes.length === 0 ? (
+          {filtered && visiblePrototypes.length === 0 ? (
             <HubEmptyState
               visual={<SearchIcon size={24} />}
               heading={data.noSearchResultsHeading}
               description={data.noSearchResultsDescription}
-              actionLabel={data.clearSearchLabel}
-              onAction={() => setSearchQuery("")}
             />
           ) : data.prototypes.length === 0 ? (
             data.newPrototypePath ? (
@@ -212,6 +241,36 @@ export function RepositoriesShowPage({
               </tbody>
             </table>
           )}
+
+          {data.listing.pageCount > 1 ? (
+            <Pagination
+              className="repository-detail__pagination"
+              aria-label={data.listing.copy.pagination}
+              pageCount={data.listing.pageCount}
+              currentPage={data.listing.page}
+              hrefBuilder={pageHref}
+              pageAttributesBuilder={() => ({ "data-sg-visit": "true" })}
+              labels={{
+                prev: data.listing.copy.previous,
+                prevAriaLabel: data.listing.copy.previous,
+                next: data.listing.copy.next,
+                nextAriaLabel: data.listing.copy.next,
+              }}
+              onPageChange={(event, page) => {
+                if (
+                  event.button === 0 &&
+                  !event.metaKey &&
+                  !event.ctrlKey &&
+                  !event.shiftKey &&
+                  !event.altKey
+                ) {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  controls.onNavigate(pageHref(page))
+                }
+              }}
+            />
+          ) : null}
         </div>
       </div>
     </RepositoryWorkspace>

@@ -1,18 +1,15 @@
 import { randomUUID } from "node:crypto"
-
 import { createShareControlPreferences } from "../share-control-preferences/index.mjs"
-
+import { readHubObject } from "../read-hub-object/index.mjs"
+import { readHubError } from "../read-hub-error/index.mjs"
 const EXPIRATIONS = new Set(["one_day", "seven_days", "thirty_days", "never"])
 const PUBLIC_PATH = /^\/share\/[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/
-
 function fail(statusCode, message, code) {
   throw Object.assign(new Error(message), { statusCode, code })
 }
-
 function positive(value) {
-  return Number.isSafeInteger(value) && value > 0
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0
 }
-
 function validDate(value) {
   return (
     typeof value === "string" &&
@@ -20,8 +17,8 @@ function validDate(value) {
     Number.isFinite(Date.parse(value))
   )
 }
-
-function projectLink(value, origin, listed = false) {
+function projectLink(input, origin, listed = false) {
+  const value = readHubObject(input)
   if (
     !value ||
     !positive(value.id) ||
@@ -52,23 +49,23 @@ function projectLink(value, origin, listed = false) {
     expiresAt: value.expiresAt,
   }
   if (listed) {
+    const createdBy = readHubObject(value.createdBy)
     if (
       !validDate(value.createdAt) ||
-      !value.createdBy ||
-      typeof value.createdBy.login !== "string" ||
-      value.createdBy.login.length > 256 ||
-      (value.createdBy.name !== null && typeof value.createdBy.name !== "string")
+      !createdBy ||
+      typeof createdBy.login !== "string" ||
+      createdBy.login.length > 256 ||
+      (createdBy.name !== null && typeof createdBy.name !== "string")
     )
       fail(502, "Hub returned invalid share-link metadata.")
     link.createdAt = value.createdAt
     link.createdBy = {
-      login: value.createdBy.login,
-      name: value.createdBy.name,
+      login: createdBy.login,
+      name: createdBy.name,
     }
   }
   return link
 }
-
 export function createShareLinks(
   hubClient,
   launchBrowser,
@@ -77,15 +74,14 @@ export function createShareLinks(
   let current
   let opening = false
   let mutating = false
-
   async function verify(target) {
     const hub = await hubClient()
     const checkout = hub && (await hub.checkout())
     if (
       !hub ||
       hub.origin !== target.origin ||
-      checkout.repository !== target.repository ||
-      checkout.branch !== target.branch ||
+      checkout?.repository !== target.repository ||
+      checkout?.branch !== target.branch ||
       current !== target
     )
       fail(
@@ -95,7 +91,6 @@ export function createShareLinks(
       )
     return hub
   }
-
   function requireCurrentResponse(target, generation) {
     if (generation !== target.generation)
       fail(
@@ -104,14 +99,12 @@ export function createShareLinks(
         "stale_share_target",
       )
   }
-
   // Keep the context, but prevent older replies from restoring access.
   function forgetAuthorization(target) {
     target.generation += 1
     target.links.clear()
     target.authorization = null
   }
-
   async function request(target, route, options = {}) {
     const generation = target.generation
     const hub = await verify(target)
@@ -125,7 +118,8 @@ export function createShareLinks(
         connectionScope: target.connectionScope,
         ...options,
       })
-      .catch((error) => {
+      .catch((caught) => {
+        const error = readHubError(caught)
         if (generation !== target.generation) throw error
         if (
           error.code === "public_sharing_disabled" ||
@@ -140,15 +134,15 @@ export function createShareLinks(
     try {
       await verify(target)
       requireCurrentResponse(target, generation)
-    } catch (error) {
+    } catch (caught) {
+      const error = readHubError(caught)
       error.deliveryPhase = "after_dispatch"
       throw error
     }
     return result
   }
-
   function targetFor(input) {
-    if (!current || input.target !== current.id)
+    if (!current || input.target !== current.id || !current.base || !current.preferenceIdentity)
       fail(
         409,
         "Sharing context expired. Return to preview and reopen Share prototype.",
@@ -156,17 +150,15 @@ export function createShareLinks(
       )
     return current
   }
-
   function requirePublicSharing(target, prototype = target) {
     if (prototype.publicSharingEnabled !== false) return
     target.publicSharingEnabled = false
     forgetAuthorization(target)
     fail(403, "Public sharing is disabled for this Hub.", "public_sharing_disabled")
   }
-
-  return async function shareLinks(action, input = {}) {
-    if (!input || typeof input !== "object" || Array.isArray(input))
-      fail(422, "Invalid sharing request.")
+  return async function shareLinks(action, rawInput = {}) {
+    const input = readHubObject(rawInput)
+    if (!input || Array.isArray(input)) fail(422, "Invalid sharing request.")
     if (action === "context") {
       if (opening || mutating)
         fail(409, "A sharing request is still in progress. Wait before reopening.")
@@ -185,6 +177,7 @@ export function createShareLinks(
           connectionScope: {},
           links: new Map(),
           generation: 0,
+          expirations: new Set(),
         }
         current = target
         const prototype = await request(
@@ -210,13 +203,19 @@ export function createShareLinks(
           prototype.shareLinkExpirationOptions !== undefined &&
           (!Array.isArray(prototype.shareLinkExpirationOptions) ||
             !prototype.shareLinkExpirationOptions.length ||
-            !prototype.shareLinkExpirationOptions.every((value) => EXPIRATIONS.has(value)) ||
+            !prototype.shareLinkExpirationOptions.every(
+              (value) => typeof value === "string" && EXPIRATIONS.has(value),
+            ) ||
             new Set(prototype.shareLinkExpirationOptions).size !==
               prototype.shareLinkExpirationOptions.length)
         )
           fail(502, "Hub returned an invalid share-link expiration policy.")
-        target.expirations = new Set(prototype.shareLinkExpirationOptions ?? EXPIRATIONS)
-        target.buildNumber = prototype.published && prototype.build?.number
+        target.expirations = new Set(
+          Array.isArray(prototype.shareLinkExpirationOptions)
+            ? prototype.shareLinkExpirationOptions
+            : EXPIRATIONS,
+        )
+        target.buildNumber = prototype.published && readHubObject(prototype.build)?.number
         target.preferenceIdentity = JSON.stringify([
           target.origin,
           prototype.repositoryId,
@@ -244,7 +243,6 @@ export function createShareLinks(
         opening = false
       }
     }
-
     const target = targetFor(input)
     const generation = target.generation
     if (action === "controls-preference") {
@@ -255,6 +253,7 @@ export function createShareLinks(
         await verify(target)
         requireCurrentResponse(target, generation)
         try {
+          if (!target.preferenceIdentity) fail(409, "Sharing context expired.")
           await preferences.write(target.preferenceIdentity, input.included)
         } catch {
           fail(
@@ -310,7 +309,7 @@ export function createShareLinks(
       return { shareLinks, hasMore: page.hasMore, nextCursor: page.nextCursor }
     }
     if (action === "open") {
-      const link = target.links.get(input.id)
+      const link = positive(input.id) ? target.links.get(input.id) : undefined
       if (!link) fail(404, "Refresh the share-link list before opening this link.")
       const prototype = await request(
         target,
@@ -349,6 +348,7 @@ export function createShareLinks(
     if (mutating) fail(409, "A sharing request is already in progress.")
     if (target.uncertain)
       fail(409, "Refresh active links before another sharing request.", "share_delivery_unknown")
+    let label
     if (action === "create") {
       if (
         !positive(target.buildNumber) ||
@@ -359,15 +359,17 @@ export function createShareLinks(
         !target.expirations.has(input.expiration)
       )
         fail(422, "Choose the displayed published Build, a label up to 100 bytes, and an expiry.")
+      label = input.label.trim()
     } else if (!positive(input.id) || !target.links.has(input.id)) {
       fail(404, "Refresh the share-link list before deleting this link.")
     }
     mutating = true
     let confirmedResponse = false
     try {
+      if (!target.base) fail(409, "Sharing context expired.")
       const result = await request(
         target,
-        action === "create" ? target.base : `${target.base}/${input.id}`,
+        action === "create" ? target.base : `${target.base}/${String(input.id)}`,
         {
           method: action === "create" ? "POST" : "DELETE",
           interactive: true,
@@ -376,7 +378,7 @@ export function createShareLinks(
                 body: {
                   share_link: {
                     build_number: target.buildNumber,
-                    label: input.label.trim(),
+                    label,
                     expiration: input.expiration,
                   },
                 },
@@ -388,6 +390,7 @@ export function createShareLinks(
       requireCurrentResponse(target, generation)
       target.authorization = null
       if (action === "delete") {
+        if (!positive(input.id)) fail(422, "Invalid share-link ID.")
         target.links.delete(input.id)
         return { deleted: true }
       }
@@ -396,16 +399,26 @@ export function createShareLinks(
         fail(502, "Hub did not confirm the displayed Build.")
       target.links.set(link.id, link)
       return link
-    } catch (error) {
-      if (error.code === "fresh_authorization_required" && error.authorization) {
+    } catch (caught) {
+      const error = readHubError(caught)
+      const authorization = readHubObject(readHubObject(error)?.authorization)
+      if (error.code === "fresh_authorization_required" && authorization) {
         requireCurrentResponse(target, generation)
-        target.authorization = error.authorization
+        if (typeof authorization.url !== "string" || typeof authorization.expiresAt !== "string")
+          fail(502, "Hub returned invalid sharing authorization.")
+        target.authorization = {
+          url: authorization.url,
+          expiresAt: authorization.expiresAt,
+        }
       }
       if (
         (confirmedResponse || error.deliveryPhase === "after_dispatch") &&
         (error.code === "stale_share_target" ||
           error.code === "stale_comment_target" ||
-          ![400, 401, 403, 404, 409, 413, 422, 429].includes(error.statusCode))
+          !(
+            typeof error.statusCode === "number" &&
+            [400, 401, 403, 404, 409, 413, 422, 429].includes(error.statusCode)
+          ))
       ) {
         target.uncertain = true
         fail(

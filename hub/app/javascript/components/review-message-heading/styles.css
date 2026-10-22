@@ -1,0 +1,29 @@
+.review-thread-message__header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.review-thread-message__byline {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: baseline;
+  flex-wrap: wrap;
+  column-gap: 0.5rem;
+  line-height: 1.25rem;
+}
+
+.review-thread-message__byline time,
+.review-thread-message__byline > span:not(.review-thread-message__identity) {
+  font-size: 0.75rem;
+  color: var(--hub-fg-muted);
+}
+
+.review-thread-message__identity {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}

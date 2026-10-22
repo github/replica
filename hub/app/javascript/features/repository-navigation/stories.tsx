@@ -8,7 +8,7 @@ import { githubEmpty, githubPrototype } from "@/storybook/fixtures/repositories"
 import { RepositoryNavigation } from "."
 
 const meta = {
-  title: "Features/Repository Navigation",
+  title: "Hub/Features/Repository Navigation",
   component: RepositoryNavigation,
   args: {
     collapsed: false,
@@ -94,17 +94,6 @@ export const HubAdministrator: Story = {
 export const HubAdministratorCollapsed: Story = {
   ...HubAdministrator,
   args: { ...HubAdministrator.args, collapsed: true },
-}
-
-export const RepositoryAdministrator: Story = {
-  args: {
-    data: {
-      ...meta.args.data,
-      securityAuditLabel: "Security audit",
-      securityAuditPath: "/repositories/2001/security_audit",
-    },
-  },
-  play: HubAdministrator.play,
 }
 
 export const OrdinaryAccountMenu: Story = {

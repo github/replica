@@ -12,6 +12,7 @@ import { withContext } from "../test-support/with-context/index.mjs"
 import { readState } from "../read-state/index.mjs"
 import { writeState } from "../write-state/index.mjs"
 import { createPublishPreferences } from "../publish-preferences/index.mjs"
+import { agentCommands } from "../agent-commands/index.mjs"
 
 function publishData(prompt) {
   assert.match(prompt, /\/replica-publish-prototype\b/)
@@ -21,6 +22,121 @@ function publishData(prompt) {
 }
 
 describe("startCanvasServer()", () => {
+  it("rejects malformed HTTP action results without consuming the pending command", async () => {
+    await withContext(async (context) => {
+      const commands = agentCommands()
+      const canvas = await startCanvasServer(
+        context,
+        {
+          send() {
+            throw new Error("Action results must not send chat requests.")
+          },
+        },
+        { agentCommands: commands },
+      )
+      try {
+        const html = await (await fetch(canvas.url)).text()
+        const { token } = JSON.parse(html.match(/window\.__REPLICA_CANVAS__ = ([^;]+);/)[1])
+        const headers = { "X-Replica-Canvas-Token": token, "X-Replica-Renderer-Id": "renderer-1" }
+        const pending = commands.invoke("reload")
+        pending.catch(() => {})
+        const next = await (await fetch(new URL("/api/agent/next", canvas.url), { headers })).json()
+        const id = next.command.id
+        for (const body of ["null", "[]", "{broken"]) {
+          const response = await fetch(new URL("/api/agent/result", canvas.url), {
+            method: "POST",
+            headers,
+            body,
+          })
+          assert.equal(response.status, 400)
+        }
+        for (const value of [
+          { id, ok: true, value: { reloaded: true, address: 123 } },
+          { id, ok: false, error: "" },
+          { id, ok: false, error: "Failed", extra: true },
+        ]) {
+          const response = await fetch(new URL("/api/agent/result", canvas.url), {
+            method: "POST",
+            headers,
+            body: JSON.stringify(value),
+          })
+          assert.equal(response.status, 422)
+        }
+        assert.equal(commands.diagnostics().requests[0].outcome, "pending")
+        const value = { reloaded: true, address: context.normalizedUrl }
+        const accepted = await fetch(new URL("/api/agent/result", canvas.url), {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ id, ok: true, value }),
+        })
+        assert.equal(accepted.status, 200)
+        assert.deepEqual(await pending, value)
+      } finally {
+        await canvas.close()
+      }
+    })
+  })
+
+  it("protects saved notes with the canvas token and restores them after reopening", async () => {
+    await withContext(async (context) => {
+      const options = {
+        improvementNotesDirectory: path.join(context.sessionWorkspacePath, "notes"),
+        hubOptions: {
+          directory: path.join(context.sessionWorkspacePath, "credentials"),
+        },
+      }
+      let canvas = await startCanvasServer(context, { send: assert.fail }, options)
+      try {
+        const html = await (await fetch(canvas.url)).text()
+        const { token } = JSON.parse(html.match(/window\.__REPLICA_CANVAS__ = ([^;]+);/)[1])
+        const headers = { "X-Replica-Canvas-Token": token }
+        const endpoint = new URL("/api/improvement-notes", canvas.url)
+        assert.equal((await fetch(endpoint)).status, 403)
+        const captureEndpoint = new URL("/api/improvement-notes/capture", canvas.url)
+        assert.equal((await fetch(captureEndpoint, { method: "POST" })).status, 403)
+        const captured = await (await fetch(captureEndpoint, { method: "POST", headers })).json()
+        const state = await (await fetch(endpoint, { headers })).json()
+        const response = await fetch(endpoint, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            identity: state.identity,
+            revision: state.revision,
+            operation: "create",
+            sourceId: captured.sourceId,
+            body: "Improve the selected button.",
+            anchor: {
+              schemaVersion: 1,
+              kind: "element",
+              route: { pathname: "/", search: "", hash: "" },
+              selector: "#save",
+              accessibleName: "Save",
+              tagName: "button",
+              selectedText: "",
+              rect: { x: 20, y: 30, width: 100, height: 32 },
+              viewport: { width: 960, height: 560, scrollX: 0, scrollY: 0 },
+              elementOffset: { x: 0.5, y: 0.5 },
+            },
+          }),
+        })
+        const saved = await response.json()
+        assert.equal(response.status, 200, JSON.stringify(saved))
+        assert.match(saved.notes[0].source.treeSha, /^[0-9a-f]{40}$/)
+        await canvas.close()
+        canvas = await startCanvasServer(context, { send: assert.fail }, options)
+        const reopenedHtml = await (await fetch(canvas.url)).text()
+        const reopened = JSON.parse(reopenedHtml.match(/window\.__REPLICA_CANVAS__ = ([^;]+);/)[1])
+        const restored = await fetch(new URL("/api/improvement-notes", canvas.url), {
+          headers: { "X-Replica-Canvas-Token": reopened.token },
+        })
+        assert.equal(restored.status, 200)
+        assert.deepEqual((await restored.json()).notes, saved.notes)
+      } finally {
+        await canvas.close()
+      }
+    })
+  })
+
   it("requires an explicit committed-only choice after a failed check even with saved commit permission", async () => {
     await withContext(async (context) => {
       const directory = path.join(context.sessionWorkspacePath, "publish-settings")
@@ -1190,7 +1306,7 @@ exit 1
       assert.equal(commentReads.length, 3)
       assert.ok(commentReads.every(({ method }) => method === "GET"))
       assert.ok(commentReads.every(({ activity }) => activity === undefined))
-      assert.ok(commentReads.some(({ path }) => path.endsWith("/review_comments?pageSize=25")))
+      assert.ok(commentReads.some(({ path }) => path.endsWith("/review_comments")))
       assert.ok(!JSON.stringify(agentPage).includes("rp_secret"))
       const beforeRepositoryComments = calls.length
       const repositoryPage = await canvas.reviewAction("list_repository_comments", {})
@@ -1203,9 +1319,7 @@ exit 1
         repositoryReads.every(({ method, activity }) => method === "GET" && activity === undefined),
       )
       assert.ok(
-        repositoryReads.some(
-          ({ path }) => path === "/api/canvas/repositories/5/review_comments?pageSize=25",
-        ),
+        repositoryReads.some(({ path }) => path === "/api/canvas/repositories/5/review_comments"),
       )
       assert.ok(!JSON.stringify(repositoryPage).includes("rp_secret"))
       const beforeCompactReads = calls.length
@@ -1805,7 +1919,14 @@ exit 1
       const asset = await fetch(new URL("/assets/renderer.js", server.url))
       assert.equal(asset.status, 200)
       assert.match(await asset.text(), /renderer-vendor\.js/)
-      for (const name of ["renderer-vendor.js", "renderer-rolldown-runtime.js"]) {
+      for (const name of [
+        "renderer-vendor.js",
+        "renderer-rolldown-runtime.js",
+        "renderer-improvement-notes-prototype.js",
+        "renderer-improvement-notes-vendor.js",
+        "renderer-prototype-canvas-thread-sample.js",
+        "renderer-prototype-canvas-improvement-threads.js",
+      ]) {
         const chunk = await fetch(new URL(`/assets/${name}`, server.url))
         assert.equal(chunk.status, 200)
         assert.equal(chunk.headers.get("content-type"), "text/javascript; charset=utf-8")

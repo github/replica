@@ -3,7 +3,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HubActivityTimeline } from "."
 
 const meta = {
-  title: "Components/Brand-based: Activity Timeline",
+  title: "Components/Activity Timeline",
   component: HubActivityTimeline,
   args: {
     "aria-label": "Build activity",

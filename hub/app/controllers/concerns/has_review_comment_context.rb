@@ -14,31 +14,17 @@ module HasReviewCommentContext
 
   private
 
-  # Uses the same page shape for browser and paired extension readers.
-  def render_review_comment_page
-    page = ReviewComment.page_for \
-      @prototype,
-      cursor: pagination_cursor,
-      page_size: page_size
-    prepare_viewer_thread_reads(page.records)
-    render json: {
-      comments: page.records.map { review_comment_json(_1) },
-      nextCursor: page.next_cursor,
-      hasMore: page.has_more
-    }
-  end
-
   # Rejects a comment request larger than the allowed byte limit.
-  def reject_large_request
+  def reject_large_request(maximum: ReviewComment::REQUEST_MAXIMUM_BYTES)
     content_length = request.get_header("CONTENT_LENGTH")
     if content_length.present?
-      return head :content_too_large if content_length.to_i > ReviewComment::REQUEST_MAXIMUM_BYTES
+      return head :content_too_large if content_length.to_i > maximum
 
       return
     end
 
-    body = request.body.read(ReviewComment::REQUEST_MAXIMUM_BYTES + 1)
-    return head :content_too_large if body.bytesize > ReviewComment::REQUEST_MAXIMUM_BYTES
+    body = request.body.read(maximum + 1)
+    return head :content_too_large if body.bytesize > maximum
 
     request.set_header("rack.input", StringIO.new(body))
     request.set_header("CONTENT_LENGTH", body.bytesize.to_s)
@@ -55,7 +41,17 @@ module HasReviewCommentContext
 
   # Returns the only field accepted when changing or replying to a comment.
   def comment_body
+    reject_note_thread_parameters!
     params.require(:review_comment).permit(:body)[:body]
+  end
+
+  # Reserves local work history for the dedicated improvement-note API.
+  def reject_note_thread_parameters!
+    fields = %w[note_thread thread]
+    nested = params[:review_comment]
+    if fields.any? { params.key?(_1) || (nested.is_a?(ActionController::Parameters) && nested.key?(_1)) }
+      raise ActionController::BadRequest, "Improvement threads require the improvement notes API."
+    end
   end
 
   # Returns changed records and tells subscribed browsers to reload when requested.

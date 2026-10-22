@@ -7,6 +7,11 @@ gem "bootsnap", require: false
 gem "json", "~> 3.0"
 gem "jwt", "~> 3.3"
 gem "oaken", "1.0.0"
+gem "opentelemetry-exporter-otlp", require: false
+gem "opentelemetry-instrumentation-action_pack", require: false
+gem "opentelemetry-instrumentation-active_job", require: false
+gem "opentelemetry-instrumentation-net_http", require: false
+gem "opentelemetry-sdk", require: false
 gem "propshaft"
 gem "puma", ">= 5.0"
 gem "rails", "~> 8.1.4"

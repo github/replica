@@ -1,5 +1,4 @@
 import { InvalidHubOrigin } from "../invalid-hub-origin/index.mjs"
-
 export function parseHubUrl(value, name) {
   let origin
   try {

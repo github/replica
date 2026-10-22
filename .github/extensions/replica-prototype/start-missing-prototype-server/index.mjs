@@ -1,20 +1,17 @@
 import { randomBytes } from "node:crypto"
 import { createServer } from "node:http"
-
 import {
   DESCRIPTION_ERROR,
   publicStartupError,
   publicStartupStatus,
   StartupError,
 } from "../startup-error/index.mjs"
-
 const SCAN_ERROR =
   "Could not scan for running servers. Check that lsof is installed and can inspect this checkout, then scan again."
 const CONNECT_ERROR =
   "Could not connect to that server. Make sure it is running, then scan again or choose another server."
 const DISCONNECTED_MESSAGE =
   "Prototype server unavailable. Start it again or choose another server."
-
 export async function startMissingPrototypeServer({
   discover,
   connect,
@@ -26,7 +23,10 @@ export async function startMissingPrototypeServer({
   let scan
   let prototypeUrl = null
   let message = ""
-  const server = createServer(async (request, response) => {
+  const server = createServer((request, response) => {
+    void serve(request, response)
+  })
+  async function serve(request, response) {
     if (request.headers.host !== `127.0.0.1:${request.socket.localPort}`) {
       send(response, 403, "Invalid canvas host.", "text/plain; charset=utf-8")
       return
@@ -77,7 +77,12 @@ export async function startMissingPrototypeServer({
     }
     if (request.method === "POST" && requestUrl.pathname === "/start" && devServer) {
       try {
-        const url = await devServer.start(requestUrl.searchParams.get("script"))
+        const script = requestUrl.searchParams.get("script")
+        if (script === null)
+          throw new StartupError(
+            "Dev scripts changed or are unavailable. Scan again before starting.",
+          )
+        const url = await devServer.start(script)
         try {
           await connect(url)
         } catch {
@@ -153,8 +158,7 @@ export async function startMissingPrototypeServer({
       return
     }
     send(response, 404, "Not found.", "text/plain; charset=utf-8")
-  })
-
+  }
   await new Promise((resolve, reject) => {
     server.once("error", reject)
     server.listen(0, "127.0.0.1", () => {
@@ -162,13 +166,11 @@ export async function startMissingPrototypeServer({
       resolve()
     })
   })
-
   const address = server.address()
   if (!address || typeof address === "string") {
     await closeServer(server)
     throw new Error("Replica prototype server did not receive a loopback port.")
   }
-
   return {
     url: `http://127.0.0.1:${address.port}/?document=${documentToken}`,
     connect(url) {
@@ -182,7 +184,6 @@ export async function startMissingPrototypeServer({
     close: () => closeServer(server),
   }
 }
-
 function publicWarning(warning) {
   // Discovery warnings can contain fetch errors; keep only the loopback URL and HTTP status.
   const match =
@@ -195,7 +196,6 @@ function publicWarning(warning) {
   if (match[2]) return `${match[1]} did not return an HTML page (HTTP ${match[2]}).`
   return `${match[1]} could not be checked. Make sure it is running, then scan again.`
 }
-
 function renderMissingPrototypeHtml(token) {
   return `<!doctype html>
 <html lang="en">
@@ -427,7 +427,6 @@ function renderMissingPrototypeHtml(token) {
 </body>
 </html>`
 }
-
 function send(response, status, body, contentType, nonce) {
   response.writeHead(status, {
     "Content-Type": contentType,
@@ -438,7 +437,6 @@ function send(response, status, body, contentType, nonce) {
   })
   response.end(body)
 }
-
 function closeServer(server) {
   return new Promise((resolve, reject) => {
     server.close((error) => (error ? reject(error) : resolve()))

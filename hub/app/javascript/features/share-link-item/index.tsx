@@ -15,6 +15,7 @@ export function ShareLinkItem({
   deleteLabel,
   openLabel,
   controlQuery = "",
+  managementBuildNumber,
 }: ShareLinkItemProps) {
   return (
     <ShareLinkRow
@@ -37,6 +38,9 @@ export function ShareLinkItem({
         <input type="hidden" name="_method" value="delete" />
         <input type="hidden" name="authenticity_token" value={authenticityToken} />
         <input type="hidden" name="control_query" value={controlQuery} />
+        {managementBuildNumber ? (
+          <input type="hidden" name="management_build" value={managementBuildNumber} />
+        ) : null}
         <HubIconButton
           type="submit"
           icon={TrashIcon}

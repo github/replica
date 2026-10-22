@@ -7,7 +7,7 @@ import { mona, octocat } from "@/storybook/fixtures/users"
 import { MentionInput } from "."
 
 const meta = {
-  title: "Components/Hub-built: Mention input",
+  title: "Components/Mention input",
   component: MentionInput,
   args: { "aria-label": "Comment", value: "Please review @", onValueChange: () => {} },
   render: function MentionStory(args) {

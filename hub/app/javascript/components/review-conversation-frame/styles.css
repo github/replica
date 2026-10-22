@@ -1,0 +1,42 @@
+.review-thread-conversation {
+  background: var(--hub-canvas-subtle);
+  display: flex;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  position: absolute;
+  z-index: 40;
+  inset: 0;
+  box-shadow: var(--hub-shadow-review-overlay);
+}
+
+.review-thread-conversation__layout {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  max-height: inherit;
+  min-height: 0;
+}
+
+@container (min-width: 48rem) {
+  .review-thread-conversation {
+    width: min(20rem, calc(100% - var(--hub-space-16)));
+    height: auto;
+    max-height: calc(100% - var(--hub-space-16));
+    border: 1px solid var(--hub-border-default);
+    border-radius: 0.75rem;
+    inset: auto;
+  }
+
+  .review-thread-conversation--anchored {
+    top: var(--review-thread-top);
+    left: var(--review-thread-left);
+  }
+
+  .review-thread-conversation--docked {
+    top: var(--hub-space-12);
+    right: var(--hub-space-12);
+  }
+}

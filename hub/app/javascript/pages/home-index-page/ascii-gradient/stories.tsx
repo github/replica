@@ -3,7 +3,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { AsciiGradient } from "."
 
 const meta = {
-  title: "Components/Hub-built: ASCII Gradient",
+  title: "Components/ASCII Gradient",
   component: AsciiGradient,
   args: {
     backgroundColor: "#000000",

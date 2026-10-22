@@ -5,6 +5,7 @@ import type {
 } from "@utils/review-comment/types"
 
 export interface ReviewCommentFilterControlsProps {
+  compact?: boolean
   filters: ReviewCommentFilters
   participants: ReviewCommentAuthor[]
   showPins: boolean

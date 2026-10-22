@@ -1,6 +1,6 @@
-import { CheckCircleIcon, LinkIcon, SyncIcon, UploadIcon } from "@primer/octicons-react"
+import { CheckCircleIcon, LinkIcon, PencilIcon, SyncIcon, UploadIcon } from "@primer/octicons-react"
 import { Button, Tooltip } from "@primer/react-brand"
-import type { RefObject } from "react"
+import type { Ref, RefObject } from "react"
 
 import { ControlsToggle } from "../prototype-controls-toggle"
 import { HubIconButton } from "@components/hub-icon-button"
@@ -14,6 +14,7 @@ import "./styles.css"
 
 type Props = {
   toolbarRef?: RefObject<HTMLElement | null>
+  improvementControlsRef?: Ref<HTMLDivElement>
   config: CanvasConfig
   onPublish: () => void
   publishButtonRef: RefObject<HTMLButtonElement | null>
@@ -35,6 +36,7 @@ type Props = {
 
 export function Toolbar({
   toolbarRef,
+  improvementControlsRef,
   config,
   onPublish,
   publishButtonRef,
@@ -121,6 +123,9 @@ export function Toolbar({
       </Button>
 
       <div id="canvas-review-controls" className="canvas-review-controls-slot" />
+      {config.pickAndPolish ? (
+        <div ref={improvementControlsRef} id="canvas-improvement-controls" />
+      ) : null}
       {onControls ? (
         <ControlsToggle buttonRef={controlsButtonRef} open={controlsOpen} onToggle={onControls} />
       ) : null}
@@ -131,10 +136,14 @@ export function Toolbar({
           ref={hubButtonRef}
           size="small"
           variant="secondary"
+          className="canvas-toolbar-compact-button"
+          leadingVisual={<PencilIcon size={16} />}
+          aria-label={copy.editDetails}
+          title={copy.editDetails}
           aria-expanded={hubOpen}
           onClick={onHub}
         >
-          {copy.editDetails}
+          <span className="canvas-toolbar-button-label">{copy.editDetails}</span>
         </Button>
       ) : null}
       <div className="canvas-publish-share" role="group" aria-label={shareCopy.group}>

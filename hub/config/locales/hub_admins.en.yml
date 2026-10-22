@@ -32,7 +32,7 @@ en:
     changed: Hub administrator role changed.
     cancel: Cancel
     confirm: I confirm this Hub administrator role change.
-    verification: A role change requires GitHub to have verified this browser's account within the last five minutes. If verification is required, return here and confirm again. Hub never replays the change.
+    verification: A role change requires GitHub to have verified this browser's account within the last five minutes. If verification is required, Hub continues your confirmed change after it succeeds.
     identity: "GitHub identity %{github_id} - Hub user %{id}"
     confirmation:
       designate:

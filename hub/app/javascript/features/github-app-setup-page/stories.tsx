@@ -6,7 +6,7 @@ import { GithubAppSetupHeader } from "@features/github-app-setup-header"
 import { GithubAppSetupPage } from "."
 
 const meta = {
-  title: "Features/GitHub Setup/Page",
+  title: "Hub/Features/GitHub Setup/Page",
   component: GithubAppSetupPage,
   parameters: { layout: "fullscreen" },
 } satisfies Meta<typeof GithubAppSetupPage>

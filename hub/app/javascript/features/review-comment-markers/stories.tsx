@@ -32,7 +32,7 @@ const secondResolution = {
 } as const
 
 const meta = {
-  title: "Features/Review/Comment Markers",
+  title: "Hub/Features/Review/Comment Markers",
   component: ReviewCommentMarkers,
   args: {
     threads: [],
@@ -70,11 +70,6 @@ export const Single: Story = {
     threads: [singleReviewThread],
     resolutions: new Map([[1, resolvedAnchor]]),
   },
-}
-
-export const Dark: Story = {
-  ...Single,
-  globals: { colorMode: "night" },
 }
 
 export const UpperRightPin: Story = {

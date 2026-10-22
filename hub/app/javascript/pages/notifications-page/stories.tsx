@@ -26,7 +26,7 @@ const notification: InboxNotification = {
   target: { prototypeId: 1, threadId: 1, commentId: 1 },
 }
 const meta = {
-  title: "Pages/Notifications",
+  title: "Hub/Pages/Notifications",
   component: NotificationsPage,
   args: {
     data: {

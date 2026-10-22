@@ -1,9 +1,7 @@
 import { createHash } from "node:crypto"
 import path from "node:path"
-
 import { readRepositoryName } from "../read-repository-name/index.mjs"
 import { runCommand } from "../run-command/index.mjs"
-
 export async function createCanvasContext({
   prototypeUrl,
   name,
@@ -11,6 +9,7 @@ export async function createCanvasContext({
   branch,
   commitSha,
   publishedUrl,
+  improvementThreadsSample = false,
   sessionId,
   sessionWorkspacePath,
   repositoryPath,
@@ -25,8 +24,9 @@ export async function createCanvasContext({
       "This Copilot session has no working directory, so repository status cannot be read.",
     )
   }
-
   const normalizedUrl = normalizePrototypeUrl(prototypeUrl)
+  if (typeof improvementThreadsSample !== "boolean")
+    throw new Error("improvementThreadsSample must be a boolean.")
   const stateUrl = new URL(normalizedUrl)
   stateUrl.hash = ""
   const resolvedRepositoryPath = path.resolve(repositoryPath)
@@ -50,7 +50,6 @@ export async function createCanvasContext({
     .digest("hex")
     .slice(0, 24)
   const stateDirectory = path.join(sessionWorkspacePath, "replica-prototype")
-
   return {
     name: normalizeName(name, normalizedUrl),
     normalizedUrl,
@@ -62,9 +61,9 @@ export async function createCanvasContext({
     stateFile: path.join(stateDirectory, `${stateId}.json`),
     stateId,
     urlHost: new URL(normalizedUrl).host,
+    ...(improvementThreadsSample ? { improvementThreadsSample: true } : {}),
   }
 }
-
 // Keep stored publish state tied to the branch currently shown in the canvas.
 export async function currentCanvasContext(context) {
   const [repository, branch] = await Promise.all([
@@ -81,19 +80,18 @@ export async function currentCanvasContext(context) {
   const currentBranch = branch.ok ? branch.stdout.replace(/\r?\n$/, "") || null : null
   if (currentRepository === context.target.repository && currentBranch === context.target.branch)
     return context
-
   return createCanvasContext({
     prototypeUrl: context.normalizedUrl,
     name: context.name,
     repository: currentRepository,
     branch: currentBranch,
     publishedUrl: context.target.publishedUrl,
+    improvementThreadsSample: context.improvementThreadsSample,
     sessionId: context.sessionId,
     sessionWorkspacePath: context.sessionWorkspacePath,
     repositoryPath: context.repositoryPath,
   })
 }
-
 function normalizePrototypeUrl(value) {
   let url
   try {
@@ -104,7 +102,6 @@ function normalizePrototypeUrl(value) {
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     throw new Error("prototypeUrl must use HTTP or HTTPS.")
   }
-
   url.hostname = url.hostname.toLowerCase()
   if (
     (url.protocol === "http:" && url.port === "80") ||
@@ -112,10 +109,8 @@ function normalizePrototypeUrl(value) {
   ) {
     url.port = ""
   }
-
   return url.toString()
 }
-
 function normalizeName(name, normalizedUrl) {
   if (name === undefined) {
     return new URL(normalizedUrl).hostname
@@ -123,10 +118,8 @@ function normalizeName(name, normalizedUrl) {
   if (typeof name !== "string" || name.trim() === "") {
     throw new Error("name must contain visible text.")
   }
-
   return name.trim()
 }
-
 async function resolvePublishTarget({
   repository,
   branch,
@@ -147,7 +140,6 @@ async function resolvePublishTarget({
   if (branch != null && branchResult.ok && hintedBranch !== checkoutBranch) {
     throw new Error("branch does not match the current checkout.")
   }
-
   return {
     repository: resolvedRepository,
     branch: hintedBranch ?? checkoutBranch,
@@ -155,7 +147,6 @@ async function resolvePublishTarget({
     publishedUrl: normalizeOptionalUrl(publishedUrl, "publishedUrl"),
   }
 }
-
 export async function resolveRepository(hint, repositoryPath) {
   const repository = normalizeRepository(hint)
   const checkout = await readRepositoryName(repositoryPath)
@@ -174,7 +165,6 @@ export async function resolveRepository(hint, repositoryPath) {
   }
   return repository ?? checkoutRepository
 }
-
 function isLocalRepositoryCheckout(repository, repositoryPath) {
   const localRoot = path.dirname(repositoryPath)
   return (
@@ -183,7 +173,6 @@ function isLocalRepositoryCheckout(repository, repositoryPath) {
     path.basename(path.dirname(localRoot)) === ".local"
   )
 }
-
 function normalizeRepository(value) {
   if (value == null) {
     return null
@@ -206,10 +195,8 @@ function normalizeRepository(value) {
   ) {
     throw new Error("repository must use GitHub owner/name format.")
   }
-
   return value.toLowerCase()
 }
-
 export async function normalizeBranch(value, repositoryPath) {
   if (value === "HEAD") return null
   if (value == null) {
@@ -235,7 +222,6 @@ export async function normalizeBranch(value, repositoryPath) {
   }
   return value
 }
-
 function normalizeCommitSha(value) {
   if (value == null) {
     return null
@@ -243,15 +229,12 @@ function normalizeCommitSha(value) {
   if (typeof value !== "string" || !/^[0-9a-f]{40}$/.test(value)) {
     throw new Error("commitSha must be a full lowercase Git commit SHA.")
   }
-
   return value
 }
-
 function normalizeOptionalUrl(value, name) {
   if (value == null) {
     return null
   }
-
   let url
   try {
     url = new URL(value)
@@ -261,6 +244,5 @@ function normalizeOptionalUrl(value, name) {
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     throw new Error(`${name} must use HTTP or HTTPS.`)
   }
-
   return url.toString()
 }

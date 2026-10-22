@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_21_195500) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_22_160000) do
   create_table "analytics_deliveries", force: :cascade do |t|
     t.integer "attempts", default: 0, null: false
     t.datetime "created_at", null: false
@@ -233,11 +233,14 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_21_195500) do
     t.datetime "verified_at"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.text "pending_action"
+    t.datetime "continued_at"
     t.index ["credential_type", "credential_id"], name: "idx_on_credential_type_credential_id_835b090260"
     t.index ["expires_at"], name: "index_fresh_authorizations_on_expires_at"
     t.index ["public_id"], name: "index_fresh_authorizations_on_public_id", unique: true
     t.index ["repository_id"], name: "index_fresh_authorizations_on_repository_id"
     t.index ["user_id"], name: "index_fresh_authorizations_on_user_id"
+    t.check_constraint "continued_at IS NULL OR (verified_at IS NOT NULL AND pending_action IS NULL)", name: "fresh_authorizations_continuation"
     t.check_constraint "credential_type IN ('Session', 'CanvasGrant') AND credential_id > 0 AND github_id > 0", name: "fresh_authorizations_identity"
     t.check_constraint "purpose IN ('never_expiring_share', 'analytics_destination', 'hub_admin_management', 'sharing_settings', 'session_revocation', 'github_app_reset', 'github_app_credentials', 'github_app_webhook', 'github_app_finish_webhook', 'copilot_connection', 'copilot_disconnection')", name: "fresh_authorizations_purpose"
     t.check_constraint "verified_at IS NULL OR consumed_at IS NOT NULL", name: "fresh_authorizations_verification"
@@ -303,6 +306,56 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_21_195500) do
     t.datetime "updated_at", null: false
     t.index ["expires_at"], name: "index_hub_admin_enrollments_on_expires_at"
     t.index ["proof_digest"], name: "index_hub_admin_enrollments_on_proof_digest", unique: true
+  end
+
+  create_table "improvement_comment_replies", force: :cascade do |t|
+    t.integer "response_id", null: false
+    t.integer "request_id", null: false
+    t.integer "prototype_id", null: false
+    t.integer "user_id", null: false
+    t.string "thread_key", null: false
+    t.integer "position", null: false
+    t.index ["prototype_id", "user_id", "thread_key"], name: "improvement_comment_replies_thread"
+    t.index ["prototype_id"], name: "index_improvement_comment_replies_on_prototype_id"
+    t.index ["request_id"], name: "index_improvement_comment_replies_on_request_id"
+    t.index ["response_id", "position"], name: "index_improvement_comment_replies_on_response_id_and_position", unique: true
+    t.index ["response_id", "request_id"], name: "idx_on_response_id_request_id_1aa61357ff", unique: true
+    t.index ["user_id"], name: "index_improvement_comment_replies_on_user_id"
+    t.check_constraint "response_id <> request_id AND position >= 0", name: "improvement_comment_replies_shape"
+  end
+
+  create_table "improvement_comments", force: :cascade do |t|
+    t.integer "prototype_id", null: false
+    t.integer "user_id", null: false
+    t.integer "build_id"
+    t.integer "root_id"
+    t.string "local_id", null: false
+    t.string "thread_key", null: false
+    t.integer "position", default: 0, null: false
+    t.string "role", default: "author", null: false
+    t.string "status", default: "open", null: false
+    t.text "body"
+    t.json "author_snapshot"
+    t.json "anchor"
+    t.integer "note_revision"
+    t.string "note_status"
+    t.datetime "deleted_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["build_id"], name: "index_improvement_comments_on_build_id"
+    t.index ["id", "prototype_id", "user_id", "local_id"], name: "improvement_comments_root_identity", unique: true
+    t.index ["id", "prototype_id", "user_id", "thread_key"], name: "improvement_comments_thread_identity", unique: true
+    t.index ["prototype_id", "created_at", "id"], name: "idx_on_prototype_id_created_at_id_3f3dd1473e"
+    t.index ["prototype_id", "user_id", "local_id"], name: "idx_on_prototype_id_user_id_local_id_bce29f2a3a", unique: true
+    t.index ["prototype_id"], name: "index_improvement_comments_on_prototype_id"
+    t.index ["root_id", "position"], name: "index_improvement_comments_on_root_id_and_position", unique: true
+    t.index ["user_id"], name: "index_improvement_comments_on_user_id"
+    t.check_constraint "(role = 'author' AND status IN ('open', 'sent', 'ready', 'blocked')) OR (role = 'copilot' AND status IN ('ready', 'blocked') AND author_snapshot IS NULL)", name: "improvement_comments_role_status"
+    t.check_constraint "(root_id IS NULL AND position = 0 AND role = 'author' AND thread_key = local_id AND build_id IS NOT NULL AND anchor IS NOT NULL AND note_revision > 0 AND note_revision IS NOT NULL AND note_status IN ('open', 'sent', 'ready', 'resolved', 'blocked') AND note_status IS NOT NULL) OR (root_id IS NOT NULL AND root_id <> id AND position > 0 AND build_id IS NULL AND anchor IS NULL AND note_revision IS NULL AND note_status IS NULL)", name: "improvement_comments_shape"
+    t.check_constraint "CASE WHEN deleted_at IS NULL THEN body IS NOT NULL AND length(trim(body)) > 0 AND length(CAST(body AS BLOB)) <= 10000 ELSE body IS NULL AND author_snapshot IS NULL END", name: "improvement_comments_body"
+    t.check_constraint "anchor IS NULL OR (json_valid(anchor) AND json_type(anchor) = 'object' AND length(CAST(anchor AS BLOB)) <= 16384)", name: "improvement_comments_anchor"
+    t.check_constraint "author_snapshot IS NULL OR (json_valid(author_snapshot) AND json_type(author_snapshot) = 'object')", name: "improvement_comments_author"
+    t.check_constraint "length(local_id) = 36 AND length(thread_key) = 36", name: "improvement_comments_local_id"
   end
 
   create_table "learning_runs", force: :cascade do |t|
@@ -413,8 +466,10 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_21_195500) do
     t.string "retired_head_sha"
     t.index ["author_id"], name: "index_prototypes_on_author_id"
     t.index ["current_build_id"], name: "index_prototypes_on_current_build_id"
+    t.index ["repository_id", "author_id", "registered_at", "id"], name: "index_prototypes_on_gallery_author", where: "branch_deleted_at IS NULL AND registered_at IS NOT NULL"
     t.index ["repository_id", "branch_name", "branch_deleted_at"], name: "idx_on_repository_id_branch_name_branch_deleted_at_37960952d6"
     t.index ["repository_id", "branch_name"], name: "index_prototypes_on_active_branch", unique: true, where: "branch_deleted_at IS NULL"
+    t.index ["repository_id", "registered_at", "id"], name: "index_prototypes_on_gallery_order", where: "branch_deleted_at IS NULL AND registered_at IS NOT NULL"
     t.index ["repository_id"], name: "index_prototypes_on_repository_id"
     t.check_constraint "description IS NULL OR length(trim(description)) BETWEEN 1 AND 500", name: "prototypes_description"
     t.check_constraint "length(trim(branch_name)) BETWEEN 1 AND 255", name: "prototypes_branch_name"
@@ -709,6 +764,12 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_21_195500) do
   add_foreign_key "copilot_connections", "users", on_delete: :cascade
   add_foreign_key "fresh_authorizations", "repositories", on_delete: :nullify
   add_foreign_key "fresh_authorizations", "users", on_delete: :cascade
+  add_foreign_key "improvement_comment_replies", "improvement_comments", column: ["request_id", "prototype_id", "user_id", "thread_key"], primary_key: ["id", "prototype_id", "user_id", "thread_key"], on_delete: :restrict
+  add_foreign_key "improvement_comment_replies", "improvement_comments", column: ["response_id", "prototype_id", "user_id", "thread_key"], primary_key: ["id", "prototype_id", "user_id", "thread_key"], on_delete: :restrict
+  add_foreign_key "improvement_comments", "builds", column: ["build_id", "prototype_id"], primary_key: ["id", "prototype_id"], on_delete: :restrict
+  add_foreign_key "improvement_comments", "improvement_comments", column: ["root_id", "prototype_id", "user_id", "thread_key"], primary_key: ["id", "prototype_id", "user_id", "local_id"], on_delete: :restrict
+  add_foreign_key "improvement_comments", "prototypes", on_delete: :restrict
+  add_foreign_key "improvement_comments", "users", on_delete: :restrict
   add_foreign_key "learning_runs", "repositories", on_delete: :cascade
   add_foreign_key "learning_runs", "users", column: "requested_by_id", on_delete: :nullify
   add_foreign_key "notification_resources", "notifications", on_delete: :cascade

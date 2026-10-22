@@ -1,5 +1,11 @@
-import { ChevronDownIcon, ChevronUpIcon, GrabberIcon, SyncIcon } from "@primer/octicons-react"
-import { Accordion, Button, Text } from "@primer/react-brand"
+import {
+  ChevronDownIcon,
+  ChevronUpIcon,
+  GrabberIcon,
+  LinkExternalIcon,
+  SyncIcon,
+} from "@primer/octicons-react"
+import { Accordion, Button, InlineLink, Text } from "@primer/react-brand"
 import {
   useEffect,
   useId,
@@ -148,6 +154,14 @@ export function ControlsPanel({
   const retry =
     !state.loading &&
     (state.storageError || state.reconnectRequired || (!state.runtimeAvailable && state.error))
+  const empty =
+    !state.loading &&
+    state.status === "no-controls" &&
+    !state.error &&
+    !state.storageError &&
+    !state.reconnectRequired &&
+    !state.scopeErrors?.length &&
+    !state.scopes.length
   return (
     <div ref={boundsRef} className="canvas-controls-layer">
       <aside
@@ -285,8 +299,19 @@ export function ControlsPanel({
               </Accordion>
             ) : null}
           </div>
-          {diagnosisAvailable || retry ? (
+          {diagnosisAvailable || retry || empty ? (
             <footer className="canvas-controls-footer">
+              {empty ? (
+                <InlineLink
+                  className="canvas-controls-learn-more"
+                  href="https://github.com/github/replica/blob/main/starter/README.md#prototype-controls"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  {copy.controlsLearnMore}
+                  <LinkExternalIcon size={16} aria-hidden="true" />
+                </InlineLink>
+              ) : null}
               {diagnosisAvailable ? (
                 <Button
                   size="small"

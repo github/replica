@@ -8,6 +8,29 @@ import { InvalidHubOrigin } from "../invalid-hub-origin/index.mjs"
 import { createHubOriginStore } from "./index.mjs"
 
 describe("createHubOriginStore()", () => {
+  it("rejects parsed selections without a matching repository and string origin", async () => {
+    const directory = path.join(process.cwd(), "storage/replica-extension-tests", randomUUID())
+    const store = createHubOriginStore({ directory })
+    const repository = "github/replica"
+    try {
+      await store.save(repository, "https://hub.example.com")
+      const file = path.join(directory, (await readdir(directory))[0])
+      for (const value of [
+        true,
+        "https://hub.example.com",
+        [],
+        {},
+        { repository, origin: 42 },
+        { repository: "github/other", origin: "https://hub.example.com" },
+      ]) {
+        await writeFile(file, JSON.stringify(value))
+        await assert.rejects(store.read(repository), /Invalid stored canvas Hub selection/)
+      }
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
   it("keeps saved and stored origins strict outside manual selection", async () => {
     const directory = path.join(process.cwd(), "storage/replica-extension-tests", randomUUID())
     const store = createHubOriginStore({ directory })
