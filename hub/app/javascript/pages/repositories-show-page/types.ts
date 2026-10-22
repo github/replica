@@ -2,8 +2,10 @@ import type { RepositoryWorkspaceData } from "@features/repository-workspace/typ
 import type { WorkflowInstallationData } from "@features/workflow-installation/types"
 
 import type { PrototypeCardData } from "@components/prototype-card/types"
+import type { PrototypeListing } from "@utils/prototype-listing/types"
 
 export interface RepositoriesShowPageData extends RepositoryWorkspaceData {
+  listing: PrototypeListing
   alert: string | null
   candidateCheckFailed?: string
   clearSearchLabel: string
@@ -36,8 +38,6 @@ export interface RepositoriesShowPageData extends RepositoryWorkspaceData {
   prototypes: PrototypeCardData[]
   prototypesCountLabel: string
   prototypesHeading: string
-  prototypeCountUnitOne: string
-  prototypeCountUnitOther: string
   searchLabel: string
   viewLabel: string
   workflowInstallation?: WorkflowInstallationData
