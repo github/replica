@@ -137,6 +137,8 @@ module HubTracing
     return false if host.empty? || host.bytesize > 253
 
     if host.include?(":") || host.match?(/\A[0-9.]+\z/)
+      return false if host.start_with?("[") || host.end_with?("]") || host.include?("/")
+
       IPAddr.new(host)
       return true
     end

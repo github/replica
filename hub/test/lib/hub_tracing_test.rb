@@ -56,7 +56,9 @@ class HubTracingTest < ActiveSupport::TestCase
       { "REPLICA_OTEL_UNTRACED_HOSTS" => "-upstream.example" },
       { "REPLICA_OTEL_UNTRACED_HOSTS" => "upstream..example" },
       { "REPLICA_OTEL_UNTRACED_HOSTS" => "999.0.0.1" },
-      { "REPLICA_OTEL_UNTRACED_HOSTS" => "2001:db8::gggg" }
+      { "REPLICA_OTEL_UNTRACED_HOSTS" => "2001:db8::gggg" },
+      { "REPLICA_OTEL_UNTRACED_HOSTS" => "[::1]" },
+      { "REPLICA_OTEL_UNTRACED_HOSTS" => "::1/128" }
     ].each do |invalid|
       configuration = {
         "OTEL_TRACES_EXPORTER" => "otlp",

@@ -68,7 +68,7 @@ Open <http://localhost:18888/traces>, use Hub, and confirm Rails requests and jo
 | `OTEL_SDK_DISABLED` | Set to `true` to disable tracing regardless of the exporter setting. |
 | `REPLICA_OTEL_INCLUDE_SENSITIVE_DATA` | Set to `true` to include SQL text, filtered job arguments, and exception diagnostics. Defaults to `false`; credential-keyed job fields remain filtered. |
 | `REPLICA_OTEL_TRUST_INCOMING_CONTEXT` | Set to `true` only behind a trusted ingress that removes client-supplied trace headers and supplies its own. Defaults to `false`. |
-| `REPLICA_OTEL_UNTRACED_HOSTS` | Optional comma-separated exact DNS hostnames, local names, or IPv4/IPv6 literals to exclude from outbound Net::HTTP tracing and trace-header injection. Do not include a scheme, port, or path. Subdomains are not included automatically. Empty or malformed entries are rejected. |
+| `REPLICA_OTEL_UNTRACED_HOSTS` | Optional comma-separated exact DNS hostnames, local names, or IPv4/IPv6 literals to exclude from outbound Net::HTTP tracing and trace-header injection. Do not include a scheme, port, path, IPv6 brackets, or prefix length. Subdomains are not included automatically. Empty or malformed entries are rejected. |
 
 The exporter also accepts the common `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS`, and `OTEL_EXPORTER_OTLP_PROTOCOL` settings. Trace-specific values take precedence. The common endpoint is a base URL to which the exporter appends `/v1/traces`; the trace-specific endpoint is used as supplied. Enabling export requires an explicit endpoint. Hub rejects unsupported exporters, protocols, and malformed endpoint URLs at startup.
 
