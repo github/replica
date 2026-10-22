@@ -8,7 +8,7 @@ import { ShareLinkRow } from "@features/share-link-row"
 import { ShareLinksContent } from "."
 
 const meta = {
-  title: "Features/Share Links/Content",
+  title: "Hub/Features/Share Links/Content",
   component: ShareLinksContent,
   parameters: { layout: "fullscreen" },
   args: {

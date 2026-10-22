@@ -173,7 +173,7 @@ npm run dev -- --host 0.0.0.0 --port 38763
 
 In another devcontainer terminal, run `cd hub && npm run storybook` (forward ports
 38763 and 6006). Open
-`http://localhost:6006/?path=/story/components-prototype-canvas-publication-example--playground`,
+`http://localhost:6006/?path=/story/prototype-canvas-publication-example--playground`,
 then select **Edit details** in the toolbar. Use Storybook Controls to switch scenarios; set `prototypeUrl` if
 the forwarded starter URL differs from `http://127.0.0.1:38763/`.
 
@@ -476,7 +476,7 @@ Edit migrated `.mts` sources, not their generated `.mjs` files. The extension's 
 
 Hub builds renderer files, Brand fonts and browser runtime into the plugin's `assets/`; commit them so installed users need no Node packages. Build configuration lives in `hub/vite.prototype-canvas.config.mjs` and `hub/script/`. Generated assets are excluded from formatting checks; do not edit them manually. There is no Vite/npm distribution or release preparation.
 
-The extension build also copies `review-hub-feedback` from its canonical starter source into the plugin's skills. Edit `starter/.agents/skills/review-hub-feedback/SKILL.md`, rebuild, and commit the generated plugin copy together. Asset freshness checks cover the copied skill.
+The extension build also copies the `review-hub-feedback` skill directory, including its supporting references, from its canonical starter source into the plugin's skills. Edit `starter/.agents/skills/review-hub-feedback/`, rebuild, and commit the generated plugin copy together. Asset freshness checks cover the copied skill. The separate proposal skill is not bundled; its handoff remains unavailable unless that skill is installed independently.
 
 For example, a preview reload must cancel an unconfirmed click without losing a command already dequeued by the agent. Test each hook's public behavior beside its implementation, using fake timers for polling and timeouts. Keep cross-feature checks under `application/prototype-canvas/tests/`, including iframe preservation, focus restoration and explicit publication or sharing actions. Keep `index.test.tsx` beside the application component and test-only orchestration helpers under its `tests/`. Shared publication fixtures stay with the publication utility so lower-layer tests do not import application code. Create fresh fixtures inside each case without suite-level reset hooks. Shared jsdom setup supplies stateless browser shims and restores real timers; Vitest configuration resets mocks and stubbed globals before each case.
 

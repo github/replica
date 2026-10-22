@@ -3,7 +3,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { InboxPrototype } from "@/storybook/inbox-prototype"
 
 const meta = {
-  title: "Pages/Inbox prototype",
+  title: "Hub/Pages/Inbox prototype",
   component: InboxPrototype,
   args: {
     empty: false,

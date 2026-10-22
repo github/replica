@@ -245,7 +245,7 @@ function PublicationDemo({
 
 const configuredPrototypeUrl: unknown = import.meta.env.VITE_STORYBOOK_PROTOTYPE_URL
 const meta = {
-  title: "Components/Prototype canvas/Publication example",
+  title: "Prototype canvas/Publication example",
   component: PublicationDemo,
   parameters: {
     layout: "fullscreen",
@@ -261,7 +261,7 @@ const meta = {
     prototypeUrl:
       typeof configuredPrototypeUrl === "string"
         ? configuredPrototypeUrl
-        : "http://127.0.0.1:38763/",
+        : new URL("/prototype-preview/index.html", window.location.href).href,
   },
   argTypes: { scenario: { control: "select", options: Object.keys(publicationExamples) } },
   render: (args) => (
@@ -285,6 +285,11 @@ export const Playground: Story = {
   },
 }
 export const Queued: Story = { args: { scenario: "Build queued" } }
+export const UnpushedChanges: Story = { args: { scenario: "Unpushed changes" } }
+export const AwaitingBuild: Story = { args: { scenario: "Awaiting build" } }
+export const Building: Story = { args: { scenario: "Building" } }
+export const Disconnected: Story = { args: { scenario: "Disconnected" } }
+export const CheckingRemoteBranch: Story = { args: { scenario: "Checking remote branch" } }
 export const WaitingForCopilot: Story = {
   args: { scenario: "Waiting for Copilot" },
   render: (args) => (
@@ -412,7 +417,7 @@ export const ShareManagement: Story = {
     prototypeUrl:
       typeof configuredPrototypeUrl === "string"
         ? configuredPrototypeUrl
-        : "http://localhost:5173/",
+        : new URL("/prototype-preview/index.html", window.location.href).href,
   },
 }
 export const NarrowShareManagement: Story = {

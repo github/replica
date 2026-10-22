@@ -6,7 +6,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HubEmptyState } from "."
 
 const meta = {
-  title: "Components/Brand-based: Empty State",
+  title: "Components/Empty State",
   component: HubEmptyState,
   args: {
     visual: <GitBranchIcon size={48} />,

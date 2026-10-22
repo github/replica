@@ -58,7 +58,7 @@ const data: ShareLinksIndexPageData = {
 }
 
 const meta = {
-  title: "Pages/Share Links",
+  title: "Hub/Pages/Share Links",
   component: ShareLinksIndexPage,
   args: { data },
   parameters: { layout: "fullscreen" },

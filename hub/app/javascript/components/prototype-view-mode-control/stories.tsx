@@ -6,7 +6,7 @@ import { PrototypeViewModeControl } from "."
 import type { PrototypeViewMode } from "./types"
 
 const meta = {
-  title: "Components/Hub-built: Prototype View Mode Control",
+  title: "Components/Prototype View Mode Control",
   component: PrototypeViewModeControl,
   args: {
     ariaLabel: "Prototype layout",

@@ -26,7 +26,7 @@ function InteractiveControls(props: PrototypeReviewControlsProps) {
 }
 
 const meta = {
-  title: "Features/Review/Prototype Review Controls",
+  title: "Hub/Features/Review/Prototype Review Controls",
   component: PrototypeReviewControls,
   args: {
     bridgeReady: true,

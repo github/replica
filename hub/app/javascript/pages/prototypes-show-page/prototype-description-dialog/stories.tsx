@@ -12,7 +12,7 @@ function DescriptionStory(props: ComponentProps<typeof PrototypeDescriptionDialo
 }
 
 const meta = {
-  title: "Features/Review/Prototype description",
+  title: "Hub/Features/Review/Prototype description",
   component: PrototypeDescriptionDialog,
   render: (args, context) => <DescriptionStory key={context.id} {...args} />,
   args: {

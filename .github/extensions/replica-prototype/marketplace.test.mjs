@@ -33,4 +33,15 @@ it("resolves the marketplace's relative source to the shipped plugin", async () 
     ).replaceAll("\r\n", "\n"),
     "The shipped review skill matches its canonical starter source.",
   )
+  assert.equal(
+    await readFile(
+      new URL(`${plugin.source}/skills/review-hub-feedback/references/handoff.md`, root),
+      "utf8",
+    ),
+    await readFile(
+      new URL("starter/.agents/skills/review-hub-feedback/references/handoff.md", root),
+      "utf8",
+    ),
+    "The shipped review skill includes its private handoff contract.",
+  )
 })
