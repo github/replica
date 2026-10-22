@@ -1,12 +1,18 @@
-import React from "react"
-import { useParameter, useStorybookState } from "storybook/manager-api"
+import React, { useEffect, useState } from "react"
+import { useChannel, useParameter, useStorybookState } from "storybook/manager-api"
 
 import type { UsageIndex } from "../analyze-usage/types"
 import { UsageView } from "../usage-view"
 import type { UsageViewProps } from "../usage-view/types"
 
 export function UsagePanel() {
-  const usageIndex = useParameter<UsageIndex | undefined>("componentUsageIndex")
+  const initialIndex = useParameter<UsageIndex | undefined>("componentUsageIndex")
+  const [updatedIndex, setUpdatedIndex] = useState<UsageIndex>()
+  const emit = useChannel({ "storybook/component-usage": setUpdatedIndex })
+  useEffect(() => {
+    emit("storybook/component-usage/request")
+  }, [emit])
+  const usageIndex = updatedIndex ?? initialIndex
   const { storyId, index } = useStorybookState()
   if (!usageIndex || !index)
     return (

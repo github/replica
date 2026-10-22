@@ -15,7 +15,9 @@ export function UsageView({ entries, storyLinks }: UsageViewProps) {
         {links.map((story, index) => (
           <span key={story.id}>
             {index > 0 ? ", " : ""}
-            <a href={`./?path=/story/${story.id}`}>{story.title}</a>
+            <a href={`./?path=/story/${story.id}`} target="_parent">
+              {story.title}
+            </a>
           </span>
         ))}
       </span>
@@ -46,7 +48,9 @@ export function UsageView({ entries, storyLinks }: UsageViewProps) {
           return (
             <section key={path} aria-label={`Usage of ${path}`}>
               <h2 style={{ fontSize: "1rem" }}>
-                <a href={sourceLink(path)}>{path}</a>
+                <a href={sourceLink(path)} target="_blank" rel="noreferrer">
+                  {path}
+                </a>
               </h2>
               <h3 style={{ fontSize: "0.875rem" }}>
                 Direct consumers: {count} JSX locations in {usage.consumers.length} files
@@ -57,7 +61,13 @@ export function UsageView({ entries, storyLinks }: UsageViewProps) {
                 <ul>
                   {usage.consumers.map((consumer) => (
                     <li key={consumer.path}>
-                      <a href={sourceLink(consumer.path, consumer.lines[0])}>{consumer.path}</a>
+                      <a
+                        href={sourceLink(consumer.path, consumer.lines[0])}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        {consumer.path}
+                      </a>
                       {" - "}
                       {consumer.lines.length}{" "}
                       {consumer.lines.length === 1 ? "location" : "locations"}; lines{" "}
@@ -76,7 +86,9 @@ export function UsageView({ entries, storyLinks }: UsageViewProps) {
                 <ul>
                   {usage.surfaces.map((surface) => (
                     <li key={surface}>
-                      <a href={sourceLink(surface)}>{surface}</a>
+                      <a href={sourceLink(surface)} target="_blank" rel="noreferrer">
+                        {surface}
+                      </a>
                       {relatedStories(surface)}
                     </li>
                   ))}

@@ -27,7 +27,7 @@ export function analyzeUsage(root: string): UsageIndex {
   function isProduction(path: string) {
     return (
       /^(app\/javascript\/|app\/views\/)/.test(path) &&
-      !/(^|\/)(storybook|test|tests|__tests__|fixtures|__fixtures__)(\/|$)|(^|\/)stories\.[^.]+$|\.(test|spec|stories)\.[^.]+$/.test(
+      !/(^|\/)(storybook|test-support|test|tests|__tests__|fixtures|__fixtures__)(\/|$)|(^|\/)stories\.[^.]+$|\.(test|spec|stories)\.[^.]+$/.test(
         path,
       )
     )

@@ -1,7 +1,8 @@
 // @vitest-environment node
 
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
-import { dirname, join, resolve } from "node:path"
+import { tmpdir } from "node:os"
+import { dirname, join } from "node:path"
 
 import { describe, expect, it } from "vitest"
 
@@ -37,7 +38,7 @@ async function writeSources(root: string, sources: Record<string, string>) {
 
 describe("analyzeUsage()", () => {
   it("counts JSX locations by consumer and resolves aliases without counting unused or type imports", async () => {
-    const root = await mkdtemp(resolve(".storybook/analyze-usage/fixture-"))
+    const root = await mkdtemp(join(tmpdir(), "replica-analyze-usage-"))
     try {
       await writeSources(root, {
         "app/javascript/components/widget/index.tsx": `
@@ -98,7 +99,7 @@ export default Widget
   })
 
   it("excludes stories, test files, and test or Storybook directories from production usage", async () => {
-    const root = await mkdtemp(resolve(".storybook/analyze-usage/fixture-"))
+    const root = await mkdtemp(join(tmpdir(), "replica-analyze-usage-"))
     try {
       const render = `
 import Widget from "@components/widget"
@@ -118,6 +119,7 @@ export const Example = { render: () => <Widget /> }
         "app/javascript/pages/tests/example.tsx": render,
         "app/javascript/pages/__tests__/example.tsx": render,
         "app/javascript/application/storybook/example.tsx": render,
+        "app/javascript/features/test-support/render-prototype-canvas-hub-panel/index.tsx": render,
         "app/views/examples/show.test.tsx": render,
         "app/javascript/pages/contest/example.tsx": render,
       })
@@ -137,7 +139,7 @@ export const Example = { render: () => <Widget /> }
   })
 
   it("follows JSX consumer edges through cycles to pages, canvas applications, and Rails views", async () => {
-    const root = await mkdtemp(resolve(".storybook/analyze-usage/fixture-"))
+    const root = await mkdtemp(join(tmpdir(), "replica-analyze-usage-"))
     try {
       await writeSources(root, {
         "app/javascript/components/widget/index.tsx":
@@ -188,7 +190,7 @@ export const Example = { render: () => <Widget /> }
   })
 
   it("maps default metadata component references through const and type wrappers without guessing from titles or renders", async () => {
-    const root = await mkdtemp(resolve(".storybook/analyze-usage/fixture-"))
+    const root = await mkdtemp(join(tmpdir(), "replica-analyze-usage-"))
     try {
       await writeSources(root, {
         "app/javascript/components/widget/index.tsx":
