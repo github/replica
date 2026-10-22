@@ -25,8 +25,9 @@ export function SearchDialog({
 
   return (
     <Dialog open={isOpen} onOpenChange={(_, data) => !data.open && handleClose()}>
-      <DialogSurface className={styles.surface}>
+      <DialogSurface aria-label="Search" className={styles.surface}>
         <Input
+          aria-label="Search"
           autoFocus
           size="large"
           className={styles.searchBar}

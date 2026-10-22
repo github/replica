@@ -11,7 +11,7 @@
     "check:starter": "npm run type-check && npm run lint && npm run build",
     "dev": "react-router dev",
     "build": "react-router build",
-    "preview": "vite preview --outDir dist",
+    "preview": "npm run build && vite preview --outDir dist",
     "type-check": "react-router typegen && tsc --noEmit",
     "lint": "eslint .",
     "clean": "rimraf build dist .react-router"

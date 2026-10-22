@@ -10,6 +10,6 @@ const ChatSparkleIcon = bundleIcon(ChatSparkleFilled, ChatSparkleRegular);
 export const AgentHelperToggleButton: React.FC<ButtonProps> = ({ ...props }) => {
   return (
     // should be ToggleButton when functionality is added
-    <Button appearance="subtle" icon={<ChatSparkleIcon />} {...props} />
+    <Button aria-label="Agent helper" appearance="subtle" icon={<ChatSparkleIcon />} {...props} />
   );
 };
