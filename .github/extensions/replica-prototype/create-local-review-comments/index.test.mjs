@@ -49,6 +49,40 @@ function fixture(context) {
 }
 
 describe("createLocalReviewComments()", () => {
+  it("rejects corrupt saved drafts without rewriting them or uploading comments", async () => {
+    await withContext(async (context) => {
+      const { comments, captured, scope } = fixture(context)
+      await comments.create(scope, captured, {
+        body: "Retain this feedback",
+        anchor: { kind: "element", selector: "#save" },
+      })
+      const directory = path.join(context.repositoryPath, ".git", "local-review-comments")
+      const file = path.join(
+        directory,
+        (await readdir(directory)).find((name) => name.endsWith(".json")),
+      )
+      const saved = JSON.parse(await readFile(file, "utf8"))
+      for (const corrupt of [
+        {},
+        [{ ...saved[0], comment: { ...saved[0].comment, author: null } }],
+        [{ ...saved[0], comment: { ...saved[0].comment, anchor: null } }],
+        [{ ...saved[0], comment: { ...saved[0].comment, anchor: { kind: "script" } } }],
+        [{ ...saved[0], sendingAt: "2026-10-21T12:00:00Z" }],
+      ]) {
+        const text = JSON.stringify(corrupt)
+        await writeFile(file, text)
+        await assert.rejects(comments.list(scope), /Invalid saved local review comment/)
+        await assert.rejects(
+          comments.sync(scope, build(context), {
+            request: async () => assert.fail("Corrupt drafts must not be sent."),
+          }),
+          /Invalid saved local review comment/,
+        )
+        assert.equal(await readFile(file, "utf8"), text)
+      }
+    })
+  })
+
   it("saves verified profile metadata without replacing the Hub viewer login", async () => {
     await withContext(async (context) => {
       const { comments, captured, scope } = fixture(context)

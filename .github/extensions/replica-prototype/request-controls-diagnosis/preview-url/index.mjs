@@ -1,6 +1,8 @@
 export function diagnosisPreviewUrl(value, expectedOrigin) {
   function invalid() {
-    return Object.assign(new Error("Invalid controls diagnosis preview URL."), { statusCode: 400 })
+    return Object.assign(new Error("Invalid controls diagnosis preview URL."), {
+      statusCode: 400,
+    })
   }
   if (
     typeof value !== "string" ||
@@ -30,7 +32,7 @@ export function diagnosisPreviewUrl(value, expectedOrigin) {
     const route = url.hash.slice(0, queryIndex)
     const query = new URLSearchParams(url.hash.slice(queryIndex + 1))
     for (const key of [...query.keys()]) if (key.startsWith("rc.")) query.delete(key)
-    url.hash = `${route}${query.size ? `?${query}` : ""}`
+    url.hash = `${route}${query.size ? `?${query.toString()}` : ""}`
   }
   return url.href
 }
