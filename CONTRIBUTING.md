@@ -25,36 +25,19 @@ For improvements, explain the problem you want to solve and who would benefit. D
 
 ## Set up the development environment
 
-Each Node.js project's `engines.node` declares its supported versions. The existing Hub, Starter, build-action, and Learning CI checks run on both supported Node majors. The devcontainer, production image, and composite build action retain their pinned runtime defaults; choosing another supported major locally does not change them.
+Each Node.js project's `engines.node` declares its supported versions. Hub, Starter, build-action, and Learning CI checks run on both supported Node majors. The composite build action retains its pinned runtime default.
 
 ### Replica Hub
 
-Replica Hub uses a devcontainer so contributors run the same Ruby, Node, SQLite, GitHub CLI, and Chromium versions.
-
-1. Install Docker or another Docker-compatible container runtime.
-2. Fork and clone the repository.
-3. Start the devcontainer:
-
-   ```sh
-   cd hub
-   bin/devcontainer up
-   ```
-
-4. Start Rails, Vite, and Solid Queue:
-
-   ```sh
-   bin/devcontainer dev
-   ```
-
-5. Open <http://replica.localhost:19500>.
-
-Run Ruby and Node commands inside the container:
+Hub has a TypeScript Express API and React + Vite frontend. Hosting and review features are not built yet. The database, sign-in, and deployment choices are still open. Use npm and a Node.js version matching `engines.node` in [hub/package.json](hub/package.json):
 
 ```sh
-bin/devcontainer exec COMMAND
+cd hub
+npm ci
+npm run dev
 ```
 
-See [Hub development](hub/docs/development.md) for the full local workflow. Local GitHub integration requires a private development GitHub App and test repositories. Never install that App on production repositories.
+This starts the frontend. In a second terminal, run `cd hub && npm run dev:api` to start the API. See [Hub development](hub/docs/development.md) for their addresses and commands. No container or GitHub App setup is required.
 
 ### Replica Starter
 
@@ -106,7 +89,7 @@ For agent-assisted rendered checks, interaction tests, screenshots and reviews, 
 Read the [shared coding conventions](docs/coding-conventions.md) and existing documentation for the area you are changing before editing code.
 
 - For Hub changes, follow the existing system boundaries in [Hub architecture](hub/docs/architecture.md).
-- For Hub changes, follow the Rails, TypeScript, interface, and test rules in [Hub coding conventions](hub/docs/coding-conventions.md).
+- For Hub changes, follow the TypeScript, interface, and test rules in [Hub coding conventions](hub/docs/coding-conventions.md).
 - For Hub and canvas UI changes, follow the [Storybook coverage and screenshot requirements](hub/docs/storybook.md#ui-changes-and-pull-request-evidence).
 - Follow the [shared documentation conventions](docs/documentation-conventions.md) for prose, labels, errors, and code comments.
 
@@ -115,20 +98,37 @@ Read the [shared coding conventions](docs/coding-conventions.md) and existing do
 Follow the [shared testing and review guide](docs/testing-and-review.md). For Hub code changes, run a focused test while developing, then run the complete Hub suite when the change is stable. Run this command from `hub/`:
 
 ```sh
-bin/devcontainer exec bin/ci
+npm ci
+npm run lint
+npm run typecheck
+npm test
+npm run build
+npm run storybook:build
 ```
 
 Useful focused commands include:
 
 | Goal            | Command                                         |
 | --------------- | ----------------------------------------------- |
-| Rails test      | `bin/devcontainer exec bin/rails test PATH`     |
-| TypeScript test | `bin/devcontainer exec npm test -- PATH`        |
-| Type check      | `bin/devcontainer exec npm run typecheck`       |
-| Storybook build | `bin/devcontainer exec npm run storybook:build` |
+| TypeScript test | `npm test -- PATH`                             |
+| Type check      | `npm run typecheck`                            |
+| Storybook build | `npm run storybook:build`                      |
 | Prose review    | `bin/review-prose`                              |
 
 From the repository root, run `hub/bin/review-prose` to include changed prose across all projects. Hub and build-action dependency updates must satisfy the [shared dependency policy](docs/testing-and-review.md#update-dependencies). See [Hub testing and operations](hub/docs/testing-and-operations.md) for the complete Hub check and review workflow.
+
+Repository workflow and dependency checks have their own small npm project:
+
+```sh
+npm ci --prefix scripts --ignore-scripts --engine-strict
+npm run typecheck --prefix scripts
+npm test --prefix scripts
+node --test scripts/select-ci-suites.test.mjs
+node scripts/check-ci-workflows/index.ts
+node scripts/check-dependency-age/index.ts
+```
+
+The TypeScript workflow and dependency checks use function directories with colocated Vitest tests. The dependency-age command needs network access to npm and GitHub. `GH_TOKEN` is optional locally and avoids GitHub's unauthenticated API rate limit.
 
 ## Commits and pull requests
 

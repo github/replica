@@ -1,8 +1,0 @@
-json.productName t("application.name")
-json.pageTitle t("hub_admin_enrollment.heading")
-json.heading t("hub_admin_enrollment.heading")
-json.description t("hub_admin_enrollment.description")
-json.secretLabel t("hub_admin_enrollment.secret_label")
-json.submitLabel t("hub_admin_enrollment.submit")
-json.submitPath hub_admin_enrollment_path
-json.authenticityToken form_authenticity_token

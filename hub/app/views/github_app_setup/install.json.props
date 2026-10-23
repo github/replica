@@ -1,4 +1,0 @@
-json.pageTitle t("github_app_setup.install.page_title")
-json.productName t("application.name")
-json.heading t("github_app_setup.install.heading")
-json.description t("github_app_setup.install.description")

@@ -1,0 +1,22 @@
+{
+  "name": "@replica/repository-checks",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "^24.15.0 || ^26.0.0"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "check:workflows": "node check-ci-workflows/index.ts",
+    "check:dependency-age": "node check-dependency-age/index.ts"
+  },
+  "dependencies": {
+    "yaml": "2.9.1"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.4",
+    "typescript": "npm:@typescript/typescript6@6.0.2",
+    "vitest": "5.0.3"
+  }
+}

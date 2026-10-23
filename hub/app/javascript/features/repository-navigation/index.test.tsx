@@ -26,7 +26,6 @@ describe("RepositoryNavigation()", () => {
       const welcome = screen.getByRole("link", { name: "Welcome" })
       expect(container.querySelector(".repository-navigation__list a")).toBe(welcome)
       expect(welcome).toHaveAttribute("href", "/welcome")
-      expect(welcome).toHaveAttribute("data-sg-visit", "true")
       expect(welcome).toHaveAttribute("aria-current", "page")
 
       rerender(
@@ -89,11 +88,8 @@ describe("RepositoryNavigation()", () => {
       expect(feedback).toHaveAttribute("href", "https://gh.io/replica-feedback")
       expect(feedback).toHaveAttribute("target", "_blank")
       expect(feedback).toHaveAttribute("rel", "noopener noreferrer")
-      expect(feedback).not.toHaveAttribute("data-sg-visit")
       for (const link of container.querySelectorAll("aside a")) {
         if (link === feedback) continue
-
-        expect(link).toHaveAttribute("data-sg-visit", "true")
       }
       expect(screen.getByRole("link", { name: "Prototypes" })).toHaveAttribute(
         "href",

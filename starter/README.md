@@ -95,7 +95,7 @@ This does not change Hub error pages or responses for missing assets.
 
 ## React organization
 
-Route modules own loading and navigation. For example, `src/routes/home/home-route-page/index.tsx` passes a TanStack link to `home-page/index.tsx`, which renders a typed prop without importing the router. The activity loader assembles seed data, and `activity-route-page/index.tsx` passes it to `activity-page/index.tsx`. Keep props in a colocated `types.ts` and styles beside the page. Use `@app/`, `@routes/`, and `@data/` across top-level areas, and relative imports within a route. TypeScript, Vite, and Vitest share these aliases. This structure does not require Hub's design system or Rails.
+Route modules own loading and navigation. For example, `src/routes/home/home-route-page/index.tsx` passes a TanStack link to `home-page/index.tsx`, which renders a typed prop without importing the router. The activity loader assembles seed data, and `activity-route-page/index.tsx` passes it to `activity-page/index.tsx`. Keep props in a colocated `types.ts` and styles beside the page. Use `@app/`, `@routes/`, and `@data/` across top-level areas, and relative imports within a route. TypeScript, Vite, and Vitest share these aliases. This structure is independent of Hub and its design system.
 
 ## Scaffold a neutral prototype route
 

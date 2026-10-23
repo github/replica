@@ -1,3 +1,0 @@
-vite: exec ./node_modules/.bin/vite dev
-web: exec bin/rails server -b 0.0.0.0 -p ${REPLICA_HUB_PORT:-19500}
-jobs: exec bin/jobs

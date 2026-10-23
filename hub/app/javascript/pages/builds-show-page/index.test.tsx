@@ -3,7 +3,7 @@ import { describe, it } from "vitest"
 
 import { HubThemeProvider } from "@hooks/use-hub-theme"
 
-import { BuildsShowPage } from "./index"
+import { BuildsShowPage } from "."
 import story from "./stories"
 import type { BuildsShowPageData } from "./types"
 
@@ -108,10 +108,6 @@ describe("BuildsShowPage()", () => {
     expect(screen.getByRole("link", { name: "Review build" })).toHaveAttribute(
       "href",
       "/repositories/2001/prototypes/1?build=2",
-    )
-    expect(screen.getByRole("link", { name: "Review build" })).toHaveAttribute(
-      "data-sg-visit",
-      "true",
     )
     expect(screen.getByRole("img", { name: "Desktop screenshot of build 2" })).toHaveAttribute(
       "src",

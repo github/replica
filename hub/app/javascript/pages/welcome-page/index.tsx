@@ -129,7 +129,6 @@ export function WelcomePage({ data }: { data: WelcomePageData }) {
                   <a
                     className="welcome-page__card welcome-page__action"
                     href={createPath}
-                    data-sg-visit="true"
                     aria-label={data.createLabel}
                   >
                     <PlusIcon size={16} aria-hidden="true" />

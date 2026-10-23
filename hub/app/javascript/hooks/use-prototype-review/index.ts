@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { usePreviewBridge } from "@hooks/use-preview-bridge"
 import { useReviewComments } from "@hooks/use-review-comments"
-import { useReviewCommentsSubscription } from "@hooks/use-review-comments-subscription"
 import { getAreaAnchorGeometry } from "@utils/get-area-anchor-geometry"
 import { groupReviewCommentsIntoThreads } from "@utils/group-review-comments-into-threads"
 import type { ReviewThread } from "@utils/review-comment/types"
@@ -15,8 +14,6 @@ export function usePrototypeReview({
   authenticityToken,
   iframeRef,
   previewTheme,
-  prototypeId,
-  repositoryId,
   reviewCommentsPath,
   viewerLogin,
   selectedBuild,
@@ -46,11 +43,6 @@ export function usePrototypeReview({
       ?.focus({ preventScroll: true })
   }, [iframeRef, sidebarOpen])
   const comments = useReviewComments(reviewCommentsPath, authenticityToken)
-  useReviewCommentsSubscription({
-    repositoryId,
-    prototypeId,
-    onInvalidation: comments.refreshComments,
-  })
   const threads = useMemo(
     () => groupReviewCommentsIntoThreads(comments.comments),
     [comments.comments],

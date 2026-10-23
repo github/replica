@@ -22,6 +22,25 @@ function publishData(prompt) {
 }
 
 describe("startCanvasServer()", () => {
+  it("reports that live review updates are unavailable", async () => {
+    await withContext(async (context) => {
+      const canvas = await startCanvasServer(context, { send() {} })
+      try {
+        const html = await (await fetch(canvas.url)).text()
+        const { token } = JSON.parse(html.match(/window\.__REPLICA_CANVAS__ = ([^;]+);/)[1])
+        const response = await fetch(new URL("/api/hub/events", canvas.url), {
+          headers: { "X-Replica-Canvas-Token": token },
+        })
+        assert.equal(response.status, 501)
+        assert.deepEqual(await response.json(), {
+          error: "Live review updates have not been built for the new Hub.",
+        })
+      } finally {
+        await canvas.close()
+      }
+    })
+  })
+
   it("rejects malformed HTTP action results without consuming the pending command", async () => {
     await withContext(async (context) => {
       const commands = agentCommands()
@@ -37,7 +56,10 @@ describe("startCanvasServer()", () => {
       try {
         const html = await (await fetch(canvas.url)).text()
         const { token } = JSON.parse(html.match(/window\.__REPLICA_CANVAS__ = ([^;]+);/)[1])
-        const headers = { "X-Replica-Canvas-Token": token, "X-Replica-Renderer-Id": "renderer-1" }
+        const headers = {
+          "X-Replica-Canvas-Token": token,
+          "X-Replica-Renderer-Id": "renderer-1",
+        }
         const pending = commands.invoke("reload")
         pending.catch(() => {})
         const next = await (await fetch(new URL("/api/agent/next", canvas.url), { headers })).json()
@@ -928,7 +950,12 @@ exit 1
             }),
           )
         } else if (request.url === "/api/canvas/connection") {
-          response.end(JSON.stringify({ repository: "github/replica", viewerLogin: "octocat" }))
+          response.end(
+            JSON.stringify({
+              repository: "github/replica",
+              viewerLogin: "octocat",
+            }),
+          )
         } else {
           response.writeHead(404)
           response.end(JSON.stringify({ error: "Hub has not discovered this branch." }))

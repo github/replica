@@ -56,7 +56,6 @@ describe("HubIconButton()", () => {
         ref={ref}
         as="a"
         href="/builds/3"
-        data-sg-visit="true"
         aria-label="Build details"
         description="View the build record"
         icon={Icon}
@@ -65,7 +64,6 @@ describe("HubIconButton()", () => {
 
     const link = screen.getByRole("link", { name: "Build details" })
     expect(link).toHaveAttribute("href", "/builds/3")
-    expect(link).toHaveAttribute("data-sg-visit", "true")
     expect(link).toHaveAccessibleDescription("View the build record")
     expect(ref.current).toBe(link)
     expect(link.className).toContain("Primer_Brand__Button-module__Button")

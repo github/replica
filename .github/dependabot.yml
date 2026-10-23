@@ -1,16 +1,11 @@
 version: 2
 updates:
-  - package-ecosystem: bundler
-    directory: "/hub"
-    schedule:
-      interval: weekly
-    cooldown:
-      default-days: 7
   - package-ecosystem: npm
     directories:
       - "/hub"
       - "/actions/build"
       - "/starter"
+      - "/scripts"
     schedule:
       interval: weekly
     cooldown:

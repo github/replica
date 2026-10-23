@@ -103,12 +103,7 @@ export function BuildsShowPage({ data }: { data: BuildsShowPageData }) {
 
                   {data.previewPath && data.previewLabel ? (
                     <div>
-                      <Button
-                        as="a"
-                        href={data.previewPath}
-                        data-sg-visit="true"
-                        leadingVisual={PlayIcon}
-                      >
+                      <Button as="a" href={data.previewPath} leadingVisual={PlayIcon}>
                         {data.previewLabel}
                       </Button>
                     </div>

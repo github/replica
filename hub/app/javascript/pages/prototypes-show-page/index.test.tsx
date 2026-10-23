@@ -1,16 +1,14 @@
 import { useRef, useState } from "react"
-import { NavigationContext } from "@thoughtbot/superglue"
 import { act, fireEvent, render, screen, within } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { HubThemeProvider, useHubTheme } from "@hooks/use-hub-theme"
 import { usePrototypeReview } from "@hooks/use-prototype-review"
 import { usePrototypeViewerUrl } from "@hooks/use-prototype-viewer-url"
-import type { ReviewCommentsSubscriptionOptions } from "@hooks/use-review-comments-subscription/types"
 import type { ReviewAnchor, ReviewRoute } from "@utils/review-anchor/types"
 import type { ReviewComment } from "@utils/review-comment/types"
 
-import { PrototypesShowPage } from "./index"
+import { PrototypesShowPage } from "."
 import { PrototypeDescriptionDialog } from "./prototype-description-dialog"
 import story, { RateLimitedWithDraft } from "./stories"
 import type { PrototypesShowPageData } from "./types"
@@ -375,9 +373,6 @@ const BRIDGE = vi.hoisted(() => ({
   startAreaSelection: vi.fn(),
   startElementSelection: vi.fn(),
 }))
-const REVIEW_COMMENTS_SUBSCRIPTION = vi.hoisted(() =>
-  vi.fn<(options: ReviewCommentsSubscriptionOptions) => void>(),
-)
 
 vi.mock("@hooks/use-review-comments", () => ({
   useReviewComments: () => ({
@@ -397,10 +392,6 @@ vi.mock("@hooks/use-review-comments", () => ({
     markThreadRead: vi.fn(),
     markThreadUnread: vi.fn(),
   }),
-}))
-
-vi.mock("@hooks/use-review-comments-subscription", () => ({
-  useReviewCommentsSubscription: REVIEW_COMMENTS_SUBSCRIPTION,
 }))
 
 vi.mock("@hooks/use-preview-bridge", () => ({
@@ -1406,14 +1397,9 @@ describe("PrototypesShowPage()", () => {
   })
 
   it("keeps the fixed controls outside the preview and shows every Build state", () => {
-    const visit = vi.fn()
     render(
       <HubThemeProvider>
-        <NavigationContext.Provider
-          value={{ pageKey: "/", search: {}, navigateTo: vi.fn(), remote: vi.fn(), visit }}
-        >
-          <TestPage />
-        </NavigationContext.Provider>
+        <TestPage />
       </HubThemeProvider>,
     )
 
@@ -1421,10 +1407,6 @@ describe("PrototypesShowPage()", () => {
     expect(screen.getByRole("link", { name: "Welcome prototype" })).toHaveAttribute(
       "href",
       "/repositories/2001/prototypes/1",
-    )
-    expect(screen.getByRole("link", { name: "Welcome prototype" })).toHaveAttribute(
-      "data-sg-visit",
-      "true",
     )
     expect(screen.queryByRole("link", { name: "github/prototype" })).not.toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Expand sidebar" })).toBeInTheDocument()
@@ -1460,7 +1442,6 @@ describe("PrototypesShowPage()", () => {
       name: "Close and return to the prototype gallery",
     })
     expect(close).toHaveAttribute("href", "/repositories/2001")
-    expect(close).toHaveAttribute("data-sg-visit", "true")
     expect(close).not.toHaveTextContent("Close")
     expect(close).toHaveClass("review-shell__close-action")
     expect(close.className).toContain("Button--size-small")
@@ -1506,20 +1487,7 @@ describe("PrototypesShowPage()", () => {
       "href",
       "/repositories/2001/prototypes/1?build=1",
     )
-    fireEvent.click(screen.getByRole("menuitem", { name: "v1" }).querySelector("a")!)
-    expect(visit).toHaveBeenCalledExactlyOnceWith("/repositories/2001/prototypes/1?build=1", {
-      method: "GET",
-      dataset: { sgVisit: "true" },
-    })
     if (buildSelector.getAttribute("aria-expanded") !== "true") fireEvent.click(buildSelector)
-    fireEvent.keyDown(screen.getByRole("menuitem", { name: /v3.*Failed to build/ }), {
-      key: "Enter",
-    })
-    expect(visit).toHaveBeenLastCalledWith("/repositories/2001/prototypes/1/builds/3", {
-      method: "GET",
-      dataset: { sgVisit: "true" },
-    })
-    expect(visit).toHaveBeenCalledTimes(2)
     expect(screen.getByTitle("prototype/welcome, build 2 preview")).toHaveAttribute(
       "src",
       "http://b12.preview.replica.localhost:19500/",
@@ -1539,28 +1507,7 @@ describe("PrototypesShowPage()", () => {
         within(menu).getByRole("menuitem", { name: label }).querySelector("a"),
       ).toHaveAttribute("href", path)
     }
-    fireEvent.click(within(menu).getByRole("menuitem", { name: "Share links" }).querySelector("a")!)
-    expect(visit).toHaveBeenLastCalledWith("/repositories/2001/prototypes/1/share_links", {
-      method: "GET",
-      dataset: { sgVisit: "true" },
-    })
     if (moreActions.getAttribute("aria-expanded") !== "true") fireEvent.click(moreActions)
-    fireEvent.keyDown(
-      within(screen.getByRole("menu", { name: "More actions" })).getByRole("menuitem", {
-        name: "Build details",
-      }),
-      { key: "Enter" },
-    )
-    expect(visit).toHaveBeenLastCalledWith("/repositories/2001/prototypes/1/builds/2", {
-      method: "GET",
-      dataset: { sgVisit: "true" },
-    })
-    const subscriptionOptions = REVIEW_COMMENTS_SUBSCRIPTION.mock.calls.at(-1)?.[0]
-    expect(subscriptionOptions).toMatchObject({
-      repositoryId: 2001,
-      prototypeId: 1,
-    })
-    expect(subscriptionOptions?.onInvalidation).toEqual(expect.any(Function))
 
     expect(
       screen.getByRole("button", { name: "Thread started by @octocat, 2 comments" }),

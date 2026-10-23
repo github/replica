@@ -19,7 +19,6 @@ describe("TemplateCard()", () => {
     const link = screen.getByRole("link", { name: "Open template: Welcome" })
     expect(screen.getAllByRole("link")).toHaveLength(1)
     expect(link).toHaveAttribute("href", template.path)
-    expect(link).toHaveAttribute("data-sg-visit", "true")
     expect(link).toHaveClass("prototype-card__review-link")
     const preview = screen.getByRole("group", { name: "Preview of Welcome" })
     expect(preview).toHaveClass("scrolling-screenshot")

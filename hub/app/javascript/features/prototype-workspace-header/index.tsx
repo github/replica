@@ -11,9 +11,8 @@ import {
   XIcon,
 } from "@primer/octicons-react"
 import { ActionMenu, Tooltip } from "@primer/react-brand"
-import { NavigationContext } from "@thoughtbot/superglue"
-import { useContext, useState } from "react"
-import type { CSSProperties, KeyboardEvent, MouseEvent } from "react"
+import { useState } from "react"
+import type { CSSProperties, KeyboardEvent } from "react"
 
 import { BuildStateLabel } from "@components/build-state-label"
 import { HubIconButton } from "@components/hub-icon-button"
@@ -35,7 +34,6 @@ export function PrototypeWorkspaceHeader({
   onControlsToolbarMount,
 }: PrototypeWorkspaceHeaderProps) {
   const { resolvedColorMode, setColorMode } = useHubTheme()
-  const { visit } = useContext(NavigationContext)
   const controls = useControlQuery()
   function controlPath(path: string) {
     const url = new URL(withControlQuery(path, controls.query))
@@ -73,18 +71,10 @@ export function PrototypeWorkspaceHeader({
           : []),
       ]
 
-  function visitMenuLink(
-    event: MouseEvent<HTMLElement> | KeyboardEvent<HTMLElement>,
-    path: string,
-  ) {
-    if (
-      "button" in event &&
-      (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
-    )
-      return
-
+  function activateMenuLink(event: KeyboardEvent<HTMLElement>) {
+    if (event.key !== "Enter" && event.key !== " ") return
     event.preventDefault()
-    void visit(path, { method: "GET", dataset: { sgVisit: "true" } })
+    event.currentTarget.querySelector<HTMLAnchorElement>("a")?.click()
   }
 
   const authorAvatar = data.browseReplica ? null : (
@@ -110,7 +100,7 @@ export function PrototypeWorkspaceHeader({
         )
       }
       title={
-        <a href={data.branchPath} data-sg-visit="true" className="review-shell__branch-link">
+        <a href={data.branchPath} className="review-shell__branch-link">
           {data.prototypeName ?? data.branchName}
         </a>
       }
@@ -226,28 +216,7 @@ export function PrototypeWorkspaceHeader({
                     value={String(build.number)}
                     className="review-shell__build-option"
                     aria-current={build.number === data.selectedBuild?.number ? "page" : undefined}
-                    onClick={(event) => {
-                      if (
-                        !visit ||
-                        event.button !== 0 ||
-                        event.metaKey ||
-                        event.ctrlKey ||
-                        event.shiftKey ||
-                        event.altKey
-                      )
-                        return
-                      event.preventDefault()
-                      void visit(path, { method: "GET", dataset: { sgVisit: "true" } })
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key !== "Enter" && event.key !== " ") return
-                      event.preventDefault()
-                      if (visit) {
-                        void visit(path, { method: "GET", dataset: { sgVisit: "true" } })
-                      } else {
-                        event.currentTarget.querySelector("a")?.click()
-                      }
-                    }}
+                    onKeyDown={activateMenuLink}
                   >
                     <span className="review-shell__build-option-content">
                       <span className="review-shell__build-option-label">{build.label}</span>
@@ -287,11 +256,7 @@ export function PrototypeWorkspaceHeader({
                     href={path}
                     value={path}
                     leadingVisual={<Icon size={16} />}
-                    onClick={(event) => visitMenuLink(event, path)}
-                    onKeyDown={(event) => {
-                      if (event.key !== "Enter" && event.key !== " ") return
-                      visitMenuLink(event, path)
-                    }}
+                    onKeyDown={activateMenuLink}
                   >
                     {label}
                   </ActionMenu.Item>
@@ -309,7 +274,6 @@ export function PrototypeWorkspaceHeader({
           icon={XIcon}
           size="small"
           className="review-shell__close-action"
-          data-sg-visit="true"
           aria-label={
             data.closePath ? data.closeLabel : "Close and return to the prototype gallery"
           }

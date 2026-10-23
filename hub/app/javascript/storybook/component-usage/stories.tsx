@@ -25,7 +25,6 @@ export const DirectAndTransitive: Story = {
             "app/javascript/application/prototype-canvas/index.tsx",
             "app/javascript/application/start-prototype-canvas/index.tsx",
             "app/javascript/pages/prototypes-show-page/index.tsx",
-            "app/views/prototypes/show.tsx",
           ],
         },
       },

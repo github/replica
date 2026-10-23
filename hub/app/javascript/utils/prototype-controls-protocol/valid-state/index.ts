@@ -1,6 +1,6 @@
 import { validateControls, valueIssue } from "@utils/prototype-controls/controls.mjs"
 
-import type { ControlsState } from "../index"
+import type { ControlsState } from ".."
 import { validControlsScopeErrors } from "../valid-scope-errors"
 
 export function validControlsState(value: unknown): value is ControlsState {

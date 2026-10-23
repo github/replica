@@ -1,4 +1,3 @@
-import { NavigationContext } from "@thoughtbot/superglue"
 import { createEvent, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -32,30 +31,28 @@ describe("PrototypeWorkspaceHeader()", () => {
     )
   })
 
-  it("uses Superglue navigation once when Space activates a focused Build option", () => {
-    const visit = vi.fn()
+  it("activates the native Build link once when Space is pressed", () => {
     const path = "/repositories/2001/prototypes/1?build=2"
     render(
       <HubThemeProvider>
-        <NavigationContext.Provider
-          value={{ pageKey: "/", search: {}, navigateTo: vi.fn(), remote: vi.fn(), visit }}
-        >
-          <PrototypeWorkspaceHeader
-            {...story.args}
-            data={{
-              ...story.args.data,
-              buildOptions: [
-                ...story.args.data.buildOptions,
-                { number: 2, label: "v2", path, state: "successful" },
-              ],
-            }}
-          />
-        </NavigationContext.Provider>
+        <PrototypeWorkspaceHeader
+          {...story.args}
+          data={{
+            ...story.args.data,
+            buildOptions: [
+              ...story.args.data.buildOptions,
+              { number: 2, label: "v2", path, state: "successful" },
+            ],
+          }}
+        />
       </HubThemeProvider>,
     )
 
     fireEvent.click(screen.getByRole("button", { name: "Choose build, v1" }))
     const option = screen.getByRole("menuitem", { name: "v2" })
+    const link = option.querySelector("a")!
+    const click = vi.fn((event: MouseEvent) => event.preventDefault())
+    link.addEventListener("click", click)
     option.focus()
     expect(option).toHaveFocus()
 
@@ -63,9 +60,7 @@ describe("PrototypeWorkspaceHeader()", () => {
     fireEvent(option, space)
 
     expect(space.defaultPrevented).toBe(true)
-    expect(visit).toHaveBeenCalledExactlyOnceWith(path, {
-      method: "GET",
-      dataset: { sgVisit: "true" },
-    })
+    expect(link).toHaveAttribute("href", path)
+    expect(click).toHaveBeenCalledOnce()
   })
 })

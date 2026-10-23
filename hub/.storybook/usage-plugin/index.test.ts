@@ -5,9 +5,9 @@ import { describe, expect, it, vi } from "vitest"
 
 import { analyzeUsage } from "../analyze-usage"
 import type { UsageIndex } from "../analyze-usage/types"
-import { usagePlugin } from "./index"
+import { usagePlugin } from "."
 
-vi.mock("../analyze-usage/index.ts", () => ({ analyzeUsage: vi.fn() }))
+vi.mock("../analyze-usage", () => ({ analyzeUsage: vi.fn() }))
 
 async function startPlugin() {
   const root = resolve("usage-plugin-fixture")
@@ -51,7 +51,7 @@ describe("usagePlugin()", () => {
       watcher.emit("add", resolve(root, "app/javascript/components/widget/index.tsx"))
       vi.advanceTimersByTime(60)
       watcher.emit("change", resolve(root, "app/javascript/components/widget/stories.tsx"))
-      watcher.emit("unlink", resolve(root, "app/views/example.tsx"))
+      watcher.emit("unlink", resolve(root, "app/javascript/application/example/index.tsx"))
       watcher.emit("change", resolve(root, "tsconfig.json"))
       vi.advanceTimersByTime(99)
       expect(analyzeUsage).toHaveBeenCalledTimes(1)
@@ -122,7 +122,7 @@ describe("usagePlugin()", () => {
       await load()
       const events = [
         ["add", "app/javascript/components/widget/index.ts"],
-        ["unlink", "app/views/example.tsx"],
+        ["unlink", "app/javascript/application/example/index.tsx"],
         ["change", "app/javascript/components/widget/stories.tsx"],
         ["change", "app/javascript/types.d.ts"],
         ["change", "tsconfig.json"],

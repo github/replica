@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, beforeEach, describe, it, vi } from "vitest"
 
-import { HomeIndexPage } from "./index"
+import { HomeIndexPage } from "."
 import type { HomeIndexPageData } from "./types"
 
 const PAGE_DATA: HomeIndexPageData = {

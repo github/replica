@@ -1,81 +1,36 @@
-# Architecture
+# Hub architecture
 
-## Purpose
+## What works now
 
-Replica Hub is a self-hosted Rails application where teams review and discuss prototype branches. A GitHub-backed Hub connects to repositories owned by one GitHub organization or person. Development-only local mode reads multiple local Git repositories instead.
+Hub contributors are rebuilding the app on `build/hub/new` before merging it into `main`. That branch starts at `main` with no new commits. Review the code conventions first, then the app setup in a second PR based on the first.
 
-## System map
+The team has chosen TypeScript, Express for the API, React and Vite for the frontend, and Vitest for tests. The old backend and the frontend code that connected to it have been removed rather than rewritten.
 
-```text
-Publish a prototype:
-prototype branch
-  -> repository workflow
-  -> build action from the Replica repository
-  -> GitHub Actions artifact
-  -> Replica Hub
+The API responds to a health check, and the frontend displays the logo with light and dark themes. Storybook keeps the existing components and pages available for reuse. Sign-in, the database, deployment, background jobs, and product APIs have not been chosen or built. This app cannot yet find repositories, import Builds, host previews, save data, or support reviews.
 
-Review a prototype:
-team member
-  -> GitHub sign-in and repository access check
-  -> Replica Hub
-       |
-       +-- isolated Build preview
-             |
-             +-- conversations
+## Backend
 
-Share a prototype:
-public share link
-  -> Replica Hub checks the saved link
-  -> isolated share preview for one Build
+API code lives under `server/`. As features are added, route handlers will read requests, call domains, and return responses. The [code conventions](backend-architecture.md) explain repositories, integrations, utilities, domains, and which layers may import others. Put these directories under `server/` when they are needed; do not add empty implementations.
+
+The only route is `GET /api/health`, which returns `{ "status": "ok" }`. Every other path returns a JSON 404 response. `createApp()` builds the Express app without starting a server. `server/index.ts` starts it at a local address.
+
+## Frontend
+
+```mermaid
+flowchart LR
+  Application --> Pages
+  Pages --> Features
+  Features --> Components
+  Features --> Hooks
+  Features --> Utilities
 ```
 
-| System              | Responsibility                                     |
-| ------------------- | -------------------------------------------------- |
-| GitHub              | Stores source and decides repository access        |
-| GitHub Actions      | Builds and checks prototype branches               |
-| Rails               | Checks access, stores data, and runs Hub workflows |
-| React and Superglue | Display Hub pages                                  |
-| Artifact storage    | Keeps successful Build files and screenshots       |
+Keep the existing `app/javascript/` layout. Application code starts React and will connect pages to the API. Pages assemble whole screens from typed props. Features combine components for one task. Components are reusable interface elements that do not need to know the larger task.
 
-## Application shape
+Imports follow the arrows above. Shared components, hooks, and utilities must not import pages, features, or application code. Keep browser and server code separate. Agree on the API before adding types shared between them.
 
-```text
-browser request -> Rails checks access and loads data -> Superglue passes data -> Rails page view runs hooks -> React renders the page
-```
+The frontend displays the existing logo inside the theme provider. Existing pages and features use ordinary browser links. Their old destinations do not exist in the new API; keeping the interface does not make those features work.
 
-Rails models apply product rules and save changes. React handles the Hub interface but does not decide who has access.
+## Other projects
 
-Rails TSX page views connect Superglue and browser workflows to typed presentation Pages. Vite discovers those views from their Rails virtual paths, while Storybook renders the same Pages with display-ready Oaken-based fixtures.
-
-Manage prototypes checks access to the selected repository before rendering its listed prototypes. Available branches and other repository choices load independently through Superglue partial-page updates. Each request checks access again, shares an installation token, and runs at most four independent GitHub calls at a time. Database and cache writes stay on the request thread. If a branch comparison fails, Hub stops starting new comparisons, retains completed successes for retries, and reports the failure. Registration still checks permission, branch existence, and authorship afresh.
-
-Prototype JavaScript runs at a separate preview address. Hub cookies and credentials never reach that address. A small preview bridge connects conversations to selected elements and highlighted regions.
-
-[Prototype controls](preview-serving.md#prototype-controls) use a separate controls-only bridge on the same authorized Build origins. Each Build serves its own versioned `controls.replica.json`; Hub and the Copilot plugin supply one shared injected engine and bindings adapter. Overrides stay in prototype URLs, not server state or private capability-bearing addresses. Screenshot capture uses the same adapter and retained defaults.
-
-Hub owns the shared engine, static schema, validator and bindings adapter under [`app/javascript/utils/prototype-controls/`](../app/javascript/utils/prototype-controls/). The Copilot plugin, Hub bridge and screenshot adapter reuse this source. The generated validator includes its runtime helpers, so Build validation does not install Hub dependencies.
-
-Builds do not change after Hub stores them successfully. Conversations belong to a Prototype branch and remember the Build where they began. The reserved `replica/install-workflow` branch belongs only to Hub's workflow installation or update pull request and never becomes a Prototype.
-
-[Templates](gallery.md#templates) reuses that Build and preview pipeline for the connected repository's default branch. Hub reads the optional manifest from the same immutable artifact store as its screenshots and preview, without a second template database. Internal unregistered branch records own its Builds, but never offer prototype registration, review, canvas metadata, shares, or prototype publication analytics. Default opens `/`; declared templates open their own local destinations. Each detail can start a new prototype from the current default branch through Copilot. Local repositories use the same composer to copy the brief and branch instructions without an app handoff.
-
-[Repository activity events](analytics.md) record successful Hub-observed transitions in the primary database for 90 days. Configured repository destinations have a primary-database outbox; Solid Queue sends selected events to fixed provider endpoints or guarded custom public HTTPS endpoints and recovers missed queue work. Custom delivery rows are bound to a destination revision so a changed recipient cannot silently inherit an old backlog.
-
-Share links expose one successful Build without GitHub sign-in. The public request uses only saved Hub data and never opens repository pages or review conversations.
-
-A Hub administrator can [connect Copilot](copilot.md) with a token the person who runs Hub provides in `REPLICA_COPILOT_TOKEN`. Hub never stores the token and passes it only to `replica-learning`, a Node.js command from [`packages/learning/`](../../packages/learning/) that Hub runs with an allowlisted environment and a timeout. [Learnings](learnings.md) runs that command in a background job: it imports a repository's review comments into the repository's own learning store, asks Copilot to label them, and consolidates the labels into suggestions for repository administrators.
-
-[Development-only local mode](local-development.md) replaces GitHub sign-in and discovery with one local identity and committed branches from local repositories. It uses the same stored Build files, preview origins, and review UI, but does not change the GitHub-backed production flow.
-
-New work extends these source, Build, preview, bridge, and review contracts instead of creating parallel versions.
-
-The [prototype canvas](prototype-canvas.md) is a Copilot extension that frames a separately running local dev server. It reads git and workflow status and requests publishing through Copilot chat; it does not replace Hub's Build import or preview.
-
-## Related guides
-
-- [GitHub App setup](github-app-setup.md)
-- [GitHub Actions builds](github-actions-builds.md)
-- [Preview serving](preview-serving.md)
-- [Review collaboration](review-collaboration.md)
-- [Share links](share-links.md)
-- [Security](security.md)
+The starter, build action, learning package, and Copilot prototype extension remain separate projects. Canvas and Controls code stays at its existing `app/javascript/` paths so those projects can keep using it. Connecting the canvas to this Hub will require new API routes.

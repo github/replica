@@ -163,7 +163,7 @@ governs interactive agent work, not replacing reproducible headless pipelines.
 
 ## Code
 
-Format authored code with `npm run format` (double quotes, no semicolons, and trailing commas), then run `npm run format:check`. Prefer existing patterns, precise TypeScript types, explicit errors, and tests beside the behavior they exercise. Route modules own loading and navigation; route adapters pass typed props to presentation pages, which should not import the router. Place components in kebab-case directories with `index.tsx` and colocated `types.ts` and styles as needed. Use `@app/`, `@routes/`, and `@data/` across top-level areas and relative imports within a route or component. This starter is design-system-neutral; Hub's Rails and Primer rules do not apply.
+Format authored code with `npm run format` (double quotes, no semicolons, and trailing commas), then run `npm run format:check`. Prefer existing patterns, precise TypeScript types, explicit errors, and tests beside the behavior they exercise. Route modules own loading and navigation; route adapters pass typed props to presentation pages, which should not import the router. Place components in kebab-case directories with `index.tsx` and colocated `types.ts` and styles as needed. Use `@app/`, `@routes/`, and `@data/` across top-level areas and relative imports within a route or component. This starter is design-system-neutral; Hub-specific rules do not apply.
 
 ## Setup and prototype work
 

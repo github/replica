@@ -1,7 +1,0 @@
-json.pageTitle t("shared_builds.show.page_title", label: @share_link.label)
-json.productName t("application.name")
-json.label @share_link.label
-json.previewUrl share_preview_authorization_path(@share_link.public_id, return_path: params[:return_path].presence)
-json.frameTitle t("shared_builds.show.frame_title", label: @share_link.label)
-json.controlsIdentity preview_controls_identity(@share_link.prototype, context: [ "public", @share_link.public_id ])
-json.controlsOrigin SharePreviewOrigin.current.url(@share_link.build_id).delete_suffix("/")

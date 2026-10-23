@@ -53,7 +53,6 @@ export function RepositoryNavigationItem({
   return href !== undefined ? (
     <a
       href={href}
-      data-sg-visit={external ? undefined : "true"}
       className="repository-navigation-item"
       data-has-count={count !== undefined && count > 0 ? "true" : undefined}
       data-active={selected ? "true" : undefined}

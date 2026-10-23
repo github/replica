@@ -1,5 +1,0 @@
-json.pageTitle t("notifications.heading")
-json.partial! \
-  partial: "shared/hub_workspace",
-  locals: { navigation_label: t("repository_workspace.navigation") }
-json.selectedSection "notifications"

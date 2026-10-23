@@ -6,7 +6,7 @@ import { dirname, join } from "node:path"
 
 import { describe, expect, it } from "vitest"
 
-import { analyzeUsage } from "./index"
+import { analyzeUsage } from "."
 
 async function writeSources(root: string, sources: Record<string, string>) {
   const files = {
@@ -23,7 +23,7 @@ async function writeSources(root: string, sources: Record<string, string>) {
           "@pages/*": ["./app/javascript/pages/*"],
         },
       },
-      include: ["app/javascript/**/*", "app/views/**/*.tsx"],
+      include: ["app/javascript/**/*"],
     }),
     ...sources,
   }
@@ -109,7 +109,7 @@ export default function Example() { return <Widget /> }
         "app/javascript/components/widget/index.tsx":
           "export default function Widget() { return <span /> }",
         "app/javascript/components/widget/stories.tsx": `
-import Widget from "./index"
+import Widget from "."
 export default { component: Widget }
 export const Example = { render: () => <Widget /> }
 `,
@@ -120,7 +120,7 @@ export const Example = { render: () => <Widget /> }
         "app/javascript/pages/__tests__/example.tsx": render,
         "app/javascript/application/storybook/example.tsx": render,
         "app/javascript/features/test-support/render-prototype-canvas-hub-panel/index.tsx": render,
-        "app/views/examples/show.test.tsx": render,
+        "app/javascript/application/example/index.test.tsx": render,
         "app/javascript/pages/contest/example.tsx": render,
       })
 
@@ -138,7 +138,7 @@ export const Example = { render: () => <Widget /> }
     }
   })
 
-  it("follows JSX consumer edges through cycles to pages, canvas applications, and Rails views", async () => {
+  it("follows JSX consumer edges through cycles to pages and applications", async () => {
     const root = await mkdtemp(join(tmpdir(), "replica-analyze-usage-"))
     try {
       await writeSources(root, {
@@ -161,7 +161,7 @@ export const Example = { render: () => <Widget /> }
           'import Second from "@features/second"',
           "export default function Canvas() { return <Second /> }",
         ].join("\n"),
-        "app/views/examples/show.tsx": [
+        "app/javascript/application/example/index.tsx": [
           'import ExamplePage from "@pages/example"',
           "export default function ExampleView() { return <ExamplePage /> }",
         ].join("\n"),
@@ -176,13 +176,13 @@ export const Example = { render: () => <Widget /> }
       expect(result.components["app/javascript/components/widget/index.tsx"]).toEqual({
         consumers: [{ path: "app/javascript/features/first/index.tsx", lines: [3] }],
         surfaces: [
+          "app/javascript/application/example/index.tsx",
           "app/javascript/application/prototype-canvas/index.tsx",
           "app/javascript/pages/example/index.tsx",
-          "app/views/examples/show.tsx",
         ],
       })
       expect(result.components["app/javascript/pages/example/index.tsx"]?.surfaces).toEqual([
-        "app/views/examples/show.tsx",
+        "app/javascript/application/example/index.tsx",
       ])
     } finally {
       await rm(root, { recursive: true, force: true })

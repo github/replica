@@ -1,4 +1,0 @@
-json.welcomeLabel t("welcome.navigation")
-context_repository = local_assigns.fetch(:context_repository, @repository)
-json.welcomePath(Current.user.welcome_hidden? ? nil :
-  welcome_path(repository_github_id: context_repository&.route_id))

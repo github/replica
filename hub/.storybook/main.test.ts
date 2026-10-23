@@ -59,10 +59,7 @@ describe("Storybook viteFinal()", () => {
   it("keeps standalone asset paths without removing unrelated Vite plugins", () => {
     const viteConfig: UserConfig = {
       base: "/vite/",
-      plugins: [
-        [{ name: "vite-plugin-ruby" }, { name: "vite-plugin-ruby:assets-manifest" }],
-        { name: "vite:react-babel" },
-      ],
+      plugins: [[{ name: "example:assets" }], { name: "vite:react-babel" }],
     }
     const finalConfig = config.viteFinal(viteConfig)
     const plugins = finalConfig.plugins as unknown as (Plugin | Plugin[])[]
@@ -70,7 +67,6 @@ describe("Storybook viteFinal()", () => {
 
     expect(finalConfig.base).toBe("./")
     expect(pluginNames).toContain("vite:react-babel")
-    expect(pluginNames).not.toContain("vite-plugin-ruby")
-    expect(pluginNames).not.toContain("vite-plugin-ruby:assets-manifest")
+    expect(pluginNames).toContain("example:assets")
   })
 })

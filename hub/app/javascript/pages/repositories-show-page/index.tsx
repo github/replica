@@ -68,7 +68,6 @@ export function RepositoriesShowPage({
               <HubIconButton
                 as="a"
                 href={data.managePrototypesPath}
-                data-sg-visit="true"
                 icon={GearIcon}
                 variant="invisible"
                 size="small"
@@ -249,7 +248,6 @@ export function RepositoriesShowPage({
               pageCount={data.listing.pageCount}
               currentPage={data.listing.page}
               hrefBuilder={pageHref}
-              pageAttributesBuilder={() => ({ "data-sg-visit": "true" })}
               labels={{
                 prev: data.listing.copy.previous,
                 prevAriaLabel: data.listing.copy.previous,

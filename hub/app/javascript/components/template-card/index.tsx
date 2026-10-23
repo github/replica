@@ -35,7 +35,6 @@ export function TemplateCard({
       <a
         className="template-card__body prototype-card__review-link template-card__link"
         href={template.path}
-        data-sg-visit="true"
         aria-label={`${openLabel}: ${template.name}`}
       >
         <div className="template-card__heading">

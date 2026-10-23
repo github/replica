@@ -31,7 +31,7 @@ describe("usePrototypeViewerUrl()", () => {
 
   beforeEach(() => {
     window.history.replaceState(
-      { superglue: "saved-page" },
+      { retained: "saved-page" },
       "",
       "/repositories/2001/prototypes/1?source=gallery#hub",
     )
@@ -48,7 +48,7 @@ describe("usePrototypeViewerUrl()", () => {
     expect(url.searchParams.get("return_path")).toBe("/copilot?tab=all#overview")
     expect(url.hash).toBe("#hub")
     expect(window.location.href).toBe(result.current.viewerUrl)
-    expect(window.history.state).toEqual({ superglue: "saved-page" })
+    expect(window.history.state).toEqual({ retained: "saved-page" })
   })
 
   it("updates deep routes, queries and hash-based routes without adding Hub history entries", () => {
@@ -73,12 +73,12 @@ describe("usePrototypeViewerUrl()", () => {
     expect(new URL(result.current.viewerUrl).hash).toBe("#hub")
     expect(window.location.href).toBe(result.current.viewerUrl)
     expect(window.history.length).toBe(length)
-    expect(window.history.state).toEqual({ superglue: "saved-page" })
+    expect(window.history.state).toEqual({ retained: "saved-page" })
   })
 
   it("keeps an explicitly selected latest Build pinned through viewer updates", () => {
     window.history.replaceState(
-      { superglue: "pinned-page" },
+      { retained: "pinned-page" },
       "",
       "/repositories/2001/prototypes/1?build=2&source=gallery#hub",
     )
@@ -106,7 +106,7 @@ describe("usePrototypeViewerUrl()", () => {
     expect(url.searchParams.get("source")).toBe("gallery")
     expect(url.hash).toBe("#hub")
     expect(window.location.href).toBe(result.current.viewerUrl)
-    expect(window.history.state).toEqual({ superglue: "pinned-page" })
+    expect(window.history.state).toEqual({ retained: "pinned-page" })
     act(() => result.current.setMinimized(false))
     expect(new URL(result.current.viewerUrl).searchParams.get("build")).toBe("2")
   })
@@ -180,7 +180,7 @@ describe("usePrototypeViewerUrl()", () => {
     const length = window.history.length
     act(() => {
       window.history.replaceState(
-        { superglue: "restored-page" },
+        { retained: "restored-page" },
         "",
         "/repositories/2001/prototypes/1?return_path=%2Fsettings%3Ftab%3Dprofile%23details&rc.page.title=%22Restored%22#hub",
       )
@@ -192,7 +192,7 @@ describe("usePrototypeViewerUrl()", () => {
     expect(url.searchParams.has("build")).toBe(false)
     expect(url.hash).toBe("#hub")
     expect(window.location.href).toBe(result.current.viewerUrl)
-    expect(window.history.state).toEqual({ superglue: "restored-page" })
+    expect(window.history.state).toEqual({ retained: "restored-page" })
     expect(window.history.length).toBe(length)
   })
 

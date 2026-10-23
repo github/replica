@@ -1,6 +1,6 @@
 # Working on Replica
 
-Replica contains the self-hosted Hub, a copyable prototype starter, and the shared prototype build action.
+Replica contains Hub, a copyable prototype starter, the Copilot canvas extension, and the shared prototype build action. Hub is being rebuilt; local prototyping works, but hosted publishing and review are not available yet.
 
 ## Start here
 
@@ -11,7 +11,7 @@ Read [Contributing](CONTRIBUTING.md) and the [shared documentation index](docs/R
 - [Testing and review](docs/testing-and-review.md) explains how to choose checks and review a change.
 - Use the [test-writing skill](.github/skills/write-tests/SKILL.md) when adding or changing automated tests.
 
-Keep shared rules in root guides and project-specific rules in the affected project. Do not apply Hub's Rails, Primer, or devcontainer requirements to the starter, build action, or shared packages. The starter's copied instructions must remain usable without this monorepo.
+Keep shared rules in root guides and project-specific rules in the affected project. Do not apply Hub-specific requirements to the starter, build action, or shared packages. The starter's copied instructions must remain usable without this monorepo.
 
 ## Working rules
 
@@ -29,12 +29,12 @@ Follow the [commit and PR conventions](CONTRIBUTING.md#commits-and-pull-requests
 
 ## Project boundaries
 
-- `hub/` owns deployment, repository discovery, Build storage, previews, and review collaboration. Shared canvas and Controls source follows its normal `app/javascript/` layers. Read `hub/AGENTS.md` before changing it.
+- `hub/` starts a TypeScript Express API and React + Vite frontend. Hosting and review features are not implemented. Database, sign-in, and deployment choices are not decided. Shared canvas and Controls source stays under `hub/app/javascript/`. Read `hub/AGENTS.md` and [Hub architecture](hub/docs/architecture.md) before changing it.
 - `starter/` is the single source for the Vite + React app, `.agents/skills/`, and `.agents/context-templates/`. Product- and design-system-specific guidance belongs in consuming repositories.
 - `actions/build/` owns the artifact contract between prototype repositories and Hub.
 - `packages/learning/` owns the learning contracts, the memory provider and consolidator interfaces, the reference providers and consolidators, the conformance suite, and the `replica-learning` command. It is private repository source with no release yet. Read its `README.md` and [ADR 0001](docs/adr/0001-learning-extension-architecture.md) before changing it.
 
-Hub releases use `hub-v*` tags. The starter follows `main` and has no separate release process. Start a new agent session after copying the starter so its local skills are discovered.
+The new Hub has no release or deployment workflow. The starter follows `main` and has no separate release process. Start a new agent session after copying the starter so its local skills are discovered.
 
 For requests to create a prototype repository or set up an existing repository for prototyping, read [prototype repository setup](docs/prototype-repository-setup.md) before acting. It owns target selection, starter installation, the fresh-session handoff, and the path from local preview to optional guidance, a team baseline, or Hub.
 

@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
 
-import { UsageView } from "./index"
+import { UsageView } from "."
 
 describe("UsageView()", () => {
   it("opens related stories in the manager and source files outside the preview", () => {

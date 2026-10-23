@@ -13,8 +13,12 @@
     "controls:runtime:test": "node --test app/javascript/utils/prototype-controls/*.test.mjs",
     "controls:schema:generate": "node app/javascript/utils/prototype-controls/generate-controls-validator.mjs",
     "controls:schema:check": "node app/javascript/utils/prototype-controls/generate-controls-validator.mjs --check",
-    "build": "npm run typecheck && vite build",
-    "dev": "vite dev",
+    "build": "npm run typecheck && vite build && tsc --project tsconfig.server.json",
+    "dev": "npm run dev:client",
+    "dev:client": "vite --host 127.0.0.1",
+    "dev:api": "node --watch server/index.ts",
+    "start": "node dist/server/index.js",
+    "preview": "vite preview --host 127.0.0.1",
     "extension:assets:check": "node ../.github/extensions/replica-prototype/check-assets/index.mjs",
     "extension:build": "npm run extension:modules:build && vite build --config vite.prototype-canvas.config.mjs && node script/build-prototype-preview-bridge.mjs",
     "extension:modules:build": "node script/build-extension-modules.mjs",
@@ -29,12 +33,9 @@
   "dependencies": {
     "@primer/octicons-react": "19.40.0",
     "@primer/react-brand": "0.78.0",
-    "@rails/actioncable": "8.1.400",
-    "@reduxjs/toolkit": "2.13.0",
-    "@thoughtbot/superglue": "1.0.3",
+    "express": "5.3.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
-    "react-redux": "9.3.0",
     "zod": "4.6.5"
   },
   "devDependencies": {
@@ -46,8 +47,8 @@
     "@testing-library/jest-dom": "7.0.1",
     "@testing-library/react": "16.3.3",
     "@types/jsdom": "30.0.0",
+    "@types/express": "5.0.3",
     "@types/node": "26.6.4",
-    "@types/rails__actioncable": "8.0.3",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "@typescript/native": "npm:typescript@7.0.2",
@@ -65,7 +66,6 @@
     "typescript": "npm:@typescript/typescript6@6.0.2",
     "typescript-eslint": "8.71.2",
     "vite": "8.3.4",
-    "vite-plugin-ruby": "5.2.5",
     "vitest": "5.0.3"
   }
 }

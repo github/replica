@@ -1,7 +1,7 @@
 import { act, render, screen } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
 
-import { SharedBuildsShowPage } from "./index"
+import { SharedBuildsShowPage } from "."
 import type { SharedBuildsShowPageData } from "./types"
 
 const PAGE_DATA: SharedBuildsShowPageData = {

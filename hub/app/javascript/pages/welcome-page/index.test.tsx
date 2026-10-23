@@ -72,10 +72,6 @@ describe("WelcomePage()", () => {
       "href",
       data.workspace.repository?.newPrototypePath,
     )
-    expect(screen.getByRole("link", { name: data.createLabel })).toHaveAttribute(
-      "data-sg-visit",
-      "true",
-    )
     for (const label of [data.readmeLabel, data.setupLabel, data.createLabel]) {
       expect(screen.getByRole("heading", { level: 2, name: label })).toBeInTheDocument()
     }

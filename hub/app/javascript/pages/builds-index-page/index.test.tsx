@@ -3,7 +3,7 @@ import { describe, it } from "vitest"
 
 import { HubThemeProvider } from "@hooks/use-hub-theme"
 
-import { BuildsIndexPage } from "./index"
+import { BuildsIndexPage } from "."
 import story from "./stories"
 import type { BuildsIndexPageData } from "./types"
 
@@ -81,7 +81,6 @@ describe("BuildsIndexPage()", () => {
       "href",
       "/repositories/2001/prototypes/1/builds/2",
     )
-    expect(screen.getByRole("link", { name: /build 2/ })).toHaveAttribute("data-sg-visit", "true")
     expect(screen.getByText("Successful")).toBeInTheDocument()
     expect(screen.getAllByRole("link", { name: "By @octocat" })[0]).toHaveAttribute(
       "href",
@@ -94,10 +93,6 @@ describe("BuildsIndexPage()", () => {
     expect(screen.getByRole("link", { name: "Older builds" })).toHaveAttribute(
       "href",
       PAGE_DATA.nextPagePath,
-    )
-    expect(screen.getByRole("link", { name: "Older builds" })).toHaveAttribute(
-      "data-sg-visit",
-      "true",
     )
   })
 

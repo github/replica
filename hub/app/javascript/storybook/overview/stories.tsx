@@ -7,7 +7,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "Storybook is Replica Hub's presentation workbench. Components, features, and pages use display-ready fixtures without Rails, Superglue, GitHub access, or persisted review data.",
+          "Use Storybook to work on Hub's interface with sample data, without connecting to the API.",
       },
     },
   },
@@ -25,7 +25,7 @@ export const Taxonomy: Story = {
         </Heading>
 
         <Text as="p">
-          Build and review the Hub and prototype canvas interfaces without running the application.
+          Work on the Hub and prototype canvas interfaces without starting the API.
         </Text>
         <Text as="p">
           Hub UI uses Primer Brand components and tokens, with Hub controls for app-specific needs.
@@ -37,14 +37,14 @@ export const Taxonomy: Story = {
       </Stack>
 
       {[
-        ["Components", "Small reusable interface elements with no product workflow knowledge."],
+        ["Components", "Small interface elements that can be reused across Hub."],
         [
           "Prototype canvas",
           "The local canvas experience, including its panels, dialogs, and controls.",
         ],
         ["Hub / Design", "Hub-wide design overviews and inventories."],
-        ["Hub / Pages", "Complete Hub surfaces driven by Oaken-based fixtures."],
-        ["Hub / Features", "Hub workflow compositions that accept display-ready props."],
+        ["Hub / Pages", "Complete Hub screens shown with sample data."],
+        ["Hub / Features", "Groups of components that help someone complete one task."],
       ].map(([title, description]) => (
         <Stack
           key={title}

@@ -1,9 +1,0 @@
-en:
-  authentication:
-    failure: GitHub sign-in could not be completed. Try again.
-    sessions_ended: A Hub administrator ended all sessions while you were signing in. Start a new GitHub sign-in.
-    access_denied: Your GitHub account does not have access to this Hub's prototype repositories. Share links do not require sign-in.
-  authenticated:
-    sign_out: Sign out
-    account_menu: "Account menu for @%{login}"
-    signed_in_as: "Signed in as @%{login}"

@@ -1,21 +1,15 @@
 # Working on Replica Hub
 
-Replica Hub is a self-hosted Rails application where teams review prototype branches. GitHub owns source code and repository access. Hub stores Builds and review data. Prototype code runs on isolated preview origins.
+Hub is being rebuilt in TypeScript. The app starts locally, but its product features are not built yet. Read the [root instructions](../AGENTS.md), [shared guides](../docs/README.md), and [Hub documentation](docs/README.md) before editing.
 
-## Start here
+- [Architecture](docs/architecture.md) explains the chosen tools, what works, and what has not been built.
+- [Code architecture conventions](docs/backend-architecture.md) define repositories, integrations, utilities, domains, and allowed imports.
+- [Coding conventions](docs/coding-conventions.md) explain frontend layers, formatting, and interface rules.
+- [Development](docs/development.md) and [testing](docs/testing-and-operations.md) own local and CI commands.
+- [Storybook](docs/storybook.md#ui-changes-and-pull-request-evidence) owns presentation coverage, cleanup, and PR screenshots.
 
-Read the [root instructions](../AGENTS.md) and [shared guides](../docs/README.md), then the [Hub documentation index](docs/README.md) and guides for the work:
+Run Node commands directly from `hub/`. Agree on the design before adding a database, sign-in, deployment, or product API routes.
 
-- [Development](docs/development.md) for the devcontainer and local runtime.
-- [Coding conventions](docs/coding-conventions.md) for Rails, TypeScript, and interface rules.
-- [Shared documentation conventions](../docs/documentation-conventions.md) for discussions, product decisions, prose, and handoffs.
-- [Testing and operations](docs/testing-and-operations.md) for review and verification.
-- [Architecture](docs/architecture.md) and the affected product guide for system boundaries and current behavior.
-- [Storybook](docs/storybook.md#ui-changes-and-pull-request-evidence) for UI changes, story coverage and cleanup, and PR screenshots.
+Keep the top-level `HubThemeProvider` around Hub and Storybook content. It synchronizes the resolved light/dark mode to `<html data-color-mode>` so portals inherit Brand and `--hub-*` tokens. Do not add a fixed light theme to an overlay.
 
-## Working rules
-
-- Extend the existing architecture instead of creating a parallel source, Build, preview, or review flow.
-- Use the devcontainer for Ruby and Node commands.
-- Keep the top-level `HubThemeProvider` around Hub and Storybook content. It synchronizes the resolved light/dark mode to `<html data-color-mode>` so portals into `document.body` inherit Brand and `--hub-*` tokens. React context alone does not carry CSS inheritance across a portal; do not add a fixed light theme to an overlay.
-- Follow the [root Git workflow](../AGENTS.md#git-and-publishing) for checkout checks and publishing steps.
+Preserve the shared canvas and Controls source paths under `app/javascript/`; the prototype extension and build action consume them independently of the Hub API.

@@ -1,7 +1,7 @@
 import { render } from "@testing-library/react"
 import { describe, it } from "vitest"
 
-import { GithubAppSetupRegisterPage } from "./index"
+import { GithubAppSetupRegisterPage } from "."
 import type { GithubAppSetupRegisterPageData } from "./types"
 
 const PAGE_DATA: GithubAppSetupRegisterPageData = {
@@ -21,7 +21,6 @@ describe("GithubAppSetupRegisterPage()", () => {
     const form = container.querySelector("form")
 
     expect(form).toHaveAttribute("action", "https://github.com/settings/apps/new")
-    expect(form).not.toHaveAttribute("data-sg-visit")
     expect(container.querySelector("input[name=manifest]")).toHaveValue('{"name":"Replica Hub"}')
   })
 })

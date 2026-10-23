@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest"
 
 import type { UsageIndex } from "../analyze-usage/types"
 import type { UsageViewProps } from "../usage-view/types"
-import { UsagePanel } from "./index"
+import { UsagePanel } from "."
 
 vi.mock("storybook/manager-api", () => ({
   useChannel: vi.fn(),

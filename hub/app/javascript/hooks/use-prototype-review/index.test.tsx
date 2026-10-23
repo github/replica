@@ -7,10 +7,6 @@ import type { PreviewBridgeCommand, PreviewBridgeMessage } from "@utils/preview-
 
 import { usePrototypeReview } from "."
 
-vi.mock("@hooks/use-review-comments-subscription", () => ({
-  useReviewCommentsSubscription: () => {},
-}))
-
 const commentsPath = "/repositories/2001/prototypes/1/review_comments"
 const previewUrl = "http://b1.preview.replica.localhost:19500/"
 const anchorPoint =

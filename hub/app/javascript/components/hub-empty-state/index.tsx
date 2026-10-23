@@ -42,13 +42,7 @@ export function HubEmptyState({
         </Text>
       </div>
       {actionHref ? (
-        <Button
-          as="a"
-          href={actionHref}
-          data-sg-visit="true"
-          variant="primary"
-          className="hub-empty-state__action"
-        >
+        <Button as="a" href={actionHref} variant="primary" className="hub-empty-state__action">
           {actionLabel}
         </Button>
       ) : actionLabel ? (

@@ -1,6 +1,6 @@
 # Set up a prototype repository
 
-Use this guide when someone points an agent at `github/replica` and asks it to set up a prototyping repository. The first milestone is an independent starter app with a verified local preview. Product guidance, reference components, a shared team baseline, and Hub publishing are separate milestones.
+Use this guide when someone points an agent at `github/replica` and asks it to set up a prototyping repository. The first milestone is an independent starter app with a verified local preview. Product guidance, reference components, and a shared team baseline are separate milestones. Publishing and comments are not available in the [new Hub](../hub/README.md) yet.
 
 This guide uses the existing installer and starter workflows. It does not change `/setup-skills`, which drafts the full shared context library on plain setup.
 
@@ -67,7 +67,7 @@ This milestone checks the existing starter page without building product UI. Rep
 | Product or design-system setup | Run the new repository's `/setup-skills` with the supplied sources. Reuse prior answers. Follow its source intake, installation approval, draft review, and separate activation steps. |
 | Reference-based starting UI | Complete the applicable guidance setup, then use the local `create-prototype` skill to build the requested shell or page. Establish whether components come from an installable package, permitted source reuse, or newly authored components. Verify the rendered result against the authorized reference. |
 | Shared team baseline | Complete the applicable guidance setup, [prepare useful starting pages](prototype-environment.md#3-prepare-useful-starting-pages), and review them together. Then [share the baseline on GitHub](#share-the-baseline-on-github). |
-| Hosted publishing and comments | First [share the reviewed baseline on GitHub and verify it on the actual default branch](#share-the-baseline-on-github), then follow [deploy the hub](prototype-environment.md#4-deploy-the-hub) and the remaining environment setup steps, or connect to an existing team Hub. |
+| Hosted publishing and comments | Explain that the new Hub cannot publish prototypes or accept comments yet, and has no deployment workflow. Do not infer setup steps from old releases. Local previews and a shared repository remain available. |
 
 Guidance drafts are not active guidance. Installed tokens or packages are not proof that reference components are usable or that a shell resembles the reference. Keep those outcomes distinct.
 
@@ -75,7 +75,7 @@ Guidance drafts are not active guidance. Installed tokens or packages are not pr
 
 After reviewing the starter files, guidance, and starting pages, use the intended empty GitHub repository or create one with the agreed owner and visibility. Connect it as a remote named `origin`, make the initial commit, and push the intended default branch only when authorized. For an existing shared repository, follow its contribution process to merge the reviewed changes instead of replacing its remote or history. Ask an engineer for help with these Git steps if needed.
 
-Verify the repository's actual default branch contains the intended baseline before calling it ready for teammates or continuing to Hub repository connection. A local preview is not evidence of a published Hub Build.
+Verify the repository's actual default branch contains the intended baseline before calling it ready for teammates. A local preview is not evidence of a published Hub Build.
 
 ## 5. Report what is ready
 
