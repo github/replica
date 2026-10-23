@@ -82,6 +82,20 @@ async function fixture(action) {
 }
 
 describe("discoverHub()", () => {
+  it("reports malformed GitHub envelopes as unavailable rather than selecting a Hub", () =>
+    fixture(async ({ context, options }) => {
+      for (const payload of [null, true, [], {}, { data: { repository: { nameWithOwner: 42 } } }]) {
+        const result = await discoverHub(context, {
+          ...options,
+          force: true,
+          runCommand: async () => ({ ok: true, stdout: JSON.stringify(payload) }),
+        })
+        assert.equal(result.state, "unreachable")
+        assert.equal(result.origin, undefined)
+        assert.match(result.message, /could not verify the origin repository/)
+      }
+    }))
+
   it("reads complete GraphQL responses larger than the shared command runner limit", () =>
     fixture(async ({ workspace, context, options }) => {
       const text = JSON.stringify({

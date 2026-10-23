@@ -1,16 +1,15 @@
 import { realpath } from "node:fs/promises"
 import path from "node:path"
-
 import { runCommand } from "../run-command/index.mjs"
-
 export async function discoverPrototypeServers(repositoryPath, options = {}) {
   const command = options.runCommand || runCommand
   const request = options.fetch || globalThis.fetch
   const root = await realpath(repositoryPath)
   const listeners = await command("lsof", ["-nP", "-iTCP", "-sTCP:LISTEN", "-Fpcn"], root)
   if (!hasLsofOutput(listeners))
-    throw new Error(`Could not inspect running servers: ${listeners.error}`)
-
+    throw new Error(
+      `Could not inspect running servers: ${!listeners.ok ? listeners.error : "Invalid lsof output."}`,
+    )
   const processes = new Map()
   let current
   for (const line of listeners.stdout.split("\n")) {
@@ -28,21 +27,23 @@ export async function discoverPrototypeServers(repositoryPath, options = {}) {
     if (pid === process.pid || /^(copilot|github)$/.test(processInfo.command)) processes.delete(pid)
   }
   if (!processes.size) return { servers: [], warnings: [] }
-
   const directories = await command(
     "lsof",
     ["-a", "-p", [...processes.keys()].join(","), "-d", "cwd", "-Fn"],
     root,
   )
   if (!hasLsofOutput(directories))
-    throw new Error(`Could not inspect server working directories: ${directories.error}`)
+    throw new Error(
+      `Could not inspect server working directories: ${!directories.ok ? directories.error : "Invalid lsof output."}`,
+    )
   let pid
   for (const line of directories.stdout.split("\n")) {
     if (/^p\d+$/.test(line)) pid = Number(line.slice(1))
-    else if (line.startsWith("n") && processes.has(pid))
-      processes.get(pid).directory = line.slice(1)
+    else if (line.startsWith("n") && pid !== undefined) {
+      const processInfo = processes.get(pid)
+      if (processInfo) processInfo.directory = line.slice(1)
+    }
   }
-
   const candidates = new Map()
   for (const processInfo of processes.values()) {
     if (!processInfo.directory) continue
@@ -51,7 +52,7 @@ export async function discoverPrototypeServers(repositoryPath, options = {}) {
       continue
     for (const address of processInfo.addresses) {
       const match = /^(\*|0\.0\.0\.0|127(?:\.\d+){3}|\[::\]|\[::1\]):(\d+)$/.exec(address)
-      if (!match) continue
+      if (!match?.[1]) continue
       const host =
         match[1] === "[::1]" || match[1] === "[::]"
           ? "[::1]"
@@ -94,8 +95,10 @@ export async function discoverPrototypeServers(repositoryPath, options = {}) {
   warnings.sort()
   return { servers, warnings }
 }
-
 function hasLsofOutput(result) {
   // lsof uses exit 1 for no matches, including processes that exited between reads.
-  return result.ok || (result.exitCode === 1 && result.stderr === "")
+  return (
+    typeof result.stdout === "string" &&
+    (result.ok || (result.exitCode === 1 && result.stderr === ""))
+  )
 }

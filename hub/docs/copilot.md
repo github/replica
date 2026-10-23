@@ -25,7 +25,7 @@ Hub reads one environment variable, so it needs no code for any secret store. Hu
 ## Connect Copilot
 
 1. Open **Copilot** in the sidebar's lower group, or go to `/copilot`. Without a token, the page says how to give Hub one.
-2. Read what Hub will do with Copilot, check the confirmation, and choose **Connect Copilot**. Like Hub's other administrator settings, this needs a [fresh GitHub authorization](fresh-authorization.md) on the same browser Session within the last five minutes. If GitHub asks you to verify, return and confirm again; verification never submits the change.
+2. Read what Hub will do with Copilot, check the confirmation, and choose **Connect Copilot**. Like Hub's other administrator settings, this needs a [fresh GitHub authorization](fresh-authorization.md) on the same browser Session within the last five minutes. If GitHub asks you to verify, Hub continues the confirmed connection change after verification succeeds.
 3. Hub checks the token with a Copilot request that lists the models it may use. If Copilot answers, Hub connects Copilot and records who connected it.
 
 If another administrator disconnects or replaces the connection while Hub checks the token, Hub cancels the earlier check and leaves that change intact.

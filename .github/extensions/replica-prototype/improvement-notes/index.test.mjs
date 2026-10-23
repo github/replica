@@ -752,6 +752,53 @@ it("rejects stale panels, changed branches and corrupt storage without dropping 
   })
 })
 
+it("preserves saved notes when a persisted batch contains malformed request IDs", async () => {
+  await fixture(async ({ create, anchor, directory }) => {
+    const store = create()
+    let state = await store.load()
+    state = await store.save({
+      ...state,
+      operation: "create",
+      body: "Keep this improvement",
+      anchor,
+    })
+    await store.fix(state)
+    const filename = path.join(directory, "notes", `${state.identity}.json`)
+    const malformed = JSON.parse(await readFile(filename, "utf8"))
+    malformed.batches[0].notes[0].requestIds = ["not-a-request-id"]
+    const malformedJson = JSON.stringify(malformed)
+    await writeFile(filename, malformedJson, { mode: 0o600 })
+
+    await assert.rejects(store.load(), /corrupt/i)
+    assert.equal(await readFile(filename, "utf8"), malformedJson)
+  })
+})
+
+it("rejects malformed action inputs without dispatching or changing saved state", async () => {
+  await fixture(async ({ create, anchor, directory, messages }) => {
+    const store = create()
+    let state = await store.load()
+    state = await store.save({
+      ...state,
+      operation: "create",
+      body: "Keep this improvement",
+      anchor,
+    })
+    const filename = path.join(directory, "notes", `${state.identity}.json`)
+    const beforeFix = await readFile(filename, "utf8")
+
+    await assert.rejects(store.fix(null), /invalid improvement-note operation/i)
+    assert.deepEqual(messages, [])
+    assert.equal(await readFile(filename, "utf8"), beforeFix)
+
+    await store.fix(state)
+    const beforeResults = await readFile(filename, "utf8")
+    await assert.rejects(store.results(null), /return one result/i)
+    assert.equal(messages.length, 1)
+    assert.equal(await readFile(filename, "utf8"), beforeResults)
+  })
+})
+
 it("captures an immutable cross-screen batch while follow-ups wait for the next explicit batch", async () => {
   await fixture(async ({ create, anchor, messages }) => {
     const store = create()

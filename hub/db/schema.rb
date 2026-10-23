@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_19_140000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_22_160000) do
   create_table "analytics_deliveries", force: :cascade do |t|
     t.integer "attempts", default: 0, null: false
     t.datetime "created_at", null: false
@@ -233,11 +233,14 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_19_140000) do
     t.datetime "verified_at"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.text "pending_action"
+    t.datetime "continued_at"
     t.index ["credential_type", "credential_id"], name: "idx_on_credential_type_credential_id_835b090260"
     t.index ["expires_at"], name: "index_fresh_authorizations_on_expires_at"
     t.index ["public_id"], name: "index_fresh_authorizations_on_public_id", unique: true
     t.index ["repository_id"], name: "index_fresh_authorizations_on_repository_id"
     t.index ["user_id"], name: "index_fresh_authorizations_on_user_id"
+    t.check_constraint "continued_at IS NULL OR (verified_at IS NOT NULL AND pending_action IS NULL)", name: "fresh_authorizations_continuation"
     t.check_constraint "credential_type IN ('Session', 'CanvasGrant') AND credential_id > 0 AND github_id > 0", name: "fresh_authorizations_identity"
     t.check_constraint "purpose IN ('never_expiring_share', 'analytics_destination', 'hub_admin_management', 'sharing_settings', 'session_revocation', 'github_app_reset', 'github_app_credentials', 'github_app_webhook', 'github_app_finish_webhook', 'copilot_connection', 'copilot_disconnection')", name: "fresh_authorizations_purpose"
     t.check_constraint "verified_at IS NULL OR consumed_at IS NOT NULL", name: "fresh_authorizations_verification"
@@ -268,7 +271,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_19_140000) do
     t.string "webhook_rotation_state", default: "idle", null: false
     t.string "webhook_request_token"
     t.datetime "webhook_request_expires_at"
+    t.bigint "installation_account_github_id"
     t.index ["singleton_key"], name: "index_github_app_configurations_on_singleton_key", unique: true
+    t.check_constraint "(installation_id IS NULL AND installation_account_github_id IS NULL) OR (installation_id IS NOT NULL AND installation_account_github_id IS NOT NULL AND installation_account_github_id > 0)", name: "github_app_configurations_installation_account"
     t.check_constraint "(installation_state = 'not_installed' AND installation_id IS NULL) OR (installation_state <> 'not_installed' AND installation_id IS NOT NULL)", name: "github_app_configurations_installation_identity"
     t.check_constraint "(webhook_request_token IS NULL AND webhook_request_expires_at IS NULL) OR (webhook_rotation_state = 'pending' AND webhook_request_token IS NOT NULL AND webhook_request_expires_at IS NOT NULL)", name: "github_app_configurations_webhook_request"
     t.check_constraint "(webhook_rotation_state = 'idle' AND previous_webhook_secret IS NULL) OR (webhook_rotation_state IN ('pending', 'confirmed') AND previous_webhook_secret IS NOT NULL)", name: "github_app_configurations_webhook_rotation"
@@ -461,8 +466,10 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_19_140000) do
     t.string "retired_head_sha"
     t.index ["author_id"], name: "index_prototypes_on_author_id"
     t.index ["current_build_id"], name: "index_prototypes_on_current_build_id"
+    t.index ["repository_id", "author_id", "registered_at", "id"], name: "index_prototypes_on_gallery_author", where: "branch_deleted_at IS NULL AND registered_at IS NOT NULL"
     t.index ["repository_id", "branch_name", "branch_deleted_at"], name: "idx_on_repository_id_branch_name_branch_deleted_at_37960952d6"
     t.index ["repository_id", "branch_name"], name: "index_prototypes_on_active_branch", unique: true, where: "branch_deleted_at IS NULL"
+    t.index ["repository_id", "registered_at", "id"], name: "index_prototypes_on_gallery_order", where: "branch_deleted_at IS NULL AND registered_at IS NOT NULL"
     t.index ["repository_id"], name: "index_prototypes_on_repository_id"
     t.check_constraint "description IS NULL OR length(trim(description)) BETWEEN 1 AND 500", name: "prototypes_description"
     t.check_constraint "length(trim(branch_name)) BETWEEN 1 AND 255", name: "prototypes_branch_name"

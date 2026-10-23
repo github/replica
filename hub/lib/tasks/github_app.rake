@@ -23,8 +23,6 @@ namespace :replica do
       configuration = GithubAppConfiguration.current
       abort "GitHub App: not configured" if configuration.nil?
 
-      abort "GitHub App installation: not installed" if configuration.installation_id.nil?
-
       configuration.discover_builds!
       puts "Repositories synchronized: #{Repository.active.count} active"
       puts "Builds discovered: #{Build.count} total"

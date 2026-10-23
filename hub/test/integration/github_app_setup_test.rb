@@ -88,7 +88,7 @@ class GithubAppSetupTest < ActionDispatch::IntegrationTest
       stub_request(:get, "https://api.github.com/app/installations/456")
         .to_return \
           status: 200,
-          body: JSON.generate(id: 456, account: credentials.fetch("owner")),
+          body: JSON.generate(id: 456, app_id: credentials.fetch("id"), account: credentials.fetch("owner")),
           headers: { "Content-Type" => "application/json" }
       stub_github_installation_token
       stub_github_repositories([])

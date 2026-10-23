@@ -216,7 +216,9 @@ class GithubAppAdministrationConcurrencyTest < ActiveSupport::TestCase
 
   %w[browser host].each do |entrypoint|
     test "#{entrypoint} credential replacement survives an unchanged poll during key verification" do
-      @configuration.update!(installation_id: 456, installation_state: "active", installed_at: Time.current)
+      @configuration.update! \
+        installation_id: 456, installation_account_github_id: 321,
+        installation_state: "active", installed_at: Time.current
       version = @configuration.lock_version
       dispatch = Queue.new
       finish = Queue.new
@@ -264,11 +266,14 @@ class GithubAppAdministrationConcurrencyTest < ActiveSupport::TestCase
   end
 
   test "overlapping unchanged polls both synchronize repositories without stale writes" do
-    @configuration.update!(installation_id: 456, installation_state: "active", installed_at: Time.current)
+    @configuration.update! \
+      installation_id: 456, installation_account_github_id: 321,
+      installation_state: "active", installed_at: Time.current
     version = @configuration.lock_version
     dispatch = Queue.new
     finish = Queue.new
     connections = Queue.new
+    stub_github_app(configuration: @configuration)
     stub_github_installation_token
     stub_github_repositories([])
     stub_request(:get, "#{GITHUB_API_URL}/app/installations/456").to_return do
@@ -305,6 +310,7 @@ class GithubAppAdministrationConcurrencyTest < ActiveSupport::TestCase
   def installation_payload
     {
       "id" => 456,
+      "app_id" => 123,
       "account" => { "id" => 321, "login" => "github", "type" => "Organization" }
     }
   end

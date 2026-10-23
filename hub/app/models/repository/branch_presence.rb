@@ -61,12 +61,12 @@ class Repository::BranchPresence < ActiveRecord::AssociatedObject
   end
 
   # Checks ancestry outside locks, then accepts it only against the captured owner.
-  def record_head!(branch_name:, commit_sha:, observed:, configuration:, default_branch: record.default_branch)
-    credentials = configuration.credential_snapshot
+  def record_head!(branch_name:, commit_sha:, observed:, configuration:,
+    installation: configuration.installation_snapshot, default_branch: record.default_branch)
     resume = if observed&.branch_deleted_at.present?
       observed.retired_head_sha.present? && ancestor?(observed.retired_head_sha, commit_sha, configuration:)
     end
-    GithubAppConfiguration.with_credentials!(**credentials) do
+    configuration.with_installation!(snapshot: installation) do
       record.build_discoveries.record! \
         branch_name:,
         commit_sha:,
@@ -98,23 +98,23 @@ class Repository::BranchPresence < ActiveRecord::AssociatedObject
   end
 
   # Confirms a deletion notification against GitHub, not its delivery order.
-  def record_deletion!(branch_name:, configuration:)
+  def record_deletion!(branch_name:, configuration:, installation: configuration.installation_snapshot)
     return if record.local?
 
-    credentials = configuration.credential_snapshot
     observed = observations[branch_name]
     return if observed.nil? || observed.branch_deleted_at.present? || !observed.reviewable?
     return if heads(configuration:, corroborate: [ branch_name ]).key?(branch_name)
 
-    GithubAppConfiguration.with_credentials!(**credentials) { record_missing!(branch_name:, observed:) }
+    configuration.with_installation!(snapshot: installation) { record_missing!(branch_name:, observed:) }
   end
 
   # Delayed events may refresh ownership, but only a confirmed current head revives it.
-  def refresh!(branch_name:, observed:, configuration:, default_branch: record.default_branch)
+  def refresh!(branch_name:, observed:, configuration:, installation: configuration.installation_snapshot,
+    default_branch: record.default_branch)
     sha = current_head(branch_name, configuration:)
     return if sha.nil?
 
-    record_head!(branch_name:, commit_sha: sha, observed:, configuration:, default_branch:)
+    record_head!(branch_name:, commit_sha: sha, observed:, configuration:, installation:, default_branch:)
   end
 
   private

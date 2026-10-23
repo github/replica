@@ -27,7 +27,7 @@ export const sessionRevocationData: SessionRevocationPageData = {
   ownSession:
     "Your own session (@octocat) will end too. This browser will show the result without requiring another sign-in.",
   verification:
-    "GitHub must have verified this browser's account within the last five minutes. If verification is required, return here and confirm again. Hub never replays this action.",
+    "GitHub must have verified this browser's account within the last five minutes. If verification is required, Hub ends the sessions after it succeeds.",
   counts:
     "3 browser sessions, 2 canvas connections, and 1 pending approval. Counts can change before confirmation.",
   emptyLabel: null,
@@ -60,6 +60,7 @@ const result: SessionRevocationPageData = {
 const meta = {
   title: "Hub/Pages/Security/End all sessions",
   component: SessionRevocationPage,
+  excludeStories: ["sessionRevocationData"],
   parameters: { layout: "fullscreen" },
   args: { data: sessionRevocationData },
 } satisfies Meta<typeof SessionRevocationPage>
@@ -75,14 +76,6 @@ export const OnlyYourSession: Story = {
       counts: "1 browser session, 0 canvas connections, and 0 pending approvals.",
       emptyLabel:
         "No other browser sessions, canvas connections, or pending approvals are active. Your own session will still end.",
-    },
-  },
-}
-export const Challenged: Story = {
-  args: {
-    data: {
-      ...sessionRevocationData,
-      alert: "Verify with GitHub, then return here and confirm again. No sessions were ended.",
     },
   },
 }

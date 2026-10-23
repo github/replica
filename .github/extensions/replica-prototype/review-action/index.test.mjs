@@ -90,6 +90,53 @@ async function withStore(action) {
   }
 }
 
+it("rejects corrupt reply receipts without dispatching or overwriting an uncertain attempt", async () => {
+  await withStore(async (store) => {
+    const hub = client()
+    const input = { target, threadId: 7, body: "Retain request identity", requestId: randomUUID() }
+    const file = `reply-${input.requestId}.json`
+    for (const saved of [
+      42,
+      { ...input, state: "unexpected" },
+      { ...input, state: "confirmed", result: { reply: null } },
+    ]) {
+      await store.write(file, saved)
+      await assert.rejects(reviewAction(hub, "reply_to_comment", input, store), {
+        code: "invalid_comment_request",
+      })
+      assert.deepEqual(await store.read(file), saved)
+    }
+    assert.ok(hub.calls.every(({ route }) => route.startsWith("/api/canvas/prototype?")))
+  })
+})
+
+it("rejects corrupt snapshot messages before returning a retained conversation", async () => {
+  await withStore(async (store) => {
+    const hub = client()
+    const page = await reviewAction(hub, "list_comments", {}, store)
+    const file = `snapshot-${page.snapshotId}.json`
+    const saved = await store.read(file)
+    const corrupt = { ...saved, comments: [{ ...saved.comments[0], author: null }] }
+    await store.write(file, corrupt)
+    hub.calls.length = 0
+    await assert.rejects(
+      reviewAction(
+        hub,
+        "get_comment_thread",
+        {
+          target,
+          threadId: 7,
+          snapshotId: page.snapshotId,
+        },
+        store,
+      ),
+      { code: "invalid_comment_request" },
+    )
+    assert.deepEqual(await store.read(file), corrupt)
+    assert.equal(hub.calls.length, 1)
+  })
+})
+
 const firstPrototype = { id: 3, name: "Welcome", branch: "prototype/welcome" }
 const secondPrototype = { id: 4, name: null, branch: "prototype/other" }
 

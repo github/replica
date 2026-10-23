@@ -59,6 +59,7 @@ class Repository < ApplicationRecord
   has_object :branch_presence
   has_object :local_discovery
   has_object :prototype_candidates
+  has_object :prototype_listing
   has_object :workflow_installation
   has_object :workflow_run_discoveries
 

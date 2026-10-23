@@ -4,9 +4,14 @@ git_source(:github) { |repo| "https://github.com/#{repo}.git" }
 gem "active_job-performs", "1.0.2"
 gem "active_record-associated_object", "1.0.0"
 gem "bootsnap", require: false
-gem "json", "~> 3.0"
+gem "json", "~> 3.1"
 gem "jwt", "~> 3.3"
 gem "oaken", "1.0.0"
+gem "opentelemetry-exporter-otlp", require: false
+gem "opentelemetry-instrumentation-action_pack", require: false
+gem "opentelemetry-instrumentation-active_job", require: false
+gem "opentelemetry-instrumentation-net_http", require: false
+gem "opentelemetry-sdk", require: false
 gem "propshaft"
 gem "puma", ">= 5.0"
 gem "rails", "~> 8.1.4"
@@ -28,7 +33,7 @@ group :development, :test do
 end
 
 group :test do
-  gem "webmock", "~> 3.26"
+  gem "webmock", "~> 3.34"
 end
 
 group :development do

@@ -1,6 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { fn } from "storybook/test"
 
 import { authenticatedHeaderData } from "@/storybook/fixtures/authenticated-header"
+import { prototypeListing } from "@/storybook/fixtures/prototype-listing"
 import { welcomePrototype } from "@/storybook/fixtures/prototypes"
 import { githubEmpty, githubPrototype } from "@/storybook/fixtures/repositories"
 
@@ -8,6 +10,7 @@ import { RepositoriesShowPage } from "."
 import type { RepositoriesShowPageData } from "./types"
 
 const data: RepositoriesShowPageData = {
+  listing: { ...prototypeListing, matchingCount: 0 },
   ...authenticatedHeaderData,
   alert: null,
   collapseNavigationLabel: "Collapse sidebar",
@@ -21,7 +24,7 @@ const data: RepositoriesShowPageData = {
   managePrototypesLabel: "Manage prototypes",
   managePrototypesPath: "/repositories/2001/prototypes/manage",
   prototypeColumnLabel: "Prototype",
-  ownerColumnLabel: "Owner",
+  ownerColumnLabel: "Author",
   buildColumnLabel: "Build",
   passingLabel: "passing",
   notPassingLabel: "not passing",
@@ -35,8 +38,6 @@ const data: RepositoriesShowPageData = {
   pageTitle: "github/prototype",
   prototypes: [],
   prototypesCountLabel: "0 prototypes",
-  prototypeCountUnitOne: "prototype",
-  prototypeCountUnitOther: "prototypes",
   prototypesHeading: "Prototypes",
   prototypesLabel: "Prototypes",
   prototypesPath: "/repositories/2001",
@@ -58,7 +59,25 @@ const data: RepositoriesShowPageData = {
 const meta = {
   title: "Hub/Pages/Repositories/Show",
   component: RepositoriesShowPage,
-  args: { data },
+  args: {
+    data,
+    controls: {
+      query: "",
+      pending: false,
+      error: false,
+      onQueryChange: fn(),
+      onQuerySubmit: fn(),
+      onAuthorChange: fn(),
+      onNavigate: fn(),
+      onRetry: fn(),
+      loadAuthors: fn(() =>
+        Promise.resolve({
+          authors: [],
+          nextCursor: null,
+        }),
+      ),
+    },
+  },
   parameters: { layout: "fullscreen" },
 } satisfies Meta<typeof RepositoriesShowPage>
 
@@ -175,9 +194,78 @@ export const WideViewSwitching: Story = {
 }
 
 export const Searched: Story = {
+  args: {
+    controls: { ...meta.args.controls, query: "Navigation" },
+    data: {
+      ...data,
+      listing: { ...prototypeListing, query: "Navigation" },
+      prototypes: [
+        {
+          ...welcomePrototype,
+          id: "2",
+          name: "Navigation",
+          path: "/repositories/2001/prototypes/2",
+        },
+      ],
+      prototypesCountLabel: "1 prototype",
+    },
+  },
+}
+
+export const MeSelected: Story = {
+  ...Single,
+  args: {
+    ...Single.args,
+    data: {
+      ...data,
+      listing: { ...prototypeListing, author: "me", authorLabel: "Me" },
+      prototypes: [welcomePrototype],
+      prototypesCountLabel: "1 prototype",
+    },
+  },
+}
+
+export const Paginated: Story = {
   ...Multiple,
-  play: async ({ canvas, userEvent }) => {
-    await userEvent.type(canvas.getByRole("searchbox", { name: "Search prototypes" }), "Navigation")
+  args: {
+    ...Multiple.args,
+    data: {
+      ...data,
+      ...Multiple.args?.data,
+      listing: {
+        ...prototypeListing,
+        matchingCount: 50,
+        pageCount: 3,
+        copy: { ...prototypeListing.copy, shown: "2 shown" },
+      },
+      prototypesCountLabel: "50 prototypes",
+    },
+  },
+}
+
+export const NoMatches: Story = {
+  args: {
+    data: {
+      ...data,
+      listing: { ...prototypeListing, author: "me", authorLabel: "Me", matchingCount: 0 },
+      workflowInstallation: undefined,
+    },
+  },
+}
+
+export const Updating: Story = {
+  ...Single,
+  args: {
+    ...Single.args,
+    controls: { ...meta.args.controls, pending: true },
+  },
+}
+
+export const RequestFailed: Story = {
+  ...Single,
+  args: {
+    ...Single.args,
+    controls: { ...meta.args.controls, error: true },
   },
 }
 

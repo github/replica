@@ -8,7 +8,7 @@ Security decisions, including destination changes, use the separate [security au
 
 Open **Analytics** above the account avatar, or visit `/repositories/:id/analytics`. Hub checks current GitHub admin permission on reads and every change. If GitHub cannot confirm access, Hub denies it. There is no Hub-wide analytics administrator.
 
-Every GitHub-backed destination mutation also requires [fresh GitHub authorization](fresh-authorization.md) on the same browser Session. When verification is needed, Hub makes no change and does not retain or replay submitted credentials. Verify the same account, then enter the settings and submit again within five minutes.
+Every GitHub-backed destination mutation also requires [fresh GitHub authorization](fresh-authorization.md) on the same browser Session. When verification is needed, Hub temporarily encrypts the submitted settings and credentials without changing the destination. Verify the same account and Hub continues that specific action through its normal permission checks. Failed or cancelled verification discards the saved settings.
 
 The isolated local-development demo keeps its existing analytics editing without pretending to verify GitHub identity. This exception applies only to the local developer acting on a configured local repository with local mode enabled. Local mode requires development, an explicit flag, and a localhost Hub origin; production rejects it. No other sensitive operation receives this exception.
 

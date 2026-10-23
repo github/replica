@@ -1,4 +1,4 @@
-# Presents an explicit identity check without ever executing the original mutation.
+# Verifies identity, then returns confirmed actions to their CSRF-protected routes.
 class FreshAuthorizationsController < SuperglueController
   allow_unauthenticated_access
   before_action :resume_session
@@ -11,7 +11,8 @@ class FreshAuthorizationsController < SuperglueController
 
   # @route GET /authorization/:id (fresh_authorization)
   def show
-    raise FreshAuthorization::Invalid if !@challenge.available_to?(Current.session)
+    @continuing = @challenge.continuation.available_to?(Current.session)
+    raise FreshAuthorization::Invalid if !@continuing && !@challenge.available_to?(Current.session)
   end
 
   # @route POST /authorization/:id (fresh_authorization)

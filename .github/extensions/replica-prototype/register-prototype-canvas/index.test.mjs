@@ -14,6 +14,7 @@ import { requestPublish } from "../request-publish/index.mjs"
 import { writeState } from "../write-state/index.mjs"
 import { createPrivateStore } from "../private-store/index.mjs"
 import { createHubOriginStore } from "../create-hub-origin-store/index.mjs"
+import { prototypeConnection } from "../prototype-connection/index.mjs"
 import { rankForRecall, renderRecall } from "../../../../packages/learning/src/recall.mjs"
 import {
   metadataUpdateAcknowledgement,
@@ -699,7 +700,7 @@ describe("registerPrototypeCanvas()", () => {
           /HTTP or HTTPS/,
         )
         assert.equal((await canvas.open(ctx)).status, "Ready to connect")
-        assert.equal(logs.length, 4)
+        assert.equal(logs.length, 3)
         assert.ok(
           logs.every(
             (message) =>
@@ -2053,6 +2054,48 @@ esac
     })
   })
 
+  for (const [label, saved] of [
+    ["a non-object connection", ["http://localhost:5173"]],
+    ["a non-string URL", { prototypeUrl: 5173 }],
+    [
+      "a non-boolean thread sample flag",
+      { prototypeUrl: "http://localhost:5173", improvementThreadsSample: "true" },
+    ],
+    ["a non-HTTP preview URL", { prototypeUrl: "file:///private" }],
+    [
+      "a non-HTTP published URL",
+      {
+        prototypeUrl: "http://localhost:5173",
+        publishedUrl: "javascript:void(0)",
+      },
+    ],
+  ]) {
+    it(`rejects ${label} from saved state before checking a server`, async () => {
+      await withContext(async (context) => {
+        await prototypeConnection(context.sessionWorkspacePath, context.repositoryPath).save(saved)
+        let checked = false
+        const canvas = await register(context, [], async () => {
+          checked = true
+          return { available: true }
+        })
+        const ctx = {
+          instanceId: "invalid-saved-connection",
+          sessionId: "test-session",
+          session: { workingDirectory: context.repositoryPath },
+        }
+        try {
+          await assert.rejects(canvas.open(ctx), {
+            code: "saved_connection_invalid",
+            message: /saved prototype connection.*valid prototypeUrl.*connect_prototype/,
+          })
+          assert.equal(checked, false)
+        } finally {
+          await canvas.onClose(ctx)
+        }
+      })
+    })
+  }
+
   it("connects a detected server without chat and restores it after provider restart", async () => {
     await withContext(async (context) => {
       const prompts = []
@@ -2123,6 +2166,9 @@ esac
         )
         assert.equal(prompts.length, 0)
 
+        await prototypeConnection(context.sessionWorkspacePath, context.repositoryPath).save({
+          prototypeUrl: "file:///invalid-saved-connection",
+        })
         explicit = await register(context, prompts)
         const overridden = await explicit.open({
           ...openContext,
@@ -2132,6 +2178,17 @@ esac
           await (await fetch(overridden.url)).text(),
           /http:\/\/localhost:4321\/different/,
         )
+        const connection = prototypeConnection(context.sessionWorkspacePath, context.repositoryPath)
+        assert.equal((await connection.read()).prototypeUrl, "file:///invalid-saved-connection")
+        await explicit.actions
+          .find((action) => action.name === "connect_prototype")
+          .handler({
+            ...openContext,
+            input: { prototypeUrl: "http://localhost:4321/different" },
+          })
+        assert.equal((await connection.read()).prototypeUrl, "http://localhost:4321/different")
+        await explicit.onClose(openContext)
+        assert.equal((await explicit.open(openContext)).status, "Prototype connected")
       } finally {
         await canvas.onClose(openContext)
         await restored?.onClose({ ...openContext, instanceId: "fresh-panel" })

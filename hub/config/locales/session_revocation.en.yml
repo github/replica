@@ -4,7 +4,7 @@ en:
     description: Sign everyone out of this Hub and disconnect existing Copilot canvas connections. People can sign in and approve new connections afterward.
     scope: Existing browser sessions, canvas access and refresh credentials, pending canvas approvals, preview handoffs, and signed-in preview access will end. Public share links and public previews will not change.
     own_session: "Your own session (@%{login}) will end too. This browser will show the result without requiring another sign-in."
-    verification: GitHub must have verified this browser's account within the last five minutes. If verification is required, return here and confirm again. Hub never replays this action.
+    verification: GitHub must have verified this browser's account within the last five minutes. If verification is required, Hub ends the sessions after it succeeds.
     counts: "%{browsers} browser sessions, %{canvases} canvas connections, and %{pairings} pending approvals. Counts can change before confirmation."
     empty: No other browser sessions, canvas connections, or pending approvals are active. Your own session will still end.
     confirm: I understand this will end everyone's sessions, including my own.
