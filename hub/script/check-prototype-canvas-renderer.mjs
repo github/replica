@@ -165,6 +165,19 @@ try {
       await notesToggle.click()
       assert.equal(await notesToggle.getAttribute("aria-expanded"), "true")
       await page.getByRole("complementary", { name: "Notes" }).waitFor()
+      const marker = page.getByRole("button", { name: "Open improvement 1", exact: true })
+      await marker.click()
+      await dialog.waitFor()
+      await page.keyboard.press("Escape")
+      await dialog.waitFor({ state: "hidden" })
+      assert.ok(await marker.evaluate((element) => element === document.activeElement))
+      assert.equal(await marker.evaluate((element) => getComputedStyle(element).outlineStyle), "none")
+      assert.equal(
+        await marker
+          .locator(".review-participant-stack__avatar")
+          .evaluate((element) => getComputedStyle(element).outlineStyle),
+        "solid",
+      )
 
       phase = "selection shortcuts in the canvas and cross-origin preview"
       await picker.focus()

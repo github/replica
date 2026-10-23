@@ -57,7 +57,7 @@
   opacity: 0.8;
 }
 
-.improvement-demo button:focus-visible,
+.improvement-demo button:not(.review-comment-marker):focus-visible,
 .improvement-demo [tabindex]:focus-visible {
   outline: 2px solid var(--hub-focus);
   outline-offset: 3px;
