@@ -8,11 +8,12 @@
     "node": "^24.15.0 || ^26.0.0"
   },
   "scripts": {
-    "check:starter": "npm run type-check && npm run lint && npm run build",
+    "check:starter": "npm run type-check && npm run lint && npm test && npm run build",
     "dev": "react-router dev",
     "build": "react-router build",
     "preview": "npm run build && vite preview --outDir dist",
     "type-check": "react-router typegen && tsc --noEmit",
+    "test": "vitest run",
     "lint": "eslint .",
     "clean": "rimraf build dist .react-router"
   },
@@ -34,6 +35,7 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@react-router/dev": "7.18.4",
+    "@testing-library/react": "^16.3.0",
     "@types/node": "^20",
     "@types/react": "^18.3.0",
     "@types/react-dom": "^18.3.0",
@@ -41,10 +43,12 @@
     "eslint": "^10.7.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "globals": "^16.5.0",
+    "jsdom": "^26.1.0",
     "react-grab": "^0.2.0",
     "rimraf": "^6.0.1",
     "typescript": "~5.5.4",
     "typescript-eslint": "^8.65.0",
-    "vite": "^6.3.5"
+    "vite": "^6.3.5",
+    "vitest": "^3.2.4"
   }
 }

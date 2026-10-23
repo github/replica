@@ -28,12 +28,12 @@ The app runs at <http://127.0.0.1:5174>.
 ```sh
 npm run type-check
 npm run lint
+npm test
 npm run build
 npm run preview
 ```
 
-The package has no automated tests. Run the relevant checks and verify changed behavior
-in a browser.
+Vitest runs hook tests in jsdom with React Testing Library. Keep the hook real and mock settings and the client network boundary; tests must not contact Azure or use real credentials. Run a focused file with `npm test -- app/hooks/useChat.test.ts`. Verify visual changes in a browser.
 
 ## Skill index
 

@@ -16,6 +16,6 @@
       "~/*": ["./app/*"]
     }
   },
-  "include": ["app", "vite.config.ts", "react-router.config.ts", ".react-router/types"],
+  "include": ["app", "vite.config.ts", "vitest.config.ts", "react-router.config.ts", ".react-router/types"],
   "exclude": ["node_modules", "build"]
 }

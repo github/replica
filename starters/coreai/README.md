@@ -24,6 +24,7 @@ From this app's directory:
 ```sh
 npm run type-check
 npm run lint
+npm test
 npm run build
 npm run preview
 ```
@@ -31,8 +32,7 @@ npm run preview
 The preview command builds the app before serving it from `dist`. A production host must serve
 `index.html` as the fallback for application routes.
 
-This package does not have automated tests. Validate changes with the commands above
-and manual browser checks.
+Vitest runs automated hook tests in jsdom with React Testing Library. Chat tests mock settings and the client network boundary, so they need no Azure connection or credentials. Run only chat tests with `npm test -- app/hooks/useChat.test.ts`. `npm run check:starter` runs type checks, lint, tests and the build. Use manual browser checks for visual changes.
 
 ## Features and variants
 
@@ -57,6 +57,8 @@ be shared and revisited. See the prototype feature skills in
 
 The prototype works without Azure OpenAI. A user can optionally enter an Azure OpenAI
 endpoint, deployment name, and API key to enable chat-related interactions.
+
+Starting a new chat cancels the previous request and discards any late response or error from that conversation.
 
 These values are stored unencrypted in the browser's local storage. When the user tests
 the connection or uses an enabled interaction, the browser sends the request directly

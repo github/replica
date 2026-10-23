@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import type OpenAI from 'openai';
 import { useAzureOpenAISettings } from './useAzureOpenAISettings';
 import { createAzureOpenAIClient } from '~/core/utils/azureOpenAI';
@@ -48,12 +48,22 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const activeRequest = useRef<AbortController | null>(null);
+
+  useEffect(() => () => {
+    const request = activeRequest.current;
+    activeRequest.current = null;
+    request?.abort();
+  }, []);
 
   const sendMessage = useCallback(
     async (content: string) => {
-      if (!content.trim()) {
+      if (!content.trim() || activeRequest.current) {
         return;
       }
+
+      const request = new AbortController();
+      activeRequest.current = request;
 
       // Add user message
       const userMessage: ChatMessage = {
@@ -95,11 +105,15 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
         }
 
         // Create a streaming request
-        const stream = await client.chat.completions.create({
-          messages: apiMessages,
-          model: deployment,
-          stream: true,
-        });
+        const stream = await client.chat.completions.create(
+          {
+            messages: apiMessages,
+            model: deployment,
+            stream: true,
+          },
+          { signal: request.signal },
+        );
+        if (activeRequest.current !== request) return;
 
         // Create an assistant message placeholder
         assistantMessageId = generateMessageId();
@@ -117,6 +131,8 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
         // Stream the response
         let fullContent = '';
         for await (const chunk of stream) {
+          if (activeRequest.current !== request) return;
+
           const delta = chunk.choices[0]?.delta?.content ?? '';
           if (delta) {
             fullContent += delta;
@@ -128,26 +144,35 @@ export function useChat(options: UseChatOptions = {}): UseChatReturn {
           }
         }
       } catch (err) {
+        if (activeRequest.current !== request) return;
+
         const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred';
         setError(errorMessage);
         console.error('Chat error:', err);
       } finally {
-        if (assistantMessageId) {
-          setMessages((prev) =>
-            prev.map((msg) =>
-              msg.id === assistantMessageId ? { ...msg, isStreaming: false } : msg,
-            ),
-          );
+        if (activeRequest.current === request) {
+          activeRequest.current = null;
+          if (assistantMessageId) {
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === assistantMessageId ? { ...msg, isStreaming: false } : msg,
+              ),
+            );
+          }
+          setIsLoading(false);
         }
-        setIsLoading(false);
       }
     },
     [isConfigured, settings, systemPrompt, messages],
   );
 
   const clearMessages = useCallback(() => {
+    const request = activeRequest.current;
+    activeRequest.current = null;
+    request?.abort();
     setMessages([]);
     setError(null);
+    setIsLoading(false);
   }, []);
 
   return {
