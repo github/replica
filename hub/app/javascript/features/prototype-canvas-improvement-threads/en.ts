@@ -1,7 +1,7 @@
 import { reviewCommentsCopy } from "@utils/review-comment/en"
 
 export const copy = {
-  title: "Pick & polish",
+  title: "Notes",
   point: (id: number) => `Open improvement ${id}`,
   close: "Close improvements",
   open: "Open improvements",
@@ -30,7 +30,7 @@ export const copy = {
       resolved: "Resolved",
     })[status] ?? status,
   filter: "Filter improvement notes",
-  allActive: "Active notes",
+  allActive: "Active",
   empty: "No improvements in this view.",
   resolved: "Resolved",
   resolve: "Resolved",

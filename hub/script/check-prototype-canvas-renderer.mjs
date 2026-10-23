@@ -213,7 +213,7 @@ try {
       await dialog.getByRole("button", { name: "Close improvement", exact: true }).click()
       await filter("Ready to review")
       assert.equal(await cards.count(), 0)
-      await filter("Active notes")
+      await filter("Active")
       await cards.first().waitFor()
 
       phase = "explicit subsequent batch answers only the follow-up"
@@ -372,7 +372,7 @@ try {
             }
           })
           console.log(JSON.stringify({ viewport: viewport.width, colorScheme, geometry }))
-          assert.ok(Math.abs(geometry.avatarOffset) < 0.5, "Avatar aligns with Active notes")
+          assert.ok(Math.abs(geometry.avatarOffset) < 0.5, "Avatar aligns with Active")
           assert.ok(Math.abs(geometry.hoverGutter - 8) < 0.5, "Hover retains its 8px left gutter")
           assert.ok(
             Math.abs(geometry.actionInset - 16) < 0.5,
@@ -453,7 +453,7 @@ try {
           assert.ok(await firstActions.evaluate((element) => element === document.activeElement))
           await firstActions.click()
           await menu.waitFor()
-          await page.getByRole("heading", { name: "Pick & polish", exact: true }).click()
+          await page.getByRole("heading", { name: "Notes", exact: true }).click()
           await menu.waitFor({ state: "hidden" })
 
           phase = `scrolled blocked menu at ${viewport.width}px in ${colorScheme}`
