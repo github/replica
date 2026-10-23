@@ -37,7 +37,7 @@ export const copy = {
   fix: "Fix all",
   simulate: (count: number) => `Fix all, ${count} pending ${count === 1 ? "request" : "requests"}`,
   added: "Follow-up added.",
-  delete: "Delete improvement",
+  delete: "Delete",
   deleteTitle: "Delete this improvement?",
   comments: {
     ...reviewCommentsCopy,

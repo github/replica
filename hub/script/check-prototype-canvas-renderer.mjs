@@ -269,11 +269,16 @@ try {
       phase = "confirmed deletion"
       await dialog.getByRole("button", { name: "Close improvement", exact: true }).click()
       await page.getByRole("button", { name: "Improvement actions: 1", exact: true }).click()
-      await page.getByRole("menuitem", { name: "Delete improvement", exact: true }).click()
+      await page.getByRole("menuitem", { name: "Delete", exact: true }).click()
       const deletion = page.getByRole("dialog", { name: "Delete this improvement?", exact: true })
       await deletion.waitFor()
       assert.equal((await store.load()).notes.length, 1)
-      await deletion.getByRole("button", { name: "Delete improvement", exact: true }).click()
+      const confirmDelete = deletion.getByRole("button", { name: "Delete", exact: true })
+      assert.equal(
+        await confirmDelete.evaluate((element) => getComputedStyle(element).color),
+        "rgb(255, 255, 255)",
+      )
+      await confirmDelete.click()
       await deletion.waitFor({ state: "hidden" })
       await cards.first().waitFor({ state: "hidden" })
       assert.equal((await reloaded.load()).notes.length, 0)
@@ -371,7 +376,7 @@ try {
           await firstActions.click()
           await menu.getByRole("menuitem", { name: "Retry", exact: true }).waitFor()
           const deleteItem = menu.getByRole("menuitem", {
-            name: "Delete improvement",
+            name: "Delete",
             exact: true,
           })
 
@@ -379,27 +384,25 @@ try {
             const probes = await rows.nth(1).evaluate((row) => {
               const overlay = document.querySelector('[role="menu"]')
               const bounds = overlay.getBoundingClientRect()
-              return [".review-comment-row__author", 'button[aria-haspopup="menu"]'].map(
-                (selector) => {
-                  const sibling = row.querySelector(selector).getBoundingClientRect()
-                  const left = Math.max(bounds.left, sibling.left)
-                  const right = Math.min(bounds.right, sibling.right)
-                  const top = Math.max(bounds.top, sibling.top)
-                  const bottom = Math.min(bounds.bottom, sibling.bottom)
-                  const x = (left + right) / 2
-                  const y = (top + bottom) / 2
-                  const stack = document.elementsFromPoint(x, y)
-                  return {
-                    selector,
-                    overlaps: right > left && bottom > top,
-                    intersection: { left, right, top, bottom },
-                    menu: bounds.toJSON(),
-                    sibling: sibling.toJSON(),
-                    menuOnTop: overlay.contains(document.elementFromPoint(x, y)),
-                    siblingBelow: stack.some((element) => row.contains(element)),
-                  }
-                },
-              )
+              return ['button[aria-haspopup="menu"]'].map((selector) => {
+                const sibling = row.querySelector(selector).getBoundingClientRect()
+                const left = Math.max(bounds.left, sibling.left)
+                const right = Math.min(bounds.right, sibling.right)
+                const top = Math.max(bounds.top, sibling.top)
+                const bottom = Math.min(bounds.bottom, sibling.bottom)
+                const x = (left + right) / 2
+                const y = (top + bottom) / 2
+                const stack = document.elementsFromPoint(x, y)
+                return {
+                  selector,
+                  overlaps: right > left && bottom > top,
+                  intersection: { left, right, top, bottom },
+                  menu: bounds.toJSON(),
+                  sibling: sibling.toJSON(),
+                  menuOnTop: overlay.contains(document.elementFromPoint(x, y)),
+                  siblingBelow: stack.some((element) => row.contains(element)),
+                }
+              })
             })
             for (const probe of probes) {
               assert.ok(
@@ -460,7 +463,7 @@ try {
           await menu.waitFor()
           const scrollTop = await list.evaluate((element) => element.scrollTop)
           const scrolledDelete = menu.getByRole("menuitem", {
-            name: "Delete improvement",
+            name: "Delete",
             exact: true,
           })
           assert.ok(

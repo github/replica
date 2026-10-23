@@ -237,5 +237,10 @@
   --brand-button-primary-bgColor-rest: var(--hub-danger-emphasis);
   --brand-button-primary-bgColor-hover: var(--hub-danger-emphasis);
   --brand-button-primary-bgColor-active: var(--hub-danger-emphasis);
-  --brand-button-primary-fgColor-rest: var(--hub-fg-on-danger);
+  --brand-button-primary-fgColor-rest: var(--hub-canvas-white);
+  color: var(--hub-canvas-white);
+}
+
+.thread-sample__delete-confirm span {
+  color: var(--hub-canvas-white);
 }
