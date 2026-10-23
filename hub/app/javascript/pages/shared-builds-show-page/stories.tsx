@@ -15,7 +15,7 @@ const previewUrl = `data:text/html,${encodeURIComponent(`
 `)}`
 
 const meta = {
-  title: "Pages/Shared Build",
+  title: "Hub/Pages/Shared Build",
   component: SharedBuildsShowPage,
   args: {
     data: {

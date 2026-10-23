@@ -1,9 +1,10 @@
-import { basename, extname } from "node:path"
+import { basename, extname, resolve } from "node:path"
 
 import type { StorybookConfig } from "@storybook/react-vite"
 import { mergeConfig, type Plugin, type PluginOption } from "vite"
 
 import { viteAliases } from "../vite-aliases.ts"
+import { usagePlugin } from "./usage-plugin/index.ts"
 import {
   controlsValidatorPlugin,
   controlsValidatorModule,
@@ -45,6 +46,7 @@ const config = {
       {
         base: "./",
         plugins: [
+          usagePlugin(resolve(import.meta.dirname, "..")),
           controlsValidatorPlugin(),
           {
             name: "storybook:rolldown-entry-names",

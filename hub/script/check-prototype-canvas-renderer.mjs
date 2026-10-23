@@ -247,10 +247,233 @@ try {
       await cards.first().waitFor({ state: "hidden" })
       assert.equal((await reloaded.load()).notes.length, 0)
       assert.equal(dispatched.length, 2)
+
+      phase = "prepare isolated blocked notes for overlapping row menus"
+      // A fixture-only author extends beneath the menu; no profile or Hub request is made.
+      const menuStore = createImprovementNotes(
+        () => context,
+        session,
+        async () => ({
+          origin: "https://hub.example.test",
+          status: async () => ({
+            state: "undiscovered",
+            repositoryAuthorized: true,
+            repository: context.target.repository,
+            branch: context.target.branch,
+            viewerId: 1,
+            viewerLogin: "renderer-menu-fixture-author",
+          }),
+        }),
+        { directory, readProfile: async () => ({ avatarUrl: null, error: null }) },
+      )
+      state = await menuStore.load()
+      for (let index = 0; index < 8; index++)
+        state = await menuStore.save({
+          ...state,
+          operation: "create",
+          body: `Blocked menu fixture ${index + 1}`,
+          anchor: saved[0].anchor,
+        })
+      state = await store.fix(state)
+      const blockedBatch = await store.batch({ batchId: state.activeBatch })
+      await store.results({
+        batchId: blockedBatch.id,
+        results: blockedBatch.notes.map((note) => ({
+          localId: note.localId,
+          revision: note.revision,
+          status: "blocked",
+          message: "Fixture work could not be completed.",
+        })),
+      })
+      const blockedNotes = (await store.load()).notes
+      assert.ok(blockedNotes.every((note) => note.status === "blocked"))
+      const menu = page.getByRole("menu", { name: /^Improvement actions:/ })
+      const list = page.locator(".thread-sample__list")
+
+      for (const viewport of [
+        { width: 1280, height: 720 },
+        { width: 390, height: 844 },
+      ]) {
+        for (const colorScheme of ["light", "dark"]) {
+          phase = `blocked menu stacking at ${viewport.width}px in ${colorScheme}`
+          await page.setViewportSize(viewport)
+          await page.emulateMedia({ colorScheme, reducedMotion: "reduce" })
+          await page.reload()
+          await page.getByRole("button", { name: /^Open improvement notes \(/ }).click()
+          await cards.nth(1).waitFor()
+          const rows = page.locator(".thread-sample__card")
+          const firstActions = rows.first().getByRole("button", {
+            name: /^Improvement actions:/,
+          })
+          const geometry = await rows.first().evaluate((row) => {
+            const bounds = row.getBoundingClientRect()
+            const listElement = row.closest(".thread-sample__list")
+            const list = listElement.getBoundingClientRect()
+            const filter = document
+              .querySelector('.thread-sample__filters button[aria-haspopup="true"]')
+              .getBoundingClientRect()
+            const avatar = row.querySelector(".hub-user-avatar").getBoundingClientRect()
+            const actions = row
+              .querySelector('button[aria-haspopup="menu"]')
+              .getBoundingClientRect()
+            const body = row.querySelector(".review-comment-row__body").getBoundingClientRect()
+            const hover = getComputedStyle(row, "::before")
+            return {
+              avatarOffset: avatar.left - filter.left,
+              hoverGutter: bounds.left + parseFloat(hover.insetInlineStart) - list.left,
+              actionInset: list.right - actions.right,
+              actionWidth: actions.width,
+              textGap: actions.left - body.right,
+              scrollOverflow: listElement.scrollWidth - listElement.clientWidth,
+            }
+          })
+          console.log(JSON.stringify({ viewport: viewport.width, colorScheme, geometry }))
+          assert.ok(Math.abs(geometry.avatarOffset) < 0.5, "Avatar aligns with Active notes")
+          assert.ok(Math.abs(geometry.hoverGutter - 8) < 0.5, "Hover retains its 8px left gutter")
+          assert.ok(
+            Math.abs(geometry.actionInset - 16) < 0.5,
+            "Actions retain the ordinary comment's 16px right inset",
+          )
+          assert.ok(geometry.actionWidth >= 32, "Action hit target is not reduced")
+          assert.ok(geometry.textGap >= 4, "Wrapped row text stays clear of actions")
+          assert.equal(geometry.scrollOverflow, 0, "Rows do not overflow horizontally")
+          await firstActions.click()
+          await menu.getByRole("menuitem", { name: "Retry", exact: true }).waitFor()
+          const deleteItem = menu.getByRole("menuitem", {
+            name: "Delete improvement",
+            exact: true,
+          })
+
+          async function assertMenuAboveSibling() {
+            const probes = await rows.nth(1).evaluate((row) => {
+              const overlay = document.querySelector('[role="menu"]')
+              const bounds = overlay.getBoundingClientRect()
+              return [".review-comment-row__author", 'button[aria-haspopup="menu"]'].map(
+                (selector) => {
+                  const sibling = row.querySelector(selector).getBoundingClientRect()
+                  const left = Math.max(bounds.left, sibling.left)
+                  const right = Math.min(bounds.right, sibling.right)
+                  const top = Math.max(bounds.top, sibling.top)
+                  const bottom = Math.min(bounds.bottom, sibling.bottom)
+                  const x = (left + right) / 2
+                  const y = (top + bottom) / 2
+                  const stack = document.elementsFromPoint(x, y)
+                  return {
+                    selector,
+                    overlaps: right > left && bottom > top,
+                    intersection: { left, right, top, bottom },
+                    menu: bounds.toJSON(),
+                    sibling: sibling.toJSON(),
+                    menuOnTop: overlay.contains(document.elementFromPoint(x, y)),
+                    siblingBelow: stack.some((element) => row.contains(element)),
+                  }
+                },
+              )
+            })
+            for (const probe of probes) {
+              assert.ok(
+                probe.overlaps,
+                `Menu must overlap the following row: ${JSON.stringify(probe)}`,
+              )
+              assert.ok(probe.siblingBelow, `Probe must include the sibling's ${probe.selector}`)
+              assert.ok(probe.menuOnTop, `Menu must hit-test above the sibling's ${probe.selector}`)
+            }
+          }
+
+          await assertMenuAboveSibling()
+          const sibling = await rows.nth(1).boundingBox()
+          const menuBounds = await menu.boundingBox()
+          assert.ok(sibling && menuBounds)
+          // Hover the uncovered row gutter, not the overlay, to activate its real hover layer.
+          assert.ok(sibling.x + 2 < menuBounds.x)
+          await page.mouse.move(sibling.x + 2, sibling.y + sibling.height / 2)
+          assert.ok(await rows.nth(1).evaluate((row) => row.matches(":hover")))
+          await assertMenuAboveSibling()
+          await deleteItem.click()
+          await deletion.waitFor()
+          const firstBody = await cards.first().getAttribute("aria-label")
+          assert.equal(
+            await deletion.locator("blockquote").innerText(),
+            firstBody.replace("Open improvement: ", ""),
+          )
+          assert.deepEqual((await store.load()).notes, blockedNotes)
+          await deletion
+            .getByRole("button", { name: "Cancel", exact: true })
+            .filter({ hasText: /^Cancel$/ })
+            .click()
+          await deletion.waitFor({ state: "hidden" })
+          assert.ok(await firstActions.evaluate((element) => element === document.activeElement))
+
+          await firstActions.click()
+          await menu.waitFor()
+          await page.keyboard.press("Escape")
+          await menu.waitFor({ state: "hidden" })
+          assert.ok(await firstActions.evaluate((element) => element === document.activeElement))
+          await firstActions.click()
+          await menu.waitFor()
+          await page.getByRole("heading", { name: "Pick & polish", exact: true }).click()
+          await menu.waitFor({ state: "hidden" })
+
+          phase = `scrolled blocked menu at ${viewport.width}px in ${colorScheme}`
+          const listBounds = await list.boundingBox()
+          assert.ok(listBounds)
+          await page.mouse.move(listBounds.x + 8, listBounds.y + listBounds.height / 2)
+          await page.mouse.wheel(0, 160)
+          await page.waitForFunction(
+            () => document.querySelector(".thread-sample__list").scrollTop > 0,
+          )
+          const scrolledActions = rows.nth(3).getByRole("button", {
+            name: /^Improvement actions:/,
+          })
+          await scrolledActions.click()
+          await menu.waitFor()
+          const scrollTop = await list.evaluate((element) => element.scrollTop)
+          const scrolledDelete = menu.getByRole("menuitem", {
+            name: "Delete improvement",
+            exact: true,
+          })
+          assert.ok(
+            await scrolledDelete.evaluate((element) => {
+              const bounds = element.getBoundingClientRect()
+              return element.contains(
+                document.elementFromPoint(
+                  bounds.x + bounds.width / 2,
+                  bounds.y + bounds.height / 2,
+                ),
+              )
+            }),
+            "A scrolled menu item must not be clipped or covered",
+          )
+          await scrolledDelete.click()
+          await deletion.waitFor()
+          assert.equal(
+            await deletion.locator("blockquote").innerText(),
+            (await cards.nth(3).getAttribute("aria-label")).replace("Open improvement: ", ""),
+          )
+          await page.keyboard.press("Escape")
+          await deletion.waitFor({ state: "hidden" })
+          assert.ok(await scrolledActions.evaluate((element) => element === document.activeElement))
+          assert.equal(await list.evaluate((element) => element.scrollTop), scrollTop)
+          assert.deepEqual((await store.load()).notes, blockedNotes)
+        }
+      }
+
+      phase = "unsaved follow-up prevents opening overlapping menus"
+      await cards.first().click()
+      const draft = dialog.getByRole("textbox", { name: "Follow-up", exact: true })
+      await draft.fill("Unsaved fixture follow-up")
+      const actions = page.getByRole("button", { name: /^Improvement actions:/ })
+      assert.ok(await actions.nth(0).isDisabled())
+      assert.ok(await actions.nth(1).isDisabled())
+      assert.equal(await menu.count(), 0)
+      await draft.fill("")
+      await dialog.getByRole("button", { name: "Close improvement", exact: true }).click()
+      assert.ok(await actions.first().isEnabled())
+      assert.deepEqual((await store.load()).notes, blockedNotes)
       assert.deepEqual(errors, [])
       assert.deepEqual(failedAssets, [])
       console.log(
-        "Packaged renderer smoke passed: local notes, explicit batches, and persisted history.",
+        "Packaged renderer smoke passed: local notes, explicit batches, persisted history, and overlapping blocked-note menus.",
       )
     } finally {
       await page?.close()

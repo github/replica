@@ -108,7 +108,7 @@ const data: PrototypeManagementPageData = {
 }
 
 const meta = {
-  title: "Pages/Prototypes/Manage",
+  title: "Hub/Pages/Prototypes/Manage",
   component: PrototypeManagementPage,
   args: { data },
   parameters: { layout: "fullscreen" },

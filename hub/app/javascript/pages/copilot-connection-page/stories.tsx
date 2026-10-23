@@ -65,7 +65,7 @@ const connected: AvailableData = {
 }
 
 const meta = {
-  title: "Pages/Security/Copilot",
+  title: "Hub/Pages/Security/Copilot",
   component: CopilotConnectionPage,
   parameters: { layout: "fullscreen" },
   args: { data },

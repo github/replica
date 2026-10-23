@@ -5,7 +5,7 @@ import type { CSSProperties } from "react"
 import { HubCounter } from "."
 
 const meta = {
-  title: "Components/Hub-built: Counter",
+  title: "Components/Counter",
   component: HubCounter,
   args: { children: 12 },
 } satisfies Meta<typeof HubCounter>

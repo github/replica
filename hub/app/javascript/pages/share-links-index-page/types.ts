@@ -15,6 +15,7 @@ export interface ShareLinksIndexPageData extends PrototypeWorkspaceData {
   emptyLabel: string
   form: ShareLinksFormData & { createPath: string }
   heading: string
+  managementBuildNumber?: number
   noBuildHeading: string
   noBuildLabel: string
   notice: string | null
