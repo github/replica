@@ -10,11 +10,11 @@ class GithubAppConfiguration::Repositories < ActiveRecord::AssociatedObject
   def synchronize!(snapshot: nil)
     return remove_all! if record.installation_state != "active"
 
-    credentials = record.credential_snapshot
+    installation = record.installation_snapshot
     attributes = snapshot || self.snapshot
     now = Time.current
 
-    GithubAppConfiguration.with_credentials!(**credentials) do
+    record.with_installation!(snapshot: installation) do
       active_ids = attributes.map { _1.fetch(:github_id) }
       attributes.each { synchronize_repository!(_1.merge(synchronized_at: now)) }
       Repository.active.where.not(github_id: active_ids).update_all \
@@ -25,7 +25,7 @@ class GithubAppConfiguration::Repositories < ActiveRecord::AssociatedObject
   # Marks all repositories unavailable when the App installation is inactive.
   def remove_all!
     now = Time.current
-    GithubAppConfiguration.with_credentials!(**record.credential_snapshot) do
+    record.with_installation! do
       Repository.active.update_all \
         installation_state: "removed", removed_at: now, synchronized_at: now, updated_at: now
     end

@@ -9,4 +9,5 @@ export interface FreshAuthorizationPageData extends GithubAppSetupHeaderData {
   authenticityToken: string
   cancelLabel?: string
   cancelPath?: string
+  continuation?: { id: string; method: string }
 }

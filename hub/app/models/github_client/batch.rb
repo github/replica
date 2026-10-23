@@ -8,9 +8,16 @@ class GithubClient::Batch
   def self.map(items, &operation)
     return [] if items.empty?
 
+    tracing_context = OpenTelemetry::Context.current if defined?(OpenTelemetry::Context)
     executor = Concurrent::FixedThreadPool.new([ items.size, MAX_CONCURRENCY ].min)
     futures = items.map do |item|
-      Concurrent::Promises.future_on(executor) { operation.call(item) }
+      Concurrent::Promises.future_on(executor) do
+        if tracing_context
+          OpenTelemetry::Context.with_current(tracing_context) { operation.call(item) }
+        else
+          operation.call(item)
+        end
+      end
     end
     futures.map(&:value!)
   ensure

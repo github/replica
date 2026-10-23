@@ -140,7 +140,7 @@ export function PrototypeDescriptionDialog({
             <input type="hidden" name="_method" value="patch" />
             <input type="hidden" name="authenticity_token" value={data.authenticityToken} />
             <input type="hidden" name="return_to" value="review" />
-            {data.selectedBuild ? (
+            {data.buildPinned && data.selectedBuild ? (
               <input type="hidden" name="build" value={data.selectedBuild.number} />
             ) : null}
 

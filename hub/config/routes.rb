@@ -79,6 +79,7 @@ Rails.application.routes.draw do
         as: :repository_review_comment_summaries,
         constraints: { repository_github_id: /\d+/ }
       scope "repositories/:repository_github_id/prototypes/:prototype_id" do
+        resources :improvement_notes, only: %i[index create]
         resources :mention_candidates, only: :index
         get "review_comments/:id/thread", to: "review_comment_threads#show",
           as: :review_comment_thread,
@@ -111,6 +112,7 @@ Rails.application.routes.draw do
           constraints: { memory_id: /mem_[0-9a-f]{24}/ }
       end
       get "new", to: "new_prototypes#show", as: :new_prototype
+      resources :prototype_authors, only: :index
       get "replica", to: "replica_browses#show", as: :replica_browse
       resources :templates, only: %i[index show], constraints: { id: /[a-z0-9]+(?:-[a-z0-9]+)*/ }
       get "templates/:template_id/builds/:build_id/screenshots/:size", to: "template_screenshots#show",

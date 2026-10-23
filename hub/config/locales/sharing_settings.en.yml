@@ -12,7 +12,7 @@ en:
       label: Disable public sharing
       consequence: All existing share links will be permanently revoked, including open previews and pending handoffs. Enabling later permits new links only.
     confirm: I understand and confirm this deployment-wide change.
-    verification: This change requires GitHub verification within the last five minutes on this browser. If asked to verify, return and confirm again. Verification never submits this change.
+    verification: This change requires GitHub verification within the last five minutes on this browser. If verification is required, Hub continues your confirmed change after it succeeds.
     changed: Public sharing settings changed.
     no_access: Only Hub administrators can view or change deployment sharing settings.
     errors:

@@ -11,7 +11,9 @@ import { createHubClient } from "./index.mjs"
 it("verifies repository authorization independently of branch discovery and never trusts a bare 404", async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "replica-authorization-"))
   t.after(() => rm(root, { recursive: true, force: true }))
-  execFileSync("git", ["init", "-b", "prototype/new", root], { stdio: "ignore" })
+  execFileSync("git", ["init", "-b", "prototype/new", root], {
+    stdio: "ignore",
+  })
   execFileSync("git", [
     "-C",
     root,
@@ -23,6 +25,7 @@ it("verifies repository authorization independently of branch discovery and neve
   let status = 200
   let repository = "github/prototype"
   let canPublish = false
+  let viewer = { viewerId: 7, viewerLogin: "mona" }
   const server = createServer((request, response) => {
     response.setHeader("X-Replica-Canvas-Version", "1")
     if (request.url.startsWith("/api/canvas/prototype")) {
@@ -32,7 +35,7 @@ it("verifies repository authorization independently of branch discovery and neve
       assert.equal(request.url, "/api/canvas/connection")
       assert.equal(request.headers.authorization, "Bearer fixture-token")
       response.writeHead(status, { "Content-Type": "application/json" })
-      response.end(JSON.stringify({ repository, canPublish }))
+      response.end(JSON.stringify({ repository, canPublish, ...viewer }))
     }
   })
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve))
@@ -57,6 +60,28 @@ it("verifies repository authorization independently of branch discovery and neve
   assert.equal(authorized.repositoryAuthorized, true)
   assert.equal(authorized.branch, "prototype/new")
   assert.equal(authorized.canPublish, false)
+  assert.equal(authorized.viewerId, 7)
+  assert.equal(authorized.viewerLogin, "mona")
+  const expectedTarget = { repository, branch: "prototype/new" }
+  const scope = {}
+  const readOnly = await client.status({
+    register: false,
+    expectedTarget,
+    connectionScope: scope,
+  })
+  assert.equal(readOnly.viewerId, 7)
+  assert.ok(scope.identity)
+  viewer = { viewerLogin: "mona" }
+  assert.equal((await client.status({ register: false })).viewerId, undefined)
+  for (const invalid of [
+    { viewerId: "7", viewerLogin: "mona" },
+    { viewerId: 0, viewerLogin: "mona" },
+    { viewerId: 7, viewerLogin: "../user" },
+  ]) {
+    viewer = invalid
+    assert.equal((await client.status({ register: false })).state, "unavailable")
+  }
+  viewer = { viewerId: 7, viewerLogin: "mona" }
   canPublish = true
   assert.equal((await client.status()).canPublish, true)
   for (const code of [401, 403, 404, 500]) {

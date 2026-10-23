@@ -27,7 +27,7 @@ export default defineConfig(
   js.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
   {
-    files: ["**/*.{ts,tsx}"],
+    files: ["**/*.{ts,tsx,mts}", "../.github/extensions/replica-prototype/**/*.mts"],
     languageOptions: {
       globals: { ...globals.browser, ...globals.node },
       parserOptions: { projectService: true, tsconfigRootDir: import.meta.dirname },
@@ -51,6 +51,11 @@ export default defineConfig(
   {
     files: ["app/javascript/application/build-visit-and-remote/index.ts"],
     rules: { "func-style": "off" },
+  },
+  {
+    files: ["../.github/extensions/replica-prototype/validate-controls/index.mts"],
+    // Diagnostic text deliberately coerces values before bounding and sanitizing them.
+    rules: { "@typescript-eslint/no-base-to-string": "off" },
   },
   {
     files: ["app/javascript/pages/**/*.{ts,tsx}"],
@@ -103,6 +108,8 @@ export default defineConfig(
       "script/**/*.mjs",
       "test/**/*.mjs",
       "../.github/extensions/replica-prototype/**/*.mjs",
+      "../.github/extensions/replica-prototype/**/*.d.mts",
+      "../.github/extensions/replica-prototype/**/*.d.ts",
       "app/javascript/utils/prototype-controls/**/*.mjs",
       "app/javascript/utils/prototype-controls/**/*.d.mts",
       "../packages/learning/**/*.mjs",

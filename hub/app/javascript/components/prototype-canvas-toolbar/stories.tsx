@@ -10,8 +10,16 @@ const config = {
 }
 
 const meta = {
-  title: "Components/Prototype canvas/Toolbar",
+  title: "Prototype canvas/Toolbar",
   component: Toolbar,
+  parameters: {
+    docs: {
+      description: {
+        component:
+          "Neutral toolbar toggles use the standard Brand hover fill when selected, and the darker pressed fill when a selected button is hovered or pressed. Unselected and disabled styling stays with the original components. Edit details includes a pencil icon. Below 1024px, Edit details and the live canvas Pick & polish control retain their icons, accessible names, and tooltips while hiding their labels.",
+      },
+    },
+  },
   args: {
     config,
     prototypeName: "Prototype",
@@ -20,6 +28,8 @@ const meta = {
     shareButtonRef: createRef<HTMLButtonElement>(),
     onBuildDetails: () => undefined,
     onHub: () => undefined,
+    onControls: () => undefined,
+    controlsOpen: false,
     hubOpen: false,
     publishButtonRef: createRef<HTMLButtonElement>(),
     titleButtonRef: createRef<HTMLButtonElement>(),
@@ -42,6 +52,14 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const NotPublished: Story = {}
+
+export const ControlsClosed: Story = {
+  args: { onControls: () => undefined, controlsOpen: false },
+}
+
+export const ControlsOpen: Story = {
+  args: { onControls: () => undefined, controlsOpen: true },
+}
 
 export const Untitled: Story = {
   args: { prototypeName: undefined },
@@ -95,3 +113,5 @@ export const Failed: Story = {
 export const Unavailable: Story = {
   args: { state: null },
 }
+export const Publishing: Story = { args: { publishing: true } }
+export const HubOpen: Story = { args: { hubOpen: true } }

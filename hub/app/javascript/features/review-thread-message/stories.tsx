@@ -12,7 +12,7 @@ function updateReaction() {
 }
 
 const meta = {
-  title: "Features/Review/Thread Message",
+  title: "Hub/Features/Review/Thread Message",
   component: ReviewThreadMessage,
   parameters: {
     docs: {

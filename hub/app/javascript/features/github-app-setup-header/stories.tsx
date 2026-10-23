@@ -3,7 +3,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { GithubAppSetupHeader } from "."
 
 const meta = {
-  title: "Features/GitHub Setup/Header",
+  title: "Hub/Features/GitHub Setup/Header",
   component: GithubAppSetupHeader,
   args: {
     data: {

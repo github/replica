@@ -70,14 +70,11 @@ function client(comments = [root]) {
           viewerLogin: hub.viewerLogin,
         }
       if (options.method === "POST") return hub.postResponse
-      const query = new URL(route, target.hubOrigin).searchParams
-      const offset = Number(query.get("cursor")?.replace("page-", "") ?? 0)
-      const size = Number(query.get("pageSize"))
-      const hasMore = offset + size < hub.comments.length
+      assert.equal(new URL(route, target.hubOrigin).search, "")
       return {
-        comments: hub.comments.slice(offset, offset + size),
-        hasMore,
-        nextCursor: hasMore ? `page-${offset + size}` : null,
+        comments: structuredClone(hub.comments),
+        hasMore: false,
+        nextCursor: null,
       }
     },
   }
@@ -92,6 +89,53 @@ async function withStore(action) {
     await rm(workspace, { recursive: true, force: true })
   }
 }
+
+it("rejects corrupt reply receipts without dispatching or overwriting an uncertain attempt", async () => {
+  await withStore(async (store) => {
+    const hub = client()
+    const input = { target, threadId: 7, body: "Retain request identity", requestId: randomUUID() }
+    const file = `reply-${input.requestId}.json`
+    for (const saved of [
+      42,
+      { ...input, state: "unexpected" },
+      { ...input, state: "confirmed", result: { reply: null } },
+    ]) {
+      await store.write(file, saved)
+      await assert.rejects(reviewAction(hub, "reply_to_comment", input, store), {
+        code: "invalid_comment_request",
+      })
+      assert.deepEqual(await store.read(file), saved)
+    }
+    assert.ok(hub.calls.every(({ route }) => route.startsWith("/api/canvas/prototype?")))
+  })
+})
+
+it("rejects corrupt snapshot messages before returning a retained conversation", async () => {
+  await withStore(async (store) => {
+    const hub = client()
+    const page = await reviewAction(hub, "list_comments", {}, store)
+    const file = `snapshot-${page.snapshotId}.json`
+    const saved = await store.read(file)
+    const corrupt = { ...saved, comments: [{ ...saved.comments[0], author: null }] }
+    await store.write(file, corrupt)
+    hub.calls.length = 0
+    await assert.rejects(
+      reviewAction(
+        hub,
+        "get_comment_thread",
+        {
+          target,
+          threadId: 7,
+          snapshotId: page.snapshotId,
+        },
+        store,
+      ),
+      { code: "invalid_comment_request" },
+    )
+    assert.deepEqual(await store.read(file), corrupt)
+    assert.equal(hub.calls.length, 1)
+  })
+})
 
 const firstPrototype = { id: 3, name: "Welcome", branch: "prototype/welcome" }
 const secondPrototype = { id: 4, name: null, branch: "prototype/other" }
@@ -461,7 +505,7 @@ describe("repository comment retrieval", () => {
     })
   })
 
-  it("bounds the aggregate scan and retrieves every list and reply continuation after reload", async () => {
+  it("collects complete feeds and retrieves bounded list and reply continuations after reload", async () => {
     await withStore(async (store, workspace) => {
       const hub = repositoryClient([
         ...Array.from({ length: 19 }, (_, i) => ({
@@ -474,24 +518,10 @@ describe("repository comment retrieval", () => {
           prototype: firstPrototype,
         })),
       ])
-      let page = await reviewAction(hub, "list_repository_comments", {}, store)
-      assert.equal(page.scanComplete, false)
-      assert.deepEqual(page.threads, [])
-      assert.equal(hub.calls.length, 5)
+      const page = await reviewAction(hub, "list_repository_comments", {}, store)
+      assert.equal(page.scanComplete, true)
+      assert.equal(hub.calls.length, 3)
       const reloaded = createCommentStore(workspace)
-      while (!page.scanComplete) {
-        const before = hub.calls.length
-        page = await reviewAction(
-          hub,
-          "list_repository_comments",
-          {
-            target: page.target,
-            cursor: page.nextCursor,
-          },
-          reloaded,
-        )
-        assert.ok(hub.calls.length - before <= 5)
-      }
       const firstIds = page.threads.map((item) => item.id)
       const next = await reviewAction(
         hub,
@@ -748,11 +778,11 @@ describe("review content provenance", () => {
     })
   }
 
-  it("labels incomplete scans and cached reply receipts at the tool boundary", async () => {
+  it("labels complete histories and cached reply receipts at the tool boundary", async () => {
     await withStore(async (store) => {
       const hub = client([root, ...Array.from({ length: 100 }, (_, index) => reply(index + 8))])
       const scanning = await reviewAction(hub, "list_comments", {}, store)
-      assert.equal(scanning.scanComplete, false)
+      assert.equal(scanning.scanComplete, true)
       assert.equal(scanning.contentTrust.untrusted, true)
       const requestId = randomUUID()
       await store.write(`reply-${requestId}.json`, {
@@ -794,53 +824,15 @@ describe("reviewAction()", () => {
     })
   })
 
-  it("reconciles new replies skipped by the original newest-first cursor", async () => {
+  it("rejects root activity changes between complete collection reads", async () => {
     await withStore(async (store) => {
       const hub = client([root, ...Array.from({ length: 25 }, (_, i) => reply(i + 8))])
       const request = hub.request
-      let pages = 0
+      let reads = 0
       hub.request = async (route, options) => {
         if (route.startsWith("/api/canvas/prototype?")) return request(route, options)
-        pages++
-        const query = new URL(route, target.hubOrigin).searchParams
-        const before = Number(query.get("cursor") ?? Number.MAX_SAFE_INTEGER)
-        const records = hub.comments.filter((item) => item.id < before).sort((a, b) => b.id - a.id)
-        const result = {
-          comments: records.slice(0, 25),
-          hasMore: records.length > 25,
-          nextCursor: records.length > 25 ? String(records[24].id) : null,
-        }
-        if (pages === 1) {
-          hub.comments.push(reply(100, 7, "Arrived after the first page"))
-          hub.comments[0] = { ...root, activityVersion: 3 }
-        }
-        return result
-      }
-      const page = await reviewAction(hub, "list_comments", {}, store)
-      assert.equal(page.scanComplete, true)
-      assert.equal(page.threads[0].activityVersion, 3)
-      const snapshot = await store.read(`snapshot-${page.snapshotId}.json`)
-      assert.ok(snapshot.comments.some((item) => item.id === 100))
-    })
-  })
-
-  it("rejects activity missed during the verification traversal", async () => {
-    await withStore(async (store) => {
-      const hub = client([root, ...Array.from({ length: 25 }, (_, i) => reply(i + 8))])
-      const request = hub.request
-      let pages = 0
-      hub.request = async (route, options) => {
-        if (route.startsWith("/api/canvas/prototype?")) return request(route, options)
-        pages++
-        const query = new URL(route, target.hubOrigin).searchParams
-        const before = Number(query.get("cursor") ?? Number.MAX_SAFE_INTEGER)
-        const records = hub.comments.filter((item) => item.id < before).sort((a, b) => b.id - a.id)
-        const result = {
-          comments: records.slice(0, 25),
-          hasMore: records.length > 25,
-          nextCursor: records.length > 25 ? String(records[24].id) : null,
-        }
-        if (pages === 3) {
+        const result = await request(route, options)
+        if (++reads === 1) {
           hub.comments.push(reply(100))
           hub.comments[0] = { ...root, activityVersion: 3 }
         }
@@ -917,31 +909,11 @@ describe("reviewAction()", () => {
     })
   })
 
-  it("bounds each scan and explicitly distinguishes unfinished scanning from empty results", async () => {
+  it("collects more than 25 messages at once while keeping agent reply output bounded", async () => {
     await withStore(async (store) => {
       const hub = client([...Array.from({ length: 149 }, (_, i) => reply(i + 8)), root])
-      const first = await reviewAction(hub, "list_comments", {}, store)
-      assert.equal(first.scanComplete, false)
-      assert.deepEqual(first.threads, [])
-      assert.equal(first.hasMore, true)
-      assert.match(first.nextCursor, /:scan$/)
-      assert.equal(hub.calls.length, 5)
-      let complete = await reviewAction(
-        hub,
-        "list_comments",
-        {
-          target: first.target,
-          cursor: first.nextCursor,
-        },
-        store,
-      )
-      assert.equal(complete.scanComplete, false)
-      complete = await reviewAction(
-        hub,
-        "list_comments",
-        { target: first.target, cursor: complete.nextCursor },
-        store,
-      )
+      const complete = await reviewAction(hub, "list_comments", {}, store)
+      assert.equal(hub.calls.length, 3)
       assert.equal(complete.scanComplete, true)
       assert.equal(complete.threads.length, 1)
       assert.equal(complete.threads[0].replies.length, 10)
@@ -1268,14 +1240,8 @@ describe("reviewAction()", () => {
       )
       replies[0] = { ...replies[0], body: null, deletedAt: time }
       const hub = client([...replies, ...roots])
-      const first = await reviewAction(hub, "list_comments", {}, store)
-      assert.equal(first.scanComplete, false)
-      let result = await reviewAction(
-        hub,
-        "list_comments",
-        { target, cursor: first.nextCursor },
-        store,
-      )
+      let result = await reviewAction(hub, "list_comments", {}, store)
+      assert.equal(result.scanComplete, true)
       const messages = []
       for (;;) {
         assert.equal(result.threads.length, 1)
@@ -1333,17 +1299,9 @@ describe("reviewAction()", () => {
       }
 
       async function collect(hub, store, input = {}) {
-        let page = await reviewAction(hub, listAction, input, store)
+        const page = await reviewAction(hub, listAction, input, store)
         assertBounded(page)
-        while (!page.scanComplete) {
-          page = await reviewAction(
-            hub,
-            listAction,
-            { ...input, target: page.target, cursor: page.nextCursor },
-            store,
-          )
-          assertBounded(page)
-        }
+        assert.equal(page.scanComplete, true)
         return page
       }
 

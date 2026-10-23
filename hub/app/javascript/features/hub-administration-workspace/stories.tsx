@@ -5,7 +5,7 @@ import { hubAdministrationWorkspaceData } from "@/storybook/fixtures/hub-adminis
 import { HubAdministrationWorkspace } from "."
 
 const meta = {
-  title: "Features/Hub Administration Workspace",
+  title: "Hub/Features/Hub Administration Workspace",
   component: HubAdministrationWorkspace,
   parameters: { layout: "fullscreen" },
   args: {

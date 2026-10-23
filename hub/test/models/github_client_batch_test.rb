@@ -40,4 +40,23 @@ class GithubClientBatchTest < ActiveSupport::TestCase
     end
     assert_equal 3, completed.size
   end
+
+  test "restores the submitting tracing context in every worker" do
+    require "opentelemetry/sdk"
+
+    provider = OpenTelemetry::SDK::Trace::TracerProvider.new
+    span = provider.tracer("github-client-batch-test").start_span("request")
+
+    results = OpenTelemetry::Trace.with_span(span) do
+      GithubClient::Batch.map([ 3, 1, 2 ]) do |item|
+        [ item, OpenTelemetry::Trace.current_span.context.span_id ]
+      end
+    end
+
+    assert_equal [ 3, 1, 2 ], results.map(&:first)
+    assert_equal [ span.context.span_id ] * 3, results.map(&:last)
+  ensure
+    span&.finish
+    provider&.shutdown
+  end
 end

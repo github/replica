@@ -1,13 +1,12 @@
 import { readFile } from "node:fs/promises"
-
-import { readState } from "../read-state/index.mjs"
+import { readPublicationState } from "../read-publication-state/index.mjs"
+import { readHubObject } from "../read-hub-object/index.mjs"
 import {
   capturePublishTarget,
   continuesPublishTarget,
   samePublishTarget,
 } from "../publish-target/index.mjs"
 import { writeState } from "../write-state/index.mjs"
-
 const requests = new Map()
 const publishSkillUrl = new URL("../skills/replica-publish-prototype/SKILL.md", import.meta.url)
 const hubRegistrationStates = new Set([
@@ -20,10 +19,9 @@ const hubRegistrationStates = new Set([
   "unconfigured",
   "undiscovered",
 ])
-
 export async function requestPublish(context, session, options = {}) {
-  if (requests.has(context.stateFile)) {
-    const active = requests.get(context.stateFile)
+  const active = requests.get(context.stateFile)
+  if (active) {
     if (active.mode !== (options.mode ?? "committed-only"))
       throw new Error("A different publishing mode is already in progress. Wait for it to finish.")
     return active.pending
@@ -36,7 +34,6 @@ export async function requestPublish(context, session, options = {}) {
     requests.delete(context.stateFile)
   }
 }
-
 async function sendPublish(
   context,
   session,
@@ -59,13 +56,13 @@ async function sendPublish(
   if (prepareRegistration) registration = await prepareRegistration()
   validateHubRegistration(registration?.state)
   await verifyTarget(context, target)
-  const state = await readState(context)
+  const state = await readPublicationState(context)
   if (
     state.publishRequest.state === "requested" &&
     (state.publishRequest.mode === "committed-only"
       ? samePublishTarget(state.publishRequest.target, target)
       : await continuesPublishTarget(context, state.publishRequest.target, target)) &&
-    Date.now() - Date.parse(state.publishRequest.requestedAt) < 10 * 60_000
+    Date.now() - Date.parse(state.publishRequest.requestedAt ?? "") < 10 * 60_000
   ) {
     if ((state.publishRequest.mode ?? "committed-only") !== mode)
       throw Object.assign(
@@ -83,9 +80,7 @@ async function sendPublish(
     await verifyTarget(context, target)
   }
   const skillCatalog = session.rpc?.skills?.list ? await session.rpc.skills.list() : null
-  const skillAvailable = skillCatalog?.skills.some(
-    (skill) => (skill.commandName ?? skill.name) === "replica-publish-prototype" && skill.enabled,
-  )
+  const skillAvailable = hasPublishSkill(skillCatalog)
   const publishInstructions = skillAvailable ? null : await readPublishInstructions()
   const requestedAt = new Date().toISOString()
   state.publishRequest = {
@@ -104,7 +99,6 @@ async function sendPublish(
   }
   state.updatedAt = requestedAt
   await writeState(context, state)
-
   const prompt = [
     "Use the /replica-publish-prototype skill to publish this checkout's prototype through Replica Hub's existing .github/workflows/replica.yml push workflow.",
     ...(publishInstructions
@@ -122,18 +116,16 @@ async function sendPublish(
     }),
     ...(publishInstructions ? ["Fallback publishing procedure:", publishInstructions] : []),
   ].join("\n\n")
-
   try {
     await verifyTarget(context, target)
     const messageId = await session.send({ prompt })
-    const current = await readState(context)
+    const current = await readPublicationState(context)
     current.publishRequest = {
       ...current.publishRequest,
       messageId,
     }
     current.updatedAt = new Date().toISOString()
     await writeState(context, current)
-
     return {
       publishRequest: current.publishRequest,
       message:
@@ -141,7 +133,7 @@ async function sendPublish(
       stateId: context.stateId,
     }
   } catch (error) {
-    const current = await readState(context)
+    const current = await readPublicationState(context)
     current.publishRequest = {
       ...current.publishRequest,
       state: "failed",
@@ -149,14 +141,13 @@ async function sendPublish(
     }
     current.updatedAt = new Date().toISOString()
     await writeState(context, current)
-    if (error?.statusCode === 409) throw error
+    if (readHubObject(error)?.statusCode === 409) throw error
     throw new Error(
       `Copilot could not receive the publish request: ${current.publishRequest.error}`,
       { cause: error },
     )
   }
 }
-
 export async function readPublishInstructions(skillUrl = publishSkillUrl) {
   const skill = (await readFile(skillUrl, "utf8")).replaceAll("\r\n", "\n")
   const frontmatterEnd = skill.indexOf("\n---\n", 4)
@@ -166,7 +157,6 @@ export async function readPublishInstructions(skillUrl = publishSkillUrl) {
   if (!instructions) throw new Error("The Replica publish skill has no instructions.")
   return instructions
 }
-
 async function verifyTarget(context, target) {
   try {
     if (samePublishTarget(target, await capturePublishTarget(context))) return
@@ -175,14 +165,12 @@ async function verifyTarget(context, target) {
   }
   throw changedTarget()
 }
-
 function changedTarget(cause) {
   return Object.assign(
     new Error("The checkout changed while preparing to publish. Try again.", { cause }),
     { statusCode: 409 },
   )
 }
-
 function validateCanvasInstanceId(value) {
   if (value === undefined) return undefined
   if (typeof value !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value)) {
@@ -190,11 +178,20 @@ function validateCanvasInstanceId(value) {
   }
   return value
 }
-
 function validateHubRegistration(value) {
   if (value === undefined) return undefined
-  if (!hubRegistrationStates.has(value)) {
+  if (typeof value !== "string" || !hubRegistrationStates.has(value)) {
     throw new Error("hubRegistration must be a known Hub registration state.")
   }
   return value
+}
+function hasPublishSkill(value) {
+  if (value == null) return false
+  const skills = readHubObject(value)?.skills
+  if (!Array.isArray(skills)) throw new Error("Copilot returned an invalid skill catalog.")
+  return skills.some((value) => {
+    const skill = readHubObject(value)
+    if (!skill) throw new Error("Copilot returned an invalid skill catalog.")
+    return (skill.commandName ?? skill.name) === "replica-publish-prototype" && skill.enabled
+  })
 }

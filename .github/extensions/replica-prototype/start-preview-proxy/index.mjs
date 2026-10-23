@@ -3,7 +3,7 @@ import { createServer, request as httpRequest } from "node:http"
 import { request as httpsRequest } from "node:https"
 import { pipeline } from "node:stream/promises"
 import { brotliDecompressSync, gunzipSync, inflateSync } from "node:zlib"
-
+import { readHubError } from "../read-hub-error/index.mjs"
 const loaderPath = "/__replica/canvas/loader.js"
 const runtimePath = "/__replica/canvas/runtime.js"
 const hopHeaders = [
@@ -17,7 +17,6 @@ const hopHeaders = [
   "upgrade",
 ]
 const maxHtmlBytes = 8 * 1024 * 1024
-
 /** Gives each local prototype preview its own unprivileged origin. */
 export async function startPreviewProxy({ prototypeUrl, parentOrigin, source }) {
   const upstream = new URL(prototypeUrl)
@@ -36,17 +35,16 @@ export async function startPreviewProxy({ prototypeUrl, parentOrigin, source }) 
     addresses.some(({ address }) => address !== "127.0.0.1" && address !== "::1")
   )
     throw new Error("The prototype host must resolve only to loopback.")
-
   const sockets = new Set()
   const requests = new Set()
-  let origin
   let closing
   const server = createServer((request, response) => {
-    void forward(request, response).catch((error) => {
+    void forward(request, response).catch((caught) => {
+      const error = readHubError(caught)
       if (response.destroyed) return
       if (response.headersSent) response.destroy(error)
       else {
-        response.writeHead(error.statusCode || 502, {
+        response.writeHead(typeof error.statusCode === "number" ? error.statusCode : 502, {
           "Content-Type": "text/plain; charset=utf-8",
           "Cache-Control": "no-store",
           "X-Content-Type-Options": "nosniff",
@@ -102,9 +100,10 @@ export async function startPreviewProxy({ prototypeUrl, parentOrigin, source }) 
         socket.pipe(upstreamSocket).pipe(socket)
       })
       target.end()
-    } catch (error) {
+    } catch (caught) {
+      const error = readHubError(caught)
       socket.end(
-        `HTTP/1.1 ${error.statusCode || 502} Preview unavailable\r\nConnection: close\r\n\r\n`,
+        `HTTP/1.1 ${typeof error.statusCode === "number" ? error.statusCode : 502} Preview unavailable\r\nConnection: close\r\n\r\n`,
       )
     }
   })
@@ -115,8 +114,14 @@ export async function startPreviewProxy({ prototypeUrl, parentOrigin, source }) 
       resolve()
     })
   })
-  origin = `http://127.0.0.1:${server.address().port}`
-
+  const address = server.address()
+  if (!address || typeof address === "string") {
+    await new Promise((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve())),
+    )
+    throw new Error("Replica preview server did not receive a loopback port.")
+  }
+  const origin = `http://127.0.0.1:${address.port}`
   function trackSocket(socket) {
     sockets.add(socket)
     socket.on("error", () => socket.destroy())
@@ -128,7 +133,7 @@ export async function startPreviewProxy({ prototypeUrl, parentOrigin, source }) 
       !request.url?.startsWith("/") ||
       request.url.startsWith("//") ||
       request.url.includes("\\") ||
-      ["CONNECT", "TRACE"].includes(request.method) ||
+      (request.method !== undefined && ["CONNECT", "TRACE"].includes(request.method)) ||
       request.headers["sec-fetch-site"] === "cross-site" ||
       (request.headers.origin && request.headers.origin !== origin)
     )
@@ -162,7 +167,7 @@ export async function startPreviewProxy({ prototypeUrl, parentOrigin, source }) 
       headers.connection = "Upgrade"
       headers.upgrade = "websocket"
     }
-    const target = (upstream.protocol === "https:" ? httpsRequest : httpRequest)({
+    const targetOptions = {
       protocol: upstream.protocol,
       hostname,
       port: upstream.port,
@@ -170,11 +175,17 @@ export async function startPreviewProxy({ prototypeUrl, parentOrigin, source }) 
       path: request.url,
       headers,
       autoSelectFamily: true,
-      lookup: (_host, options, callback) =>
-        options.all
-          ? callback(null, addresses)
-          : callback(null, addresses[0].address, addresses[0].family),
-    })
+      lookup: (_host, options, callback) => {
+        const first = addresses[0]
+        if (!first) {
+          callback(new Error("The prototype host must resolve only to loopback."), "", 4)
+          return
+        }
+        if (options.all) callback(null, addresses)
+        else callback(null, first.address, first.family)
+      },
+    }
+    const target = (upstream.protocol === "https:" ? httpsRequest : httpRequest)(targetOptions)
     requests.add(target)
     target.once("close", () => requests.delete(target))
     target.setTimeout(30_000, () => target.destroy(new Error("The prototype server timed out.")))
@@ -196,7 +207,7 @@ export async function startPreviewProxy({ prototypeUrl, parentOrigin, source }) 
   }
   async function forward(request, response) {
     validateRequest(request)
-    const url = new URL(request.url, origin)
+    const url = new URL(request.url || "/", origin)
     if ([loaderPath, runtimePath].includes(url.pathname)) {
       if (
         request.method !== "GET" ||
@@ -229,17 +240,19 @@ export async function startPreviewProxy({ prototypeUrl, parentOrigin, source }) 
     request.pipe(target)
     const result = await received
     try {
-      const headers = responseHeaders(result.headers, new URL(request.url, upstream.origin))
+      const headers = responseHeaders(result.headers, new URL(request.url || "/", upstream.origin))
       const html = /^text\/html(?:;|$)/i.test(headers["content-type"] || "")
       if (html && request.method !== "HEAD" && result.statusCode === 200) {
         if (
-          /charset=/i.test(headers["content-type"]) &&
-          !/charset=(?:"?utf-8"?|"?us-ascii"?)(?:;|$)/i.test(headers["content-type"])
+          /charset=/i.test(headers["content-type"] || "") &&
+          !/charset=(?:"?utf-8"?|"?us-ascii"?)(?:;|$)/i.test(headers["content-type"] || "")
         )
           throw new Error("Preview HTML must use UTF-8.")
         let size = 0
         const chunks = []
-        for await (const chunk of result) {
+        const incoming = result
+        for await (const chunk of incoming) {
+          if (!Buffer.isBuffer(chunk)) throw new Error("The prototype returned invalid HTML bytes.")
           size += chunk.length
           if (size > maxHtmlBytes) throw new Error("Preview HTML exceeds the 8 MiB limit.")
           chunks.push(chunk)
@@ -248,7 +261,7 @@ export async function startPreviewProxy({ prototypeUrl, parentOrigin, source }) 
         const compression = headers["content-encoding"]
         const decompress = { gzip: gunzipSync, br: brotliDecompressSync, deflate: inflateSync }
         if (compression && compression !== "identity") {
-          if (!Object.hasOwn(decompress, compression))
+          if (compression !== "gzip" && compression !== "br" && compression !== "deflate")
             throw new Error("Unsupported preview HTML compression.")
           body = decompress[compression](body, { maxOutputLength: maxHtmlBytes })
         }
@@ -265,10 +278,12 @@ export async function startPreviewProxy({ prototypeUrl, parentOrigin, source }) 
           delete headers[header]
         headers["cache-control"] = "no-store"
         // CSP and framing policies remain authoritative, even if they block the bridge.
-        response.writeHead(result.statusCode, headers)
+        response.writeHead(200, headers)
         response.end(text)
       } else {
         target.setTimeout(0)
+        if (result.statusCode === undefined)
+          throw new Error("The prototype returned no HTTP status.")
         response.writeHead(result.statusCode, headers)
         await pipeline(result, response)
       }
@@ -295,7 +310,6 @@ export async function startPreviewProxy({ prototypeUrl, parentOrigin, source }) 
     },
   }
 }
-
 function withoutHopHeaders(original) {
   const headers = { ...original }
   for (const name of [
@@ -305,7 +319,6 @@ function withoutHopHeaders(original) {
     delete headers[name]
   return headers
 }
-
 function requestError(message) {
   return Object.assign(new Error(message), { statusCode: 403 })
 }

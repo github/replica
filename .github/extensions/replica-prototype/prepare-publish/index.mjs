@@ -1,6 +1,5 @@
 import { capturePublishTarget, samePublishTarget } from "../publish-target/index.mjs"
 import { readWorkingTreeChanges } from "../working-tree-changes/index.mjs"
-
 export async function preparePublish(context, preferences) {
   const target = await capturePublishTarget(context)
   const changes = await readWorkingTreeChanges(context.repositoryPath)

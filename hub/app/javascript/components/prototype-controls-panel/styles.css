@@ -106,6 +106,22 @@
   box-shadow: var(--hub-shadow-control-raised);
 }
 
+.canvas-controls-footer .canvas-controls-learn-more {
+  --brand-InlineLink-color-rest: var(--hub-fg-success);
+  --brand-InlineLink-color-pressed: var(--hub-fg-success);
+
+  display: inline-flex;
+  justify-self: start;
+  align-items: center;
+  gap: var(--hub-space-4);
+  text-decoration: none;
+}
+
+.canvas-controls-learn-more:focus-visible {
+  outline: var(--hub-border-width-thick) solid var(--hub-focus);
+  outline-offset: var(--hub-space-4);
+}
+
 .canvas-controls-diagnostics {
   overflow-wrap: anywhere;
   color: var(--hub-fg-muted);

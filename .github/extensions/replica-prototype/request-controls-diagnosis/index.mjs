@@ -2,17 +2,18 @@ import { createHash } from "node:crypto"
 import { realpath } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
-
 import { createPrivateStore } from "../private-store/index.mjs"
 import { diagnosisPreviewUrl } from "./preview-url/index.mjs"
 import { promptData } from "./prompt-data/index.mjs"
-
-export async function requestControlsDiagnosis(context, session, evidence, options = {}) {
+import { readHubObject } from "../read-hub-object/index.mjs"
+export async function requestControlsDiagnosis(context, session, input, options = {}) {
+  const evidence = readHubObject(input)
   if (
     !evidence ||
     typeof evidence !== "object" ||
     Array.isArray(evidence) ||
-    ![Object.prototype, null].includes(Object.getPrototypeOf(evidence)) ||
+    (Object.getPrototypeOf(evidence) !== Object.prototype &&
+      Object.getPrototypeOf(evidence) !== null) ||
     Object.keys(evidence).some(
       (key) =>
         ![
@@ -25,15 +26,16 @@ export async function requestControlsDiagnosis(context, session, evidence, optio
         ].includes(key),
     ) ||
     !["ready", "no-controls", "missing-runtime", "unsupported-runtime", "invalid-config"].includes(
-      evidence.status,
+      typeof evidence.status === "string" ? evidence.status : "",
     ) ||
     typeof evidence.runtimeAvailable !== "boolean" ||
     typeof evidence.reconnectRequired !== "boolean" ||
     typeof evidence.hasError !== "boolean" ||
     typeof evidence.hasStorageError !== "boolean"
   )
-    throw Object.assign(new Error("Invalid controls diagnosis evidence."), { statusCode: 400 })
-
+    throw Object.assign(new Error("Invalid controls diagnosis evidence."), {
+      statusCode: 400,
+    })
   const previewUrl = diagnosisPreviewUrl(evidence.previewUrl, new URL(context.normalizedUrl).origin)
   const reported = {
     status: evidence.status,
@@ -50,8 +52,20 @@ export async function requestControlsDiagnosis(context, session, evidence, optio
     options.directory || path.join(os.homedir(), ".config", "replica", "controls-diagnosis"),
   )
   return store.lock(`${key}.diagnosis`, async () => {
-    const previous = await store.read(`${key}.diagnosis`)
-    if (previous?.requestedAt > Date.now() - 10 * 60_000) return { requested: true }
+    const saved = await store.read(`${key}.diagnosis`)
+    const previous = readHubObject(saved)
+    if (
+      saved !== null &&
+      (!previous ||
+        typeof previous.requestedAt !== "number" ||
+        !Number.isFinite(previous.requestedAt))
+    )
+      throw new Error("Invalid saved Controls diagnosis request.")
+    if (
+      typeof previous?.requestedAt === "number" &&
+      previous.requestedAt > Date.now() - 10 * 60_000
+    )
+      return { requested: true }
     await session.send({
       prompt: [
         "The user selected Fix with Copilot or Diagnose with Copilot for local Replica prototype controls in this current checkout. This requests investigation in the current chat, not automatic repair.",

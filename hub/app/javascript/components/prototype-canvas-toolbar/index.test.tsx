@@ -16,6 +16,18 @@ const props = {
 }
 
 describe("Toolbar()", () => {
+  it("preserves the full long branch in its accessible name and hover title", () => {
+    const branch = "prototype/refine-project-navigation-and-review-workflow"
+    render(
+      <ThemeProvider>
+        <Toolbar {...props} state={{ name: "Projects", stats: { branch } }} />
+      </ThemeProvider>,
+    )
+    const title = screen.getByRole("button", { name: branch })
+    expect(title).toHaveAttribute("title", expect.stringContaining(branch))
+    expect(title).toHaveTextContent(branch)
+  })
+
   it("places the labeled share icon to the right of Publish without disabling it during publishing", () => {
     const onShare = vi.fn()
     const shareButtonRef = createRef<HTMLButtonElement>()
@@ -53,6 +65,7 @@ describe("Toolbar()", () => {
     const button = screen.getByRole("button", { name: "Edit details" })
     expect(hubButtonRef.current).toBe(button)
     expect(button).toHaveAttribute("aria-expanded", "true")
+    expect(button).toHaveAttribute("title", "Edit details")
     fireEvent.click(button)
     expect(onHub).toHaveBeenCalledOnce()
     expect(screen.queryByRole("button", { name: "Hub" })).not.toBeInTheDocument()

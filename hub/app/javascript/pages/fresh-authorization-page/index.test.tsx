@@ -7,7 +7,7 @@ import { hubAdministrationWorkspaceData } from "@/storybook/fixtures/hub-adminis
 import { FreshAuthorizationPage } from "."
 
 describe("FreshAuthorizationPage()", () => {
-  it("keeps an administrator check in Hub scope without replaying its action", () => {
+  it("keeps an administrator check in Hub scope", () => {
     render(
       <ThemeProvider>
         <FreshAuthorizationPage
@@ -15,7 +15,7 @@ describe("FreshAuthorizationPage()", () => {
             productName: "Replica Hub",
             pageTitle: "Fresh authorization",
             heading: "Fresh authorization",
-            description: "Return and confirm again.",
+            description: "Verify your GitHub account.",
             submitLabel: "Verify with GitHub",
             submitPath: "/authorization/example",
             cancelLabel: "Cancel",
@@ -50,7 +50,7 @@ describe("FreshAuthorizationPage()", () => {
             productName: "Replica Hub",
             pageTitle: "Fresh authorization",
             heading: "Fresh authorization",
-            description: "Verify the same GitHub account. No action is replayed.",
+            description: "Verify the same GitHub account.",
             submitLabel: "Verify with GitHub",
             submitPath: "/authorization/example",
             cancelLabel: "Cancel",

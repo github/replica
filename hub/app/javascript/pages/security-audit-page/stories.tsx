@@ -54,7 +54,7 @@ const data: SecurityAuditPageData = {
 }
 
 const meta = {
-  title: "Pages/Security/Audit",
+  title: "Hub/Pages/Security/Audit",
   component: SecurityAuditPage,
   parameters: { layout: "fullscreen" },
   args: { data },

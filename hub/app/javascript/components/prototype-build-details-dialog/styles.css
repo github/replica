@@ -1,7 +1,3 @@
-.build-details-dialog {
-  width: min(40rem, calc(100% - 2rem));
-}
-
 .build-details-list {
   display: grid;
   gap: 1.25rem;

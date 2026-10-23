@@ -2,9 +2,8 @@ import { createHash } from "node:crypto"
 import { realpath } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
-
 import { createPrivateStore } from "../private-store/index.mjs"
-
+import { readHubObject } from "../read-hub-object/index.mjs"
 export async function requestCommentingFix(context, session, options = {}) {
   const root = await realpath(context.repositoryPath)
   const key = createHash("sha256").update(`${root}\n${context.stateFile}`).digest("hex")
@@ -12,8 +11,20 @@ export async function requestCommentingFix(context, session, options = {}) {
     options.directory || path.join(os.homedir(), ".config", "replica", "commenting"),
   )
   return store.lock(`${key}.fix`, async () => {
-    const previous = await store.read(`${key}.fix`)
-    if (previous?.requestedAt > Date.now() - 10 * 60_000) return { requested: true }
+    const saved = await store.read(`${key}.fix`)
+    const previous = readHubObject(saved)
+    if (
+      saved !== null &&
+      (!previous ||
+        typeof previous.requestedAt !== "number" ||
+        !Number.isFinite(previous.requestedAt))
+    )
+      throw new Error("Invalid saved commenting repair request.")
+    if (
+      typeof previous?.requestedAt === "number" &&
+      previous.requestedAt > Date.now() - 10 * 60_000
+    )
+      return { requested: true }
     await session.send({
       prompt: [
         "The user selected Fix with Copilot for Replica canvas commenting in this current checkout.",

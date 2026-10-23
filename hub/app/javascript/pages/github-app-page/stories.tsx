@@ -19,7 +19,8 @@ const data: GithubAppPageData = {
   identity: "App 123 - github (Organization, identity 321)",
   installation: "Installation 456: active",
   busyLabel: null,
-  verification: "Verify this browser with GitHub, then confirm again. Nothing is replayed.",
+  verification:
+    "GitHub must have verified this browser's account within the last five minutes. If verification is required, Hub temporarily encrypts your submitted settings and continues your confirmed change after it succeeds.",
   paragraphs: ["Only the current webhook secret is accepted."],
   links: [
     { label: "Replace App credentials", path: "/github_app/credentials" },
@@ -30,7 +31,7 @@ const data: GithubAppPageData = {
 }
 
 const meta = {
-  title: "Pages/Security/GitHub App",
+  title: "Hub/Pages/Security/GitHub App",
   component: GithubAppPage,
   parameters: { layout: "fullscreen" },
   args: { data },
@@ -40,6 +41,18 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Configured: Story = {}
+export const InstallationRequired: Story = {
+  args: {
+    data: {
+      ...data,
+      installation: "Installation 456: removed",
+      paragraphs: [
+        ...data.paragraphs,
+        "Install this App in the github account and select its repositories. Hub checks GitHub automatically and restores access after installation.",
+      ],
+    },
+  },
+}
 export const NotConfigured: Story = {
   args: {
     data: {

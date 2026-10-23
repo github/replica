@@ -21,7 +21,21 @@ export default defineConfig({
             ? "[name][extname]"
             : "renderer.[ext]",
         codeSplitting: {
-          groups: [{ name: "vendor", test: /node_modules/ }],
+          groups: [
+            {
+              name: "improvement-notes-prototype",
+              test: /app[\\/]javascript[\\/]features[\\/]prototype-canvas-improvement-notes[\\/]/,
+              priority: 5,
+              includeDependenciesRecursively: false,
+            },
+            {
+              name: "improvement-notes-vendor",
+              test: /node_modules[\\/]react-dom[\\/](?:server[.-]|cjs[\\/]react-dom-server)/,
+              priority: 10,
+              includeDependenciesRecursively: false,
+            },
+            { name: "vendor", test: /node_modules/ },
+          ],
         },
         chunkFileNames: "renderer-[name].js",
         entryFileNames: "renderer.js",

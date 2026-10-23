@@ -1,8 +1,6 @@
 import { createHash } from "node:crypto"
-
 import { normalizeBranch, resolveRepository } from "../create-canvas-context/index.mjs"
 import { runCommand } from "../run-command/index.mjs"
-
 export async function capturePublishTarget(context) {
   const [head, branch, repository, origin, pushOrigin] = await Promise.all([
     runCommand("git", ["rev-parse", "HEAD"], context.repositoryPath),
@@ -36,7 +34,6 @@ export async function capturePublishTarget(context) {
       : null,
   }
 }
-
 export function sameCheckout(left, right) {
   return (
     left?.repository === right.repository &&
@@ -45,12 +42,11 @@ export function sameCheckout(left, right) {
     left?.pushFingerprint === right.pushFingerprint
   )
 }
-
 export function samePublishTarget(left, right) {
-  return sameCheckout(left, right) && left.commitSha === right.commitSha
+  return sameCheckout(left, right) && left != null && left.commitSha === right.commitSha
 }
-
 export async function continuesPublishTarget(context, original, current) {
+  if (!original) return false
   if (!sameCheckout(original, current)) return false
   if (samePublishTarget(original, current)) return true
   if (!/^[0-9a-f]{40}$/.test(original.commitSha)) return false

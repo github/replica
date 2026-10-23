@@ -278,7 +278,7 @@ function FieldsExample({
 }
 
 const meta = {
-  title: "Components/Prototype canvas/Controls fields",
+  title: "Prototype canvas/Controls fields",
   component: ControlsFields,
   parameters: { layout: "padded" },
   render: () => <FieldsExample />,
