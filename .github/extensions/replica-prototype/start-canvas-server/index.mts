@@ -15,6 +15,7 @@ import { readPrototypeStartPage } from "../read-prototype-start-page/index.mjs"
 import { refreshPrototypeStatus } from "../refresh-prototype-status/index.mjs"
 import { renderCanvasHtml } from "../render-canvas-html/index.mjs"
 import { requestPublish } from "../request-publish/index.mjs"
+import { requestFeedbackReview } from "../request-feedback-review/index.mjs"
 import { preparePublish } from "../prepare-publish/index.mjs"
 import { createPublishPreferences } from "../publish-preferences/index.mjs"
 import { samePublishTarget } from "../publish-target/index.mjs"
@@ -409,6 +410,18 @@ export async function startCanvasServer(
         improvementNotes,
         localComments,
         localScope,
+        async (expectedContext, expectedHub) => {
+          const selected = await hubClient()
+          if (
+            context.stateFile !== expectedContext.stateFile ||
+            context.normalizedUrl !== expectedContext.normalizedUrl ||
+            selected?.origin !== expectedHub.origin
+          )
+            throw httpError(
+              409,
+              "Hub or canvas changed. Refresh before requesting a feedback review.",
+            )
+        },
       )
     } catch (caught) {
       const error = readHubError(caught)
@@ -528,6 +541,7 @@ async function routeRequest(
   improvementNotes: ImprovementNotes,
   localComments: LocalReviewComments,
   localScope: LocalScope,
+  verifyFeedbackContext: (context: CanvasContext, hub: HubClient) => Promise<void>,
 ) {
   const requestUrl = new URL(request.url || "/", "http://127.0.0.1")
 
@@ -700,6 +714,16 @@ async function routeRequest(
     throw httpError(409, "Enter a Hub URL before connecting.")
   }
   if (hub) {
+    if (request.method === "POST" && requestUrl.pathname === "/api/hub/feedback-review") {
+      sendJson(
+        response,
+        202,
+        await requestFeedbackReview(context, session, hub, await readJson(request), {
+          verifyCurrent: () => verifyFeedbackContext(context, hub),
+        }),
+      )
+      return
+    }
     if (
       request.method === "POST" &&
       ["/api/hub/pair", "/api/hub/connect"].includes(requestUrl.pathname)

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react"
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { fn } from "storybook/test"
 
 import { App } from "."
 import { publicationExamples } from "@utils/resolve-prototype-publication/fixtures"
@@ -15,11 +16,13 @@ function PublicationDemo({
   prototypeUrl,
   withShareLinks = false,
   withComments = false,
+  onImproveContext,
 }: {
   scenario: string
   prototypeUrl: string
   withShareLinks?: boolean
   withComments?: boolean
+  onImproveContext?: () => void
 }) {
   const [ready, setReady] = useState(false)
   useEffect(() => {
@@ -27,6 +30,7 @@ function PublicationDemo({
     if (!fixture) throw new Error(`Unknown publication example: ${scenario}`)
     let state: PrototypeState | null = structuredClone(fixture.state)
     let hub: HubStatus | null = structuredClone(fixture.hub)
+    if (onImproveContext && hub) hub.repositoryAuthorized = true
     let remember = false
     if (withShareLinks && hub?.prototype)
       hub.prototype = { ...hub.prototype, canManageShareLinks: true }
@@ -93,7 +97,10 @@ function PublicationDemo({
       else if (path === "/api/hub/status") data = hub
       else if (path === "/api/hub/open" || path === "/api/hub/activity") data = hub
       else if (path === "/api/hub/discovery") data = hub
-      else if (
+      else if (path === "/api/hub/feedback-review" && onImproveContext) {
+        onImproveContext()
+        data = { requested: true }
+      } else if (
         path === "/api/publish/prepare" &&
         state?.stats.repository &&
         state.stats.branch &&
@@ -221,7 +228,7 @@ function PublicationDemo({
       window.clearTimeout(timer)
       window.fetch = originalFetch
     }
-  }, [scenario, withShareLinks, withComments])
+  }, [scenario, withShareLinks, withComments, onImproveContext])
   return (
     <div className="publication-demo">
       <div className="publication-demo-canvas">
@@ -318,6 +325,35 @@ export const UnknownRegistrationReason: Story = {
 }
 export const Failed: Story = { args: { scenario: "Build failed" } }
 export const Ready: Story = { args: { scenario: "Published" } }
+export const ImproveContext: Story = {
+  args: {
+    scenario: "Published",
+    onImproveContext: fn(),
+  },
+  render: (args) => (
+    <PublicationDemo
+      {...args}
+      prototypeUrl={new URL("/prototype-preview/index.html", window.location.href).href}
+    />
+  ),
+  parameters: {
+    docs: {
+      description: {
+        story:
+          "Any connected user with repository access can request feedback review through Improve context. This story records the request without running a skill or calling Hub.",
+      },
+    },
+  },
+}
+export const MoreActionsOpen: Story = {
+  ...ImproveContext,
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "More actions" }, { timeout: 5_000 }),
+    )
+    await canvas.findByRole("menuitem", { name: "Improve context" })
+  },
+}
 export const CommentsSidebar: Story = {
   args: {
     scenario: "Published",

@@ -150,6 +150,14 @@ Run shared adapter/schema tests, renderer/iframe tests and type checks, then reb
 
 `bin/setup` restores Hub's locked dependencies, including the validator generator. `controls:build` generates the minified screenshot adapter, Hub bridge and Storybook fixture; `controls:assets:check` checks freshness in CI. The screenshot driver reads its committed adapter without a compiler. No prototype package installation or compatibility preparation is needed.
 
+## Feedback review
+
+**Improve context** in the toolbar's **More actions** menu requests `/review-hub-feedback` in the current chat. The skill reviews repository feedback for reusable themes, using independent judging and private session artifacts. It asks for a judge model and reasoning when unspecified. It does not generate solutions or edit repository context.
+
+The action is available to every connected Hub user with GitHub access to the loaded repository, including Read and Triage as well as Write, Maintain and Admin. No maintainer or Hub administrator role is required. A Hub connection and a named checkout branch are required; the branch need not have a published Build. The action stays hidden while access is unverified or denied and after a connection failure. It uses the existing connection APIs and needs no new Hub endpoint or capability.
+
+Clicking verifies the existing repository grant through `GET /api/canvas/connection` before dispatch. Hub applies its normal read-access check, which may cache GitHub permission for up to one minute; the skill's feedback reads also enforce repository access through existing APIs. The extension verifies the displayed Hub, repository, branch and connection still match. Overlapping requests share one dispatch; failures are shown in the toolbar without an automatic retry. Successful dispatch continues in chat without adding a toolbar message. The button starts no pairing, publication, or repository mutation. The review skill must be enabled and discoverable; otherwise the action explains that a plugin update or fresh session is needed.
+
 ## Branch publication status
 
 The sidebar and toolbar use the same branch publication state. The extension checks the
@@ -522,6 +530,14 @@ The extension uses only a saved Hub selection or `REPLICA_HUB_ORIGIN` and an exi
 
 ## Contributor workflow
 
+### Canvas version decision
+
+This rule applies only to maintainers changing the canvas in `github/replica`, not to authors using the canvas in prototype repositories. For each PR that changes canvas behavior, UI, bundled skills, or distributed assets, ask the maintainer to choose a patch or minor plugin version bump before opening or updating the PR. Recommend patch for fixes and polish, or minor for new functionality. Wait for the choice before changing the version or publishing the PR update. Reuse an explicit version decision already made for the same PR; later edits and rebuilds do not require another bump.
+
+Apply the chosen bump to `.github/extensions/replica-prototype/plugin.json` and update version-specific expectations. Keep the extension manifest format, Controls definition format, and Canvas API interface versions unchanged unless their own contracts change. Documentation-only and Storybook-only changes do not require this decision.
+
+### Local development
+
 Prototype authors install and update the released Copilot plugin through the [CLI installation guide](../../.github/extensions/replica-prototype/README.md#install). Contributors use a local Replica checkout to test uncommitted changes instead.
 
 Rebuild the plugin's assets from `hub/` with the `extension:build` command below, then launch Copilot from a separate prototype checkout:
@@ -555,6 +571,8 @@ Runtime modules export their server, proxy, connection, discovery, startup-statu
 The Hub client exports its connection, request, status and recall contracts from its owning module. Requests return records with unknown field values; a response being valid JSON does not establish a prototype, review or sharing contract. Consuming workflows must check the fields they use. Stored credentials, saved origins, discovery responses and learnings are checked at their respective read boundaries. No Hub bearer credential reaches the renderer.
 
 Hub builds renderer files, Brand fonts and browser runtime into the plugin's `assets/`; commit them so installed users need no Node packages. Build configuration lives in `hub/vite.prototype-canvas.config.mjs` and `hub/script/`. Generated assets are excluded from formatting checks; do not edit them manually. There is no Vite/npm distribution or release preparation.
+
+The extension build also copies the `review-hub-feedback` skill directory, including its supporting references, from its canonical starter source into the plugin's skills. Edit `starter/.agents/skills/review-hub-feedback/`, rebuild, and commit the generated plugin copy together. Asset freshness checks cover the copied skill. The separate proposal skill is not bundled; its handoff remains unavailable unless that skill is installed independently.
 
 For example, a preview reload must cancel an unconfirmed click without losing a command already dequeued by the agent. Test each hook's public behavior beside its implementation, using fake timers for polling and timeouts. Keep cross-feature checks under `application/prototype-canvas/tests/`, including iframe preservation, focus restoration and explicit publication or sharing actions. Keep `index.test.tsx` beside the application component and test-only orchestration helpers under its `tests/`. Shared publication fixtures stay with the publication utility so lower-layer tests do not import application code. Create fresh fixtures inside each case without suite-level reset hooks. Shared jsdom setup supplies stateless browser shims and restores real timers; Vitest configuration resets mocks and stubbed globals before each case.
 
