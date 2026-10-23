@@ -4,6 +4,7 @@ log
 .storybook/instances
 .storybook/settings.json
 node_modules
+server/generated
 public
 dist
 storybook-static

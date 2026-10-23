@@ -31,6 +31,7 @@
     ".storybook/**/*.ts",
     ".storybook/**/*.tsx",
     "eslint.config.ts",
+    "prisma7.config.ts",
     "vite-aliases.ts",
     "controls-validator-plugin.ts",
     "vite.config.ts",

@@ -6,6 +6,7 @@ Hub is being rebuilt. The [Hub overview](../README.md) describes what the baseli
 - [Code architecture conventions](backend-architecture.md): repositories, integrations, utilities, and domains.
 - [Coding conventions](coding-conventions.md): frontend layers and interface rules.
 - [Development](development.md): local API and frontend setup.
+- [Database](database.md): Prisma schema conventions, migrations, and the shared client.
 - [Testing and operations](testing-and-operations.md): baseline checks and their limits.
 - [Storybook](storybook.md): retained presentation, fixtures, and screenshot evidence.
 - [Prototype canvas](prototype-canvas.md): the separately retained extension.

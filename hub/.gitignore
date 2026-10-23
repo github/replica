@@ -8,4 +8,5 @@
 /coverage
 /dist
 /node_modules
+/server/generated
 /storybook-static

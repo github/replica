@@ -16,6 +16,7 @@ export default defineConfig(
       "**/*.js",
       "coverage/**",
       "node_modules/**",
+      "server/generated/**",
       "public/**",
       "dist/**",
       "storybook-static/**",
