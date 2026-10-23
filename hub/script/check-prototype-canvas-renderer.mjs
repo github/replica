@@ -131,11 +131,15 @@ try {
       // The bridge's selection surface receives this real pointer click over the target.
       await target.click({ force: true })
       capture.resolve()
-      const composer = page.getByRole("dialog", { name: "Add improvement note", exact: true })
+      const composer = page.getByRole("dialog", { name: "Add note", exact: true })
       await composer
         .getByRole("textbox", { name: "What should change?", exact: true })
         .fill("Make the save action clearer.")
       const noteDraft = composer.getByRole("textbox", { name: "What should change?", exact: true })
+      assert.equal(
+        await noteDraft.getAttribute("placeholder"),
+        "Describe what you want Copilot to change...",
+      )
       await noteDraft.press("s")
       assert.equal(await noteDraft.inputValue(), "Make the save action clearer.s")
       await noteDraft.press("Backspace")

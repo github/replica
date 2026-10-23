@@ -13,9 +13,9 @@ export const copy = {
   selectHint:
     "Hover to highlight, then click an element or drag a rectangle. S toggles selection. For a keyboard region, focus the preview, press Shift+Enter, then use arrows and Enter to choose two corners. Escape exits annotation mode.",
   regionSmall: "Choose a larger region, at least 8 preview pixels wide and high.",
-  add: "Add improvement note",
+  add: "Add note",
   label: "What should change?",
-  placeholder: "Describe the improvement you want Copilot to make...",
+  placeholder: "Describe what you want Copilot to change...",
   save: "Save",
   saveShortcutMac: "⌘",
   saveShortcutOther: "Ctrl",
