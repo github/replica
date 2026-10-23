@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 
+import type { AnnotationShortcutModule } from "@/test/as-trusted-keyboard-event"
 import { copy } from "@features/prototype-canvas-improvement-notes/en"
 import { copy as threadCopy } from "@features/prototype-canvas-improvement-threads/en"
 import { sharingFixture } from "./sharing-fixture"
@@ -8,6 +9,17 @@ import { App } from ".."
 import type { Note } from "@features/prototype-canvas-improvement-notes/types"
 import { REVIEW_ANCHOR_SCHEMA } from "@utils/review-anchor/schemas"
 import { ImprovementNotesPrototype } from "@features/prototype-canvas-improvement-notes"
+
+vi.mock("@utils/is-annotation-shortcut", async (importOriginal) => {
+  const actual = await importOriginal<AnnotationShortcutModule>()
+  const { asTrustedKeyboardEvent } = await import("@/test/as-trusted-keyboard-event")
+  return {
+    ...actual,
+    isAnnotationShortcut(event: KeyboardEvent) {
+      return actual.isAnnotationShortcut(asTrustedKeyboardEvent(event))
+    },
+  }
+})
 
 const nonce = "00000000-0000-4000-8000-000000000003"
 const origin = "http://localhost:4321"

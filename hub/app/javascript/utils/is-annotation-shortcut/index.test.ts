@@ -1,16 +1,17 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it } from "vitest"
 
+import { asTrustedKeyboardEvent } from "@/test/as-trusted-keyboard-event"
 import { isAnnotationShortcut } from "."
 
 afterEach(() => {
   document.body.innerHTML = ""
 })
 
-function dispatchShortcut(target: EventTarget, event: KeyboardEvent) {
+function dispatchShortcut(target: EventTarget, event: KeyboardEvent, trusted = true) {
   let shortcut = false
   function listener(received: KeyboardEvent) {
-    shortcut = isAnnotationShortcut(received)
+    shortcut = isAnnotationShortcut(trusted ? asTrustedKeyboardEvent(received) : received)
   }
   window.addEventListener("keydown", listener)
   try {
@@ -33,6 +34,16 @@ it("matches plain S without consuming modified or composing keys", () => {
   expect(shortcut({ key: "S" })).toBe(true)
   expect(shortcut({ key: "s", ctrlKey: true })).toBe(false)
   expect(shortcut({ key: "s", isComposing: true })).toBe(false)
+})
+
+it("ignores untrusted keydown events", () => {
+  expect(
+    dispatchShortcut(
+      window,
+      new KeyboardEvent("keydown", { key: "s", bubbles: true, cancelable: true }),
+      false,
+    ),
+  ).toBe(false)
 })
 
 it("ignores a keydown whose key is missing", () => {

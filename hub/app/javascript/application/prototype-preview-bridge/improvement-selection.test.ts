@@ -1,8 +1,20 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest"
 
+import type { AnnotationShortcutModule } from "@/test/as-trusted-keyboard-event"
 import { REVIEW_ANCHOR_SCHEMA } from "@utils/review-anchor/schemas"
 import { installBridge } from "./index"
+
+vi.mock("@utils/is-annotation-shortcut", async (importOriginal) => {
+  const actual = await importOriginal<AnnotationShortcutModule>()
+  const { asTrustedKeyboardEvent } = await import("@/test/as-trusted-keyboard-event")
+  return {
+    ...actual,
+    isAnnotationShortcut(event: KeyboardEvent) {
+      return actual.isAnnotationShortcut(asTrustedKeyboardEvent(event))
+    },
+  }
+})
 
 const origin = "http://127.0.0.1:1234"
 const installed = Symbol.for("replica.canvas.bridge.v1")
