@@ -1,84 +1,123 @@
 # Set up a prototype repository
 
-Use this guide when someone points an agent at `github/replica` and asks it to set up a prototyping repository. The first milestone is an independent starter app with a verified local preview. Product guidance, reference components, a shared team baseline, and Hub publishing are separate milestones.
+Copilot uses this guide to create a repository from the Replica starter or continue setup in an existing repository on your behalf. **The numbered steps below are instructions for Copilot.** They cover repository checks, your approvals, local preview, and the handoff to a fresh session.
 
-This guide uses the existing installer and starter workflows. It does not change `/setup-skills`, which drafts the full shared context library on plain setup.
+The first goal is to verify that the starter app, or the app in the existing repository, runs locally in the Replica canvas. Copilot then continues with the product guidance, starting pages, or publishing you requested. **Local prototyping does not need Hub or a GitHub repository.**
 
-## 1. Resolve the target and requested outcome
+For a walkthrough you can follow yourself, use [Create your first local prototype](local-prototyping.md) or [Set up shared hosting and team feedback](prototype-environment.md). Those guides contain the setup steps; this page is not an additional step you need to complete.
 
-Reuse the repository name, destination, references, and decisions already supplied. Ask only for missing information needed for the next action.
+## 1. Confirm the repository and goal
 
-| Target | Next action |
+Use the repository name, destination, references, and decisions already supplied. Ask only for information needed to take the next step.
+
+If the user requests hosted publishing, identify the [hosting requirements](prototype-environment.md#1-check-readiness-before-you-start) early. Hosting can be arranged alongside local work.
+
+| Starting point | Next step |
 | --- | --- |
-| New local repository | Choose a new directory outside the Replica checkout, then follow step 2. |
-| Existing local or GitHub repository | Inspect its instructions, files, Git state, and remote before proposing changes. If it already uses Replica, continue from its current setup state. |
-| Existing empty directory or repository | Explain that the installer requires a new destination. Propose creating the starter in a separate directory and reviewing how to integrate it into the intended repository. Get approval before transferring files or changing repository configuration. |
-| Existing repository with another app | Agree whether to adapt that app or create a separate prototype repository before installing anything. Preserve existing files and history. |
+| New local repository | Choose a new folder outside the Replica checkout, then follow step 2. |
+| Existing Replica repository | Inspect its instructions, files, Git state, and remote. Continue from its current setup state rather than installing the starter again. |
+| Existing empty folder or repository | The installer needs a destination that does not exist. Propose creating the starter in a separate folder, then agree how to integrate it. Get approval before transferring files or changing repository configuration. |
+| Existing repository with another app | Inspect its instructions, files, Git state, and remote. Agree whether to adapt the app or create a separate prototype repository before installing anything. If adapting it, preserve its files and history and use its setup instructions rather than copying the starter over it. |
 
-A local repository needs no GitHub credentials or Hub. If the user also requests a GitHub repository, resolve its owner and visibility before creating it. Follow the host's authorization rules for repository creation, commits, and pushes; local setup alone does not authorize them.
+If the user also requests a GitHub repository, confirm its owner and visibility before creating it. Follow the host's authorization rules for repository creation, commits, and pushes. Local setup alone does not authorize these actions.
 
-When a reference app is supplied, retain it for the guidance and component work in step 4. A request to create the repository does not require a design-system questionnaire before copying the starter.
+Keep supplied reference apps and design-system sources for step 4. Creating the starter does not require product or design-system intake first.
 
 ## 2. Create the independent starter
 
-Without a local Replica checkout, download the installer:
+Create the starter only when a new repository is needed, using the destination agreed in step 1. When continuing with an existing app, preserve it and continue at step 3.
+
+Download the installer:
 
 ```sh
 curl -fLSs https://raw.githubusercontent.com/github/replica/main/scripts/install-starter.sh -o install-starter.sh
 ```
 
-Read the downloaded script before running it. Use a destination that does not exist and whose parent directory exists:
+Review the installer, then run it with a new project folder name. The destination must not exist, and its parent folder must exist:
 
 ```sh
 bash install-starter.sh my-prototype
 ```
 
-From a local Replica checkout, use the checked-out script instead:
+If working from a local Replica checkout, use its script instead of downloading the installer:
 
 ```sh
 bash scripts/create-prototype-repo.sh ../my-prototype
 ```
 
-Both paths create an independent, uncommitted Git repository with no remote. They copy the starter without Replica's source history, require no GitHub credentials, and publish nothing. The installer does not install Node.js or app dependencies.
+Both commands create an independent Git repository with no commits or remote. They copy the starter without Replica's source history and require no GitHub credentials. Nothing is uploaded or published. Neither command installs Node.js or app dependencies.
 
-Before asking the user to accept the copied repository's Copilot app configuration, review `.github/github-app.yml` and the startup details in the copied `README.md`. Explain that session startup can install Copilot CLI globally when missing, install or enable the Replica plugin, and will run `npm ci`.
+Before the user accepts the new project's Copilot configuration, review `.github/github-app.yml` and the startup instructions in its `README.md`. Explain the automatic setup actions: startup can install Copilot CLI globally if missing and install or enable the Replica plugin. It also runs `npm ci`.
 
-Add the new directory to the Copilot app using **Projects → + → Local folder or repository**, then start a fresh session there. The session in the Replica checkout cannot discover the copied local skills.
+### Continue in a fresh session
 
-Before ending the originating session, provide a paste-ready kickoff message headed **Prompt 1: Continue prototype repository setup**. Tell the user to paste it into the fresh session; a new session does not inherit the previous conversation. Include the user's goal, repository path, supplied references, requested milestone, settled decisions and approvals, completed actions, blockers, and next step.
+Ask the user to add the repository folder to Copilot using **Projects → + → Local folder or repository**, then start a fresh session there. A session in the Replica checkout cannot discover the new repository's local skills.
 
-The kickoff must tell the new session to follow the copied repository's `AGENTS.md` and resume this guide at step 3. Include the [absolute guide URL](https://github.com/github/replica/blob/main/docs/prototype-repository-setup.md#3-verify-the-existing-app-locally), since this guide is not copied into the starter. If that version is not yet available at the URL, include steps 3 through 5 inline instead. The new session reuses settled answers and checks which actions and approvals remain applicable.
+Before ending the original session, provide a message the user can paste into the new one, headed **Prompt 1: Continue prototype repository setup**. The new session does not inherit the conversation. Include:
+
+- The user's goal and requested outcome.
+- The project path and supplied references.
+- Decisions and approvals already given.
+- Completed work, blockers, and the next step.
+
+Tell the new session to follow the project's `AGENTS.md` and continue at [step 3 of this guide](https://github.com/github/replica/blob/main/docs/prototype-repository-setup.md#3-verify-the-existing-app-locally). Use the absolute URL because this guide is not copied into the starter. If the current instructions are not yet available at that URL, include steps 3 through 5 in the message.
+
+The new session should reuse settled answers and check which approvals still apply.
 
 ## 3. Verify the existing app locally
 
-Check `node --version` against `engines.node` in the copied `package.json`. Reuse a compatible installed runtime. On macOS or Linux, obtain approval before installing Node.js, nodenv, or node-build, or changing shell configuration.
+Check `node --version` against `engines.node` in the project's `package.json`. Reuse a compatible installation. On macOS or Linux, get approval before installing Node.js, nodenv, or node-build, or changing shell configuration.
 
-The fresh session does not receive the setup output, so ask the user to inspect it and report any failures before repeating setup. Dependency installation success does not prove that the current session loaded the canvas.
+The fresh session does not receive the previous setup output. Ask the user to report startup failures before repeating setup. Successful dependency installation does not confirm that the canvas is available in the current session.
 
-Follow the copied README's **Connect the Replica canvas** and **Canvas preflight** sections for plugin activation and recovery. Complete that preflight before starting a preview. Use its **Run it** commands, reuse an existing responsive server when appropriate, and open the actual printed URL. Verify that the included app renders; a successful dependency install or HTTP response alone is not a rendered check.
+Follow the project's README sections **Connect the Replica canvas** and **Canvas preflight** to activate the plugin and check that the canvas is ready. Complete those checks before starting the preview. Use the README's **Run it** commands, reuse a responsive server when appropriate, and open the URL printed by the server.
 
-This milestone checks the existing starter page without building product UI. Report a missing runtime, unavailable canvas, or failed preview with its specific recovery step. Hub connection is not required for local preview.
+For an adapted app without those sections, use the [starter's canvas setup instructions](../starter/README.md#connect-the-replica-canvas) alongside the app's own run commands. Preserve its existing instructions.
+
+Verify that the existing app renders without building new product UI. A successful dependency install or HTTP response is not enough. If Node.js, the canvas, or the preview is unavailable, report the specific problem and recovery step. Hub is not required.
 
 ## 4. Continue only to the requested milestone
 
-| Requested outcome | Continue with |
-| --- | --- |
-| Local starter and preview | Report the verified state and stop. No guidance authoring or Hub setup is needed just to inspect the included app. |
-| Product or design-system setup | Run the new repository's `/setup-skills` with the supplied sources. Reuse prior answers. Follow its source intake, installation approval, draft review, and separate activation steps. |
-| Reference-based starting UI | Complete the applicable guidance setup, then use the local `create-prototype` skill to build the requested shell or page. Establish whether components come from an installable package, permitted source reuse, or newly authored components. Verify the rendered result against the authorized reference. |
-| Shared team baseline | Complete the applicable guidance setup, [prepare useful starting pages](prototype-environment.md#3-prepare-useful-starting-pages), and review them together. Then [share the baseline on GitHub](#share-the-baseline-on-github). |
-| Hosted publishing and comments | First [share the reviewed baseline on GitHub and verify it on the actual default branch](#share-the-baseline-on-github), then follow [deploy the hub](prototype-environment.md#4-deploy-the-hub) and the remaining environment setup steps, or connect to an existing team Hub. |
+For a local starter trial, report what works and stop after step 3. Product guidance and Hub setup are not required to try the included app.
 
-Guidance drafts are not active guidance. Installed tokens or packages are not proof that reference components are usable or that a shell resembles the reference. Keep those outcomes distinct.
+For the outcomes below, complete only the work needed for the user's request.
+
+### Add product and design-system guidance
+
+Run the project's `/setup-skills` with the supplied sources and reuse prior answers. Follow its source intake, package installation approvals, draft review, and separate activation steps. Plain setup drafts all documents in the shared context library unless the user requests a narrower scope.
+
+Report whether guidance is drafted, reviewed, or active. Drafting does not activate it.
+
+### Build from a reference
+
+Complete the relevant guidance setup, then use the project's `create-prototype` skill to build the requested page or app layout. Confirm whether components will come from an installable package, permitted source reuse, or new code.
+
+Verify the rendered result against the authorized reference. Installing tokens or packages does not confirm that the intended components work or that the page matches the reference.
+
+### Prepare a shared team starting point
+
+Complete the relevant guidance setup and build the requested starting pages. A list, detail page, and empty state are possible starting points. Review the pages and guidance together before sharing them.
+
+Continue with **Share the baseline on GitHub** below. This makes the reviewed app, guidance, and pages available to teammates without requiring Hub. Hub templates can be configured later as part of hosted setup.
 
 ### Share the baseline on GitHub
 
-After reviewing the starter files, guidance, and starting pages, use the intended empty GitHub repository or create one with the agreed owner and visibility. Connect it as a remote named `origin`, make the initial commit, and push the intended default branch only when authorized. For an existing shared repository, follow its contribution process to merge the reviewed changes instead of replacing its remote or history. Ask an engineer for help with these Git steps if needed.
+Use the intended empty GitHub repository or create one with the agreed owner and visibility. With authorization, connect it as `origin`, make the initial commit, and push the intended default branch. For an existing shared repository, follow its contribution process to merge the reviewed changes. Preserve its remote and history.
 
-Verify the repository's actual default branch contains the intended baseline before calling it ready for teammates or continuing to Hub repository connection. A local preview is not evidence of a published Hub Build.
+Verify that the repository's actual default branch contains the reviewed app, active guidance, and starting pages before reporting that it is ready for teammates. This is a shared source repository, not a published Hub Build.
+
+### Add hosted publishing and comments
+
+Reuse this repository and its approved guidance to build a useful prototype. Publishing is not a prerequisite for guidance setup or local prototyping.
+
+Once the hosting requirements are in place, continue with [step 5: Deploy the hub](prototype-environment.md#5-deploy-the-hub). The remaining hosted steps cover the GitHub connection, build workflow, canvas connection, publishing, and feedback. There is no need to repeat the repository setup above.
+
+If the team already has Hub, continue with the existing environment's [GitHub and build setup](prototype-environment.md#6-connect-github-and-enable-builds) instead of deploying another Hub. Skip work already completed.
 
 ## 5. Report what is ready
 
-Finish with a short status summary based on observed results. Distinguish **verified**, **blocked**, **not checked**, and **not requested** rather than saying only "setup complete."
+Finish with a short summary of observed results. Use **verified**, **blocked**, **not checked**, and **not requested** to distinguish what works from what remains.
 
-Cover the runtime and dependencies, current-session canvas availability, rendered preview and URL, guidance activation, reference components or shell, default-branch baseline, and Hub publishing only as applicable. Name the next blocker and its recovery action. Preserve this summary across a required session handoff.
+Cover only the relevant outcomes: Node.js and dependencies, canvas availability in the current session, rendered preview and URL, guidance activation, reference components or pages, the shared default branch, and Hub publishing.
+
+Name any blocker and its recovery action. Include this summary in a required session handoff so the next session can continue without repeating completed work.

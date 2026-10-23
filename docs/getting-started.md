@@ -1,8 +1,11 @@
-# Get started with Replica
+# Join your team's Replica environment
 
 Create an interactive prototype with GitHub Copilot, publish it to Replica Hub, and collect feedback from your team. This guide helps you join your organization's prototyping environment and create your first shared prototype.
 
-You can create and try prototypes locally without Hub. To create a repository rather than join an existing one, follow [prototype repository setup](prototype-repository-setup.md). Publishing and team comments need a Hub hosted by your organization, a connected GitHub repository, and the repository's Replica build workflow. Ask your team for its Hub URL and repository, or follow [environment setup](prototype-environment.md) if you are setting up shared hosting for the first time.
+* Starting on your own? Follow [Create your first local prototype](local-prototyping.md), which needs no Hub.
+* Setting up hosting for your organization? Follow [Set up shared hosting and team feedback](prototype-environment.md).
+
+Publishing and team comments need an organization-hosted Hub, a connected GitHub repository, and the repository's Replica build workflow.
 
 ## 1. Download the GitHub Copilot app
 
@@ -35,7 +38,7 @@ Add the repository to the Copilot app:
 
 If the repository is missing or access is denied, ask its maintainer to check your GitHub access. See [connecting a repository in Copilot](https://docs.github.com/en/copilot/get-started/quickstart-copilot-app#connecting-a-repository-or-folder) for app setup help.
 
-**Setting up the environment for your organization?** Follow [Set up and configure your prototype environment](prototype-environment.md) instead. It covers creating the repository, adding design-system guidance, deploying Hub with Docker, and connecting builds before inviting teammates.
+**No shared environment yet?** Use the [hosted setup walkthrough](prototype-environment.md) to check hosting needs, add your team's guidance, and build a prototype while hosting is arranged. Connect Hub when it is ready, then publish and invite teammates.
 
 ## 3. Install and enable the canvas
 
@@ -60,8 +63,9 @@ If the canvas is missing, check that installation completed and that you started
 
 ## 4. Create a prototype
 
-Start a new prototype by clicking **+** button next to your prototype repository. Each prototpye should get it's own session.
-Describe the change you want and let copilot work for a couple minutes.
+Start a new prototype by clicking **+** next to your prototype repository. Give each prototype its own session. Before editing, ask Copilot to confirm that the session uses a new prototype branch, not the repository's default branch.
+
+Describe the change you want and let Copilot build it.
 
 ### Example prompt: Create a searchable project list
 
@@ -87,7 +91,7 @@ Return to the canvas after approval. Connecting does not push or publish anythin
 
 If the connection fails, check the Hub URL and repository access with your team. An expired or revoked connection needs browser approval again. See [canvas connection guidance](../hub/docs/prototype-canvas.md#pairing-and-review) for more detail.
 
-Administrators can follow [Hub and repository setup](prototype-environment.md#4-deploy-the-hub).
+Administrators can follow [Hub and repository setup](prototype-environment.md#5-deploy-the-hub).
 
 ## 6. Publish your prototype
 

@@ -4,11 +4,13 @@ These guides apply across the Replica monorepo. Start with [Contributing](../CON
 
 ## Prototype guides
 
-[Get started with Replica](getting-started.md) walks new users through installing Copilot, adding their team's repository and canvas, creating and publishing a prototype, sharing feedback, and adding controls.
+[Create your first local prototype](local-prototyping.md) walks you through the starter and canvas without Hub, then adding approved team guidance and building a useful prototype.
 
-[Set up a prototype repository](prototype-repository-setup.md) guides agents through new or existing repository targets, starter installation, the fresh-session handoff, and a verified local preview before optional product guidance or team setup.
+[Set up shared hosting and team feedback](prototype-environment.md) starts with hosting requirements, then team guidance and a useful local prototype. Teams can arrange hosting alongside that work, then connect Hub, publish, and invite teammates.
 
-[Set up and configure your prototype environment](prototype-environment.md) walks environment maintainers through creating the shared repository, adding design-system guidance and templates, deploying Hub with Docker, connecting builds, and inviting the team.
+[Join your team's Replica environment](getting-started.md) walks authors through using an existing team repository and Hub, creating and publishing a prototype, sharing feedback, and adding controls.
+
+[Set up a prototype repository](prototype-repository-setup.md) is the supporting agent guide for new or existing repository targets, starter installation, session handoff, and verification. People following the walkthroughs above do not need to follow its agent instructions.
 
 ## Shared conventions
 
