@@ -11,10 +11,13 @@ Organize backend functions into repositories, integrations, utilities, and domai
 
 ## Import boundaries
 
-```text
-Domains -> Repositories -> Utilities
-        -> Integrations -> Utilities
-        -> Utilities
+```mermaid
+flowchart LR
+  Domains --> Repositories
+  Domains --> Integrations
+  Domains --> Utilities
+  Repositories --> Utilities
+  Integrations --> Utilities
 ```
 
 Repositories and integrations may import only utilities from elsewhere in the backend. Utilities may import only other utilities. Domains may import any of these layers, including other domains. Each layer may also use built-in libraries and npm packages.
