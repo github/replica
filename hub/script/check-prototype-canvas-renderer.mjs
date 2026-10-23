@@ -141,7 +141,7 @@ try {
       await noteDraft.press("Backspace")
       const saveNote = composer.getByRole("button", { name: "Save", exact: true })
       assert.equal(await saveNote.getAttribute("aria-keyshortcuts"), "Meta+Enter Control+Enter")
-      assert.equal(await saveNote.locator("kbd").innerText(), "Ctrl Enter")
+      assert.deepEqual(await saveNote.locator("kbd").allInnerTexts(), ["Ctrl", "↵"])
       await noteDraft.press("Control+Enter")
       await cards.first().waitFor()
       assert.equal(await cards.count(), 1)

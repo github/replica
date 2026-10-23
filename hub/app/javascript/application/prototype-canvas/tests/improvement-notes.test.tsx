@@ -372,6 +372,7 @@ describe("App()", () => {
     const save = composer.getByRole("button", { name: copy.save })
     expect(save).toHaveAttribute("aria-keyshortcuts", "Meta+Enter Control+Enter")
     expect(within(save).getByText(copy.saveShortcutMac)).toBeVisible()
+    expect(within(save).getByText(copy.saveShortcutEnter)).toBeVisible()
     fireEvent.change(note, {
       target: { value: "Keep the selected action visible." },
     })

@@ -65,7 +65,7 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
     saved.state?.syncError === "Notes are saved locally until Hub discovers this branch."
       ? null
       : saved.state?.syncError
-  const saveShortcut = isMacPlatform() ? copy.saveShortcutMac : copy.saveShortcutOther
+  const saveShortcutModifier = isMacPlatform() ? copy.saveShortcutMac : copy.saveShortcutOther
 
   const receiveSelection = useCallback(
     (anchor: ReviewAnchor) => {
@@ -345,9 +345,10 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
                 aria-keyshortcuts="Meta+Enter Control+Enter"
               >
                 {copy.save}
-                <kbd aria-hidden="true" className="improvement-demo__save-shortcut">
-                  {saveShortcut}
-                </kbd>
+                <span aria-hidden="true" className="improvement-demo__save-shortcut">
+                  <kbd>{saveShortcutModifier}</kbd>
+                  <kbd>{copy.saveShortcutEnter}</kbd>
+                </span>
               </Button>
             </div>
           </form>
