@@ -156,6 +156,15 @@ try {
       })
       assert.equal(state.notes[0].status, "open")
       assert.equal(dispatched.length, 0)
+      const notesToggle = page.getByRole("button", { name: "Open improvement notes (1)" })
+      assert.equal(await notesToggle.getAttribute("aria-expanded"), "true")
+      await notesToggle.click()
+      assert.equal(await notesToggle.getAttribute("aria-expanded"), "false")
+      assert.ok(await notesToggle.evaluate((element) => element === document.activeElement))
+      assert.equal(await page.getByRole("complementary", { name: "Notes" }).count(), 0)
+      await notesToggle.click()
+      assert.equal(await notesToggle.getAttribute("aria-expanded"), "true")
+      await page.getByRole("complementary", { name: "Notes" }).waitFor()
 
       phase = "selection shortcuts in the canvas and cross-origin preview"
       await picker.focus()
@@ -174,7 +183,7 @@ try {
       assert.equal(await prototypeTitle.inputValue(), "Projects")
       assert.equal(await selectionSurface.count(), 0)
       assert.equal((await store.load()).notes.length, 1)
-      await page.getByRole("button", { name: "Open improvement notes (1)" }).click()
+      await notesToggle.click()
 
       phase = "explicit first batch"
       await fix(1).click()
@@ -344,7 +353,11 @@ try {
           await page.setViewportSize(viewport)
           await page.emulateMedia({ colorScheme, reducedMotion: "reduce" })
           await page.reload()
-          await page.getByRole("button", { name: /^Open improvement notes \(/ }).click()
+          const menuNotesToggle = page.getByRole("button", {
+            name: /^Open improvement notes \(/,
+          })
+          if ((await menuNotesToggle.getAttribute("aria-expanded")) !== "true")
+            await menuNotesToggle.click()
           await cards.nth(1).waitFor()
           const rows = page.locator(".thread-sample__card")
           const firstActions = rows.first().getByRole("button", {
@@ -516,7 +529,11 @@ try {
       phase = "outside prototype clicks dismiss conversations without losing drafts"
       await page.setViewportSize({ width: 1280, height: 720 })
       await page.reload()
-      await page.getByRole("button", { name: /^Open improvement notes \(/ }).click()
+      const outsideNotesToggle = page.getByRole("button", {
+        name: /^Open improvement notes \(/,
+      })
+      if ((await outsideNotesToggle.getAttribute("aria-expanded")) !== "true")
+        await outsideNotesToggle.click()
       await cards.first().click()
       await dialog.waitFor()
       const previewOutside = preview.locator("html")

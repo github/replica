@@ -132,6 +132,11 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
     canvas.onOpenNotes()
   }
 
+  function toggleNotes() {
+    if (panelOpen && !canvas.hubOpen) setPanelOpen(false)
+    else openNotes()
+  }
+
   function toggleSelection() {
     if (
       !preview.ready ||
@@ -225,7 +230,7 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
               variant="secondary"
               aria-label={copy.openNotes(notesCount)}
               aria-expanded={panelOpen && !canvas.hubOpen}
-              onClick={openNotes}
+              onClick={toggleNotes}
             >
               <HubCounter>{notesCount}</HubCounter>
             </Button>
