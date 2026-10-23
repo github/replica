@@ -57,6 +57,7 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
   const annotateRef = useRef<HTMLButtonElement>(null)
   const draftRef = useRef<HTMLTextAreaElement>(null)
   const notesToggleRef = useRef<HTMLButtonElement>(null)
+  const closeNotesRef = useRef<(() => void) | null>(null)
   const selectionChanged = selection !== null && selection.identity !== saved.state?.identity
   const composerOpen = selection !== null && !capturingSource && !discarding && saved.state !== null
   const notesCount = notes.filter((note) => note.status !== "resolved").length
@@ -134,7 +135,7 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
   }
 
   function toggleNotes() {
-    if (panelOpen && !canvas.hubOpen) setPanelOpen(false)
+    if (notesOpen) closeNotesRef.current?.()
     else openNotes()
   }
 
@@ -242,6 +243,7 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
         identity={saved.state?.identity ?? ""}
         controls={false}
         returnFocusRef={notesToggleRef}
+        closeRequestRef={closeNotesRef}
         open={panelOpen && !canvas.hubOpen && !selection}
         active={(panelOpen || annotating) && !canvas.hubOpen && !selection}
         onOpen={openNotes}

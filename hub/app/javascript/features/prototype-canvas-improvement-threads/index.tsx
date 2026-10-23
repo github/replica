@@ -10,7 +10,14 @@ import {
   XIcon,
 } from "@primer/octicons-react"
 import { ActionMenu, Button, Heading } from "@primer/react-brand"
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
+import {
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react"
 import { createPortal } from "react-dom"
 import { renderToStaticMarkup } from "react-dom/server"
 
@@ -61,6 +68,7 @@ export function ImprovementThreads({
   activeBatch = false,
   error = "",
   returnFocusRef,
+  closeRequestRef,
   controls = true,
 }: ImprovementThreadsProps) {
   const [selected, setSelected] = useState<number | null>(null)
@@ -131,12 +139,13 @@ export function ImprovementThreads({
 
   const leave = useCallback(
     (restoreFocus = true) => {
-      returnTo.current = restoreFocus ? selected : null
+      const closeSidebar = closingSidebar.current
+      returnTo.current = restoreFocus && !closeSidebar ? selected : null
       setSelected(null)
       setOpenedThread(null)
       setDraft("")
       setDiscarding(false)
-      if (closingSidebar.current) {
+      if (closeSidebar) {
         onClose()
         fallbackFocus.current?.focus()
         closingSidebar.current = false
@@ -156,6 +165,18 @@ export function ImprovementThreads({
     },
     [draft, selected, leave, onClose, fallbackFocus],
   )
+
+  const requestSidebarClose = useCallback(() => {
+    if (selected !== null) {
+      closingSidebar.current = true
+      requestClose()
+    } else {
+      onClose()
+      fallbackFocus.current?.focus()
+    }
+  }, [selected, requestClose, onClose, fallbackFocus])
+
+  useImperativeHandle(closeRequestRef, () => requestSidebarClose, [requestSidebarClose])
 
   useEffect(() => {
     if (selected === null) return
@@ -300,15 +321,7 @@ export function ImprovementThreads({
         title={copy.title}
         open={open}
         closeLabel={copy.close}
-        onClose={() => {
-          if (selected !== null) {
-            closingSidebar.current = true
-            requestClose()
-          } else {
-            onClose()
-            fallbackFocus.current?.focus()
-          }
-        }}
+        onClose={requestSidebarClose}
         closeDisabled={discarding}
         className="thread-sample"
         contentClassName="thread-sample__content"

@@ -589,10 +589,20 @@ describe("App()", () => {
     expect(screen.getByRole("textbox", { name: threadCopy.comments.replyLabel })).toHaveValue(
       "Keep this unsent follow-up",
     )
-    receive(frame, dismiss)
+    const notesToggle = screen.getByRole("button", { name: copy.closeNotes(1) })
+    fireEvent.pointerDown(notesToggle, { button: 0, isPrimary: true })
+    fireEvent.click(notesToggle)
+    expect(notesToggle).toHaveAttribute("aria-expanded", "true")
+    expect(screen.getByText(threadCopy.comments.threadDiscardPromptLabel)).toBeVisible()
+    fireEvent.click(screen.getByRole("button", { name: threadCopy.comments.keepLabel }))
+    fireEvent.click(notesToggle)
+    expect(notesToggle).toHaveAttribute("aria-expanded", "true")
+    expect(screen.getByText(threadCopy.comments.threadDiscardPromptLabel)).toBeVisible()
     fireEvent.click(screen.getByRole("button", { name: threadCopy.comments.discardButtonLabel }))
     expect(screen.queryByRole("dialog", { name: "Save" })).not.toBeInTheDocument()
-    expect(card).toHaveFocus()
+    expect(notesToggle).toHaveAttribute("aria-expanded", "false")
+    expect(notesToggle).toHaveFocus()
+    expect(screen.queryByRole("complementary", { name: copy.notes })).not.toBeInTheDocument()
     view.unmount()
   })
 
