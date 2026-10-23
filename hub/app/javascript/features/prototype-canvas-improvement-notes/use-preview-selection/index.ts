@@ -28,6 +28,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
+function hasActivePreviewGesture(frame: HTMLIFrameElement) {
+  return document.activeElement === frame && navigator.userActivation?.isActive === true
+}
+
 export function usePreviewSelection({
   frameRef,
   prototypeUrl,
@@ -127,7 +131,7 @@ export function usePreviewSelection({
       } else if (data.type === "replica:canvas:selected") {
         receiveSelection(data.anchor)
       } else if (data.type === "replica:canvas:selection-toggle-requested") {
-        toggleSelection()
+        if (hasActivePreviewGesture(frame)) toggleSelection()
       } else if (data.type === "replica:canvas:resolved" && Array.isArray(data.results)) {
         const next = new Map<number, AnchorResolution>()
         for (const result of data.results) {

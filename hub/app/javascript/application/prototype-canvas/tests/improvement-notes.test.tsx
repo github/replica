@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import type { AnnotationShortcutModule } from "@/test/as-trusted-keyboard-event"
 import { copy } from "@features/prototype-canvas-improvement-notes/en"
@@ -51,6 +51,17 @@ function receive(
     )
   })
 }
+
+function setUserActivation(isActive: boolean) {
+  Object.defineProperty(navigator, "userActivation", {
+    configurable: true,
+    value: { hasBeenActive: isActive, isActive },
+  })
+}
+
+afterEach(() => {
+  Reflect.deleteProperty(navigator, "userActivation")
+})
 
 function savedNotesFixture(captureFails = false) {
   const { fetch } = sharingFixture()
@@ -203,7 +214,7 @@ describe("App()", () => {
     view.unmount()
   })
 
-  it("accepts selection-toggle requests only from the current authenticated preview", async () => {
+  it("accepts selection toggles only from the current focused preview during user activation", async () => {
     vi.spyOn(crypto, "randomUUID").mockReturnValue(nonce)
     const { fetch } = savedNotesFixture()
     const view = render(
@@ -238,6 +249,19 @@ describe("App()", () => {
     })
     await waitFor(() => expect(picker).toBeEnabled())
     const toggle = { type: "replica:canvas:selection-toggle-requested", nonce }
+    act(() => frame.focus())
+    setUserActivation(false)
+    receive(frame, toggle)
+    expect(picker).toHaveAttribute("aria-pressed", "false")
+    expect(fetch.mock.calls.filter(([path]) => path.endsWith("/capture"))).toHaveLength(0)
+
+    setUserActivation(true)
+    act(() => picker.focus())
+    receive(frame, toggle)
+    expect(picker).toHaveAttribute("aria-pressed", "false")
+    expect(fetch.mock.calls.filter(([path]) => path.endsWith("/capture"))).toHaveLength(0)
+
+    act(() => frame.focus())
     receive(frame, toggle, origin)
     receive(frame, { ...toggle, nonce: "stale-resolution" })
     act(() => {
@@ -254,6 +278,13 @@ describe("App()", () => {
     receive(frame, toggle)
     expect(picker).toHaveAttribute("aria-pressed", "true")
     expect(fetch.mock.calls.filter(([path]) => path.endsWith("/capture"))).toHaveLength(1)
+
+    setUserActivation(false)
+    receive(frame, toggle)
+    expect(picker).toHaveAttribute("aria-pressed", "true")
+    expect(fetch.mock.calls.filter(([path]) => path.endsWith("/capture"))).toHaveLength(1)
+
+    setUserActivation(true)
     receive(frame, toggle)
     expect(picker).toHaveAttribute("aria-pressed", "false")
     expect(fetch.mock.calls.filter(([path]) => path.endsWith("/capture"))).toHaveLength(1)
