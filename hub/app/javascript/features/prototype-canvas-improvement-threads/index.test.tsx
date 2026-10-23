@@ -45,7 +45,7 @@ describe("ImprovementThreads()", () => {
     )
 
     fireEvent.click(screen.getByRole("button", { name: copy.point(1) }))
-    const conversation = screen.getByRole("dialog", { name: copy.conversation })
+    const conversation = screen.getByRole("dialog", { name: thread.target })
     const heading = within(conversation).getByRole("heading", { name: thread.target })
     expect(heading).toBeVisible()
     const close = within(conversation).getByRole("button", { name: copy.back })
@@ -88,7 +88,7 @@ describe("ImprovementThreads()", () => {
     const event = pointerDown(outside)
 
     expect(event.defaultPrevented).toBe(false)
-    expect(screen.queryByRole("dialog", { name: copy.conversation })).not.toBeInTheDocument()
+    expect(screen.queryByRole("dialog", { name: thread.target })).not.toBeInTheDocument()
     expect(outside).toHaveFocus()
     expect(opener).not.toHaveFocus()
   })
@@ -122,17 +122,17 @@ describe("ImprovementThreads()", () => {
         />
       </>,
     )
-    const card = screen.getByRole("button", { name: "Open improvement: Original request" })
+    const card = screen.getByRole("button", { name: "Open note: Original request" })
     const marker = screen.getByRole("button", { name: copy.point(1) })
     fireEvent.click(card)
-    const conversation = screen.getByRole("dialog", { name: copy.conversation })
+    const conversation = screen.getByRole("dialog", { name: thread.target })
 
     pointerDown(screen.getByRole("textbox", { name: copy.comments.replyLabel }))
     pointerDown(card)
     pointerDown(marker)
     expect(conversation).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole("button", { name: "Improvement actions: 1" }))
+    fireEvent.click(screen.getByRole("button", { name: "Note actions: 1" }))
     const menuDelete = screen.getByRole("menuitem", { name: copy.delete })
     pointerDown(menuDelete)
     expect(conversation).toBeInTheDocument()
@@ -193,7 +193,7 @@ describe("ImprovementThreads()", () => {
 
     pointerDown(outside)
     fireEvent.click(screen.getByRole("button", { name: copy.comments.discardButtonLabel }))
-    expect(screen.queryByRole("dialog", { name: copy.conversation })).not.toBeInTheDocument()
+    expect(screen.queryByRole("dialog", { name: thread.target })).not.toBeInTheDocument()
   })
 
   it.each([true, false])(
@@ -236,7 +236,7 @@ describe("ImprovementThreads()", () => {
         )
       }
       render(<Harness />)
-      fireEvent.click(screen.getByRole("button", { name: "Open improvement: Original request" }))
+      fireEvent.click(screen.getByRole("button", { name: "Open note: Original request" }))
       fireEvent.click(screen.getByRole("button", { name: `${copy.delete}: 1` }))
       const confirmation = screen.getByRole("dialog", { name: copy.deleteTitle })
       expect(confirmation.querySelector("blockquote")).toHaveTextContent(thread.body)
@@ -249,12 +249,12 @@ describe("ImprovementThreads()", () => {
       })
       expect(onDelete).toHaveBeenCalledExactlyOnceWith(thread)
       if (success) {
-        expect(screen.queryByRole("dialog", { name: copy.conversation })).not.toBeInTheDocument()
+        expect(screen.queryByRole("dialog", { name: thread.target })).not.toBeInTheDocument()
         expect(screen.queryByRole("dialog", { name: copy.deleteTitle })).not.toBeInTheDocument()
         expect(screen.queryByRole("button", { name: copy.point(1) })).not.toBeInTheDocument()
         expect(screen.getByRole("button", { name: copy.open })).toHaveFocus()
       } else {
-        expect(screen.getByRole("dialog", { name: copy.conversation })).toBeInTheDocument()
+        expect(screen.getByRole("dialog", { name: thread.target })).toBeInTheDocument()
         expect(screen.getByRole("dialog", { name: copy.deleteTitle })).toBeInTheDocument()
         expect(confirmation).toHaveTextContent("The improvement could not be deleted.")
         for (const alert of screen.getAllByRole("alert")) {
@@ -298,7 +298,7 @@ describe("ImprovementThreads()", () => {
     fireEvent.click(deleteAction)
     expect(screen.queryByRole("dialog", { name: copy.deleteTitle })).not.toBeInTheDocument()
     view.rerender(<ImprovementThreads {...props} />)
-    fireEvent.click(screen.getByRole("button", { name: "Open improvement: Original request" }))
+    fireEvent.click(screen.getByRole("button", { name: "Open note: Original request" }))
     fireEvent.change(screen.getByRole("textbox", { name: copy.comments.replyLabel }), {
       target: { value: "Unsaved follow-up" },
     })
@@ -386,20 +386,18 @@ describe("ImprovementThreads()", () => {
         />,
       )
       if (status === "resolved") {
-        fireEvent.click(screen.getByRole("button", { name: /^Filter improvement notes:/ }))
+        fireEvent.click(screen.getByRole("button", { name: /^Filter notes:/ }))
         fireEvent.click(screen.getByRole("menuitemradio", { name: copy.resolved }))
       }
       if (status !== "ready") {
-        expect(
-          screen.queryByRole("button", { name: "Improvement actions: 1" }),
-        ).not.toBeInTheDocument()
+        expect(screen.queryByRole("button", { name: "Note actions: 1" })).not.toBeInTheDocument()
         expect(screen.getByRole("button", { name: `${copy.delete}: 1` })).toHaveClass(
           "thread-sample__single-delete",
         )
         expect(onResolve).not.toHaveBeenCalled()
         return
       }
-      fireEvent.click(screen.getByRole("button", { name: "Improvement actions: 1" }))
+      fireEvent.click(screen.getByRole("button", { name: "Note actions: 1" }))
       expect(screen.queryByRole("menuitem", { name: "Add follow-up" })).not.toBeInTheDocument()
       const resolve = screen.queryByRole("menuitem", { name: copy.markResolved })
       if (!resolve) throw new Error("Expected the ready-work resolution action.")
@@ -435,7 +433,7 @@ describe("ImprovementThreads()", () => {
         onFix: vi.fn().mockResolvedValue(true),
       }
       const view = render(<ImprovementThreads {...props} />)
-      fireEvent.click(screen.getByRole("button", { name: "Improvement actions: 1" }))
+      fireEvent.click(screen.getByRole("button", { name: "Note actions: 1" }))
       view.rerender(
         <ImprovementThreads
           {...props}
@@ -479,7 +477,7 @@ describe("ImprovementThreads()", () => {
       onRetry,
     }
     const view = render(<ImprovementThreads {...props} />)
-    fireEvent.click(screen.getByRole("button", { name: "Improvement actions: 1" }))
+    fireEvent.click(screen.getByRole("button", { name: "Note actions: 1" }))
     expect(
       screen.getByRole("menuitem", { name: action }).querySelector(".octicon-sync"),
     ).not.toBeNull()
@@ -518,7 +516,7 @@ describe("ImprovementThreads()", () => {
       onRetry: vi.fn().mockResolvedValue(true),
     }
     const view = render(<ImprovementThreads {...props} />)
-    fireEvent.click(screen.getByRole("button", { name: "Improvement actions: 1" }))
+    fireEvent.click(screen.getByRole("button", { name: "Note actions: 1" }))
     view.rerender(
       <ImprovementThreads
         {...props}
@@ -561,7 +559,7 @@ describe("ImprovementThreads()", () => {
         onFix={vi.fn().mockResolvedValue(true)}
       />,
     )
-    fireEvent.click(screen.getByRole("button", { name: "Open improvement: Original request" }))
+    fireEvent.click(screen.getByRole("button", { name: "Open note: Original request" }))
     const input = screen.getByRole("textbox", { name: copy.comments.replyLabel })
     fireEvent.change(input, { target: { value: "First follow-up" } })
     fireEvent.click(screen.getByRole("button", { name: copy.comments.replySubmitLabel }))
@@ -636,7 +634,7 @@ describe("ImprovementThreads()", () => {
       onFix: vi.fn().mockResolvedValue(true),
     }
     const view = render(<ImprovementThreads {...props} />)
-    fireEvent.click(screen.getByRole("button", { name: "Open improvement: Original request" }))
+    fireEvent.click(screen.getByRole("button", { name: "Open note: Original request" }))
     fireEvent.change(screen.getByRole("textbox", { name: copy.comments.replyLabel }), {
       target: { value: "Unsaved follow-up" },
     })
@@ -648,7 +646,7 @@ describe("ImprovementThreads()", () => {
     expect(screen.getByRole("button", { name: copy.back })).toHaveFocus()
     fireEvent.click(screen.getByRole("button", { name: copy.back }))
     fireEvent.click(screen.getByRole("button", { name: copy.comments.discardButtonLabel }))
-    expect(screen.queryByRole("dialog", { name: copy.conversation })).not.toBeInTheDocument()
+    expect(screen.queryByRole("dialog", { name: thread.target })).not.toBeInTheDocument()
     expect(screen.getByRole("button", { name: copy.open })).toHaveFocus()
     expect(props.onFollowUp).not.toHaveBeenCalled()
   })

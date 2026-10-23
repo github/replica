@@ -513,7 +513,7 @@ describe("App()", () => {
       />,
     )
     const card = await screen.findByRole("button", {
-      name: "Open improvement: Make the save action clearer.",
+      name: "Open note: Make the save action clearer.",
     })
     const frame = screen.getByTitle("Demo prototype")
     if (!(frame instanceof HTMLIFrameElement)) throw new Error("Expected the prototype iframe.")
@@ -557,7 +557,7 @@ describe("App()", () => {
     fireEvent.click(card)
     const dismiss = { type: "replica:canvas:conversation-dismiss-requested", nonce: currentNonce }
     receive(frame, dismiss, origin)
-    expect(screen.getByRole("dialog", { name: threadCopy.conversation })).toBeVisible()
+    expect(screen.getByRole("dialog", { name: "Save" })).toBeVisible()
     act(() => {
       window.dispatchEvent(
         new MessageEvent("message", {
@@ -567,16 +567,16 @@ describe("App()", () => {
         }),
       )
     })
-    expect(screen.getByRole("dialog", { name: threadCopy.conversation })).toBeVisible()
+    expect(screen.getByRole("dialog", { name: "Save" })).toBeVisible()
     receive(frame, { ...dismiss, nonce: staleNonce })
-    expect(screen.getByRole("dialog", { name: threadCopy.conversation })).toBeVisible()
+    expect(screen.getByRole("dialog", { name: "Save" })).toBeVisible()
     receive(frame, dismiss)
-    expect(screen.queryByRole("dialog", { name: threadCopy.conversation })).not.toBeInTheDocument()
+    expect(screen.queryByRole("dialog", { name: "Save" })).not.toBeInTheDocument()
     expect(card).toHaveFocus()
 
     fireEvent.click(card)
     receive(frame, { ...dismiss, restoreFocus: false })
-    expect(screen.queryByRole("dialog", { name: threadCopy.conversation })).not.toBeInTheDocument()
+    expect(screen.queryByRole("dialog", { name: "Save" })).not.toBeInTheDocument()
     expect(card).not.toHaveFocus()
 
     fireEvent.click(card)
@@ -591,7 +591,7 @@ describe("App()", () => {
     )
     receive(frame, dismiss)
     fireEvent.click(screen.getByRole("button", { name: threadCopy.comments.discardButtonLabel }))
-    expect(screen.queryByRole("dialog", { name: threadCopy.conversation })).not.toBeInTheDocument()
+    expect(screen.queryByRole("dialog", { name: "Save" })).not.toBeInTheDocument()
     expect(card).toHaveFocus()
     view.unmount()
   })
@@ -675,7 +675,7 @@ describe("App()", () => {
     if (!(frame instanceof HTMLIFrameElement)) throw new Error("Expected the prototype iframe.")
     const picker = await screen.findByRole("button", { name: copy.annotate })
     await screen.findByRole("button", {
-      name: "Open improvement: Make the save action clearer.",
+      name: "Open note: Make the save action clearer.",
     })
     receive(frame, {
       type: "replica:canvas:ready",
@@ -697,7 +697,7 @@ describe("App()", () => {
     const marker = screen.getByRole("button", { name: threadCopy.point(1) })
     expect(marker).toBeVisible()
     fireEvent.click(marker)
-    const dialog = screen.getByRole("dialog", { name: threadCopy.conversation })
+    const dialog = screen.getByRole("dialog", { name: "Save" })
     expect(dialog).toBeVisible()
     expect(screen.queryByRole("complementary", { name: copy.notes })).not.toBeInTheDocument()
     const input = within(dialog).getByRole("textbox", { name: threadCopy.comments.replyLabel })
@@ -772,8 +772,8 @@ describe("App()", () => {
         }}
       />,
     )
-    await screen.findByRole("button", { name: "Open improvements" }, { timeout: 5000 })
-    expect(screen.getAllByRole("button", { name: /^Open improvement:/ })).toHaveLength(3)
+    await screen.findByRole("button", { name: "Open Notes" }, { timeout: 5000 })
+    expect(screen.getAllByRole("button", { name: /^Open note:/ })).toHaveLength(3)
     expect(screen.queryByText(/visual experiment/i)).not.toBeInTheDocument()
     expect(fetch.mock.calls.some(([path]) => path.startsWith("/api/improvement-notes"))).toBe(false)
     view.unmount()
@@ -885,7 +885,7 @@ describe("App()", () => {
 
       fireEvent.click(
         screen.getByRole("button", {
-          name: "Open improvement: Clarify this action.",
+          name: "Open note: Clarify this action.",
         }),
       )
       expect(screen.getByTitle("Demo prototype")).toHaveAttribute(
@@ -898,7 +898,7 @@ describe("App()", () => {
         type: "replica:canvas:resolved",
         results: [{ id: 1, x: 80, y: 50 }],
       })
-      expect(screen.getByRole("button", { name: "Open improvement 1" })).toBeVisible()
+      expect(screen.getByRole("button", { name: "Open note 1" })).toBeVisible()
       expect(screen.getAllByText("Clarify this action.")).toHaveLength(2)
       fireEvent.click(screen.getByRole("button", { name: threadCopy.back }))
       expect(
@@ -992,11 +992,9 @@ describe("App()", () => {
     )
     try {
       await act(() => vi.advanceTimersByTimeAsync(0))
-      expect(
-        screen.queryByRole("button", { name: "Improvement actions: 1" }),
-      ).not.toBeInTheDocument()
+      expect(screen.queryByRole("button", { name: "Note actions: 1" })).not.toBeInTheDocument()
       expect(screen.getByRole("button", { name: `${threadCopy.delete}: 1` })).toBeInTheDocument()
-      fireEvent.click(screen.getByRole("button", { name: "Open improvement: Original feedback." }))
+      fireEvent.click(screen.getByRole("button", { name: "Open note: Original feedback." }))
       fireEvent.change(screen.getByRole("textbox", { name: threadCopy.comments.replyLabel }), {
         target: { value: "Older unsaved draft." },
       })
@@ -1071,7 +1069,7 @@ describe("App()", () => {
     )
     try {
       await act(() => vi.advanceTimersByTimeAsync(0))
-      fireEvent.click(screen.getByRole("button", { name: "Open improvement: Original feedback." }))
+      fireEvent.click(screen.getByRole("button", { name: "Open note: Original feedback." }))
       fireEvent.change(screen.getByRole("textbox", { name: threadCopy.comments.replyLabel }), {
         target: { value: "Unsaved request." },
       })
@@ -1104,7 +1102,7 @@ describe("App()", () => {
       expect(note.body).toBe("Original feedback.")
       expect(note.status).toBe("open")
       expect(note.thread.messages.map((entry) => entry.body)).toEqual([answer, "Unsaved request."])
-      const conversation = screen.getByRole("dialog", { name: threadCopy.conversation })
+      const conversation = screen.getByRole("dialog", { name: "Save" })
       expect(
         conversation.querySelector(
           ".review-thread-message:nth-child(2) .review-thread-message__body",

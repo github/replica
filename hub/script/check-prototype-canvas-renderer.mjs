@@ -91,8 +91,8 @@ try {
         if (pathname === "/api/agent/next") return route.fulfill({ json: { command: null } })
         return route.fulfill({ json: { state: "unconfigured" } })
       })
-      const cards = page.getByRole("button", { name: /^Open improvement:/ })
-      const dialog = page.getByRole("dialog", { name: "Improvement", exact: true })
+      const cards = page.getByRole("button", { name: /^Open note:/ })
+      let dialog
       function fix(count) {
         return page.getByRole("button", {
           name: `Fix all, ${count} pending ${count === 1 ? "request" : "requests"}`,
@@ -100,7 +100,7 @@ try {
         })
       }
       async function filter(name) {
-        await page.getByRole("button", { name: /^Filter improvement notes:/ }).click()
+        await page.getByRole("button", { name: /^Filter notes:/ }).click()
         await page.getByRole("menuitemradio", { name, exact: true }).click()
       }
       async function answer(batch, message) {
@@ -148,6 +148,7 @@ try {
       let state = await store.load()
       assert.equal(state.notes.length, 1)
       assert.equal(state.notes[0].body, "Make the save action clearer.")
+      dialog = page.getByRole("dialog", { name: state.notes[0].target, exact: true })
       assert.equal(state.notes[0].anchor.selector, "#save")
       assert.deepEqual(state.notes[0].anchor.route, {
         pathname: "/projects",
@@ -167,7 +168,7 @@ try {
       assert.equal(await notesToggle.getAttribute("aria-expanded"), "true")
       assert.equal(await notesToggle.getAttribute("aria-label"), "Close Notes (1)")
       await page.getByRole("complementary", { name: "Notes" }).waitFor()
-      const marker = page.getByRole("button", { name: "Open improvement 1", exact: true })
+      const marker = page.getByRole("button", { name: "Open note 1", exact: true })
       await marker.click()
       await dialog.waitFor()
       await page.keyboard.press("Escape")
@@ -238,7 +239,7 @@ try {
       assert.equal(state.notes[0].status, "open")
       assert.equal(dispatched.length, 1)
       assert.ok(await fix(1).isEnabled())
-      await dialog.getByRole("button", { name: "Close improvement", exact: true }).click()
+      await dialog.getByRole("button", { name: "Close note", exact: true }).click()
       await filter("Ready to review")
       assert.equal(await cards.count(), 0)
       await filter("Active")
@@ -259,10 +260,10 @@ try {
       await dialog.getByText("The existing shortcut is preserved.", { exact: true }).waitFor()
       if (process.env.REPLICA_CANVAS_SCREENSHOT)
         await page.screenshot({ path: process.env.REPLICA_CANVAS_SCREENSHOT, fullPage: true })
-      await dialog.getByRole("button", { name: "Close improvement", exact: true }).click()
+      await dialog.getByRole("button", { name: "Close note", exact: true }).click()
 
       phase = "resolve and filter"
-      await page.getByRole("button", { name: "Improvement actions: 1", exact: true }).click()
+      await page.getByRole("button", { name: "Note actions: 1", exact: true }).click()
       await page.getByRole("menuitem", { name: "Mark as resolved", exact: true }).click()
       await cards.first().waitFor({ state: "hidden" })
       await filter("Resolved")
@@ -298,9 +299,9 @@ try {
       assert.equal(dispatched.length, 2)
 
       phase = "confirmed deletion"
-      await dialog.getByRole("button", { name: "Close improvement", exact: true }).click()
+      await dialog.getByRole("button", { name: "Close note", exact: true }).click()
       const directDelete = page.getByRole("button", { name: "Delete: 1", exact: true })
-      await page.getByRole("button", { name: /^Filter improvement notes:/ }).focus()
+      await page.getByRole("button", { name: /^Filter notes:/ }).focus()
       await page.mouse.move(0, 0)
       assert.equal(await directDelete.evaluate((element) => getComputedStyle(element).opacity), "0")
       await cards.first().hover()
@@ -359,7 +360,7 @@ try {
       })
       const blockedNotes = (await store.load()).notes
       assert.ok(blockedNotes.every((note) => note.status === "blocked"))
-      const menu = page.getByRole("menu", { name: /^Improvement actions:/ })
+      const menu = page.getByRole("menu", { name: /^Note actions:/ })
       const list = page.locator(".thread-sample__list")
 
       for (const viewport of [
@@ -379,7 +380,7 @@ try {
           await cards.nth(1).waitFor()
           const rows = page.locator(".thread-sample__card")
           const firstActions = rows.first().getByRole("button", {
-            name: /^Improvement actions:/,
+            name: /^Note actions:/,
           })
           const geometry = await rows.first().evaluate((row) => {
             const bounds = row.getBoundingClientRect()
@@ -468,7 +469,7 @@ try {
           const firstBody = await cards.first().getAttribute("aria-label")
           assert.equal(
             await deletion.locator("blockquote").innerText(),
-            firstBody.replace("Open improvement: ", ""),
+            firstBody.replace("Open note: ", ""),
           )
           assert.deepEqual((await store.load()).notes, blockedNotes)
           await deletion
@@ -497,7 +498,7 @@ try {
             () => document.querySelector(".thread-sample__list").scrollTop > 0,
           )
           const scrolledActions = rows.nth(3).getByRole("button", {
-            name: /^Improvement actions:/,
+            name: /^Note actions:/,
           })
           await scrolledActions.click()
           await menu.waitFor()
@@ -522,7 +523,7 @@ try {
           await deletion.waitFor()
           assert.equal(
             await deletion.locator("blockquote").innerText(),
-            (await cards.nth(3).getAttribute("aria-label")).replace("Open improvement: ", ""),
+            (await cards.nth(3).getAttribute("aria-label")).replace("Open note: ", ""),
           )
           await page.keyboard.press("Escape")
           await deletion.waitFor({ state: "hidden" })
@@ -536,12 +537,12 @@ try {
       await cards.first().click()
       const draft = dialog.getByRole("textbox", { name: "Follow-up", exact: true })
       await draft.fill("Unsaved fixture follow-up")
-      const actions = page.getByRole("button", { name: /^Improvement actions:/ })
+      const actions = page.getByRole("button", { name: /^Note actions:/ })
       assert.ok(await actions.nth(0).isDisabled())
       assert.ok(await actions.nth(1).isDisabled())
       assert.equal(await menu.count(), 0)
       await draft.fill("")
-      await dialog.getByRole("button", { name: "Close improvement", exact: true }).click()
+      await dialog.getByRole("button", { name: "Close note", exact: true }).click()
       assert.ok(await actions.first().isEnabled())
 
       phase = "outside prototype clicks dismiss conversations without losing drafts"
@@ -571,7 +572,7 @@ try {
       await dialog.getByText("Keep this draft?", { exact: true }).waitFor()
       await dialog.getByRole("button", { name: "Keep", exact: true }).click()
       assert.equal(await outsideDraft.inputValue(), "Keep this outside-click draft.")
-      await dialog.getByRole("button", { name: "Close improvement", exact: true }).click()
+      await dialog.getByRole("button", { name: "Close note", exact: true }).click()
       await dialog.getByRole("button", { name: "Discard", exact: true }).click()
       await dialog.waitFor({ state: "hidden" })
 

@@ -377,7 +377,7 @@ export function ImprovementThreads({
           ? createPortal(
               <ReviewConversationFrame
                 ref={conversation}
-                aria-label={copy.conversation}
+                aria-labelledby={`note-conversation-${thread.id}-title`}
                 anchored
                 position={position}
                 className="thread-sample__conversation"
@@ -398,7 +398,7 @@ export function ImprovementThreads({
               >
                 <div className="review-thread-conversation__layout">
                   <header className="review-thread-conversation__header">
-                    <Heading as="h3" size="6">
+                    <Heading id={`note-conversation-${thread.id}-title`} as="h3" size="6">
                       {thread.target}
                     </Heading>
                     <div className="thread-sample__header-actions">
@@ -537,7 +537,7 @@ export function ImprovementThreads({
                     else cardButtons.current.delete(item.id)
                   }}
                   className="review-comment-row__button thread-sample__card-button"
-                  aria-label={`Open improvement: ${item.body}`}
+                  aria-label={`Open note: ${item.body}`}
                   aria-expanded={selected === item.id}
                   disabled={Boolean(draft.trim()) || discarding}
                   onClick={(event) => show(item.id, event.currentTarget)}

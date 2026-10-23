@@ -2,25 +2,23 @@ import { reviewCommentsCopy } from "@utils/review-comment/en"
 
 export const copy = {
   title: "Notes",
-  point: (id: number) => `Open improvement ${id}`,
-  close: "Close improvements",
-  open: "Open improvements",
-  conversation: "Improvement",
-  back: "Close improvement",
+  point: (id: number) => `Open note ${id}`,
+  close: "Close Notes",
+  open: "Open Notes",
+  back: "Close note",
   copilot: "Copilot",
   markResolved: "Mark as resolved",
   retry: "Retry",
   returnToActive: "Return to active",
   followUps: (count: number) => `${count} ${count === 1 ? "follow-up" : "follow-ups"}`,
-  actions: "Improvement actions",
+  actions: "Note actions",
   ready: "Ready to review",
   openStatus: "Open",
   changedIdentity:
     "The prototype branch or author changed. Close this dialog and reload before making changes.",
   targetUnavailable:
     "The saved target is not visible on this page. The conversation is shown beside the preview.",
-  removed:
-    "This improvement is no longer available. Close this dialog to return to the remaining improvements.",
+  removed: "This note is no longer available. Close this dialog to return to the remaining notes.",
   workStatus: (status: string) =>
     ({
       open: "Open",
@@ -29,9 +27,9 @@ export const copy = {
       blocked: "Blocked",
       resolved: "Resolved",
     })[status] ?? status,
-  filter: "Filter improvement notes",
+  filter: "Filter notes",
   allActive: "Active",
-  empty: "No improvements in this view.",
+  empty: "No notes in this view.",
   resolved: "Resolved",
   resolve: "Resolved",
   fix: "Fix all",
