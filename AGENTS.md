@@ -36,6 +36,8 @@ Follow the [commit and PR conventions](CONTRIBUTING.md#commits-and-pull-requests
 
 Hub releases use `hub-v*` tags. The starter follows `main` and has no separate release process. Start a new agent session after copying the starter so its local skills are discovered.
 
+For canvas-changing PRs in `github/replica`, follow the [canvas version decision](hub/docs/prototype-canvas.md#canvas-version-decision) before opening or updating the PR, including changes to shared canvas source under `hub/`.
+
 For requests to create a prototype repository or set up an existing repository for prototyping, read [prototype repository setup](docs/prototype-repository-setup.md) before acting. It owns target selection, starter installation, the fresh-session handoff, and the path from local preview to optional guidance, a team baseline, or Hub.
 
 ## Browser validation and Playwright fallback

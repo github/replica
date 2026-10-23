@@ -61,6 +61,12 @@ export function App({ config }: Props) {
   const [hubOpen, setHubOpen] = useState(false)
   const [improvementControls, setImprovementControls] = useState<HTMLDivElement | null>(null)
   const [buildDetailsOpen, setBuildDetailsOpen] = useState(false)
+  const feedbackInFlight = useRef(false)
+  const [improvingContext, setImprovingContext] = useState(false)
+  const [feedbackMessage, setFeedbackMessage] = useState<{
+    target: string
+    message: string
+  } | null>(null)
   const closeHub = useCallback(() => {
     setHubOpen(false)
     hubButtonRef.current?.focus()
@@ -111,6 +117,15 @@ export function App({ config }: Props) {
     onStatusChange: hub.refresh,
     onSelectHub: hub.select,
   })
+  const feedbackTarget = JSON.stringify([
+    hub.status?.hubOrigin,
+    hub.status?.repository,
+    hub.status?.branch,
+  ])
+  const canReviewFeedback =
+    hub.status?.repositoryAuthorized === true &&
+    (hub.status.state === "connected" || hub.status.state === "undiscovered") &&
+    Boolean(hub.status.repository && hub.status.branch && hub.status.hubOrigin)
   const sharing = useShareLinks({
     token: config.token,
     hubStatus: hub.status,
@@ -182,6 +197,38 @@ export function App({ config }: Props) {
     shareIntent.begin()
   }
 
+  async function handleImproveContext() {
+    if (!canReviewFeedback || feedbackInFlight.current) return
+
+    feedbackInFlight.current = true
+    setImprovingContext(true)
+    setFeedbackMessage(null)
+    try {
+      const result = await request<{ requested: boolean }>(
+        "/api/hub/feedback-review",
+        config.token,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            repository: hub.status?.repository,
+            branch: hub.status?.branch,
+            hubOrigin: hub.status?.hubOrigin,
+          }),
+        },
+      )
+      if (result.requested !== true) throw new Error(copy.invalidResponse)
+    } catch (cause) {
+      setFeedbackMessage({
+        target: feedbackTarget,
+        message: copy.feedbackReviewFailed(cause instanceof Error ? cause.message : String(cause)),
+      })
+      await hub.refresh()
+    } finally {
+      feedbackInFlight.current = false
+      setImprovingContext(false)
+    }
+  }
+
   return (
     <ThemeProvider colorMode={appearance} className="canvas-base">
       <main
@@ -228,6 +275,9 @@ export function App({ config }: Props) {
           onControls={() => setControlsOpen(!controlsOpen)}
           onPublish={() => void publication.publish()}
           onShare={handleShare}
+          onImproveContext={canReviewFeedback ? () => void handleImproveContext() : undefined}
+          improvingContext={improvingContext}
+          feedbackMessage={feedbackMessage?.target === feedbackTarget ? feedbackMessage : undefined}
           shareButtonRef={shareButtonRef}
           hubOpen={hubOpen}
           onHub={() => {

@@ -1,6 +1,14 @@
-import { CheckCircleIcon, LinkIcon, PencilIcon, SyncIcon, UploadIcon } from "@primer/octicons-react"
-import { Button, Tooltip } from "@primer/react-brand"
-import type { Ref, RefObject } from "react"
+import {
+  CheckCircleIcon,
+  KebabHorizontalIcon,
+  LinkIcon,
+  PencilIcon,
+  SparkleIcon,
+  SyncIcon,
+  UploadIcon,
+} from "@primer/octicons-react"
+import { ActionMenu, Button, Tooltip } from "@primer/react-brand"
+import type { ComponentProps, Ref, RefObject } from "react"
 
 import { ControlsToggle } from "../prototype-controls-toggle"
 import { HubIconButton } from "@components/hub-icon-button"
@@ -32,6 +40,9 @@ type Props = {
   controlsButtonRef?: RefObject<HTMLButtonElement | null>
   onShare?: () => void
   shareButtonRef?: RefObject<HTMLButtonElement | null>
+  onImproveContext?: () => void
+  improvingContext?: boolean
+  feedbackMessage?: { message: string }
 }
 
 export function Toolbar({
@@ -54,6 +65,9 @@ export function Toolbar({
   controlsButtonRef,
   onShare,
   shareButtonRef,
+  onImproveContext,
+  improvingContext = false,
+  feedbackMessage,
 }: Props) {
   const status = state?.publishStatus ?? {
     state: "unavailable" as const,
@@ -169,7 +183,55 @@ export function Toolbar({
           />
         ) : null}
       </div>
+
+      {onImproveContext ? (
+        <ActionMenu
+          size="small"
+          selectionVariant="none"
+          menuAlignment="end"
+          disabled={improvingContext}
+        >
+          <ActionMenu.IconButton
+            icon={KebabHorizontalIcon}
+            variant="secondary"
+            aria-label={copy.moreActions}
+            aria-busy={improvingContext}
+          />
+          <ActionMenu.Overlay aria-label={copy.moreActions}>
+            <ImproveContextAction
+              className="canvas-more-action"
+              leadingVisual={<SparkleIcon size={16} />}
+              onClick={onImproveContext}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault()
+                  onImproveContext()
+                }
+                if (event.key === " ") {
+                  event.preventDefault()
+                  event.currentTarget.click()
+                }
+              }}
+            >
+              {copy.improveContext}
+            </ImproveContextAction>
+          </ActionMenu.Overlay>
+        </ActionMenu>
+      ) : null}
+      {feedbackMessage ? (
+        <p className="canvas-feedback-message" role="alert">
+          {feedbackMessage.message}
+        </p>
+      ) : null}
     </header>
+  )
+}
+
+function ImproveContextAction(props: ComponentProps<typeof ActionMenu.Item>) {
+  return (
+    <Tooltip text={copy.improveContextDescription} type="description" direction="w">
+      <ActionMenu.Item {...props} />
+    </Tooltip>
   )
 }
 
