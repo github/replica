@@ -52,6 +52,7 @@
   gap: var(--base-size-2);
   margin-inline-start: var(--base-size-8);
   color: inherit;
+  transform: translateY(-1px);
 }
 
 .improvement-demo__save-shortcut kbd {

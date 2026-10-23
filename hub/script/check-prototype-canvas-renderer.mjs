@@ -146,6 +146,19 @@ try {
       const saveNote = composer.getByRole("button", { name: "Save", exact: true })
       assert.equal(await saveNote.getAttribute("aria-keyshortcuts"), "Meta+Enter Control+Enter")
       assert.deepEqual(await saveNote.locator("kbd").allInnerTexts(), ["Ctrl", "↵"])
+      assert.ok(
+        (await saveNote.evaluate((button) => {
+          const shortcut = button.querySelector(".improvement-demo__save-shortcut")
+          const buttonBounds = button.getBoundingClientRect()
+          const shortcutBounds = shortcut.getBoundingClientRect()
+          return Math.abs(
+            buttonBounds.top +
+              buttonBounds.height / 2 -
+              (shortcutBounds.top + shortcutBounds.height / 2),
+          )
+        })) <= 0.5,
+        "Save shortcut keycaps must be vertically centered",
+      )
       await noteDraft.press("Control+Enter")
       await cards.first().waitFor()
       assert.equal(await cards.count(), 1)
