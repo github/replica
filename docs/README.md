@@ -4,11 +4,11 @@ These guides apply across the Replica monorepo. Start with [Contributing](../CON
 
 ## Prototype guides
 
-[Get started with Replica](getting-started.md) walks new users through installing Copilot, adding their team's repository and canvas, creating and publishing a prototype, sharing feedback, and adding controls.
+[Get started with Replica](getting-started.md) walks new users through installing Copilot, adding their team's repository and canvas, creating a local prototype, and adding controls.
 
 [Set up a prototype repository](prototype-repository-setup.md) guides agents through new or existing repository targets, starter installation, the fresh-session handoff, and a verified local preview before optional product guidance or team setup.
 
-[Set up and configure your prototype environment](prototype-environment.md) walks environment maintainers through creating the shared repository, adding design-system guidance and templates, deploying Hub with Docker, connecting builds, and inviting the team.
+[Set up and configure your prototype environment](prototype-environment.md) walks maintainers through creating the shared repository, adding design-system guidance and starting pages, and inviting the team. Hub publishing and review are not available yet.
 
 ## Shared conventions
 
@@ -20,7 +20,7 @@ Commits and pull requests follow the [contribution conventions](../CONTRIBUTING.
 
 ## Project guidance
 
-- [Hub documentation](../hub/docs/README.md) covers the Rails application, deployment, previews, and review collaboration.
+- [Hub documentation](../hub/docs/README.md) covers starting and checking the TypeScript API and frontend, and what is not built yet.
 - [Starter instructions](../starter/AGENTS.md) and [setup guide](../starter/SETUP.md) cover the copyable prototype app and skills.
 - [Build action setup](../CONTRIBUTING.md#replica-build-action) covers the shared action.
 - [Controls documentation](../hub/docs/prototype-controls.md) covers the shared engine and definition schema owned by Hub.

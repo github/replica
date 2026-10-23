@@ -81,7 +81,6 @@ export function ConversationInbox({
           <Button
             as={viewAllPath ? "a" : "button"}
             href={viewAllPath}
-            data-sg-visit={viewAllPath ? "true" : undefined}
             size="small"
             variant="subtle"
             onClick={onViewAll}
@@ -135,7 +134,6 @@ export function ConversationInbox({
                     item.path ??
                     `#prototype-${item.target.prototypeId}-comment-${item.target.commentId}`
                   }
-                  data-sg-visit={item.path ? "true" : undefined}
                   onClick={(event) => {
                     if (!item.path) event.preventDefault()
                     onOpenActivity?.(item)

@@ -16,7 +16,6 @@ describe("PrototypeManagementPage()", () => {
     ).toHaveClass("repository-page-header", "prototype-management-page__header")
     const back = screen.getByRole("link", { name: data.backLabel })
     expect(back).toHaveAttribute("href", data.prototypesPath)
-    expect(back).toHaveAttribute("data-sg-visit", "true")
     expect(back.textContent).toBe("")
     expect(screen.getByRole("heading", { name: "Manage prototypes", level: 2 })).toBeInTheDocument()
     expect(

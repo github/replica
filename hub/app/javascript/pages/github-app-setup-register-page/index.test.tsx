@@ -21,7 +21,6 @@ describe("GithubAppSetupRegisterPage()", () => {
     const form = container.querySelector("form")
 
     expect(form).toHaveAttribute("action", "https://github.com/settings/apps/new")
-    expect(form).not.toHaveAttribute("data-sg-visit")
     expect(container.querySelector("input[name=manifest]")).toHaveValue('{"name":"Replica Hub"}')
   })
 })

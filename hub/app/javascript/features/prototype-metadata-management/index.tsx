@@ -114,7 +114,6 @@ export function PrototypeMetadataManagement({
             hrefBuilder={(page) =>
               page === 1 ? data.candidatePagePath : `${data.candidatePagePath}?page=${page}`
             }
-            pageAttributesBuilder={() => ({ "data-sg-visit": "true" })}
             labels={{
               prev: data.previousPageLabel,
               prevAriaLabel: data.previousPageAriaLabel,

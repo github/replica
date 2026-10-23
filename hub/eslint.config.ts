@@ -14,11 +14,11 @@ export default defineConfig(
     ignores: [
       "**/.local/**",
       "**/*.js",
-      "app/views/pwa/**",
       "coverage/**",
       "node_modules/**",
       "public/**",
-      "storage/**",
+      "dist/**",
+      "storybook-static/**",
       "**/replica-prototype/assets/**",
       "**/prototype-controls/controls-shape.cjs",
       "**/learning/src/contracts-validators.cjs",
@@ -47,10 +47,6 @@ export default defineConfig(
       "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
       semi: ["error", "never"],
     },
-  },
-  {
-    files: ["app/javascript/application/build-visit-and-remote/index.ts"],
-    rules: { "func-style": "off" },
   },
   {
     files: ["../.github/extensions/replica-prototype/validate-controls/index.mts"],

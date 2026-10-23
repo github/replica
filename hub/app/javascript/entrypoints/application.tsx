@@ -1,4 +1,17 @@
 import "@/tokens/base.css"
-import { mountApplication } from "@application/mount-application"
+import { StrictMode } from "react"
+import { createRoot } from "react-dom/client"
 
-document.addEventListener("DOMContentLoaded", mountApplication)
+import { ReplicaLogo } from "@components/replica-logo"
+import { HubThemeProvider } from "@hooks/use-hub-theme"
+
+const root = document.getElementById("root")
+if (!root) throw new Error("The Hub document is missing its React root.")
+
+createRoot(root).render(
+  <StrictMode>
+    <HubThemeProvider>
+      <ReplicaLogo />
+    </HubThemeProvider>
+  </StrictMode>,
+)

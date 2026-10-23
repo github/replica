@@ -356,47 +356,12 @@ esac
           repositoryId: 5,
           branch: new URL(request.url, "http://localhost").searchParams.get("branch"),
         })
-      } else if (request.url === "/api/canvas/cable_ticket") {
-        json({
-          cableUrl: `ws://127.0.0.1:${server.address().port}/cable`,
-          protocol: "replica-canvas.signed-ticket",
-        })
       } else if (request.url === "/api/canvas/connection" && request.method === "DELETE") {
         response.writeHead(204)
         response.end()
       } else {
         json({ error: "Unexpected request." }, 404)
       }
-    })
-    server.on("upgrade", (request, socket) => {
-      assert.equal(request.headers.origin, undefined)
-      assert.match(request.headers["sec-websocket-protocol"], /replica-canvas\.signed-ticket/)
-      const accept = createHash("sha1")
-        .update(`${request.headers["sec-websocket-key"]}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`)
-        .digest("base64")
-      socket.write(
-        `HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\nSec-WebSocket-Protocol: actioncable-v1-json\r\n\r\n`,
-      )
-      socket.once("data", () => {
-        const identifier = JSON.stringify({
-          channel: "ReviewCommentsChannel",
-          repositoryId: 5,
-          prototypeId: 4,
-        })
-        const payload = Buffer.from(
-          JSON.stringify({
-            identifier,
-            message: { type: "review_comments_changed" },
-          }),
-        )
-        socket.write(
-          Buffer.concat([
-            Buffer.from([0x81, 126, payload.length >> 8, payload.length & 255]),
-            payload,
-          ]),
-        )
-        setTimeout(() => socket.end(), 100)
-      })
     })
     await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve))
     try {
@@ -461,30 +426,6 @@ esac
       assert.equal((await client.status()).state, "disconnected")
       assert.equal(calls.filter(({ auth }) => auth === "Bearer hub-secret").length, 3)
       assert.ok(!calls[0].auth)
-
-      await client.pair()
-      await client.poll()
-      await new Promise((resolve, reject) => {
-        const timeout = setTimeout(
-          () => reject(new Error("No review invalidation arrived.")),
-          2_000,
-        )
-        void client
-          .subscribe(
-            () => {
-              clearTimeout(timeout)
-              resolve()
-            },
-            (error) => {
-              clearTimeout(timeout)
-              reject(error)
-            },
-          )
-          .catch((error) => {
-            clearTimeout(timeout)
-            reject(error)
-          })
-      })
     } finally {
       process.env.PATH = originalPath
       delete process.env.TEST_BRANCH

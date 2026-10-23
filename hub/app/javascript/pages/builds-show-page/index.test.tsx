@@ -109,10 +109,6 @@ describe("BuildsShowPage()", () => {
       "href",
       "/repositories/2001/prototypes/1?build=2",
     )
-    expect(screen.getByRole("link", { name: "Review build" })).toHaveAttribute(
-      "data-sg-visit",
-      "true",
-    )
     expect(screen.getByRole("img", { name: "Desktop screenshot of build 2" })).toHaveAttribute(
       "src",
       "/repositories/2001/prototypes/1/builds/2/screenshots/desktop",

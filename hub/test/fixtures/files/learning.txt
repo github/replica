@@ -1,1 +1,0 @@
-Show a visible label above every form field.

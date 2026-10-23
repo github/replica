@@ -5,9 +5,8 @@ log
 .storybook/settings.json
 node_modules
 public
-storage
+dist
 storybook-static
-tmp
 **/*.md
 app/javascript/features/install-replica-controls-bridge/bridge.js
 app/javascript/utils/prototype-controls/browser.js

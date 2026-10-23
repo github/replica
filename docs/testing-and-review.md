@@ -2,7 +2,7 @@
 
 Run the checks for the behavior you changed. For example, a shared Controls change needs checks for Hub previews and the Copilot plugin. Include screenshot capture when its adapter changes. A documentation-only change needs a prose and link review rather than application tests.
 
-Use [Contributing](../CONTRIBUTING.md#set-up-the-development-environment) to find each project's environment and commands. Hub Ruby and Node commands run inside its devcontainer; that is not a requirement for every project in the monorepo.
+Use [Contributing](../CONTRIBUTING.md#set-up-the-development-environment) to find each project's environment and commands. Hub runs directly on Node.js with npm; no container or external services are needed.
 
 ## Choose the relevant checks
 
@@ -50,29 +50,29 @@ The [shared selection workflow](../.github/workflows/ci-changes.yml) calls [the 
 | --- | --- |
 | Hub code and configuration | Hub |
 | Shared Controls runtime, schema, fixtures, and capture adapter under `hub/app/javascript/utils/prototype-controls/` | Hub and build action |
-| `actions/build/` | Hub and build action; Hub uses the action for local packaging and browser checks |
+| `actions/build/` | Hub and build action; Controls and extension integration use its pinned browser |
 | Copilot extension and plugin catalog | Hub |
-| `packages/learning/` | Hub; its image, lint, and learning integration consume the package |
-| `starter/` | Hub; local setup copies the starter and depends on its router, metadata, dependencies, and setup files; the Controls runtime suite also checks its shared reference. Starter CI still runs separately |
+| `packages/learning/` | Hub; its shared lint and retained integration consume the package |
+| `starter/` | Hub; retained Storybook fixtures and Controls checks consume starter files. Starter CI still runs separately |
 | Existing installer scripts | Neither; Starter CI covers them |
 | Root contributor documents, shared and Hub guides, skills, and documentation assets | Neither |
 | Workflow changes, selector changes, and unclassified paths | Both |
 
-The workflows preserve the existing required check names; skipping an entire workflow with a path filter could leave those checks pending. Static jobs use job-level conditions. The Vitest shard jobs always expand their Node and shard matrix and validate selection, but skip checkout, setup, and tests when Hub is unaffected. The required `Frontend tests`, `Production image`, and `Replica action tests` result jobs accept omitted work only after successful selection explicitly excluded it. The frontend and build-action result jobs require every selected Node version to pass. The production-image matrix checks AMD64 and ARM64 independently without cancelling the other architecture on failure. Selection failures, invalid outputs, and failures in selected suites fail those result checks. Keep required-check configuration unchanged.
+The `Frontend tests` and `Replica action tests` result jobs always run, so skipping an entire workflow cannot leave these checks pending. They accept skipped work only when the selector succeeded and said it was unnecessary. Hub's result covers lint, types, Vitest, the frontend/API build, Storybook, and Controls/extension checks on every supported Node major. A failed selector, invalid output, or failed selected check makes the result fail. The new Hub has no production-image, database, or release jobs; branch protection must not require removed jobs.
 
-When adding a shared dependency or a new project, update the selector and its behavioral tests together. Unclassified paths deliberately run both suites until their dependencies are known. Run `node --test scripts/select-ci-suites.test.mjs` and `ruby scripts/check-ci-workflows.rb` from the repository root. The latter reads the actual workflow gates and checks their success, failure, cancellation, and missing-output behavior; both commands run before CI selects suites. Check changed workflows with `actionlint` when available. Actual job skipping and check reporting still need verification on GitHub after publishing.
+When adding a shared dependency or a new project, update the selector and its behavioral tests together. Unknown paths deliberately run both suites until their dependencies are known. Install tooling with `npm ci --prefix scripts --ignore-scripts --engine-strict`, then run `node --test scripts/select-ci-suites.test.mjs`, `npm test --prefix scripts`, and `node scripts/check-ci-workflows.ts` from the repository root. The workflow checker reads the result-check scripts and tests them with success, failure, cancellation, and missing outputs. These checks run before CI selects suites. Check changed workflows with `actionlint` when available. Actual job skipping and check reporting still need verification on GitHub after publishing.
 
-Existing Node-dependent jobs in Hub, Starter, build-action, and Learning CI use a Node 24 and 26 matrix rather than a separate compatibility workflow. Each check keeps its existing name on Node 24 and adds a `(Node 26)` suffix on Node 26. A failure does not cancel the other version. npm installation enforces dependency engines, and `scripts/check-ci-workflows.rb` checks the supported ranges, matching lockfile metadata, and matrix wiring. These checks track the supported majors, not their exact minimum patch releases.
+Node-dependent jobs in Hub, Starter, build-action, and Learning CI use a Node 24 and 26 matrix rather than a separate compatibility workflow. Each check adds a `(Node 26)` suffix on Node 26. A failure does not cancel the other version. npm installation enforces dependency engines, and `scripts/check-ci-workflows.ts` checks the supported ranges, matching lockfile metadata, and matrix wiring. These checks track the supported majors, not their exact minimum patch releases.
 
-Ruby-only jobs, CI selection, and container builds retain their configured runtimes. The build-action suite tests its JavaScript and browser capture on both Node versions, but runs the composite-action smoke test only on Node 24: the composite action pins that runtime itself and uploads a single named artifact. Container and composite-action runtime defaults are unchanged.
+CI selection and dependency-age tooling run on Node 24. The build-action suite tests its JavaScript and browser capture on both Node versions, but runs the composite-action smoke test only on Node 24: the composite action pins that runtime itself and uploads a single named artifact.
 
 ## Update dependencies
 
-Hub and the shared build action wait seven days before resolving newly published dependencies. npm enforces the delay through each project's committed `.npmrc`. Hub's RubyGems source in `Gemfile` applies the delay to Bundler. Dependabot applies the same cooldown to npm, Bundler, and GitHub Actions updates across the repository. The starter manages its dependency resolution independently.
+Hub, the shared build action, and repository tooling wait seven days before resolving newly published dependencies. npm enforces the delay through each project's committed `.npmrc`. Dependabot applies the same cooldown to npm and GitHub Actions updates across the repository. The starter manages its dependency resolution independently.
 
-Inside the Hub devcontainer, `bin/check-dependency-age` verifies the Hub npm and Bundler lockfiles. The repository-level [Dependency age workflow](../.github/workflows/dependency-age.yml) runs the same checker across Hub, the shared build action, and external GitHub Action commits. These checks cover existing lockfiles that bypass the package manager's resolver delay and fail when publication metadata is unavailable.
+From the repository root, `node scripts/check-dependency-age.ts` verifies every npm lockfile except Starter and installed dependencies, including Hub, the build action, Learning, and repository tooling. The unconditional [Dependency age workflow](../.github/workflows/dependency-age.yml) runs the same checker. It also requires external GitHub Actions in workflows and action definitions to use full commit SHAs and verifies their commit times. These checks cover existing lockfiles that bypass the resolver delay and fail when publication metadata is unavailable. npm metadata comes from its registry; Action commit metadata comes from GitHub's API. Set `GH_TOKEN` locally if needed for API rate limits; CI supplies its read-only token.
 
-CI does not run `npm audit`: a newly published security fix could otherwise make the audit fail while the age check rejects the fixed version. Dependabot and Bundler Audit check dependencies for known vulnerabilities. Organization-managed CodeQL scans application code on GitHub.
+CI does not run `npm audit`: a newly published security fix could otherwise make the audit fail while the age check rejects the fixed version. Dependabot checks dependencies for known vulnerabilities. Organization-managed CodeQL scans application code on GitHub.
 
 When a dependency is too new, select an older compatible version or wait until the seven-day window ends. See [Hub testing and operations](../hub/docs/testing-and-operations.md#update-dependencies) for Hub-specific tooling.
 

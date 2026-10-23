@@ -235,10 +235,6 @@ describe("PrototypeMetadataManagement()", () => {
       "href",
       `${data.candidatePagePath}?page=3`,
     )
-    expect(within(pages).getByRole("button", { name: /^Page 3/ })).toHaveAttribute(
-      "data-sg-visit",
-      "true",
-    )
   })
 
   it("shows no pagination for a single page or an empty set", () => {

@@ -1,0 +1,16 @@
+{
+  "name": "@replica/repository-checks",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "^24.15.0 || ^26.0.0"
+  },
+  "scripts": {
+    "test": "node --test *.test.ts",
+    "check:workflows": "node check-ci-workflows.ts",
+    "check:dependency-age": "node check-dependency-age.ts"
+  },
+  "dependencies": {
+    "yaml": "2.9.1"
+  }
+}

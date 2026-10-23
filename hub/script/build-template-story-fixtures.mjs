@@ -24,12 +24,12 @@ try {
     const sourcePath =
       id === "default"
         ? "../starter/src/routes/home/home-page/index.tsx"
-        : `db/seeds/local/example/${id}.tsx`
+        : `.storybook/template-sources/${id}.tsx`
     const source = await readFile(resolve(root, sourcePath), "utf8")
     const css =
       id === "default"
         ? "body{font-family:system-ui;color:#1f2328}main{padding:1rem}a{color:#0969da}"
-        : await readFile(resolve(root, `db/seeds/local/example/${id}.css`), "utf8")
+        : await readFile(resolve(root, `.storybook/template-sources/${id}.css`), "utf8")
     const javascript = ts.transpileModule(source.replace('import "./styles.css"', ""), {
       compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.ESNext },
     }).outputText

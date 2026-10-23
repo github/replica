@@ -2,6 +2,8 @@
 
 Status: proposed on October 6, 2026, and revised on October 10, 2026 to follow the requirements the Replica maintainers agreed on. Needs review by the Replica maintainers.
 
+The learning package, providers, CLI, and demos still work. Hub descriptions below record an earlier proposal, not what the [new Hub](../../hub/README.md) can do today. It does not collect comments, run learning jobs, store learning data, sign people in, or connect Copilot. Adding those features requires separate product and architecture decisions.
+
 ## Context
 
 Replica should get better from the judgment people give it, and teams adopting the open-source release must be able to replace each part. The plan has three stages: explicit memory first, then experiences beyond screens, then optional model training. This decision covers the first stage: canonical learning contracts, a default SQLite memory provider, and a loop in which Hub suggests learnings from review comments and people decide which ones agents get, with no model training.
@@ -94,9 +96,9 @@ Each import records whether every list page and reply page was present. The impo
 
 ### Integration with Hub
 
-Hub hosts the loop and runs the `replica-learning` command for every step, so the store's rules stay the only rules. Hub keeps one store per repository in its own storage, outside any checkout. A background job imports the repository's review comments from Hub's database as one complete collection, removes the text of comments deleted on Hub, asks Copilot to label each new or edited comment, and consolidates the labels into proposals. When someone deletes a comment, another job removes its text by its Hub comment ID, which imports nothing, so it works without an active grant and adds no other comments. Repository administrators accept, edit, or reject proposals on a Learnings page. The Replica prototype plugin adds accepted learnings to the prompts a person submits in that repository. [Learnings](../../hub/docs/learnings.md) describes the product.
+The earlier proposal had Hub run `replica-learning` for every step, so the package's rules applied throughout. It kept one store per repository outside any checkout. A background job imported review comments, removed deleted text, labeled new or edited comments, and proposed learnings. Administrators reviewed proposals, and the plugin read accepted learnings. The [new Hub](../../hub/README.md) does not run these steps.
 
-Hub asks Copilot through the [Copilot SDK](https://github.com/github/copilot-sdk), with a token that the person who runs Hub provides and whose only permission is Copilot requests, as [Copilot](../../hub/docs/copilot.md) describes. The session has no tools, refuses every permission request, and never sees who wrote a comment. Copilot chooses the model unless the store's configuration names one, and each run records the usage Copilot reports.
+The package can label through the [Copilot SDK](https://github.com/github/copilot-sdk). Its session has no tools, refuses every permission request, and never sees who wrote a comment. Copilot chooses the model unless the store's configuration names one, and each run records the usage Copilot reports. The new Hub does not set up or authorize this connection.
 
 The command still runs in a checkout, with data under `.replica/learning/`, for contributors and for other hosts. This complements #230: its discovery output can become labels, and its judge can become a consolidator.
 

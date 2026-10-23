@@ -1,5 +1,0 @@
-en:
-  local_development:
-    empty_repositories: Add a Git repository with at least one commit under %{directory}, then sign in again.
-    commit_required: Commit at least one change in %{repository} before opening local Hub.
-    repository_unavailable: This local repository is no longer configured under %{directory}. Add it again and refresh the repository list.

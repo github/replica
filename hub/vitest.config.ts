@@ -43,7 +43,7 @@ export default defineConfig({
         test: {
           name: "node",
           environment: "node",
-          include: nodeTests,
+          include: [...nodeTests, "server/**/*.test.ts"],
         },
       },
       {

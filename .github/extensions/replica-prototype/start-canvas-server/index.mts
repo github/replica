@@ -375,7 +375,6 @@ export async function startCanvasServer(
       },
     }
   }
-  const streams = new Set<ServerResponse>()
   const shareLinks = createShareLinks(hubClient, options.openBrowser || openBrowser)
   const token = randomBytes(24).toString("base64url")
   const documentToken = randomBytes(32).toString("base64url")
@@ -398,7 +397,6 @@ export async function startCanvasServer(
         updateMetadata,
         registerForPublish,
         selectHubOrigin,
-        streams,
         options,
         hubStatus,
         refreshDiscovery,
@@ -492,7 +490,6 @@ export async function startCanvasServer(
     improvementNotes,
     close: async () => {
       options.agentCommands?.close()
-      for (const stream of streams) stream.end()
       try {
         await previewUpdate
       } finally {
@@ -517,7 +514,6 @@ async function routeRequest(
   updateMetadata: UpdateMetadata,
   registerForPublish: RegisterForPublish,
   selectHubOrigin: HubConnection["selectHubOrigin"],
-  streams: Set<ServerResponse>,
   options: CanvasServerOptions,
   hubStatus: HubStatusReader,
   refreshDiscovery: HubConnection["refreshDiscovery"],
@@ -552,6 +548,9 @@ async function routeRequest(
   }
 
   requireToken(request, token)
+  if (requestUrl.pathname === "/api/hub/events" && request.method === "GET") {
+    throw httpError(501, "Live review updates have not been built for the new Hub.")
+  }
   if (requestUrl.pathname === "/api/improvement-notes/capture" && request.method === "POST") {
     sendJson(response, 200, await improvementNotes.capture())
     return
@@ -845,34 +844,6 @@ async function routeRequest(
           body: { review_comment: attributes },
         }),
       )
-      return
-    }
-    if (requestUrl.pathname === "/api/hub/events" && request.method === "GET") {
-      const socket = await hub.subscribe(
-        () => {
-          if (!response.writableEnded) response.write("event: comments\ndata: {}\n\n")
-        },
-        (error) => {
-          if (response.writableEnded) return
-          response.write(`event: error\ndata: ${JSON.stringify(error.message)}\n\n`)
-          response.end()
-        },
-      )
-      response.writeHead(200, {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-store",
-        "X-Content-Type-Options": "nosniff",
-      })
-      response.write(": connected\n\n")
-      streams.add(response)
-      const heartbeat = setInterval(() => {
-        if (!response.writableEnded) response.write(": keepalive\n\n")
-      }, 25_000)
-      response.on("close", () => {
-        streams.delete(response)
-        clearInterval(heartbeat)
-        socket.close()
-      })
       return
     }
     const commentRoute =

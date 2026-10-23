@@ -1,8 +1,0 @@
-classified_sort: true
-exclude_fixtures: true
-exclude_tests: true
-position_in_class: before_doc
-require: ./lib/annotate_rb_composite_foreign_key_names
-show_check_constraints: true
-show_foreign_keys: true
-show_indexes: true

@@ -43,7 +43,7 @@ export function PrototypeCard({
     </div>
   )
   const title = (
-    <a href={prototype.path} data-sg-visit="true" className="prototype-card__review-link">
+    <a href={prototype.path} className="prototype-card__review-link">
       {prototype.name}
     </a>
   )

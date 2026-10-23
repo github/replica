@@ -1,7 +1,0 @@
-en:
-  hub_administration_workspace:
-    navigation: Hub administration navigation
-    hub_navigation: Hub navigation
-    settings_navigation: Security and settings
-    repositories_unavailable: Some repository permissions could not be verified. Repository navigation may be incomplete; Hub permissions are unchanged.
-    repository_unavailable: The selected repository is not available to your account. Repository controls are hidden; Hub permissions are unchanged.

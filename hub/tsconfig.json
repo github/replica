@@ -27,8 +27,7 @@
   },
   "include": [
     "app/javascript",
-    "app/views/**/*.tsx",
-    "db/seeds/local/example/**/*.tsx",
+    "server",
     ".storybook/**/*.ts",
     ".storybook/**/*.tsx",
     "eslint.config.ts",

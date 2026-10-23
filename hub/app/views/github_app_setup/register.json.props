@@ -1,8 +1,0 @@
-json.pageTitle t("github_app_setup.register.page_title")
-json.productName t("application.name")
-json.heading t("github_app_setup.register.heading")
-json.description t("github_app_setup.register.description")
-json.access t("github_app_setup.register.access")
-json.submitLabel t("github_app_setup.register.submit")
-json.submitPath @registration.fetch(:url)
-json.manifest @registration.fetch(:manifest)

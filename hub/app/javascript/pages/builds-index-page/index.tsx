@@ -29,11 +29,7 @@ export function BuildsIndexPage({ data }: { data: BuildsIndexPageData }) {
               dateTime: build.createdAt,
               label: (
                 <span className="build-history__entry">
-                  <InlineLink
-                    href={build.path}
-                    data-sg-visit="true"
-                    className="build-history__build-link"
-                  >
+                  <InlineLink href={build.path} className="build-history__build-link">
                     {build.numberLabel}
                   </InlineLink>
 
@@ -75,17 +71,13 @@ export function BuildsIndexPage({ data }: { data: BuildsIndexPageData }) {
             gap="normal"
           >
             {data.newestPagePath ? (
-              <InlineLink href={data.newestPagePath} data-sg-visit="true">
-                {data.newestPageLabel}
-              </InlineLink>
+              <InlineLink href={data.newestPagePath}>{data.newestPageLabel}</InlineLink>
             ) : (
               <span />
             )}
 
             {data.nextPagePath ? (
-              <InlineLink href={data.nextPagePath} data-sg-visit="true">
-                {data.nextPageLabel}
-              </InlineLink>
+              <InlineLink href={data.nextPagePath}>{data.nextPageLabel}</InlineLink>
             ) : null}
           </Stack>
         ) : null}

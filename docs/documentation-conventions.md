@@ -51,11 +51,7 @@ Use the accepted product name consistently. Remove rejected terminology and plan
 
 ## Guide shape
 
-Use only the sections that help the reader, usually in this order:
-
-```text
-Purpose -> current status -> contract -> flow -> rules -> recovery -> operations
-```
+Use only the sections that help the reader. Usually start with the purpose and current status, then explain the contract, flow, rules, recovery, and operations.
 
 Document only current behavior. Use one main guide for each boundary. Overview and security docs should summarize and link instead of copying its details. Update the main guide when its rules change.
 
@@ -68,7 +64,7 @@ Use:
 - A list for independent rules.
 - Prose only when the connection between ideas matters.
 
-Keep diagrams moving in one direction and label their start and result. A diagram should make sense without translating implementation jargon. Do not add a diagram when one sentence is clearer.
+Prefer Mermaid over ASCII diagrams when a diagram helps explain a flow or relationship. Keep diagrams moving in one direction and label their start and result. A diagram should make sense without translating implementation jargon. Do not add a diagram when one sentence is clearer.
 
 Product guides explain what people can do and see. Leave internal fields and thresholds in code or tests unless a contributor or operator needs them. Never include secrets, tokens, private keys, or real private repository data.
 

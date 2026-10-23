@@ -16,8 +16,8 @@ jobs:
   changes:
     uses: ./.github/workflows/ci-changes.yml
 
-  rails_test:
-    name: Rails tests${{ matrix.node == 26 && ' (Node 26)' || '' }}
+  check:
+    name: Hub ${{ matrix.command }}${{ matrix.node == 26 && ' (Node 26)' || '' }}
     needs: changes
     if: ${{ needs.changes.outputs.hub == 'true' }}
     runs-on: ubuntu-latest
@@ -25,112 +25,7 @@ jobs:
       fail-fast: false
       matrix:
         node: [24, 26]
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: ruby/setup-ruby@651ff0d62c5c79bed6d53ec518387aae20e72c1a # v1.329.0
-        with:
-          bundler-cache: true
-          working-directory: hub
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: ${{ matrix.node }}
-          cache: npm
-          cache-dependency-path: |
-            hub/package-lock.json
-            actions/build/package-lock.json
-      - run: npm ci --engine-strict
-      - run: npm ci --ignore-scripts --omit=dev --engine-strict
-        working-directory: actions/build
-      - run: ../actions/build/node_modules/.bin/playwright install --with-deps chromium
-      - run: bundle exec vite build
-        env:
-          RAILS_ENV: test
-      - run: bin/rails db:prepare
-        env:
-          RAILS_ENV: test
-      - run: bin/rails test
-        env:
-          RAILS_ENV: test
-
-  development_queue:
-    name: Development queue
-    needs: changes
-    if: ${{ needs.changes.outputs.hub == 'true' }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: ruby/setup-ruby@651ff0d62c5c79bed6d53ec518387aae20e72c1a # v1.329.0
-        with:
-          bundler-cache: true
-          working-directory: hub
-      - run: bin/rails db:prepare
-      - run: bin/check-development-queue
-
-  ruby_lint:
-    name: Ruby lint
-    needs: changes
-    if: ${{ needs.changes.outputs.hub == 'true' }}
-    runs-on: ubuntu-latest
-    env:
-      RUBOCOP_CACHE_ROOT: tmp/rubocop
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: ruby/setup-ruby@651ff0d62c5c79bed6d53ec518387aae20e72c1a # v1.329.0
-        with:
-          bundler-cache: true
-          working-directory: hub
-      - run: bin/rubocop -f github
-
-  zeitwerk:
-    name: Zeitwerk
-    needs: changes
-    if: ${{ needs.changes.outputs.hub == 'true' }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: ruby/setup-ruby@651ff0d62c5c79bed6d53ec518387aae20e72c1a # v1.329.0
-        with:
-          bundler-cache: true
-          working-directory: hub
-      - run: bin/rails db:prepare
-      - run: bin/rails zeitwerk:check
-
-  annotations:
-    name: Annotations
-    needs: changes
-    if: ${{ needs.changes.outputs.hub == 'true' }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: ruby/setup-ruby@651ff0d62c5c79bed6d53ec518387aae20e72c1a # v1.329.0
-        with:
-          bundler-cache: true
-          working-directory: hub
-      - run: bin/rails db:prepare
-      - run: bin/check-annotations
-
-  bundler_audit:
-    name: Bundler audit
-    needs: changes
-    if: ${{ needs.changes.outputs.hub == 'true' }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: ruby/setup-ruby@651ff0d62c5c79bed6d53ec518387aae20e72c1a # v1.329.0
-        with:
-          bundler-cache: true
-          working-directory: hub
-      - run: bin/bundler-audit check --update
-
-  typecheck:
-    name: TypeScript types${{ matrix.node == 26 && ' (Node 26)' || '' }}
-    needs: changes
-    if: ${{ needs.changes.outputs.hub == 'true' }}
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        node: [24, 26]
+        command: [lint, typecheck, test, build, storybook:build]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -139,63 +34,9 @@ jobs:
           cache: npm
           cache-dependency-path: hub/package-lock.json
       - run: npm ci --engine-strict
-      - run: npm run typecheck
+      - run: npm run ${{ matrix.command }}
 
-  frontend_lint:
-    name: Frontend lint${{ matrix.node == 26 && ' (Node 26)' || '' }}
-    needs: changes
-    if: ${{ needs.changes.outputs.hub == 'true' }}
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        node: [24, 26]
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: ${{ matrix.node }}
-          cache: npm
-          cache-dependency-path: hub/package-lock.json
-      - run: npm ci --engine-strict
-      - run: npm run lint
-
-  frontend_test_shard:
-    name: Frontend tests shard ${{ matrix.shard }}/4${{ matrix.node == 26 && ' (Node 26)' || '' }}
-    needs: changes
-    if: ${{ always() }}
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        node: [24, 26]
-        shard: [1, 2, 3, 4]
-    steps:
-      - name: Require valid suite selection
-        working-directory: .
-        env:
-          SELECTION_RESULT: ${{ needs.changes.result }}
-          SELECTED: ${{ needs.changes.outputs.hub }}
-        run: |
-          test "$SELECTION_RESULT" = success
-          case "$SELECTED" in
-            true|false) ;;
-            *) echo "Invalid Hub suite selection" >&2; exit 1 ;;
-          esac
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: ${{ needs.changes.outputs.hub == 'true' }}
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        if: ${{ needs.changes.outputs.hub == 'true' }}
-        with:
-          node-version: ${{ matrix.node }}
-          cache: npm
-          cache-dependency-path: hub/package-lock.json
-      - run: npm ci --engine-strict
-        if: ${{ needs.changes.outputs.hub == 'true' }}
-      - run: npm test -- --shard=${{ matrix.shard }}/4
-        if: ${{ needs.changes.outputs.hub == 'true' }}
-
-  frontend_integration_test:
+  integration:
     name: Controls and extension tests${{ matrix.node == 26 && ' (Node 26)' || '' }}
     needs: changes
     if: ${{ needs.changes.outputs.hub == 'true' }}
@@ -210,7 +51,9 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           cache: npm
-          cache-dependency-path: hub/package-lock.json
+          cache-dependency-path: |
+            hub/package-lock.json
+            actions/build/package-lock.json
       - run: npm ci --engine-strict
       - run: npm ci --ignore-scripts --omit=dev --engine-strict
         working-directory: actions/build
@@ -221,146 +64,27 @@ jobs:
           REPLICA_CHROMIUM_PATH="$(node -p 'require("../actions/build/node_modules/playwright").chromium.executablePath()')"
           export REPLICA_CHROMIUM_PATH
           npm run extension:test
-
-  frontend_test:
-    name: Frontend tests
-    needs: [changes, frontend_test_shard, frontend_integration_test]
-    if: ${{ always() }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Require all frontend suites to pass
-        working-directory: .
-        env:
-          SELECTION_RESULT: ${{ needs.changes.result }}
-          SELECTED: ${{ needs.changes.outputs.hub }}
-          SHARD_RESULT: ${{ needs.frontend_test_shard.result }}
-          INTEGRATION_RESULT: ${{ needs.frontend_integration_test.result }}
-        run: |
-          test "$SELECTION_RESULT" = success
-          case "$SELECTED" in
-            true) test "$SHARD_RESULT" = success && test "$INTEGRATION_RESULT" = success ;;
-            false) test "$SHARD_RESULT" = success && test "$INTEGRATION_RESULT" = skipped ;;
-            *) echo "Invalid Hub suite selection" >&2; exit 1 ;;
-          esac
-
-  frontend_build:
-    name: Frontend build${{ matrix.node == 26 && ' (Node 26)' || '' }}
-    needs: changes
-    if: ${{ needs.changes.outputs.hub == 'true' }}
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        node: [24, 26]
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: ${{ matrix.node }}
-          cache: npm
-          cache-dependency-path: hub/package-lock.json
-      - run: npm ci --engine-strict
-      - run: npm run build
       - run: npm run controls:assets:check
+      - run: npm run controls:schema:check
       - run: npm run extension:assets:check
 
-  storybook_build:
-    name: Storybook build${{ matrix.node == 26 && ' (Node 26)' || '' }}
-    needs: changes
-    if: ${{ needs.changes.outputs.hub == 'true' }}
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        node: [24, 26]
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: ${{ matrix.node }}
-          cache: npm
-          cache-dependency-path: hub/package-lock.json
-      - run: npm ci --engine-strict
-      - run: npm run storybook:build
-
-  production_database:
-    name: Production database
-    needs: changes
-    if: ${{ needs.changes.outputs.hub == 'true' }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: ruby/setup-ruby@651ff0d62c5c79bed6d53ec518387aae20e72c1a # v1.329.0
-        with:
-          bundler-cache: true
-          working-directory: hub
-      - run: bin/rails db:prepare
-        env:
-          RAILS_ENV: production
-          SECRET_KEY_BASE_DUMMY: "1"
-
-  production_image_platform:
-    name: Production image (${{ matrix.architecture }})
-    needs: changes
-    if: ${{ needs.changes.outputs.hub == 'true' }}
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - architecture: amd64
-            runner: ubuntu-latest
-          - architecture: arm64
-            runner: ubuntu-24.04-arm
-    env:
-      IMAGE_PLATFORM: linux/${{ matrix.architecture }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: docker/setup-buildx-action@594f3bf4285d9ea8dc53c9a0c9c4092420091003 # v4.4.0
-      - run: docker buildx build --platform "$IMAGE_PLATFORM" --build-context learning=../packages/learning --tag replica-hub:ci --load .
-      - name: Check build-time secret cleanup
-        run: docker run --platform "$IMAGE_PLATFORM" --rm --entrypoint /bin/sh replica-hub:ci -c 'test ! -e /rails/tmp/local_secret.txt'
-      - name: Check deployment configuration
-        run: |
-          umask 077
-          docker run --platform "$IMAGE_PLATFORM" --rm replica-hub:ci \
-            bin/replica-deployment-config generate \
-            --host hub.example.com \
-            --format dotenv > deploy/.env
-          docker compose --file deploy/compose.yml --project-directory deploy config --quiet
-      - name: Check production startup
-        timeout-minutes: 3
-        run: |
-          docker run --platform "$IMAGE_PLATFORM" --detach --name replica-hub-ci --network none --env-file deploy/.env replica-hub:ci
-          docker exec replica-hub-ci curl \
-            --fail --silent --show-error \
-            --retry 60 --retry-connrefused --retry-delay 2 --retry-max-time 120 --max-time 5 \
-            http://localhost/up
-      - name: Clean up production startup check
-        if: ${{ always() }}
-        run: |
-          if docker container inspect replica-hub-ci >/dev/null 2>&1; then
-            docker logs replica-hub-ci
-            docker rm --force replica-hub-ci
-          fi
-          rm -f deploy/.env
-
-  production_image:
-    name: Production image
-    needs: [changes, production_image_platform]
+  result:
+    name: Frontend tests
+    needs: [changes, check, integration]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
-      - name: Require both production images to pass
+      - name: Require the selected Hub suite to pass
         working-directory: .
         env:
           SELECTION_RESULT: ${{ needs.changes.result }}
           SELECTED: ${{ needs.changes.outputs.hub }}
-          IMAGE_RESULT: ${{ needs.production_image_platform.result }}
+          CHECK_RESULT: ${{ needs.check.result }}
+          INTEGRATION_RESULT: ${{ needs.integration.result }}
         run: |
           test "$SELECTION_RESULT" = success
           case "$SELECTED" in
-            true) test "$IMAGE_RESULT" = success ;;
-            false) test "$IMAGE_RESULT" = skipped ;;
+            true) test "$CHECK_RESULT" = success && test "$INTEGRATION_RESULT" = success ;;
+            false) test "$CHECK_RESULT" = skipped && test "$INTEGRATION_RESULT" = skipped ;;
             *) echo "Invalid Hub suite selection" >&2; exit 1 ;;
           esac

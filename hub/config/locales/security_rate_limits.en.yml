@@ -1,3 +1,0 @@
-en:
-  security_rate_limits:
-    exceeded: "Too many requests. No changes were made. Wait %{seconds} seconds, then try again."

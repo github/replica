@@ -35,7 +35,6 @@ export function PrototypeManagementPage({
           <HubIconButton
             as="a"
             href={data.prototypesPath}
-            data-sg-visit="true"
             icon={ArrowLeftIcon}
             variant="invisible"
             aria-label={data.backLabel}

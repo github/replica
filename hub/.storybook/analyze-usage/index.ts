@@ -26,7 +26,7 @@ export function analyzeUsage(root: string): UsageIndex {
   }
   function isProduction(path: string) {
     return (
-      /^(app\/javascript\/|app\/views\/)/.test(path) &&
+      /^app\/javascript\//.test(path) &&
       !/(^|\/)(storybook|test-support|test|tests|__tests__|fixtures|__fixtures__)(\/|$)|(^|\/)stories\.[^.]+$|\.(test|spec|stories)\.[^.]+$/.test(
         path,
       )
@@ -120,7 +120,7 @@ export function analyzeUsage(root: string): UsageIndex {
       const consumer = pending.pop()!
       if (visited.has(consumer)) continue
       visited.add(consumer)
-      if (/^app\/javascript\/(pages|application)\/|^app\/views\//.test(consumer)) {
+      if (/^app\/javascript\/(pages|application)\//.test(consumer)) {
         usage.surfaces.push(consumer)
       }
       pending.push(...(index.components[consumer]?.consumers.map((item) => item.path) ?? []))

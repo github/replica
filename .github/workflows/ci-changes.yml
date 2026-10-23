@@ -27,11 +27,10 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
-      - uses: ruby/setup-ruby@651ff0d62c5c79bed6d53ec518387aae20e72c1a # v1.329.0
-        with:
-          working-directory: hub
+      - run: npm ci --prefix scripts --ignore-scripts --engine-strict
       - run: node --test scripts/select-ci-suites.test.mjs
-      - run: ruby scripts/check-ci-workflows.rb
+      - run: npm test --prefix scripts
+      - run: node scripts/check-ci-workflows.ts
       - id: select
         run: node scripts/select-ci-suites.mjs
         env:

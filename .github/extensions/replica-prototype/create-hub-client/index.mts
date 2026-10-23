@@ -876,52 +876,5 @@ export function createHubClient(context: HubContext, options: HubClientOptions =
         throw error
       }
     },
-    async subscribe(onChange: () => void, onStop: (error: Error) => void) {
-      const status = await this.status()
-      if (status.state !== "connected") throw new Error("Connect to a discovered Hub prototype.")
-      const { cableUrl, protocol } = await this.request("/api/canvas/cable_ticket", {
-        method: "POST",
-      })
-      const expected = new URL(origin.origin.replace(/^http/, "ws"))
-      if (
-        typeof cableUrl !== "string" ||
-        new URL(cableUrl).origin !== expected.origin ||
-        typeof protocol !== "string" ||
-        !protocol.startsWith("replica-canvas.")
-      ) {
-        throw new Error("Hub returned an invalid review connection.")
-      }
-      const socket = new WebSocket(cableUrl, ["actioncable-v1-json", protocol])
-      const identifier = JSON.stringify({
-        channel: "ReviewCommentsChannel",
-        repositoryId: status.prototype.repositoryId,
-        prototypeId: status.prototype.id,
-      })
-      socket.addEventListener("open", () =>
-        socket.send(JSON.stringify({ command: "subscribe", identifier })),
-      )
-      socket.addEventListener("message", (event) => {
-        try {
-          const message: unknown = JSON.parse(String(event.data))
-          if (message == null) throw new Error("Hub returned an invalid review message.")
-          const data = readHubObject(message)
-          if (
-            data?.identifier === identifier &&
-            readHubObject(data.message)?.type === "review_comments_changed"
-          )
-            onChange()
-          if (data?.type === "reject_subscription" && data.identifier === identifier) {
-            onStop(new Error("Hub rejected the review subscription."))
-            socket.close()
-          }
-        } catch (error) {
-          onStop(readHubError(error))
-          socket.close()
-        }
-      })
-      socket.addEventListener("error", () => onStop(new Error("Hub review connection failed.")))
-      socket.addEventListener("close", () => onStop(new Error("Hub review connection closed.")))
-      return socket
-    },
   }
 }

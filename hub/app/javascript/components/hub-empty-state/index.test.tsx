@@ -46,7 +46,6 @@ describe("HubEmptyState()", () => {
 
     const action = screen.getByRole("link", { name: "Build prototype" })
     expect(action).toHaveAttribute("href", "/repositories/2001/new")
-    expect(action).toHaveAttribute("data-sg-visit", "true")
     expect(screen.queryByRole("button")).not.toBeInTheDocument()
   })
 })

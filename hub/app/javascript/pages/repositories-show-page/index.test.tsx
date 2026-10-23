@@ -175,10 +175,6 @@ describe("RepositoriesShowPage()", () => {
       "href",
       PAGE_DATA.newPrototypePath,
     )
-    expect(screen.getByRole("link", { name: "Build prototype" })).toHaveAttribute(
-      "data-sg-visit",
-      "true",
-    )
     const visual = container.querySelector(".hub-empty-state__visual svg")
     expect(visual).toHaveClass("octicon-git-branch")
     expect(visual).toHaveAttribute("width", "48")
@@ -300,7 +296,6 @@ describe("RepositoriesShowPage()", () => {
       "href",
       "/repositories/2001/prototypes/1",
     )
-    expect(screen.getByRole("link", { name: "Welcome" })).toHaveAttribute("data-sg-visit", "true")
     const collapseButton = screen.getByRole("button", { name: "Collapse sidebar" })
     expect(collapseButton).toHaveTextContent("Collapse sidebar")
     expect(collapseButton.querySelector("svg")).toHaveClass("octicon-sidebar-expand")
@@ -497,10 +492,8 @@ describe("RepositoriesShowPage()", () => {
     expect(passingRow.querySelector(".prototype-card__build-label svg")).toBeNull()
     const prototypeLink = screen.getByRole("link", { name: "Welcome" })
     expect(prototypeLink).toHaveAttribute("href", PAGE_DATA.prototypes[0]!.path)
-    expect(prototypeLink).toHaveAttribute("data-sg-visit", "true")
     const ownerLink = passingRow.querySelector<HTMLAnchorElement>(".prototype-card__list-owner")
     expect(ownerLink).toHaveAttribute("href", "https://github.com/octocat")
-    expect(ownerLink).not.toHaveAttribute("data-sg-visit")
     expect(ownerLink?.querySelector(".prototype-card__list-owner-name")).toHaveTextContent(
       "@octocat",
     )

@@ -1,5 +1,0 @@
-#!/bin/sh
-set -eu
-
-bundle exec annotaterb models --frozen
-bundle exec chusaku --dry-run --exit-with-error-on-annotation
