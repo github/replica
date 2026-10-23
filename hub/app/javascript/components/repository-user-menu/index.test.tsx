@@ -1,7 +1,7 @@
 import type { PropsWithChildren } from "react"
 
 import { fireEvent, render, screen } from "@testing-library/react"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { HubThemeProvider } from "@hooks/use-hub-theme"
 
@@ -32,11 +32,6 @@ describe("RepositoryUserMenu()", () => {
         disconnect() {}
       },
     )
-  })
-
-  afterEach(() => {
-    vi.restoreAllMocks()
-    vi.unstubAllGlobals()
   })
 
   it("shows the account identity and opens the sign-out menu when expanded", () => {

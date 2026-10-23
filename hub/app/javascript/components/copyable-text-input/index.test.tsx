@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { CopyableTextInput } from "."
 import styles from "./styles.css?inline"
@@ -11,8 +11,6 @@ const props = {
   copiedLabel: "Copied",
   copyErrorLabel: "Copy failed",
 }
-
-afterEach(() => vi.unstubAllGlobals())
 
 describe("CopyableTextInput()", () => {
   it("fades long URLs into an opaque themed button without changing compact controls", () => {

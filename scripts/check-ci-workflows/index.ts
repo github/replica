@@ -131,6 +131,7 @@ export function checkWorkflows(root: string): number {
     "build",
     "storybook:build",
     "db:validate",
+    "test:database",
   ])
   assert(hub.check.steps?.some((step) => step.run === "npm run ${{ matrix.command }}"))
   for (const command of [

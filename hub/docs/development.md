@@ -48,6 +48,8 @@ If port 5432 is already in use, stop the conflicting local service or explicitly
 
 Follow the [database guide](database.md) for schema conventions, migrations, and the shared client.
 
+`npm test` needs no database. To run database-enabled server tests, start PostgreSQL and run `npm run test:database`. The separate `TEST_DATABASE_URL` in `.env.example` provides a connection with permission to create disposable test databases. See [parallel database tests](testing-and-operations.md#parallel-database-tests) for isolation and cleanup.
+
 ## Build the app
 
 ```sh

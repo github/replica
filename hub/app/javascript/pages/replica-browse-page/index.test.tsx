@@ -1,6 +1,6 @@
 import { createRef } from "react"
 import { act, fireEvent, render, screen, within } from "@testing-library/react"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { HubThemeProvider } from "@hooks/use-hub-theme"
 import { localReplicaBrowseData, replicaBrowseData } from "@/storybook/fixtures/replica-browse"
@@ -20,8 +20,6 @@ function renderPage(overrides: Partial<ReplicaBrowsePageProps> = {}) {
     </HubThemeProvider>,
   )
 }
-
-afterEach(() => vi.unstubAllGlobals())
 
 describe("ReplicaBrowsePage()", () => {
   it("matches the browse payload without prototype-only metadata", () => {

@@ -1,5 +1,5 @@
 import { act, createEvent, fireEvent, render, screen } from "@testing-library/react"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { defaultReviewFilters } from "@/storybook/fixtures/review/comments"
 import { reviewCommentsCopy } from "@utils/review-comment/en"
@@ -16,7 +16,6 @@ beforeEach(() => {
     },
   )
 })
-afterEach(() => vi.unstubAllGlobals())
 
 describe("ReviewCommentFilterControls()", () => {
   it("shows the leading search icon in the default search field", () => {

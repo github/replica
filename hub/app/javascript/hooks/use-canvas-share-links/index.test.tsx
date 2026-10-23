@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from "@testing-library/react"
 import { useLayoutEffect } from "react"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import {
   importedPrototype,
@@ -32,11 +32,6 @@ const link = {
   createdAt: "2026-10-05T07:00:00Z",
   createdBy: { login: "octocat", name: null },
 }
-
-afterEach(() => {
-  vi.unstubAllGlobals()
-  vi.restoreAllMocks()
-})
 
 type HookProps = {
   hubStatus: HubStatus

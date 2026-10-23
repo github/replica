@@ -1,13 +1,8 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { HubThemeProvider } from "@hooks/use-hub-theme"
 import story from "./stories"
-
-afterEach(() => {
-  vi.unstubAllGlobals()
-  vi.restoreAllMocks()
-})
 
 describe("PublicationDemo()", () => {
   it("shows the updated comments in the complete canvas sidebar without contacting Hub", async () => {

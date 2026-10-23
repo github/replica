@@ -1,5 +1,5 @@
 import { act, renderHook, waitFor } from "@testing-library/react"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import type { InboxNotification } from "@utils/notification/types"
 
@@ -20,8 +20,6 @@ const notification: InboxNotification = {
   target: { prototypeId: 1, threadId: 1, commentId: 1 },
 }
 const page = { notifications: [notification], nextBefore: null, unreadCount: 12 }
-
-afterEach(() => vi.unstubAllGlobals())
 
 describe("useNotificationInbox()", () => {
   it("keeps cached unread notifications visible on reopen and adds new arrivals first without duplicates", async () => {

@@ -1,10 +1,8 @@
 import { act, render, screen } from "@testing-library/react"
 import { renderToString } from "react-dom/server"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { ReviewRelativeTime } from "."
-
-afterEach(() => vi.useRealTimers())
 
 describe("ReviewRelativeTime()", () => {
   it("can omit the native title while keeping the full accessible date", () => {

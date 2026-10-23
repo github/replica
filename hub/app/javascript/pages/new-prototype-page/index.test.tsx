@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen } from "@testing-library/react"
-import { afterEach, describe, it, vi } from "vitest"
+import { describe, it, vi } from "vitest"
 
 import { NewPrototypePage } from "."
 import type { NewPrototypePageData } from "./types"
@@ -73,11 +73,6 @@ function submitBrief(brief: string) {
   })
   fireEvent.click(screen.getByRole("button", { name: PAGE_DATA.copy.submitLabel }))
 }
-
-afterEach(() => {
-  vi.useRealTimers()
-  vi.restoreAllMocks()
-})
 
 describe("NewPrototypePage()", () => {
   it("copies a local brief and saved details without launching Copilot", async () => {

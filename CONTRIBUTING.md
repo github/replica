@@ -107,6 +107,8 @@ npm run build
 npm run storybook:build
 ```
 
+Run `npm run test:database` with the [Hub development database](hub/docs/development.md) for server cases that save records. It prepares separate databases per Vitest worker; ordinary `npm test` remains database-free.
+
 Useful focused commands include:
 
 | Goal            | Command                                         |

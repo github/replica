@@ -7,7 +7,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { reviewCommentsCopy } from "@utils/review-comment/en"
 
@@ -115,8 +115,6 @@ beforeEach(() => {
     return new DOMRect()
   })
 })
-
-afterEach(() => vi.unstubAllGlobals())
 
 describe("MinimizedReviewToolbar()", () => {
   it("keeps the same draggable handle and maximize action without any review controls for Browse", () => {

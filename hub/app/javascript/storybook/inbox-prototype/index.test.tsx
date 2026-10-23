@@ -1,12 +1,7 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { InboxPrototype } from "."
-
-afterEach(() => {
-  vi.unstubAllGlobals()
-  vi.useRealTimers()
-})
 
 describe("InboxPrototype()", () => {
   it.each([false, true])(

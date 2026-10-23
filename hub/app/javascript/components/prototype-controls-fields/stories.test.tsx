@@ -1,6 +1,6 @@
 import { ThemeProvider } from "@primer/react-brand"
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import panelStyles from "../prototype-controls-panel/styles.css?inline"
 import meta, {
@@ -12,8 +12,6 @@ import meta, {
   ScopeDividers,
   ScopeDividersPanel,
 } from "./stories"
-
-afterEach(() => vi.useRealTimers())
 
 describe("Controls examples", () => {
   it("toggles an ungrouped first field without changing group folds or scope separators", async () => {

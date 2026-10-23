@@ -1,5 +1,5 @@
 import { act, renderHook, waitFor } from "@testing-library/react"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { resolvedAnchor } from "@/storybook/fixtures/review/anchors"
 import { octocatRootComment } from "@/storybook/fixtures/review/comments"
@@ -21,12 +21,6 @@ const createdComment = {
   body: "Please update this heading.",
   anchor: elementAnchor,
 }
-
-afterEach(() => {
-  document.querySelectorAll("iframe").forEach((frame) => frame.remove())
-  vi.restoreAllMocks()
-  vi.unstubAllGlobals()
-})
 
 async function openReview() {
   const fetchMock = vi

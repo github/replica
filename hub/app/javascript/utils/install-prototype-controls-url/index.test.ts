@@ -1,16 +1,15 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { installControlsUrl } from "."
 
 let dispose: (() => void) | undefined
 
-afterEach(() => {
-  dispose?.()
-  dispose = undefined
-  vi.restoreAllMocks()
-  vi.unstubAllGlobals()
-  window.history.replaceState(null, "", "/")
+beforeEach(() => {
+  onTestFinished(() => {
+    dispose?.()
+    dispose = undefined
+  })
 })
 
 describe("installControlsUrl()", () => {
