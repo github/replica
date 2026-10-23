@@ -16,6 +16,7 @@ type Props = {
   notes: Note[]
   annotating: boolean
   composing: boolean
+  pendingSelection: boolean
   onSelect: (anchor: ReviewAnchor) => void
   onRoute: (route: string) => void
   onCancel: () => void
@@ -34,6 +35,7 @@ export function usePreviewSelection({
   notes,
   annotating,
   composing,
+  pendingSelection,
   onSelect,
   onRoute,
   onCancel,
@@ -57,6 +59,17 @@ export function usePreviewSelection({
     }
   })
   const toggleSelection = useEffectEvent(onToggle)
+  const dismissConversation = useEffectEvent((restoreFocus: boolean) => {
+    if (pendingSelection && restoreFocus) {
+      onCancel()
+      return
+    }
+    window.dispatchEvent(
+      new CustomEvent("replica:review-dismiss", {
+        detail: { restoreFocus },
+      }),
+    )
+  })
   const send = useCallback(
     (type: string, payload: Record<string, unknown> = {}) => {
       if (!frameUrl || !connection || !frameRef?.current?.contentWindow) return
@@ -137,11 +150,7 @@ export function usePreviewSelection({
       } else if (data.type === "replica:canvas:selection-cancelled") {
         if (data.reason !== "command") onCancel()
       } else if (data.type === "replica:canvas:conversation-dismiss-requested") {
-        window.dispatchEvent(
-          new CustomEvent("replica:review-dismiss", {
-            detail: { restoreFocus: data.restoreFocus !== false },
-          }),
-        )
+        dismissConversation(data.restoreFocus !== false)
       }
     }
     frame.addEventListener("load", loaded)

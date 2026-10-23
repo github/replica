@@ -96,6 +96,7 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
     notes,
     annotating,
     composing: selection !== null,
+    pendingSelection: selection !== null && capturingSource,
     onSelect: receiveSelection,
     onRoute: setRoute,
     onCancel: cancelPreviewSelection,

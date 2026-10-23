@@ -363,6 +363,11 @@ describe("App()", () => {
     )
     expect(screen.queryByRole("complementary", { name: copy.notes })).not.toBeInTheDocument()
     receive(frame, { type: "replica:canvas:selected", anchor })
+    receive(frame, {
+      type: "replica:canvas:conversation-dismiss-requested",
+      restoreFocus: false,
+    })
+    expect(picker).toHaveAttribute("aria-pressed", "true")
     await act(async () => {
       finishCapture(Response.json({ identity: saved.identity, sourceId: "early-target-source" }))
       await capture
@@ -445,7 +450,7 @@ describe("App()", () => {
 
       if (cancellation === "toolbar") fireEvent.click(picker)
       else if (cancellation === "preview")
-        receive(frame, { type: "replica:canvas:selection-cancelled", reason: "escape" })
+        receive(frame, { type: "replica:canvas:conversation-dismiss-requested" })
       else fireEvent.keyDown(window, { key: "s" })
       expect(picker).toHaveAttribute("aria-pressed", "false")
       await act(async () => {
