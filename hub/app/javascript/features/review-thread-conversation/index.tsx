@@ -215,7 +215,8 @@ export function ReviewThreadConversation({
       dismiss()
     }
 
-    function handlePreviewDismissal() {
+    function handlePreviewDismissal(event: Event) {
+      if (event instanceof CustomEvent && event.detail?.restoreFocus === false) return
       const active = document.activeElement
       if (
         cardRef.current?.querySelector('[role="menu"]') ||

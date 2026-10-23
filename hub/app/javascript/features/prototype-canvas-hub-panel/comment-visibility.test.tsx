@@ -274,6 +274,8 @@ describe("PrototypeCanvasHubPanel()", () => {
       expect(toggle).toHaveAttribute("aria-expanded", String(commentsOpen))
       receive({ type: "replica:canvas:conversation-dismiss-requested", nonce: "wrong-frame" })
       expect(dialog).toBeInTheDocument()
+      receive({ type: "replica:canvas:conversation-dismiss-requested", restoreFocus: false })
+      expect(dialog).toBeInTheDocument()
       receive({ type: "replica:canvas:conversation-dismiss-requested" })
       expect(dialog).not.toBeInTheDocument()
       expect(toggle).toHaveAttribute("aria-expanded", String(commentsOpen))
