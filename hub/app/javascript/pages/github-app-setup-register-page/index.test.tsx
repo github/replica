@@ -1,7 +1,7 @@
 import { render } from "@testing-library/react"
 import { describe, it } from "vitest"
 
-import { GithubAppSetupRegisterPage } from "./index"
+import { GithubAppSetupRegisterPage } from "."
 import type { GithubAppSetupRegisterPageData } from "./types"
 
 const PAGE_DATA: GithubAppSetupRegisterPageData = {

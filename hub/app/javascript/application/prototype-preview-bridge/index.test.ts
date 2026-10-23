@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest"
 
 import { REVIEW_ANCHOR_SCHEMA } from "@utils/review-anchor/schemas"
 
-import { installBridge } from "./index"
+import { installBridge } from "."
 
 beforeEach(() => installBridge("http://127.0.0.1:1234"))
 

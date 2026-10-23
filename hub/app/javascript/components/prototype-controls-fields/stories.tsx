@@ -7,7 +7,7 @@ import { scopeProjection } from "@utils/prototype-controls-protocol/scope-projec
 import { validControlsValues } from "@utils/prototype-controls-protocol/valid-values"
 import { ControlsPanel } from "../prototype-controls-panel"
 import type { ControlsPanelLayout } from "../prototype-controls-panel/types"
-import { ControlsFields } from "./index"
+import { ControlsFields } from "."
 
 import "./stories.css"
 

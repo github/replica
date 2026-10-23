@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react"
 import { describe, it } from "vitest"
 
-import { GithubAppSetupInstallPage } from "./index"
+import { GithubAppSetupInstallPage } from "."
 import type { GithubAppSetupInstallPageData } from "./types"
 
 const PAGE_DATA: GithubAppSetupInstallPageData = {

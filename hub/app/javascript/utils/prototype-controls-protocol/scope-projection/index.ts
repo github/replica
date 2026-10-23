@@ -4,7 +4,7 @@ import {
   type Declaration,
 } from "@utils/prototype-controls/controls.mjs"
 
-import type { ScopeSnapshot } from "../index"
+import type { ScopeSnapshot } from ".."
 
 export function scopeProjection(controller: Controls<Declaration>): ScopeSnapshot {
   validateControls(controller.declaration)

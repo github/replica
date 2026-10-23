@@ -8,7 +8,7 @@ import { usePrototypeViewerUrl } from "@hooks/use-prototype-viewer-url"
 import type { ReviewAnchor, ReviewRoute } from "@utils/review-anchor/types"
 import type { ReviewComment } from "@utils/review-comment/types"
 
-import { PrototypesShowPage } from "./index"
+import { PrototypesShowPage } from "."
 import { PrototypeDescriptionDialog } from "./prototype-description-dialog"
 import story, { RateLimitedWithDraft } from "./stories"
 import type { PrototypesShowPageData } from "./types"

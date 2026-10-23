@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { HubThemeProvider } from "@hooks/use-hub-theme"
 
-import { ShareLinksIndexPage } from "./index"
+import { ShareLinksIndexPage } from "."
 import story from "./stories"
 import type { ShareLinksIndexPageData } from "./types"
 

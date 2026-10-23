@@ -8,7 +8,7 @@ Follow the [shared coding conventions](../../docs/coding-conventions.md) and the
 - Put each standalone function or component in a kebab-case directory with `index.ts` or `index.tsx`, colocated tests, types, and styles.
 - Export at most one function per file and import exact directories rather than sibling-export barrels.
 - Group package, alias, and relative imports separately.
-- Use explicit `.ts` extensions for server imports so Node can run development source directly and the compiler can rewrite production imports.
+- Omit `/index.ts` and `/index.tsx` from imports in frontend code and Vitest tests. Keep explicit `.ts` file paths in server runtime and Node-loaded tooling, including Storybook configuration. Native Node does not resolve directory imports; the server compiler rewrites its paths for production.
 - Keep HTTP parsing and responses outside domains. Validate input and return explicit errors when introducing real API behavior.
 
 ## Frontend layers

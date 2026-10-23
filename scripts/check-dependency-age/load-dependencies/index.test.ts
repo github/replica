@@ -4,7 +4,7 @@ import { dirname, join } from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
 
-import { loadDependencies } from "./index.ts"
+import { loadDependencies } from "."
 
 const directories: string[] = []
 afterEach(() => {

@@ -15,6 +15,8 @@ These rules apply across Replica. Follow the affected project's guidance for its
 - Update the canonical guide when a product contract, architecture boundary, or operating rule changes.
 - Leave unrelated work untouched.
 
+For TypeScript modules, import the function or component directory without `/index.ts` or `/index.tsx` when the project's tools resolve directory imports. Native Node.js ES modules require explicit file paths; keep those paths in code run directly by Node.
+
 ## Tests
 
 - Test behavior through public interfaces.

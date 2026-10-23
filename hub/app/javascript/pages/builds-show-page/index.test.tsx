@@ -3,7 +3,7 @@ import { describe, it } from "vitest"
 
 import { HubThemeProvider } from "@hooks/use-hub-theme"
 
-import { BuildsShowPage } from "./index"
+import { BuildsShowPage } from "."
 import story from "./stories"
 import type { BuildsShowPageData } from "./types"
 

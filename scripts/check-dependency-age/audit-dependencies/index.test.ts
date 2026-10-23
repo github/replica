@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import type { Dependency } from "../load-dependencies/types.ts"
-import { auditDependencies } from "./index.ts"
+import { auditDependencies } from "."
 
 describe("auditDependencies()", () => {
   it("accepts the seven-day boundary and reports newer and unverifiable dependencies together", async () => {

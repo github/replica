@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
 import type { Dependency } from "../load-dependencies/types.ts"
-import { registryClient } from "./index.ts"
+import { registryClient } from "."
 
 describe("registryClient()", () => {
   it("uses registry version publication and Action commit time with shared metadata requests", async () => {

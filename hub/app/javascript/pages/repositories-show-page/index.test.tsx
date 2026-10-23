@@ -5,7 +5,7 @@ import { describe, it, vi } from "vitest"
 import { prototypeListing } from "@/storybook/fixtures/prototype-listing"
 import type { PrototypeListingControls } from "@utils/prototype-listing/types"
 
-import { RepositoriesShowPage as Page } from "./index"
+import { RepositoriesShowPage as Page } from "."
 import type { RepositoriesShowPageData } from "./types"
 
 const PAGE_DATA: RepositoriesShowPageData = {

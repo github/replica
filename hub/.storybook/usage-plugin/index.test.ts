@@ -5,9 +5,9 @@ import { describe, expect, it, vi } from "vitest"
 
 import { analyzeUsage } from "../analyze-usage"
 import type { UsageIndex } from "../analyze-usage/types"
-import { usagePlugin } from "./index"
+import { usagePlugin } from "."
 
-vi.mock("../analyze-usage/index.ts", () => ({ analyzeUsage: vi.fn() }))
+vi.mock("../analyze-usage", () => ({ analyzeUsage: vi.fn() }))
 
 async function startPlugin() {
   const root = resolve("usage-plugin-fixture")

@@ -6,7 +6,7 @@ import { dirname, join } from "node:path"
 
 import { describe, expect, it } from "vitest"
 
-import { analyzeUsage } from "./index"
+import { analyzeUsage } from "."
 
 async function writeSources(root: string, sources: Record<string, string>) {
   const files = {
@@ -109,7 +109,7 @@ export default function Example() { return <Widget /> }
         "app/javascript/components/widget/index.tsx":
           "export default function Widget() { return <span /> }",
         "app/javascript/components/widget/stories.tsx": `
-import Widget from "./index"
+import Widget from "."
 export default { component: Widget }
 export const Example = { render: () => <Widget /> }
 `,

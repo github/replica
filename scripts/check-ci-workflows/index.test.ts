@@ -6,7 +6,7 @@ import { join, resolve } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import { parse, stringify } from "yaml"
 
-import { checkWorkflows } from "./index.ts"
+import { checkWorkflows } from "."
 import type { Workflow } from "./types.ts"
 
 const root = resolve(import.meta.dirname, "../..")
