@@ -7,11 +7,26 @@ Replica Hub publishes a public container image at `ghcr.io/github/replica-hub`. 
 The recommended deployment needs:
 
 - A server with Docker and the Docker Compose plugin.
+- Outbound HTTPS access for deployment downloads and Hub's GitHub connection, as described below.
 - A domain you control, dedicated to Hub and its previews.
 - Permission to create DNS records and enable HTTPS.
 - A hosting service or reverse proxy that sends the Hub and preview addresses to the same server.
 
 The default deployment runs one Replica Hub container and stores its SQLite databases and Build files in one persistent Docker volume.
+
+### Outbound network access
+
+Before installation, confirm these connections with your network administrator:
+
+| From | Destination | Purpose |
+| --- | --- | --- |
+| Deployment server | GitHub release downloads at `github.com` | Download the deployment bundle and checksum. |
+| Deployment server | GitHub Container Registry at `ghcr.io` | Pull the Hub image during initialization, startup, and updates. |
+| Running Hub container | GitHub's API at `api.github.com` and GitHub's artifact download locations | Connect the GitHub App, discover repositories and workflows, and download successful build artifacts. |
+
+Downloads can redirect to additional storage hosts, so these names are not a complete firewall allowlist. Ask your network administrator to approve the required download destinations as well. Check access from both the server and the running container; access from your own computer does not prove either can connect.
+
+If a download is denied, resolve the network approval before retrying. These requirements do not authorize bypassing your organization's network controls.
 
 ## Choose an isolated domain
 
