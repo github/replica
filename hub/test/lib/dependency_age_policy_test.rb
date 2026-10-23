@@ -91,10 +91,64 @@ class DependencyAgePolicyTest < ActiveSupport::TestCase
       }
       client = FakeClient.new(publication_times)
 
-      result = DependencyAgePolicy::Audit.new(root:, client:, now:).call
+      result = DependencyAgePolicy::Audit.new(
+        root:,
+        client:,
+        now:,
+        age_exceptions: [ "bundler:example-gem@1.9.9" ],
+      ).call
 
       refute_predicate result, :success?
       assert_equal "example-gem", result.violations.first.dependency.name
+    end
+  end
+
+  test "allows an exact dependency age exception while still verifying publication metadata" do
+    now = Time.utc(2026, 9, 18, 12)
+
+    Dir.mktmpdir do |root|
+      write_repository(root, gem_version: "2.0.0")
+      publication_times = {
+        [ "npm", "example-package", "1.0.0" ] => now - 30.days,
+        [ "bundler", "example-gem", "2.0.0" ] => now - 2.days,
+        [ "bundler", "bundler", "4.0.13" ] => now - 30.days
+      }
+      client = FakeClient.new(publication_times)
+
+      result = DependencyAgePolicy::Audit.new(
+        root:,
+        client:,
+        now:,
+        age_exceptions: [ "bundler:example-gem@2.0.0" ],
+      ).call
+
+      assert_predicate result, :success?
+      assert_equal 3, result.checked_count
+    end
+  end
+
+  test "an age exception does not suppress a publication metadata failure" do
+    now = Time.utc(2026, 9, 18, 12)
+
+    Dir.mktmpdir do |root|
+      write_repository(root, gem_version: "2.0.0")
+      publication_times = {
+        [ "npm", "example-package", "1.0.0" ] => now - 30.days,
+        [ "bundler", "example-gem", "2.0.0" ] =>
+          DependencyAgePolicy::VerificationError.new("registry unavailable"),
+        [ "bundler", "bundler", "4.0.13" ] => now - 30.days
+      }
+      client = FakeClient.new(publication_times)
+
+      result = DependencyAgePolicy::Audit.new(
+        root:,
+        client:,
+        now:,
+        age_exceptions: [ "bundler:example-gem@2.0.0" ],
+      ).call
+
+      refute_predicate result, :success?
+      assert_equal "registry unavailable", result.failures.first.message
     end
   end
 

@@ -6,11 +6,13 @@ module DependencyAgePolicy
       client: RegistryClient.new,
       now: Time.now.utc,
       minimum_age_days: MINIMUM_AGE_DAYS,
-      excluded_paths: []
+      excluded_paths: [],
+      age_exceptions: []
     )
       @loader = DependencyLoader.new(root:, excluded_paths:)
       @client = client
       @cutoff = now.utc - (minimum_age_days * 24 * 60 * 60)
+      @age_exceptions = age_exceptions.to_set
     end
 
     # Reports dependencies that are too new and checks that could not be completed.
@@ -28,7 +30,7 @@ module DependencyAgePolicy
             dependency = queue.pop(true)
             published_at = @client.published_at(dependency)
 
-            if published_at > @cutoff
+            if published_at > @cutoff && !@age_exceptions.include?(identity(dependency))
               mutex.synchronize { violations << Violation.new(dependency:, published_at:) }
             end
           rescue ThreadError

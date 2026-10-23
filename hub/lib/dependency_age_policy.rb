@@ -1,3 +1,4 @@
+require "set"
 require "time"
 
 # Verifies that locked third-party dependencies have aged before the repository uses them.
