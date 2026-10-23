@@ -15,6 +15,8 @@ import { HubCounter } from "@components/hub-counter"
 import { CanvasDialog } from "@components/prototype-canvas-dialog"
 import { ImprovementThreads } from "@features/prototype-canvas-improvement-threads"
 import { isAnnotationShortcut } from "@utils/is-annotation-shortcut"
+import { isMacPlatform } from "@utils/is-mac-platform"
+import { isSubmitShortcut } from "@utils/is-submit-shortcut"
 import type { ReviewAnchor } from "@utils/review-anchor/types"
 import { copy } from "./en"
 import { improvementThreadView } from "./thread-view"
@@ -58,10 +60,12 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
   const selectionChanged = selection !== null && selection.identity !== saved.state?.identity
   const composerOpen = selection !== null && !capturingSource && !discarding && saved.state !== null
   const notesCount = notes.filter((note) => note.status !== "resolved").length
+  const canSave = Boolean(draft.trim()) && !saved.busy && !selectionChanged
   const syncError =
     saved.state?.syncError === "Notes are saved locally until Hub discovers this branch."
       ? null
       : saved.state?.syncError
+  const saveShortcut = isMacPlatform() ? copy.saveShortcutMac : copy.saveShortcutOther
 
   const receiveSelection = useCallback(
     (anchor: ReviewAnchor) => {
@@ -318,6 +322,12 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
                 rows={4}
                 placeholder={copy.placeholder}
                 onChange={(event) => setDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (!canSave || !isSubmitShortcut(event.nativeEvent)) return
+                  event.preventDefault()
+                  event.currentTarget.form?.requestSubmit()
+                }}
+                aria-keyshortcuts="Meta+Enter Control+Enter"
                 required
               />
             </FormControl>
@@ -326,9 +336,13 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
                 type="submit"
                 size="small"
                 variant="primary"
-                disabled={!draft.trim() || saved.busy || selectionChanged}
+                disabled={!canSave}
+                aria-keyshortcuts="Meta+Enter Control+Enter"
               >
                 {copy.save}
+                <kbd aria-hidden="true" className="improvement-demo__save-shortcut">
+                  {saveShortcut}
+                </kbd>
               </Button>
             </div>
           </form>

@@ -46,6 +46,17 @@
   margin-top: 1rem;
 }
 
+.improvement-demo__save-shortcut {
+  margin-inline-start: var(--base-size-4);
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 0.75rem;
+  line-height: 1;
+  opacity: 0.8;
+}
+
 .improvement-demo button:focus-visible,
 .improvement-demo [tabindex]:focus-visible {
   outline: 2px solid var(--hub-focus);

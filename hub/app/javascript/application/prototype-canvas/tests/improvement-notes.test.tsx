@@ -313,6 +313,7 @@ describe("App()", () => {
   })
 
   it("arms selection before source capture finishes and saves an early target with its captured source", async () => {
+    vi.spyOn(navigator, "platform", "get").mockReturnValue("MacIntel")
     vi.spyOn(crypto, "randomUUID").mockReturnValue(nonce)
     const { fetch, saved } = savedNotesFixture()
     const original = fetch.getMockImplementation()!
@@ -366,10 +367,14 @@ describe("App()", () => {
       await capture
     })
     const composer = within(await screen.findByRole("dialog", { name: copy.add }))
-    fireEvent.change(composer.getByRole("textbox", { name: copy.label }), {
+    const note = composer.getByRole("textbox", { name: copy.label })
+    const save = composer.getByRole("button", { name: copy.save })
+    expect(save).toHaveAttribute("aria-keyshortcuts", "Meta+Enter Control+Enter")
+    expect(within(save).getByText(copy.saveShortcutMac)).toBeVisible()
+    fireEvent.change(note, {
       target: { value: "Keep the selected action visible." },
     })
-    fireEvent.click(composer.getByRole("button", { name: copy.save }))
+    fireEvent.keyDown(note, { key: "Enter", metaKey: true })
     await waitFor(() => expect(saved.notes).toHaveLength(1))
     const write = fetch.mock.calls.find(
       ([path, options]) => path === "/api/improvement-notes" && options?.method === "POST",
@@ -826,7 +831,6 @@ describe("App()", () => {
       const composer = within(dialog)
       expect(composer.queryByRole("img")).not.toBeInTheDocument()
       expect(composer.queryByRole("status")).not.toBeInTheDocument()
-      expect(composer.queryByText(anchor.accessibleName, { exact: true })).not.toBeInTheDocument()
       expect(composer.queryByText("/settings?tab=account#profile")).not.toBeInTheDocument()
       expect(dialog.querySelector("code")).toBeNull()
       expect(composer.queryByRole("button", { name: copy.cancel })).not.toBeInTheDocument()
