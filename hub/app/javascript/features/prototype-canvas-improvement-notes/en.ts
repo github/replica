@@ -6,10 +6,11 @@ export const copy = {
   sourceUnavailable:
     "You can still save this improvement locally, but it cannot sync without a captured source.",
   annotate: "Pick & polish",
+  annotateShortcut: "Pick & polish (V)",
   openNotes: (count: number) => `Open improvement notes (${count})`,
   notes: "Pick & polish",
   selectHint:
-    "Click an element or drag a rectangle. For a keyboard region, focus the preview, press Shift+Enter, then use arrows and Enter to choose two corners. Escape exits annotation mode.",
+    "Hover to highlight, then click an element or drag a rectangle. V toggles selection. For a keyboard region, focus the preview, press Shift+Enter, then use arrows and Enter to choose two corners. Escape exits annotation mode.",
   regionSmall: "Choose a larger region, at least 8 preview pixels wide and high.",
   add: "Add improvement note",
   label: "What should change?",

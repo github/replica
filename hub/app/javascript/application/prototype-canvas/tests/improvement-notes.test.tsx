@@ -126,6 +126,187 @@ function savedNotesFixture(captureFails = false) {
 }
 
 describe("App()", () => {
+  it("toggles selection with plain V only when ready and keeps Escape cancellation", async () => {
+    vi.spyOn(crypto, "randomUUID").mockReturnValue(nonce)
+    const { fetch } = savedNotesFixture()
+    const view = render(
+      <App config={{ name: "Demo", prototypeUrl: origin, token: "local", pickAndPolish: true }} />,
+    )
+    const picker = await screen.findByRole("button", { name: copy.annotate })
+    const frame = screen.getByTitle("Demo prototype")
+    if (!(frame instanceof HTMLIFrameElement)) throw new Error("Expected the prototype iframe.")
+    function captures() {
+      return fetch.mock.calls.filter(([path]) => path === "/api/improvement-notes/capture")
+    }
+    fireEvent.keyDown(window, { key: "v" })
+    expect(captures()).toHaveLength(0)
+    receive(frame, {
+      type: "replica:canvas:ready",
+      protocolVersion: 1,
+      improvementSelection: true,
+      route: anchor.route,
+    })
+    await waitFor(() => expect(picker).toBeEnabled())
+    const post = vi.spyOn(frame.contentWindow!, "postMessage")
+    fireEvent.keyDown(window, { key: "v" })
+    expect(picker).toHaveAttribute("aria-pressed", "true")
+    expect(post).toHaveBeenCalledWith(
+      { type: "replica:canvas:select", nonce, mode: "improvement" },
+      origin,
+    )
+    expect(screen.queryByRole("complementary", { name: copy.notes })).not.toBeInTheDocument()
+    fireEvent.keyDown(window, { key: "V" })
+    expect(picker).toHaveAttribute("aria-pressed", "false")
+    expect(captures()).toHaveLength(1)
+    fireEvent.keyDown(window, { key: "v" })
+    fireEvent.keyDown(window, { key: "Escape" })
+    expect(picker).toHaveAttribute("aria-pressed", "false")
+    expect(captures()).toHaveLength(2)
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit details" }))
+    await screen.findByRole("complementary", { name: "Hub" })
+    fireEvent.keyDown(window, { key: "v" })
+    expect(picker).toHaveAttribute("aria-pressed", "false")
+    expect(captures()).toHaveLength(2)
+    fireEvent.click(screen.getByRole("button", { name: "Close Hub" }))
+    await act(async () => {
+      fireEvent.click(picker)
+      await Promise.resolve()
+    })
+    receive(frame, { type: "replica:canvas:selected", anchor })
+    const composer = within(await screen.findByRole("dialog", { name: copy.add }))
+    fireEvent.change(composer.getByRole("textbox", { name: copy.label }), {
+      target: { value: "Preserve this draft." },
+    })
+    fireEvent.keyDown(window, { key: "v" })
+    expect(captures()).toHaveLength(3)
+    expect(picker).toHaveAttribute("aria-pressed", "true")
+    expect(composer.getByRole("textbox", { name: copy.label })).toHaveValue("Preserve this draft.")
+    view.unmount()
+  })
+
+  it("leaves typing, modified keys and already handled host events untouched", async () => {
+    vi.spyOn(crypto, "randomUUID").mockReturnValue(nonce)
+    const { fetch } = savedNotesFixture()
+    const view = render(
+      <App config={{ name: "Demo", prototypeUrl: origin, token: "local", pickAndPolish: true }} />,
+    )
+    const picker = await screen.findByRole("button", { name: copy.annotate })
+    const frame = screen.getByTitle("Demo prototype")
+    if (!(frame instanceof HTMLIFrameElement)) throw new Error("Expected the prototype iframe.")
+    receive(frame, {
+      type: "replica:canvas:ready",
+      protocolVersion: 1,
+      improvementSelection: true,
+      route: anchor.route,
+    })
+    await waitFor(() => expect(picker).toBeEnabled())
+    for (const options of [
+      { ctrlKey: true },
+      { metaKey: true },
+      { altKey: true },
+      { shiftKey: true },
+      { repeat: true },
+      { isComposing: true },
+    ]) {
+      const event = new KeyboardEvent("keydown", { key: "v", cancelable: true, ...options })
+      fireEvent(window, event)
+      expect(event.defaultPrevented).toBe(false)
+    }
+    const handled = new KeyboardEvent("keydown", { key: "v", cancelable: true })
+    handled.preventDefault()
+    fireEvent(window, handled)
+    const targets = document.createElement("div")
+    targets.innerHTML = `
+      <input /><textarea></textarea><select><option>Value</option></select>
+      <div role="textbox"><span></span></div>
+      <div role="combobox"><span></span></div>
+      <div contenteditable="true"><span></span></div>
+      <dialog open><button></button></dialog>
+      <div role="dialog"><button></button></div>
+      <div role="menu"><button></button></div>
+    `
+    document.body.append(targets)
+    for (const target of targets.querySelectorAll("input, textarea, select, span, button")) {
+      const event = new KeyboardEvent("keydown", {
+        key: "v",
+        bubbles: true,
+        cancelable: true,
+      })
+      fireEvent(target, event)
+      expect(event.defaultPrevented).toBe(false)
+    }
+    expect(picker).toHaveAttribute("aria-pressed", "false")
+    expect(fetch.mock.calls.filter(([path]) => path.endsWith("/capture"))).toHaveLength(0)
+    targets.remove()
+    view.unmount()
+  })
+
+  it("accepts selection-toggle requests only from the current authenticated preview", async () => {
+    vi.spyOn(crypto, "randomUUID").mockReturnValue(nonce)
+    const { fetch } = savedNotesFixture()
+    const view = render(
+      <App
+        config={{
+          name: "Demo",
+          prototypeUrl: origin,
+          previewUrl: "http://127.0.0.1:6789/",
+          token: "local",
+          pickAndPolish: true,
+        }}
+      />,
+    )
+    const picker = await screen.findByRole("button", { name: copy.annotate })
+    const frame = screen.getByTitle("Demo prototype")
+    if (!(frame instanceof HTMLIFrameElement)) throw new Error("Expected the prototype iframe.")
+    const post = vi.spyOn(frame.contentWindow!, "postMessage")
+    fireEvent.load(frame)
+    expect(post).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "replica:canvas:request-ready",
+        nonce,
+        selectionShortcut: true,
+      }),
+      new URL(frame.src).origin,
+    )
+    receive(frame, {
+      type: "replica:canvas:ready",
+      protocolVersion: 1,
+      improvementSelection: true,
+      route: anchor.route,
+    })
+    await waitFor(() => expect(picker).toBeEnabled())
+    const toggle = { type: "replica:canvas:selection-toggle-requested", nonce }
+    receive(frame, toggle, origin)
+    receive(frame, { ...toggle, nonce: "stale-resolution" })
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          source: window,
+          origin: new URL(frame.src).origin,
+          data: toggle,
+        }),
+      )
+    })
+    expect(picker).toHaveAttribute("aria-pressed", "false")
+    expect(fetch.mock.calls.filter(([path]) => path.endsWith("/capture"))).toHaveLength(0)
+    receive(frame, toggle)
+    expect(picker).toHaveAttribute("aria-pressed", "true")
+    expect(fetch.mock.calls.filter(([path]) => path.endsWith("/capture"))).toHaveLength(1)
+    receive(frame, toggle)
+    expect(picker).toHaveAttribute("aria-pressed", "false")
+    expect(fetch.mock.calls.filter(([path]) => path.endsWith("/capture"))).toHaveLength(1)
+    view.unmount()
+    expect(post).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "replica:canvas:request-ready",
+        nonce,
+        selectionShortcut: false,
+      }),
+      new URL(frame.src).origin,
+    )
+  })
+
   it("arms selection before source capture finishes and saves an early target with its captured source", async () => {
     vi.spyOn(crypto, "randomUUID").mockReturnValue(nonce)
     const { fetch, saved } = savedNotesFixture()
@@ -177,6 +358,7 @@ describe("App()", () => {
     receive(frame, { type: "replica:canvas:selected", anchor })
     await act(async () => {
       finishCapture(Response.json({ identity: saved.identity, sourceId: "early-target-source" }))
+      await capture
     })
     const composer = within(await screen.findByRole("dialog", { name: copy.add }))
     fireEvent.change(composer.getByRole("textbox", { name: copy.label }), {
@@ -242,6 +424,7 @@ describe("App()", () => {
       expect(picker).toHaveAttribute("aria-pressed", "false")
       await act(async () => {
         captures[0]!(Response.json({ identity: saved.identity, sourceId: "cancelled-source" }))
+        await Promise.resolve()
       })
       expect(picker).toHaveAttribute("aria-pressed", "false")
       expect(screen.queryByRole("dialog", { name: copy.add })).not.toBeInTheDocument()
@@ -254,6 +437,7 @@ describe("App()", () => {
       receive(frame, { type: "replica:canvas:selected", anchor: nextAnchor })
       await act(async () => {
         captures[1]!(Response.json({ identity: saved.identity, sourceId: "next-selection-source" }))
+        await Promise.resolve()
       })
       const composer = within(await screen.findByRole("dialog", { name: copy.add }))
       fireEvent.change(composer.getByRole("textbox", { name: copy.label }), {

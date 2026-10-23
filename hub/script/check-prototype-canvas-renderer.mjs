@@ -18,7 +18,7 @@ const prototype = createServer((request, response) => {
   }
   response.writeHead(200, { "Content-Type": "text/html" })
   response.end(
-    '<!doctype html><html><head><title>Projects</title></head><body><button id="save">Save project</button></body></html>',
+    '<!doctype html><html><head><title>Projects</title></head><body><button id="save">Save project</button><input aria-label="Prototype title"></body></html>',
   )
 })
 let browser
@@ -134,6 +134,10 @@ try {
       await composer
         .getByRole("textbox", { name: "What should change?", exact: true })
         .fill("Make the save action clearer.")
+      const noteDraft = composer.getByRole("textbox", { name: "What should change?", exact: true })
+      await noteDraft.press("v")
+      assert.equal(await noteDraft.inputValue(), "Make the save action clearer.v")
+      await noteDraft.press("Backspace")
       await composer.getByRole("button", { name: "Save note", exact: true }).click()
       await cards.first().waitFor()
       assert.equal(await cards.count(), 1)
@@ -148,6 +152,25 @@ try {
       })
       assert.equal(state.notes[0].status, "open")
       assert.equal(dispatched.length, 0)
+
+      phase = "selection shortcuts in the canvas and cross-origin preview"
+      await picker.focus()
+      await page.keyboard.press("v")
+      const selectionSurface = preview.locator('[data-replica-canvas-bridge][style*="crosshair"]')
+      await selectionSurface.waitFor()
+      await page.keyboard.press("v")
+      await selectionSurface.waitFor({ state: "detached" })
+      await target.press("v")
+      await selectionSurface.waitFor()
+      await target.press("Escape")
+      await selectionSurface.waitFor({ state: "detached" })
+      const prototypeTitle = preview.getByRole("textbox", { name: "Prototype title" })
+      await prototypeTitle.fill("Project")
+      await prototypeTitle.press("v")
+      assert.equal(await prototypeTitle.inputValue(), "Projectv")
+      assert.equal(await selectionSurface.count(), 0)
+      assert.equal((await store.load()).notes.length, 1)
+      await page.getByRole("button", { name: "Open improvement notes (1)" }).click()
 
       phase = "explicit first batch"
       await fix(1).click()

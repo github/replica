@@ -1,11 +1,20 @@
 import { CrosshairsIcon } from "@primer/octicons-react"
 import { Button, FormControl, Textarea } from "@primer/react-brand"
-import { useCallback, useLayoutEffect, useRef, useState, type RefObject } from "react"
+import {
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type RefObject,
+} from "react"
 import { createPortal } from "react-dom"
 
 import { HubCounter } from "@components/hub-counter"
 import { CanvasDialog } from "@components/prototype-canvas-dialog"
 import { ImprovementThreads } from "@features/prototype-canvas-improvement-threads"
+import { isAnnotationShortcut } from "@utils/is-annotation-shortcut"
 import type { ReviewAnchor } from "@utils/review-anchor/types"
 import { copy } from "./en"
 import { improvementThreadView } from "./thread-view"
@@ -84,7 +93,30 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
     onRoute: setRoute,
     onCancel: cancelPreviewSelection,
     onProblem: setMessage,
+    onToggle: toggleSelection,
   })
+
+  const handleShortcut = useEffectEvent((event: KeyboardEvent) => {
+    if (
+      event.key === "Escape" &&
+      !event.defaultPrevented &&
+      !event.isComposing &&
+      annotating &&
+      (!selection || capturingSource)
+    ) {
+      event.preventDefault()
+      cancelPreviewSelection()
+    } else if (isAnnotationShortcut(event) && toggleSelection()) {
+      event.preventDefault()
+    }
+  })
+  useEffect(() => {
+    function keydown(event: KeyboardEvent) {
+      handleShortcut(event)
+    }
+    window.addEventListener("keydown", keydown)
+    return () => window.removeEventListener("keydown", keydown)
+  }, [])
 
   useLayoutEffect(() => {
     if (composerOpen) draftRef.current?.focus()
@@ -93,6 +125,21 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
   function openNotes() {
     setPanelOpen(true)
     canvas.onOpenNotes()
+  }
+
+  function toggleSelection() {
+    if (
+      !preview.ready ||
+      !saved.state ||
+      selection ||
+      discarding ||
+      canvas.hubOpen ||
+      document.querySelector('[role="dialog"], dialog[open]')
+    )
+      return false
+    if (annotating) cancelPreviewSelection()
+    else void beginSelection()
+    return true
   }
 
   async function beginSelection() {
@@ -146,14 +193,7 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
   }
 
   return (
-    <section
-      aria-label={copy.title}
-      className="improvement-demo"
-      onKeyDown={(event) => {
-        if (event.key === "Escape" && !event.defaultPrevented && !selection)
-          cancelPreviewSelection()
-      }}
-    >
+    <section aria-label={copy.title} className="improvement-demo">
       {canvas.toolbarTarget &&
         createPortal(
           <div role="group" aria-label={copy.title} className="improvement-demo__split">
@@ -162,7 +202,8 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
               size="small"
               variant="secondary"
               className="canvas-toolbar-compact-button"
-              title={copy.annotate}
+              title={copy.annotateShortcut}
+              aria-keyshortcuts="V"
               leadingVisual={<CrosshairsIcon />}
               aria-pressed={annotating}
               disabled={!preview.ready || !saved.state}

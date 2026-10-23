@@ -20,6 +20,7 @@ type Props = {
   onRoute: (route: string) => void
   onCancel: () => void
   onProblem: (message: string) => void
+  onToggle: () => void
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -37,6 +38,7 @@ export function usePreviewSelection({
   onRoute,
   onCancel,
   onProblem,
+  onToggle,
 }: Props) {
   const frameUrl = previewUrl ?? prototypeUrl
   const [connection, setConnection] = useState<{ nonce: string; ready: boolean } | null>(null)
@@ -54,6 +56,7 @@ export function usePreviewSelection({
       onProblem(copy.previewUnavailable)
     }
   })
+  const toggleSelection = useEffectEvent(onToggle)
   const send = useCallback(
     (type: string, payload: Record<string, unknown> = {}) => {
       if (!frameUrl || !connection || !frameRef?.current?.contentWindow) return
@@ -73,7 +76,10 @@ export function usePreviewSelection({
     let lastResponse = Date.now()
     const anchors: unknown = JSON.parse(anchorKey)
     function requestState() {
-      frame?.contentWindow?.postMessage({ type: "replica:canvas:request-ready", nonce }, origin)
+      frame?.contentWindow?.postMessage(
+        { type: "replica:canvas:request-ready", nonce, selectionShortcut: true },
+        origin,
+      )
       frame?.contentWindow?.postMessage({ type: "replica:canvas:resolve", nonce, anchors }, origin)
     }
     function loaded() {
@@ -107,6 +113,8 @@ export function usePreviewSelection({
         onRoute(route.data.pathname + route.data.search + route.data.hash)
       } else if (data.type === "replica:canvas:selected") {
         receiveSelection(data.anchor)
+      } else if (data.type === "replica:canvas:selection-toggle-requested") {
+        toggleSelection()
       } else if (data.type === "replica:canvas:resolved" && Array.isArray(data.results)) {
         const next = new Map<number, AnchorResolution>()
         for (const result of data.results) {
@@ -151,6 +159,10 @@ export function usePreviewSelection({
       window.clearInterval(interval)
       frame.contentWindow?.postMessage({ type: "replica:canvas:cancel-selection", nonce }, origin)
       frame.contentWindow?.postMessage({ type: "replica:canvas:clear-selection", nonce }, origin)
+      frame.contentWindow?.postMessage(
+        { type: "replica:canvas:request-ready", nonce, selectionShortcut: false },
+        origin,
+      )
     }
   }, [anchorKey, frameRef, frameUrl, onCancel, onProblem, onRoute])
 
