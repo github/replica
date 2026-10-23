@@ -68,7 +68,7 @@ function withSelection(run: (selection: ReturnType<typeof setup>) => void) {
 }
 
 describe("installBridge() improvement selection", () => {
-  it("forwards V only while opted in and uses the current shortcut request nonce", () => {
+  it("forwards S only while opted in and uses the current shortcut request nonce", () => {
     const post = vi.spyOn(window, "postMessage")
     const bridgeWindow = window as Window & { [installed]?: () => void }
     const target = document.createElement("button")
@@ -81,7 +81,7 @@ describe("installBridge() improvement selection", () => {
         new MessageEvent("message", { origin: eventOrigin, source: window, data }),
       )
     }
-    function press(key = "v") {
+    function press(key = "s") {
       const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true })
       document.dispatchEvent(event)
       return event
@@ -113,7 +113,7 @@ describe("installBridge() improvement selection", () => {
       request({ ...optIn, nonce: "current-shortcut" })
       request({ ...optIn, selectionShortcut: false })
       post.mockClear()
-      expect(press("V").defaultPrevented).toBe(true)
+      expect(press("S").defaultPrevented).toBe(true)
       expect(post).toHaveBeenCalledExactlyOnceWith(
         { type: "replica:canvas:selection-toggle-requested", nonce: "current-shortcut" },
         origin,
@@ -165,7 +165,7 @@ describe("installBridge() improvement selection", () => {
         { isComposing: true },
       ]) {
         const event = new KeyboardEvent("keydown", {
-          key: "v",
+          key: "s",
           bubbles: true,
           cancelable: true,
           ...options,
@@ -175,7 +175,7 @@ describe("installBridge() improvement selection", () => {
       }
       for (const target of targets.querySelectorAll("input, textarea, select, span, button")) {
         const event = new KeyboardEvent("keydown", {
-          key: "v",
+          key: "s",
           bubbles: true,
           cancelable: true,
         })
@@ -214,12 +214,12 @@ describe("installBridge() improvement selection", () => {
     post.mockClear()
     try {
       target.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "v", bubbles: true, cancelable: true }),
+        new KeyboardEvent("keydown", { key: "s", bubbles: true, cancelable: true }),
       )
       expect(post).not.toHaveBeenCalled()
       target.removeEventListener("keydown", handledByPrototype)
       const shortcut = new KeyboardEvent("keydown", {
-        key: "v",
+        key: "s",
         bubbles: true,
         cancelable: true,
       })
@@ -232,7 +232,7 @@ describe("installBridge() improvement selection", () => {
       bridgeWindow[installed]?.()
       post.mockClear()
       const uninstalled = new KeyboardEvent("keydown", {
-        key: "v",
+        key: "s",
         bubbles: true,
         cancelable: true,
       })

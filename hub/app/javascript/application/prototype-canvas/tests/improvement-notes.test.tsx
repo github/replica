@@ -126,7 +126,7 @@ function savedNotesFixture(captureFails = false) {
 }
 
 describe("App()", () => {
-  it("toggles selection with plain V only when ready and keeps Escape cancellation", async () => {
+  it("toggles selection with plain S only when ready and keeps Escape cancellation", async () => {
     vi.spyOn(crypto, "randomUUID").mockReturnValue(nonce)
     const { fetch } = savedNotesFixture()
     const view = render(
@@ -138,7 +138,7 @@ describe("App()", () => {
     function captures() {
       return fetch.mock.calls.filter(([path]) => path === "/api/improvement-notes/capture")
     }
-    fireEvent.keyDown(window, { key: "v" })
+    fireEvent.keyDown(window, { key: "s" })
     expect(captures()).toHaveLength(0)
     receive(frame, {
       type: "replica:canvas:ready",
@@ -148,24 +148,24 @@ describe("App()", () => {
     })
     await waitFor(() => expect(picker).toBeEnabled())
     const post = vi.spyOn(frame.contentWindow!, "postMessage")
-    fireEvent.keyDown(window, { key: "v" })
+    fireEvent.keyDown(window, { key: "s" })
     expect(picker).toHaveAttribute("aria-pressed", "true")
     expect(post).toHaveBeenCalledWith(
       { type: "replica:canvas:select", nonce, mode: "improvement" },
       origin,
     )
     expect(screen.queryByRole("complementary", { name: copy.notes })).not.toBeInTheDocument()
-    fireEvent.keyDown(window, { key: "V" })
+    fireEvent.keyDown(window, { key: "S" })
     expect(picker).toHaveAttribute("aria-pressed", "false")
     expect(captures()).toHaveLength(1)
-    fireEvent.keyDown(window, { key: "v" })
+    fireEvent.keyDown(window, { key: "s" })
     fireEvent.keyDown(window, { key: "Escape" })
     expect(picker).toHaveAttribute("aria-pressed", "false")
     expect(captures()).toHaveLength(2)
 
     fireEvent.click(screen.getByRole("button", { name: "Edit details" }))
     await screen.findByRole("complementary", { name: "Hub" })
-    fireEvent.keyDown(window, { key: "v" })
+    fireEvent.keyDown(window, { key: "s" })
     expect(picker).toHaveAttribute("aria-pressed", "false")
     expect(captures()).toHaveLength(2)
     fireEvent.click(screen.getByRole("button", { name: "Close Hub" }))
@@ -178,7 +178,7 @@ describe("App()", () => {
     fireEvent.change(composer.getByRole("textbox", { name: copy.label }), {
       target: { value: "Preserve this draft." },
     })
-    fireEvent.keyDown(window, { key: "v" })
+    fireEvent.keyDown(window, { key: "s" })
     expect(captures()).toHaveLength(3)
     expect(picker).toHaveAttribute("aria-pressed", "true")
     expect(composer.getByRole("textbox", { name: copy.label })).toHaveValue("Preserve this draft.")
@@ -209,11 +209,11 @@ describe("App()", () => {
       { repeat: true },
       { isComposing: true },
     ]) {
-      const event = new KeyboardEvent("keydown", { key: "v", cancelable: true, ...options })
+      const event = new KeyboardEvent("keydown", { key: "s", cancelable: true, ...options })
       fireEvent(window, event)
       expect(event.defaultPrevented).toBe(false)
     }
-    const handled = new KeyboardEvent("keydown", { key: "v", cancelable: true })
+    const handled = new KeyboardEvent("keydown", { key: "s", cancelable: true })
     handled.preventDefault()
     fireEvent(window, handled)
     const targets = document.createElement("div")
@@ -229,7 +229,7 @@ describe("App()", () => {
     document.body.append(targets)
     for (const target of targets.querySelectorAll("input, textarea, select, span, button")) {
       const event = new KeyboardEvent("keydown", {
-        key: "v",
+        key: "s",
         bubbles: true,
         cancelable: true,
       })

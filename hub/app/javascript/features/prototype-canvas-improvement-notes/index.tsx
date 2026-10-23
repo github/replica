@@ -203,7 +203,7 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
               variant="secondary"
               className="canvas-toolbar-compact-button"
               title={copy.annotateShortcut}
-              aria-keyshortcuts="V"
+              aria-keyshortcuts="S"
               leadingVisual={<CrosshairsIcon />}
               aria-pressed={annotating}
               disabled={!preview.ready || !saved.state}

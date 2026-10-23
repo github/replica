@@ -1,6 +1,6 @@
 export function isAnnotationShortcut(event: KeyboardEvent) {
   if (
-    event.key.toLowerCase() !== "v" ||
+    event.key.toLowerCase() !== "s" ||
     event.defaultPrevented ||
     event.repeat ||
     event.isComposing ||
