@@ -128,36 +128,56 @@ export function ImprovementThreads({
     }
   }, [selected, discarding, conversation, fallbackFocus, changedIdentity, removed])
 
-  const leave = useCallback(() => {
-    returnTo.current = selected
-    setSelected(null)
-    setOpenedThread(null)
-    setDraft("")
-    setDiscarding(false)
-    if (closingSidebar.current) {
-      onClose()
-      fallbackFocus.current?.focus()
-      closingSidebar.current = false
-    }
-  }, [selected, onClose, fallbackFocus])
+  const leave = useCallback(
+    (restoreFocus = true) => {
+      returnTo.current = restoreFocus ? selected : null
+      setSelected(null)
+      setOpenedThread(null)
+      setDraft("")
+      setDiscarding(false)
+      if (closingSidebar.current) {
+        onClose()
+        fallbackFocus.current?.focus()
+        closingSidebar.current = false
+      }
+    },
+    [selected, onClose, fallbackFocus],
+  )
 
-  const requestClose = useCallback(() => {
-    if (draft.trim()) setDiscarding(true)
-    else if (selected !== null) leave()
-    else {
-      onClose()
-      fallbackFocus.current?.focus()
-    }
-  }, [draft, selected, leave, onClose, fallbackFocus])
+  const requestClose = useCallback(
+    (restoreFocus = true) => {
+      if (draft.trim()) setDiscarding(true)
+      else if (selected !== null) leave(restoreFocus)
+      else {
+        onClose()
+        fallbackFocus.current?.focus()
+      }
+    },
+    [draft, selected, leave, onClose, fallbackFocus],
+  )
 
   useEffect(() => {
     if (selected === null) return
-    function dismiss() {
+    function dismiss(restoreFocus = true) {
       if (document.querySelector('[role="menu"]') || deleting) return
       if (discarding) {
+        if (!restoreFocus) return
         closingSidebar.current = false
         setDiscarding(false)
-      } else requestClose()
+      } else requestClose(restoreFocus)
+    }
+    function bridgeDismiss(event: Event) {
+      if (!(event instanceof CustomEvent)) {
+        dismiss()
+        return
+      }
+      const detail: unknown = event.detail
+      dismiss(
+        !detail ||
+          typeof detail !== "object" ||
+          !("restoreFocus" in detail) ||
+          detail.restoreFocus !== false,
+      )
     }
     function escape(event: KeyboardEvent) {
       if (
@@ -170,13 +190,31 @@ export function ImprovementThreads({
       event.preventDefault()
       dismiss()
     }
+    function pointerDown(event: PointerEvent) {
+      if (
+        event.defaultPrevented ||
+        event.button !== 0 ||
+        event.isPrimary === false ||
+        deleting ||
+        discarding ||
+        !(event.target instanceof Element) ||
+        conversation.current?.contains(event.target) ||
+        event.target.closest(
+          '.thread-sample__card-button, .thread-sample__marker, .thread-sample__menu, [role="menu"], dialog',
+        )
+      )
+        return
+      requestClose(false)
+    }
     document.addEventListener("keydown", escape)
-    window.addEventListener("replica:review-dismiss", dismiss)
+    document.addEventListener("pointerdown", pointerDown, true)
+    window.addEventListener("replica:review-dismiss", bridgeDismiss)
     return () => {
       document.removeEventListener("keydown", escape)
-      window.removeEventListener("replica:review-dismiss", dismiss)
+      document.removeEventListener("pointerdown", pointerDown, true)
+      window.removeEventListener("replica:review-dismiss", bridgeDismiss)
     }
-  }, [selected, discarding, deleting, requestClose])
+  }, [selected, discarding, deleting, requestClose, conversation])
 
   function show(id: number, element: HTMLElement) {
     if (draft.trim() || discarding) return
@@ -375,7 +413,7 @@ export function ImprovementThreads({
                       variant="invisible"
                       aria-label={copy.back}
                       className="thread-sample__close"
-                      onClick={requestClose}
+                      onClick={() => requestClose()}
                     />
                   </header>
                   {changedIdentity ? (

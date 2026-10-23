@@ -137,7 +137,11 @@ export function usePreviewSelection({
       } else if (data.type === "replica:canvas:selection-cancelled") {
         if (data.reason !== "command") onCancel()
       } else if (data.type === "replica:canvas:conversation-dismiss-requested") {
-        window.dispatchEvent(new Event("replica:review-dismiss"))
+        window.dispatchEvent(
+          new CustomEvent("replica:review-dismiss", {
+            detail: { restoreFocus: data.restoreFocus !== false },
+          }),
+        )
       }
     }
     frame.addEventListener("load", loaded)

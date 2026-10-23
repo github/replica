@@ -6,7 +6,161 @@ import { ImprovementThreads } from "."
 import type { ImprovementThread } from "./types"
 import { copy } from "./en"
 
+function pointerDown(
+  target: Element,
+  { button = 0, isPrimary = true }: { button?: number; isPrimary?: boolean } = {},
+) {
+  const event = new MouseEvent("pointerdown", { bubbles: true, cancelable: true, button })
+  Object.defineProperty(event, "isPrimary", { value: isPrimary })
+  fireEvent(target, event)
+  return event
+}
+
 describe("ImprovementThreads()", () => {
+  it("closes a selected conversation on an outside pointer without restoring its opener", () => {
+    const thread: ImprovementThread = {
+      id: 1,
+      revision: 1,
+      author: "You",
+      body: "Original request",
+      target: "Save",
+      path: "/projects",
+      status: "open",
+      originalPending: true,
+      messages: [],
+      point: { x: 120, y: 100 },
+    }
+    render(
+      <>
+        <button onPointerDown={(event) => event.currentTarget.focus()}>Canvas action</button>
+        <ImprovementThreads
+          threads={[thread]}
+          identity="branch"
+          open
+          onOpen={vi.fn()}
+          onClose={vi.fn()}
+          onFollowUp={vi.fn().mockResolvedValue(true)}
+          onResolve={vi.fn().mockResolvedValue(true)}
+          onDelete={vi.fn().mockResolvedValue(true)}
+          onFix={vi.fn().mockResolvedValue(true)}
+        />
+      </>,
+    )
+    const opener = screen.getByRole("button", { name: copy.point(1) })
+    const outside = screen.getByRole("button", { name: "Canvas action" })
+    fireEvent.click(opener)
+
+    const event = pointerDown(outside)
+
+    expect(event.defaultPrevented).toBe(false)
+    expect(screen.queryByRole("dialog", { name: copy.conversation })).not.toBeInTheDocument()
+    expect(outside).toHaveFocus()
+    expect(opener).not.toHaveFocus()
+  })
+
+  it("keeps conversation, thread, menu, and deletion interactions open", () => {
+    const thread: ImprovementThread = {
+      id: 1,
+      revision: 1,
+      author: "You",
+      body: "Original request",
+      target: "Save",
+      path: "/projects",
+      status: "open",
+      originalPending: true,
+      messages: [],
+      point: { x: 120, y: 100 },
+    }
+    render(
+      <>
+        <button>Canvas action</button>
+        <ImprovementThreads
+          threads={[thread]}
+          identity="branch"
+          open
+          onOpen={vi.fn()}
+          onClose={vi.fn()}
+          onFollowUp={vi.fn().mockResolvedValue(true)}
+          onResolve={vi.fn().mockResolvedValue(true)}
+          onDelete={vi.fn().mockResolvedValue(true)}
+          onFix={vi.fn().mockResolvedValue(true)}
+        />
+      </>,
+    )
+    const card = screen.getByRole("button", { name: "Open improvement: Original request" })
+    const marker = screen.getByRole("button", { name: copy.point(1) })
+    fireEvent.click(card)
+    const conversation = screen.getByRole("dialog", { name: copy.conversation })
+
+    pointerDown(screen.getByRole("textbox", { name: copy.comments.replyLabel }))
+    pointerDown(card)
+    pointerDown(marker)
+    expect(conversation).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("button", { name: "Improvement actions: 1" }))
+    const menuDelete = screen.getByRole("menuitem", { name: copy.delete })
+    pointerDown(menuDelete)
+    expect(conversation).toBeInTheDocument()
+    fireEvent.click(menuDelete)
+
+    const confirmation = screen.getByRole("dialog", { name: copy.deleteTitle })
+    pointerDown(within(confirmation).getByRole("button", { name: copy.delete }))
+    pointerDown(screen.getByRole("button", { name: "Canvas action" }))
+    expect(confirmation).toBeInTheDocument()
+    expect(conversation).toBeInTheDocument()
+  })
+
+  it("protects a nonblank draft from repeated outside pointers and preserves Keep and Discard", () => {
+    const thread: ImprovementThread = {
+      id: 1,
+      revision: 1,
+      author: "You",
+      body: "Original request",
+      target: "Save",
+      path: "/projects",
+      status: "open",
+      originalPending: true,
+      messages: [],
+      point: { x: 120, y: 100 },
+    }
+    render(
+      <>
+        <button>Canvas action</button>
+        <ImprovementThreads
+          threads={[thread]}
+          identity="branch"
+          open
+          onOpen={vi.fn()}
+          onClose={vi.fn()}
+          onFollowUp={vi.fn().mockResolvedValue(true)}
+          onResolve={vi.fn().mockResolvedValue(true)}
+          onDelete={vi.fn().mockResolvedValue(true)}
+          onFix={vi.fn().mockResolvedValue(true)}
+        />
+      </>,
+    )
+    fireEvent.click(screen.getByRole("button", { name: copy.point(1) }))
+    fireEvent.change(screen.getByRole("textbox", { name: copy.comments.replyLabel }), {
+      target: { value: "Keep this draft" },
+    })
+    const outside = screen.getByRole("button", { name: "Canvas action" })
+
+    pointerDown(outside)
+    const prompt = screen.getByText(copy.comments.threadDiscardPromptLabel)
+    expect(prompt).toBeVisible()
+    pointerDown(outside)
+    expect(prompt).toBeVisible()
+
+    fireEvent.click(screen.getByRole("button", { name: copy.comments.keepLabel }))
+    expect(screen.getByRole("textbox", { name: copy.comments.replyLabel })).toHaveValue(
+      "Keep this draft",
+    )
+
+    pointerDown(outside)
+    fireEvent.click(screen.getByRole("button", { name: copy.comments.discardButtonLabel }))
+    expect(screen.queryByRole("dialog", { name: copy.conversation })).not.toBeInTheDocument()
+  })
+
   it.each([true, false])(
     "only closes its own selected conversation after successful deletion: %s",
     async (success) => {

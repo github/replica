@@ -932,6 +932,21 @@ export function installBridge(origin: string) {
       })
     }, 0)
   }
+  function handlePointerDown(event: PointerEvent) {
+    if (
+      event.defaultPrevented ||
+      event.button !== 0 ||
+      event.isPrimary === false ||
+      cleanupActiveSelection ||
+      !resolvedRequest
+    )
+      return
+    post(origin, {
+      type: "replica:canvas:conversation-dismiss-requested",
+      nonce: resolvedRequest.nonce,
+      restoreFocus: false,
+    })
+  }
   function handleSelectionShortcut(event: KeyboardEvent) {
     if (!selectionShortcutNonce || !isAnnotationShortcut(event)) return
     event.preventDefault()
@@ -945,6 +960,7 @@ export function installBridge(origin: string) {
   window.addEventListener("resize", handleResize)
   window.addEventListener("keydown", handleEscape)
   window.addEventListener("keydown", handleSelectionShortcut)
+  window.addEventListener("pointerdown", handlePointerDown, true)
   const mutations = new MutationObserver((entries) => {
     if (
       entries.some(
@@ -971,6 +987,7 @@ export function installBridge(origin: string) {
     window.removeEventListener("resize", handleResize)
     window.removeEventListener("keydown", handleEscape)
     window.removeEventListener("keydown", handleSelectionShortcut)
+    window.removeEventListener("pointerdown", handlePointerDown, true)
     selectionShortcutNonce = null
     mutations.disconnect()
     resize?.disconnect()

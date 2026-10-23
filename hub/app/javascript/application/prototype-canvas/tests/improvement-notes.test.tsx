@@ -556,6 +556,11 @@ describe("App()", () => {
     expect(card).toHaveFocus()
 
     fireEvent.click(card)
+    receive(frame, { ...dismiss, restoreFocus: false })
+    expect(screen.queryByRole("dialog", { name: threadCopy.conversation })).not.toBeInTheDocument()
+    expect(card).not.toHaveFocus()
+
+    fireEvent.click(card)
     fireEvent.change(screen.getByRole("textbox", { name: threadCopy.comments.replyLabel }), {
       target: { value: "Keep this unsent follow-up" },
     })

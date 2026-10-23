@@ -500,6 +500,34 @@ try {
       await draft.fill("")
       await dialog.getByRole("button", { name: "Close improvement", exact: true }).click()
       assert.ok(await actions.first().isEnabled())
+
+      phase = "outside prototype clicks dismiss conversations without losing drafts"
+      await page.setViewportSize({ width: 1280, height: 720 })
+      await page.reload()
+      await page.getByRole("button", { name: /^Open improvement notes \(/ }).click()
+      await cards.first().click()
+      await dialog.waitFor()
+      const previewOutside = preview.locator("html")
+      await previewOutside.click({ position: { x: 700, y: 500 } })
+      await dialog.waitFor({ state: "hidden" })
+      assert.ok(
+        await cards.first().evaluate((element) => element !== document.activeElement),
+        "Outside preview click must not restore focus to the conversation opener",
+      )
+
+      await cards.first().click()
+      const outsideDraft = dialog.getByRole("textbox", { name: "Follow-up", exact: true })
+      await outsideDraft.fill("Keep this outside-click draft.")
+      await previewOutside.click({ position: { x: 700, y: 500 } })
+      await dialog.getByText("Keep this draft?", { exact: true }).waitFor()
+      await previewOutside.click({ position: { x: 700, y: 500 } })
+      await dialog.getByText("Keep this draft?", { exact: true }).waitFor()
+      await dialog.getByRole("button", { name: "Keep", exact: true }).click()
+      assert.equal(await outsideDraft.inputValue(), "Keep this outside-click draft.")
+      await dialog.getByRole("button", { name: "Close improvement", exact: true }).click()
+      await dialog.getByRole("button", { name: "Discard", exact: true }).click()
+      await dialog.waitFor({ state: "hidden" })
+
       assert.deepEqual((await store.load()).notes, blockedNotes)
       assert.deepEqual(errors, [])
       assert.deepEqual(failedAssets, [])
