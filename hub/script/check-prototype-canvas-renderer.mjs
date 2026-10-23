@@ -156,14 +156,16 @@ try {
       })
       assert.equal(state.notes[0].status, "open")
       assert.equal(dispatched.length, 0)
-      const notesToggle = page.getByRole("button", { name: "Open improvement notes (1)" })
+      const notesToggle = page.getByRole("button", { name: /^(Open|Close) Notes \(1\)$/ })
       assert.equal(await notesToggle.getAttribute("aria-expanded"), "true")
       await notesToggle.click()
       assert.equal(await notesToggle.getAttribute("aria-expanded"), "false")
+      assert.equal(await notesToggle.getAttribute("aria-label"), "Open Notes (1)")
       assert.ok(await notesToggle.evaluate((element) => element === document.activeElement))
       assert.equal(await page.getByRole("complementary", { name: "Notes" }).count(), 0)
       await notesToggle.click()
       assert.equal(await notesToggle.getAttribute("aria-expanded"), "true")
+      assert.equal(await notesToggle.getAttribute("aria-label"), "Close Notes (1)")
       await page.getByRole("complementary", { name: "Notes" }).waitFor()
       const marker = page.getByRole("button", { name: "Open improvement 1", exact: true })
       await marker.click()
@@ -370,7 +372,7 @@ try {
           await page.emulateMedia({ colorScheme, reducedMotion: "reduce" })
           await page.reload()
           const menuNotesToggle = page.getByRole("button", {
-            name: /^Open improvement notes \(/,
+            name: /^(Open|Close) Notes \(/,
           })
           if ((await menuNotesToggle.getAttribute("aria-expanded")) !== "true")
             await menuNotesToggle.click()
@@ -546,7 +548,7 @@ try {
       await page.setViewportSize({ width: 1280, height: 720 })
       await page.reload()
       const outsideNotesToggle = page.getByRole("button", {
-        name: /^Open improvement notes \(/,
+        name: /^(Open|Close) Notes \(/,
       })
       if ((await outsideNotesToggle.getAttribute("aria-expanded")) !== "true")
         await outsideNotesToggle.click()

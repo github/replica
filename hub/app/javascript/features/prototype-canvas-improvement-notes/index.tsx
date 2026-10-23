@@ -60,6 +60,7 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
   const selectionChanged = selection !== null && selection.identity !== saved.state?.identity
   const composerOpen = selection !== null && !capturingSource && !discarding && saved.state !== null
   const notesCount = notes.filter((note) => note.status !== "resolved").length
+  const notesOpen = panelOpen && !canvas.hubOpen
   const canSave = Boolean(draft.trim()) && !saved.busy && !selectionChanged
   const syncError =
     saved.state?.syncError === "Notes are saved locally until Hub discovers this branch."
@@ -228,8 +229,8 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
               ref={notesToggleRef}
               size="small"
               variant="secondary"
-              aria-label={copy.openNotes(notesCount)}
-              aria-expanded={panelOpen && !canvas.hubOpen}
+              aria-label={notesOpen ? copy.closeNotes(notesCount) : copy.openNotes(notesCount)}
+              aria-expanded={notesOpen}
               onClick={toggleNotes}
             >
               <HubCounter>{notesCount}</HubCounter>

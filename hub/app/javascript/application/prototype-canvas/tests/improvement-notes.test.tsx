@@ -387,15 +387,17 @@ describe("App()", () => {
       sourceId: "early-target-source",
       anchor,
     })
-    const notesToggle = screen.getByRole("button", { name: copy.openNotes(1) })
+    const notesToggle = screen.getByRole("button", { name: copy.closeNotes(1) })
     expect(notesToggle).toHaveAttribute("aria-expanded", "true")
     act(() => notesToggle.focus())
     fireEvent.click(notesToggle)
     expect(notesToggle).toHaveFocus()
     expect(notesToggle).toHaveAttribute("aria-expanded", "false")
+    expect(notesToggle).toHaveAccessibleName(copy.openNotes(1))
     expect(screen.queryByRole("complementary", { name: copy.notes })).not.toBeInTheDocument()
     fireEvent.click(notesToggle)
     expect(notesToggle).toHaveAttribute("aria-expanded", "true")
+    expect(notesToggle).toHaveAccessibleName(copy.closeNotes(1))
     expect(screen.getByRole("complementary", { name: copy.notes })).toBeVisible()
     view.unmount()
   })

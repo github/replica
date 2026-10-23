@@ -7,7 +7,8 @@ export const copy = {
     "You can still save this improvement locally, but it cannot sync without a captured source.",
   annotate: "Pick & polish",
   annotateShortcut: "Add note",
-  openNotes: (count: number) => `Open improvement notes (${count})`,
+  openNotes: (count: number) => `Open Notes (${count})`,
+  closeNotes: (count: number) => `Close Notes (${count})`,
   notes: "Notes",
   selectHint:
     "Hover to highlight, then click an element or drag a rectangle. S toggles selection. For a keyboard region, focus the preview, press Shift+Enter, then use arrows and Enter to choose two corners. Escape exits annotation mode.",
