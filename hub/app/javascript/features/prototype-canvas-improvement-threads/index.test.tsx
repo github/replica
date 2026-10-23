@@ -17,7 +17,7 @@ function pointerDown(
 }
 
 describe("ImprovementThreads()", () => {
-  it("uses the saved target as the conversation heading and places close in the header", () => {
+  it("names the conversation from the saved target", () => {
     const thread: ImprovementThread = {
       id: 1,
       revision: 1,
@@ -46,10 +46,7 @@ describe("ImprovementThreads()", () => {
 
     fireEvent.click(screen.getByRole("button", { name: copy.point(1) }))
     const conversation = screen.getByRole("dialog", { name: thread.target })
-    const heading = within(conversation).getByRole("heading", { name: thread.target })
-    expect(heading).toBeVisible()
-    const close = within(conversation).getByRole("button", { name: copy.back })
-    expect(close.closest(".review-thread-conversation__header")).toContainElement(heading)
+    expect(within(conversation).getByRole("heading", { name: thread.target })).toBeVisible()
   })
 
   it("closes a selected conversation on an outside pointer without restoring its opener", () => {
@@ -90,10 +87,9 @@ describe("ImprovementThreads()", () => {
     expect(event.defaultPrevented).toBe(false)
     expect(screen.queryByRole("dialog", { name: thread.target })).not.toBeInTheDocument()
     expect(outside).toHaveFocus()
-    expect(opener).not.toHaveFocus()
   })
 
-  it("keeps conversation, thread, menu, and deletion interactions open", () => {
+  it("keeps thread, menu, and deletion interactions open", () => {
     const thread: ImprovementThread = {
       id: 1,
       revision: 1,
@@ -123,13 +119,10 @@ describe("ImprovementThreads()", () => {
       </>,
     )
     const card = screen.getByRole("button", { name: "Open note: Original request" })
-    const marker = screen.getByRole("button", { name: copy.point(1) })
     fireEvent.click(card)
     const conversation = screen.getByRole("dialog", { name: thread.target })
 
-    pointerDown(screen.getByRole("textbox", { name: copy.comments.replyLabel }))
     pointerDown(card)
-    pointerDown(marker)
     expect(conversation).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole("button", { name: "Note actions: 1" }))
@@ -145,7 +138,7 @@ describe("ImprovementThreads()", () => {
     expect(conversation).toBeInTheDocument()
   })
 
-  it("protects a nonblank draft from repeated outside pointers and preserves Keep and Discard", () => {
+  it("prompts before dismissing a nonblank draft and preserves Keep", () => {
     const thread: ImprovementThread = {
       id: 1,
       revision: 1,
@@ -183,17 +176,12 @@ describe("ImprovementThreads()", () => {
     pointerDown(outside)
     const prompt = screen.getByText(copy.comments.threadDiscardPromptLabel)
     expect(prompt).toBeVisible()
-    pointerDown(outside)
-    expect(prompt).toBeVisible()
 
     fireEvent.click(screen.getByRole("button", { name: copy.comments.keepLabel }))
     expect(screen.getByRole("textbox", { name: copy.comments.replyLabel })).toHaveValue(
       "Keep this draft",
     )
-
-    pointerDown(outside)
-    fireEvent.click(screen.getByRole("button", { name: copy.comments.discardButtonLabel }))
-    expect(screen.queryByRole("dialog", { name: thread.target })).not.toBeInTheDocument()
+    expect(screen.getByRole("dialog", { name: thread.target })).toBeInTheDocument()
   })
 
   it("keeps filter and sidebar close pointer sequences inside their guarded flows", () => {

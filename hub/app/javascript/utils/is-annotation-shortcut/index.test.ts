@@ -21,11 +21,48 @@ function dispatchShortcut(target: EventTarget, event: KeyboardEvent) {
   }
 }
 
+it("matches plain S without consuming modified or composing keys", () => {
+  function shortcut(options: KeyboardEventInit) {
+    return dispatchShortcut(
+      window,
+      new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...options }),
+    )
+  }
+
+  expect(shortcut({ key: "s" })).toBe(true)
+  expect(shortcut({ key: "S" })).toBe(true)
+  expect(shortcut({ key: "s", ctrlKey: true })).toBe(false)
+  expect(shortcut({ key: "s", isComposing: true })).toBe(false)
+})
+
 it("ignores a keydown whose key is missing", () => {
   const event = new KeyboardEvent("keydown", { bubbles: true, cancelable: true })
   Object.defineProperty(event, "key", { value: undefined })
 
   expect(dispatchShortcut(window, event)).toBe(false)
+})
+
+it("ignores typing and shortcuts owned by interactive contexts", () => {
+  const targets = document.createElement("div")
+  targets.innerHTML = `
+    <input />
+    <div contenteditable="true"><span></span></div>
+    <div role="menu"><button></button></div>
+  `
+  document.body.append(targets)
+
+  for (const target of targets.querySelectorAll("input, span, button")) {
+    expect(
+      dispatchShortcut(
+        target,
+        new KeyboardEvent("keydown", {
+          key: "s",
+          bubbles: true,
+          cancelable: true,
+        }),
+      ),
+    ).toBe(false)
+  }
 })
 
 it("ignores typing inside an open shadow root", () => {

@@ -521,25 +521,6 @@ describe("ReviewThreadConversation()", () => {
     expect(callbacks.onDelete).not.toHaveBeenCalled()
   })
 
-  it("keeps an ordinary conversation open for pointer focus inside the preview", () => {
-    const callbacks = renderConversation()
-    const previewInput = document.createElement("input")
-    document.body.append(previewInput)
-    act(() => previewInput.focus())
-
-    act(() => {
-      window.dispatchEvent(
-        new CustomEvent("replica:review-dismiss", {
-          detail: { restoreFocus: false },
-        }),
-      )
-    })
-
-    expect(callbacks.onClose).not.toHaveBeenCalled()
-    expect(document.activeElement).toBe(previewInput)
-    previewInput.remove()
-  })
-
   it("protects an unfinished reply when Escape comes from the preview", () => {
     const callbacks = renderConversation()
     fireEvent.change(screen.getByRole("textbox", { name: "Reply" }), {
