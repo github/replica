@@ -17,7 +17,7 @@ function pointerDown(
 }
 
 describe("ImprovementThreads()", () => {
-  it("uses the saved target as the conversation heading and places close beside the note", () => {
+  it("uses the saved target as the conversation heading and places close in the header", () => {
     const thread: ImprovementThread = {
       id: 1,
       revision: 1,
@@ -46,10 +46,10 @@ describe("ImprovementThreads()", () => {
 
     fireEvent.click(screen.getByRole("button", { name: copy.point(1) }))
     const conversation = screen.getByRole("dialog", { name: copy.conversation })
-    expect(within(conversation).getByRole("heading", { name: thread.target })).toBeVisible()
-    const body = within(conversation).getByText(thread.body)
+    const heading = within(conversation).getByRole("heading", { name: thread.target })
+    expect(heading).toBeVisible()
     const close = within(conversation).getByRole("button", { name: copy.back })
-    expect(close.closest(".thread-sample__original-body")).toContainElement(body)
+    expect(close.closest(".review-thread-conversation__header")).toContainElement(heading)
   })
 
   it("closes a selected conversation on an outside pointer without restoring its opener", () => {

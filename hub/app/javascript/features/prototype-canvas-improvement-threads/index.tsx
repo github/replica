@@ -400,20 +400,30 @@ export function ImprovementThreads({
                     <Heading as="h3" size="6">
                       {thread.target}
                     </Heading>
-                    {thread.status === "ready" ? (
-                      <Button
+                    <div className="thread-sample__header-actions">
+                      {thread.status === "ready" ? (
+                        <Button
+                          size="small"
+                          variant="secondary"
+                          className="thread-sample__resolve"
+                          disabled={Boolean(draft.trim()) || busy || changedIdentity || removed}
+                          leadingVisual={<CheckCircleIcon size={16} />}
+                          onClick={() => {
+                            void onResolve(thread)
+                          }}
+                        >
+                          {copy.resolve}
+                        </Button>
+                      ) : null}
+                      <HubIconButton
+                        icon={XIcon}
                         size="small"
-                        variant="secondary"
-                        className="thread-sample__resolve"
-                        disabled={Boolean(draft.trim()) || busy || changedIdentity || removed}
-                        leadingVisual={<CheckCircleIcon size={16} />}
-                        onClick={() => {
-                          void onResolve(thread)
-                        }}
-                      >
-                        {copy.resolve}
-                      </Button>
-                    ) : null}
+                        variant="invisible"
+                        aria-label={copy.back}
+                        className="thread-sample__close"
+                        onClick={() => requestClose()}
+                      />
+                    </div>
                   </header>
                   {changedIdentity ? (
                     <p role="alert" className="thread-sample__error">
@@ -443,17 +453,7 @@ export function ImprovementThreads({
                         }
                         author={thread.author}
                       />
-                      <div className="thread-sample__original-body">
-                        <p className="review-thread-message__body">{thread.body}</p>
-                        <HubIconButton
-                          icon={XIcon}
-                          size="small"
-                          variant="invisible"
-                          aria-label={copy.back}
-                          className="thread-sample__close"
-                          onClick={() => requestClose()}
-                        />
-                      </div>
+                      <p className="review-thread-message__body">{thread.body}</p>
                     </article>
                     {thread.messages.map((entry) => (
                       <article className="review-thread-message" key={entry.id}>

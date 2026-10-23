@@ -195,10 +195,9 @@
   grid-template-columns: minmax(0, 1fr) auto;
 }
 
-.thread-sample__original-body {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
+.thread-sample__header-actions {
+  display: flex;
+  align-items: center;
   gap: var(--base-size-8);
 }
 
@@ -216,9 +215,7 @@
 }
 
 .thread-sample__resolve {
-  grid-column: 2;
-  grid-row: 1;
-  justify-self: end;
+  flex: none;
 }
 
 .thread-sample__conversation h3 {
