@@ -22,7 +22,7 @@ Before installation, confirm these connections with your network administrator:
 | --- | --- | --- |
 | Deployment server | GitHub release downloads at `github.com` | Download the deployment bundle and checksum. |
 | Deployment server | GitHub Container Registry at `ghcr.io` | Pull the Hub image during initialization, startup, and updates. |
-| Running Hub container | GitHub's API at `api.github.com` and GitHub's artifact download locations | Connect the GitHub App, discover repositories and workflows, and download successful build artifacts. |
+| Running Hub container | GitHub sign-in at `github.com`, GitHub's API at `api.github.com`, and GitHub's artifact download locations | Complete GitHub sign-in, connect the GitHub App, discover repositories and workflows, and download successful build artifacts. |
 
 Downloads can redirect to additional storage hosts, so these names are not a complete firewall allowlist. Ask your network administrator to approve the required download destinations as well. Check access from both the server and the running container; access from your own computer does not prove either can connect.
 
