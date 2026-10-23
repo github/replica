@@ -8,7 +8,7 @@ export const copy = {
   annotate: "Pick & polish",
   annotateShortcut: "Pick & polish (S)",
   openNotes: (count: number) => `Open improvement notes (${count})`,
-  notes: "Pick & polish",
+  notes: "Notes",
   selectHint:
     "Hover to highlight, then click an element or drag a rectangle. S toggles selection. For a keyboard region, focus the preview, press Shift+Enter, then use arrows and Enter to choose two corners. Escape exits annotation mode.",
   regionSmall: "Choose a larger region, at least 8 preview pixels wide and high.",
