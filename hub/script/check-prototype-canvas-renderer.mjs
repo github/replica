@@ -171,7 +171,10 @@ try {
       await page.keyboard.press("Escape")
       await dialog.waitFor({ state: "hidden" })
       assert.ok(await marker.evaluate((element) => element === document.activeElement))
-      assert.equal(await marker.evaluate((element) => getComputedStyle(element).outlineStyle), "none")
+      assert.equal(
+        await marker.evaluate((element) => getComputedStyle(element).outlineStyle),
+        "none",
+      )
       assert.equal(
         await marker
           .locator(".review-participant-stack__avatar")
