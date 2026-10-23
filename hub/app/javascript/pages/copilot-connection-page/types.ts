@@ -9,6 +9,7 @@ export interface CopilotConnectionChange {
   label: string
   consequence: string
   confirmLabel: string
+  billingConfirmation?: string
   verification: string
 }
 
@@ -19,7 +20,8 @@ export type CopilotConnectionPageData =
       connected: boolean
       statusLabel: string
       submitPath: string
-      tokenLabel: string | null
+      billingLabel: string | null
+      setupLabel: string | null
       connectedBy?: string
       verifiedLabel?: string
       usageLabel?: string

@@ -27,6 +27,11 @@ if ENV["REPLICA_LOCAL_MODE"] == "1" && !Rails.env.development?
   raise "REPLICA_LOCAL_MODE is available only in development"
 end
 
+if !%w[token_owner organization].include?(Rails.configuration.x.copilot_billing)
+  raise \
+    "REPLICA_COPILOT_BILLING must be token_owner or organization: #{Rails.configuration.x.copilot_billing.inspect}"
+end
+
 azure_uuid_format = /\A[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}\z/
 build_action_format = \
   %r{\A[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*@[0-9a-fA-F]{40}\z}

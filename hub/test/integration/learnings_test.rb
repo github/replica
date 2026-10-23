@@ -307,6 +307,22 @@ class LearningsIntegrationTest < ActionDispatch::IntegrationTest
     assert_no_difference("Learning::Run.count") { post repository_learnings_runs_path(@repository.route_id) }
   end
 
+  test "with organization billing, the status says what Hub needs before it looks for learnings again" do
+    Rails.configuration.x.copilot_billing = "organization"
+    get @path, as: :json
+    assert_equal I18n.t("learnings.organization.status.unconfirmed"), data.dig("status", "message")
+
+    connect_copilot_for_organization(@connection.user).refuse!
+    get @path, as: :json
+    assert_equal \
+      I18n.t("learnings.organization.status.refused", date: Date.current.to_fs(:long)),
+      data.dig("status", "message")
+
+    @configuration.update!(owner_type: "User")
+    get @path, as: :json
+    assert_equal I18n.t("learnings.organization.status.no_token"), data.dig("status", "message")
+  end
+
   private
 
   def data

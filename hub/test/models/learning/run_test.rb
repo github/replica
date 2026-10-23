@@ -884,6 +884,87 @@ class Learning::RunTest < ActiveSupport::TestCase
     assert SecurityAuditEvent.exists?(action: "copilot_connection.use", outcome: "failed")
   end
 
+  test "with organization billing, every labeling command gets a new token from Hub's GitHub App" do
+    @connection = connect_copilot_for_organization(@admin)
+    learning_comment(@repository, @mona, "prototype/signup", "The email field has no label.")
+    learning_comment(@repository, @hubot, "prototype/checkout", "The card number needs a visible label.")
+    mint = stub_github_copilot_token("app-token-1", "app-token-2")
+    run = Learning::Run.request!(repository: @repository, user: @admin)
+
+    with_constants(LABEL_BATCH: 1) { run.find_learnings! }
+
+    assert_equal [ "succeeded", 2 ], [ run.reload.state, run.copilot_requests ], run.failure_summary
+    assert_requested mint, times: 2
+    assert_operator @connection.reload.verified_at, :>, 1.minute.ago
+  end
+
+  test "with organization billing, a changed App configuration during token minting reaches no labeling command" do
+    @connection = connect_copilot_for_organization(@admin)
+    learning_comment(@repository, @mona, "prototype/signup", "The email field has no label.")
+    request = stub_request(:post, "#{GITHUB_API_URL}/app/installations/456/access_tokens")
+      .with(body: { permissions: { organization_copilot_requests: "read" } })
+      .to_return do
+        @configuration.update_columns(credential_revision: @configuration.credential_revision + 1)
+        {
+          status: 201,
+          body: JSON.generate(
+            token: "app-token",
+            expires_at: 1.hour.from_now.iso8601,
+            permissions: { organization_copilot_requests: "read" }
+          ),
+          headers: { "Content-Type" => "application/json" }
+        }
+      end
+    labeled = false
+    run = Learning::Run.request!(repository: @repository, user: @admin)
+
+    intercepting("label", with: ->(command) { labeled = true; command.call }) { run.find_learnings! }
+
+    assert_equal %w[failed unavailable], [ run.reload.state, run.failure_code ]
+    assert_equal 0, run.copilot_requests
+    assert_not labeled
+    assert_nil @connection.reload.refused_at
+    assert_requested request
+  end
+
+  test "with organization billing, an App that lacks the Copilot permission fails the run and stops Hub from asking again" do
+    @connection = connect_copilot_for_organization(@admin)
+    learning_comment(@repository, @mona, "prototype/signup", "The email field has no label.")
+    stub_github_copilot_token(error_status: 422, error_body: github_copilot_permission_missing_error)
+    run = Learning::Run.request!(repository: @repository, user: @admin)
+
+    run.find_learnings!
+
+    assert_equal %w[failed copilot_refused], [ run.reload.state, run.failure_code ]
+    assert @connection.reload.refused?
+  end
+
+  test "with organization billing, an unrelated GitHub 422 fails the run without refusing the connection" do
+    @connection = connect_copilot_for_organization(@admin)
+    learning_comment(@repository, @mona, "prototype/signup", "The email field has no label.")
+    stub_github_copilot_token \
+      error_status: 422,
+      error_body: { message: "Validation Failed", errors: [ { code: "abuse" } ] }
+    run = Learning::Run.request!(repository: @repository, user: @admin)
+
+    run.find_learnings!
+
+    assert_equal %w[failed unavailable], [ run.reload.state, run.failure_code ]
+    assert_nil @connection.reload.refused_at
+  end
+
+  test "with organization billing, GitHub failing to create a token fails the run without refusing the connection" do
+    @connection = connect_copilot_for_organization(@admin)
+    learning_comment(@repository, @mona, "prototype/signup", "The email field has no label.")
+    stub_github_copilot_token(error_status: 500)
+    run = Learning::Run.request!(repository: @repository, user: @admin)
+
+    run.find_learnings!
+
+    assert_equal %w[failed unavailable], [ run.reload.state, run.failure_code ]
+    assert_nil @connection.reload.refused_at
+  end
+
   test "a run that a restart stopped is ended so the repository can run again" do
     stopped = Learning::Run.request!(repository: @repository, user: @admin)
     stopped.update_columns(state: "running", started_at: 4.hours.ago)

@@ -10,7 +10,7 @@ Reviewers comment on prototypes
   -> Agents get the accepted learnings with their task
 ```
 
-Learnings is off until a Hub administrator [connects Copilot](copilot.md), with a token the person who runs Hub provides in `REPLICA_COPILOT_TOKEN`. Connecting turns it on for every repository on the Hub.
+Learnings is off until a Hub administrator [connects Copilot](copilot.md), after the person who runs Hub gives Hub a token or turns on organization billing. Connecting turns it on for every repository on the Hub.
 
 ## Who can do what
 
@@ -57,7 +57,7 @@ When a person works with Copilot in a repository that has a Hub connection, the 
 
 ## Usage
 
-Hub asks Copilot with the token in `REPLICA_COPILOT_TOKEN`, so the usage counts toward the Copilot plan of the token's owner. Labeling is the only step that uses Copilot. A run with no new, edited, or still-unprocessed comments makes no model requests. A request also sends the other comments in each thread it asks about, as context. Hub lets Copilot choose the model unless the store's configuration names one.
+Copilot bills the usage as the person who runs Hub chose: the Copilot plan of the owner of the token in `REPLICA_COPILOT_TOKEN`, or, with [organization billing](copilot.md#bill-your-organization), the organization that installed Hub's GitHub App. Labeling is the only step that uses Copilot. A run with no new, edited, or still-unprocessed comments makes no model requests. A request also sends the other comments in each thread it asks about, as context. Hub lets Copilot choose the model unless the store's configuration names one.
 
 A run records the requests and AI credits Copilot reported after each request, using the learning command's [whole-unit usage counters](../../packages/learning/README.md#label-with-copilot). A failed request or storage operation can still report known usage; Hub records it before showing the failure. Usage the service did not report is unknown, not estimated. Retrying comments whose result was not recorded can incur another charge. If the store also cannot confirm which comments remain pending, the failure says so. The **Learnings** page shows a repository's runs and its usage over the last 30 days, and the [Copilot](copilot.md) page shows the Hub's total.
 
@@ -67,7 +67,7 @@ Usage ranges follow when a run started, not when someone queued it, so a long wa
 
 | What you see | What to do |
 | --- | --- |
-| Copilot refused the token | The person who runs Hub replaces `REPLICA_COPILOT_TOKEN` and restarts Hub, or a Hub administrator checks the token again on the **Copilot** page. Decisions and accepted learnings keep working meanwhile |
+| Copilot refused the token or Hub's App | The person who runs Hub replaces `REPLICA_COPILOT_TOKEN` and restarts Hub, or, with organization billing, fixes the App's Copilot requests permission or the organization's settings. A Hub administrator can check again on the **Copilot** page. Decisions and accepted learnings keep working meanwhile |
 | A failed run | Its result says what went wrong. Hub tries again the next day if comments changed, or choose **Find learnings now** |
 | The learning execution lock stays busy | After 121 lock attempts, about an hour of retries plus queue delays, the job fails visibly in Solid Queue. A waiting run also shows a failed result. An operator must check for a stuck writer before retrying; see [Operations](#operations) |
 | Consent to use review comments ended | An operator must explicitly renew the required purposes with `replica-learning grants add`. A run never replaces a withdrawn or expired grant automatically; see the [learning package's consent commands](../../packages/learning/README.md#run-it-yourself) |
@@ -82,7 +82,7 @@ Hub identifies GitHub reviewers by immutable account IDs, not their current logi
 
 ## Local development
 
-[Local development](local-development.md) has no Copilot connection and ignores `REPLICA_COPILOT_TOKEN`. Learnings is on for every local repository and asks Copilot as whoever is signed in to the GitHub CLI or Copilot CLI where Hub runs. In the dev container, sign in with `bin/devcontainer exec gh auth login`. Hub looks for learnings only when you choose **Find learnings now**. A theme needs one reviewer instead of two, because local development signs everyone in as one identity.
+[Local development](local-development.md) has no Copilot connection and ignores `REPLICA_COPILOT_TOKEN` and `REPLICA_COPILOT_BILLING`. Learnings is on for every local repository and asks Copilot as whoever is signed in to the GitHub CLI or Copilot CLI where Hub runs. In the dev container, sign in with `bin/devcontainer exec gh auth login`. Hub looks for learnings only when you choose **Find learnings now**. A theme needs one reviewer instead of two, because local development signs everyone in as one identity.
 
 ## Operations
 
