@@ -33,7 +33,7 @@
   "dependencies": {
     "@primer/octicons-react": "19.40.0",
     "@primer/react-brand": "0.78.0",
-    "express": "5.1.0",
+    "express": "5.3.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "zod": "4.6.5"
