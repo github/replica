@@ -304,7 +304,7 @@ export function ControlsPanel({
               {empty ? (
                 <InlineLink
                   className="canvas-controls-learn-more"
-                  href="https://github.com/github/replica/blob/main/starter/README.md#prototype-controls"
+                  href="https://github.com/github/replica/blob/main/starters/shared/REPLICA.md#prototype-controls"
                   target="_blank"
                   rel="noopener noreferrer"
                 >

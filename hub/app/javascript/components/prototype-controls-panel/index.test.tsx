@@ -141,13 +141,13 @@ beforeEach(() => {
 })
 
 describe("ControlsPanel()", () => {
-  it("links to the Controls README only in the genuine empty state", () => {
+  it("links to the shared Controls guide only in the genuine empty state", () => {
     const empty: PanelState = { ...ready, scopes: [], status: "no-controls" }
     const view = render(<Example state={empty} />)
     const link = screen.getByRole("link", { name: "Learn more" })
     expect(link).toHaveAttribute(
       "href",
-      "https://github.com/github/replica/blob/main/starter/README.md#prototype-controls",
+      "https://github.com/github/replica/blob/main/starters/shared/REPLICA.md#prototype-controls",
     )
     expect(link).toHaveAttribute("target", "_blank")
     expect(link).toHaveAttribute("rel", "noopener noreferrer")
