@@ -1,5 +1,6 @@
 import { installControlsBridge } from "./controls"
 import { targetIssue } from "@utils/prototype-controls/dom-target.mjs"
+import { isAnnotationShortcut } from "@utils/is-annotation-shortcut"
 
 type ReviewRoute = { pathname: string; search: string; hash: string }
 type AnchorRect = { x: number; y: number; width: number; height: number }
@@ -40,6 +41,7 @@ type ElementMatch = Pick<ElementAnchor, "selector" | "accessibleName" | "tagName
 const BRIDGE_ATTRIBUTE = "data-replica-canvas-bridge"
 const TEXT_ENCODER = new TextEncoder()
 let parentOrigin: string | null = null
+let selectionShortcutNonce: string | null = null
 let cleanupActiveSelection: (() => void) | null = null
 let selectedOverlay: HTMLElement | null = null
 let selectedOverlayTarget: Element | null = null
@@ -740,6 +742,9 @@ function receiveCanvasMessage(event: MessageEvent<unknown>) {
   }
 
   if (data.type === "replica:canvas:request-ready") {
+    if (data.selectionShortcut === true) selectionShortcutNonce = data.nonce
+    else if (data.selectionShortcut === false && selectionShortcutNonce === data.nonce)
+      selectionShortcutNonce = null
     post(event.origin, {
       type: "replica:canvas:ready",
       protocolVersion: 1,
@@ -870,6 +875,7 @@ export function installBridge(origin: string) {
   if (typeof previous === "function") previous()
   selectionAccent = "light-dark(#0969da, #58a6ff)"
   parentOrigin = origin
+  selectionShortcutNonce = null
   resolvedRequest = null
   resolvedRoute = ""
   resolvedGeometry.clear()
@@ -926,10 +932,35 @@ export function installBridge(origin: string) {
       })
     }, 0)
   }
+  function handlePointerDown(event: PointerEvent) {
+    if (
+      event.defaultPrevented ||
+      event.button !== 0 ||
+      event.isPrimary === false ||
+      cleanupActiveSelection ||
+      !resolvedRequest
+    )
+      return
+    post(origin, {
+      type: "replica:canvas:conversation-dismiss-requested",
+      nonce: resolvedRequest.nonce,
+      restoreFocus: false,
+    })
+  }
+  function handleSelectionShortcut(event: KeyboardEvent) {
+    if (!selectionShortcutNonce || !isAnnotationShortcut(event)) return
+    event.preventDefault()
+    post(origin, {
+      type: "replica:canvas:selection-toggle-requested",
+      nonce: selectionShortcutNonce,
+    })
+  }
   window.addEventListener("message", receiveCanvasMessage)
   window.addEventListener("scroll", handleScroll, { capture: true, passive: true })
   window.addEventListener("resize", handleResize)
   window.addEventListener("keydown", handleEscape)
+  window.addEventListener("keydown", handleSelectionShortcut)
+  window.addEventListener("pointerdown", handlePointerDown, true)
   const mutations = new MutationObserver((entries) => {
     if (
       entries.some(
@@ -955,6 +986,9 @@ export function installBridge(origin: string) {
     window.removeEventListener("scroll", handleScroll, true)
     window.removeEventListener("resize", handleResize)
     window.removeEventListener("keydown", handleEscape)
+    window.removeEventListener("keydown", handleSelectionShortcut)
+    window.removeEventListener("pointerdown", handlePointerDown, true)
+    selectionShortcutNonce = null
     mutations.disconnect()
     resize?.disconnect()
     if (geometryFrame !== null) window.cancelAnimationFrame(geometryFrame)

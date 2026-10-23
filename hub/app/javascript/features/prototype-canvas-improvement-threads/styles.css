@@ -159,6 +159,24 @@
   margin-block-start: var(--base-size-4);
 }
 
+.thread-sample__single-delete {
+  color: var(--hub-fg-danger);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.thread-sample__card:is(:hover, :focus-within) .thread-sample__single-delete {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+@media (hover: none) {
+  .thread-sample__single-delete {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
 .thread-sample__surface {
   z-index: 40;
 }
@@ -174,13 +192,13 @@
 
 .thread-sample__conversation .review-thread-conversation__header {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto;
 }
 
-.thread-sample__close {
-  grid-column: 3;
-  grid-row: 1;
-  justify-self: end;
+.thread-sample__header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--base-size-8);
 }
 
 .thread-sample__copilot-avatar {
@@ -197,9 +215,7 @@
 }
 
 .thread-sample__resolve {
-  grid-column: 2;
-  grid-row: 1;
-  justify-self: end;
+  flex: none;
 }
 
 .thread-sample__conversation h3 {
@@ -237,5 +253,10 @@
   --brand-button-primary-bgColor-rest: var(--hub-danger-emphasis);
   --brand-button-primary-bgColor-hover: var(--hub-danger-emphasis);
   --brand-button-primary-bgColor-active: var(--hub-danger-emphasis);
-  --brand-button-primary-fgColor-rest: var(--hub-fg-on-danger);
+  --brand-button-primary-fgColor-rest: var(--hub-canvas-white);
+  color: var(--hub-canvas-white);
+}
+
+.thread-sample__delete-confirm span {
+  color: var(--hub-canvas-white);
 }

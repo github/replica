@@ -5,11 +5,19 @@ import {
   KebabHorizontalIcon,
   ReplyIcon,
   SparkleIcon,
+  SyncIcon,
   TrashIcon,
   XIcon,
 } from "@primer/octicons-react"
 import { ActionMenu, Button, Heading } from "@primer/react-brand"
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
+import {
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react"
 import { createPortal } from "react-dom"
 import { renderToStaticMarkup } from "react-dom/server"
 
@@ -60,6 +68,7 @@ export function ImprovementThreads({
   activeBatch = false,
   error = "",
   returnFocusRef,
+  closeRequestRef,
   controls = true,
 }: ImprovementThreadsProps) {
   const [selected, setSelected] = useState<number | null>(null)
@@ -128,36 +137,69 @@ export function ImprovementThreads({
     }
   }, [selected, discarding, conversation, fallbackFocus, changedIdentity, removed])
 
-  const leave = useCallback(() => {
-    returnTo.current = selected
-    setSelected(null)
-    setOpenedThread(null)
-    setDraft("")
-    setDiscarding(false)
-    if (closingSidebar.current) {
-      onClose()
-      fallbackFocus.current?.focus()
-      closingSidebar.current = false
-    }
-  }, [selected, onClose, fallbackFocus])
+  const leave = useCallback(
+    (restoreFocus = true) => {
+      const closeSidebar = closingSidebar.current
+      returnTo.current = restoreFocus && !closeSidebar ? selected : null
+      setSelected(null)
+      setOpenedThread(null)
+      setDraft("")
+      setDiscarding(false)
+      if (closeSidebar) {
+        onClose()
+        fallbackFocus.current?.focus()
+        closingSidebar.current = false
+      }
+    },
+    [selected, onClose, fallbackFocus],
+  )
 
-  const requestClose = useCallback(() => {
-    if (draft.trim()) setDiscarding(true)
-    else if (selected !== null) leave()
-    else {
+  const requestClose = useCallback(
+    (restoreFocus = true) => {
+      if (draft.trim()) setDiscarding(true)
+      else if (selected !== null) leave(restoreFocus)
+      else {
+        onClose()
+        fallbackFocus.current?.focus()
+      }
+    },
+    [draft, selected, leave, onClose, fallbackFocus],
+  )
+
+  const requestSidebarClose = useCallback(() => {
+    if (selected !== null) {
+      closingSidebar.current = true
+      requestClose()
+    } else {
       onClose()
       fallbackFocus.current?.focus()
     }
-  }, [draft, selected, leave, onClose, fallbackFocus])
+  }, [selected, requestClose, onClose, fallbackFocus])
+
+  useImperativeHandle(closeRequestRef, () => requestSidebarClose, [requestSidebarClose])
 
   useEffect(() => {
     if (selected === null) return
-    function dismiss() {
+    function dismiss(restoreFocus = true) {
       if (document.querySelector('[role="menu"]') || deleting) return
       if (discarding) {
+        if (!restoreFocus) return
         closingSidebar.current = false
         setDiscarding(false)
-      } else requestClose()
+      } else requestClose(restoreFocus)
+    }
+    function bridgeDismiss(event: Event) {
+      if (!(event instanceof CustomEvent)) {
+        dismiss()
+        return
+      }
+      const detail: unknown = event.detail
+      dismiss(
+        !detail ||
+          typeof detail !== "object" ||
+          !("restoreFocus" in detail) ||
+          detail.restoreFocus !== false,
+      )
     }
     function escape(event: KeyboardEvent) {
       if (
@@ -170,13 +212,31 @@ export function ImprovementThreads({
       event.preventDefault()
       dismiss()
     }
+    function pointerDown(event: PointerEvent) {
+      if (
+        event.defaultPrevented ||
+        event.button !== 0 ||
+        event.isPrimary === false ||
+        deleting ||
+        discarding ||
+        !(event.target instanceof Element) ||
+        conversation.current?.contains(event.target) ||
+        event.target.closest(
+          '.thread-sample__card-button, .thread-sample__marker, .thread-sample__menu, .thread-sample__filters, .hub-sidebar__close, [role="menu"], dialog',
+        )
+      )
+        return
+      requestClose(false)
+    }
     document.addEventListener("keydown", escape)
-    window.addEventListener("replica:review-dismiss", dismiss)
+    document.addEventListener("pointerdown", pointerDown, true)
+    window.addEventListener("replica:review-dismiss", bridgeDismiss)
     return () => {
       document.removeEventListener("keydown", escape)
-      window.removeEventListener("replica:review-dismiss", dismiss)
+      document.removeEventListener("pointerdown", pointerDown, true)
+      window.removeEventListener("replica:review-dismiss", bridgeDismiss)
     }
-  }, [selected, discarding, deleting, requestClose])
+  }, [selected, discarding, deleting, requestClose, conversation])
 
   function show(id: number, element: HTMLElement) {
     if (draft.trim() || discarding) return
@@ -231,6 +291,13 @@ export function ImprovementThreads({
     await onRetry(item)
   }
 
+  function requestDelete(item: ImprovementThread, element?: HTMLElement) {
+    if (busy || draft.trim() || discarding) return
+    if (element) opener.current = element
+    setOpenedIdentity(identity)
+    setDeleting(item)
+  }
+
   const toolbarControl = (
     <Button
       ref={trigger}
@@ -254,15 +321,7 @@ export function ImprovementThreads({
         title={copy.title}
         open={open}
         closeLabel={copy.close}
-        onClose={() => {
-          if (selected !== null) {
-            closingSidebar.current = true
-            requestClose()
-          } else {
-            onClose()
-            fallbackFocus.current?.focus()
-          }
-        }}
+        onClose={requestSidebarClose}
         closeDisabled={discarding}
         className="thread-sample"
         contentClassName="thread-sample__content"
@@ -331,7 +390,7 @@ export function ImprovementThreads({
           ? createPortal(
               <ReviewConversationFrame
                 ref={conversation}
-                aria-label={copy.conversation}
+                aria-labelledby={`note-conversation-${thread.id}-title`}
                 anchored
                 position={position}
                 className="thread-sample__conversation"
@@ -352,31 +411,33 @@ export function ImprovementThreads({
               >
                 <div className="review-thread-conversation__layout">
                   <header className="review-thread-conversation__header">
-                    <Heading as="h3" size="6">
-                      {copy.conversation}
+                    <Heading id={`note-conversation-${thread.id}-title`} as="h3" size="6">
+                      {thread.target}
                     </Heading>
-                    {thread.status === "ready" ? (
-                      <Button
+                    <div className="thread-sample__header-actions">
+                      {thread.status === "ready" ? (
+                        <Button
+                          size="small"
+                          variant="secondary"
+                          className="thread-sample__resolve"
+                          disabled={Boolean(draft.trim()) || busy || changedIdentity || removed}
+                          leadingVisual={<CheckCircleIcon size={16} />}
+                          onClick={() => {
+                            void onResolve(thread)
+                          }}
+                        >
+                          {copy.resolve}
+                        </Button>
+                      ) : null}
+                      <HubIconButton
+                        icon={XIcon}
                         size="small"
-                        variant="secondary"
-                        className="thread-sample__resolve"
-                        disabled={Boolean(draft.trim()) || busy || changedIdentity || removed}
-                        leadingVisual={<CheckCircleIcon size={16} />}
-                        onClick={() => {
-                          void onResolve(thread)
-                        }}
-                      >
-                        {copy.resolve}
-                      </Button>
-                    ) : null}
-                    <HubIconButton
-                      icon={XIcon}
-                      size="small"
-                      variant="invisible"
-                      aria-label={copy.back}
-                      className="thread-sample__close"
-                      onClick={requestClose}
-                    />
+                        variant="invisible"
+                        aria-label={copy.back}
+                        className="thread-sample__close"
+                        onClick={() => requestClose()}
+                      />
+                    </div>
                   </header>
                   {changedIdentity ? (
                     <p role="alert" className="thread-sample__error">
@@ -475,6 +536,9 @@ export function ImprovementThreads({
           {visible.length === 0 ? <p className="thread-sample__empty">{copy.empty}</p> : null}
           {visible.map((item) => {
             const count = item.messages.filter((entry) => entry.role === "author").length
+            const hasOtherActions = Boolean(
+              (onRetry && item.retryStatus) || item.status === "ready",
+            )
             return (
               <article
                 className={`review-comment-row thread-sample__card${item.status === "resolved" ? " thread-sample__card--resolved" : ""}`}
@@ -486,7 +550,7 @@ export function ImprovementThreads({
                     else cardButtons.current.delete(item.id)
                   }}
                   className="review-comment-row__button thread-sample__card-button"
-                  aria-label={`Open improvement: ${item.body}`}
+                  aria-label={`Open note: ${item.body}`}
                   aria-expanded={selected === item.id}
                   disabled={Boolean(draft.trim()) || discarding}
                   onClick={(event) => show(item.id, event.currentTarget)}
@@ -522,62 +586,72 @@ export function ImprovementThreads({
                   </span>
                 ) : null}
                 <div className="thread-sample__menu">
-                  <ActionMenu
-                    selectionVariant="none"
-                    size="small"
-                    menuAlignment="end"
-                    disabled={Boolean(draft.trim()) || discarding}
-                  >
-                    <ActionMenu.IconButton
-                      icon={KebabHorizontalIcon}
-                      aria-label={`${copy.actions}: ${item.id}`}
-                      variant="invisible"
-                      onClick={(event) => {
-                        opener.current = event.currentTarget
-                        menuThread.current = { identity, id: item.id, revision: item.revision }
-                      }}
-                    />
-                    <ActionMenu.Overlay aria-label={`${copy.actions}: ${item.id}`}>
-                      {onRetry && item.retryStatus ? (
-                        <ActionMenu.Item
-                          value="retry"
-                          disabled={busy}
-                          className="thread-sample__menu-item"
-                          onClick={() => {
-                            void retryFromMenu(item)
-                          }}
-                        >
-                          {item.retryStatus === "sent" ? copy.returnToActive : copy.retry}
-                        </ActionMenu.Item>
-                      ) : null}
-                      {item.status === "ready" ? (
-                        <ActionMenu.Item
-                          value="resolve"
-                          className="thread-sample__menu-item"
-                          disabled={busy}
-                          leadingVisual={<CheckCircleIcon size={16} />}
-                          onClick={() => {
-                            void resolveFromMenu(item)
-                          }}
-                        >
-                          {copy.markResolved}
-                        </ActionMenu.Item>
-                      ) : null}
-                      <ActionMenu.Item
-                        value="delete"
-                        className="thread-sample__menu-item thread-sample__delete"
-                        disabled={busy}
-                        leadingVisual={<TrashIcon size={16} />}
-                        onClick={() => {
-                          if (busy || draft.trim() || discarding) return
-                          setOpenedIdentity(identity)
-                          setDeleting(item)
+                  {hasOtherActions ? (
+                    <ActionMenu
+                      selectionVariant="none"
+                      size="small"
+                      menuAlignment="end"
+                      disabled={Boolean(draft.trim()) || discarding}
+                    >
+                      <ActionMenu.IconButton
+                        icon={KebabHorizontalIcon}
+                        aria-label={`${copy.actions}: ${item.id}`}
+                        variant="invisible"
+                        onClick={(event) => {
+                          opener.current = event.currentTarget
+                          menuThread.current = { identity, id: item.id, revision: item.revision }
                         }}
-                      >
-                        {copy.delete}
-                      </ActionMenu.Item>
-                    </ActionMenu.Overlay>
-                  </ActionMenu>
+                      />
+                      <ActionMenu.Overlay aria-label={`${copy.actions}: ${item.id}`}>
+                        {onRetry && item.retryStatus ? (
+                          <ActionMenu.Item
+                            value="retry"
+                            disabled={busy}
+                            className="thread-sample__menu-item"
+                            leadingVisual={<SyncIcon size={16} />}
+                            onClick={() => {
+                              void retryFromMenu(item)
+                            }}
+                          >
+                            {item.retryStatus === "sent" ? copy.returnToActive : copy.retry}
+                          </ActionMenu.Item>
+                        ) : null}
+                        {item.status === "ready" ? (
+                          <ActionMenu.Item
+                            value="resolve"
+                            className="thread-sample__menu-item"
+                            disabled={busy}
+                            leadingVisual={<CheckCircleIcon size={16} />}
+                            onClick={() => {
+                              void resolveFromMenu(item)
+                            }}
+                          >
+                            {copy.markResolved}
+                          </ActionMenu.Item>
+                        ) : null}
+                        <ActionMenu.Item
+                          value="delete"
+                          className="thread-sample__menu-item thread-sample__delete"
+                          disabled={busy}
+                          leadingVisual={<TrashIcon size={16} />}
+                          onClick={() => requestDelete(item)}
+                        >
+                          {copy.delete}
+                        </ActionMenu.Item>
+                      </ActionMenu.Overlay>
+                    </ActionMenu>
+                  ) : (
+                    <HubIconButton
+                      icon={TrashIcon}
+                      size="small"
+                      variant="invisible"
+                      className="thread-sample__single-delete"
+                      aria-label={`${copy.delete}: ${item.id}`}
+                      description={copy.delete}
+                      disabled={Boolean(draft.trim()) || discarding || busy}
+                      onClick={(event) => requestDelete(item, event.currentTarget)}
+                    />
+                  )}
                 </div>
               </article>
             )

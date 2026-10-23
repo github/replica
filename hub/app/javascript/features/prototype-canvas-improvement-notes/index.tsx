@@ -1,11 +1,22 @@
 import { CrosshairsIcon } from "@primer/octicons-react"
 import { Button, FormControl, Textarea } from "@primer/react-brand"
-import { useCallback, useLayoutEffect, useRef, useState, type RefObject } from "react"
+import {
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type RefObject,
+} from "react"
 import { createPortal } from "react-dom"
 
 import { HubCounter } from "@components/hub-counter"
 import { CanvasDialog } from "@components/prototype-canvas-dialog"
 import { ImprovementThreads } from "@features/prototype-canvas-improvement-threads"
+import { isAnnotationShortcut } from "@utils/is-annotation-shortcut"
+import { isMacPlatform } from "@utils/is-mac-platform"
+import { isSubmitShortcut } from "@utils/is-submit-shortcut"
 import type { ReviewAnchor } from "@utils/review-anchor/types"
 import { copy } from "./en"
 import { improvementThreadView } from "./thread-view"
@@ -42,16 +53,21 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
   const [panelOpen, setPanelOpen] = useState(true)
   const [message, setMessage] = useState("")
   const captureGeneration = useRef(0)
+  const capturePending = useRef(false)
   const annotateRef = useRef<HTMLButtonElement>(null)
   const draftRef = useRef<HTMLTextAreaElement>(null)
   const notesToggleRef = useRef<HTMLButtonElement>(null)
+  const closeNotesRef = useRef<(() => void) | null>(null)
   const selectionChanged = selection !== null && selection.identity !== saved.state?.identity
-  const composerOpen = selection !== null && !discarding && saved.state !== null
+  const composerOpen = selection !== null && !capturingSource && !discarding && saved.state !== null
   const notesCount = notes.filter((note) => note.status !== "resolved").length
+  const notesOpen = panelOpen && !canvas.hubOpen
+  const canSave = Boolean(draft.trim()) && !saved.busy && !selectionChanged
   const syncError =
     saved.state?.syncError === "Notes are saved locally until Hub discovers this branch."
       ? null
       : saved.state?.syncError
+  const saveShortcutModifier = isMacPlatform() ? copy.saveShortcutMac : copy.saveShortcutOther
 
   const receiveSelection = useCallback(
     (anchor: ReviewAnchor) => {
@@ -64,10 +80,13 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
     },
     [saved.state?.identity, selectedSource],
   )
-  const cancelPreviewSelection = useCallback(() => {
+  const cancelPreviewSelection = useCallback((restoreFocus = true) => {
     captureGeneration.current++
+    if (capturePending.current) setSelection(null)
+    capturePending.current = false
     setCapturingSource(false)
-    if (annotateRef.current?.getAttribute("aria-pressed") === "true") annotateRef.current.focus()
+    if (restoreFocus && annotateRef.current?.getAttribute("aria-pressed") === "true")
+      annotateRef.current.focus()
     setAnnotating(false)
   }, [])
   const preview = usePreviewSelection({
@@ -77,11 +96,35 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
     notes,
     annotating,
     composing: selection !== null,
+    pendingSelection: selection !== null && capturingSource,
     onSelect: receiveSelection,
     onRoute: setRoute,
     onCancel: cancelPreviewSelection,
     onProblem: setMessage,
+    onToggle: toggleSelection,
   })
+
+  const handleShortcut = useEffectEvent((event: KeyboardEvent) => {
+    if (
+      event.key === "Escape" &&
+      !event.defaultPrevented &&
+      !event.isComposing &&
+      annotating &&
+      (!selection || capturingSource)
+    ) {
+      event.preventDefault()
+      cancelPreviewSelection()
+    } else if (isAnnotationShortcut(event) && toggleSelection()) {
+      event.preventDefault()
+    }
+  })
+  useEffect(() => {
+    function keydown(event: KeyboardEvent) {
+      handleShortcut(event)
+    }
+    window.addEventListener("keydown", keydown)
+    return () => window.removeEventListener("keydown", keydown)
+  }, [])
 
   useLayoutEffect(() => {
     if (composerOpen) draftRef.current?.focus()
@@ -92,16 +135,48 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
     canvas.onOpenNotes()
   }
 
+  function toggleNotes() {
+    if (notesOpen) closeNotesRef.current?.()
+    else openNotes()
+  }
+
+  function toggleSelection() {
+    if (
+      !preview.ready ||
+      !saved.state ||
+      (selection && !capturingSource) ||
+      discarding ||
+      canvas.hubOpen ||
+      document.querySelector('[role="dialog"], dialog[open]')
+    )
+      return false
+    if (annotating) cancelPreviewSelection(false)
+    else void beginSelection()
+    return true
+  }
+
   async function beginSelection() {
     const generation = ++captureGeneration.current
+    capturePending.current = true
     setCapturingSource(true)
-    const source = await saved.capture()
-    if (generation !== captureGeneration.current) return
-    setCapturingSource(false)
-    setSelectedSource(source)
+    setSelectedSource(null)
     setAnnotating(true)
     setPanelOpen(false)
     setMessage(copy.selectHint)
+    const source = await saved.capture()
+    if (generation !== captureGeneration.current) return
+    capturePending.current = false
+    setSelectedSource(source)
+    setSelection((previous) =>
+      previous
+        ? {
+            ...previous,
+            identity: source?.identity ?? previous.identity,
+            sourceId: source?.sourceId,
+          }
+        : previous,
+    )
+    setCapturingSource(false)
   }
 
   function closeComposer() {
@@ -131,14 +206,7 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
   }
 
   return (
-    <section
-      aria-label={copy.title}
-      className="improvement-demo"
-      onKeyDown={(event) => {
-        if (event.key === "Escape" && !event.defaultPrevented && !selection)
-          cancelPreviewSelection()
-      }}
-    >
+    <section aria-label={copy.title} className="improvement-demo">
       {canvas.toolbarTarget &&
         createPortal(
           <div role="group" aria-label={copy.title} className="improvement-demo__split">
@@ -147,10 +215,11 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
               size="small"
               variant="secondary"
               className="canvas-toolbar-compact-button"
-              title={copy.annotate}
+              title={copy.annotateShortcut}
+              aria-keyshortcuts="S"
               leadingVisual={<CrosshairsIcon />}
               aria-pressed={annotating}
-              disabled={capturingSource || !preview.ready || !saved.state}
+              disabled={!preview.ready || !saved.state}
               onClick={() => {
                 if (annotating) cancelPreviewSelection()
                 else void beginSelection()
@@ -162,9 +231,9 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
               ref={notesToggleRef}
               size="small"
               variant="secondary"
-              aria-label={copy.openNotes(notesCount)}
-              aria-expanded={panelOpen && !canvas.hubOpen}
-              onClick={openNotes}
+              aria-label={notesOpen ? copy.closeNotes(notesCount) : copy.openNotes(notesCount)}
+              aria-expanded={notesOpen}
+              onClick={toggleNotes}
             >
               <HubCounter>{notesCount}</HubCounter>
             </Button>
@@ -175,6 +244,7 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
         identity={saved.state?.identity ?? ""}
         controls={false}
         returnFocusRef={notesToggleRef}
+        closeRequestRef={closeNotesRef}
         open={panelOpen && !canvas.hubOpen && !selection}
         active={(panelOpen || annotating) && !canvas.hubOpen && !selection}
         onOpen={openNotes}
@@ -261,6 +331,12 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
                 rows={4}
                 placeholder={copy.placeholder}
                 onChange={(event) => setDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (!canSave || !isSubmitShortcut(event.nativeEvent)) return
+                  event.preventDefault()
+                  event.currentTarget.form?.requestSubmit()
+                }}
+                aria-keyshortcuts="Meta+Enter Control+Enter"
                 required
               />
             </FormControl>
@@ -269,9 +345,14 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
                 type="submit"
                 size="small"
                 variant="primary"
-                disabled={!draft.trim() || saved.busy || selectionChanged}
+                disabled={!canSave}
+                aria-keyshortcuts="Meta+Enter Control+Enter"
               >
                 {copy.save}
+                <span aria-hidden="true" className="improvement-demo__save-shortcut">
+                  <kbd>{saveShortcutModifier}</kbd>
+                  <kbd>{copy.saveShortcutEnter}</kbd>
+                </span>
               </Button>
             </div>
           </form>
