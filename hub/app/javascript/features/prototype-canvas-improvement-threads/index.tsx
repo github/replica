@@ -222,7 +222,7 @@ export function ImprovementThreads({
         !(event.target instanceof Element) ||
         conversation.current?.contains(event.target) ||
         event.target.closest(
-          '.thread-sample__card-button, .thread-sample__marker, .thread-sample__menu, [role="menu"], dialog',
+          '.thread-sample__card-button, .thread-sample__marker, .thread-sample__menu, .thread-sample__filters, .hub-sidebar__close, [role="menu"], dialog',
         )
       )
         return

@@ -196,6 +196,55 @@ describe("ImprovementThreads()", () => {
     expect(screen.queryByRole("dialog", { name: thread.target })).not.toBeInTheDocument()
   })
 
+  it("keeps filter and sidebar close pointer sequences inside their guarded flows", () => {
+    const thread: ImprovementThread = {
+      id: 1,
+      revision: 1,
+      author: "You",
+      body: "Original request",
+      target: "Save",
+      path: "/projects",
+      status: "open",
+      originalPending: true,
+      messages: [],
+      point: { x: 120, y: 100 },
+    }
+    const onClose = vi.fn()
+    render(
+      <ImprovementThreads
+        threads={[thread]}
+        identity="branch"
+        open
+        onOpen={vi.fn()}
+        onClose={onClose}
+        onFollowUp={vi.fn().mockResolvedValue(true)}
+        onResolve={vi.fn().mockResolvedValue(true)}
+        onDelete={vi.fn().mockResolvedValue(true)}
+        onFix={vi.fn().mockResolvedValue(true)}
+      />,
+    )
+    fireEvent.click(screen.getByRole("button", { name: "Open note: Original request" }))
+    const conversation = screen.getByRole("dialog", { name: thread.target })
+    const filter = screen.getByRole("button", { name: /^Filter notes:/ })
+
+    pointerDown(filter)
+    fireEvent.click(filter)
+    expect(conversation).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("menuitemradio", { name: copy.allActive }))
+
+    fireEvent.change(screen.getByRole("textbox", { name: copy.comments.replyLabel }), {
+      target: { value: "Keep this draft" },
+    })
+    const close = screen.getByRole("button", { name: copy.close })
+    pointerDown(close)
+    fireEvent.click(close)
+    expect(screen.getByText(copy.comments.threadDiscardPromptLabel)).toBeVisible()
+    fireEvent.click(screen.getByRole("button", { name: copy.comments.discardButtonLabel }))
+
+    expect(onClose).toHaveBeenCalledOnce()
+    expect(screen.queryByRole("dialog", { name: thread.target })).not.toBeInTheDocument()
+  })
+
   it.each([true, false])(
     "only closes its own selected conversation after successful deletion: %s",
     async (success) => {
