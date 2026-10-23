@@ -120,6 +120,7 @@ try {
       phase = "select preview target and save locally"
       await page.goto(canvas.url)
       const picker = page.getByRole("button", { name: "Pick & polish", exact: true })
+      assert.equal(await picker.getAttribute("title"), "Add note")
       assert.ok(await fix(0).isDisabled())
       await picker.click()
       const preview = page.frameLocator('iframe[title="Renderer smoke prototype"]')

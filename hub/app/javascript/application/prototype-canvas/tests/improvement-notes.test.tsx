@@ -133,6 +133,7 @@ describe("App()", () => {
       <App config={{ name: "Demo", prototypeUrl: origin, token: "local", pickAndPolish: true }} />,
     )
     const picker = await screen.findByRole("button", { name: copy.annotate })
+    expect(picker).toHaveAttribute("title", copy.annotateShortcut)
     const frame = screen.getByTitle("Demo prototype")
     if (!(frame instanceof HTMLIFrameElement)) throw new Error("Expected the prototype iframe.")
     function captures() {

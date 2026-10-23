@@ -6,7 +6,7 @@ export const copy = {
   sourceUnavailable:
     "You can still save this improvement locally, but it cannot sync without a captured source.",
   annotate: "Pick & polish",
-  annotateShortcut: "Pick & polish (S)",
+  annotateShortcut: "Add note",
   openNotes: (count: number) => `Open improvement notes (${count})`,
   notes: "Notes",
   selectHint:
