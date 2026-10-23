@@ -216,7 +216,7 @@ If the canvas points to a different Hub, follow the [Hub switching instructions]
 
 Share the prototype you built with your team's guidance:
 
-1. Open your prototype session. Ask Copilot to confirm that you are on the prototype's branch, not the default branch. Check the result in the canvas.
+1. Open your prototype session. Ask Copilot to confirm that you are on the prototype's branch, not the default branch, and that it includes `.github/workflows/replica.yml` from step 6. If the workflow is missing, ask Copilot to preserve your local prototype work and, with your approval, fetch and merge the reviewed default-branch changes into this branch. Resolve any conflicts before continuing. Check the result in the canvas.
 2. Choose **Publish** and approve saving and uploading your prototype changes. Wait until the canvas says **Published**. A completed upload alone does not mean Hub is ready to show it.
 3. Open **Share prototype**, copy the **Internal prototype link**, and send it to your teammate.
 4. Ask them to sign in, open the prototype, and leave a comment. They need at least read access to the repository.
