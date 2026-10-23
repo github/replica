@@ -587,6 +587,7 @@ try {
         "Packaged renderer smoke passed: local notes, explicit batches, persisted history, and overlapping blocked-note menus.",
       )
     } finally {
+      await page?.unrouteAll({ behavior: "ignoreErrors" })
       await page?.close()
       await canvas.close()
     }
