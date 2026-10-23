@@ -74,12 +74,13 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
     },
     [saved.state?.identity, selectedSource],
   )
-  const cancelPreviewSelection = useCallback(() => {
+  const cancelPreviewSelection = useCallback((restoreFocus = true) => {
     captureGeneration.current++
     if (capturePending.current) setSelection(null)
     capturePending.current = false
     setCapturingSource(false)
-    if (annotateRef.current?.getAttribute("aria-pressed") === "true") annotateRef.current.focus()
+    if (restoreFocus && annotateRef.current?.getAttribute("aria-pressed") === "true")
+      annotateRef.current.focus()
     setAnnotating(false)
   }, [])
   const preview = usePreviewSelection({
@@ -137,7 +138,7 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
       document.querySelector('[role="dialog"], dialog[open]')
     )
       return false
-    if (annotating) cancelPreviewSelection()
+    if (annotating) cancelPreviewSelection(false)
     else void beginSelection()
     return true
   }

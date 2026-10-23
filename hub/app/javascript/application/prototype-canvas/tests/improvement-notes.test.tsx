@@ -148,15 +148,19 @@ describe("App()", () => {
     })
     await waitFor(() => expect(picker).toBeEnabled())
     const post = vi.spyOn(frame.contentWindow!, "postMessage")
-    fireEvent.keyDown(window, { key: "s" })
+    const shortcutFocus = document.createElement("button")
+    document.body.append(shortcutFocus)
+    shortcutFocus.focus()
+    fireEvent.keyDown(shortcutFocus, { key: "s" })
     expect(picker).toHaveAttribute("aria-pressed", "true")
     expect(post).toHaveBeenCalledWith(
       { type: "replica:canvas:select", nonce, mode: "improvement" },
       origin,
     )
     expect(screen.queryByRole("complementary", { name: copy.notes })).not.toBeInTheDocument()
-    fireEvent.keyDown(window, { key: "S" })
+    fireEvent.keyDown(shortcutFocus, { key: "S" })
     expect(picker).toHaveAttribute("aria-pressed", "false")
+    expect(shortcutFocus).toHaveFocus()
     expect(captures()).toHaveLength(1)
     fireEvent.keyDown(window, { key: "s" })
     fireEvent.keyDown(window, { key: "Escape" })
@@ -182,6 +186,7 @@ describe("App()", () => {
     expect(captures()).toHaveLength(3)
     expect(picker).toHaveAttribute("aria-pressed", "true")
     expect(composer.getByRole("textbox", { name: copy.label })).toHaveValue("Preserve this draft.")
+    shortcutFocus.remove()
     view.unmount()
   })
 
