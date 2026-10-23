@@ -101,8 +101,8 @@ describe("ImprovementThreads()", () => {
       body: "Original request",
       target: "Save",
       path: "/projects",
-      status: "open",
-      originalPending: true,
+      status: "ready",
+      originalPending: false,
       messages: [],
       point: { x: 120, y: 100 },
     }
@@ -237,10 +237,7 @@ describe("ImprovementThreads()", () => {
       }
       render(<Harness />)
       fireEvent.click(screen.getByRole("button", { name: "Open improvement: Original request" }))
-      fireEvent.click(screen.getByRole("button", { name: "Improvement actions: 1" }))
-      const menuDelete = screen.getByRole("menuitem", { name: copy.delete })
-      expect(menuDelete).toHaveAttribute("aria-disabled", "false")
-      fireEvent.click(menuDelete)
+      fireEvent.click(screen.getByRole("button", { name: `${copy.delete}: 1` }))
       const confirmation = screen.getByRole("dialog", { name: copy.deleteTitle })
       expect(confirmation.querySelector("blockquote")).toHaveTextContent(thread.body)
       expect(confirmation).not.toHaveTextContent(
@@ -271,7 +268,7 @@ describe("ImprovementThreads()", () => {
     },
   )
 
-  it("keeps Delete disabled during mutations and prevents opening its menu over an unsaved draft", () => {
+  it("keeps the direct Delete action disabled during mutations and over an unsaved draft", () => {
     const thread: ImprovementThread = {
       id: 1,
       revision: 1,
@@ -295,21 +292,17 @@ describe("ImprovementThreads()", () => {
       onFix: vi.fn().mockResolvedValue(true),
     }
     const view = render(<ImprovementThreads {...props} />)
-    fireEvent.click(screen.getByRole("button", { name: "Improvement actions: 1" }))
     view.rerender(<ImprovementThreads {...props} busy />)
-    expect(screen.getByRole("menuitem", { name: copy.delete })).toHaveAttribute(
-      "aria-disabled",
-      "true",
-    )
-    fireEvent.click(screen.getByRole("menuitem", { name: copy.delete }))
+    const deleteAction = screen.getByRole("button", { name: `${copy.delete}: 1` })
+    expect(deleteAction).toBeDisabled()
+    fireEvent.click(deleteAction)
     expect(screen.queryByRole("dialog", { name: copy.deleteTitle })).not.toBeInTheDocument()
-    fireEvent.keyDown(screen.getByRole("menuitem", { name: copy.delete }), { key: "Escape" })
     view.rerender(<ImprovementThreads {...props} />)
     fireEvent.click(screen.getByRole("button", { name: "Open improvement: Original request" }))
     fireEvent.change(screen.getByRole("textbox", { name: copy.comments.replyLabel }), {
       target: { value: "Unsaved follow-up" },
     })
-    expect(screen.getByRole("button", { name: "Improvement actions: 1" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: `${copy.delete}: 1` })).toBeDisabled()
     expect(screen.getByRole("textbox", { name: copy.comments.replyLabel })).toHaveValue(
       "Unsaved follow-up",
     )
@@ -396,15 +389,19 @@ describe("ImprovementThreads()", () => {
         fireEvent.click(screen.getByRole("button", { name: /^Filter improvement notes:/ }))
         fireEvent.click(screen.getByRole("menuitemradio", { name: copy.resolved }))
       }
-      fireEvent.click(screen.getByRole("button", { name: "Improvement actions: 1" }))
-      expect(screen.queryByRole("menuitem", { name: "Add follow-up" })).not.toBeInTheDocument()
-      const resolve = screen.queryByRole("menuitem", { name: copy.markResolved })
       if (status !== "ready") {
-        expect(resolve).not.toBeInTheDocument()
-        expect(screen.getByRole("menuitem", { name: copy.delete })).toBeVisible()
+        expect(
+          screen.queryByRole("button", { name: "Improvement actions: 1" }),
+        ).not.toBeInTheDocument()
+        expect(screen.getByRole("button", { name: `${copy.delete}: 1` })).toHaveClass(
+          "thread-sample__single-delete",
+        )
         expect(onResolve).not.toHaveBeenCalled()
         return
       }
+      fireEvent.click(screen.getByRole("button", { name: "Improvement actions: 1" }))
+      expect(screen.queryByRole("menuitem", { name: "Add follow-up" })).not.toBeInTheDocument()
+      const resolve = screen.queryByRole("menuitem", { name: copy.markResolved })
       if (!resolve) throw new Error("Expected the ready-work resolution action.")
       expect(resolve).toBeEnabled()
       fireEvent.click(resolve)
@@ -603,8 +600,7 @@ describe("ImprovementThreads()", () => {
       onFix: vi.fn().mockResolvedValue(true),
     }
     const view = render(<ImprovementThreads {...props} />)
-    fireEvent.click(screen.getByRole("button", { name: "Improvement actions: 1" }))
-    fireEvent.click(screen.getByRole("menuitem", { name: copy.delete }))
+    fireEvent.click(screen.getByRole("button", { name: `${copy.delete}: 1` }))
     view.rerender(<ImprovementThreads {...props} identity="second" />)
     expect(screen.getByRole("alert")).toHaveTextContent(copy.changedIdentity)
     const confirm = screen.getByRole("button", { name: copy.delete })

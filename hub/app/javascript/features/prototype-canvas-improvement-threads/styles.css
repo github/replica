@@ -159,6 +159,24 @@
   margin-block-start: var(--base-size-4);
 }
 
+.thread-sample__single-delete {
+  color: var(--hub-fg-danger);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.thread-sample__card:is(:hover, :focus-within) .thread-sample__single-delete {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+@media (hover: none) {
+  .thread-sample__single-delete {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
 .thread-sample__surface {
   z-index: 40;
 }

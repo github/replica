@@ -269,6 +269,13 @@ export function ImprovementThreads({
     await onRetry(item)
   }
 
+  function requestDelete(item: ImprovementThread, element?: HTMLElement) {
+    if (busy || draft.trim() || discarding) return
+    if (element) opener.current = element
+    setOpenedIdentity(identity)
+    setDeleting(item)
+  }
+
   const toolbarControl = (
     <Button
       ref={trigger}
@@ -515,6 +522,9 @@ export function ImprovementThreads({
           {visible.length === 0 ? <p className="thread-sample__empty">{copy.empty}</p> : null}
           {visible.map((item) => {
             const count = item.messages.filter((entry) => entry.role === "author").length
+            const hasOtherActions = Boolean(
+              (onRetry && item.retryStatus) || item.status === "ready",
+            )
             return (
               <article
                 className={`review-comment-row thread-sample__card${item.status === "resolved" ? " thread-sample__card--resolved" : ""}`}
@@ -562,62 +572,71 @@ export function ImprovementThreads({
                   </span>
                 ) : null}
                 <div className="thread-sample__menu">
-                  <ActionMenu
-                    selectionVariant="none"
-                    size="small"
-                    menuAlignment="end"
-                    disabled={Boolean(draft.trim()) || discarding}
-                  >
-                    <ActionMenu.IconButton
-                      icon={KebabHorizontalIcon}
-                      aria-label={`${copy.actions}: ${item.id}`}
-                      variant="invisible"
-                      onClick={(event) => {
-                        opener.current = event.currentTarget
-                        menuThread.current = { identity, id: item.id, revision: item.revision }
-                      }}
-                    />
-                    <ActionMenu.Overlay aria-label={`${copy.actions}: ${item.id}`}>
-                      {onRetry && item.retryStatus ? (
-                        <ActionMenu.Item
-                          value="retry"
-                          disabled={busy}
-                          className="thread-sample__menu-item"
-                          onClick={() => {
-                            void retryFromMenu(item)
-                          }}
-                        >
-                          {item.retryStatus === "sent" ? copy.returnToActive : copy.retry}
-                        </ActionMenu.Item>
-                      ) : null}
-                      {item.status === "ready" ? (
-                        <ActionMenu.Item
-                          value="resolve"
-                          className="thread-sample__menu-item"
-                          disabled={busy}
-                          leadingVisual={<CheckCircleIcon size={16} />}
-                          onClick={() => {
-                            void resolveFromMenu(item)
-                          }}
-                        >
-                          {copy.markResolved}
-                        </ActionMenu.Item>
-                      ) : null}
-                      <ActionMenu.Item
-                        value="delete"
-                        className="thread-sample__menu-item thread-sample__delete"
-                        disabled={busy}
-                        leadingVisual={<TrashIcon size={16} />}
-                        onClick={() => {
-                          if (busy || draft.trim() || discarding) return
-                          setOpenedIdentity(identity)
-                          setDeleting(item)
+                  {hasOtherActions ? (
+                    <ActionMenu
+                      selectionVariant="none"
+                      size="small"
+                      menuAlignment="end"
+                      disabled={Boolean(draft.trim()) || discarding}
+                    >
+                      <ActionMenu.IconButton
+                        icon={KebabHorizontalIcon}
+                        aria-label={`${copy.actions}: ${item.id}`}
+                        variant="invisible"
+                        onClick={(event) => {
+                          opener.current = event.currentTarget
+                          menuThread.current = { identity, id: item.id, revision: item.revision }
                         }}
-                      >
-                        {copy.delete}
-                      </ActionMenu.Item>
-                    </ActionMenu.Overlay>
-                  </ActionMenu>
+                      />
+                      <ActionMenu.Overlay aria-label={`${copy.actions}: ${item.id}`}>
+                        {onRetry && item.retryStatus ? (
+                          <ActionMenu.Item
+                            value="retry"
+                            disabled={busy}
+                            className="thread-sample__menu-item"
+                            onClick={() => {
+                              void retryFromMenu(item)
+                            }}
+                          >
+                            {item.retryStatus === "sent" ? copy.returnToActive : copy.retry}
+                          </ActionMenu.Item>
+                        ) : null}
+                        {item.status === "ready" ? (
+                          <ActionMenu.Item
+                            value="resolve"
+                            className="thread-sample__menu-item"
+                            disabled={busy}
+                            leadingVisual={<CheckCircleIcon size={16} />}
+                            onClick={() => {
+                              void resolveFromMenu(item)
+                            }}
+                          >
+                            {copy.markResolved}
+                          </ActionMenu.Item>
+                        ) : null}
+                        <ActionMenu.Item
+                          value="delete"
+                          className="thread-sample__menu-item thread-sample__delete"
+                          disabled={busy}
+                          leadingVisual={<TrashIcon size={16} />}
+                          onClick={() => requestDelete(item)}
+                        >
+                          {copy.delete}
+                        </ActionMenu.Item>
+                      </ActionMenu.Overlay>
+                    </ActionMenu>
+                  ) : (
+                    <HubIconButton
+                      icon={TrashIcon}
+                      size="small"
+                      variant="invisible"
+                      className="thread-sample__single-delete"
+                      aria-label={`${copy.delete}: ${item.id}`}
+                      description={copy.delete}
+                      disabled={Boolean(draft.trim()) || discarding || busy}
+                      onClick={(event) => requestDelete(item, event.currentTarget)}
+                    />
+                  )}
                 </div>
               </article>
             )

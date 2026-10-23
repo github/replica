@@ -271,8 +271,13 @@ try {
 
       phase = "confirmed deletion"
       await dialog.getByRole("button", { name: "Close improvement", exact: true }).click()
-      await page.getByRole("button", { name: "Improvement actions: 1", exact: true }).click()
-      await page.getByRole("menuitem", { name: "Delete", exact: true }).click()
+      const directDelete = page.getByRole("button", { name: "Delete: 1", exact: true })
+      await page.getByRole("button", { name: /^Filter improvement notes:/ }).focus()
+      await page.mouse.move(0, 0)
+      assert.equal(await directDelete.evaluate((element) => getComputedStyle(element).opacity), "0")
+      await cards.first().hover()
+      assert.equal(await directDelete.evaluate((element) => getComputedStyle(element).opacity), "1")
+      await directDelete.click()
       const deletion = page.getByRole("dialog", { name: "Delete this improvement?", exact: true })
       await deletion.waitFor()
       assert.equal((await store.load()).notes.length, 1)
