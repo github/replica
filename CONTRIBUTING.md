@@ -121,13 +121,14 @@ Repository workflow and dependency checks have their own small npm project:
 
 ```sh
 npm ci --prefix scripts --ignore-scripts --engine-strict
+npm run typecheck --prefix scripts
 npm test --prefix scripts
 node --test scripts/select-ci-suites.test.mjs
-node scripts/check-ci-workflows.ts
-node scripts/check-dependency-age.ts
+node scripts/check-ci-workflows/index.ts
+node scripts/check-dependency-age/index.ts
 ```
 
-The dependency-age command needs network access to npm and GitHub. `GH_TOKEN` is optional locally and avoids GitHub's unauthenticated API rate limit.
+The TypeScript workflow and dependency checks use function directories with colocated Vitest tests. The dependency-age command needs network access to npm and GitHub. `GH_TOKEN` is optional locally and avoids GitHub's unauthenticated API rate limit.
 
 ## Commits and pull requests
 

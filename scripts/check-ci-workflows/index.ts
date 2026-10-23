@@ -5,30 +5,7 @@ import { resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import { parse } from "yaml"
 
-interface Step {
-  name?: string
-  uses?: string
-  if?: string
-  run?: string
-  env?: Record<string, string>
-  with?: Record<string, string | number | boolean>
-}
-
-interface Job {
-  name?: string
-  uses?: string
-  needs?: string | string[]
-  if?: string
-  steps?: Step[]
-  strategy?: {
-    matrix: Record<string, (string | number)[]>
-    "fail-fast"?: boolean
-  }
-}
-
-export interface Workflow {
-  jobs: Record<string, Job>
-}
+import type { Workflow } from "./types.ts"
 
 const expression = (value: unknown) =>
   String(value ?? "")
@@ -180,8 +157,9 @@ export function checkWorkflows(root: string): number {
   for (const command of [
     "npm ci --prefix scripts --ignore-scripts --engine-strict",
     "node --test scripts/select-ci-suites.test.mjs",
+    "npm run typecheck --prefix scripts",
     "npm test --prefix scripts",
-    "node scripts/check-ci-workflows.ts",
+    "node scripts/check-ci-workflows/index.ts",
   ]) {
     assert(
       selectionSteps.some((step) => step.run === command),
@@ -190,7 +168,7 @@ export function checkWorkflows(root: string): number {
   }
   const ageSteps = workflow("dependency-age").jobs.audit.steps
   assert(
-    ageSteps?.some((step) => step.run === "node scripts/check-dependency-age.ts"),
+    ageSteps?.some((step) => step.run === "node scripts/check-dependency-age/index.ts"),
     "Dependency age must run unconditionally",
   )
   assert(
@@ -202,6 +180,6 @@ export function checkWorkflows(root: string): number {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   console.log(
-    `CI result checks and supported Node versions passed (${checkWorkflows(resolve(import.meta.dirname, ".."))} shell cases).`,
+    `CI result checks and supported Node versions passed (${checkWorkflows(resolve(import.meta.dirname, "../.."))} shell cases).`,
   )
 }
