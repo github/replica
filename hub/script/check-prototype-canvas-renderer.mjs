@@ -278,7 +278,7 @@ try {
       await cards.first().hover()
       assert.equal(await directDelete.evaluate((element) => getComputedStyle(element).opacity), "1")
       await directDelete.click()
-      const deletion = page.getByRole("dialog", { name: "Delete this improvement?", exact: true })
+      const deletion = page.getByRole("dialog", { name: "Delete this note?", exact: true })
       await deletion.waitFor()
       assert.equal((await store.load()).notes.length, 1)
       const confirmDelete = deletion.getByRole("button", { name: "Delete", exact: true })
