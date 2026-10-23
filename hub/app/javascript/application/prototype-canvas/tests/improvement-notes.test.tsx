@@ -126,6 +126,155 @@ function savedNotesFixture(captureFails = false) {
 }
 
 describe("App()", () => {
+  it("arms selection before source capture finishes and saves an early target with its captured source", async () => {
+    vi.spyOn(crypto, "randomUUID").mockReturnValue(nonce)
+    const { fetch, saved } = savedNotesFixture()
+    const original = fetch.getMockImplementation()!
+    let finishCapture!: (response: Response) => void
+    const capture = new Promise<Response>((resolve) => {
+      finishCapture = resolve
+    })
+    fetch.mockImplementation((path, options) =>
+      path === "/api/improvement-notes/capture" && options?.method === "POST"
+        ? capture
+        : original(path, options),
+    )
+    const view = render(
+      <App
+        config={{
+          name: "Demo",
+          prototypeUrl: `${origin}/settings?tab=account#profile`,
+          token: "local",
+          pickAndPolish: true,
+        }}
+      />,
+    )
+    const frame = screen.getByTitle("Demo prototype")
+    if (!(frame instanceof HTMLIFrameElement)) throw new Error("Expected the prototype iframe.")
+    const picker = await screen.findByRole("button", { name: copy.annotate })
+    receive(frame, {
+      type: "replica:canvas:ready",
+      protocolVersion: 1,
+      improvementSelection: true,
+      route: anchor.route,
+    })
+    await waitFor(() => expect(picker).toBeEnabled())
+    const post = vi.spyOn(frame.contentWindow!, "postMessage")
+    expect(screen.getByRole("complementary", { name: copy.notes })).toBeVisible()
+    fireEvent.click(picker)
+
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/improvement-notes/capture",
+      expect.objectContaining({ method: "POST" }),
+    )
+    expect(picker).toHaveAttribute("aria-pressed", "true")
+    expect(picker).toBeEnabled()
+    expect(post).toHaveBeenCalledWith(
+      { type: "replica:canvas:select", nonce, mode: "improvement" },
+      origin,
+    )
+    expect(screen.queryByRole("complementary", { name: copy.notes })).not.toBeInTheDocument()
+    receive(frame, { type: "replica:canvas:selected", anchor })
+    await act(async () => {
+      finishCapture(Response.json({ identity: saved.identity, sourceId: "early-target-source" }))
+    })
+    const composer = within(await screen.findByRole("dialog", { name: copy.add }))
+    fireEvent.change(composer.getByRole("textbox", { name: copy.label }), {
+      target: { value: "Keep the selected action visible." },
+    })
+    fireEvent.click(composer.getByRole("button", { name: copy.save }))
+    await waitFor(() => expect(saved.notes).toHaveLength(1))
+    const write = fetch.mock.calls.find(
+      ([path, options]) => path === "/api/improvement-notes" && options?.method === "POST",
+    )
+    if (typeof write?.[1]?.body !== "string") throw new Error("Expected a serialized improvement.")
+    expect(JSON.parse(write[1].body)).toMatchObject({
+      identity: saved.identity,
+      sourceId: "early-target-source",
+      anchor,
+    })
+    view.unmount()
+  })
+
+  it.each(["toolbar", "preview"] as const)(
+    "ignores a pending capture cancelled through the %s and retains the next selection's source",
+    async (cancellation) => {
+      vi.spyOn(crypto, "randomUUID").mockReturnValue(nonce)
+      const { fetch, saved } = savedNotesFixture()
+      const original = fetch.getMockImplementation()!
+      const captures: ((response: Response) => void)[] = []
+      fetch.mockImplementation((path, options) =>
+        path === "/api/improvement-notes/capture" && options?.method === "POST"
+          ? new Promise<Response>((resolve) => {
+              captures.push(resolve)
+            })
+          : original(path, options),
+      )
+      const view = render(
+        <App
+          config={{
+            name: "Demo",
+            prototypeUrl: `${origin}/settings?tab=account#profile`,
+            previewUrl: "http://127.0.0.1:6789/settings?tab=account#profile",
+            token: "local",
+            pickAndPolish: true,
+          }}
+        />,
+      )
+      const frame = screen.getByTitle("Demo prototype")
+      if (!(frame instanceof HTMLIFrameElement)) throw new Error("Expected the prototype iframe.")
+      const picker = await screen.findByRole("button", { name: copy.annotate })
+      receive(frame, {
+        type: "replica:canvas:ready",
+        protocolVersion: 1,
+        improvementSelection: true,
+        route: anchor.route,
+      })
+      await waitFor(() => expect(picker).toBeEnabled())
+      fireEvent.click(picker)
+      expect(picker).toHaveAttribute("aria-pressed", "true")
+      expect(picker).toBeEnabled()
+      expect(captures).toHaveLength(1)
+      receive(frame, { type: "replica:canvas:selected", anchor })
+
+      if (cancellation === "toolbar") fireEvent.click(picker)
+      else receive(frame, { type: "replica:canvas:selection-cancelled", reason: "escape" })
+      expect(picker).toHaveAttribute("aria-pressed", "false")
+      await act(async () => {
+        captures[0]!(Response.json({ identity: saved.identity, sourceId: "cancelled-source" }))
+      })
+      expect(picker).toHaveAttribute("aria-pressed", "false")
+      expect(screen.queryByRole("dialog", { name: copy.add })).not.toBeInTheDocument()
+      receive(frame, { type: "replica:canvas:selected", anchor })
+      expect(screen.queryByRole("dialog", { name: copy.add })).not.toBeInTheDocument()
+
+      fireEvent.click(picker)
+      expect(captures).toHaveLength(2)
+      const nextAnchor = { ...anchor, selector: "#next", accessibleName: "Next" }
+      receive(frame, { type: "replica:canvas:selected", anchor: nextAnchor })
+      await act(async () => {
+        captures[1]!(Response.json({ identity: saved.identity, sourceId: "next-selection-source" }))
+      })
+      const composer = within(await screen.findByRole("dialog", { name: copy.add }))
+      fireEvent.change(composer.getByRole("textbox", { name: copy.label }), {
+        target: { value: "Clarify the next action." },
+      })
+      fireEvent.click(composer.getByRole("button", { name: copy.save }))
+      await waitFor(() => expect(saved.notes).toHaveLength(1))
+      const write = fetch.mock.calls.find(
+        ([path, options]) => path === "/api/improvement-notes" && options?.method === "POST",
+      )
+      if (typeof write?.[1]?.body !== "string")
+        throw new Error("Expected a serialized improvement.")
+      expect(JSON.parse(write[1].body)).toMatchObject({
+        identity: saved.identity,
+        sourceId: "next-selection-source",
+        anchor: nextAnchor,
+      })
+      view.unmount()
+    },
+  )
+
   it("only dismisses saved conversations through the current authenticated preview connection and protects drafts", async () => {
     const { saved } = savedNotesFixture()
     saved.notes.push({

@@ -70,8 +70,14 @@ try {
         if (url.pathname.startsWith("/assets/"))
           failedAssets.push({ asset: path.basename(url.pathname), error: "request failed" })
       })
+      const capture = Promise.withResolvers()
       await page.route("**/api/**", async (route) => {
         const pathname = new URL(route.request().url()).pathname
+        if (pathname === "/api/improvement-notes/capture") {
+          const response = await route.fetch()
+          await capture.promise
+          return route.fulfill({ response })
+        }
         // Keep notes, source capture, and batch persistence on the real disk API.
         if (pathname.startsWith("/api/improvement-notes")) return route.continue()
         if (pathname === "/api/state" || pathname === "/api/refresh")
@@ -114,14 +120,16 @@ try {
       phase = "select preview target and save locally"
       await page.goto(canvas.url)
       const picker = page.getByRole("button", { name: "Pick & polish", exact: true })
-      await picker.click()
       assert.ok(await fix(0).isDisabled())
+      await picker.click()
       const preview = page.frameLocator('iframe[title="Renderer smoke prototype"]')
-      await preview.locator("[data-replica-canvas-bridge]").first().waitFor()
+      await preview.locator('[data-replica-canvas-bridge][style*="crosshair"]').waitFor()
+      const target = preview.getByRole("button", { name: "Save project", exact: true })
+      await target.hover({ force: true })
+      await preview.locator("html > [data-replica-canvas-bridge]").waitFor()
       // The bridge's selection surface receives this real pointer click over the target.
-      await preview
-        .getByRole("button", { name: "Save project", exact: true })
-        .click({ force: true })
+      await target.click({ force: true })
+      capture.resolve()
       const composer = page.getByRole("dialog", { name: "Add improvement note", exact: true })
       await composer
         .getByRole("textbox", { name: "What should change?", exact: true })

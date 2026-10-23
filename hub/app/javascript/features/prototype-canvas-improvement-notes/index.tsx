@@ -42,11 +42,12 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
   const [panelOpen, setPanelOpen] = useState(true)
   const [message, setMessage] = useState("")
   const captureGeneration = useRef(0)
+  const capturePending = useRef(false)
   const annotateRef = useRef<HTMLButtonElement>(null)
   const draftRef = useRef<HTMLTextAreaElement>(null)
   const notesToggleRef = useRef<HTMLButtonElement>(null)
   const selectionChanged = selection !== null && selection.identity !== saved.state?.identity
-  const composerOpen = selection !== null && !discarding && saved.state !== null
+  const composerOpen = selection !== null && !capturingSource && !discarding && saved.state !== null
   const notesCount = notes.filter((note) => note.status !== "resolved").length
   const syncError =
     saved.state?.syncError === "Notes are saved locally until Hub discovers this branch."
@@ -66,6 +67,8 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
   )
   const cancelPreviewSelection = useCallback(() => {
     captureGeneration.current++
+    if (capturePending.current) setSelection(null)
+    capturePending.current = false
     setCapturingSource(false)
     if (annotateRef.current?.getAttribute("aria-pressed") === "true") annotateRef.current.focus()
     setAnnotating(false)
@@ -94,14 +97,26 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
 
   async function beginSelection() {
     const generation = ++captureGeneration.current
+    capturePending.current = true
     setCapturingSource(true)
-    const source = await saved.capture()
-    if (generation !== captureGeneration.current) return
-    setCapturingSource(false)
-    setSelectedSource(source)
+    setSelectedSource(null)
     setAnnotating(true)
     setPanelOpen(false)
     setMessage(copy.selectHint)
+    const source = await saved.capture()
+    if (generation !== captureGeneration.current) return
+    capturePending.current = false
+    setSelectedSource(source)
+    setSelection((previous) =>
+      previous
+        ? {
+            ...previous,
+            identity: source?.identity ?? previous.identity,
+            sourceId: source?.sourceId,
+          }
+        : previous,
+    )
+    setCapturingSource(false)
   }
 
   function closeComposer() {
@@ -150,7 +165,7 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
               title={copy.annotate}
               leadingVisual={<CrosshairsIcon />}
               aria-pressed={annotating}
-              disabled={capturingSource || !preview.ready || !saved.state}
+              disabled={!preview.ready || !saved.state}
               onClick={() => {
                 if (annotating) cancelPreviewSelection()
                 else void beginSelection()
