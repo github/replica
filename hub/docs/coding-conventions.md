@@ -2,6 +2,8 @@
 
 Follow the [shared coding conventions](../../docs/coding-conventions.md). This guide adds Hub's Rails, TypeScript, and interface rules.
 
+The rebuild's [code architecture conventions](backend-architecture.md) define repositories, integrations, utilities, and domains and their import boundaries.
+
 ## Rails
 
 - Check Rails, Ruby, and existing repository helpers before adding custom token, validation, serialization, or lifecycle code. Use custom behavior when built-in utilities cannot meet requirements such as one-time use, revocation, digest-only storage, or database constraints.
