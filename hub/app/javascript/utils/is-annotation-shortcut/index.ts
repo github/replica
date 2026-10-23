@@ -1,6 +1,7 @@
 export function isAnnotationShortcut(event: KeyboardEvent) {
   if (
     (event.key !== "s" && event.key !== "S") ||
+    !event.isTrusted ||
     event.defaultPrevented ||
     event.repeat ||
     event.isComposing ||
