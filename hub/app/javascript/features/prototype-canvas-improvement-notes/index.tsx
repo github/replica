@@ -143,7 +143,7 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
     if (
       !preview.ready ||
       !saved.state ||
-      selection ||
+      (selection && !capturingSource) ||
       discarding ||
       canvas.hubOpen ||
       document.querySelector('[role="dialog"], dialog[open]')

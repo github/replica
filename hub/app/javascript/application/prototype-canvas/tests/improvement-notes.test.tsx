@@ -402,7 +402,7 @@ describe("App()", () => {
     view.unmount()
   })
 
-  it.each(["toolbar", "preview"] as const)(
+  it.each(["toolbar", "preview", "shortcut"] as const)(
     "ignores a pending capture cancelled through the %s and retains the next selection's source",
     async (cancellation) => {
       vi.spyOn(crypto, "randomUUID").mockReturnValue(nonce)
@@ -444,7 +444,9 @@ describe("App()", () => {
       receive(frame, { type: "replica:canvas:selected", anchor })
 
       if (cancellation === "toolbar") fireEvent.click(picker)
-      else receive(frame, { type: "replica:canvas:selection-cancelled", reason: "escape" })
+      else if (cancellation === "preview")
+        receive(frame, { type: "replica:canvas:selection-cancelled", reason: "escape" })
+      else fireEvent.keyDown(window, { key: "s" })
       expect(picker).toHaveAttribute("aria-pressed", "false")
       await act(async () => {
         captures[0]!(Response.json({ identity: saved.identity, sourceId: "cancelled-source" }))
