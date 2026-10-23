@@ -480,6 +480,7 @@ describe("ImprovementThreads()", () => {
     }
     const view = render(<ImprovementThreads {...props} />)
     fireEvent.click(screen.getByRole("button", { name: "Improvement actions: 1" }))
+    expect(screen.getByRole("menuitem", { name: action }).querySelector(".octicon-sync")).not.toBeNull()
     view.rerender(<ImprovementThreads {...props} threads={[{ ...thread }]} />)
     fireEvent.click(screen.getByRole("menuitem", { name: action }))
     expect(onRetry).toHaveBeenCalledExactlyOnceWith(thread)

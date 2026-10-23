@@ -5,6 +5,7 @@ import {
   KebabHorizontalIcon,
   ReplyIcon,
   SparkleIcon,
+  SyncIcon,
   TrashIcon,
   XIcon,
 } from "@primer/octicons-react"
@@ -594,6 +595,7 @@ export function ImprovementThreads({
                             value="retry"
                             disabled={busy}
                             className="thread-sample__menu-item"
+                            leadingVisual={<SyncIcon size={16} />}
                             onClick={() => {
                               void retryFromMenu(item)
                             }}
