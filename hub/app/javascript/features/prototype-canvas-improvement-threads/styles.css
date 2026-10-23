@@ -174,13 +174,14 @@
 
 .thread-sample__conversation .review-thread-conversation__header {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto;
 }
 
-.thread-sample__close {
-  grid-column: 3;
-  grid-row: 1;
-  justify-self: end;
+.thread-sample__original-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--base-size-8);
 }
 
 .thread-sample__copilot-avatar {

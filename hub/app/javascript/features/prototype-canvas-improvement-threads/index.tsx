@@ -391,7 +391,7 @@ export function ImprovementThreads({
                 <div className="review-thread-conversation__layout">
                   <header className="review-thread-conversation__header">
                     <Heading as="h3" size="6">
-                      {copy.conversation}
+                      {thread.target}
                     </Heading>
                     {thread.status === "ready" ? (
                       <Button
@@ -407,14 +407,6 @@ export function ImprovementThreads({
                         {copy.resolve}
                       </Button>
                     ) : null}
-                    <HubIconButton
-                      icon={XIcon}
-                      size="small"
-                      variant="invisible"
-                      aria-label={copy.back}
-                      className="thread-sample__close"
-                      onClick={() => requestClose()}
-                    />
                   </header>
                   {changedIdentity ? (
                     <p role="alert" className="thread-sample__error">
@@ -444,7 +436,17 @@ export function ImprovementThreads({
                         }
                         author={thread.author}
                       />
-                      <p className="review-thread-message__body">{thread.body}</p>
+                      <div className="thread-sample__original-body">
+                        <p className="review-thread-message__body">{thread.body}</p>
+                        <HubIconButton
+                          icon={XIcon}
+                          size="small"
+                          variant="invisible"
+                          aria-label={copy.back}
+                          className="thread-sample__close"
+                          onClick={() => requestClose()}
+                        />
+                      </div>
                     </article>
                     {thread.messages.map((entry) => (
                       <article className="review-thread-message" key={entry.id}>

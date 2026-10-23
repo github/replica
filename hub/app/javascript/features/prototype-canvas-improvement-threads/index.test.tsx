@@ -17,6 +17,41 @@ function pointerDown(
 }
 
 describe("ImprovementThreads()", () => {
+  it("uses the saved target as the conversation heading and places close beside the note", () => {
+    const thread: ImprovementThread = {
+      id: 1,
+      revision: 1,
+      author: "You",
+      body: "Original request",
+      target: "Save project",
+      path: "/projects",
+      status: "open",
+      originalPending: true,
+      messages: [],
+      point: { x: 120, y: 100 },
+    }
+    render(
+      <ImprovementThreads
+        threads={[thread]}
+        identity="branch"
+        open
+        onOpen={vi.fn()}
+        onClose={vi.fn()}
+        onFollowUp={vi.fn().mockResolvedValue(true)}
+        onResolve={vi.fn().mockResolvedValue(true)}
+        onDelete={vi.fn().mockResolvedValue(true)}
+        onFix={vi.fn().mockResolvedValue(true)}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: copy.point(1) }))
+    const conversation = screen.getByRole("dialog", { name: copy.conversation })
+    expect(within(conversation).getByRole("heading", { name: thread.target })).toBeVisible()
+    const body = within(conversation).getByText(thread.body)
+    const close = within(conversation).getByRole("button", { name: copy.back })
+    expect(close.closest(".thread-sample__original-body")).toContainElement(body)
+  })
+
   it("closes a selected conversation on an outside pointer without restoring its opener", () => {
     const thread: ImprovementThread = {
       id: 1,
