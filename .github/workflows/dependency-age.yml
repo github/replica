@@ -21,9 +21,4 @@ jobs:
         with:
           bundler-cache: true
           working-directory: hub
-      - run: bin/check-dependency-age
-        env:
-          DEPENDENCY_AGE_ROOT: ..
-          DEPENDENCY_AGE_EXCLUDED_PATHS: starter
-          # crass 1.0.8 fixes GHSA-pq4g-8rxf-4g29. Remove after 2026-10-28T21:35:16Z.
-          DEPENDENCY_AGE_EXCEPTIONS: bundler:crass@1.0.8
+      - run: DEPENDENCY_AGE_ROOT=.. DEPENDENCY_AGE_EXCLUDED_PATHS=starter bin/check-dependency-age

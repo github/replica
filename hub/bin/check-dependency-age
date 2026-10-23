@@ -4,7 +4,6 @@ require_relative "../lib/dependency_age_policy"
 
 root = ENV.fetch("DEPENDENCY_AGE_ROOT", File.expand_path("..", __dir__))
 excluded_paths = ENV.fetch("DEPENDENCY_AGE_EXCLUDED_PATHS", "").split(File::PATH_SEPARATOR).reject(&:empty?)
-age_exceptions = ENV.fetch("DEPENDENCY_AGE_EXCEPTIONS", "").split(",").map(&:strip).reject(&:empty?)
-result = DependencyAgePolicy::Audit.new(root:, excluded_paths:, age_exceptions:).call
+result = DependencyAgePolicy::Audit.new(root:, excluded_paths:).call
 puts result
 exit 1 unless result.success?
