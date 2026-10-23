@@ -29,3 +29,7 @@ These rules apply to imported types as well as functions. A repository must not 
 Put each function in a directory named with lowercase words and hyphens, such as `get-user`. Keep `index.ts`, its tests, and its types together. Group repository functions by resource and integration functions by API or SDK service, as shown above. Import from each function's directory, not from a shared file that re-exports its neighbors.
 
 Add directories when their functions are needed. Do not add empty implementations just to fill out the structure.
+
+## Database access
+
+The [shared Prisma client](database.md#shared-client) lives in `server/integrations/prisma/index.ts`. Domains may pass it to repositories for database queries without letting repositories import integrations. Keep model definitions, naming, and migrations consistent with the [database conventions](database.md#schema-conventions).
