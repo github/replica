@@ -988,10 +988,10 @@ describe("App()", () => {
     )
     try {
       await act(() => vi.advanceTimersByTimeAsync(0))
-      expect(screen.queryByRole("button", { name: "Improvement actions: 1" })).not.toBeInTheDocument()
       expect(
-        screen.getByRole("button", { name: `${threadCopy.delete}: 1` }),
-      ).toBeInTheDocument()
+        screen.queryByRole("button", { name: "Improvement actions: 1" }),
+      ).not.toBeInTheDocument()
+      expect(screen.getByRole("button", { name: `${threadCopy.delete}: 1` })).toBeInTheDocument()
       fireEvent.click(screen.getByRole("button", { name: "Open improvement: Original feedback." }))
       fireEvent.change(screen.getByRole("textbox", { name: threadCopy.comments.replyLabel }), {
         target: { value: "Older unsaved draft." },
