@@ -1,6 +1,6 @@
 export function isAnnotationShortcut(event: KeyboardEvent) {
   if (
-    event.key.toLowerCase() !== "s" ||
+    (event.key !== "s" && event.key !== "S") ||
     event.defaultPrevented ||
     event.repeat ||
     event.isComposing ||
@@ -11,15 +11,20 @@ export function isAnnotationShortcut(event: KeyboardEvent) {
   )
     return false
 
-  const target = event.target
-  if (!(target instanceof Element)) return true
-  if (
-    target.closest(
-      'input, textarea, select, [role="textbox"], [role="combobox"], [role="dialog"], dialog, [role="menu"]',
-    )
-  )
-    return false
+  const path = event.composedPath().filter((target): target is Element => target instanceof Element)
+  if (path.length === 0 && event.target instanceof Element) path.push(event.target)
 
-  const editable = target.closest("[contenteditable]")
-  return editable === null || editable.getAttribute("contenteditable") === "false"
+  for (const target of path) {
+    if (
+      target.closest(
+        'input, textarea, select, [role="textbox"], [role="combobox"], [role="dialog"], dialog, [role="menu"]',
+      )
+    )
+      return false
+
+    const editable = target.closest("[contenteditable]")
+    if (editable !== null && editable.getAttribute("contenteditable") !== "false") return false
+  }
+
+  return true
 }
