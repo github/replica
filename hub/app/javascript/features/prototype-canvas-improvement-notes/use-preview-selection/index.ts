@@ -14,6 +14,7 @@ type Props = {
   prototypeUrl?: string
   previewUrl?: string
   notes: Note[]
+  active?: boolean
   annotating: boolean
   composing: boolean
   onSelect: (anchor: ReviewAnchor) => void
@@ -31,6 +32,7 @@ export function usePreviewSelection({
   prototypeUrl,
   previewUrl,
   notes,
+  active = true,
   annotating,
   composing,
   onSelect,
@@ -42,10 +44,12 @@ export function usePreviewSelection({
   const [connection, setConnection] = useState<{ nonce: string; ready: boolean } | null>(null)
   const [resolutions, setResolutions] = useState<Map<number, AnchorResolution>>(new Map())
   const anchorKey = JSON.stringify(
-    notes.filter((note) => note.anchor).map((note) => ({ id: note.id, anchor: note.anchor })),
+    active
+      ? notes.filter((note) => note.anchor).map((note) => ({ id: note.id, anchor: note.anchor }))
+      : [],
   )
   const receiveSelection = useEffectEvent((value: unknown) => {
-    if (!annotating || composing) return
+    if (!active || !annotating || composing) return
     const anchor = REVIEW_ANCHOR_SCHEMA.safeParse(value)
     if (anchor.success) {
       onSelect(anchor.data)
@@ -74,7 +78,11 @@ export function usePreviewSelection({
     const anchors: unknown = JSON.parse(anchorKey)
     function requestState() {
       frame?.contentWindow?.postMessage({ type: "replica:canvas:request-ready", nonce }, origin)
-      frame?.contentWindow?.postMessage({ type: "replica:canvas:resolve", nonce, anchors }, origin)
+      if (active)
+        frame?.contentWindow?.postMessage(
+          { type: "replica:canvas:resolve", nonce, anchors },
+          origin,
+        )
     }
     function loaded() {
       nonce = crypto.randomUUID()
@@ -149,17 +157,19 @@ export function usePreviewSelection({
       frame.removeEventListener("load", loaded)
       window.removeEventListener("message", receive)
       window.clearInterval(interval)
-      frame.contentWindow?.postMessage({ type: "replica:canvas:cancel-selection", nonce }, origin)
-      frame.contentWindow?.postMessage({ type: "replica:canvas:clear-selection", nonce }, origin)
+      if (active) {
+        frame.contentWindow?.postMessage({ type: "replica:canvas:cancel-selection", nonce }, origin)
+        frame.contentWindow?.postMessage({ type: "replica:canvas:clear-selection", nonce }, origin)
+      }
     }
-  }, [anchorKey, frameRef, frameUrl, onCancel, onProblem, onRoute])
+  }, [active, anchorKey, frameRef, frameUrl, onCancel, onProblem, onRoute])
 
   useEffect(() => {
-    if (!connection?.ready) return
+    if (!active || !connection?.ready) return
     if (annotating && !composing) send("replica:canvas:select", { mode: "improvement" })
     else send("replica:canvas:cancel-selection")
     if (!composing) send("replica:canvas:clear-selection")
-  }, [annotating, composing, connection?.ready, send])
+  }, [active, annotating, composing, connection?.ready, send])
 
   return { ready: connection?.ready === true, resolutions }
 }

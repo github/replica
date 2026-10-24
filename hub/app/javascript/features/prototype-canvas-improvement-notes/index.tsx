@@ -22,6 +22,9 @@ type Props = {
     prototypeUrl: string
     previewUrl?: string
     hubOpen: boolean
+    active?: boolean
+    selectionDisabled?: boolean
+    onInteractionChange?: (blocked: boolean) => void
     onOpenNotes: () => void
     onNavigate: (url: string) => void
   }
@@ -41,6 +44,7 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
   const [discarding, setDiscarding] = useState(false)
   const [panelOpen, setPanelOpen] = useState(true)
   const [message, setMessage] = useState("")
+  const [threadInteraction, setThreadInteraction] = useState(false)
   const captureGeneration = useRef(0)
   const annotateRef = useRef<HTMLButtonElement>(null)
   const draftRef = useRef<HTMLTextAreaElement>(null)
@@ -52,6 +56,12 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
     saved.state?.syncError === "Notes are saved locally until Hub discovers this branch."
       ? null
       : saved.state?.syncError
+  const active = canvas.active !== false
+  const onInteractionChange = canvas.onInteractionChange
+
+  useLayoutEffect(() => {
+    onInteractionChange?.(capturingSource || annotating || selection !== null || threadInteraction)
+  }, [onInteractionChange, capturingSource, annotating, selection, threadInteraction])
 
   const receiveSelection = useCallback(
     (anchor: ReviewAnchor) => {
@@ -75,6 +85,7 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
     prototypeUrl: canvas.prototypeUrl,
     previewUrl: canvas.previewUrl,
     notes,
+    active,
     annotating,
     composing: selection !== null,
     onSelect: receiveSelection,
@@ -88,11 +99,14 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
   }, [composerOpen])
 
   function openNotes() {
+    if (canvas.selectionDisabled) return
     setPanelOpen(true)
     canvas.onOpenNotes()
   }
 
   async function beginSelection() {
+    if (canvas.selectionDisabled) return
+    canvas.onOpenNotes()
     const generation = ++captureGeneration.current
     setCapturingSource(true)
     const source = await saved.capture()
@@ -150,7 +164,9 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
               title={copy.annotate}
               leadingVisual={<CrosshairsIcon />}
               aria-pressed={annotating}
-              disabled={capturingSource || !preview.ready || !saved.state}
+              disabled={
+                canvas.selectionDisabled || capturingSource || !preview.ready || !saved.state
+              }
               onClick={() => {
                 if (annotating) cancelPreviewSelection()
                 else void beginSelection()
@@ -163,7 +179,8 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
               size="small"
               variant="secondary"
               aria-label={copy.openNotes(notesCount)}
-              aria-expanded={panelOpen && !canvas.hubOpen}
+              aria-expanded={panelOpen && active && !canvas.hubOpen}
+              disabled={canvas.selectionDisabled}
               onClick={openNotes}
             >
               <HubCounter>{notesCount}</HubCounter>
@@ -175,8 +192,9 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
         identity={saved.state?.identity ?? ""}
         controls={false}
         returnFocusRef={notesToggleRef}
-        open={panelOpen && !canvas.hubOpen && !selection}
-        active={(panelOpen || annotating) && !canvas.hubOpen && !selection}
+        open={panelOpen && active && !canvas.hubOpen && !selection}
+        active={active && (panelOpen || annotating) && !canvas.hubOpen && !selection}
+        onInteractionChange={setThreadInteraction}
         onOpen={openNotes}
         onClose={() => {
           setPanelOpen(false)

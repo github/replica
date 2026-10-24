@@ -59,6 +59,11 @@ export function App({ config }: Props) {
     collapsedGroups: {},
   })
   const [hubOpen, setHubOpen] = useState(false)
+  const [reviewSurface, setReviewSurface] = useState<"comments" | "improvements">(
+    config.pickAndPolish ? "improvements" : "comments",
+  )
+  const [commentInteraction, setCommentInteraction] = useState(false)
+  const [improvementInteraction, setImprovementInteraction] = useState(false)
   const [improvementControls, setImprovementControls] = useState<HTMLDivElement | null>(null)
   const [buildDetailsOpen, setBuildDetailsOpen] = useState(false)
   const feedbackInFlight = useRef(false)
@@ -300,6 +305,10 @@ export function App({ config }: Props) {
 
         <PrototypeCanvasHubPanel
           config={config}
+          active={reviewSurface === "comments"}
+          onActivate={() => setReviewSurface("comments")}
+          selectionDisabled={improvementInteraction}
+          onInteractionChange={setCommentInteraction}
           frameRef={frameRef}
           onRouteChange={reportRoute}
           status={hub.status}
@@ -339,7 +348,13 @@ export function App({ config }: Props) {
                 prototypeUrl: config.prototypeUrl,
                 previewUrl: config.previewUrl,
                 hubOpen,
-                onOpenNotes: () => setHubOpen(false),
+                active: reviewSurface === "improvements",
+                selectionDisabled: commentInteraction,
+                onInteractionChange: setImprovementInteraction,
+                onOpenNotes: () => {
+                  setHubOpen(false)
+                  setReviewSurface("improvements")
+                },
                 onNavigate: navigate,
               }}
             />
