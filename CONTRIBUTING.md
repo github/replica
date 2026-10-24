@@ -126,7 +126,6 @@ Repository workflow and dependency checks have their own small npm project:
 npm ci --prefix scripts --ignore-scripts --engine-strict
 npm run typecheck --prefix scripts
 npm test --prefix scripts
-node --test scripts/select-ci-suites.test.mjs
 node scripts/check-ci-workflows/index.ts
 node scripts/check-dependency-age/index.ts
 ```

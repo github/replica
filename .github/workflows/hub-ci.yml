@@ -13,13 +13,8 @@ defaults:
     working-directory: hub
 
 jobs:
-  changes:
-    uses: ./.github/workflows/ci-changes.yml
-
   check:
-    name: Hub ${{ matrix.command }}${{ matrix.node == 26 && ' (Node 26)' || '' }}
-    needs: changes
-    if: ${{ needs.changes.outputs.hub == 'true' }}
+    name: Hub ${{ matrix.command == 'test' && 'unit tests' || matrix.command == 'test:database' && 'database tests' || matrix.command }}${{ matrix.node == 26 && ' (Node 26)' || '' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -54,8 +49,6 @@ jobs:
 
   integration:
     name: Controls and extension tests${{ matrix.node == 26 && ' (Node 26)' || '' }}
-    needs: changes
-    if: ${{ needs.changes.outputs.hub == 'true' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -83,24 +76,3 @@ jobs:
       - run: npm run controls:assets:check
       - run: npm run controls:schema:check
       - run: npm run extension:assets:check
-
-  result:
-    name: Frontend tests
-    needs: [changes, check, integration]
-    if: ${{ always() }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Require the selected Hub suite to pass
-        working-directory: .
-        env:
-          SELECTION_RESULT: ${{ needs.changes.result }}
-          SELECTED: ${{ needs.changes.outputs.hub }}
-          CHECK_RESULT: ${{ needs.check.result }}
-          INTEGRATION_RESULT: ${{ needs.integration.result }}
-        run: |
-          test "$SELECTION_RESULT" = success
-          case "$SELECTED" in
-            true) test "$CHECK_RESULT" = success && test "$INTEGRATION_RESULT" = success ;;
-            false) test "$CHECK_RESULT" = skipped && test "$INTEGRATION_RESULT" = skipped ;;
-            *) echo "Invalid Hub suite selection" >&2; exit 1 ;;
-          esac

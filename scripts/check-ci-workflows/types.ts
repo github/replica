@@ -20,5 +20,9 @@ interface Job {
 }
 
 export interface Workflow {
+  on?: {
+    pull_request?: null | Record<string, unknown>
+    push?: Record<string, unknown>
+  }
   jobs: Record<string, Job>
 }

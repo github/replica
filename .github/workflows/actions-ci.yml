@@ -9,13 +9,8 @@ permissions:
   contents: read
 
 jobs:
-  changes:
-    uses: ./.github/workflows/ci-changes.yml
-
   test:
     name: Build action suite${{ matrix.node == 26 && ' (Node 26)' || '' }}
-    needs: changes
-    if: ${{ needs.changes.outputs.build_action == 'true' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -39,22 +34,3 @@ jobs:
         run: cp actions/build/test/fixture/package.json actions/build/test/fixture/package-lock.json actions/build/test/fixture/fixture-build.mjs .
       - uses: ./actions/build
         if: ${{ matrix.node == 24 }}
-
-  result:
-    name: Replica action tests
-    needs: [changes, test]
-    if: ${{ always() }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Require the selected build-action suite to pass
-        env:
-          SELECTION_RESULT: ${{ needs.changes.result }}
-          SELECTED: ${{ needs.changes.outputs.build_action }}
-          TEST_RESULT: ${{ needs.test.result }}
-        run: |
-          test "$SELECTION_RESULT" = success
-          case "$SELECTED" in
-            true) test "$TEST_RESULT" = success ;;
-            false) test "$TEST_RESULT" = skipped ;;
-            *) echo "Invalid build-action suite selection" >&2; exit 1 ;;
-          esac
