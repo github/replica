@@ -54,6 +54,7 @@ export function ImprovementThreads({
   onDelete,
   onFix,
   onSelect,
+  onInteractionChange,
   onRetry,
   identity,
   busy = false,
@@ -68,6 +69,9 @@ export function ImprovementThreads({
   const [submitting, setSubmitting] = useState(false)
   const [discarding, setDiscarding] = useState(false)
   const [deleting, setDeleting] = useState<ImprovementThread | null>(null)
+  useLayoutEffect(() => {
+    onInteractionChange?.(selected !== null || deleting !== null)
+  }, [selected, deleting, onInteractionChange])
   const [openedIdentity, setOpenedIdentity] = useState(identity)
   const [message, setMessage] = useState("")
   const [filter, setFilter] = useState("active")

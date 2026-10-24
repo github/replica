@@ -16,12 +16,14 @@ function PublicationDemo({
   prototypeUrl,
   withShareLinks = false,
   withComments = false,
+  withPickAndPolish = false,
   onImproveContext,
 }: {
   scenario: string
   prototypeUrl: string
   withShareLinks?: boolean
   withComments?: boolean
+  withPickAndPolish?: boolean
   onImproveContext?: () => void
 }) {
   const [ready, setReady] = useState(false)
@@ -191,6 +193,34 @@ function PublicationDemo({
           hasMore: false,
           nextCursor: null,
         }
+      else if (
+        withPickAndPolish &&
+        (path === "/api/improvement-notes" || path === "/api/improvement-notes/sync")
+      )
+        data = {
+          identity: "storybook-notes",
+          revision: 1,
+          syncError: null,
+          activeBatch: null,
+          notes: [
+            {
+              id: 1,
+              localId: "storybook-save-action",
+              kind: "improvement_note",
+              author: "local",
+              body: "Keep the save action visible while editing project details.",
+              thread: { originalStatus: "open", messages: [] },
+              anchor: repliedReviewThread.root.anchor,
+              status: "open",
+              sync: "local",
+              revision: 1,
+              route: "/",
+              target: "Save",
+              selector: "#save",
+              rect: { x: 64, y: 180, width: 88, height: 44 },
+            },
+          ],
+        }
       else if (withComments && /^\/api\/hub\/comments\/\d+\/read$/.test(path)) {
         const id = Number(path.split("/").at(-2))
         const root = comments.find((comment) => comment.id === id && comment.kind === "root")
@@ -228,12 +258,19 @@ function PublicationDemo({
       window.clearTimeout(timer)
       window.fetch = originalFetch
     }
-  }, [scenario, withShareLinks, withComments, onImproveContext])
+  }, [scenario, withShareLinks, withComments, withPickAndPolish, onImproveContext])
   return (
     <div className="publication-demo">
       <div className="publication-demo-canvas">
         {ready ? (
-          <App config={{ prototypeUrl, name: "Welcome prototype", token: "fixture-only" }} />
+          <App
+            config={{
+              prototypeUrl,
+              name: "Welcome prototype",
+              token: "fixture-only",
+              pickAndPolish: withPickAndPolish,
+            }}
+          />
         ) : null}
       </div>
     </div>
@@ -263,7 +300,7 @@ const meta = {
   argTypes: { scenario: { control: "select", options: Object.keys(publicationExamples) } },
   render: (args) => (
     <PublicationDemo
-      key={`${args.scenario}/${args.withShareLinks}/${args.withComments}`}
+      key={`${args.scenario}/${args.withShareLinks}/${args.withComments}/${args.withPickAndPolish}`}
       {...args}
     />
   ),
@@ -405,6 +442,30 @@ export const CommentsSidebar: Story = {
       Math.abs(avatar.top + avatar.height / 2 - author.top - author.height / 2) > 0.5
     )
       throw new Error("The compact avatar must align above the unread dot beside the author.")
+  },
+}
+
+export const CommentsAndPickAndPolish: Story = {
+  args: {
+    scenario: "Published",
+    withComments: true,
+    withPickAndPolish: true,
+  },
+  render: (args) => (
+    <PublicationDemo
+      {...args}
+      prototypeUrl={new URL("/prototype-preview/index.html", window.location.href).href}
+    />
+  ),
+}
+
+export const CommentsWithPickAndPolishSidebar: Story = {
+  ...CommentsAndPickAndPolish,
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(
+      await canvas.findByRole("button", { name: /^Comments, 3/ }, { timeout: 5_000 }),
+    )
+    await canvas.findByRole("complementary", { name: "Comments" })
   },
 }
 export const ShareManagement: Story = {

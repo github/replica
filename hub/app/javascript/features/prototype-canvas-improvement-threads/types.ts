@@ -36,6 +36,7 @@ export type ImprovementThreadsProps = {
   onOpen: () => void
   onClose: () => void
   onSelect?: (id: number) => void
+  onInteractionChange?: (blocked: boolean) => void
   onFollowUp: (thread: ImprovementThread, body: string) => Promise<boolean>
   onResolve: (thread: ImprovementThread) => Promise<boolean>
   onDelete: (thread: ImprovementThread) => Promise<boolean>
