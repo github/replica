@@ -38,6 +38,7 @@ import { copy } from "@utils/prototype-canvas/en"
 import { BranchPublication } from "@components/prototype-branch-publication"
 import { CommentingRecovery } from "@components/prototype-commenting-recovery"
 import { useCommentingRecovery } from "@hooks/use-canvas-commenting-recovery"
+import { useReviewError } from "@hooks/use-review-error"
 import type { Publication } from "@utils/resolve-prototype-publication"
 import { publicationCopy } from "@utils/resolve-prototype-publication/en"
 import type { usePublishPreference } from "@hooks/use-canvas-publish-preference"
@@ -149,6 +150,8 @@ export function PrototypeCanvasHubPanel({
   const [previewRoute, setPreviewRoute] = useState<ReviewRoute | null>(null)
   const [selected, setSelected] = useState<number | null>(null)
   const [error, setError] = useState("")
+  const [commentError, setCommentError] = useState("")
+  useReviewError(commentError)
   const [createError, setCreateError] = useState("")
   const [rateLimitMessage, setRateLimitMessage] = useState("")
   const [disconnectWarning, setDisconnectWarning] = useState("")
@@ -185,6 +188,8 @@ export function PrototypeCanvasHubPanel({
     "element-unavailable" | "area-too-small" | "area-unavailable" | null
   >(null)
   const [liveError, setLiveError] = useState(false)
+  useReviewError(status?.reviewError || status?.localCommentsError)
+  useReviewError(liveError && copy.commentLiveUpdatesPaused)
   const [mutation, setMutation] = useState<ReviewCommentMutation | null>(null)
   const mutationRef = useRef(false)
   const commentMutationRevisionRef = useRef(0)
@@ -454,7 +459,7 @@ export function PrototypeCanvasHubPanel({
         return
       setCommentState({ identity: requestedIdentity, items: collection.comments })
       setCommentsLoadFailed(false)
-      setError("")
+      setCommentError("")
     } catch (cause) {
       if (
         commentIdentityRef.current === requestedIdentity &&
@@ -462,7 +467,7 @@ export function PrototypeCanvasHubPanel({
         commentMutationRevisionRef.current === commentMutationRevision
       ) {
         setCommentsLoadFailed(true)
-        setError(cause instanceof Error ? cause.message : String(cause))
+        setCommentError(cause instanceof Error ? cause.message : String(cause))
       }
     } finally {
       if (
@@ -503,6 +508,7 @@ export function PrototypeCanvasHubPanel({
       setSelectedAnchor(null)
       setSelectionFailure(null)
       setCreateError("")
+      setCommentError("")
       setRateLimitMessage("")
       setCommentsLoadFailed(false)
     }, 0)
@@ -873,6 +879,7 @@ export function PrototypeCanvasHubPanel({
       commentMutationRevisionRef.current += 1
     }
     setRateLimitMessage("")
+    setCommentError("")
     try {
       const result = await request(`/api/hub/comments/${path}`, config.token, {
         method,
@@ -894,7 +901,7 @@ export function PrototypeCanvasHubPanel({
       return true
     } catch (cause) {
       if (identityRef.current === requestedIdentity) {
-        setError(cause instanceof Error ? cause.message : String(cause))
+        setCommentError(cause instanceof Error ? cause.message : String(cause))
         if (cause instanceof Error && "statusCode" in cause && cause.statusCode === 429)
           setRateLimitMessage(cause.message)
       }
@@ -921,6 +928,7 @@ export function PrototypeCanvasHubPanel({
     setMutation({ kind: "create" })
     setRateLimitMessage("")
     setCreateError("")
+    setCommentError("")
     try {
       const result = REVIEW_COMMENT_MUTATION_SCHEMA.parse(
         await request("/api/hub/comments", config.token, {
@@ -957,14 +965,14 @@ export function PrototypeCanvasHubPanel({
         .catch((cause: unknown) => {
           if (identityRef.current === requestedIdentity) {
             const message = cause instanceof Error ? cause.message : String(cause)
-            setError(copy.commentRefreshFailed(message))
+            setCommentError(copy.commentRefreshFailed(message))
           }
         })
       return true
     } catch (cause) {
       if (identityRef.current === requestedIdentity) {
         const message = cause instanceof Error ? cause.message : String(cause)
-        setError(message)
+        setCommentError(message)
         setCreateError(message)
         if (cause instanceof Error && "statusCode" in cause && cause.statusCode === 429)
           setRateLimitMessage(cause.message)
@@ -1523,28 +1531,6 @@ export function PrototypeCanvasHubPanel({
           showPins={showPins}
           loading={loading}
           loadFailed={commentsLoadFailed}
-          notice={
-            liveError || status?.reviewError || status?.localCommentsError || draftRevisionId ? (
-              <div className="canvas-comments-live-notices">
-                {liveError ? (
-                  <p className="canvas-comments-live-status" role="status">
-                    {copy.commentLiveUpdatesPaused}
-                  </p>
-                ) : null}
-                {status?.reviewError ? (
-                  <p className="canvas-comments-live-status">{status.reviewError}</p>
-                ) : null}
-                {status?.localCommentsError ? (
-                  <p className="canvas-comments-live-status" role="alert">
-                    {status.localCommentsError}
-                  </p>
-                ) : null}
-                {draftRevisionId ? (
-                  <p className="canvas-comments-live-status">{copy.localCommentsSaved}</p>
-                ) : null}
-              </div>
-            ) : null
-          }
           copy={reviewCommentsCopy}
           onClose={toggleComments}
           onFiltersChange={setFilters}

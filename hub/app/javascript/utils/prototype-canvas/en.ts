@@ -1,7 +1,7 @@
 export const copy = {
   improvementNotesLoading: "Loading improvement notes...",
-  localCommentsSaved:
-    "Comments stay on this device until a Build with matching content is published and the canvas syncs them to Hub.",
+  commentNotifications: "Comment notifications",
+  dismissCommentNotification: "Dismiss notification",
   commentPreparationFailed: "Hub could not prepare this comment.",
   commentRefreshFailed: (detail: string) =>
     `The comment was saved, but Hub could not be refreshed: ${detail}`,

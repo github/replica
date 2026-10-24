@@ -11,6 +11,7 @@ import { ReviewConversationFrame } from "@components/review-conversation-frame"
 import { useEmojiBurst } from "@hooks/use-emoji-burst"
 import { useReviewCardPosition } from "@hooks/use-review-card-position"
 import { useReviewThreadConversation } from "@hooks/use-review-thread-conversation"
+import { useReviewError } from "@hooks/use-review-error"
 
 import type { ReviewThreadConversationProps } from "./types"
 
@@ -80,6 +81,9 @@ export function ReviewThreadConversation({
     onReopen,
   })
   const { state, actions } = conversation
+  const showResolutionError = useReviewError(state.resolutionFailed && copy.resolutionErrorLabel)
+  const showReadError = useReviewError(readFailed && copy.readErrorLabel)
+  const showUnreadError = useReviewError(unreadFailed && copy.markUnreadErrorLabel)
   const fallbackPoint = { x: 12, y: 12 }
   const comments = [thread.root, ...thread.replies]
   const { cardRef, position } = useReviewCardPosition({
@@ -300,7 +304,7 @@ export function ReviewThreadConversation({
           />
         </header>
 
-        {state.resolutionFailed ? (
+        {showResolutionError ? (
           <HubAlert
             variant="critical"
             title={copy.resolutionErrorLabel}
@@ -308,7 +312,7 @@ export function ReviewThreadConversation({
           />
         ) : null}
 
-        {readFailed ? (
+        {showReadError ? (
           <HubAlert
             variant="critical"
             title={copy.readErrorLabel}
@@ -316,7 +320,7 @@ export function ReviewThreadConversation({
           />
         ) : null}
 
-        {unreadFailed ? (
+        {showUnreadError ? (
           <HubAlert
             variant="critical"
             title={copy.markUnreadErrorLabel}
