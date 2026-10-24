@@ -29,28 +29,39 @@ function fixture() {
 }
 
 describe("checkWorkflows()", () => {
-  it("rejects failed, cancelled, skipped, and missing selected results in the committed workflows", () => {
-    expect(checkWorkflows(root)).toBe(600)
+  it("accepts the committed independent checks on both supported Node versions", () => {
+    expect(() => checkWorkflows(root)).not.toThrow()
   })
 
-  it("rejects a result check that silently accepts failed jobs", () => {
+  it("rejects an aggregate result gate", () => {
     const directory = fixture()
     const path = join(directory, ".github/workflows/hub-ci.yml")
     const workflow = parse(readFileSync(path, "utf8")) as Workflow
-    assert(workflow.jobs.result.steps)
-    workflow.jobs.result.steps[0].run = "exit 0"
+    workflow.jobs.result = {
+      needs: ["check", "integration"],
+      steps: [{ run: "exit 0" }],
+    }
     writeFileSync(path, stringify(workflow))
     expect(() => checkWorkflows(directory)).toThrow(/hub-ci/)
   })
 
-  it("rejects a result check that reads the wrong suite choice", () => {
+  it.each(["if", "needs"] as const)("rejects job-level %s that could skip checks", (key) => {
     const directory = fixture()
     const path = join(directory, ".github/workflows/actions-ci.yml")
     const workflow = parse(readFileSync(path, "utf8")) as Workflow
-    assert(workflow.jobs.result.steps?.[0].env)
-    workflow.jobs.result.steps[0].env.SELECTED = "${{ needs.changes.outputs.hub }}"
+    workflow.jobs.test[key] = key === "if" ? "${{ false }}" : "changes"
     writeFileSync(path, stringify(workflow))
-    expect(() => checkWorkflows(directory)).toThrow(/build_action/)
+    expect(() => checkWorkflows(directory)).toThrow(/actions-ci\/test/)
+  })
+
+  it.each(["pull_request", "push"] as const)("rejects %s path filters", (event) => {
+    const directory = fixture()
+    const path = join(directory, ".github/workflows/starter-ci.yml")
+    const workflow = parse(readFileSync(path, "utf8")) as Workflow
+    assert(workflow.on)
+    workflow.on[event] = { ...workflow.on[event], paths: ["starter/**"] }
+    writeFileSync(path, stringify(workflow))
+    expect(() => checkWorkflows(directory)).toThrow(/starter-ci/)
   })
 
   it("rejects missing supported Node versions and required commands", () => {

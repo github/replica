@@ -1,5 +1,5 @@
 import { act, renderHook } from "@testing-library/react"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { usePrototypeState } from "."
 
@@ -10,11 +10,6 @@ beforeEach(() => {
   vi.useFakeTimers()
   fetchMock = vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve(state) }))
   vi.stubGlobal("fetch", fetchMock)
-})
-
-afterEach(() => {
-  vi.useRealTimers()
-  vi.unstubAllGlobals()
 })
 
 describe("usePrototypeState()", () => {

@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { reviewCommentsCopy } from "@utils/review-comment/en"
 
@@ -21,7 +21,6 @@ beforeEach(() => {
     },
   )
 })
-afterEach(() => vi.unstubAllGlobals())
 
 describe("ReviewCommentControl()", () => {
   it("aligns the comment icon as a Brand leading visual and describes the menu trigger", () => {

@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { HubThemeProvider } from "@hooks/use-hub-theme"
 
@@ -23,10 +23,6 @@ describe("ScrollingScreenshot()", () => {
     vi.spyOn(HTMLImageElement.prototype, "clientWidth", "get").mockReturnValue(360)
     vi.spyOn(HTMLDivElement.prototype, "clientHeight", "get").mockReturnValue(200)
     vi.spyOn(HTMLImageElement.prototype, "naturalWidth", "get").mockReturnValue(1440)
-  })
-
-  afterEach(() => {
-    vi.unstubAllGlobals()
   })
 
   it("calculates the full scroll distance from the loaded image height", () => {

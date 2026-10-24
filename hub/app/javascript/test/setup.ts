@@ -1,5 +1,6 @@
 import "@testing-library/jest-dom/vitest"
-import { afterEach, vi } from "vitest"
+import { cleanup } from "@testing-library/react"
+import { beforeEach } from "vitest"
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
@@ -69,6 +70,12 @@ Object.defineProperty(HTMLDialogElement.prototype, "close", {
   },
 })
 
-afterEach(() => {
-  vi.useRealTimers()
+beforeEach(() => {
+  cleanup()
+  window.localStorage.clear()
+  window.sessionStorage.clear()
+  window.history.replaceState(null, "", "/")
+  window.getSelection()?.removeAllRanges()
+  document.body.replaceChildren()
+  document.body.removeAttribute("style")
 })

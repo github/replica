@@ -2,14 +2,8 @@ name: Learning CI
 
 on:
   pull_request:
-    paths:
-      - ".github/workflows/learning-ci.yml"
-      - "packages/learning/**"
   push:
     branches: [main]
-    paths:
-      - ".github/workflows/learning-ci.yml"
-      - "packages/learning/**"
 
 permissions:
   contents: read

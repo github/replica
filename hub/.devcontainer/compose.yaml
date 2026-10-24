@@ -10,6 +10,7 @@ services:
       - ../..:/workspaces/replica:cached
     environment:
       DATABASE_URL: postgresql://replica:replica@db:5432/replica
+      TEST_DATABASE_URL: postgresql://replica:replica@db:5432/postgres
     depends_on:
       db:
         condition: service_healthy

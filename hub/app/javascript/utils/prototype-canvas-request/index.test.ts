@@ -1,8 +1,6 @@
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { request } from "."
-
-afterEach(() => vi.unstubAllGlobals())
 
 describe("request()", () => {
   it("sends the canvas token and returns a successful response", async () => {

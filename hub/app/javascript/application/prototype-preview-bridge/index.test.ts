@@ -1,11 +1,17 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, expect, it, vi } from "vitest"
+import { beforeEach, expect, it, onTestFinished, vi } from "vitest"
 
 import { REVIEW_ANCHOR_SCHEMA } from "@utils/review-anchor/schemas"
 
 import { installBridge } from "."
 
-beforeEach(() => installBridge("http://127.0.0.1:1234"))
+beforeEach(() => {
+  onTestFinished(() => {
+    const bridgeWindow = window as Window & { [installed]?: () => void }
+    bridgeWindow[installed]?.()
+  })
+  installBridge("http://127.0.0.1:1234")
+})
 
 const TEXT_ENCODER = new TextEncoder()
 const installed = Symbol.for("replica.canvas.bridge.v1")
@@ -17,16 +23,6 @@ function boundedText(maximumBytes: number, character: string, remainingBytes: nu
     expected: prefix + (TEXT_ENCODER.encode(character).length <= remainingBytes ? character : ""),
   }
 }
-
-afterEach(() => {
-  const bridgeWindow = window as Window & { [installed]?: () => void }
-  bridgeWindow[installed]?.()
-  window.getSelection()?.removeAllRanges()
-  document.body.innerHTML = ""
-  document.body.style.position = ""
-  vi.restoreAllMocks()
-  vi.unstubAllGlobals()
-})
 
 it.each(["static", "fixed", "sticky"])(
   "updates a %s-ancestor pin on scroll instead of waiting for polling",

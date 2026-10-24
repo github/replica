@@ -11,6 +11,8 @@ Hub is being rebuilt in TypeScript. The app starts locally, but its product feat
 
 Run Node commands from `hub/`, locally or inside the devcontainer. PostgreSQL and Prisma are configured without product models. Agree on the design before adding models, sign-in, deployment, or product API routes.
 
+`npm test` is database-free. Use `npm run test:database` for `.db.test.ts` server cases, with the worker-specific databases and shared reset lifecycle described in [testing](docs/testing-and-operations.md).
+
 Keep the top-level `HubThemeProvider` around Hub and Storybook content. It synchronizes the resolved light/dark mode to `<html data-color-mode>` so portals inherit Brand and `--hub-*` tokens. Do not add a fixed light theme to an overlay.
 
 Preserve the shared canvas and Controls source paths under `app/javascript/`; the prototype extension and build action consume them independently of the Hub API.

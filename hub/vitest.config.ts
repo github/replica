@@ -1,3 +1,4 @@
+import { availableParallelism } from "node:os"
 import react from "@vitejs/plugin-react"
 import { configDefaults, defineConfig } from "vitest/config"
 
@@ -33,9 +34,15 @@ export default defineConfig({
     clearMocks: true,
     css: true,
     globals: true,
+    pool: "forks",
+    fileParallelism: true,
+    maxWorkers: Math.max(1, availableParallelism() - 1),
+    maxConcurrency: 1,
     mockReset: true,
     restoreMocks: true,
     unstubGlobals: true,
+    unstubEnvs: true,
+    setupFiles: ["./test/setup.ts"],
     server: { deps: { inline: [/@primer\//] } },
     projects: [
       {
@@ -43,7 +50,8 @@ export default defineConfig({
         test: {
           name: "node",
           environment: "node",
-          include: [...nodeTests, "server/**/*.test.ts"],
+          include: [...nodeTests, "server/**/*.test.ts", "test/**/*.test.ts"],
+          exclude: [...configDefaults.exclude, "**/*.db.test.ts"],
         },
       },
       {
@@ -54,6 +62,17 @@ export default defineConfig({
           include: ["app/javascript/**/*.test.{ts,tsx}", ".storybook/**/*.test.{ts,tsx}"],
           exclude: [...configDefaults.exclude, ...nodeTests],
           setupFiles: ["./app/javascript/test/setup.ts"],
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: "database",
+          environment: "node",
+          include: ["server/**/*.db.test.ts"],
+          globalSetup: ["./test/database/global-setup/index.ts"],
+          setupFiles: ["./test/database/setup.ts"],
+          hookTimeout: 30_000,
         },
       },
     ],

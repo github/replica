@@ -54,3 +54,5 @@ npm run db:generate
 `npm ci` also generates the client. Generated TypeScript lives under the ignored `server/generated/prisma/` directory and compiles with the API. Schema validation and generation do not require a running database or `DATABASE_URL`; migration and database commands require both. Generate again after changing a schema.
 
 Use `db:migrate` only with a local development database. It needs permission to create a shadow database to calculate migrations. `npm run db:deploy` applies committed migrations without creating new ones; it is not a production deployment setup. `npm run db:studio` opens Prisma's database editor and should be used only with an intended development database.
+
+The [database test project](testing-and-operations.md#parallel-database-tests) uses separate databases for every worker and test run. It applies the current Prisma schema directly, clears records before each case, and does not use the development database for test data.

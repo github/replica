@@ -107,6 +107,8 @@ npm run build
 npm run storybook:build
 ```
 
+Run `npm run test:database` with the [Hub development database](hub/docs/development.md) for server cases that save records. It prepares separate databases per Vitest worker; ordinary `npm test` remains database-free.
+
 Useful focused commands include:
 
 | Goal            | Command                                         |
@@ -124,7 +126,6 @@ Repository workflow and dependency checks have their own small npm project:
 npm ci --prefix scripts --ignore-scripts --engine-strict
 npm run typecheck --prefix scripts
 npm test --prefix scripts
-node --test scripts/select-ci-suites.test.mjs
 node scripts/check-ci-workflows/index.ts
 node scripts/check-dependency-age/index.ts
 ```

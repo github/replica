@@ -1,13 +1,8 @@
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import type { PrismaClient } from "../../generated/prisma/client"
 
 vi.mock("dotenv/config", () => ({}))
-
-afterEach(() => {
-  vi.unstubAllEnvs()
-  vi.resetModules()
-})
 
 describe("prisma", () => {
   it("reuses the development client after a module reload", async () => {

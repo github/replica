@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { octocatRootComment } from "@/storybook/fixtures/review/comments"
 import { reviewCommentsCopy } from "@utils/review-comment/en"
@@ -48,7 +48,6 @@ beforeEach(() => {
     },
   )
 })
-afterEach(() => vi.unstubAllGlobals())
 
 describe("ReviewThreadMessage()", () => {
   it("keeps the author, compact timestamp, and edited status on one byline", () => {

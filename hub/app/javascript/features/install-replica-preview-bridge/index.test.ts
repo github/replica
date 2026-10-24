@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { PREVIEW_BRIDGE_MESSAGE_SCHEMA } from "@utils/preview-bridge/schemas"
 
@@ -8,7 +8,7 @@ const harness = createPreviewBridgeTestHarness()
 const { anchor, areaAnchor, bridgeWindow, dispatchMessage, message, postedMessages, renderFrames } =
   harness
 
-afterEach(harness.close)
+beforeEach(() => onTestFinished(harness.close))
 
 describe("installReplicaPreviewBridge()", () => {
   it.each(["static", "fixed", "sticky"])(

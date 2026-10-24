@@ -1,7 +1,7 @@
 import { act } from "react"
 import { createPortal } from "react-dom"
 import { fireEvent, render, screen } from "@testing-library/react"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { HubThemeProvider, useHubTheme } from "."
 
@@ -19,8 +19,6 @@ function ThemeProbe() {
 }
 
 describe("useHubTheme()", () => {
-  afterEach(() => vi.restoreAllMocks())
-
   it("follows the system until a reviewer selects a color mode", () => {
     const listeners = new Set<(event: MediaQueryListEvent) => void>()
     const preference = Object.assign(window.matchMedia("(prefers-color-scheme: dark)"), {
