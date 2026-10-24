@@ -10,6 +10,7 @@ import { ReviewMessageHeading } from "@components/review-message-heading"
 import { ReviewConfirmationPanel } from "@features/review-confirmation-panel"
 import { ReviewCommentReactions } from "@features/review-comment-reactions"
 import { ReviewRelativeTime } from "@features/review-relative-time"
+import { useReviewError } from "@hooks/use-review-error"
 
 import type { ReviewThreadMessageProps } from "./types"
 
@@ -48,6 +49,9 @@ export function ReviewThreadMessage({
   const editFormRef = useRef<HTMLFormElement>(null)
   const wasConfirmingEditDiscard = useRef(false)
   const [menuSide, setMenuSide] = useState<"outside-bottom" | "outside-top">("outside-bottom")
+  const showLengthError = useReviewError(editBodyTooLong && copy.bodyTooLongLabel)
+  const showEditError = useReviewError(editFailed && copy.editErrorLabel)
+  const showDeleteError = useReviewError(deleteFailed && copy.deleteErrorLabel)
   const author = comment.author.name || `@${comment.author.login}`
   const actionLabel = copy.commentActionsLabel.replace("%{author}", `@${comment.author.login}`)
   const menuDisabled = actionsDisabled && (!onMarkUnread || markUnreadDisabled)
@@ -210,13 +214,13 @@ export function ReviewThreadMessage({
             onValueChange={onEditDraftChange}
           />
 
-          {editBodyTooLong ? (
+          {showLengthError ? (
             <span role="alert" className="review-thread-message__error">
               {copy.bodyTooLongLabel}
             </span>
           ) : null}
 
-          {editFailed ? (
+          {showEditError ? (
             <span role="alert" className="review-thread-message__error">
               {copy.editErrorLabel}
             </span>
@@ -257,7 +261,7 @@ export function ReviewThreadMessage({
         <ReviewConfirmationPanel
           heading={copy.deleteHeading}
           description={copy.deletePromptLabel}
-          errorLabel={deleteFailed ? copy.deleteErrorLabel : undefined}
+          errorLabel={showDeleteError ? copy.deleteErrorLabel : undefined}
           cancelLabel={copy.cancelEditLabel}
           confirmLabel={copy.confirmDeleteLabel}
           loading={deleting}

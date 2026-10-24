@@ -1,5 +1,6 @@
 import { ReviewCommentComposer } from "@features/review-comment-composer"
 import { ReviewThreadConversation } from "@features/review-thread-conversation"
+import { useReviewError } from "@hooks/use-review-error"
 
 import type { CanvasReviewOverlaysProps } from "./types"
 import "../prototype-canvas-hub-panel/styles.css"
@@ -11,12 +12,15 @@ export function CanvasReviewOverlays({
   composer,
   conversation,
 }: CanvasReviewOverlaysProps) {
+  const showSelectionNotice = useReviewError(selectionNotice)
+  const showRateLimitNotice = useReviewError(rateLimitNotice)
+
   return (
     <>
-      {selectionNotice || rateLimitNotice ? (
+      {showSelectionNotice || showRateLimitNotice ? (
         <div className="canvas-selection-notice" role="alert">
-          {selectionNotice ? <div>{selectionNotice}</div> : null}
-          {rateLimitNotice ? <div>{rateLimitNotice}</div> : null}
+          {showSelectionNotice ? <div>{selectionNotice}</div> : null}
+          {showRateLimitNotice ? <div>{rateLimitNotice}</div> : null}
         </div>
       ) : null}
       {composer ? (

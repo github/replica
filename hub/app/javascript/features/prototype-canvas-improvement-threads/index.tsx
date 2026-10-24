@@ -22,6 +22,7 @@ import { ReviewConversationFrame } from "@components/review-conversation-frame"
 import { HubUserAvatar } from "@components/hub-user-avatar"
 import { ReviewParticipantStack } from "@features/review-participant-stack"
 import { useReviewCardPosition } from "@hooks/use-review-card-position"
+import { useReviewError } from "@hooks/use-review-error"
 import { ReviewThreadReplyForm } from "@features/review-thread-reply-form"
 import { copy } from "./en"
 import type { ImprovementThread, ImprovementThreadsProps } from "./types"
@@ -89,6 +90,10 @@ export function ImprovementThreads({
   const thread = identity !== openedIdentity ? openedThread : (currentThread ?? openedThread)
   const removed = selected !== null && !currentThread
   const deletionRemoved = deleting !== null && !threads.some((item) => item.id === deleting.id)
+  const showError = useReviewError(error)
+  const showIdentityError = useReviewError(changedIdentity && copy.changedIdentity)
+  const showRemovedError = useReviewError((removed || deletionRemoved) && copy.removed)
+  const showTargetStatus = useReviewError(thread && !thread.point && copy.targetUnavailable)
   const { cardRef: conversation, position } = useReviewCardPosition({
     anchorPoint: { x: 12, y: 12 },
     anchorSelector: selected === null ? undefined : `[data-improvement-thread-id="${selected}"]`,
@@ -271,7 +276,7 @@ export function ImprovementThreads({
         className="thread-sample"
         contentClassName="thread-sample__content"
       >
-        {error ? (
+        {showError ? (
           <p role="alert" className="thread-sample__error">
             {error}
           </p>
@@ -382,22 +387,22 @@ export function ImprovementThreads({
                       onClick={requestClose}
                     />
                   </header>
-                  {changedIdentity ? (
+                  {showIdentityError ? (
                     <p role="alert" className="thread-sample__error">
                       {copy.changedIdentity}
                     </p>
                   ) : null}
-                  {removed ? (
+                  {removed && showRemovedError ? (
                     <p role="alert" className="thread-sample__error">
                       {copy.removed}
                     </p>
                   ) : null}
-                  {error ? (
+                  {showError ? (
                     <p role="alert" className="thread-sample__error">
                       {error}
                     </p>
                   ) : null}
-                  {!thread.point ? (
+                  {showTargetStatus ? (
                     <p role="status" className="thread-sample__target-status">
                       {copy.targetUnavailable}
                     </p>
@@ -631,17 +636,17 @@ export function ImprovementThreads({
           onClose={() => setDeleting(null)}
           returnFocusRef={opener}
         >
-          {changedIdentity ? (
+          {showIdentityError ? (
             <p role="alert" className="thread-sample__error">
               {copy.changedIdentity}
             </p>
           ) : null}
-          {deletionRemoved ? (
+          {deletionRemoved && showRemovedError ? (
             <p role="alert" className="thread-sample__error">
               {copy.removed}
             </p>
           ) : null}
-          {error ? (
+          {showError ? (
             <p role="alert" className="thread-sample__error">
               {error}
             </p>
