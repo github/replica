@@ -13,8 +13,8 @@ import { handleApiRepositoriesOwnerRepositoryAccessGet } from "#server/routes/ap
 import { handleApiSessionDelete } from "#server/routes/api/session/delete"
 import { handleApiSessionGet } from "#server/routes/api/session/get"
 import { handleApiSetupGithubPost } from "#server/routes/api/setup/github/post"
-import { handleIdentityError } from "#server/utils/handle-identity-error"
 import { requireHubOrigin } from "#server/utils/require-hub-origin"
+import { respondIdentityError } from "#server/utils/respond-identity-error"
 
 import type { IdentityRoutes } from "./types.ts"
 
@@ -49,5 +49,5 @@ export function registerRoutes(app: Express, identity?: IdentityRoutes): void {
     "/api/administration/security-audit",
     handleApiAdministrationSecurityAuditGet.bind(null, identity),
   )
-  app.use(handleIdentityError.bind(null, identity.service, identity.settings))
+  app.use(respondIdentityError)
 }

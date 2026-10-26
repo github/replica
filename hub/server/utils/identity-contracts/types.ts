@@ -1,5 +1,6 @@
 export interface GitHubCredentials {
   appId: string
+  installationId: string
   clientId: string
   clientSecret: string
   privateKey: string
@@ -127,7 +128,6 @@ export interface IdentityService {
   rotate(token: string, csrfToken: string, input: unknown): Promise<void>
   revoke(token: string, csrfToken: string, confirmed: boolean): Promise<void>
   audits(token: string): ReturnType<IdentityRecords["audits"]>
-  denied(token: string, code: string): Promise<void>
 }
 
 export interface IdentityDependencies {

@@ -61,6 +61,9 @@ describe("registerRoutes()", () => {
 
   it("rejects missing or foreign origins before a bootstrap mutation reaches the service", async () => {
     const fixture = await createServerFixture()
+    const lock = vi.spyOn(fixture.store, "lock")
+    const audit = vi.spyOn(fixture.store.read, "audit")
+    const state = vi.spyOn(fixture.store.read, "state")
     for (const origin of [undefined, "https://other.example.test"]) {
       const headers: Record<string, string> = {
         "content-type": "application/json",
@@ -74,6 +77,9 @@ describe("registerRoutes()", () => {
       })
       expect(result.status).toBe(403)
     }
+    expect(lock).not.toHaveBeenCalled()
+    expect(audit).not.toHaveBeenCalled()
+    expect(state).not.toHaveBeenCalled()
     expect(fixture.snapshot().state.encryptedCredentials).toBeNull()
     const allowed = await fixture.request("/api/setup/github", {
       method: "POST",
@@ -86,6 +92,7 @@ describe("registerRoutes()", () => {
     })
     expect(allowed.status).toBe(201)
     expect(await allowed.json()).toEqual({ configured: true })
+    expect(fixture.snapshot().audits.map(({ event }) => event)).toEqual(["credentials.setup"])
   })
 
   it("does not accept a callback without its same-browser cookie", async () => {
@@ -157,6 +164,9 @@ describe("registerRoutes()", () => {
     const fixture = await createServerFixture()
     await fixture.service.setup(fixture.settings.bootstrapSecret, fixture.credentials)
     const signedIn = await fixture.signIn()
+    const before = fixture.snapshot()
+    const lock = vi.spyOn(fixture.store, "lock")
+    const audit = vi.spyOn(fixture.store.read, "audit")
     const log = vi.spyOn(console, "error").mockImplementation(() => {})
     fixture.github.permission.mockRejectedValue(
       new Error(`GitHub rejected ${fixture.credentials.clientSecret}`),
@@ -168,67 +178,43 @@ describe("registerRoutes()", () => {
     expect(result.status).toBe(503)
     expect(await result.text()).not.toContain(fixture.credentials.clientSecret)
     expect(JSON.stringify(log.mock.calls)).not.toContain(fixture.credentials.clientSecret)
-    expect(fixture.snapshot().audits.at(-1)).toMatchObject({
-      event: "identity.denied.request_failed",
-      actorId: signedIn.user.id,
-      sessionId: signedIn.session.id,
-    })
-    expect(JSON.stringify(fixture.snapshot().audits)).not.toContain(
-      fixture.credentials.clientSecret,
-    )
+    expect(fixture.snapshot()).toEqual(before)
+    expect(lock).not.toHaveBeenCalled()
+    expect(audit).not.toHaveBeenCalled()
   })
 
-  it("records a fixed denial reason and live actor without request secrets, state, or bodies", async () => {
+  it("rejects malformed JSON without touching identity storage even when auditing is unavailable", async () => {
     const fixture = await createServerFixture()
-    await fixture.service.setup(fixture.settings.bootstrapSecret, fixture.credentials)
-    const administrator = await fixture.signIn("enroll")
     const before = fixture.snapshot()
-    const state = "synthetic-state-not-for-audit"
-    const csrf = "synthetic-csrf-not-for-audit"
-    const result = await fixture.request(`/api/administration/github-credentials?state=${state}`, {
-      method: "PUT",
+    fixture.failAudit()
+    const lock = vi.spyOn(fixture.store, "lock")
+    const audit = vi.spyOn(fixture.store.read, "audit")
+    const state = vi.spyOn(fixture.store.read, "state")
+    const result = await fixture.request("/api/setup/github", {
+      method: "POST",
       headers: {
         origin: fixture.settings.origin,
-        cookie: `__Host-replica-session=${administrator.token}`,
-        "x-csrf-token": csrf,
+        "x-hub-bootstrap-secret": fixture.settings.bootstrapSecret,
         "content-type": "application/json",
       },
-      body: JSON.stringify({ confirmed: true, credentials: fixture.credentials }),
+      body: '{"clientSecret":"synthetic-secret",',
     })
 
-    expect(result.status).toBe(403)
-    const after = fixture.snapshot()
-    expect(after.state).toEqual(before.state)
-    expect(after.sessions).toEqual(before.sessions)
-    const denials = after.audits.slice(before.audits.length)
-    expect(denials.map(({ event, actorId, sessionId }) => ({ event, actorId, sessionId }))).toEqual(
-      [
-        {
-          event: "identity.denied.csrf_failed",
-          actorId: administrator.user.id,
-          sessionId: administrator.session.id,
-        },
-      ],
-    )
-    const serialized = JSON.stringify(denials)
-    for (const secret of [
-      state,
-      csrf,
-      administrator.token,
-      fixture.credentials.clientSecret,
-      fixture.credentials.privateKey,
-    ]) {
-      expect(serialized).not.toContain(secret)
-    }
-    expect(serialized).not.toContain("confirmed")
+    expect(result.status).toBe(400)
+    expect(await result.text()).not.toContain("synthetic-secret")
+    expect(lock).not.toHaveBeenCalled()
+    expect(audit).not.toHaveBeenCalled()
+    expect(state).not.toHaveBeenCalled()
+    expect(fixture.snapshot()).toEqual(before)
   })
 
-  it("returns service unavailable instead of an unaudited denial when its audit write fails", async () => {
+  it("preserves CSRF and unauthenticated denials without audit writes when auditing is unavailable", async () => {
     const fixture = await createServerFixture()
     await fixture.service.setup(fixture.settings.bootstrapSecret, fixture.credentials)
     const signedIn = await fixture.signIn()
     const before = fixture.snapshot()
     fixture.failAudit()
+    const audit = vi.spyOn(fixture.store.read, "audit")
     const log = vi.spyOn(console, "error").mockImplementation(() => {})
 
     const result = await fixture.request("/api/session", {
@@ -239,9 +225,12 @@ describe("registerRoutes()", () => {
       },
     })
 
-    expect(result.status).toBe(503)
+    expect(result.status).toBe(403)
     const body = (await result.json()) as { code: string }
-    expect(body.code).toBe("audit_unavailable")
+    expect(body.code).toBe("csrf_failed")
+    const unauthenticated = await fixture.request("/api/session")
+    expect(unauthenticated.status).toBe(401)
+    expect(audit).not.toHaveBeenCalled()
     expect(fixture.snapshot()).toEqual(before)
     expect(JSON.stringify(body)).not.toContain(signedIn.token)
     expect(JSON.stringify(log.mock.calls)).not.toContain(signedIn.token)

@@ -9,6 +9,12 @@ describe("createIdentityService()", () => {
 
     await expect(service.setup("wrong", credentials)).rejects.toThrow()
     expect(fixture.snapshot().state.encryptedCredentials).toBeNull()
+    for (const installationId of [undefined, 7, "0"]) {
+      await expect(
+        service.setup(settings.bootstrapSecret, { ...credentials, installationId }),
+      ).rejects.toThrow()
+      expect(fixture.snapshot().state.encryptedCredentials).toBeNull()
+    }
     await service.setup(settings.bootstrapSecret, credentials)
     const saved = fixture.snapshot()
     expect(saved.state.encryptedCredentials).not.toContain(credentials.clientSecret)
@@ -347,13 +353,17 @@ describe("createIdentityService()", () => {
     expect(fixture.snapshot()).toEqual(before)
   })
 
-  it("does not let credential rotation switch the GitHub App or OAuth client", async () => {
+  it("does not let credential rotation switch the GitHub App, OAuth client, or installation", async () => {
     const fixture = createFixture()
     await fixture.service.setup(fixture.settings.bootstrapSecret, fixture.credentials)
     const administrator = await fixture.signIn("enroll")
     const before = fixture.snapshot()
 
-    for (const changed of [{ appId: "99999" }, { clientId: "different-client" }]) {
+    for (const changed of [
+      { appId: "99999" },
+      { clientId: "different-client" },
+      { installationId: "8" },
+    ]) {
       await expect(
         fixture.service.rotate(administrator.token, administrator.csrfToken, {
           ...fixture.credentials,

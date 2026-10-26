@@ -2,7 +2,6 @@ import { completeGitHubAuthorization } from "#server/domains/identity/complete-g
 import { getCurrentSession } from "#server/domains/identity/get-current-session"
 import { getRepositoryPermission } from "#server/domains/identity/get-repository-permission"
 import { getSecurityAudits } from "#server/domains/identity/get-security-audits"
-import { recordIdentityDenial } from "#server/domains/identity/record-identity-denial"
 import { revokeSessions } from "#server/domains/identity/revoke-sessions"
 import { rotateGitHubCredentials } from "#server/domains/identity/rotate-github-credentials"
 import { setupGitHubCredentials } from "#server/domains/identity/setup-github-credentials"
@@ -24,6 +23,5 @@ export function createIdentityService(
     rotate: rotateGitHubCredentials.bind(null, dependencies),
     revoke: revokeSessions.bind(null, dependencies),
     audits: getSecurityAudits.bind(null, dependencies),
-    denied: recordIdentityDenial.bind(null, dependencies),
   }
 }

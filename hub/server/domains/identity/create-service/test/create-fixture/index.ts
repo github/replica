@@ -141,6 +141,7 @@ export function createFixture({ environment = false } = {}) {
   }
   const credentials = {
     appId: "12345",
+    installationId: "7",
     clientId: "synthetic-client",
     clientSecret: "synthetic-secret",
     privateKey: generateKeyPairSync("rsa", {
@@ -173,6 +174,7 @@ export function createFixture({ environment = false } = {}) {
       ? {
           HUB_CREDENTIAL_PROVIDER: "environment",
           GITHUB_APP_ID: credentials.appId,
+          GITHUB_INSTALLATION_ID: credentials.installationId,
           GITHUB_CLIENT_ID: credentials.clientId,
           GITHUB_CLIENT_SECRET: credentials.clientSecret,
           GITHUB_PRIVATE_KEY: credentials.privateKey,

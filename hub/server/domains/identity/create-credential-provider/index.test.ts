@@ -6,6 +6,7 @@ import { createCredentialProvider } from "#server/domains/identity/create-creden
 function credentials() {
   return {
     appId: "12345",
+    installationId: "7",
     clientId: "test-client",
     clientSecret: "synthetic-client-secret",
     privateKey: generateKeyPairSync("rsa", {
@@ -49,6 +50,7 @@ describe("createCredentialProvider()", () => {
     const provider = createCredentialProvider({
       HUB_CREDENTIAL_PROVIDER: "environment",
       GITHUB_APP_ID: input.appId,
+      GITHUB_INSTALLATION_ID: input.installationId,
       GITHUB_CLIENT_ID: input.clientId,
       GITHUB_CLIENT_SECRET: input.clientSecret,
       GITHUB_PRIVATE_KEY: input.privateKey,
@@ -67,12 +69,14 @@ describe("createCredentialProvider()", () => {
       HUB_CREDENTIAL_PROVIDER: "environment",
       HUB_CREDENTIAL_KEY: "ab".repeat(32),
       GITHUB_APP_ID: input.appId,
+      GITHUB_INSTALLATION_ID: input.installationId,
       GITHUB_CLIENT_ID: input.clientId,
       GITHUB_CLIENT_SECRET: input.clientSecret,
       GITHUB_PRIVATE_KEY: input.privateKey,
     }
     for (const field of [
       "GITHUB_APP_ID",
+      "GITHUB_INSTALLATION_ID",
       "GITHUB_CLIENT_ID",
       "GITHUB_CLIENT_SECRET",
       "GITHUB_PRIVATE_KEY",

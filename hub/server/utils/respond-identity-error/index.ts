@@ -1,8 +1,17 @@
-import type { Response } from "express"
+import type { NextFunction, Request, Response } from "express"
 
 import { IdentityError } from "#server/utils/identity-error"
 
-export function respondIdentityError(error: unknown, response: Response): void {
+export function respondIdentityError(
+  error: unknown,
+  _request: Request,
+  response: Response,
+  next: NextFunction,
+): void {
+  if (response.headersSent) {
+    next(error)
+    return
+  }
   if (error instanceof IdentityError) {
     response.status(error.status).json({ code: error.code, error: error.message })
     return

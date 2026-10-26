@@ -4,12 +4,9 @@ import { requestGitHub } from "#server/integrations/github/request-github"
 
 import { installationTokenSchema } from "./constants.ts"
 
-export async function createInstallationToken(
-  credentials: GitHubCredentials,
-  installationId: number,
-): Promise<string> {
+export async function createInstallationToken(credentials: GitHubCredentials): Promise<string> {
   const data = await requestGitHub(
-    `/app/installations/${installationId}/access_tokens`,
+    `/app/installations/${credentials.installationId}/access_tokens`,
     createAppToken(credentials),
     "POST",
   )

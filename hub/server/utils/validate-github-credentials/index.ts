@@ -11,7 +11,7 @@ export function validateGitHubCredentials(input: unknown): GitHubCredentials {
     throw new IdentityError(
       400,
       "invalid_credentials",
-      "Supply the GitHub App ID, client ID, client secret, and RSA private key.",
+      "Supply the GitHub App ID, installation ID, client ID, client secret, and RSA private key.",
     )
   }
 

@@ -26,12 +26,13 @@ export async function rotateGitHubCredentials(
     const existing = await getIdentityConfiguration(dependencies, records)
     if (
       existing.credentials.appId !== credentials.appId ||
-      existing.credentials.clientId !== credentials.clientId
+      existing.credentials.clientId !== credentials.clientId ||
+      existing.credentials.installationId !== credentials.installationId
     ) {
       throw new IdentityError(
         400,
         "different_app",
-        "Credential rotation must retain the existing GitHub App and client ID.",
+        "Credential rotation must retain the existing GitHub App, client ID, and installation ID.",
       )
     }
     await records.saveCredentials(encrypt(credentials))

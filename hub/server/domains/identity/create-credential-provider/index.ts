@@ -8,6 +8,7 @@ export function createCredentialProvider(environment: NodeJS.ProcessEnv): Creden
   if (selected === "environment") {
     const credentials = validateGitHubCredentials({
       appId: environment.GITHUB_APP_ID,
+      installationId: environment.GITHUB_INSTALLATION_ID,
       clientId: environment.GITHUB_CLIENT_ID,
       clientSecret: environment.GITHUB_CLIENT_SECRET,
       privateKey: environment.GITHUB_PRIVATE_KEY,
