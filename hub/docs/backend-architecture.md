@@ -30,6 +30,14 @@ Put each function in a directory named with lowercase words and hyphens, such as
 
 Add directories when their functions are needed. Do not add empty implementations just to fill out the structure.
 
+Keep function implementations flat. A composition factory may bind imported functions to dependencies, but must not contain their implementations. Put schemas and constants in a colocated `constants.ts`, and types in `types.ts`.
+
+Keep domain contracts with their domains, GitHub types and errors with that integration, and database inputs with their repositories. Keep only general helpers in utilities.
+
 ## Database access
 
 The [shared Prisma client](database.md#shared-client) lives in `server/integrations/prisma/index.ts`. Domains may pass it to repositories for database queries without letting repositories import integrations. Keep model definitions, naming, and migrations consistent with the [database conventions](database.md#schema-conventions).
+
+Compose repository functions in domains. The identity store binds standalone queries to a database client or transaction there; a repository must not import its neighboring queries to build that store.
+
+`staticSettingsRecordId` identifies Hub's single settings row, not a person or GitHub installation. Its fixed UUID lets every process lock the same row. Keep it with the identity-state repository.

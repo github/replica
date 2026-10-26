@@ -34,6 +34,8 @@ Arrange each case's inputs and records inside that case. Act through its public 
 
 Tests must release resources they create, such as servers, files, sockets, and event listeners. Use `try/finally` or register disposal with Vitest's `onTestFinished` when creating the resource. Clearing the module cache only affects subsequent imports. Reset any deliberately shared fixture state before each case.
 
+Keep shared server test helpers under the owning function's `test/` directory. TypeScript checks them, but the API build excludes them.
+
 ## Parallel database tests
 
 Each test run uses separate databases so parallel tests cannot change another worker's records or clear the development database. Vitest runs files in parallel in [forked worker processes](https://vitest.dev/config/pool). Cases within a worker run sequentially, including cases marked concurrent, so database resets cannot erase another case's records. Use `--maxWorkers` to set file-level parallelism.
@@ -51,7 +53,7 @@ Use `.test.ts` or `.test.tsx` for ordinary cases. Use `.db.test.ts` or `.db.test
 
 Start the PostgreSQL service as described in [Development](development.md) and set `TEST_DATABASE_URL` using `.env.example`. The devcontainer supplies this variable. Use a local database user with permission to create and drop databases, never a production connection.
 
-The database command uses `--passWithNoTests` so an empty selection exits successfully. It still fails when tests fail. There are no database test cases yet; an empty run does not prepare or exercise the databases.
+The database command uses `--passWithNoTests` so an empty selection exits successfully. It still fails when tests fail. Identity repository cases exercise persistence, one-use attempts, transaction rollback, and concurrent revocation locks.
 
 Database-enabled jsdom tests use the browser setup and database hooks together. They can arrange records through server code, but frontend code must not import server modules. The setup does not start an API or connect frontend requests to one.
 
