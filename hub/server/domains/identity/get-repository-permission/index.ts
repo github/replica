@@ -9,9 +9,23 @@ export async function getRepositoryPermission(
   owner: string,
   repository: string,
 ) {
-  const { store, github } = dependencies
+  const { store, github, settings } = dependencies
 
   const current = await getIdentityContext(dependencies, token)
+  if (settings.repositoryProvider === "none") {
+    throw new IdentityError(
+      409,
+      "repository_provider_unavailable",
+      "GitHub repository integration is not configured for this Hub.",
+    )
+  }
+  if (current.user.provider !== "github") {
+    throw new IdentityError(
+      409,
+      "repository_identity_required",
+      "Connect a GitHub identity before using repository capabilities.",
+    )
+  }
   const configuration = await getIdentityConfiguration(dependencies)
   const permission = await github.permission(
     configuration.credentials,

@@ -12,7 +12,10 @@ export async function completeGitHubAuthorization(
   state: string,
   browserToken: string,
 ) {
-  const { store, github, now } = dependencies
+  const { store, github, now, settings } = dependencies
+  if (!settings.signInProviders.includes("github")) {
+    throw new IdentityError(409, "provider_disabled", "GitHub sign-in is not enabled.")
+  }
 
   const attempt = await store.lock((records) => records.consumeAttempt(digestSecret(state)))
   if (

@@ -10,7 +10,7 @@ export async function rotateGitHubCredentials(
   csrfToken: string,
   input: unknown,
 ) {
-  const { store, provider } = dependencies
+  const { store, provider, github } = dependencies
 
   if (!provider.encrypt) {
     throw new IdentityError(
@@ -35,6 +35,7 @@ export async function rotateGitHubCredentials(
         "Credential rotation must retain the existing GitHub App, client ID, and installation ID.",
       )
     }
+    await github.validate(credentials)
     await records.saveCredentials(encrypt(credentials))
     await records.invalidateFreshness()
     await records.advanceGeneration()

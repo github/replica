@@ -13,9 +13,10 @@ import { getSessionById } from "#server/repositories/sessions/get-session-by-id"
 import { invalidateFreshness } from "#server/repositories/sessions/invalidate-freshness"
 import { verifySession } from "#server/repositories/sessions/verify-session"
 import { enrollAdministrator } from "#server/repositories/users/enroll-administrator"
+import { getAdministrator } from "#server/repositories/users/get-administrator"
 import { getGitHubUser } from "#server/repositories/users/get-github-user"
 import { getUser } from "#server/repositories/users/get-user"
-import { saveGitHubUser } from "#server/repositories/users/save-github-user"
+import { saveProviderUser } from "#server/repositories/users/save-provider-user"
 import type { IdentityRecords } from "#server/utils/identity-contracts/types"
 
 import type { Prisma } from "../../../generated/prisma/client.ts"
@@ -27,7 +28,8 @@ export function createIdentityRecords(database: Prisma.TransactionClient): Ident
     advanceGeneration: advanceIdentityGeneration.bind(null, database),
     user: getUser.bind(null, database),
     githubUser: getGitHubUser.bind(null, database),
-    saveUser: saveGitHubUser.bind(null, database),
+    saveUser: saveProviderUser.bind(null, database),
+    administrator: getAdministrator.bind(null, database),
     enroll: enrollAdministrator.bind(null, database),
     session: getSession.bind(null, database),
     sessionById: getSessionById.bind(null, database),

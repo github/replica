@@ -21,6 +21,9 @@ export interface HubUser {
   administrator: boolean
 }
 
+export type SignInProviderName = "github" | "oidc-demo"
+export type RepositoryProviderName = "github" | "none"
+
 export interface HubSession {
   id: string
   userId: string
@@ -54,7 +57,8 @@ export interface IdentityRecords {
   advanceGeneration(): Promise<void>
   user(id: string): Promise<HubUser | null>
   githubUser(providerId: string): Promise<HubUser | null>
-  saveUser(profile: GitHubProfile): Promise<HubUser>
+  saveUser(profile: IdentityProfile): Promise<HubUser>
+  administrator(): Promise<HubUser | null>
   enroll(userId: string): Promise<HubUser>
   session(tokenDigest: string): Promise<(HubSession & { user: HubUser }) | null>
   sessionById(id: string): Promise<(HubSession & { user: HubUser }) | null>
@@ -75,7 +79,7 @@ export interface IdentityStore {
 }
 
 export interface CredentialProvider {
-  name: "database" | "environment"
+  name: "database" | "environment" | "none"
   read(state: IdentityState): GitHubCredentials | null
   encrypt?: (credentials: GitHubCredentials) => string
 }
@@ -87,9 +91,14 @@ export interface GitHubProfile {
   avatarUrl: string | null
 }
 
+export interface IdentityProfile extends GitHubProfile {
+  provider: string
+}
+
 export type RepositoryPermission = "none" | "read" | "write" | "admin"
 
 export interface GitHubIdentityClient {
+  validate(credentials: GitHubCredentials): Promise<void>
   authorize(credentials: GitHubCredentials, state: string, verifier: string): string
   identify(credentials: GitHubCredentials, code: string, verifier: string): Promise<GitHubProfile>
   admitted(credentials: GitHubCredentials, profile: GitHubProfile): Promise<boolean>
@@ -105,6 +114,9 @@ export interface IdentitySettings {
   origin: string
   bootstrapSecret: string | undefined
   secureCookies: boolean
+  demoMode: boolean
+  signInProviders: SignInProviderName[]
+  repositoryProvider: RepositoryProviderName
 }
 
 export interface IdentityContext {
@@ -122,6 +134,15 @@ export interface IdentityService {
     bootstrapSecret?: string
   }): Promise<{ url: string; browserToken: string }>
   complete(code: string, state: string, browserToken: string): Promise<{ token?: string }>
+  configuration(): Promise<{
+    demoMode: boolean
+    signInProviders: Array<{
+      name: SignInProviderName
+      configured: boolean
+    }>
+    repositoryProvider: RepositoryProviderName
+  }>
+  signInWithOidcDemo(input: unknown): Promise<{ token: string }>
   current(token: string): Promise<IdentityContext>
   signOut(token: string, csrfToken: string): Promise<void>
   permission(token: string, owner: string, repository: string): Promise<RepositoryPermission>

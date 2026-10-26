@@ -6,7 +6,7 @@ Hub contributors are rebuilding the app on `build/hub/new` before merging it int
 
 The team has chosen TypeScript, Express for the API, React and Vite for the frontend, and Vitest for tests. The old backend and the frontend code that connected to it have been removed rather than rewritten.
 
-The API responds to a health check and provides the [identity API](identity.md). The frontend displays the logo with light and dark themes. Storybook keeps the existing components and pages available for reuse.
+The API responds to a health check and provides the [identity API](identity.md). The frontend provides the local [identity provider demo](identity-provider-demo.md) with light and dark themes. Storybook keeps the existing components and pages available for reuse.
 
 Contributors can use PostgreSQL and Prisma locally or in the devcontainer. Identity models store credentials, users, sessions, one-use OAuth attempts, and security records. Deployment, background jobs, and product APIs have not been built. This app cannot yet list repositories in the frontend, import Builds, host previews, save product data, or support reviews.
 
@@ -29,7 +29,7 @@ flowchart LR
   Features --> Utilities
 ```
 
-Keep the existing `app/javascript/` layout. Application code starts React and will connect pages to the API. Pages assemble whole screens from typed props. Features combine components for one task. Components are reusable interface elements that do not need to know the larger task.
+Keep the existing `app/javascript/` layout. Application code starts React and connects the identity onboarding page to the API. Pages assemble whole screens from typed props. Features combine components for one task. Components are reusable interface elements that do not need to know the larger task.
 
 Imports follow the arrows above. Shared components, hooks, and utilities must not import pages, features, or application code. Keep browser and server code separate. Agree on the API before adding types shared between them.
 

@@ -55,8 +55,17 @@ export async function finishGitHubAuthorization(
     })
     return {}
   }
-  let user = await records.saveUser(profile)
-  if (attempt.purpose === "enroll") user = await records.enroll(user.id)
+  let user = await records.saveUser({ ...profile, provider: "github" })
+  if (attempt.purpose === "enroll") {
+    if (await records.administrator()) {
+      throw new IdentityError(
+        409,
+        "administrator_already_enrolled",
+        "Bootstrap administrator enrollment has already been used.",
+      )
+    }
+    user = await records.enroll(user.id)
+  }
   if (!admitted && !user.administrator) {
     throw new IdentityError(
       403,

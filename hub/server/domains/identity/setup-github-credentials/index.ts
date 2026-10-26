@@ -8,7 +8,7 @@ export async function setupGitHubCredentials(
   secret: string,
   input: unknown,
 ) {
-  const { store, provider } = dependencies
+  const { store, provider, github } = dependencies
 
   requireBootstrapSecret(dependencies, secret)
   if (!provider.encrypt) {
@@ -28,6 +28,7 @@ export async function setupGitHubCredentials(
         "Use administrator credential rotation for an existing GitHub App.",
       )
     }
+    await github.validate(credentials)
     await records.saveCredentials(encrypt(credentials))
     await records.audit({ event: "credentials.setup", actorId: null, sessionId: null })
   })

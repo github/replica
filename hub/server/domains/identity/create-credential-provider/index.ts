@@ -5,6 +5,9 @@ import type { CredentialProvider } from "#server/utils/identity-contracts/types"
 
 export function createCredentialProvider(environment: NodeJS.ProcessEnv): CredentialProvider {
   const selected = environment.HUB_CREDENTIAL_PROVIDER ?? "database"
+  if (selected === "none") {
+    return { name: "none", read: () => null }
+  }
   if (selected === "environment") {
     const credentials = validateGitHubCredentials({
       appId: environment.GITHUB_APP_ID,
@@ -16,7 +19,7 @@ export function createCredentialProvider(environment: NodeJS.ProcessEnv): Creden
     return { name: "environment", read: () => credentials }
   }
   if (selected !== "database") {
-    throw new Error("HUB_CREDENTIAL_PROVIDER must be database or environment.")
+    throw new Error("HUB_CREDENTIAL_PROVIDER must be database, environment, or none.")
   }
 
   const encodedKey = environment.HUB_CREDENTIAL_KEY

@@ -13,9 +13,21 @@ import type {
   IdentityState,
   IdentityStore,
   OAuthAttempt,
+  RepositoryProviderName,
+  SignInProviderName,
 } from "#server/utils/identity-contracts/types"
 
-export function createFixture({ environment = false } = {}) {
+export function createFixture({
+  environment = false,
+  demoMode = false,
+  signInProviders = ["github"],
+  repositoryProvider = "github",
+}: {
+  environment?: boolean
+  demoMode?: boolean
+  signInProviders?: SignInProviderName[]
+  repositoryProvider?: RepositoryProviderName
+} = {}) {
   let data = {
     state: { generation: 0, encryptedCredentials: null } as IdentityState,
     users: [] as HubUser[],
@@ -46,14 +58,18 @@ export function createFixture({ environment = false } = {}) {
         ),
       ),
     saveUser: (profile) => {
-      let user = data.users.find((user) => user.providerId === profile.providerId)
+      let user = data.users.find(
+        (user) => user.provider === profile.provider && user.providerId === profile.providerId,
+      )
       if (user) Object.assign(user, profile)
       else {
-        user = { ...profile, id: randomUUID(), provider: "github", administrator: false }
+        user = { ...profile, id: randomUUID(), administrator: false }
         data.users.push(user)
       }
       return Promise.resolve(structuredClone(user))
     },
+    administrator: () =>
+      Promise.resolve(structuredClone(data.users.find((user) => user.administrator) ?? null)),
     enroll: (id) => {
       const user = data.users.find((user) => user.id === id)!
       user.administrator = true
@@ -157,6 +173,7 @@ export function createFixture({ environment = false } = {}) {
     avatarUrl: null,
   }
   const github = {
+    validate: vi.fn<GitHubIdentityClient["validate"]>().mockResolvedValue(),
     authorize: vi.fn<GitHubIdentityClient["authorize"]>(
       () => "https://github.com/login/oauth/authorize",
     ),
@@ -168,6 +185,9 @@ export function createFixture({ environment = false } = {}) {
     origin: "https://hub.example.test",
     bootstrapSecret: "synthetic-bootstrap",
     secureCookies: true,
+    demoMode,
+    signInProviders,
+    repositoryProvider,
   }
   const provider = createCredentialProvider(
     environment

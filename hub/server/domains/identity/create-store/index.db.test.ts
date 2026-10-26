@@ -14,6 +14,7 @@ describe("createIdentityStore()", () => {
     const { store } = await database()
     await store.lock(async (records) => {
       const user = await records.saveUser({
+        provider: "github",
         providerId: "10001",
         login: "synthetic-user",
         name: null,
@@ -78,7 +79,13 @@ describe("createIdentityStore()", () => {
 
   it("upserts by immutable GitHub account rather than a reused login", async () => {
     const { store } = await database()
-    const profile = { providerId: "10001", login: "synthetic-user", name: null, avatarUrl: null }
+    const profile = {
+      provider: "github",
+      providerId: "10001",
+      login: "synthetic-user",
+      name: null,
+      avatarUrl: null,
+    }
     const original = await store.lock((records) => records.saveUser(profile))
     await store.lock((records) => records.enroll(original.id))
     const renamed = await store.lock((records) =>
@@ -123,6 +130,7 @@ describe("createIdentityStore()", () => {
     const { store } = await database()
     const session = await store.lock(async (records) => {
       const user = await records.saveUser({
+        provider: "github",
         providerId: "10001",
         login: "synthetic-user",
         name: null,

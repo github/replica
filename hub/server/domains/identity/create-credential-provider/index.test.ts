@@ -45,6 +45,14 @@ describe("createCredentialProvider()", () => {
     }
   })
 
+  it("allows an explicit credential-free provider for an OIDC-only demo", () => {
+    const provider = createCredentialProvider({ HUB_CREDENTIAL_PROVIDER: "none" })
+
+    expect(provider.name).toBe("none")
+    expect(provider.encrypt).toBeUndefined()
+    expect(provider.read({ generation: 0, encryptedCredentials: "ignored" })).toBeNull()
+  })
+
   it("uses complete environment credentials read-only without consulting database ciphertext", () => {
     const input = credentials()
     const provider = createCredentialProvider({

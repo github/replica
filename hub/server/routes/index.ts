@@ -2,6 +2,7 @@ import express from "express"
 import type { Express } from "express"
 
 import { requireHubOrigin } from "#server/domains/identity/require-hub-origin"
+import { createRateLimit } from "#server/integrations/express/create-rate-limit"
 import { preparePrivateRequest } from "#server/integrations/express/prepare-private-request"
 import { respondIdentityError } from "#server/integrations/express/respond-identity-error"
 import { put as handleApiAdministrationGithubCredentialsPut } from "#server/routes/api/administration/github-credentials/put"
@@ -10,7 +11,9 @@ import { get as handleApiAdministrationSecurityAuditGet } from "#server/routes/a
 import { get as handleApiAuthGithubCallbackGet } from "#server/routes/api/auth/github/callback/get"
 import { post as handleApiAuthGithubPost } from "#server/routes/api/auth/github/post"
 import { post as handleApiAuthGithubVerifyPost } from "#server/routes/api/auth/github/verify/post"
+import { post as handleApiAuthOidcDemoPost } from "#server/routes/api/auth/oidc-demo/post"
 import { get as handleApiHealthGet } from "#server/routes/api/health/get"
+import { get as handleApiIdentityConfigurationGet } from "#server/routes/api/identity/configuration/get"
 import { post as handleApiOperatorEnrollmentPost } from "#server/routes/api/operator/enrollment/post"
 import { get as handleApiRepositoriesOwnerRepositoryAccessGet } from "#server/routes/api/repositories/[owner]/[repository]/access/get"
 import { delete as handleApiSessionDelete } from "#server/routes/api/session/delete"
@@ -26,11 +29,26 @@ export function routes(app: Express, identity?: IdentityRoutes): void {
     preparePrivateRequest.bind(null, requireHubOrigin.bind(null, identity.settings.origin)),
     express.json({ limit: "24kb", strict: true }),
   )
+  const authRateLimit = createRateLimit({ limit: 60, windowMilliseconds: 5 * 60_000 })
+  app.get("/api/identity/configuration", handleApiIdentityConfigurationGet.bind(null, identity))
   app.post("/api/setup/github", handleApiSetupGithubPost.bind(null, identity))
-  app.post("/api/auth/github", handleApiAuthGithubPost.bind(null, identity))
-  app.post("/api/auth/github/verify", handleApiAuthGithubVerifyPost.bind(null, identity))
-  app.post("/api/operator/enrollment", handleApiOperatorEnrollmentPost.bind(null, identity))
-  app.get("/api/auth/github/callback", handleApiAuthGithubCallbackGet.bind(null, identity))
+  app.post("/api/auth/github", authRateLimit, handleApiAuthGithubPost.bind(null, identity))
+  app.post(
+    "/api/auth/github/verify",
+    authRateLimit,
+    handleApiAuthGithubVerifyPost.bind(null, identity),
+  )
+  app.post("/api/auth/oidc-demo", authRateLimit, handleApiAuthOidcDemoPost.bind(null, identity))
+  app.post(
+    "/api/operator/enrollment",
+    authRateLimit,
+    handleApiOperatorEnrollmentPost.bind(null, identity),
+  )
+  app.get(
+    "/api/auth/github/callback",
+    authRateLimit,
+    handleApiAuthGithubCallbackGet.bind(null, identity),
+  )
   app.get("/api/session", handleApiSessionGet.bind(null, identity))
   app.delete("/api/session", handleApiSessionDelete.bind(null, identity))
   app.get(

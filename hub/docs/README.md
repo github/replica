@@ -8,6 +8,7 @@ Hub is being rebuilt. The [Hub overview](../README.md) describes what the baseli
 - [Development](development.md): local API and frontend setup.
 - [Database](database.md): Prisma schema conventions, migrations, and the shared client.
 - [Identity](identity.md): GitHub sign-in, credential providers, sessions, and repository authorization.
+- [Identity provider demo](identity-provider-demo.md): local GitHub App and OIDC demo flows for team discussion.
 - [Testing and operations](testing-and-operations.md): baseline checks and their limits.
 - [Storybook](storybook.md): retained presentation, fixtures, and screenshot evidence.
 - [Prototype canvas](prototype-canvas.md): the separately retained extension.
