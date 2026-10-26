@@ -9,6 +9,7 @@ import { put as handleApiAdministrationGithubCredentialsPut } from "#server/rout
 import { post as handleApiAdministrationRevokeSessionsPost } from "#server/routes/api/administration/revoke-sessions/post"
 import { get as handleApiAdministrationSecurityAuditGet } from "#server/routes/api/administration/security-audit/get"
 import { get as handleApiAuthGithubCallbackGet } from "#server/routes/api/auth/github/callback/get"
+import { post as handleApiAuthGithubDemoPost } from "#server/routes/api/auth/github-demo/post"
 import { post as handleApiAuthGithubPost } from "#server/routes/api/auth/github/post"
 import { post as handleApiAuthGithubVerifyPost } from "#server/routes/api/auth/github/verify/post"
 import { post as handleApiAuthOidcDemoPost } from "#server/routes/api/auth/oidc-demo/post"
@@ -33,6 +34,7 @@ export function routes(app: Express, identity?: IdentityRoutes): void {
   app.get("/api/identity/configuration", handleApiIdentityConfigurationGet.bind(null, identity))
   app.post("/api/setup/github", handleApiSetupGithubPost.bind(null, identity))
   app.post("/api/auth/github", authRateLimit, handleApiAuthGithubPost.bind(null, identity))
+  app.post("/api/auth/github-demo", authRateLimit, handleApiAuthGithubDemoPost.bind(null, identity))
   app.post(
     "/api/auth/github/verify",
     authRateLimit,

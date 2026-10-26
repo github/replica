@@ -18,6 +18,7 @@ async function readError(response: Response) {
 export function IdentityOnboarding() {
   const [configuration, setConfiguration] = useState<IdentityConfiguration | null>(null)
   const [session, setSession] = useState<IdentitySession | null>(null)
+  const [showSetup, setShowSetup] = useState(false)
   const [selectedProvider, setSelectedProvider] = useState<IdentityProviderName | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -37,7 +38,9 @@ export function IdentityOnboarding() {
       try {
         const response = await fetch("/api/identity/configuration")
         if (!response.ok) throw new Error(await readError(response))
-        setConfiguration((await response.json()) as IdentityConfiguration)
+        const loadedConfiguration = (await response.json()) as IdentityConfiguration
+        setConfiguration(loadedConfiguration)
+        setShowSetup(loadedConfiguration.demoMode)
         await loadSession()
       } catch (loadError) {
         setError(loadError instanceof Error ? loadError.message : "Hub identity is unavailable.")
@@ -73,9 +76,11 @@ export function IdentityOnboarding() {
     <IdentityOnboardingPage
       configuration={configuration}
       session={session}
+      showSetup={showSetup}
       selectedProvider={selectedProvider}
       busy={busy}
       error={error}
+      onContinueFromSetup={() => setShowSetup(false)}
       onSelectProvider={setSelectedProvider}
       onBack={() => setSelectedProvider(null)}
       onStartGitHub={() => {
@@ -87,6 +92,17 @@ export function IdentityOnboarding() {
           if (!response.ok) throw new Error(await readError(response))
           const result = (await response.json()) as { url: string }
           window.location.assign(result.url)
+        })
+      }}
+      onSubmitGitHubDemo={(profile) => {
+        void run(async () => {
+          const response = await fetch("/api/auth/github-demo", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(profile),
+          })
+          if (!response.ok) throw new Error(await readError(response))
+          await loadSession()
         })
       }}
       onSubmitOidc={(profile) => {

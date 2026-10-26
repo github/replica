@@ -44,6 +44,7 @@ Send JSON bodies and an `Origin` header matching `HUB_ORIGIN` for changes. Signe
 | `GET /api/identity/configuration` | Return enabled sign-in adapters, whether each is configured, the repository provider, and whether explicit demo mode is active. |
 | `POST /api/setup/github` | With `X-Hub-Bootstrap-Secret`, save the initial `{appId, installationId, clientId, clientSecret, privateKey}`. Supply both IDs as positive decimal strings. Setup cannot replace existing credentials. |
 | `POST /api/auth/github` | Return a GitHub authorization `url`. Open it in the same browser to sign in. |
+| `POST /api/auth/github-demo` | In explicit demo mode only, simulate a completed GitHub callback for a configured GitHub App. |
 | `POST /api/auth/oidc-demo` | In explicit demo mode only, create a provider-neutral session from a simulated local OIDC profile. |
 | `POST /api/operator/enrollment` | With `X-Hub-Bootstrap-Secret`, start a GitHub sign-in that enrolls the verified person as a Hub administrator. |
 | `GET /api/auth/github/callback` | Complete sign-in and redirect to `/api/session`. |
@@ -65,7 +66,7 @@ Every repository request uses a token for the configured installation to check G
 
 A GitHub sign-in attempt expires after 15 minutes and can be used only once in its initiating browser. Hub keeps session cookies inaccessible to JavaScript and limits them to the Hub host. HTTPS cookies also require a secure connection. Identity responses are not cached.
 
-GitHub authorization initiation, verification, enrollment, the callback, and local OIDC demo sign-in are limited to 60 requests per five minutes for each request IP. This in-memory guard is bounded and suitable for the local demo. A multi-instance deployment needs a shared rate-limit store and an explicit trusted-proxy configuration.
+GitHub authorization initiation, verification, enrollment, the callback, and the local GitHub and OIDC simulations are limited to 60 requests per five minutes for each request IP. This in-memory guard is bounded and suitable for the local demo. A multi-instance deployment needs a shared rate-limit store and an explicit trusted-proxy configuration.
 
 Fresh verification applies only to its initiating session and lasts less than five minutes. Signing in elsewhere does not refresh an existing session. GitHub may reuse its own browser session without prompting for a password or multifactor authentication.
 

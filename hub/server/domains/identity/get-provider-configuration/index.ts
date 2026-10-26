@@ -7,6 +7,7 @@ export async function getProviderConfiguration(dependencies: IdentityDependencie
 
   return {
     demoMode: settings.demoMode,
+    credentialProvider: provider.name,
     signInProviders: settings.signInProviders.map((name) => ({
       name,
       configured: name === "oidc-demo" || githubConfigured,

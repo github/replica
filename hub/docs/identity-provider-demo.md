@@ -25,7 +25,7 @@ The boundaries are:
 - **Credential provider:** reads or encrypts GitHub App and OAuth secrets. It is infrastructure configuration, not a user identity.
 - **Hub session:** stores the provider-neutral user and session. Generic session and revocation routes do not depend on the selected sign-in adapter.
 
-Provider-specific routes stay under `/api/auth/github` and `/api/auth/oidc-demo`. Session routes remain `/api/session`. Hub does not automatically fall back between adapters.
+Provider-specific routes stay under `/api/auth/github` and `/api/auth/oidc-demo`. The guarded `/api/auth/github-demo` route simulates a completed callback for local recording without replacing the real GitHub route. Session routes remain `/api/session`. Hub does not automatically fall back between adapters.
 
 ## Run the local demo
 
@@ -73,17 +73,29 @@ The demo adapter performs no discovery, redirect, token validation, nonce valida
 
 ## Video script
 
-1. Open the onboarding page and point out the two explicit sign-in choices.
-2. Open the GitHub option and show its separate sign-in adapter, repository provider, and configuration status.
-3. Return to provider selection and open the OIDC option.
-4. Call out the demo-only warning, submit the synthetic identity, and show the provider-neutral Hub user and session.
-5. Show that Hub onboarding succeeded while GitHub repository capabilities remain unavailable or require a linked GitHub identity.
-6. End the session, then repeat with the GitHub App flow when local App credentials are configured.
-7. Explain that generic session and revocation behavior stays shared while provider-specific routes and credentials remain isolated.
+Record two complete local scenarios.
+
+### GitHub user authentication
+
+1. Show the post-clone setup walkthrough: install dependencies, select `github` sign-in, select the `github` repository provider, choose the credential provider, and start Hub.
+2. Continue to user sign-in and review the GitHub adapter and repository provider.
+3. Point out the real **Continue to GitHub** action.
+4. Use the clearly labeled local callback simulation to finish the recording without external credentials.
+5. Show the provider-neutral Hub session and the `github/replica` repository result checked through the configured App installation.
+
+### OIDC user authentication
+
+1. Show the post-clone setup walkthrough with `oidc-demo`, repository provider `none`, and credential provider `none`.
+2. Continue to user sign-in, review the OIDC settings, and submit the local claims form.
+3. Show the same Hub session shape.
+4. Show that Hub onboarding succeeds while GitHub-dependent repository capabilities remain unavailable.
+5. Repeat the OIDC setup with the GitHub repository provider and its credential provider.
+6. Show that the OIDC session still needs a separate linked GitHub identity before repository features become available.
 
 ## Deliberate demo limits
 
 - The OIDC adapter trusts local form fields and must never be enabled outside explicit demo mode.
+- The GitHub callback simulation trusts local form fields and must never be enabled outside explicit demo mode. The real OAuth route remains unchanged.
 - The rate limiter is process-local. Production needs a shared store and deployment-specific trusted proxy rules.
 - GitHub credential activation validates the App key and installation before saving, but OAuth client-secret proof completes only during user authorization.
 - OIDC-to-GitHub account linking is not implemented. The capability gate makes that missing relationship visible instead of granting or inventing access.

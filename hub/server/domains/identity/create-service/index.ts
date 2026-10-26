@@ -7,6 +7,7 @@ import { revokeSessions } from "#server/domains/identity/revoke-sessions"
 import { rotateGitHubCredentials } from "#server/domains/identity/rotate-github-credentials"
 import { setupGitHubCredentials } from "#server/domains/identity/setup-github-credentials"
 import { signOut } from "#server/domains/identity/sign-out"
+import { signInWithGitHubDemo } from "#server/domains/identity/sign-in-with-github-demo"
 import { signInWithOidcDemo } from "#server/domains/identity/sign-in-with-oidc-demo"
 import { startGitHubAuthorization } from "#server/domains/identity/start-github-authorization"
 import type { IdentityDependencies, IdentityService } from "#server/utils/identity-contracts/types"
@@ -20,6 +21,7 @@ export function createIdentityService(
     start: startGitHubAuthorization.bind(null, dependencies),
     complete: completeGitHubAuthorization.bind(null, dependencies),
     configuration: getProviderConfiguration.bind(null, dependencies),
+    signInWithGitHubDemo: signInWithGitHubDemo.bind(null, dependencies),
     signInWithOidcDemo: signInWithOidcDemo.bind(null, dependencies),
     current: getCurrentSession.bind(null, dependencies),
     signOut: signOut.bind(null, dependencies),

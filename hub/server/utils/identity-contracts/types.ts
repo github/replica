@@ -136,12 +136,14 @@ export interface IdentityService {
   complete(code: string, state: string, browserToken: string): Promise<{ token?: string }>
   configuration(): Promise<{
     demoMode: boolean
+    credentialProvider: CredentialProvider["name"]
     signInProviders: Array<{
       name: SignInProviderName
       configured: boolean
     }>
     repositoryProvider: RepositoryProviderName
   }>
+  signInWithGitHubDemo(input: unknown): Promise<{ token: string }>
   signInWithOidcDemo(input: unknown): Promise<{ token: string }>
   current(token: string): Promise<IdentityContext>
   signOut(token: string, csrfToken: string): Promise<void>

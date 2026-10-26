@@ -1,7 +1,6 @@
-import { randomBytes } from "node:crypto"
 import { z } from "zod"
 
-import { digestSecret } from "#server/utils/digest-secret"
+import { createDemoSession } from "#server/domains/identity/create-demo-session"
 import type { IdentityDependencies } from "#server/utils/identity-contracts/types"
 import { IdentityError } from "#server/utils/identity-error"
 
@@ -14,7 +13,7 @@ const demoProfileSchema = z
   .strict()
 
 export async function signInWithOidcDemo(dependencies: IdentityDependencies, input: unknown) {
-  const { settings, store, now } = dependencies
+  const { settings } = dependencies
   if (!settings.demoMode || !settings.signInProviders.includes("oidc-demo")) {
     throw new IdentityError(
       404,
@@ -27,27 +26,15 @@ export async function signInWithOidcDemo(dependencies: IdentityDependencies, inp
     throw new IdentityError(400, "invalid_demo_identity", "Enter a valid local demo identity.")
   }
 
-  const token = randomBytes(32).toString("base64url")
-  await store.lock(async (records) => {
-    const user = await records.saveUser({
+  return createDemoSession(
+    dependencies,
+    {
       provider: "oidc-demo",
       providerId: parsed.data.subject,
       login: parsed.data.login,
       name: parsed.data.name ?? null,
       avatarUrl: null,
-    })
-    const session = await records.createSession({
-      tokenDigest: digestSecret(token),
-      userId: user.id,
-      signedInAt: now(),
-      freshAuthorizedAt: now(),
-      credentialRevision: "oidc-demo:v1",
-    })
-    await records.audit({
-      event: "session.sign_in",
-      actorId: user.id,
-      sessionId: session.id,
-    })
-  })
-  return { token }
+    },
+    "oidc-demo:v1",
+  )
 }
