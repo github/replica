@@ -107,7 +107,7 @@ npm run build
 npm run storybook:build
 ```
 
-Run `npm run test:database` with the [Hub development database](hub/docs/development.md) for server cases that save records. It prepares separate databases per Vitest worker; ordinary `npm test` remains database-free.
+Run `npm run test:database` for server cases that save records. Follow the [database test setup](hub/docs/testing-and-operations.md#parallel-database-tests) to prepare isolated databases. `npm test` does not require PostgreSQL.
 
 Useful focused commands include:
 

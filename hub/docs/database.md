@@ -1,16 +1,27 @@
 # Hub database
 
-Hub uses PostgreSQL and Prisma. The development image is pinned in [Compose](../.devcontainer/compose.yaml); Prisma packages are pinned together in [package.json](../package.json) and follow the [seven-day dependency policy](../../docs/testing-and-review.md#update-dependencies). Product models and migrations have not been added.
+Hub uses PostgreSQL and Prisma. Product models and migrations have not been added.
+
+[Compose](../.devcontainer/compose.yaml) pins the development database image. [package.json](../package.json) pins the Prisma packages to the same version. Dependency updates must follow the [seven-day dependency policy](../../docs/testing-and-review.md#update-dependencies).
 
 Choose the newest stable PostgreSQL major available from both Azure Database for PostgreSQL and Amazon RDS or Aurora. Managed services can offer different patch releases; the local image tracks a stable patch of that shared major. Check provider availability again when changing the major, rather than assuming that an upstream release is available everywhere.
 
 ## Schema conventions
 
-[prisma7.config.ts](../prisma7.config.ts) points Prisma at the entire `prisma/` directory. Keep the generator and datasource in `prisma/schema.prisma`, one model per kebab-case `.prisma` file, and one enum per kebab-case `.enum.prisma` file. Store migrations in `prisma/migrations/` and commit them with their schema changes.
+[prisma7.config.ts](../prisma7.config.ts) loads the entire `prisma/` directory. Organize schema files as follows:
 
-Use singular PascalCase model and enum names. Map every model to a plural `snake_case` table with `@@map`. Use camelCase Prisma fields and `@map` for database columns whose names differ, including foreign keys. Give every table a UUID `id` primary key and `created_at` and `updated_at` timestamp columns. Use PostgreSQL's native UUID type for primary and foreign keys.
+- Keep the generator and datasource in `prisma/schema.prisma`.
+- Put each model in a kebab-case `.prisma` file and each enum in a kebab-case `.enum.prisma` file.
+- Store migrations in `prisma/migrations/` and commit them with their schema changes.
 
-Order each model's sections as ID columns, relations, attribute columns, and timestamp columns, with the table mapping last. Keep the section comments when the section is present. For example, a future self-referencing folder model would follow this structure:
+Use singular PascalCase model and enum names. Follow these field and table conventions:
+
+- Map every model to a plural `snake_case` table with `@@map`.
+- Use camelCase Prisma fields. Map database columns to `snake_case` with `@map` when their names differ, including foreign keys.
+- Give every table a UUID `id` primary key and `created_at` and `updated_at` timestamp columns.
+- Use PostgreSQL's native UUID type for primary and foreign keys.
+
+Order each model's sections as ID columns, relations, attribute columns, and timestamp columns. Put the table mapping last. Keep comments for sections that are present. This example shows the required structure; it does not define a product model:
 
 ```prisma
 model Folder {
@@ -37,7 +48,7 @@ model Folder {
 
 ## Shared client
 
-Import `prisma` from `server/integrations/prisma/index.ts` rather than constructing clients in each caller. It uses the PostgreSQL driver adapter and Prisma's [documented global cache pattern](https://www.prisma.io/docs/orm/v7/more/troubleshooting/nextjs#avoiding-multiple-prisma-client-instances): development module reloads reuse one client, while production uses the module instance without writing a development global.
+Import `prisma` from `server/integrations/prisma/index.ts` rather than constructing clients in each caller. The integration uses Prisma's [documented global cache pattern](https://www.prisma.io/docs/orm/v7/more/troubleshooting/nextjs#avoiding-multiple-prisma-client-instances) to reuse one client across development module reloads. Production uses the module instance without setting the global variable.
 
 The integration requires `DATABASE_URL` and reads `.env` when present. Do not import server database code into the frontend. Keep queries in repositories and follow the [import boundaries](backend-architecture.md#import-boundaries). Domains may pass the shared client into repository functions; repositories must not import integrations directly.
 

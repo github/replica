@@ -1,4 +1,4 @@
-name: Repository CI
+name: Scripts CI
 
 on:
   pull_request:
@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   check:
-    name: Repository ${{ matrix.command }}
+    name: Scripts ${{ matrix.command }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

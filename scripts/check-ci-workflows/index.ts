@@ -21,7 +21,7 @@ export function checkWorkflows(root: string): void {
     ["actions-ci", ["test"]],
     ["starter-ci", ["test"]],
     ["learning-ci", ["test"]],
-    ["repository-ci", ["check"]],
+    ["scripts-ci", ["check"]],
   ] as const) {
     const { jobs, on: triggers } = workflow(name)
     assert(triggers, `${name}: missing workflow triggers`)
@@ -94,18 +94,18 @@ export function checkWorkflows(root: string): void {
     assert(step, "Composite smoke fixture and action must run")
     assert.equal(expression(step.if), "matrix.node == 24", "Upload the composite fixture only once")
   }
-  const repository = workflow("repository-ci").jobs.check
-  assert.deepEqual(repository.strategy?.matrix.command, ["typecheck", "test", "check:workflows"])
-  assert.equal(repository.strategy?.["fail-fast"], false)
+  const scripts = workflow("scripts-ci").jobs.check
+  assert.deepEqual(scripts.strategy?.matrix.command, ["typecheck", "test", "check:workflows"])
+  assert.equal(scripts.strategy?.["fail-fast"], false)
   assert(
-    repository.steps?.some(
+    scripts.steps?.some(
       (step) => step.run === "npm ci --prefix scripts --ignore-scripts --engine-strict",
     ),
-    "Repository checks must install tooling",
+    "Scripts checks must install tooling",
   )
   assert(
-    repository.steps?.some((step) => step.run === "npm run ${{ matrix.command }} --prefix scripts"),
-    "Repository checks must run each tooling command",
+    scripts.steps?.some((step) => step.run === "npm run ${{ matrix.command }} --prefix scripts"),
+    "Scripts checks must run each tooling command",
   )
   const ageSteps = workflow("dependency-age").jobs.audit.steps
   assert(

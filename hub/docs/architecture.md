@@ -6,7 +6,9 @@ Hub contributors are rebuilding the app on `build/hub/new` before merging it int
 
 The team has chosen TypeScript, Express for the API, React and Vite for the frontend, and Vitest for tests. The old backend and the frontend code that connected to it have been removed rather than rewritten.
 
-The API responds to a health check, and the frontend displays the logo with light and dark themes. Storybook keeps the existing components and pages available for reuse. PostgreSQL, Prisma, and a devcontainer provide the database development foundation without product models. Sign-in, deployment, background jobs, and product APIs have not been built. This app cannot yet find repositories, import Builds, host previews, save product data, or support reviews.
+The API responds to a health check, and the frontend displays the logo with light and dark themes. Storybook keeps the existing components and pages available for reuse.
+
+Contributors can use PostgreSQL and Prisma locally or in the devcontainer. The database has no product models yet. Sign-in, deployment, background jobs, and product APIs have not been built. This app cannot yet find repositories, import Builds, host previews, save product data, or support reviews.
 
 ## Backend
 

@@ -1,6 +1,6 @@
 # Hub testing and operations
 
-The new Hub has a PostgreSQL and Prisma foundation but no product models, deployment setup, sign-in, or product APIs yet. These checks cover the new app setup and the frontend code we kept. They do not prove that the old Hub's features work.
+These checks cover the Hub API, database setup, and frontend. See [Architecture](architecture.md) for the features that are implemented.
 
 Run commands directly from `hub/` after `npm ci`. The database command also needs PostgreSQL and `TEST_DATABASE_URL`, as described in [parallel database tests](#parallel-database-tests):
 
@@ -14,33 +14,44 @@ npm run build
 npm run storybook:build
 ```
 
-`npm test` selects the Node project for API and pure utility tests and the jsdom project for frontend behavior. Neither requires PostgreSQL. A focused API check is `npm test -- server/create-app/index.test.ts`. HTTP tests listen on ephemeral loopback ports and close their servers afterward.
+`npm test` runs API and utility tests in Node.js and frontend tests in jsdom, which provides a browser-like environment. Neither requires PostgreSQL. To run a focused API check, use `npm test -- server/create-app/index.test.ts`. HTTP tests listen on temporary loopback ports and close their servers afterward.
 
 The API health check proves only that Express responds. Routes that have not been built must return 404 rather than pretending to work.
 
-Installation generates Prisma Client without a database connection. Client lifecycle tests cover reuse across development reloads, production global behavior, and missing configuration.
+Installation generates Prisma Client without a database connection. Client tests check reuse across development reloads, production behavior, and errors for missing configuration.
 
 ## Clean test cases
 
-[The shared setup](../test/setup.ts) and Vitest configuration reset mocks, spies, stubbed globals, stubbed environment variables, fake timers, and the module cache before every case. The browser setup also clears storage, navigation state, selections, and leftover document content. React Testing Library unmounts rendered components after cases.
+[The shared setup](../test/setup.ts) and Vitest configuration reset test state before every case:
 
-Arrange each case's inputs and records inside that case, act through its public interface, and assert the result. Do not depend on records, mocks, or effects left by another case. Use `beforeEach` only for repeated setup, not to hide a case's important inputs. Avoid local `afterEach` and `afterAll` for state already reset globally.
+- Reset mocks and restore spies, stubbed globals, and stubbed environment variables.
+- Restore real timers and clear the module cache.
+- Clear browser storage, navigation state, selections, and leftover document content.
 
-Global resets cannot dispose arbitrary servers, files, sockets, or event listeners. Release resources owned by a case with `try/finally` or Vitest's `onTestFinished`, registered when creating the resource. Module-cache resets affect subsequent imports, not references already imported by a test file; reset any deliberately shared fixture state before each case.
+React Testing Library also unmounts rendered components after cases.
+
+Arrange each case's inputs and records inside that case. Act through its public interface, then assert the result. Do not depend on records, mocks, or effects left by another case. Use `beforeEach` only for repeated setup, not to hide a case's important inputs. Avoid local `afterEach` and `afterAll` for state already reset globally.
+
+Tests must release resources they create, such as servers, files, sockets, and event listeners. Use `try/finally` or register disposal with Vitest's `onTestFinished` when creating the resource. Clearing the module cache only affects subsequent imports. Reset any deliberately shared fixture state before each case.
 
 ## Parallel database tests
 
-Vitest runs files in parallel with its [default forked-process pool](https://vitest.dev/config/pool). The configuration makes this explicit and keeps cases within a worker sequential, including cases marked concurrent, because resetting a shared worker database while another case runs would erase its records. `--maxWorkers` controls file-level parallelism.
+Each test run uses separate databases so parallel tests cannot change another worker's records or clear the development database. Vitest runs files in parallel in [forked worker processes](https://vitest.dev/config/pool). Cases within a worker run sequentially, including cases marked concurrent, so database resets cannot erase another case's records. Use `--maxWorkers` to set file-level parallelism.
 
-Only `npm run test:database` selects the database-enabled server project. Name those tests `server/**/*.db.test.ts`; they are excluded from the ordinary Node project. Use the PostgreSQL service in [Development](development.md) and set `TEST_DATABASE_URL` from `.env.example`. The devcontainer supplies its internal service URL. The database user needs permission to create and drop databases; use a local development service, not a production connection.
+Only `npm run test:database` runs database-enabled server tests. Name those tests `server/**/*.db.test.ts`; `npm test` excludes them. Start the PostgreSQL service as described in [Development](development.md) and set `TEST_DATABASE_URL` using `.env.example`. The devcontainer supplies this variable. Use a local database user with permission to create and drop databases, never a production connection.
 
-Before workers start, global setup creates a run-unique template database and applies the current Prisma schema with `prisma db push`. It clones that template for every worker slot. Setup uses Vitest's [documented `VITEST_POOL_ID`](https://vitest.dev/guide/migration/jest#envs), which stays within the configured worker limit, rather than the ever-increasing worker instance ID. Each worker receives its own `DATABASE_URL` before application modules load.
+The database setup follows this lifecycle:
 
-Before every case, the database setup truncates application tables across user schemas and restarts their identities. It preserves Prisma's migration records. Tests create their own records in an arrange, act, assert pattern; there is no shared seed data. At the end of the run, global teardown drops only the databases it created, even if tests left connections open. Unique run prefixes also isolate simultaneous Vitest runs. Cleanup rejects database names outside the test namespace and verifies the actual connected database before truncating.
+1. Before workers start, setup creates a template database with a unique name for the run. It applies the current Prisma schema with `prisma db push`, then copies the template for every worker slot.
+2. Each worker receives its own `DATABASE_URL` before application modules load. Setup uses Vitest's [`VITEST_POOL_ID`](https://vitest.dev/guide/migration/jest#envs), which stays within the configured worker limit.
+3. Before every case, setup empties application tables across user schemas and resets generated identity counters. It preserves Prisma's migration records. Each case creates its own records; there is no shared seed data.
+4. After the run, teardown drops only the databases it created, even if tests left connections open.
 
-The test helpers under `test/` are test infrastructure, not application repositories, integrations, utilities, or domains. Runtime code must not import them. These helpers use direct PostgreSQL access to prepare databases before Prisma Client and application code load.
+Unique database names also isolate simultaneous runs. Before clearing tables, cleanup checks that the database name belongs to the test namespace and matches the connected database.
 
-Hub CI runs this project against PostgreSQL on every supported Node major. Only that matrix command starts the database service; browser, pure unit, formatting, and build checks do not require it.
+The helpers under `test/` prepare databases before Prisma Client and application code load. They are test infrastructure, not application repositories, integrations, utilities, or domains. Runtime code must not import them.
+
+Hub CI runs database tests against PostgreSQL on every supported Node major. Only that command starts the database service.
 
 ## Shared code
 

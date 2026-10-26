@@ -42,17 +42,17 @@ When a command gains a dependency or build prerequisite, update its local setup 
 
 ### Run independent CI checks
 
-Hub, build-action, Starter, Learning, and repository-tooling workflows run on every pull request and push to `main`. Do not add changed-path filters, suite selectors, or aggregate result gates. Checks run independently, and branch protection should require their individual check names.
+All CI workflows run on every pull request and push to `main`. Do not skip checks based on changed paths or add jobs that only combine other jobs' results. Configure branch protection to require the individual checks.
 
 Hub reports lint, types, unit tests, database tests, the frontend/API build, Storybook, and Controls/extension checks separately. Only the database test command starts PostgreSQL. The new Hub has no production-image or release jobs.
 
-When replacing the old aggregate gates, maintainers must replace `Frontend tests` and `Replica action tests` in any branch rules with the individual checks they require. Workflow changes do not update repository rules automatically.
+Maintainers must update branch rules when required checks change. Editing a workflow does not update those rules.
 
-The [repository workflow](../.github/workflows/repository-ci.yml) runs tooling type checks, tests, and workflow checks independently. Locally, install tooling with `npm ci --prefix scripts --ignore-scripts --engine-strict`, then run `npm run typecheck --prefix scripts`, `npm test --prefix scripts`, and `node scripts/check-ci-workflows/index.ts`. The workflow checker rejects aggregate gates, conditional jobs, path filters, and missing required commands. Keep TypeScript checks in function directories with colocated Vitest tests. Check changed workflows with `actionlint` when available. Actual check reporting still needs verification on GitHub after publishing.
+[Scripts CI](../.github/workflows/scripts-ci.yml) runs type checks, tests, and workflow checks for the maintenance scripts under `scripts/`. Use the [contributor commands](../CONTRIBUTING.md#verify-the-change) to run them locally. The workflow checker rejects jobs that combine results, conditional jobs, path filters, and missing required commands. Keep TypeScript checks in function directories with colocated Vitest tests. Check changed workflows with `actionlint` when available, then inspect their check results on GitHub after publishing.
 
-Node-dependent jobs in Hub, Starter, build-action, and Learning CI use a Node 24 and 26 matrix rather than a separate compatibility workflow. Each check adds a `(Node 26)` suffix on Node 26. A failure does not cancel the other version. npm installation enforces dependency engines, and `scripts/check-ci-workflows/index.ts` checks the supported ranges, matching lockfile metadata, and matrix wiring. These checks track the supported majors, not their exact minimum patch releases.
+Hub, Starter, build-action, and Learning CI test both Node.js majors supported by each project's `engines.node`. The workflow matrices define the versions and distinguish their check names. A failure on one version does not cancel checks on the other. npm installation enforces dependency engines. The workflow checker verifies that the manifests, lockfiles, and matrices agree.
 
-Repository and dependency-age tooling run on Node 24. The build-action suite tests its JavaScript and browser capture on both Node versions, but runs the composite-action smoke test only on Node 24: the composite action pins that runtime itself and uploads a single named artifact.
+Scripts CI and dependency-age checks use the Node.js version specified in their workflows. The build-action suite tests JavaScript and browser capture on both supported majors. It runs the composite-action smoke test only on the action's pinned runtime to avoid duplicate artifact uploads.
 
 ## Update dependencies
 
@@ -62,7 +62,7 @@ From the repository root, `node scripts/check-dependency-age/index.ts` verifies 
 
 CI does not run `npm audit`: a newly published security fix could otherwise make the audit fail while the age check rejects the fixed version. Dependabot checks dependencies for known vulnerabilities. Organization-managed CodeQL scans application code on GitHub.
 
-When a dependency is too new, select an older compatible version or wait until the seven-day window ends. See [Hub testing and operations](../hub/docs/testing-and-operations.md#update-dependencies) for Hub-specific tooling.
+When a dependency is too new, select an older compatible version or wait until the seven-day window ends. See [Hub testing and operations](../hub/docs/testing-and-operations.md) for Hub-specific tooling.
 
 ## Copilot code review
 
