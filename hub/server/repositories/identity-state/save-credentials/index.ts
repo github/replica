@@ -1,4 +1,4 @@
-import { identityStateId } from "#server/repositories/identity-state/constants"
+import { staticSettingsRecordId } from "#server/repositories/identity-state/constants"
 
 import type { Prisma } from "../../../generated/prisma/client.ts"
 
@@ -7,7 +7,7 @@ export async function saveIdentityCredentials(
   encryptedCredentials: string,
 ) {
   await database.identityState.update({
-    where: { id: identityStateId },
+    where: { id: staticSettingsRecordId },
     data: { encryptedCredentials },
   })
 }

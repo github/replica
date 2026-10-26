@@ -1,7 +1,7 @@
-import { identityStateId } from "#server/repositories/identity-state/constants"
+import { staticSettingsRecordId } from "#server/repositories/identity-state/constants"
 
 import type { Prisma } from "../../../generated/prisma/client.ts"
 
 export function getIdentityState(database: Prisma.TransactionClient) {
-  return database.identityState.findUniqueOrThrow({ where: { id: identityStateId } })
+  return database.identityState.findUniqueOrThrow({ where: { id: staticSettingsRecordId } })
 }
