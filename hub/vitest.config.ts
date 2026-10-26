@@ -46,35 +46,47 @@ export default defineConfig({
     server: { deps: { inline: [/@primer\//] } },
     projects: [
       {
-        extends: true,
-        test: {
-          name: "node",
-          environment: "node",
-          include: [...nodeTests, "server/**/*.test.ts", "test/**/*.test.ts"],
-          exclude: [...configDefaults.exclude, "**/*.db.test.ts"],
-        },
+        name: "node",
+        environment: "node",
+        include: [...nodeTests, "server/**/*.test.{ts,tsx}", "test/**/*.test.{ts,tsx}"],
+        exclude: [],
+        setupFiles: [],
       },
       {
+        name: "browser",
+        environment: "jsdom",
+        include: ["app/javascript/**/*.test.{ts,tsx}", ".storybook/**/*.test.{ts,tsx}"],
+        exclude: nodeTests,
+        setupFiles: ["./app/javascript/test/setup.ts"],
+      },
+    ].flatMap(({ name, ...environment }) =>
+      [false, true].map((database) => ({
         extends: true,
         test: {
-          name: "browser",
-          environment: "jsdom",
-          include: ["app/javascript/**/*.test.{ts,tsx}", ".storybook/**/*.test.{ts,tsx}"],
-          exclude: [...configDefaults.exclude, ...nodeTests],
-          setupFiles: ["./app/javascript/test/setup.ts"],
+          ...environment,
+          name: database ? `${name}-database` : name,
+          include: environment.include.map((pattern) =>
+            database ? pattern.replace(".test.", ".db.test.") : pattern,
+          ),
+          exclude: [
+            ...configDefaults.exclude,
+            ...environment.exclude.map((pattern) =>
+              database ? pattern.replace(".test.", ".db.test.") : pattern,
+            ),
+            ...(database ? [] : ["**/*.db.test.{ts,tsx}"]),
+          ],
+          setupFiles: [
+            ...environment.setupFiles,
+            ...(database ? ["./test/database/setup.ts"] : []),
+          ],
+          ...(database
+            ? {
+                globalSetup: ["./test/database/global-setup/index.ts"],
+                hookTimeout: 30_000,
+              }
+            : {}),
         },
-      },
-      {
-        extends: true,
-        test: {
-          name: "database",
-          environment: "node",
-          include: ["server/**/*.db.test.ts"],
-          globalSetup: ["./test/database/global-setup/index.ts"],
-          setupFiles: ["./test/database/setup.ts"],
-          hookTimeout: 30_000,
-        },
-      },
-    ],
+      })),
+    ),
   },
 })

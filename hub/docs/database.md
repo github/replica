@@ -66,4 +66,4 @@ npm run db:generate
 
 Use `db:migrate` only with a local development database. It needs permission to create a shadow database to calculate migrations. `npm run db:deploy` applies committed migrations without creating new ones; it is not a production deployment setup. `npm run db:studio` opens Prisma's database editor and should be used only with an intended development database.
 
-The [database test project](testing-and-operations.md#parallel-database-tests) uses separate databases for every worker and test run. It applies the current Prisma schema directly, clears records before each case, and does not use the development database for test data.
+The [database-enabled test projects](testing-and-operations.md#parallel-database-tests) use separate databases for every project, worker, and test run. Setup applies the current Prisma schema directly and clears records before each case. Tests do not use the development database for records.

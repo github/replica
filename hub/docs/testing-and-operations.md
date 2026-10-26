@@ -38,13 +38,26 @@ Tests must release resources they create, such as servers, files, sockets, and e
 
 Each test run uses separate databases so parallel tests cannot change another worker's records or clear the development database. Vitest runs files in parallel in [forked worker processes](https://vitest.dev/config/pool). Cases within a worker run sequentially, including cases marked concurrent, so database resets cannot erase another case's records. Use `--maxWorkers` to set file-level parallelism.
 
-Only `npm run test:database` runs database-enabled server tests. Name those tests `server/**/*.db.test.ts`; `npm test` excludes them. Start the PostgreSQL service as described in [Development](development.md) and set `TEST_DATABASE_URL` using `.env.example`. The devcontainer supplies this variable. Use a local database user with permission to create and drop databases, never a production connection.
+Execution environment and database access are separate choices:
 
-The command uses `--passWithNoTests` so an empty project exits successfully. It still fails when tests fail. There are no database test cases yet; an empty run does not prepare or exercise the databases.
+| Environment | Without PostgreSQL | With PostgreSQL    |
+| ----------- | ------------------ | ------------------ |
+| Node.js     | `node`             | `node-database`    |
+| jsdom       | `browser`          | `browser-database` |
+
+Use `.test.ts` or `.test.tsx` for ordinary cases. Use `.db.test.ts` or `.db.test.tsx` to opt into database access. Server and test-infrastructure files run in Node.js. Frontend and Storybook files run in jsdom, except the utility cases listed in `vitest.config.ts` for Node.js. Each file runs in exactly one project.
+
+`npm test` selects `node` and `browser` without requiring PostgreSQL. `npm run test:database` selects both database-enabled projects. To select one project, run `npx vitest run --project=node-database --passWithNoTests` or use `--project=browser-database` instead.
+
+Start the PostgreSQL service as described in [Development](development.md) and set `TEST_DATABASE_URL` using `.env.example`. The devcontainer supplies this variable. Use a local database user with permission to create and drop databases, never a production connection.
+
+The database command uses `--passWithNoTests` so an empty selection exits successfully. It still fails when tests fail. There are no database test cases yet; an empty run does not prepare or exercise the databases.
+
+Database-enabled jsdom tests use the browser setup and database hooks together. They can arrange records through server code, but frontend code must not import server modules. The setup does not start an API or connect frontend requests to one.
 
 The database setup follows this lifecycle:
 
-1. Before workers start, setup creates a template database with a unique name for the run. It applies the current Prisma schema with `prisma db push`, then copies the template for every worker slot.
+1. Before workers start, setup creates a template database with a unique name for each project and run. It applies the current Prisma schema with `prisma db push`, then copies the template for every worker slot.
 2. Each worker receives its own `DATABASE_URL` before application modules load. Setup uses Vitest's [`VITEST_POOL_ID`](https://vitest.dev/guide/migration/jest#envs), which stays within the configured worker limit.
 3. Before every case, setup empties application tables across user schemas and resets generated identity counters. It preserves Prisma's migration records. Each case creates its own records; there is no shared seed data.
 4. After the run, teardown drops only the databases it created, even if tests left connections open.
