@@ -4,7 +4,7 @@ import type { IdentityRoutes } from "#server/routes/types"
 import { IdentityError } from "#server/utils/identity-error"
 import { readSessionToken } from "#server/utils/read-session-token"
 
-export async function handleApiRepositoriesOwnerRepositoryAccessGet(
+export async function get(
   dependencies: IdentityRoutes,
   request: Request,
   response: Response,

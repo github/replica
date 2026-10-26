@@ -1,9 +1,11 @@
-import type { GitHubCredentials, GitHubProfile } from "#server/utils/identity-contracts/types"
 import { GitHubResponseError } from "#server/integrations/github/github-response-error"
+import {
+  accessTokenSchema,
+  profileSchema,
+} from "#server/integrations/github/identify-user/constants"
 import { requestGitHub } from "#server/integrations/github/request-github"
+import type { GitHubCredentials, GitHubProfile } from "#server/utils/identity-contracts/types"
 import { IdentityError } from "#server/utils/identity-error"
-
-import { accessTokenSchema, profileSchema } from "./constants.ts"
 
 export async function identifyUser(
   origin: string,

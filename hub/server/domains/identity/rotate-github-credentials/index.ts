@@ -1,8 +1,8 @@
 import { getIdentityConfiguration } from "#server/domains/identity/get-identity-configuration"
 import { requireIdentityAdministrator } from "#server/domains/identity/require-identity-administrator"
+import { validateGitHubCredentials } from "#server/integrations/github/validate-github-credentials"
 import type { IdentityDependencies } from "#server/utils/identity-contracts/types"
 import { IdentityError } from "#server/utils/identity-error"
-import { validateGitHubCredentials } from "#server/utils/validate-github-credentials"
 
 export async function rotateGitHubCredentials(
   dependencies: IdentityDependencies,

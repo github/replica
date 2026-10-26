@@ -1,7 +1,7 @@
 import { requireBootstrapSecret } from "#server/domains/identity/require-bootstrap-secret"
+import { validateGitHubCredentials } from "#server/integrations/github/validate-github-credentials"
 import type { IdentityDependencies } from "#server/utils/identity-contracts/types"
 import { IdentityError } from "#server/utils/identity-error"
-import { validateGitHubCredentials } from "#server/utils/validate-github-credentials"
 
 export async function setupGitHubCredentials(
   dependencies: IdentityDependencies,

@@ -1,7 +1,7 @@
-import { decryptGitHubCredentials } from "#server/utils/decrypt-github-credentials"
-import { encryptGitHubCredentials } from "#server/utils/encrypt-github-credentials"
+import { decryptGitHubCredentials } from "#server/integrations/github/decrypt-github-credentials"
+import { encryptGitHubCredentials } from "#server/integrations/github/encrypt-github-credentials"
+import { validateGitHubCredentials } from "#server/integrations/github/validate-github-credentials"
 import type { CredentialProvider } from "#server/utils/identity-contracts/types"
-import { validateGitHubCredentials } from "#server/utils/validate-github-credentials"
 
 export function createCredentialProvider(environment: NodeJS.ProcessEnv): CredentialProvider {
   const selected = environment.HUB_CREDENTIAL_PROVIDER ?? "database"

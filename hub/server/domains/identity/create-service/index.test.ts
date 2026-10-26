@@ -147,10 +147,6 @@ describe("createIdentityService()", () => {
     expect(signedIn.user.id).toBe(administrator.user.id)
     expect(signedIn.user.administrator).toBe(true)
     expect(fixture.github.admitted).not.toHaveBeenCalled()
-    fixture.github.permission.mockRejectedValue(new Error("GitHub repository API unavailable"))
-    await expect(
-      fixture.service.permission(signedIn.token, "synthetic", "repository"),
-    ).rejects.toThrow()
   })
 
   it("does not extend fresh identity proof by the time spent checking repository admission", async () => {

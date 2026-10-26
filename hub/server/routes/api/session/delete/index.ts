@@ -4,7 +4,7 @@ import type { IdentityRoutes } from "#server/routes/types"
 import { getIdentityCookies } from "#server/utils/get-identity-cookies"
 import { readSessionToken } from "#server/utils/read-session-token"
 
-export async function handleApiSessionDelete(
+async function deleteSession(
   dependencies: IdentityRoutes,
   request: Request,
   response: Response,
@@ -16,3 +16,5 @@ export async function handleApiSessionDelete(
   response.clearCookie(sessionCookie, cookieOptions)
   response.status(204).end()
 }
+
+export { deleteSession as delete }

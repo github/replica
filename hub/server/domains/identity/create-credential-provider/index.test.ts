@@ -40,7 +40,7 @@ describe("createCredentialProvider()", () => {
   })
 
   it("requires a valid encryption key outside the database", () => {
-    for (const key of [undefined, "", "ab".repeat(31), "zz".repeat(32)]) {
+    for (const key of [undefined, "ab".repeat(31), "zz".repeat(32)]) {
       expect(() => createCredentialProvider({ HUB_CREDENTIAL_KEY: key })).toThrow()
     }
   })

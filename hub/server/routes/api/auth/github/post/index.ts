@@ -3,7 +3,7 @@ import type { Request, Response } from "express"
 import type { IdentityRoutes } from "#server/routes/types"
 import { getIdentityCookies } from "#server/utils/get-identity-cookies"
 
-export async function handleApiAuthGithubPost(
+export async function post(
   dependencies: IdentityRoutes,
   _request: Request,
   response: Response,

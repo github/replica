@@ -1,11 +1,10 @@
 import { randomBytes } from "node:crypto"
 
+import type { VerifiedGitHubAuthorization } from "#server/domains/identity/finish-github-authorization/types"
 import { getIdentityConfiguration } from "#server/domains/identity/get-identity-configuration"
 import { digestSecret } from "#server/utils/digest-secret"
 import type { IdentityDependencies, IdentityRecords } from "#server/utils/identity-contracts/types"
 import { IdentityError } from "#server/utils/identity-error"
-
-import type { VerifiedGitHubAuthorization } from "./types.ts"
 
 export async function finishGitHubAuthorization(
   dependencies: IdentityDependencies,

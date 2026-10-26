@@ -3,7 +3,7 @@ import { createPrivateKey } from "node:crypto"
 import type { GitHubCredentials } from "#server/utils/identity-contracts/types"
 import { IdentityError } from "#server/utils/identity-error"
 
-import { credentialsSchema } from "./constants.ts"
+import { credentialsSchema } from "#server/integrations/github/validate-github-credentials/constants"
 
 export function validateGitHubCredentials(input: unknown): GitHubCredentials {
   const parsed = credentialsSchema.safeParse(input)

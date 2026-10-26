@@ -4,7 +4,7 @@ import type { IdentityRoutes } from "#server/routes/types"
 import { getIdentityCookies } from "#server/utils/get-identity-cookies"
 import { readSessionToken } from "#server/utils/read-session-token"
 
-export async function handleApiAuthGithubVerifyPost(
+export async function post(
   dependencies: IdentityRoutes,
   request: Request,
   response: Response,

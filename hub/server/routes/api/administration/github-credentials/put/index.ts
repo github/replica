@@ -5,7 +5,7 @@ import { IdentityError } from "#server/utils/identity-error"
 import { readConfirmation } from "#server/utils/read-confirmation"
 import { readSessionToken } from "#server/utils/read-session-token"
 
-export async function handleApiAdministrationGithubCredentialsPut(
+export async function put(
   dependencies: IdentityRoutes,
   request: Request,
   response: Response,

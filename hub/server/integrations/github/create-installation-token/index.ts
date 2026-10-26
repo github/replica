@@ -1,8 +1,7 @@
-import type { GitHubCredentials } from "#server/utils/identity-contracts/types"
 import { createAppToken } from "#server/integrations/github/create-app-token"
+import { installationTokenSchema } from "#server/integrations/github/create-installation-token/constants"
 import { requestGitHub } from "#server/integrations/github/request-github"
-
-import { installationTokenSchema } from "./constants.ts"
+import type { GitHubCredentials } from "#server/utils/identity-contracts/types"
 
 export async function createInstallationToken(credentials: GitHubCredentials): Promise<string> {
   const data = await requestGitHub(

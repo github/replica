@@ -5,7 +5,7 @@ import { getIdentityCookies } from "#server/utils/get-identity-cookies"
 import { IdentityError } from "#server/utils/identity-error"
 import { readCookie } from "#server/utils/read-cookie"
 
-export async function handleApiAuthGithubCallbackGet(
+export async function get(
   dependencies: IdentityRoutes,
   request: Request,
   response: Response,

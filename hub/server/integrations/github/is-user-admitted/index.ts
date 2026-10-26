@@ -1,10 +1,9 @@
-import type { GitHubCredentials, GitHubProfile } from "#server/utils/identity-contracts/types"
 import { createInstallationToken } from "#server/integrations/github/create-installation-token"
 import { getCollaboratorPermission } from "#server/integrations/github/get-collaborator-permission"
+import { repositoriesSchema } from "#server/integrations/github/is-user-admitted/constants"
 import { requestGitHub } from "#server/integrations/github/request-github"
+import type { GitHubCredentials, GitHubProfile } from "#server/utils/identity-contracts/types"
 import { IdentityError } from "#server/utils/identity-error"
-
-import { repositoriesSchema } from "./constants.ts"
 
 export async function isUserAdmitted(
   credentials: GitHubCredentials,

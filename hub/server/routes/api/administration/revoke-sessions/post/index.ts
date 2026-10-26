@@ -5,7 +5,7 @@ import { getIdentityCookies } from "#server/utils/get-identity-cookies"
 import { readConfirmation } from "#server/utils/read-confirmation"
 import { readSessionToken } from "#server/utils/read-session-token"
 
-export async function handleApiAdministrationRevokeSessionsPost(
+export async function post(
   dependencies: IdentityRoutes,
   request: Request,
   response: Response,

@@ -1,9 +1,8 @@
-import type { GitHubProfile, RepositoryPermission } from "#server/utils/identity-contracts/types"
+import { collaboratorPermissionSchema } from "#server/integrations/github/get-collaborator-permission/constants"
 import { GitHubResponseError } from "#server/integrations/github/github-response-error"
 import { requestGitHub } from "#server/integrations/github/request-github"
+import type { GitHubProfile, RepositoryPermission } from "#server/utils/identity-contracts/types"
 import { IdentityError } from "#server/utils/identity-error"
-
-import { collaboratorPermissionSchema } from "./constants.ts"
 
 export async function getCollaboratorPermission(
   token: string,

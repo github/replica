@@ -1,10 +1,10 @@
-import { stateId } from "#server/utils/identity-contracts/constants"
+import { identityStateId } from "#server/repositories/identity-state/constants"
 
 import type { Prisma } from "../../../generated/prisma/client.ts"
 
 export async function advanceIdentityGeneration(database: Prisma.TransactionClient) {
   await database.identityState.update({
-    where: { id: stateId },
+    where: { id: identityStateId },
     data: { generation: { increment: 1 } },
   })
   await database.oAuthAttempt.deleteMany()

@@ -1,8 +1,8 @@
 import { createDecipheriv } from "node:crypto"
 
-import { credentialContext } from "#server/utils/encrypt-github-credentials/constants"
+import { credentialContext } from "#server/integrations/github/encrypt-github-credentials/constants"
+import { validateGitHubCredentials } from "#server/integrations/github/validate-github-credentials"
 import type { GitHubCredentials, IdentityState } from "#server/utils/identity-contracts/types"
-import { validateGitHubCredentials } from "#server/utils/validate-github-credentials"
 
 export function decryptGitHubCredentials(
   key: Buffer,

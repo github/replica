@@ -1,8 +1,7 @@
 import { createCipheriv, randomBytes } from "node:crypto"
 
+import { credentialContext } from "#server/integrations/github/encrypt-github-credentials/constants"
 import type { GitHubCredentials } from "#server/utils/identity-contracts/types"
-
-import { credentialContext } from "./constants.ts"
 
 export function encryptGitHubCredentials(key: Buffer, credentials: GitHubCredentials): string {
   const nonce = randomBytes(12)

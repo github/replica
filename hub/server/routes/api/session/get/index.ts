@@ -3,7 +3,7 @@ import type { Request, Response } from "express"
 import type { IdentityRoutes } from "#server/routes/types"
 import { readSessionToken } from "#server/utils/read-session-token"
 
-export async function handleApiSessionGet(
+export async function get(
   dependencies: IdentityRoutes,
   request: Request,
   response: Response,

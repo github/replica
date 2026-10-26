@@ -2,7 +2,7 @@ import type { Request, Response } from "express"
 
 import type { IdentityRoutes } from "#server/routes/types"
 
-export async function handleApiSetupGithubPost(
+export async function post(
   dependencies: IdentityRoutes,
   request: Request,
   response: Response,

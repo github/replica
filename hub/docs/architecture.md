@@ -12,7 +12,7 @@ Contributors can use PostgreSQL and Prisma locally or in the devcontainer. Ident
 
 ## Backend
 
-API code lives under `server/`. [Routes](backend-architecture.md#routes) mirror URL paths and HTTP methods. They parse requests, call domains, and send responses. The [code conventions](backend-architecture.md) define the other backend layers and their import boundaries.
+API code lives under `server/`. [Routes](backend-architecture.md#routes) mirror URL paths and HTTP methods. They parse requests, call backend functions, and send responses. The [code conventions](backend-architecture.md) define the backend layers and their import boundaries.
 
 `GET /api/health` returns `{ "status": "ok" }`. The [identity guide](identity.md#api-operations) lists the other API operations. Unknown paths return a JSON 404 response. `createApp()` builds the Express app without starting a server. `server/index.ts` configures the selected credential provider and starts the API at a local address.
 
