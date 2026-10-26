@@ -1,62 +1,68 @@
 # Hub identity
 
-The TypeScript API supports GitHub App sign-in, browser sessions, operator enrollment, and current repository permission checks. The frontend, canvas, previews, and product APIs are not connected to this boundary yet. This branch is not a production deployment.
+People sign in to Hub with GitHub. Operators choose where Hub reads its GitHub App credentials. These operations are available through the API; the retained frontend and canvas do not call them.
 
-Hub separates the signed-in person from its GitHub App installation and its database connection. GitHub user tokens exist only inside the sign-in integration while it reads the person's identity. Repository checks use short-lived App installation tokens. Neither kind of token is saved in Hub.
+Hub uses a temporary GitHub user token to identify the person, then discards it. Hub uses separate, short-lived App installation tokens to check repository access. Neither token is stored in the database.
 
 ## Configure credentials
 
-Apply the committed migrations with `npm run db:deploy` before starting the API. Set `DATABASE_URL` and `HUB_ORIGIN`. The origin must use HTTPS in production; development permits HTTP only on a loopback host. The Vite development origin is `http://127.0.0.1:5173`.
+Apply the committed migrations with `npm run db:deploy` before starting the API. Set `DATABASE_URL` and `HUB_ORIGIN` using the [environment example](../.env.example). Use HTTPS for the Hub origin in production. Development also permits HTTP on a loopback host.
 
-`HUB_CREDENTIAL_PROVIDER` explicitly selects one source:
+`HUB_CREDENTIAL_PROVIDER` selects one source:
 
-| Provider | Configuration | Hub writes |
+| Provider | Operator configuration | Credential changes |
 | --- | --- | --- |
-| `database` (default) | `HUB_CREDENTIAL_KEY`, a 32-byte hexadecimal encryption key kept outside PostgreSQL | Initial setup and administrator rotation save AES-256-GCM encrypted credentials. |
-| `environment` | `GITHUB_APP_ID`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_PRIVATE_KEY` | Read-only. Change the environment and restart the API. |
+| `database` (default) | Set `HUB_CREDENTIAL_KEY` outside PostgreSQL. | Hub encrypts credentials during initial setup and administrator rotation. |
+| `environment` | Set `GITHUB_APP_ID`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, and `GITHUB_PRIVATE_KEY`. | Change the environment and restart the API. Hub cannot write to this provider. |
 
-Generate the database encryption key with `openssl rand -hex 32`. Back it up separately from the database. Replacing it without re-encrypting existing credentials prevents Hub from reading them. Set a separate `HUB_BOOTSTRAP_SECRET` of at least 32 characters when setting up Hub or enrolling an operator. Never commit these values.
+Generate the database encryption key with `openssl rand -hex 32`. Back it up separately from the database. Changing this key without re-encrypting stored credentials prevents Hub from reading them.
 
-Startup checks the selected provider and database. Missing environment credentials, an unknown provider, or unreadable encrypted credentials stop startup. There is no fallback. An empty database provider permits a restricted setup state only when a bootstrap secret is configured. Sign-in and protected identity reads remain unavailable until credentials exist.
+Set a separate `HUB_BOOTSTRAP_SECRET` of at least 32 random characters to configure the App or enroll an operator. Never commit either secret. An empty database provider permits startup only when this bootstrap secret is configured. Hub allows setup but refuses sign-in until credentials exist.
 
-Create a private GitHub App and register `${HUB_ORIGIN}/api/auth/github/callback` as its callback URL. Enable user authorization and installation access, including repository Administration read permission for collaborator permission checks. Install the App on the intended repositories. An organization-owned private App admits organization members; connecting a public repository can therefore expose its Hub reviews to every organization member. Keep the App private.
+Hub refuses to start if it cannot read the selected provider or connect to the database. It never switches to another provider automatically.
 
-This slice supports GitHub.com. GitHub Enterprise Server, App-manifest registration, webhooks, local identity, OIDC, trusted proxies, mounted files, and managed secret stores are not implemented.
+Create a private GitHub App on GitHub.com. Register `${HUB_ORIGIN}/api/auth/github/callback` as its callback URL. Enable user authorization and grant repository Administration read permission for collaborator checks. Install the App on the intended repositories.
 
-## API flow
+Keep the App private. With an organization-owned private App, every organization member can pass Hub's read check for a connected public repository.
 
-All mutation requests must send an `Origin` header matching `HUB_ORIGIN`. Send JSON for request bodies. Signed-in mutations additionally require `X-CSRF-Token` from `GET /api/session`. Hub issues host-only, HTTP-only, SameSite=Lax cookies; HTTPS cookies also use Secure and the `__Host-` prefix. Identity responses are not cached.
+## API operations
+
+Send an `Origin` header matching `HUB_ORIGIN` with every mutation. Use JSON for request bodies. Signed-in mutations also require the `X-CSRF-Token` returned by `GET /api/session`.
 
 | Request | Result |
 | --- | --- |
-| `POST /api/setup/github` | With `X-Hub-Bootstrap-Secret`, save the initial `{appId, clientId, clientSecret, privateKey}`. An existing App cannot be overwritten through setup. |
-| `POST /api/auth/github` | Return an authorization `url` and set the browser's one-use OAuth cookie. Navigate that browser to the URL. |
-| `POST /api/operator/enrollment` | With `X-Hub-Bootstrap-Secret`, start a GitHub sign-in that explicitly enrolls the verified person as a Hub administrator. App ownership and ordinary sign-in do not grant this role. |
-| `GET /api/auth/github/callback` | Consume the browser-bound state, check GitHub identity and admission, issue a new session, and redirect to `/api/session`. |
-| `GET /api/session` | Return the stable Hub user ID, provider identity, mutable profile, session ID, sign-in time, and CSRF token. |
-| `DELETE /api/session` | Revoke this browser session and its pending verification attempts. |
-| `POST /api/auth/github/verify` | Begin fresh verification for this session. The callback must identify the same permanent GitHub account. |
-| `GET /api/repositories/:owner/:repository/access` | Return `read`, `write`, or `admin` only after checking the installed App and current GitHub permission for the exact signed-in GitHub ID. |
+| `POST /api/setup/github` | With `X-Hub-Bootstrap-Secret`, save the initial `{appId, clientId, clientSecret, privateKey}`. Setup cannot replace existing credentials. |
+| `POST /api/auth/github` | Return a GitHub authorization `url`. Open it in the same browser to sign in. |
+| `POST /api/operator/enrollment` | With `X-Hub-Bootstrap-Secret`, start a GitHub sign-in that enrolls the verified person as a Hub administrator. |
+| `GET /api/auth/github/callback` | Complete sign-in and redirect to `/api/session`. |
+| `GET /api/session` | Return the person's Hub identity, session ID, sign-in time, and CSRF token. |
+| `DELETE /api/session` | End this browser session and cancel its pending verification attempts. |
+| `POST /api/auth/github/verify` | Verify the same GitHub account again for this session. |
+| `GET /api/repositories/:owner/:repository/access` | Check the installed App and the person's current repository permission. Return `read`, `write`, or `admin`, or deny access. |
 | `PUT /api/administration/github-credentials` | A freshly verified administrator submits `{confirmed: true, credentials: {...}}` to rotate credentials for the same App and client ID. |
 | `POST /api/administration/revoke-sessions` | A freshly verified administrator submits `{confirmed: true}` to end every existing session, including their own. |
-| `GET /api/administration/security-audit` | A current administrator reads the latest 100 global identity audit records. This does not grant repository access. |
+| `GET /api/administration/security-audit` | An administrator reads the latest 100 identity audit records. |
 
-The frontend does not yet expose these operations. The callback deliberately returns the API session representation rather than navigating to a retained screen whose backend no longer exists.
+## Sessions and access
 
-## Sessions and authorization
+Hub identifies people by their permanent GitHub user ID, not their login or email address. Ordinary sign-in requires read access to at least one installed repository. Enrolled administrators may sign in without repository access. App ownership and ordinary sign-in never grant the administrator role.
 
-Hub identifies a person by the provider and permanent GitHub user ID, not their login or email address. Ordinary sign-in requires read access to at least one installed repository, unless the person is an explicitly enrolled administrator. Every repository request independently checks GitHub; administrator status never bypasses that check. GitHub errors deny access rather than reuse an older answer.
+Every repository request checks GitHub permission for the signed-in account. Administrator status does not bypass this check. Hub denies the request if GitHub cannot confirm access.
 
-The OAuth attempt has random state, PKCE, a separate browser secret, a 15-minute deadline, and one-use consumption. Fresh verification updates only its initiating live session. Its proof is valid for strictly less than five minutes. It does not guarantee that GitHub prompts for a password or multifactor authentication. Signing in elsewhere does not refresh an existing session.
+A GitHub sign-in attempt expires after 15 minutes and can be used only once in its initiating browser. Hub keeps session cookies inaccessible to JavaScript and limits them to the Hub host. HTTPS cookies also require a secure connection. Identity responses are not cached.
 
-The browser cookie has no persistent lifetime. The server session remains valid until sign-out or deployment revocation; closing a browser is not a reliable server-side revocation control. Hub does not retain a user token or continuously detect GitHub account suspension. Operators must use explicit session revocation when immediate containment is required.
+Fresh verification applies only to its initiating session and lasts less than five minutes. Signing in elsewhere does not refresh an existing session. GitHub may reuse its own browser session without prompting for a password or multifactor authentication.
 
-Credential rotation retains browser sessions but invalidates their fresh proof and outstanding OAuth attempts. Every integration operation resolves the selected credentials anew; installation tokens are not cached. Environment changes take effect on restart. A changed credential fingerprint rejects old OAuth attempts and fresh proof. Never remove old GitHub keys until operations already sent with them have completed or failed.
+A server session lasts until sign-out or administrator revocation. Closing the browser does not reliably end it. Hub does not continuously detect GitHub account suspension. Use explicit session revocation when immediate containment is required.
 
-Revocation and database credential rotation share a PostgreSQL lock with session issuance and verification. A persisted generation prevents an OAuth callback already waiting on GitHub from issuing a session after the cutoff. Repository authorization rechecks the live session and credential fingerprint after waiting on GitHub. No live connections or canvas grants exist in this API yet; those features must use the same persisted revocation boundary when rebuilt.
+Credential rotation retains browser sessions but cancels pending sign-ins and invalidates fresh verification. Environment changes take effect on restart. Hub does not cache installation tokens. Keep old GitHub keys available until requests already sent with them finish.
 
-## Audit and remaining work
+Ending all sessions also cancels sign-ins already in progress. A late GitHub callback cannot create another session after revocation. Repository requests check that their session still exists after GitHub returns.
 
-Setup, enrollment, sign-in, verification, sign-out, rotation, and deployment revocation save nonsecret success records in the same transaction as their state change. An audit write failure rolls back that change. HTTP denials and failures record a fixed reason code separately; failure to save that record returns service unavailable. Records retain stable actor and session IDs after sign-out and are visible only to current administrators. They contain no credential values, OAuth state, user tokens, or request bodies. Reads cover the last 90 days; audit writes remove older records. A quiet deployment has no scheduled cleanup yet.
+## Security records
 
-The initial identity audit has no retention job, repository-scoped records, or tamper protection. Shared security rate limits, administrator removal, canvas grants and live disconnects, account linking, enterprise deprovisioning, and stronger audit controls remain follow-ups before a production replacement. Database and provider errors return a fixed actionable error without logging secret values. Automated checks use synthetic GitHub responses; real GitHub sign-in and deployment behavior require an authorized integration environment.
+Hub saves an audit record in the same transaction as each identity change. An audit failure rolls back the change. HTTP denials and failures save a separate reason code. If Hub cannot save that record, it returns service unavailable.
+
+Only current administrators can read these records. Records retain actor and session IDs after sign-out, but never credentials, OAuth state, or request bodies. Reads cover the last 90 days. Audit writes remove older records; cleanup does not run on a schedule.
+
+These records cover global identity operations, not repository activity. They have no tamper protection.

@@ -129,3 +129,11 @@ export interface IdentityService {
   audits(token: string): ReturnType<IdentityRecords["audits"]>
   denied(token: string, code: string): Promise<void>
 }
+
+export interface IdentityDependencies {
+  store: IdentityStore
+  provider: CredentialProvider
+  github: GitHubIdentityClient
+  settings: IdentitySettings
+  now: () => Date
+}

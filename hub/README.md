@@ -1,6 +1,6 @@
 # Replica Hub
 
-Hub is being rebuilt on `build/hub/new` using TypeScript, Express, React, Vite, and Vitest. This branch lets contributors start the new app locally. It is not ready to replace the existing Hub.
+Hub uses TypeScript, Express, React, Vite, and Vitest.
 
 The API provides `GET /api/health` and a [GitHub-first identity boundary](docs/identity.md) for setup, sign-in, sessions, and repository permission checks. The frontend displays the existing Replica logo and supports light and dark themes. Existing components, features, and pages are kept in Storybook, but they are not connected to the new API.
 

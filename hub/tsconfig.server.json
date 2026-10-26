@@ -12,5 +12,5 @@
     "lib": ["ES2023"]
   },
   "include": ["server/**/*.ts"],
-  "exclude": ["server/**/*.test.ts"]
+  "exclude": ["server/**/*.test.ts", "server/**/test/**"]
 }

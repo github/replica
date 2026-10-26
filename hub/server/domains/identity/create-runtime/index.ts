@@ -1,8 +1,8 @@
-import { prisma } from "../../../integrations/prisma/index.ts"
-import { createGitHubIdentityClient } from "../../../integrations/github/create-identity-client/index.ts"
-import { createIdentityStore } from "../../../repositories/identity/create-store/index.ts"
-import { createCredentialProvider } from "../create-credential-provider/index.ts"
-import { createIdentityService } from "../create-service/index.ts"
+import { createCredentialProvider } from "#server/domains/identity/create-credential-provider"
+import { createIdentityService } from "#server/domains/identity/create-service"
+import { createIdentityStore } from "#server/domains/identity/create-store"
+import { createGitHubIdentityClient } from "#server/integrations/github/create-identity-client"
+import { prisma } from "#server/integrations/prisma"
 
 export async function createIdentityRuntime(environment: NodeJS.ProcessEnv) {
   const origin = new URL(environment.HUB_ORIGIN ?? "http://127.0.0.1:5173")

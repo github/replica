@@ -3,7 +3,7 @@ import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
 import { describe, expect, it } from "vitest"
 
-import { createApp } from "."
+import { createApp } from "#server/create-app"
 
 describe("createApp()", () => {
   it("returns the health status as JSON", async () => {

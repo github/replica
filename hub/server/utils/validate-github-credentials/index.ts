@@ -1,23 +1,12 @@
 import { createPrivateKey } from "node:crypto"
-import { z } from "zod"
 
-import type { GitHubCredentials } from "../identity-contracts/types.ts"
-import { IdentityError } from "../identity-error/index.ts"
+import type { GitHubCredentials } from "#server/utils/identity-contracts/types"
+import { IdentityError } from "#server/utils/identity-error"
 
-const schema = z
-  .object({
-    appId: z
-      .string()
-      .regex(/^[1-9]\d*$/)
-      .max(30),
-    clientId: z.string().min(1).max(200),
-    clientSecret: z.string().min(1).max(1000),
-    privateKey: z.string().min(1).max(16384),
-  })
-  .strict()
+import { credentialsSchema } from "./constants.ts"
 
 export function validateGitHubCredentials(input: unknown): GitHubCredentials {
-  const parsed = schema.safeParse(input)
+  const parsed = credentialsSchema.safeParse(input)
   if (!parsed.success) {
     throw new IdentityError(
       400,

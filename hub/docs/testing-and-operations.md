@@ -34,6 +34,8 @@ Arrange each case's inputs and records inside that case. Act through its public 
 
 Tests must release resources they create, such as servers, files, sockets, and event listeners. Use `try/finally` or register disposal with Vitest's `onTestFinished` when creating the resource. Clearing the module cache only affects subsequent imports. Reset any deliberately shared fixture state before each case.
 
+Keep shared server test helpers under the owning function's `test/` directory. TypeScript checks them, but the API build excludes them.
+
 ## Parallel database tests
 
 Each test run uses separate databases so parallel tests cannot change another worker's records or clear the development database. Vitest runs files in parallel in [forked worker processes](https://vitest.dev/config/pool). Cases within a worker run sequentially, including cases marked concurrent, so database resets cannot erase another case's records. Use `--maxWorkers` to set file-level parallelism.

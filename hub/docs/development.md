@@ -36,7 +36,7 @@ In a second terminal, also from `hub/`, start Vite:
 npm run dev
 ```
 
-Open <http://127.0.0.1:5173>. Vite serves the frontend and forwards `/api` requests to Express at <http://127.0.0.1:3001>. `GET /api/health` returns JSON. The [identity API](identity.md#api-flow) is available through the same proxy; the frontend is not connected to it yet. Both servers accept connections only from this machine. Stop each with Ctrl+C.
+Open <http://127.0.0.1:5173>. Vite serves the frontend and forwards `/api` requests to Express at <http://127.0.0.1:3001>. `GET /api/health` returns JSON. Use the same proxy for the [identity API](identity.md#api-operations). Both servers accept connections only from this machine. Stop each with Ctrl+C.
 
 The API reads an optional `PORT` environment variable, defaulting to 3001. If you change it, update the local Vite proxy target to match. The editor forwards ports 3001, 5173, and 6006 from the devcontainer. API startup reads `.env` when present; Compose's environment takes precedence.
 

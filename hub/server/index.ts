@@ -1,7 +1,7 @@
 import "dotenv/config"
 
-import { createApp } from "./create-app/index.ts"
-import { createIdentityRuntime } from "./domains/identity/create-runtime/index.ts"
+import { createApp } from "#server/create-app"
+import { createIdentityRuntime } from "#server/domains/identity/create-runtime"
 
 const port = Number(process.env.PORT ?? 3001)
 if (!Number.isInteger(port) || port < 1 || port > 65535) {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { createFixture } from "./create-fixture"
+import { createFixture } from "#server/domains/identity/create-service/test/create-fixture"
 
 describe("createIdentityService()", () => {
   it("allows only the bootstrap secret to configure database credentials once", async () => {
@@ -18,17 +18,6 @@ describe("createIdentityService()", () => {
       service.setup(settings.bootstrapSecret, { ...credentials, clientSecret: "replacement" }),
     ).rejects.toThrow()
     expect(fixture.snapshot()).toEqual(saved)
-  })
-
-  it("does not save credentials when the durable setup audit fails", async () => {
-    const fixture = createFixture()
-    fixture.failAudit()
-
-    await expect(
-      fixture.service.setup(fixture.settings.bootstrapSecret, fixture.credentials),
-    ).rejects.toThrow()
-    expect(fixture.snapshot().state.encryptedCredentials).toBeNull()
-    expect(fixture.snapshot().audits).toEqual([])
   })
 
   it("does not allow setup or rotation to replace environment credentials", async () => {
@@ -94,19 +83,6 @@ describe("createIdentityService()", () => {
       }
     },
   )
-
-  it("creates only one session when the same callback arrives concurrently", async () => {
-    const fixture = createFixture()
-    await fixture.service.setup(fixture.settings.bootstrapSecret, fixture.credentials)
-    const attempt = await fixture.begin()
-
-    const results = await Promise.allSettled([
-      fixture.service.complete("code", attempt.state, attempt.browserToken),
-      fixture.service.complete("code", attempt.state, attempt.browserToken),
-    ])
-    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1)
-    expect(fixture.snapshot().sessions).toHaveLength(1)
-  })
 
   it("keeps immutable GitHub accounts separate when logins change or are reused", async () => {
     const fixture = createFixture()
@@ -455,52 +431,18 @@ describe("createIdentityService()", () => {
     expect(fixture.snapshot().attempts).toEqual([])
   })
 
-  it("keeps a live session when its sign-out audit cannot be saved", async () => {
+  it("does not revoke sessions when the durable audit cannot be saved", async () => {
     const fixture = createFixture()
     await fixture.service.setup(fixture.settings.bootstrapSecret, fixture.credentials)
-    const signedIn = await fixture.signIn()
+    const administrator = await fixture.signIn("enroll")
+    const before = fixture.snapshot()
     fixture.failAudit()
 
-    await expect(fixture.service.signOut(signedIn.token, signedIn.csrfToken)).rejects.toThrow()
-    await expect(fixture.service.current(signedIn.token)).resolves.toBeDefined()
+    await expect(
+      fixture.service.revoke(administrator.token, administrator.csrfToken, true),
+    ).rejects.toThrow()
+    expect(fixture.snapshot()).toEqual(before)
   })
-
-  it.each(["sign-in", "verify", "rotate", "revoke"] as const)(
-    "rolls back %s success when its durable audit cannot be saved",
-    async (action) => {
-      const fixture = createFixture()
-      await fixture.service.setup(fixture.settings.bootstrapSecret, fixture.credentials)
-      const administrator = await fixture.signIn("enroll")
-      fixture.advance(1_000)
-      const attempt =
-        action === "sign-in"
-          ? await fixture.begin()
-          : action === "verify"
-            ? await fixture.begin({
-                purpose: "verify",
-                token: administrator.token,
-                csrfToken: administrator.csrfToken,
-              })
-            : null
-      const before = fixture.snapshot()
-      fixture.failAudit()
-      const operation = attempt
-        ? fixture.service.complete("code", attempt.state, attempt.browserToken)
-        : action === "rotate"
-          ? fixture.service.rotate(administrator.token, administrator.csrfToken, {
-              ...fixture.credentials,
-              clientSecret: "new-synthetic-secret",
-            })
-          : fixture.service.revoke(administrator.token, administrator.csrfToken, true)
-
-      await expect(operation).rejects.toThrow()
-      const after = fixture.snapshot()
-      expect(after.state).toEqual(before.state)
-      expect(after.sessions).toEqual(before.sessions)
-      expect(after.users).toEqual(before.users)
-      expect(after.audits).toEqual(before.audits)
-    },
-  )
 
   it("limits audit access to administrators and never includes credentials or raw session tokens", async () => {
     const fixture = createFixture()

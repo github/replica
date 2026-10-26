@@ -1,7 +1,7 @@
 import { generateKeyPairSync } from "node:crypto"
 import { describe, expect, it } from "vitest"
 
-import { createCredentialProvider } from "."
+import { createCredentialProvider } from "#server/domains/identity/create-credential-provider"
 
 function credentials() {
   return {
