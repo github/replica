@@ -6,15 +6,15 @@ Hub contributors are rebuilding the app on `build/hub/new` before merging it int
 
 The team has chosen TypeScript, Express for the API, React and Vite for the frontend, and Vitest for tests. The old backend and the frontend code that connected to it have been removed rather than rewritten.
 
-The API responds to a health check, and the frontend displays the logo with light and dark themes. Storybook keeps the existing components and pages available for reuse.
+The API responds to a health check and provides the [identity API](identity.md). The frontend displays the logo with light and dark themes. Storybook keeps the existing components and pages available for reuse.
 
-Contributors can use PostgreSQL and Prisma locally or in the devcontainer. The database has no product models yet. Sign-in, deployment, background jobs, and product APIs have not been built. This app cannot yet find repositories, import Builds, host previews, save product data, or support reviews.
+Contributors can use PostgreSQL and Prisma locally or in the devcontainer. Identity models store credentials, users, sessions, one-use OAuth attempts, and security records. Deployment, background jobs, and product APIs have not been built. This app cannot yet list repositories in the frontend, import Builds, host previews, save product data, or support reviews.
 
 ## Backend
 
 API code lives under `server/`. As features are added, route handlers will read requests, call domains, and return responses. The [code conventions](backend-architecture.md) explain repositories, integrations, utilities, domains, and which layers may import others. Put these directories under `server/` when they are needed; do not add empty implementations.
 
-The only route is `GET /api/health`, which returns `{ "status": "ok" }`. Every other path returns a JSON 404 response. `createApp()` builds the Express app without starting a server. `server/index.ts` starts it at a local address.
+`GET /api/health` returns `{ "status": "ok" }`. The [identity guide](identity.md#api-flow) lists sign-in, setup, session, administration, and repository-access routes. Other paths return a JSON 404 response. `createApp()` builds the Express app without starting a server. `server/index.ts` configures the selected identity provider and starts it at a local address.
 
 The [database guide](database.md) defines the multi-file Prisma schema and shared client in integrations. The health route remains a process check, not a database readiness check.
 

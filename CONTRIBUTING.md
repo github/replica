@@ -37,7 +37,7 @@ npm ci
 npm run dev
 ```
 
-This starts the frontend. In a second terminal, run `cd hub && npm run dev:api` to start the API. See [Hub development](hub/docs/development.md) for database setup, addresses, and commands. A GitHub App is not required.
+This starts the frontend. In a second terminal, run `cd hub && npm run dev:api` to start the API. See [Hub development](hub/docs/development.md) for database setup, addresses, and commands. API startup requires migrations and [identity configuration](hub/docs/identity.md#configure-credentials); an unconfigured GitHub App permits only restricted bootstrap.
 
 ### Replica Starter
 

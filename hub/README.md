@@ -2,9 +2,9 @@
 
 Hub is being rebuilt on `build/hub/new` using TypeScript, Express, React, Vite, and Vitest. This branch lets contributors start the new app locally. It is not ready to replace the existing Hub.
 
-The API has one route: `GET /api/health`. The frontend displays the existing Replica logo and supports light and dark themes. Existing components, features, and pages are kept in Storybook, but they are not connected to the new API.
+The API provides `GET /api/health` and a [GitHub-first identity boundary](docs/identity.md) for setup, sign-in, sessions, and repository permission checks. The frontend displays the existing Replica logo and supports light and dark themes. Existing components, features, and pages are kept in Storybook, but they are not connected to the new API.
 
-Contributors can use PostgreSQL and Prisma locally or in the devcontainer. The database has no product models yet. Sign-in, saved data, live updates, background jobs, and deployment are not implemented.
+Contributors can use PostgreSQL and Prisma locally or in the devcontainer. Identity records are persisted, but product data, live updates, background jobs, and deployment are not implemented.
 
 Use [Development](docs/development.md) to start the API and frontend. Review [Architecture](docs/architecture.md), [code architecture conventions](docs/backend-architecture.md), and [coding conventions](docs/coding-conventions.md) before adding behavior.
 

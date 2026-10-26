@@ -6,10 +6,11 @@ Hub is being rebuilt in TypeScript. The app starts locally, but its product feat
 - [Code architecture conventions](docs/backend-architecture.md) define repositories, integrations, utilities, domains, and allowed imports.
 - [Coding conventions](docs/coding-conventions.md) explain frontend layers, formatting, and interface rules.
 - [Database conventions](docs/database.md) define Prisma files, model section order, UUID keys, timestamps, and database naming.
+- [Identity](docs/identity.md) defines GitHub sign-in, credential providers, sessions, and repository permission checks.
 - [Development](docs/development.md) and [testing](docs/testing-and-operations.md) own local and CI commands.
 - [Storybook](docs/storybook.md#ui-changes-and-pull-request-evidence) owns presentation coverage, cleanup, and PR screenshots.
 
-Run Node commands from `hub/`, locally or inside the devcontainer. PostgreSQL and Prisma are configured without product models. Agree on the design before adding models, sign-in, deployment, or product API routes.
+Run Node commands from `hub/`, locally or inside the devcontainer. PostgreSQL and Prisma store the initial identity records. Agree on the design before adding product models, deployment, sign-in providers, or product API routes.
 
 `npm test` does not require PostgreSQL. Use `npm run test:database` for `.db.test.ts` and `.db.test.tsx` cases in Node.js or jsdom. Follow the database isolation and reset rules in [testing](docs/testing-and-operations.md).
 
