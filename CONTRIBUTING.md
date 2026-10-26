@@ -29,7 +29,7 @@ Each Node.js project's `engines.node` declares its supported versions. Hub, Star
 
 ### Replica Hub
 
-Hub has a TypeScript Express API and React + Vite frontend. Hosting and review features are not built yet. The database, sign-in, and deployment choices are still open. Use npm and a Node.js version matching `engines.node` in [hub/package.json](hub/package.json):
+Hub has a TypeScript Express API, React + Vite frontend, and PostgreSQL with Prisma. Hosting and review features are not built yet. Use the [Hub devcontainer](hub/docs/development.md#devcontainer), or npm and a Node.js version matching `engines.node` in [hub/package.json](hub/package.json):
 
 ```sh
 cd hub
@@ -37,7 +37,7 @@ npm ci
 npm run dev
 ```
 
-This starts the frontend. In a second terminal, run `cd hub && npm run dev:api` to start the API. See [Hub development](hub/docs/development.md) for their addresses and commands. No container or GitHub App setup is required.
+This starts the frontend. In a second terminal, run `cd hub && npm run dev:api` to start the API. See [Hub development](hub/docs/development.md) for database setup, addresses, and commands. A GitHub App is not required.
 
 ### Replica Starter
 
@@ -100,6 +100,7 @@ Follow the [shared testing and review guide](docs/testing-and-review.md). For Hu
 ```sh
 npm ci
 npm run lint
+npm run db:validate
 npm run typecheck
 npm test
 npm run build

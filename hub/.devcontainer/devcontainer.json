@@ -1,0 +1,10 @@
+{
+  "name": "Replica Hub",
+  "dockerComposeFile": "compose.yaml",
+  "service": "app",
+  "workspaceFolder": "/workspaces/replica/hub",
+  "remoteUser": "node",
+  "shutdownAction": "stopCompose",
+  "forwardPorts": [3001, 5173, 6006],
+  "postCreateCommand": "npm ci --engine-strict"
+}

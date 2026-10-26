@@ -2,7 +2,7 @@
 
 Run the checks for the behavior you changed. For example, a shared Controls change needs checks for Hub previews and the Copilot plugin. Include screenshot capture when its adapter changes. A documentation-only change needs a prose and link review rather than application tests.
 
-Use [Contributing](../CONTRIBUTING.md#set-up-the-development-environment) to find each project's environment and commands. Hub runs directly on Node.js with npm; no container or external services are needed.
+Use [Contributing](../CONTRIBUTING.md#set-up-the-development-environment) to find each project's environment and commands. Hub supports local Node.js or its devcontainer; database work uses PostgreSQL.
 
 ## Choose the relevant checks
 

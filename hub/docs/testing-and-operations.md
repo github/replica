@@ -1,11 +1,12 @@
 # Hub testing and operations
 
-The new Hub has no deployment setup, database, sign-in, or product APIs yet. These checks cover the new app setup and the frontend code we kept. They do not prove that the old Hub's features work.
+The new Hub has a PostgreSQL and Prisma foundation but no product models, deployment setup, sign-in, or product APIs yet. These checks cover the new app setup and the frontend code we kept. They do not prove that the old Hub's features work.
 
 Run commands directly from `hub/` after `npm ci`:
 
 ```sh
 npm run lint
+npm run db:validate
 npm run typecheck
 npm test
 npm run build
@@ -15,6 +16,8 @@ npm run storybook:build
 Vitest uses a Node project for API and pure utility tests and a jsdom project for frontend behavior. A focused API check is `npm test -- --project=node server/create-app/index.test.ts`. HTTP tests listen on ephemeral loopback ports and close their servers afterward.
 
 The API health check proves only that Express responds. Routes that have not been built must return 404 rather than pretending to work.
+
+Installation generates Prisma Client without a database connection. Client lifecycle tests cover reuse across development reloads, production global behavior, and missing configuration. Database queries and migrations need the PostgreSQL service described in [Development](development.md); the ordinary Vitest suite does not connect to it.
 
 ## Shared code
 

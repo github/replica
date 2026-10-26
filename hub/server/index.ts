@@ -1,3 +1,5 @@
+import "dotenv/config"
+
 import { createApp } from "./create-app/index.ts"
 
 const port = Number(process.env.PORT ?? 3001)

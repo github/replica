@@ -2,6 +2,8 @@
 
 Follow the [shared coding conventions](../../docs/coding-conventions.md) and the [code architecture conventions](backend-architecture.md) for repositories, integrations, utilities, and domains.
 
+Follow the [database conventions](database.md#schema-conventions) for Prisma model sections, file names, UUID keys, timestamps, and database mappings.
+
 ## TypeScript
 
 - Use TypeScript for new application code and tests.

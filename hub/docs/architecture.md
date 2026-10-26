@@ -2,17 +2,19 @@
 
 ## What works now
 
-Hub contributors are rebuilding the app on `build/hub/new` before merging it into `main`. That branch starts at `main` with no new commits. Review the code conventions first, then the app setup in a second PR based on the first.
+Hub contributors are rebuilding the app on `build/hub/new` before merging it into `main`. Infrastructure changes use task branches and pull requests targeting that feature branch.
 
 The team has chosen TypeScript, Express for the API, React and Vite for the frontend, and Vitest for tests. The old backend and the frontend code that connected to it have been removed rather than rewritten.
 
-The API responds to a health check, and the frontend displays the logo with light and dark themes. Storybook keeps the existing components and pages available for reuse. Sign-in, the database, deployment, background jobs, and product APIs have not been chosen or built. This app cannot yet find repositories, import Builds, host previews, save data, or support reviews.
+The API responds to a health check, and the frontend displays the logo with light and dark themes. Storybook keeps the existing components and pages available for reuse. PostgreSQL, Prisma, and a devcontainer provide the database development foundation without product models. Sign-in, deployment, background jobs, and product APIs have not been built. This app cannot yet find repositories, import Builds, host previews, save product data, or support reviews.
 
 ## Backend
 
 API code lives under `server/`. As features are added, route handlers will read requests, call domains, and return responses. The [code conventions](backend-architecture.md) explain repositories, integrations, utilities, domains, and which layers may import others. Put these directories under `server/` when they are needed; do not add empty implementations.
 
 The only route is `GET /api/health`, which returns `{ "status": "ok" }`. Every other path returns a JSON 404 response. `createApp()` builds the Express app without starting a server. `server/index.ts` starts it at a local address.
+
+The [database guide](database.md) defines the multi-file Prisma schema and shared client in integrations. The health route remains a process check, not a database readiness check.
 
 ## Frontend
 
