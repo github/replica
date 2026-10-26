@@ -8,7 +8,7 @@ The team has chosen TypeScript, Express for the API, React and Vite for the fron
 
 The API responds to a health check, and the frontend displays the logo with light and dark themes. Storybook keeps the existing components and pages available for reuse.
 
-Contributors can use PostgreSQL and Prisma locally or in the devcontainer. The database has no product models yet. Sign-in, deployment, and product APIs have not been built. This app cannot yet find repositories, import Builds, host previews, save product data, or support reviews.
+Contributors can use PostgreSQL and Prisma locally or in the devcontainer. Identity models store credentials, users, sessions, sign-in attempts, and security records. [Credential providers](identity.md) use encrypted database values or read-only environment settings. Sign-in routes, deployment, and product APIs have not been built. This app cannot yet find repositories, import Builds, host previews, save product data, or support reviews.
 
 ## Backend
 

@@ -9,8 +9,12 @@ Follow the [database conventions](database.md#schema-conventions) for Prisma mod
 - Use TypeScript for new application code and tests.
 - Put each standalone function or component in a kebab-case directory with `index.ts` or `index.tsx`, colocated tests, types, and styles.
 - Export at most one function per file and import exact directories rather than sibling-export barrels.
+- Keep helpers in their own function directories. Put schemas and constants in `constants.ts` and types in `types.ts`.
 - Group package, alias, and relative imports separately.
-- Omit `/index.ts` and `/index.tsx` from imports in frontend code and Vitest tests. Keep explicit `.ts` file paths in server runtime and Node-loaded tooling, including Storybook configuration. Native Node does not resolve directory imports; the server compiler rewrites its paths for production.
+- Use `@/` for browser code and `#server/` for API code. Import function directories without `/index.ts`, such as `#server/utils/digest-secret`. Import colocated constants and types from their named files.
+- [Package imports](../package.json) resolve `#server/` to source with Node's `development` condition and to compiled JavaScript otherwise. `npm run dev:api` selects that condition; `npm start` uses compiled files. TypeScript and Vitest resolve source through the same mappings. Native Node package aliases must start with `#`; `@/` remains browser-only.
+- Keep explicit `.ts` paths for relative imports in native Node modules and tooling, including Storybook configuration. The server compiler rewrites relative extensions for the build.
+- Prefer named alias imports such as `#server/integrations/github/identify-user/constants` over relative paths when a mapping exists. Vite resolves extensionless relative paths, but native Node does not. TypeScript `paths` alone cannot make `@/server/...` work in Node or rewrite it in emitted JavaScript.
 - Keep HTTP parsing and responses outside domains. Validate input and return explicit errors when introducing real API behavior.
 
 ## Frontend layers
