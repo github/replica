@@ -34,7 +34,7 @@
     "storybook": "STORYBOOK_DISABLE_TELEMETRY=1 storybook dev --host 0.0.0.0 --port 6006 --initial-path /story/hub-design-overview--taxonomy",
     "storybook:build": "STORYBOOK_DISABLE_TELEMETRY=1 storybook build --output-dir storybook-static",
     "test": "vitest run --project=node --project=browser",
-    "test:database": "vitest run --project=database",
+    "test:database": "vitest run --project=database --passWithNoTests",
     "typecheck": "tsc --noEmit && tsc --project ../.github/extensions/replica-prototype/tsconfig.json"
   },
   "dependencies": {

@@ -40,6 +40,8 @@ Each test run uses separate databases so parallel tests cannot change another wo
 
 Only `npm run test:database` runs database-enabled server tests. Name those tests `server/**/*.db.test.ts`; `npm test` excludes them. Start the PostgreSQL service as described in [Development](development.md) and set `TEST_DATABASE_URL` using `.env.example`. The devcontainer supplies this variable. Use a local database user with permission to create and drop databases, never a production connection.
 
+The command uses `--passWithNoTests` so an empty project exits successfully. It still fails when tests fail. There are no database test cases yet; an empty run does not prepare or exercise the databases.
+
 The database setup follows this lifecycle:
 
 1. Before workers start, setup creates a template database with a unique name for the run. It applies the current Prisma schema with `prisma db push`, then copies the template for every worker slot.

@@ -8,11 +8,11 @@ Choose the newest stable PostgreSQL major available from both Azure Database for
 
 ## Schema conventions
 
-[prisma7.config.ts](../prisma7.config.ts) loads the entire `prisma/` directory. Organize schema files as follows:
+[prisma7.config.ts](../prisma7.config.ts) loads the entire `schema/` directory. Organize schema files as follows:
 
-- Keep the generator and datasource in `prisma/schema.prisma`.
+- Keep the generator and datasource in `schema/schema.prisma`.
 - Put each model in a kebab-case `.prisma` file and each enum in a kebab-case `.enum.prisma` file.
-- Store migrations in `prisma/migrations/` and commit them with their schema changes.
+- Store migrations in `schema/migrations/` and commit them with their schema changes.
 
 Use singular PascalCase model and enum names. Follow these field and table conventions:
 
