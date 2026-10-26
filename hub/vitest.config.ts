@@ -1,3 +1,4 @@
+import { availableParallelism } from "node:os"
 import react from "@vitejs/plugin-react"
 import { configDefaults, defineConfig } from "vitest/config"
 
@@ -33,29 +34,59 @@ export default defineConfig({
     clearMocks: true,
     css: true,
     globals: true,
+    pool: "forks",
+    fileParallelism: true,
+    maxWorkers: Math.max(1, availableParallelism() - 1),
+    maxConcurrency: 1,
     mockReset: true,
     restoreMocks: true,
     unstubGlobals: true,
+    unstubEnvs: true,
+    setupFiles: ["./test/setup.ts"],
     server: { deps: { inline: [/@primer\//] } },
     projects: [
       {
-        extends: true,
-        test: {
-          name: "node",
-          environment: "node",
-          include: [...nodeTests, "server/**/*.test.ts"],
-        },
+        name: "node",
+        environment: "node",
+        include: [...nodeTests, "server/**/*.test.{ts,tsx}", "test/**/*.test.{ts,tsx}"],
+        exclude: [],
+        setupFiles: [],
       },
       {
+        name: "browser",
+        environment: "jsdom",
+        include: ["app/javascript/**/*.test.{ts,tsx}", ".storybook/**/*.test.{ts,tsx}"],
+        exclude: nodeTests,
+        setupFiles: ["./app/javascript/test/setup.ts"],
+      },
+    ].flatMap(({ name, ...environment }) =>
+      [false, true].map((database) => ({
         extends: true,
         test: {
-          name: "browser",
-          environment: "jsdom",
-          include: ["app/javascript/**/*.test.{ts,tsx}", ".storybook/**/*.test.{ts,tsx}"],
-          exclude: [...configDefaults.exclude, ...nodeTests],
-          setupFiles: ["./app/javascript/test/setup.ts"],
+          ...environment,
+          name: database ? `${name}-database` : name,
+          include: environment.include.map((pattern) =>
+            database ? pattern.replace(".test.", ".db.test.") : pattern,
+          ),
+          exclude: [
+            ...configDefaults.exclude,
+            ...environment.exclude.map((pattern) =>
+              database ? pattern.replace(".test.", ".db.test.") : pattern,
+            ),
+            ...(database ? [] : ["**/*.db.test.{ts,tsx}"]),
+          ],
+          setupFiles: [
+            ...environment.setupFiles,
+            ...(database ? ["./test/database/setup.ts"] : []),
+          ],
+          ...(database
+            ? {
+                globalSetup: ["./test/database/global-setup/index.ts"],
+                hookTimeout: 30_000,
+              }
+            : {}),
         },
-      },
-    ],
+      })),
+    ),
   },
 })

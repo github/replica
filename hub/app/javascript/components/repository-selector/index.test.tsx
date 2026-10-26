@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { RepositorySelector } from "."
 
@@ -23,11 +23,6 @@ describe("RepositorySelector()", () => {
         disconnect() {}
       },
     )
-  })
-
-  afterEach(() => {
-    vi.restoreAllMocks()
-    vi.unstubAllGlobals()
   })
 
   it("shows the selected repository and keeps its menu links", async () => {

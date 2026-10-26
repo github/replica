@@ -6,7 +6,7 @@ Use the Hub devcontainer for Node.js and PostgreSQL, or run Node.js locally with
 
 Install a Docker-compatible runtime with Docker Compose and an editor with Dev Containers support. Open the repository's `hub/` directory in the editor and reopen it in the container using `.devcontainer/devcontainer.json`.
 
-Compose starts the app container after PostgreSQL is healthy. The app uses a Node.js `bookworm-slim` base and runs as the non-root `node` user. The official PostgreSQL `bookworm` image also uses a Debian slim base; it has no separate `slim` tag. Container creation runs `npm ci --engine-strict`, including Prisma Client generation.
+Compose starts the app container after PostgreSQL is healthy. Both images use Debian slim bases. The app runs as the non-root `node` user. Container creation runs `npm ci --engine-strict`, which also generates Prisma Client. See the [Dockerfile](../.devcontainer/Dockerfile) and [Compose configuration](../.devcontainer/compose.yaml) for the pinned images.
 
 The repository is mounted at `/workspaces/replica`, with `hub/` as the working directory. Compose supplies `DATABASE_URL` with the `db` service hostname. Local database credentials in Compose are for development only. The database port is published only on host loopback.
 
@@ -47,6 +47,8 @@ PostgreSQL stores data in a named Compose volume. Stopping or rebuilding the dev
 If port 5432 is already in use, stop the conflicting local service or explicitly change the Compose port and the host `.env` URL together. The devcontainer continues to use `db:5432` internally. Startup failures appear in `docker compose -f .devcontainer/compose.yaml logs db`.
 
 Follow the [database guide](database.md) for schema conventions, migrations, and the shared client.
+
+`npm test` needs no database. For tests that save records, follow the [database test setup](testing-and-operations.md#parallel-database-tests).
 
 ## Build the app
 

@@ -40,31 +40,19 @@ Project commands define the check. GitHub Actions should prepare the required en
 
 When a command gains a dependency or build prerequisite, update its local setup and affected workflow in the same change. A green local suite does not prove that CI installed the same dependencies, so inspect both paths.
 
-### Select affected CI suites
+### Run independent CI checks
 
-Hub and build-action workflows start on every pull request, but run their expensive jobs only when the change can affect that suite. Pushes to `main` run both complete suites. Local project commands still run their complete checks; selection changes when CI calls them, not what they do. Dependency-age checks remain unconditional, and Starter and Learning CI retain their own path filters.
+All CI workflows run on every pull request and push to `main`. Do not skip checks based on changed paths or add jobs that only combine other jobs' results. Configure branch protection to require the individual checks.
 
-The [shared selection workflow](../.github/workflows/ci-changes.yml) calls [the selector](../scripts/select-ci-suites.mjs). For pull requests, it compares the merge base with the PR head using Git rather than the size-limited changed-files API. Deletions and both sides of renames count as changes.
+Hub reports lint, types, unit tests, database tests, the frontend/API build, Storybook, and Controls/extension checks separately. Only the database test command starts PostgreSQL. The new Hub has no production-image or release jobs.
 
-| Changed area | Selected suites |
-| --- | --- |
-| Hub code and configuration | Hub |
-| Shared Controls runtime, schema, fixtures, and capture adapter under `hub/app/javascript/utils/prototype-controls/` | Hub and build action |
-| `actions/build/` | Hub and build action; Controls and extension integration use its pinned browser |
-| Copilot extension and plugin catalog | Hub |
-| `packages/learning/` | Hub; its shared lint and retained integration consume the package |
-| `starter/` | Hub; retained Storybook fixtures and Controls checks consume starter files. Starter CI still runs separately |
-| Existing installer scripts | Neither; Starter CI covers them |
-| Root contributor documents, shared and Hub guides, skills, and documentation assets | Neither |
-| Workflow changes, selector changes, and unclassified paths | Both |
+Maintainers must update branch rules when required checks change. Editing a workflow does not update those rules.
 
-The `Frontend tests` and `Replica action tests` result jobs always run, so skipping an entire workflow cannot leave these checks pending. They accept skipped work only when the selector succeeded and said it was unnecessary. Hub's result covers lint, types, Vitest, the frontend/API build, Storybook, and Controls/extension checks on every supported Node major. A failed selector, invalid output, or failed selected check makes the result fail. The new Hub has no production-image, database, or release jobs; branch protection must not require removed jobs.
+[Scripts CI](../.github/workflows/scripts-ci.yml) runs type checks, tests, and workflow checks for the maintenance scripts under `scripts/`. Use the [contributor commands](../CONTRIBUTING.md#verify-the-change) to run them locally. The workflow checker rejects jobs that combine results, conditional jobs, path filters, and missing required commands. Keep TypeScript checks in function directories with colocated Vitest tests. Check changed workflows with `actionlint` when available, then inspect their check results on GitHub after publishing.
 
-When adding a shared dependency or a new project, update the selector and its behavioral tests together. Unknown paths deliberately run both suites until their dependencies are known. Install tooling with `npm ci --prefix scripts --ignore-scripts --engine-strict`, then run `node --test scripts/select-ci-suites.test.mjs`, `npm run typecheck --prefix scripts`, `npm test --prefix scripts`, and `node scripts/check-ci-workflows/index.ts` from the repository root. Keep the TypeScript checks in function directories with colocated Vitest tests. The workflow checker reads the result-check scripts and tests them with success, failure, cancellation, and missing outputs. These checks run before CI selects suites. Check changed workflows with `actionlint` when available. Actual job skipping and check reporting still need verification on GitHub after publishing.
+Hub, Starter, build-action, and Learning CI test both Node.js majors supported by each project's `engines.node`. The workflow matrices define the versions and distinguish their check names. A failure on one version does not cancel checks on the other. npm installation enforces dependency engines. The workflow checker verifies that the manifests, lockfiles, and matrices agree.
 
-Node-dependent jobs in Hub, Starter, build-action, and Learning CI use a Node 24 and 26 matrix rather than a separate compatibility workflow. Each check adds a `(Node 26)` suffix on Node 26. A failure does not cancel the other version. npm installation enforces dependency engines, and `scripts/check-ci-workflows/index.ts` checks the supported ranges, matching lockfile metadata, and matrix wiring. These checks track the supported majors, not their exact minimum patch releases.
-
-CI selection and dependency-age tooling run on Node 24. The build-action suite tests its JavaScript and browser capture on both Node versions, but runs the composite-action smoke test only on Node 24: the composite action pins that runtime itself and uploads a single named artifact.
+Scripts CI and dependency-age checks use the Node.js version specified in their workflows. The build-action suite tests JavaScript and browser capture on both supported majors. It runs the composite-action smoke test only on the action's pinned runtime to avoid duplicate artifact uploads.
 
 ## Update dependencies
 
@@ -74,7 +62,7 @@ From the repository root, `node scripts/check-dependency-age/index.ts` verifies 
 
 CI does not run `npm audit`: a newly published security fix could otherwise make the audit fail while the age check rejects the fixed version. Dependabot checks dependencies for known vulnerabilities. Organization-managed CodeQL scans application code on GitHub.
 
-When a dependency is too new, select an older compatible version or wait until the seven-day window ends. See [Hub testing and operations](../hub/docs/testing-and-operations.md#update-dependencies) for Hub-specific tooling.
+When a dependency is too new, select an older compatible version or wait until the seven-day window ends. See [Hub testing and operations](../hub/docs/testing-and-operations.md) for Hub-specific tooling.
 
 ## Copilot code review
 

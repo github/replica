@@ -32,3 +32,5 @@ Preserve the existing `app/javascript/{application,pages,features,components,hoo
 ## Tests
 
 Keep tests beside their TypeScript code. Use `describe("functionName()")` and plain-English cases. Keep fixtures and mutable state inside each case; use the global Vitest setup and configuration for shared environment cleanup and automatic mock resets.
+
+Follow the [test lifecycle](testing-and-operations.md#clean-test-cases): arrange each case's records, act, and assert. Use `.db.test.ts` or `.db.test.tsx` to opt into database access in Node.js or jsdom. Do not add local cleanup hooks for state already reset globally.

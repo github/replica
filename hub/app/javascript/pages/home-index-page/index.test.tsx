@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen } from "@testing-library/react"
-import { afterEach, beforeEach, describe, it, vi } from "vitest"
+import { beforeEach, describe, it, vi } from "vitest"
 
 import { HomeIndexPage } from "."
 import type { HomeIndexPageData } from "./types"
@@ -29,11 +29,6 @@ describe("HomeIndexPage()", () => {
   beforeEach(() => {
     PAGE_DATA.alert = null
     vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null)
-  })
-
-  afterEach(() => {
-    vi.useRealTimers()
-    vi.restoreAllMocks()
   })
 
   it("rotates the eyebrow every six seconds without changing the heading", async () => {

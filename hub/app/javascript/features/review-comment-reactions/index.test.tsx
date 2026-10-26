@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { ReviewReply } from "@utils/review-comment/types"
 
@@ -47,7 +47,6 @@ beforeEach(() => {
     },
   )
 })
-afterEach(() => vi.unstubAllGlobals())
 
 describe("ReviewCommentReactions()", () => {
   it("shows an add immediately without replacing the picker and rolls back a rejected request", async () => {

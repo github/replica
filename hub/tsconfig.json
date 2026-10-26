@@ -28,6 +28,7 @@
   "include": [
     "app/javascript",
     "server",
+    "test",
     ".storybook/**/*.ts",
     ".storybook/**/*.tsx",
     "eslint.config.ts",

@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { AsciiGradient } from "."
 
@@ -104,8 +104,6 @@ describe("AsciiGradient()", () => {
     vi.spyOn(window, "requestAnimationFrame").mockImplementation(requestFrame)
     vi.spyOn(window, "cancelAnimationFrame").mockImplementation(cancelFrame)
   })
-
-  afterEach(() => vi.restoreAllMocks())
 
   function tick(elapsed = 16) {
     time += elapsed

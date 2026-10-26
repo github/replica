@@ -1,17 +1,12 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { ThemeProvider } from "@primer/react-brand"
 import { createRef } from "react"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { importedPrototype } from "@utils/resolve-prototype-publication/fixtures"
 import { ShareLinksPage } from "."
 import { shareCopy } from "@hooks/use-canvas-share-links/en"
 import type { SharingState } from "@hooks/use-canvas-share-links/types"
-
-afterEach(() => {
-  vi.restoreAllMocks()
-  vi.unstubAllGlobals()
-})
 
 const state: SharingState = {
   open: true,

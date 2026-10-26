@@ -1,10 +1,8 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
-import { afterEach, expect, it, vi } from "vitest"
+import { expect, it, vi } from "vitest"
 
 import { BrowserBar } from "."
 import browserStyles from "./styles.css?inline"
-
-afterEach(() => vi.unstubAllGlobals())
 
 const address = "http://localhost:5173/#/cli/cli/tree/main"
 

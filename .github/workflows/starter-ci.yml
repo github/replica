@@ -2,22 +2,8 @@ name: Starter CI
 
 on:
   pull_request:
-    paths:
-      - ".github/workflows/starter-ci.yml"
-      - "starter/**"
-      - "scripts/create-prototype-repo.sh"
-      - "scripts/create-prototype-repo.test.mjs"
-      - "scripts/setup-replica-plugin.test.mjs"
-      - "scripts/install-starter.sh"
   push:
     branches: [main]
-    paths:
-      - ".github/workflows/starter-ci.yml"
-      - "starter/**"
-      - "scripts/create-prototype-repo.sh"
-      - "scripts/create-prototype-repo.test.mjs"
-      - "scripts/setup-replica-plugin.test.mjs"
-      - "scripts/install-starter.sh"
 
 permissions:
   contents: read

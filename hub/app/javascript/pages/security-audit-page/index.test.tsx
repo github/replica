@@ -1,6 +1,6 @@
 import { ThemeProvider } from "@primer/react-brand"
 import { fireEvent, render, screen } from "@testing-library/react"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { hubAdministrationWorkspaceData } from "@/storybook/fixtures/hub-administration"
 
@@ -46,7 +46,6 @@ describe("SecurityAuditPage()", () => {
       },
     )
   })
-  afterEach(() => vi.unstubAllGlobals())
 
   it("links only server-authorized scopes without carrying a pagination cursor across scopes", () => {
     render(

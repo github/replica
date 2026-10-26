@@ -1,5 +1,5 @@
 import { createEvent, fireEvent, render, screen } from "@testing-library/react"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { HubThemeProvider } from "@hooks/use-hub-theme"
 
@@ -16,7 +16,6 @@ beforeEach(() => {
     },
   )
 })
-afterEach(() => vi.unstubAllGlobals())
 
 describe("PrototypeWorkspaceHeader()", () => {
   it("keeps author identity in the normal prototype header", () => {

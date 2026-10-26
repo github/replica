@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { ReviewCommentsCopy, ReviewThread } from "@utils/review-comment/types"
 import { ReviewCommentMarkers } from "@features/review-comment-markers"
@@ -16,10 +16,6 @@ beforeEach(() => {
       disconnect() {}
     },
   )
-})
-afterEach(() => {
-  vi.restoreAllMocks()
-  vi.unstubAllGlobals()
 })
 
 const COPY: ReviewCommentsCopy = {

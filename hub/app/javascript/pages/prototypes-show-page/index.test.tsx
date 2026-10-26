@@ -1,6 +1,6 @@
 import { useRef, useState } from "react"
 import { act, fireEvent, render, screen, within } from "@testing-library/react"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { HubThemeProvider, useHubTheme } from "@hooks/use-hub-theme"
 import { usePrototypeReview } from "@hooks/use-prototype-review"
@@ -536,6 +536,8 @@ describe("PrototypesShowPage()", () => {
   })
 
   beforeEach(() => {
+    BRIDGE.selectedAnchor = null
+    currentReviewComments = REVIEW_COMMENTS
     window.history.replaceState({}, "", "/repositories/2001/prototypes/1")
     BRIDGE.route = { pathname: "/", search: "", hash: "" }
     vi.stubGlobal(
@@ -546,13 +548,6 @@ describe("PrototypesShowPage()", () => {
         disconnect() {}
       },
     )
-  })
-
-  afterEach(() => {
-    vi.useRealTimers()
-    vi.unstubAllGlobals()
-    BRIDGE.selectedAnchor = null
-    currentReviewComments = REVIEW_COMMENTS
   })
 
   it("opens over the review page, dismisses, and reopens from the title", () => {

@@ -13,19 +13,28 @@ defaults:
     working-directory: hub
 
 jobs:
-  changes:
-    uses: ./.github/workflows/ci-changes.yml
-
   check:
-    name: Hub ${{ matrix.command }}${{ matrix.node == 26 && ' (Node 26)' || '' }}
-    needs: changes
-    if: ${{ needs.changes.outputs.hub == 'true' }}
+    name: Hub ${{ matrix.command == 'test' && 'unit tests' || matrix.command == 'test:database' && 'database tests' || matrix.command }}${{ matrix.node == 26 && ' (Node 26)' || '' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         node: [24, 26]
-        command: [lint, typecheck, test, build, storybook:build, "db:validate"]
+        command: [lint, typecheck, test, build, storybook:build, "db:validate", "test:database"]
+    services:
+      postgres:
+        image: ${{ matrix.command == 'test:database' && 'postgres:18.6-bookworm' || '' }}
+        env:
+          POSTGRES_USER: replica
+          POSTGRES_PASSWORD: replica
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U replica -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -35,11 +44,11 @@ jobs:
           cache-dependency-path: hub/package-lock.json
       - run: npm ci --engine-strict
       - run: npm run ${{ matrix.command }}
+        env:
+          TEST_DATABASE_URL: ${{ matrix.command == 'test:database' && 'postgresql://replica:replica@127.0.0.1:5432/postgres' || '' }}
 
   integration:
     name: Controls and extension tests${{ matrix.node == 26 && ' (Node 26)' || '' }}
-    needs: changes
-    if: ${{ needs.changes.outputs.hub == 'true' }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -67,24 +76,3 @@ jobs:
       - run: npm run controls:assets:check
       - run: npm run controls:schema:check
       - run: npm run extension:assets:check
-
-  result:
-    name: Frontend tests
-    needs: [changes, check, integration]
-    if: ${{ always() }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Require the selected Hub suite to pass
-        working-directory: .
-        env:
-          SELECTION_RESULT: ${{ needs.changes.result }}
-          SELECTED: ${{ needs.changes.outputs.hub }}
-          CHECK_RESULT: ${{ needs.check.result }}
-          INTEGRATION_RESULT: ${{ needs.integration.result }}
-        run: |
-          test "$SELECTION_RESULT" = success
-          case "$SELECTED" in
-            true) test "$CHECK_RESULT" = success && test "$INTEGRATION_RESULT" = success ;;
-            false) test "$CHECK_RESULT" = skipped && test "$INTEGRATION_RESULT" = skipped ;;
-            *) echo "Invalid Hub suite selection" >&2; exit 1 ;;
-          esac

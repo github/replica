@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, expect, it, vi } from "vitest"
+import { beforeEach, expect, it, onTestFinished, vi } from "vitest"
 
 import { getControlsRuntime } from "@utils/prototype-controls/controls.mjs"
 import { installControlsBridge } from "./controls"
@@ -23,13 +23,12 @@ const declaration = {
   ],
 } as const
 
-afterEach(() => {
-  dispose?.()
-  dispose = undefined
-  delete globals[runtimeKey]
-  vi.restoreAllMocks()
-  vi.unstubAllGlobals()
-  window.history.replaceState(null, "", "/")
+beforeEach(() => {
+  onTestFinished(() => {
+    dispose?.()
+    dispose = undefined
+    delete globals[runtimeKey]
+  })
 })
 
 function message(data: object, messageOrigin = origin, source: MessageEventSource = window.parent) {

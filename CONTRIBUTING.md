@@ -107,6 +107,8 @@ npm run build
 npm run storybook:build
 ```
 
+Run `npm run test:database` for server cases that save records. Follow the [database test setup](hub/docs/testing-and-operations.md#parallel-database-tests) to prepare isolated databases. `npm test` does not require PostgreSQL.
+
 Useful focused commands include:
 
 | Goal            | Command                                         |
@@ -124,7 +126,6 @@ Repository workflow and dependency checks have their own small npm project:
 npm ci --prefix scripts --ignore-scripts --engine-strict
 npm run typecheck --prefix scripts
 npm test --prefix scripts
-node --test scripts/select-ci-suites.test.mjs
 node scripts/check-ci-workflows/index.ts
 node scripts/check-dependency-age/index.ts
 ```

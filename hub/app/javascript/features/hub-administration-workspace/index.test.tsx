@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { hubAdministrationWorkspaceData } from "@/storybook/fixtures/hub-administration"
 
@@ -16,7 +16,6 @@ describe("HubAdministrationWorkspace()", () => {
       },
     )
   })
-  afterEach(() => vi.unstubAllGlobals())
 
   it.each([false, true])(
     "uses repository navigation and lower Hub links without scope headings, collapsed %s",
