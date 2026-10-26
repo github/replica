@@ -57,9 +57,7 @@ export default function AgentPlayground(): JSX.Element {
   const [systemPrompt, setSystemPrompt] = useState('');
   const [codeLanguage, setCodeLanguage] = useState('python');
 
-  const { messages, isLoading, error, sendMessage, clearMessages } = useChat({
-    systemPrompt: systemPrompt || undefined,
-  });
+  const { messages, isLoading, sendMessage, clearMessages } = useChat();
 
   const handleSendMessage = useCallback(() => {
     if (inputValue.trim() && !isLoading) {
@@ -300,7 +298,6 @@ export default function AgentPlayground(): JSX.Element {
                   <ChatMessages
                     messages={messages}
                     isLoading={isLoading}
-                    error={error}
                     className={styles.chatMessages}
                   />
 
@@ -335,7 +332,8 @@ export default function AgentPlayground(): JSX.Element {
                       </div>
                     </div>
                     <Text preset="bodyS" foreground={3} className={styles.disclaimer}>
-                      AI-generated content may be incorrect
+                      Demo chat uses preset replies, not model requests. Messages, model selection,
+                      and instructions do not affect responses.
                     </Text>
                   </div>
                 </div>

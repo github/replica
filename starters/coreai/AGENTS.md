@@ -12,7 +12,7 @@ The CoreAI Prototype is a React Router single-page app for exploring agent and d
 - CSS Modules for component and page styles
 - TanStack Query over mock JSON in `app/data/`
 - URL-driven prototype features and design variants
-- Optional browser-to-Azure OpenAI requests configured by the user
+- Simulated chat over local canned replies, without credentials or model requests
 
 ## Run and validate
 
@@ -33,7 +33,7 @@ npm run build
 npm run preview
 ```
 
-Vitest runs hook tests in jsdom with React Testing Library. Keep the hook real and mock settings and the client network boundary; tests must not contact Azure or use real credentials. Run a focused file with `npm test -- app/hooks/useChat.test.ts`. Verify visual changes in a browser.
+Vitest runs hook tests in jsdom with React Testing Library. Keep the chat hook real and use simulated timers to test reply cycling and cancellation. Tests must not contact model services or use real credentials. Run a focused file with `npm test -- app/hooks/useChat.test.ts`. Verify visual changes in a browser.
 
 ## Skill index
 
@@ -77,5 +77,4 @@ For design-system reference, follow the `coreai-ds-fluentui-react` skill from th
 
 ## Data and credentials
 
-The prototype must work without Azure OpenAI. Do not commit credentials, endpoints, real
-customer data, prompts, or responses.
+Keep chat mock-only. Do not add API-key settings or live-model requests. Do not commit credentials, endpoints, real customer data, prompts, or responses.

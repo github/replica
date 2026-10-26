@@ -2,273 +2,186 @@
 // Licensed under the MIT license.
 
 import { act, cleanup, renderHook } from '@testing-library/react';
-import type OpenAI from 'openai';
-import type {
-  ChatCompletionChunk,
-  ChatCompletionCreateParamsStreaming,
-} from 'openai/resources/chat/completions';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useChat } from './useChat';
-import type { UseAzureOpenAISettingsReturn } from './useAzureOpenAISettings';
 
-type CreateOptions = Parameters<OpenAI['chat']['completions']['create']>[1];
-
-const { create } = vi.hoisted(() => ({
-  create: vi.fn<
-    (
-      body: ChatCompletionCreateParamsStreaming,
-      options?: CreateOptions,
-    ) => Promise<AsyncIterable<ChatCompletionChunk>>
-  >(),
-}));
-
-vi.mock('~/core/utils/azureOpenAI', () => ({
-  createAzureOpenAIClient: () => ({
-    client: { chat: { completions: { create } } },
-    deployment: 'test-deployment',
-  }),
-}));
-
-vi.mock('./useAzureOpenAISettings', () => ({
-  useAzureOpenAISettings: (): UseAzureOpenAISettingsReturn => ({
-    settings: { endpoint: '', deployment: '', apiKey: '', apiVersion: '' },
-    isConfigured: true,
-    setSettings: vi.fn(),
-    clearSettings: vi.fn(),
-  }),
-}));
-
-function deferred<T>() {
-  let resolve!: (value: T | PromiseLike<T>) => void;
-  let reject!: (reason: unknown) => void;
-  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
-    resolve = resolvePromise;
-    reject = rejectPromise;
-  });
-  return { promise, resolve, reject };
-}
-
-function chunk(content: string): ChatCompletionChunk {
-  return {
-    id: 'test-chunk',
-    object: 'chat.completion.chunk',
-    created: 0,
-    model: 'test-deployment',
-    choices: [{ index: 0, delta: { content }, finish_reason: null }],
-  };
-}
-
-function response(...contents: string[]) {
-  return {
-    controller: new AbortController(),
-    async *[Symbol.asyncIterator]() {
-      for (const content of contents) yield chunk(content);
-    },
-  };
-}
+beforeEach(() => {
+  vi.useFakeTimers();
+});
 
 afterEach(() => {
   cleanup();
-  create.mockReset();
+  vi.clearAllTimers();
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
 describe('useChat', () => {
-  it('starts a new chat immediately and aborts a pending request', async () => {
-    const pending = deferred<AsyncIterable<ChatCompletionChunk>>();
-    create.mockReturnValueOnce(pending.promise);
+  it('cycles through three distinct replies and wraps without a network request', async () => {
+    const fetch = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Unexpected request'));
+    const { result } = renderHook(() => useChat());
+    const replies: string[] = [];
+
+    expect(result.current.messages).toEqual([]);
+    expect(result.current.isLoading).toBe(false);
+
+    for (let index = 0; index < 4; index += 1) {
+      let sending!: Promise<void>;
+      act(() => {
+        sending = result.current.sendMessage(`Question ${index}`);
+      });
+      await act(async () => {
+        await vi.runOnlyPendingTimersAsync();
+        await sending;
+      });
+
+      expect(result.current.messages).toHaveLength((index + 1) * 2);
+      expect(result.current.messages.at(-1)?.role).toBe('assistant');
+      expect(result.current.messages.at(-1)?.content.trim()).not.toBe('');
+      replies.push(result.current.messages.at(-1)!.content);
+    }
+
+    expect(new Set(replies.slice(0, 3)).size).toBe(3);
+    expect(replies[3]).toBe(replies[0]);
+    expect(result.current.isLoading).toBe(false);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('trims input, shows loading until the reply, and ignores empty and duplicate sends', async () => {
+    const { result } = renderHook(() => useChat());
+
+    await act(async () => {
+      await result.current.sendMessage(' \n\t ');
+    });
+    expect(result.current.messages).toEqual([]);
+    expect(result.current.isLoading).toBe(false);
+
+    let sending!: Promise<void>;
+    let duplicate!: Promise<void>;
+    act(() => {
+      sending = result.current.sendMessage('  First question \n');
+      duplicate = result.current.sendMessage('Duplicate before rerender');
+    });
+    await act(async () => {
+      await duplicate;
+      await result.current.sendMessage('Duplicate while loading');
+      await result.current.sendMessage('');
+    });
+
+    expect(result.current.isLoading).toBe(true);
+    expect(result.current.messages).toEqual([
+      expect.objectContaining({ role: 'user', content: 'First question' }),
+    ]);
+
+    await act(async () => {
+      await vi.runOnlyPendingTimersAsync();
+      await sending;
+    });
+
+    expect(result.current.isLoading).toBe(false);
+    expect(result.current.messages).toHaveLength(2);
+    const firstReply = result.current.messages[1].content;
+    for (const message of result.current.messages) {
+      expect(message.id).toEqual(expect.any(String));
+      expect(message.id).not.toBe('');
+      expect(message.timestamp).toBeInstanceOf(Date);
+    }
+    expect(new Set(result.current.messages.map(({ id }) => id)).size).toBe(2);
+
+    act(() => result.current.clearMessages());
+    act(() => {
+      sending = result.current.sendMessage('A clean first question');
+    });
+    await act(async () => {
+      await vi.runOnlyPendingTimersAsync();
+      await sending;
+    });
+    expect(result.current.messages[1].content).toBe(firstReply);
+  });
+
+  it('starts a new chat by clearing messages, resolving a pending send, and resetting replies', async () => {
     const { result } = renderHook(() => useChat());
     let sending!: Promise<void>;
+    act(() => {
+      sending = result.current.sendMessage('First question');
+    });
+    await act(async () => {
+      await vi.runOnlyPendingTimersAsync();
+      await sending;
+    });
+    const firstReply = result.current.messages[1].content;
 
     act(() => {
-      sending = result.current.sendMessage('Old conversation');
+      sending = result.current.sendMessage('Pending follow-up');
     });
-    expect(result.current.isLoading).toBe(true);
-
     act(() => result.current.clearMessages());
 
     expect(result.current.messages).toEqual([]);
-    expect(result.current.error).toBeNull();
     expect(result.current.isLoading).toBe(false);
-    expect(create.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
-
     await act(async () => {
-      pending.resolve(response());
       await sending;
     });
+
+    act(() => {
+      sending = result.current.sendMessage('New conversation');
+    });
+    await act(async () => {
+      await vi.runOnlyPendingTimersAsync();
+      await sending;
+    });
+    expect(result.current.messages.map(({ role, content }) => ({ role, content }))).toEqual([
+      { role: 'user', content: 'New conversation' },
+      { role: 'assistant', content: firstReply },
+    ]);
   });
 
-  it('discards a delayed old response without finishing the new request', async () => {
-    const oldRequest = deferred<AsyncIterable<ChatCompletionChunk>>();
-    const newRequest = deferred<AsyncIterable<ChatCompletionChunk>>();
-    create.mockReturnValueOnce(oldRequest.promise).mockReturnValueOnce(newRequest.promise);
+  it('does not let an old reply finish or alter a new conversation', async () => {
     const { result } = renderHook(() => useChat());
     let oldSending!: Promise<void>;
     let newSending!: Promise<void>;
-
     act(() => {
       oldSending = result.current.sendMessage('Old conversation');
     });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
     act(() => result.current.clearMessages());
+    await act(async () => {
+      await oldSending;
+    });
     act(() => {
       newSending = result.current.sendMessage('New conversation');
     });
 
     await act(async () => {
-      oldRequest.resolve(response('Stale reply'));
-      await oldSending;
+      await vi.advanceTimersByTimeAsync(300);
     });
-
     expect(result.current.messages.map(({ role, content }) => ({ role, content }))).toEqual([
       { role: 'user', content: 'New conversation' },
     ]);
-    expect(result.current.error).toBeNull();
     expect(result.current.isLoading).toBe(true);
-    expect(create.mock.calls[1]?.[0].messages).toEqual([
-      { role: 'user', content: 'New conversation' },
-    ]);
 
     await act(async () => {
-      newRequest.resolve(response('Current reply'));
+      await vi.runOnlyPendingTimersAsync();
       await newSending;
     });
-    expect(result.current.messages.map(({ content }) => content)).toEqual([
-      'New conversation',
-      'Current reply',
-    ]);
+    expect(result.current.messages).toHaveLength(2);
+    expect(result.current.messages[1].role).toBe('assistant');
     expect(result.current.isLoading).toBe(false);
   });
 
-  it('discards a delayed old rejection without setting an error or finishing the new request', async () => {
-    vi.spyOn(console, 'error').mockImplementation(() => {});
-    const oldRequest = deferred<AsyncIterable<ChatCompletionChunk>>();
-    const newRequest = deferred<AsyncIterable<ChatCompletionChunk>>();
-    create.mockReturnValueOnce(oldRequest.promise).mockReturnValueOnce(newRequest.promise);
-    const { result } = renderHook(() => useChat());
-    let oldSending!: Promise<void>;
-    let newSending!: Promise<void>;
-
-    act(() => {
-      oldSending = result.current.sendMessage('Old conversation');
-    });
-    act(() => result.current.clearMessages());
-    act(() => {
-      newSending = result.current.sendMessage('New conversation');
-    });
-    await act(async () => {
-      oldRequest.reject(new Error('Stale failure'));
-      await oldSending;
-    });
-
-    expect(result.current.error).toBeNull();
-    expect(result.current.isLoading).toBe(true);
-    expect(result.current.messages.map(({ content }) => content)).toEqual(['New conversation']);
-
-    await act(async () => {
-      newRequest.resolve(response('Current reply'));
-      await newSending;
-    });
-  });
-
-  it('discards remaining chunks and completion when reset during streaming', async () => {
-    const resumeOldStream = deferred<void>();
-    const newRequest = deferred<AsyncIterable<ChatCompletionChunk>>();
-    const oldStream = {
-      controller: new AbortController(),
-      async *[Symbol.asyncIterator]() {
-        yield chunk('Before reset');
-        await resumeOldStream.promise;
-        yield chunk('Stale chunk');
-      },
-    };
-    create.mockResolvedValueOnce(oldStream).mockReturnValueOnce(newRequest.promise);
-    const { result } = renderHook(() => useChat());
-    let oldSending!: Promise<void>;
-    let newSending!: Promise<void>;
-
-    await act(async () => {
-      oldSending = result.current.sendMessage('Old conversation');
-    });
-    expect(result.current.messages.at(-1)?.content).toBe('Before reset');
-    act(() => result.current.clearMessages());
-    act(() => {
-      newSending = result.current.sendMessage('New conversation');
-    });
-    await act(async () => {
-      resumeOldStream.resolve();
-      await oldSending;
-    });
-
-    expect(result.current.messages.map(({ content }) => content)).toEqual(['New conversation']);
-    expect(result.current.error).toBeNull();
-    expect(result.current.isLoading).toBe(true);
-    expect(create.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
-
-    await act(async () => {
-      newRequest.resolve(response('Current reply'));
-      await newSending;
-    });
-  });
-
-  it('streams a normal reply and includes conversation history in the next request', async () => {
-    create.mockResolvedValueOnce(response('Hello', ' there')).mockResolvedValueOnce(response('Again'));
-    const { result } = renderHook(() => useChat({ systemPrompt: 'Be helpful' }));
-
-    await act(async () => {
-      await result.current.sendMessage('  First question  ');
-    });
-
-    expect(result.current.messages.map(({ role, content, isStreaming }) => ({
-      role, content, isStreaming,
-    }))).toEqual([
-      { role: 'user', content: 'First question', isStreaming: undefined },
-      { role: 'assistant', content: 'Hello there', isStreaming: false },
-    ]);
-    expect(result.current.error).toBeNull();
-    expect(result.current.isLoading).toBe(false);
-
-    await act(async () => {
-      await result.current.sendMessage('Follow-up');
-    });
-    expect(create.mock.calls[1]?.[0].messages).toEqual([
-      { role: 'system', content: 'Be helpful' },
-      { role: 'user', content: 'First question' },
-      { role: 'assistant', content: 'Hello there' },
-      { role: 'user', content: 'Follow-up' },
-    ]);
-  });
-
-  it('reports a current request failure and clears it on a new chat', async () => {
-    vi.spyOn(console, 'error').mockImplementation(() => {});
-    create.mockRejectedValueOnce(new Error('Request failed'));
-    const { result } = renderHook(() => useChat());
-
-    await act(async () => {
-      await result.current.sendMessage('Question');
-    });
-    expect(result.current.error).toBe('Request failed');
-    expect(result.current.isLoading).toBe(false);
-
-    act(() => result.current.clearMessages());
-    expect(result.current.messages).toEqual([]);
-    expect(result.current.error).toBeNull();
-    expect(result.current.isLoading).toBe(false);
-  });
-
-  it('aborts an outstanding request when the hook unmounts', async () => {
-    const pending = deferred<AsyncIterable<ChatCompletionChunk>>();
-    create.mockReturnValueOnce(pending.promise);
+  it('cancels the pending reply and resolves its send promise on unmount', async () => {
     const { result, unmount } = renderHook(() => useChat());
     let sending!: Promise<void>;
     act(() => {
-      sending = result.current.sendMessage('Question');
+      sending = result.current.sendMessage('Pending question');
     });
+    expect(result.current.isLoading).toBe(true);
 
     unmount();
-    expect(create.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
 
+    expect(vi.getTimerCount()).toBe(0);
     await act(async () => {
-      pending.resolve(response('Late reply'));
       await sending;
     });
   });

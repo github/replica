@@ -2,7 +2,7 @@
 
 A React Router single-page app for prototyping experiences with `@coreai-ds/react-components`.
 
-The profile displays a sample identity. Theme and Azure OpenAI settings are available from its menu.
+The profile displays a sample identity. Theme settings are available from its menu.
 
 Choose `--starter coreai` when creating a repository with Replica. See [prototype repository setup](https://github.com/github/replica/blob/main/docs/prototype-repository-setup.md) for installation. The copied app includes [Replica setup and workflows](REPLICA.md) for canvas activation, Controls, optional product guidance and publishing.
 
@@ -32,7 +32,7 @@ npm run preview
 The preview command builds the app before serving it from `dist`. A production host must serve
 `index.html` as the fallback for application routes.
 
-Vitest runs automated hook tests in jsdom with React Testing Library. Chat tests mock settings and the client network boundary, so they need no Azure connection or credentials. Run only chat tests with `npm test -- app/hooks/useChat.test.ts`. `npm run check:starter` runs type checks, lint, tests and the build. Use manual browser checks for visual changes.
+Vitest runs automated hook tests in jsdom with React Testing Library. Chat tests exercise the local reply cycle and cancellation with simulated timers. Run only chat tests with `npm test -- app/hooks/useChat.test.ts`. `npm run check:starter` runs type checks, lint, tests and the build. Use manual browser checks for visual changes.
 
 ## Features and variants
 
@@ -53,20 +53,11 @@ Selections are stored in the URL as `variant` query parameters so a specific des
 be shared and revisited. See the prototype feature skills in
 [.agents/skills](.agents/skills) for the full schema and workflow.
 
-## Optional Azure OpenAI connection
+## Simulated chat
 
-The prototype works without Azure OpenAI. A user can optionally enter an Azure OpenAI
-endpoint, deployment name, and API key to enable chat-related interactions.
+Chat cycles through three generic replies from `app/data/chat-replies.json`, with a short simulated loading state. Replies do not depend on the message, selected model, or instructions. The app makes no model requests and has no API-key settings or live-model integration.
 
-Starting a new chat cancels the previous request and discards any late response or error from that conversation.
-
-These values are stored unencrypted in the browser's local storage. When the user tests
-the connection or uses an enabled interaction, the browser sends the request directly
-to the Azure OpenAI endpoint that the user configured. The app does not send these
-values or requests to a repository-owned intermediary service.
-
-Use only development credentials with the minimum required access. Clear the saved
-settings from the Azure OpenAI settings dialog when they are no longer needed. **Do not enable this browser-based credential flow for a production deployment without replacing it with an approved authentication and server-side request design.**
+Starting a new chat clears the conversation, cancels any pending reply, and restarts the reply cycle. Leaving the chat cancels its pending reply.
 
 ## Development tools
 

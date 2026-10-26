@@ -19,7 +19,6 @@ import styles from './ChatMessages.module.css';
 interface ChatMessagesProps {
   messages: ChatMessage[];
   isLoading: boolean;
-  error: string | null;
   className?: string;
 }
 
@@ -30,7 +29,6 @@ function formatTime(date: Date): string {
 export function ChatMessages({
   messages,
   isLoading,
-  error,
   className,
 }: ChatMessagesProps): JSX.Element {
   const chatWindowRef = useRef<HTMLDivElement>(null);
@@ -53,7 +51,7 @@ export function ChatMessages({
             Tool-test-1
           </Text>
           <Text preset="body" foreground={3} block>
-            Use agent configuration to update the description and starter prompts
+            Send a message to try the simulated conversation.
           </Text>
         </div>
       ) : (
@@ -81,12 +79,11 @@ export function ChatMessages({
                 </div>
                 <div className={styles.messageContent}>
                   <Markdown content={message.content} />
-                  {message.isStreaming && <span className={styles.streamingCursor}>...</span>}
                 </div>
                 {message.role === 'assistant' && (
                   <div className={styles.messageActions}>
                     <Text preset="bodyS" foreground={2}>
-                      gpt-0.0
+                      Demo reply
                     </Text>
                     <Divider vertical />
                     <Text preset="bodyS" foreground={2}>
@@ -129,16 +126,6 @@ export function ChatMessages({
               </div>
             )}
 
-            {error && (
-              <div className={styles.errorMessage}>
-                <Text foreground={1} preset="bodyStrong">
-                  Error:
-                </Text>
-                <Text preset="body" foreground={2}>
-                  {error}
-                </Text>
-              </div>
-            )}
           </div>
         </>
       )}

@@ -48,13 +48,6 @@
   align-self: flex-start;
 }
 
-.errorMessage {
-  padding: var(--spacingM);
-  background-color: var(--colorPaletteRedBackground1);
-  color: var(--colorPaletteRedForeground1);
-  border-radius: var(--borderRadiusMedium);
-}
-
 /* Chat Container Styles */
 .chatMessages {
   overflow-y: auto;
@@ -75,24 +68,6 @@
   align-items: center;
   text-align: center;
   max-width: 800px;
-}
-
-.streamingCursor {
-  display: inline-block;
-  animation: blink 1s step-end infinite;
-  margin-left: var(--spacingXXS);
-  color: var(--colorBrandForeground1);
-}
-
-@keyframes blink {
-  0%,
-  50% {
-    opacity: 1;
-  }
-  51%,
-  100% {
-    opacity: 0;
-  }
 }
 
 /* Message Actions Toolbar */

@@ -8,7 +8,7 @@ The included app is a Foundry-style sandbox for exploring agent and design-syste
 
 Preserve the existing navigation, settings, sample identity and route behavior unless the task changes them. Use local mock data for new example states. Register prototype features and variants in `app/features.json` through the [feature skill](../skills/features-variants/SKILL.md); do not add a second feature system.
 
-The app must work without Azure OpenAI. Any browser-to-Azure connection remains user-configured and optional. Follow the [credential and request boundaries](../../README.md#optional-azure-openai-connection); do not introduce real identities, production endpoints or automatic requests.
+Chat is a [local simulation](../../README.md#simulated-chat) that cycles through canned replies. Do not add API-key settings, live-model requests, real identities or production endpoints.
 
 ## Task decisions
 

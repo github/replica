@@ -2,185 +2,85 @@
 // Licensed under the MIT license.
 
 import { useState, useCallback, useEffect, useRef } from 'react';
-import type OpenAI from 'openai';
-import { useAzureOpenAISettings } from './useAzureOpenAISettings';
-import { createAzureOpenAIClient } from '~/core/utils/azureOpenAI';
+import replies from '~/data/chat-replies.json';
 
 export interface ChatMessage {
   id: string;
-  role: 'user' | 'assistant' | 'system';
+  role: 'user' | 'assistant';
   content: string;
   timestamp: Date;
-  isStreaming?: boolean;
-}
-
-export interface UseChatOptions {
-  /** System prompt to set the assistant's behavior */
-  systemPrompt?: string;
 }
 
 export interface UseChatReturn {
-  /** The list of messages in the conversation */
   messages: ChatMessage[];
-  /** Whether a message is currently being sent/received */
   isLoading: boolean;
-  /** Any error that occurred */
-  error: string | null;
-  /** Send a message to the assistant */
   sendMessage: (content: string) => Promise<void>;
-  /** Clear all messages and start a new conversation */
   clearMessages: () => void;
-  /** Whether Azure OpenAI is configured */
-  isConfigured: boolean;
 }
 
-let messageIdCounter = 0;
-
-function generateMessageId(): string {
-  messageIdCounter += 1;
-  return `msg-${Date.now()}-${messageIdCounter}`;
-}
-
-export function useChat(options: UseChatOptions = {}): UseChatReturn {
-  const { systemPrompt } = options;
-  const { settings, isConfigured } = useAzureOpenAISettings();
-
+export function useChat(): UseChatReturn {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const activeRequest = useRef<AbortController | null>(null);
+  const replyIndex = useRef(0);
+  const messageId = useRef(0);
+  const pendingReply = useRef<{
+    timer: ReturnType<typeof setTimeout>;
+    resolve: () => void;
+  } | null>(null);
 
-  useEffect(() => () => {
-    const request = activeRequest.current;
-    activeRequest.current = null;
-    request?.abort();
+  const cancelReply = useCallback(() => {
+    const pending = pendingReply.current;
+    pendingReply.current = null;
+    if (pending) {
+      clearTimeout(pending.timer);
+      pending.resolve();
+    }
   }, []);
 
-  const sendMessage = useCallback(
-    async (content: string) => {
-      if (!content.trim() || activeRequest.current) {
-        return;
-      }
+  useEffect(() => cancelReply, [cancelReply]);
 
-      const request = new AbortController();
-      activeRequest.current = request;
+  const sendMessage = useCallback((content: string): Promise<void> => {
+    const trimmed = content.trim();
+    if (!trimmed || pendingReply.current) return Promise.resolve();
 
-      // Add user message
-      const userMessage: ChatMessage = {
-        id: generateMessageId(),
+    setMessages((previous) => [
+      ...previous,
+      {
+        id: `msg-${++messageId.current}`,
         role: 'user',
-        content: content.trim(),
+        content: trimmed,
         timestamp: new Date(),
-      };
+      },
+    ]);
+    setIsLoading(true);
 
-      setMessages((prev) => [...prev, userMessage]);
-      setIsLoading(true);
-      setError(null);
-
-      let assistantMessageId: string | undefined;
-
-      try {
-        const { client, deployment } = createAzureOpenAIClient(settings);
-
-        // Build messages array for the API
-        const apiMessages: OpenAI.Chat.ChatCompletionMessageParam[] = [];
-
-        // Add system prompt if provided
-        if (systemPrompt) {
-          apiMessages.push({
-            role: 'system',
-            content: systemPrompt,
-          });
-        }
-
-        // Add all previous messages plus the new one
-        const allMessages = [...messages, userMessage];
-        for (const msg of allMessages) {
-          if (msg.role === 'user' || msg.role === 'assistant') {
-            apiMessages.push({
-              role: msg.role,
-              content: msg.content,
-            });
-          }
-        }
-
-        // Create a streaming request
-        const stream = await client.chat.completions.create(
+    return new Promise<void>((resolve) => {
+      const timer = setTimeout(() => {
+        pendingReply.current = null;
+        const reply = replies[replyIndex.current];
+        replyIndex.current = (replyIndex.current + 1) % replies.length;
+        setMessages((previous) => [
+          ...previous,
           {
-            messages: apiMessages,
-            model: deployment,
-            stream: true,
+            id: `msg-${++messageId.current}`,
+            role: 'assistant',
+            content: reply,
+            timestamp: new Date(),
           },
-          { signal: request.signal },
-        );
-        if (activeRequest.current !== request) return;
-
-        // Create an assistant message placeholder
-        assistantMessageId = generateMessageId();
-        const assistantMessage: ChatMessage = {
-          id: assistantMessageId,
-          role: 'assistant',
-          content: '',
-          timestamp: new Date(),
-          isStreaming: true,
-        };
-
-        // Add the streaming message placeholder
-        setMessages((prev) => [...prev, assistantMessage]);
-
-        // Stream the response
-        let fullContent = '';
-        for await (const chunk of stream) {
-          if (activeRequest.current !== request) return;
-
-          const delta = chunk.choices[0]?.delta?.content ?? '';
-          if (delta) {
-            fullContent += delta;
-            setMessages((prev) =>
-              prev.map((msg) =>
-                msg.id === assistantMessageId ? { ...msg, content: fullContent } : msg,
-              ),
-            );
-          }
-        }
-      } catch (err) {
-        if (activeRequest.current !== request) return;
-
-        const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred';
-        setError(errorMessage);
-        console.error('Chat error:', err);
-      } finally {
-        if (activeRequest.current === request) {
-          activeRequest.current = null;
-          if (assistantMessageId) {
-            setMessages((prev) =>
-              prev.map((msg) =>
-                msg.id === assistantMessageId ? { ...msg, isStreaming: false } : msg,
-              ),
-            );
-          }
-          setIsLoading(false);
-        }
-      }
-    },
-    [isConfigured, settings, systemPrompt, messages],
-  );
+        ]);
+        setIsLoading(false);
+        resolve();
+      }, 600);
+      pendingReply.current = { timer, resolve };
+    });
+  }, []);
 
   const clearMessages = useCallback(() => {
-    const request = activeRequest.current;
-    activeRequest.current = null;
-    request?.abort();
+    cancelReply();
+    replyIndex.current = 0;
     setMessages([]);
-    setError(null);
     setIsLoading(false);
-  }, []);
+  }, [cancelReply]);
 
-  return {
-    messages,
-    isLoading,
-    error,
-    sendMessage,
-    clearMessages,
-    isConfigured,
-  };
+  return { messages, isLoading, sendMessage, clearMessages };
 }

@@ -19,10 +19,6 @@
   flex-direction: column;
 }
 
-.settingsButton {
-  justify-content: flex-start;
-}
-
 .tenantId {
   color: var(--colorNeutralForeground3);
 }

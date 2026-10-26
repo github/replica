@@ -14,7 +14,6 @@ import {
 
 import styles from './ProfileButton.module.css';
 import { ThemePicker } from './ThemePicker';
-import { AzureOpenAISettingsDialog } from './AzureOpenAISettingsDialog';
 
 export function ProfileButton(): JSX.Element {
   return (
@@ -63,7 +62,6 @@ export function ProfileButton(): JSX.Element {
             Settings
           </Text>
           <ThemePicker className={styles.dropdownContainer} />
-          <AzureOpenAISettingsDialog className={styles.settingsButton} />
         </div>
       </PopoverSurface>
     </Popover>
