@@ -17,9 +17,7 @@ describe("PrototypeCanvasThreadSample()", () => {
   it("closes both dialogs after explicitly deleting its selected fixture and focuses the next card", async () => {
     const fetch = vi.spyOn(window, "fetch")
     render(<PrototypeCanvasThreadSample />)
-    fireEvent.click(
-      screen.getByRole("button", { name: `Open improvement: ${sampleThreads[0]!.body}` }),
-    )
+    fireEvent.click(screen.getByRole("button", { name: `Open note: ${sampleThreads[0]!.body}` }))
     fireEvent.click(screen.getByRole("button", { name: `${copy.actions}: 1` }))
     fireEvent.click(screen.getByRole("menuitem", { name: copy.delete }))
     fireEvent.click(
@@ -28,22 +26,22 @@ describe("PrototypeCanvasThreadSample()", () => {
       }),
     )
     await waitFor(() =>
-      expect(screen.queryByRole("dialog", { name: copy.conversation })).not.toBeInTheDocument(),
+      expect(
+        screen.queryByRole("dialog", { name: sampleThreads[0]!.target }),
+      ).not.toBeInTheDocument(),
     )
     expect(screen.queryByRole("dialog", { name: copy.deleteTitle })).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: copy.point(1) })).not.toBeInTheDocument()
     expect(
-      screen.getByRole("button", { name: `Open improvement: ${sampleThreads[1]!.body}` }),
+      screen.getByRole("button", { name: `Open note: ${sampleThreads[1]!.body}` }),
     ).toHaveFocus()
     expect(fetch).not.toHaveBeenCalled()
   })
 
   it("filters the list without closing or discarding a selected thread and returns focus when its card is hidden", () => {
     render(<PrototypeCanvasThreadSample />)
-    fireEvent.click(
-      screen.getByRole("button", { name: `Open improvement: ${sampleThreads[0]!.body}` }),
-    )
-    const dialog = screen.getByRole("dialog", { name: copy.conversation })
+    fireEvent.click(screen.getByRole("button", { name: `Open note: ${sampleThreads[0]!.body}` }))
+    const dialog = screen.getByRole("dialog", { name: sampleThreads[0]!.target })
     const input = within(dialog).getByRole("textbox", { name: copy.comments.replyLabel })
     fireEvent.change(input, { target: { value: "Keep my draft while filtering" } })
     const marker = screen.getByRole("button", { name: copy.point(1) })
@@ -56,8 +54,8 @@ describe("PrototypeCanvasThreadSample()", () => {
       expect(trigger).toBeEnabled()
       fireEvent.click(trigger)
       fireEvent.click(screen.getByRole("menuitemradio", { name: filter }))
-      expect(screen.queryAllByRole("button", { name: /^Open improvement:/ })).toHaveLength(count)
-      expect(screen.getByRole("dialog", { name: copy.conversation })).toBe(dialog)
+      expect(screen.queryAllByRole("button", { name: /^Open note:/ })).toHaveLength(count)
+      expect(screen.getByRole("dialog", { name: sampleThreads[0]!.target })).toBe(dialog)
       expect(input).toHaveValue("Keep my draft while filtering")
       expect(screen.getByRole("button", { name: copy.point(1) })).toBe(marker)
       expect(marker).toHaveAttribute("aria-expanded", "true")
@@ -65,7 +63,7 @@ describe("PrototypeCanvasThreadSample()", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: copy.back }))
     expect(screen.getByText(copy.comments.threadDiscardPromptLabel)).toBeVisible()
     fireEvent.click(screen.getByRole("button", { name: copy.comments.discardButtonLabel }))
-    expect(screen.queryByRole("dialog", { name: copy.conversation })).not.toBeInTheDocument()
+    expect(screen.queryByRole("dialog", { name: sampleThreads[0]!.target })).not.toBeInTheDocument()
     expect(screen.getByRole("button", { name: copy.open })).toHaveFocus()
   })
 
@@ -74,21 +72,21 @@ describe("PrototypeCanvasThreadSample()", () => {
     render(<PrototypeCanvasThreadSample />)
     expect(screen.queryByText(/visual experiment/i)).not.toBeInTheDocument()
     const first = screen.getByRole("button", {
-      name: `Open improvement: ${sampleThreads[0]!.body}`,
+      name: `Open note: ${sampleThreads[0]!.body}`,
     })
     expect(within(first).getByText(copy.ready)).toBeVisible()
     const card = first.closest("article")
     if (!card) throw new Error("Expected the sample card.")
     expect(within(card).queryByText(/follow-up/)).not.toBeInTheDocument()
     const second = screen
-      .getByRole("button", { name: `Open improvement: ${sampleThreads[1]!.body}` })
+      .getByRole("button", { name: `Open note: ${sampleThreads[1]!.body}` })
       .closest("article")
     if (!second) throw new Error("Expected the second card.")
     const followUps = within(second).getByText(copy.followUps(2))
     expect(followUps).toBeVisible()
     expect(followUps.closest("button, a")).toBeNull()
     const open = screen.getByRole("button", {
-      name: `Open improvement: ${sampleThreads[2]!.body}`,
+      name: `Open note: ${sampleThreads[2]!.body}`,
     })
     expect(within(open).queryByText(copy.openStatus)).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole("button", { name: `${copy.actions}: 2` }))
@@ -102,11 +100,11 @@ describe("PrototypeCanvasThreadSample()", () => {
     const fetch = vi.spyOn(window, "fetch")
     render(<PrototypeCanvasThreadSample />)
     const open = screen.getByRole("button", {
-      name: `Open improvement: ${sampleThreads[0]!.body}`,
+      name: `Open note: ${sampleThreads[0]!.body}`,
     })
     fireEvent.click(open)
-    const conversation = screen.getByRole("dialog", { name: copy.conversation })
-    expect(screen.getAllByRole("button", { name: /^Open improvement:/ })).toHaveLength(3)
+    const conversation = screen.getByRole("dialog", { name: sampleThreads[0]!.target })
+    expect(screen.getAllByRole("button", { name: /^Open note:/ })).toHaveLength(3)
     expect(conversation.closest("aside")).toBeNull()
     expect(within(conversation).getByText(copy.copilot)).toBeVisible()
     expect(conversation.querySelectorAll(".review-thread-message__body")[1]?.textContent).toBe(
@@ -130,11 +128,11 @@ describe("PrototypeCanvasThreadSample()", () => {
     expect(screen.getByRole("button", { name: copy.simulate(2) })).toBeVisible()
     fireEvent.click(within(conversation).getByRole("button", { name: copy.back }))
     const reopened = screen.getByRole("button", {
-      name: `Open improvement: ${sampleThreads[0]!.body}`,
+      name: `Open note: ${sampleThreads[0]!.body}`,
     })
     expect(reopened).toHaveFocus()
     const card = screen
-      .getByRole("button", { name: `Open improvement: ${sampleThreads[0]!.body}` })
+      .getByRole("button", { name: `Open note: ${sampleThreads[0]!.body}` })
       .closest("article")
     if (!card) throw new Error("Expected the sample card.")
     expect(within(card).getByText(copy.followUps(1))).toBeVisible()
@@ -153,9 +151,7 @@ describe("PrototypeCanvasThreadSample()", () => {
     fireEvent.keyDown(screen.getByRole("menuitem", { name: copy.markResolved }), {
       key: "Escape",
     })
-    fireEvent.click(
-      screen.getByRole("button", { name: `Open improvement: ${sampleThreads[0]!.body}` }),
-    )
+    fireEvent.click(screen.getByRole("button", { name: `Open note: ${sampleThreads[0]!.body}` }))
     const input = screen.getByRole("textbox", { name: copy.comments.replyLabel })
     expect(input).toHaveAttribute("placeholder", "Request a follow-up change")
     fireEvent.change(input, { target: { value: "Unsaved sample request" } })
@@ -167,23 +163,21 @@ describe("PrototypeCanvasThreadSample()", () => {
     )
     fireEvent.click(screen.getByRole("button", { name: copy.back }))
     fireEvent.click(screen.getByRole("button", { name: copy.comments.discardButtonLabel }))
-    expect(screen.queryByRole("dialog", { name: copy.conversation })).not.toBeInTheDocument()
+    expect(screen.queryByRole("dialog", { name: sampleThreads[0]!.target })).not.toBeInTheDocument()
     expect(screen.queryByText(copy.followUps(1))).not.toBeInTheDocument()
   })
 
   it("bounds long drafts and restores fixture state on remount without storage", () => {
     const fetch = vi.spyOn(window, "fetch")
     const view = render(<PrototypeCanvasThreadSample />)
-    fireEvent.click(
-      screen.getByRole("button", { name: `Open improvement: ${sampleThreads[0]!.body}` }),
-    )
+    fireEvent.click(screen.getByRole("button", { name: `Open note: ${sampleThreads[0]!.body}` }))
     const input = screen.getByRole("textbox", { name: copy.comments.replyLabel })
     fireEvent.change(input, { target: { value: "x".repeat(10_001) } })
     expect(screen.getByRole("alert")).toHaveTextContent(copy.comments.bodyTooLongLabel)
     expect(screen.getByRole("button", { name: copy.comments.replySubmitLabel })).toBeDisabled()
     view.unmount()
     render(<PrototypeCanvasThreadSample />)
-    expect(screen.queryByRole("dialog", { name: copy.conversation })).not.toBeInTheDocument()
+    expect(screen.queryByRole("dialog", { name: sampleThreads[0]!.target })).not.toBeInTheDocument()
     expect(screen.queryByText(copy.followUps(1))).not.toBeInTheDocument()
     expect(fetch).not.toHaveBeenCalled()
   })
@@ -192,7 +186,7 @@ describe("PrototypeCanvasThreadSample()", () => {
     const fetch = vi.spyOn(window, "fetch")
     render(<PrototypeCanvasThreadSample />)
     function cards() {
-      return screen.queryAllByRole("button", { name: /^Open improvement:/ })
+      return screen.queryAllByRole("button", { name: /^Open note:/ })
     }
     function choose(label: string) {
       fireEvent.click(screen.getByRole("button", { name: new RegExp(`^${copy.filter}:`) }))
@@ -226,11 +220,11 @@ describe("PrototypeCanvasThreadSample()", () => {
     render(<PrototypeCanvasThreadSample />)
     const point = screen.getByRole("button", { name: copy.point(1) })
     fireEvent.click(point)
-    expect(screen.getByRole("dialog", { name: copy.conversation })).toBeVisible()
+    expect(screen.getByRole("dialog", { name: sampleThreads[0]!.target })).toBeVisible()
     fireEvent.keyDown(screen.getByRole("textbox", { name: copy.comments.replyLabel }), {
       key: "Escape",
     })
-    expect(screen.queryByRole("dialog", { name: copy.conversation })).not.toBeInTheDocument()
+    expect(screen.queryByRole("dialog", { name: sampleThreads[0]!.target })).not.toBeInTheDocument()
     expect(point).toHaveFocus()
     fireEvent.click(point)
     fireEvent.change(screen.getByRole("textbox", { name: copy.comments.replyLabel }), {
@@ -245,7 +239,7 @@ describe("PrototypeCanvasThreadSample()", () => {
     expect(screen.getByRole("button", { name: copy.point(2) })).toBeDisabled()
     fireEvent.click(screen.getByRole("button", { name: copy.back }))
     fireEvent.click(screen.getByRole("button", { name: copy.comments.discardButtonLabel }))
-    expect(screen.queryByRole("dialog", { name: copy.conversation })).not.toBeInTheDocument()
+    expect(screen.queryByRole("dialog", { name: sampleThreads[0]!.target })).not.toBeInTheDocument()
     expect(point).toHaveFocus()
   })
 })

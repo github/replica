@@ -15,16 +15,23 @@ type Props = {
   previewUrl?: string
   notes: Note[]
   active?: boolean
+  selectionShortcut: boolean
   annotating: boolean
   composing: boolean
+  pendingSelection: boolean
   onSelect: (anchor: ReviewAnchor) => void
   onRoute: (route: string) => void
   onCancel: () => void
   onProblem: (message: string) => void
+  onToggle: () => void
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function hasActivePreviewGesture(frame: HTMLIFrameElement) {
+  return document.activeElement === frame && navigator.userActivation?.isActive === true
 }
 
 export function usePreviewSelection({
@@ -33,12 +40,15 @@ export function usePreviewSelection({
   previewUrl,
   notes,
   active = true,
+  selectionShortcut,
   annotating,
   composing,
+  pendingSelection,
   onSelect,
   onRoute,
   onCancel,
   onProblem,
+  onToggle,
 }: Props) {
   const frameUrl = previewUrl ?? prototypeUrl
   const [connection, setConnection] = useState<{ nonce: string; ready: boolean } | null>(null)
@@ -57,6 +67,20 @@ export function usePreviewSelection({
       onCancel()
       onProblem(copy.previewUnavailable)
     }
+  })
+  const toggleSelection = useEffectEvent((frame: HTMLIFrameElement) => {
+    if (selectionShortcut && hasActivePreviewGesture(frame)) onToggle()
+  })
+  const dismissConversation = useEffectEvent((restoreFocus: boolean) => {
+    if (pendingSelection && restoreFocus) {
+      onCancel()
+      return
+    }
+    window.dispatchEvent(
+      new CustomEvent("replica:review-dismiss", {
+        detail: { restoreFocus },
+      }),
+    )
   })
   const send = useCallback(
     (type: string, payload: Record<string, unknown> = {}) => {
@@ -115,6 +139,8 @@ export function usePreviewSelection({
         onRoute(route.data.pathname + route.data.search + route.data.hash)
       } else if (data.type === "replica:canvas:selected") {
         receiveSelection(data.anchor)
+      } else if (data.type === "replica:canvas:selection-toggle-requested") {
+        toggleSelection(frame)
       } else if (data.type === "replica:canvas:resolved" && Array.isArray(data.results)) {
         const next = new Map<number, AnchorResolution>()
         for (const result of data.results) {
@@ -137,7 +163,7 @@ export function usePreviewSelection({
       } else if (data.type === "replica:canvas:selection-cancelled") {
         if (data.reason !== "command") onCancel()
       } else if (data.type === "replica:canvas:conversation-dismiss-requested") {
-        window.dispatchEvent(new Event("replica:review-dismiss"))
+        dismissConversation(data.restoreFocus !== false)
       }
     }
     frame.addEventListener("load", loaded)
@@ -161,8 +187,25 @@ export function usePreviewSelection({
         frame.contentWindow?.postMessage({ type: "replica:canvas:cancel-selection", nonce }, origin)
         frame.contentWindow?.postMessage({ type: "replica:canvas:clear-selection", nonce }, origin)
       }
+      frame.contentWindow?.postMessage(
+        { type: "replica:canvas:request-ready", nonce, selectionShortcut: false },
+        origin,
+      )
     }
   }, [active, anchorKey, frameRef, frameUrl, onCancel, onProblem, onRoute])
+
+  useEffect(() => {
+    const frame = frameRef?.current
+    if (!connection || !frame || !frameUrl) return
+    frame.contentWindow?.postMessage(
+      {
+        type: "replica:canvas:request-ready",
+        nonce: connection.nonce,
+        selectionShortcut,
+      },
+      new URL(frameUrl).origin,
+    )
+  }, [connection, frameRef, frameUrl, selectionShortcut])
 
   useEffect(() => {
     if (!active || !connection?.ready) return

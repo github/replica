@@ -18,7 +18,7 @@ const prototype = createServer((request, response) => {
   }
   response.writeHead(200, { "Content-Type": "text/html" })
   response.end(
-    '<!doctype html><html><head><title>Projects</title></head><body><button id="save">Save project</button></body></html>',
+    '<!doctype html><html><head><title>Projects</title></head><body><button id="save">Save project</button><input aria-label="Prototype title"></body></html>',
   )
 })
 let browser
@@ -70,8 +70,14 @@ try {
         if (url.pathname.startsWith("/assets/"))
           failedAssets.push({ asset: path.basename(url.pathname), error: "request failed" })
       })
+      const capture = Promise.withResolvers()
       await page.route("**/api/**", async (route) => {
         const pathname = new URL(route.request().url()).pathname
+        if (pathname === "/api/improvement-notes/capture") {
+          const response = await route.fetch()
+          await capture.promise
+          return route.fulfill({ response })
+        }
         // Keep notes, source capture, and batch persistence on the real disk API.
         if (pathname.startsWith("/api/improvement-notes")) return route.continue()
         if (pathname === "/api/state" || pathname === "/api/refresh")
@@ -85,8 +91,8 @@ try {
         if (pathname === "/api/agent/next") return route.fulfill({ json: { command: null } })
         return route.fulfill({ json: { state: "unconfigured" } })
       })
-      const cards = page.getByRole("button", { name: /^Open improvement:/ })
-      const dialog = page.getByRole("dialog", { name: "Improvement", exact: true })
+      const cards = page.getByRole("button", { name: /^Open note:/ })
+      let dialog
       function fix(count) {
         return page.getByRole("button", {
           name: `Fix all, ${count} pending ${count === 1 ? "request" : "requests"}`,
@@ -94,7 +100,7 @@ try {
         })
       }
       async function filter(name) {
-        await page.getByRole("button", { name: /^Filter improvement notes:/ }).click()
+        await page.getByRole("button", { name: /^Filter notes:/ }).click()
         await page.getByRole("menuitemradio", { name, exact: true }).click()
       }
       async function answer(batch, message) {
@@ -114,24 +120,52 @@ try {
       phase = "select preview target and save locally"
       await page.goto(canvas.url)
       const picker = page.getByRole("button", { name: "Pick & polish", exact: true })
-      await picker.click()
+      assert.equal(await picker.getAttribute("title"), "Add note")
       assert.ok(await fix(0).isDisabled())
+      await picker.click()
       const preview = page.frameLocator('iframe[title="Renderer smoke prototype"]')
-      await preview.locator("[data-replica-canvas-bridge]").first().waitFor()
+      await preview.locator('[data-replica-canvas-bridge][style*="crosshair"]').waitFor()
+      const target = preview.getByRole("button", { name: "Save project", exact: true })
+      await target.hover({ force: true })
+      await preview.locator("html > [data-replica-canvas-bridge]").waitFor()
       // The bridge's selection surface receives this real pointer click over the target.
-      await preview
-        .getByRole("button", { name: "Save project", exact: true })
-        .click({ force: true })
-      const composer = page.getByRole("dialog", { name: "Add improvement note", exact: true })
+      await target.click({ force: true })
+      capture.resolve()
+      const composer = page.getByRole("dialog", { name: "Add note", exact: true })
       await composer
         .getByRole("textbox", { name: "What should change?", exact: true })
         .fill("Make the save action clearer.")
-      await composer.getByRole("button", { name: "Save note", exact: true }).click()
+      const noteDraft = composer.getByRole("textbox", { name: "What should change?", exact: true })
+      assert.equal(
+        await noteDraft.getAttribute("placeholder"),
+        "Describe what you want Copilot to change...",
+      )
+      await noteDraft.press("s")
+      assert.equal(await noteDraft.inputValue(), "Make the save action clearer.s")
+      await noteDraft.press("Backspace")
+      const saveNote = composer.getByRole("button", { name: "Save", exact: true })
+      assert.equal(await saveNote.getAttribute("aria-keyshortcuts"), "Meta+Enter Control+Enter")
+      assert.deepEqual(await saveNote.locator("kbd").allInnerTexts(), ["Ctrl", "↵"])
+      assert.ok(
+        (await saveNote.evaluate((button) => {
+          const shortcut = button.querySelector(".improvement-demo__save-shortcut")
+          const buttonBounds = button.getBoundingClientRect()
+          const shortcutBounds = shortcut.getBoundingClientRect()
+          return Math.abs(
+            buttonBounds.top +
+              buttonBounds.height / 2 -
+              (shortcutBounds.top + shortcutBounds.height / 2),
+          )
+        })) <= 0.5,
+        "Save shortcut keycaps must be vertically centered",
+      )
+      await noteDraft.press("Control+Enter")
       await cards.first().waitFor()
       assert.equal(await cards.count(), 1)
       let state = await store.load()
       assert.equal(state.notes.length, 1)
       assert.equal(state.notes[0].body, "Make the save action clearer.")
+      dialog = page.getByRole("dialog", { name: state.notes[0].target, exact: true })
       assert.equal(state.notes[0].anchor.selector, "#save")
       assert.deepEqual(state.notes[0].anchor.route, {
         pathname: "/projects",
@@ -140,6 +174,52 @@ try {
       })
       assert.equal(state.notes[0].status, "open")
       assert.equal(dispatched.length, 0)
+      const notesToggle = page.getByRole("button", { name: /^(Open|Close) Notes \(1\)$/ })
+      assert.equal(await notesToggle.getAttribute("aria-expanded"), "true")
+      await notesToggle.click()
+      assert.equal(await notesToggle.getAttribute("aria-expanded"), "false")
+      assert.equal(await notesToggle.getAttribute("aria-label"), "Open Notes (1)")
+      assert.ok(await notesToggle.evaluate((element) => element === document.activeElement))
+      assert.equal(await page.getByRole("complementary", { name: "Notes" }).count(), 0)
+      await notesToggle.click()
+      assert.equal(await notesToggle.getAttribute("aria-expanded"), "true")
+      assert.equal(await notesToggle.getAttribute("aria-label"), "Close Notes (1)")
+      await page.getByRole("complementary", { name: "Notes" }).waitFor()
+      const marker = page.getByRole("button", { name: "Open note 1", exact: true })
+      await marker.click()
+      await dialog.waitFor()
+      await page.keyboard.press("Escape")
+      await dialog.waitFor({ state: "hidden" })
+      assert.ok(await marker.evaluate((element) => element === document.activeElement))
+      assert.equal(
+        await marker.evaluate((element) => getComputedStyle(element).outlineStyle),
+        "none",
+      )
+      assert.equal(
+        await marker
+          .locator(".review-participant-stack__avatar")
+          .evaluate((element) => getComputedStyle(element).outlineStyle),
+        "solid",
+      )
+
+      phase = "selection shortcuts in the canvas and cross-origin preview"
+      await picker.focus()
+      await page.keyboard.press("s")
+      const selectionSurface = preview.locator('[data-replica-canvas-bridge][style*="crosshair"]')
+      await selectionSurface.waitFor()
+      await page.keyboard.press("s")
+      await selectionSurface.waitFor({ state: "detached" })
+      await target.press("s")
+      await selectionSurface.waitFor()
+      await target.press("Escape")
+      await selectionSurface.waitFor({ state: "detached" })
+      const prototypeTitle = preview.getByRole("textbox", { name: "Prototype title" })
+      await prototypeTitle.fill("Project")
+      await prototypeTitle.press("s")
+      assert.equal(await prototypeTitle.inputValue(), "Projects")
+      assert.equal(await selectionSurface.count(), 0)
+      assert.equal((await store.load()).notes.length, 1)
+      await notesToggle.click()
 
       phase = "explicit first batch"
       await fix(1).click()
@@ -176,10 +256,10 @@ try {
       assert.equal(state.notes[0].status, "open")
       assert.equal(dispatched.length, 1)
       assert.ok(await fix(1).isEnabled())
-      await dialog.getByRole("button", { name: "Close improvement", exact: true }).click()
+      await dialog.getByRole("button", { name: "Close note", exact: true }).click()
       await filter("Ready to review")
       assert.equal(await cards.count(), 0)
-      await filter("Active notes")
+      await filter("Active")
       await cards.first().waitFor()
 
       phase = "explicit subsequent batch answers only the follow-up"
@@ -197,10 +277,10 @@ try {
       await dialog.getByText("The existing shortcut is preserved.", { exact: true }).waitFor()
       if (process.env.REPLICA_CANVAS_SCREENSHOT)
         await page.screenshot({ path: process.env.REPLICA_CANVAS_SCREENSHOT, fullPage: true })
-      await dialog.getByRole("button", { name: "Close improvement", exact: true }).click()
+      await dialog.getByRole("button", { name: "Close note", exact: true }).click()
 
       phase = "resolve and filter"
-      await page.getByRole("button", { name: "Improvement actions: 1", exact: true }).click()
+      await page.getByRole("button", { name: "Note actions: 1", exact: true }).click()
       await page.getByRole("menuitem", { name: "Mark as resolved", exact: true }).click()
       await cards.first().waitFor({ state: "hidden" })
       await filter("Resolved")
@@ -236,13 +316,23 @@ try {
       assert.equal(dispatched.length, 2)
 
       phase = "confirmed deletion"
-      await dialog.getByRole("button", { name: "Close improvement", exact: true }).click()
-      await page.getByRole("button", { name: "Improvement actions: 1", exact: true }).click()
-      await page.getByRole("menuitem", { name: "Delete improvement", exact: true }).click()
-      const deletion = page.getByRole("dialog", { name: "Delete this improvement?", exact: true })
+      await dialog.getByRole("button", { name: "Close note", exact: true }).click()
+      const directDelete = page.getByRole("button", { name: "Delete: 1", exact: true })
+      await page.getByRole("button", { name: /^Filter notes:/ }).focus()
+      await page.mouse.move(0, 0)
+      assert.equal(await directDelete.evaluate((element) => getComputedStyle(element).opacity), "0")
+      await cards.first().hover()
+      assert.equal(await directDelete.evaluate((element) => getComputedStyle(element).opacity), "1")
+      await directDelete.click()
+      const deletion = page.getByRole("dialog", { name: "Delete this note?", exact: true })
       await deletion.waitFor()
       assert.equal((await store.load()).notes.length, 1)
-      await deletion.getByRole("button", { name: "Delete improvement", exact: true }).click()
+      const confirmDelete = deletion.getByRole("button", { name: "Delete", exact: true })
+      assert.equal(
+        await confirmDelete.evaluate((element) => getComputedStyle(element).color),
+        "rgb(255, 255, 255)",
+      )
+      await confirmDelete.click()
       await deletion.waitFor({ state: "hidden" })
       await cards.first().waitFor({ state: "hidden" })
       assert.equal((await reloaded.load()).notes.length, 0)
@@ -287,7 +377,7 @@ try {
       })
       const blockedNotes = (await store.load()).notes
       assert.ok(blockedNotes.every((note) => note.status === "blocked"))
-      const menu = page.getByRole("menu", { name: /^Improvement actions:/ })
+      const menu = page.getByRole("menu", { name: /^Note actions:/ })
       const list = page.locator(".thread-sample__list")
 
       for (const viewport of [
@@ -299,11 +389,15 @@ try {
           await page.setViewportSize(viewport)
           await page.emulateMedia({ colorScheme, reducedMotion: "reduce" })
           await page.reload()
-          await page.getByRole("button", { name: /^Open improvement notes \(/ }).click()
+          const menuNotesToggle = page.getByRole("button", {
+            name: /^(Open|Close) Notes \(/,
+          })
+          if ((await menuNotesToggle.getAttribute("aria-expanded")) !== "true")
+            await menuNotesToggle.click()
           await cards.nth(1).waitFor()
           const rows = page.locator(".thread-sample__card")
           const firstActions = rows.first().getByRole("button", {
-            name: /^Improvement actions:/,
+            name: /^Note actions:/,
           })
           const geometry = await rows.first().evaluate((row) => {
             const bounds = row.getBoundingClientRect()
@@ -328,7 +422,7 @@ try {
             }
           })
           console.log(JSON.stringify({ viewport: viewport.width, colorScheme, geometry }))
-          assert.ok(Math.abs(geometry.avatarOffset) < 0.5, "Avatar aligns with Active notes")
+          assert.ok(Math.abs(geometry.avatarOffset) < 0.5, "Avatar aligns with Active")
           assert.ok(Math.abs(geometry.hoverGutter - 8) < 0.5, "Hover retains its 8px left gutter")
           assert.ok(
             Math.abs(geometry.actionInset - 16) < 0.5,
@@ -340,7 +434,7 @@ try {
           await firstActions.click()
           await menu.getByRole("menuitem", { name: "Retry", exact: true }).waitFor()
           const deleteItem = menu.getByRole("menuitem", {
-            name: "Delete improvement",
+            name: "Delete",
             exact: true,
           })
 
@@ -348,27 +442,25 @@ try {
             const probes = await rows.nth(1).evaluate((row) => {
               const overlay = document.querySelector('[role="menu"]')
               const bounds = overlay.getBoundingClientRect()
-              return [".review-comment-row__author", 'button[aria-haspopup="menu"]'].map(
-                (selector) => {
-                  const sibling = row.querySelector(selector).getBoundingClientRect()
-                  const left = Math.max(bounds.left, sibling.left)
-                  const right = Math.min(bounds.right, sibling.right)
-                  const top = Math.max(bounds.top, sibling.top)
-                  const bottom = Math.min(bounds.bottom, sibling.bottom)
-                  const x = (left + right) / 2
-                  const y = (top + bottom) / 2
-                  const stack = document.elementsFromPoint(x, y)
-                  return {
-                    selector,
-                    overlaps: right > left && bottom > top,
-                    intersection: { left, right, top, bottom },
-                    menu: bounds.toJSON(),
-                    sibling: sibling.toJSON(),
-                    menuOnTop: overlay.contains(document.elementFromPoint(x, y)),
-                    siblingBelow: stack.some((element) => row.contains(element)),
-                  }
-                },
-              )
+              return ['button[aria-haspopup="menu"]'].map((selector) => {
+                const sibling = row.querySelector(selector).getBoundingClientRect()
+                const left = Math.max(bounds.left, sibling.left)
+                const right = Math.min(bounds.right, sibling.right)
+                const top = Math.max(bounds.top, sibling.top)
+                const bottom = Math.min(bounds.bottom, sibling.bottom)
+                const x = (left + right) / 2
+                const y = (top + bottom) / 2
+                const stack = document.elementsFromPoint(x, y)
+                return {
+                  selector,
+                  overlaps: right > left && bottom > top,
+                  intersection: { left, right, top, bottom },
+                  menu: bounds.toJSON(),
+                  sibling: sibling.toJSON(),
+                  menuOnTop: overlay.contains(document.elementFromPoint(x, y)),
+                  siblingBelow: stack.some((element) => row.contains(element)),
+                }
+              })
             })
             for (const probe of probes) {
               assert.ok(
@@ -394,7 +486,7 @@ try {
           const firstBody = await cards.first().getAttribute("aria-label")
           assert.equal(
             await deletion.locator("blockquote").innerText(),
-            firstBody.replace("Open improvement: ", ""),
+            firstBody.replace("Open note: ", ""),
           )
           assert.deepEqual((await store.load()).notes, blockedNotes)
           await deletion
@@ -411,7 +503,7 @@ try {
           assert.ok(await firstActions.evaluate((element) => element === document.activeElement))
           await firstActions.click()
           await menu.waitFor()
-          await page.getByRole("heading", { name: "Pick & polish", exact: true }).click()
+          await page.getByRole("heading", { name: "Notes", exact: true }).click()
           await menu.waitFor({ state: "hidden" })
 
           phase = `scrolled blocked menu at ${viewport.width}px in ${colorScheme}`
@@ -423,13 +515,13 @@ try {
             () => document.querySelector(".thread-sample__list").scrollTop > 0,
           )
           const scrolledActions = rows.nth(3).getByRole("button", {
-            name: /^Improvement actions:/,
+            name: /^Note actions:/,
           })
           await scrolledActions.click()
           await menu.waitFor()
           const scrollTop = await list.evaluate((element) => element.scrollTop)
           const scrolledDelete = menu.getByRole("menuitem", {
-            name: "Delete improvement",
+            name: "Delete",
             exact: true,
           })
           assert.ok(
@@ -448,7 +540,7 @@ try {
           await deletion.waitFor()
           assert.equal(
             await deletion.locator("blockquote").innerText(),
-            (await cards.nth(3).getAttribute("aria-label")).replace("Open improvement: ", ""),
+            (await cards.nth(3).getAttribute("aria-label")).replace("Open note: ", ""),
           )
           await page.keyboard.press("Escape")
           await deletion.waitFor({ state: "hidden" })
@@ -462,13 +554,45 @@ try {
       await cards.first().click()
       const draft = dialog.getByRole("textbox", { name: "Follow-up", exact: true })
       await draft.fill("Unsaved fixture follow-up")
-      const actions = page.getByRole("button", { name: /^Improvement actions:/ })
+      const actions = page.getByRole("button", { name: /^Note actions:/ })
       assert.ok(await actions.nth(0).isDisabled())
       assert.ok(await actions.nth(1).isDisabled())
       assert.equal(await menu.count(), 0)
       await draft.fill("")
-      await dialog.getByRole("button", { name: "Close improvement", exact: true }).click()
+      await dialog.getByRole("button", { name: "Close note", exact: true }).click()
       assert.ok(await actions.first().isEnabled())
+
+      phase = "outside prototype clicks dismiss conversations without losing drafts"
+      await page.setViewportSize({ width: 1280, height: 720 })
+      await page.reload()
+      const outsideNotesToggle = page.getByRole("button", {
+        name: /^(Open|Close) Notes \(/,
+      })
+      if ((await outsideNotesToggle.getAttribute("aria-expanded")) !== "true")
+        await outsideNotesToggle.click()
+      await cards.first().click()
+      await dialog.waitFor()
+      const previewOutside = preview.locator("html")
+      await previewOutside.click({ position: { x: 700, y: 500 } })
+      await dialog.waitFor({ state: "hidden" })
+      assert.ok(
+        await cards.first().evaluate((element) => element !== document.activeElement),
+        "Outside preview click must not restore focus to the conversation opener",
+      )
+
+      await cards.first().click()
+      const outsideDraft = dialog.getByRole("textbox", { name: "Follow-up", exact: true })
+      await outsideDraft.fill("Keep this outside-click draft.")
+      await previewOutside.click({ position: { x: 700, y: 500 } })
+      await dialog.getByText("Keep this draft?", { exact: true }).waitFor()
+      await previewOutside.click({ position: { x: 700, y: 500 } })
+      await dialog.getByText("Keep this draft?", { exact: true }).waitFor()
+      await dialog.getByRole("button", { name: "Keep", exact: true }).click()
+      assert.equal(await outsideDraft.inputValue(), "Keep this outside-click draft.")
+      await dialog.getByRole("button", { name: "Close note", exact: true }).click()
+      await dialog.getByRole("button", { name: "Discard", exact: true }).click()
+      await dialog.waitFor({ state: "hidden" })
+
       assert.deepEqual((await store.load()).notes, blockedNotes)
       assert.deepEqual(errors, [])
       assert.deepEqual(failedAssets, [])
@@ -476,6 +600,7 @@ try {
         "Packaged renderer smoke passed: local notes, explicit batches, persisted history, and overlapping blocked-note menus.",
       )
     } finally {
+      await page?.unrouteAll({ behavior: "ignoreErrors" })
       await page?.close()
       await canvas.close()
     }

@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
+import type { AnnotationShortcutModule } from "@/test/as-trusted-keyboard-event"
 import { copy } from "@features/prototype-canvas-improvement-notes/en"
 import { copy as threadCopy } from "@features/prototype-canvas-improvement-threads/en"
 import { sharingFixture } from "./sharing-fixture"
@@ -8,6 +9,17 @@ import { App } from ".."
 import type { Note } from "@features/prototype-canvas-improvement-notes/types"
 import { REVIEW_ANCHOR_SCHEMA } from "@utils/review-anchor/schemas"
 import { ImprovementNotesPrototype } from "@features/prototype-canvas-improvement-notes"
+
+vi.mock("@utils/is-annotation-shortcut", async (importOriginal) => {
+  const actual = await importOriginal<AnnotationShortcutModule>()
+  const { asTrustedKeyboardEvent } = await import("@/test/as-trusted-keyboard-event")
+  return {
+    ...actual,
+    isAnnotationShortcut(event: KeyboardEvent) {
+      return actual.isAnnotationShortcut(asTrustedKeyboardEvent(event))
+    },
+  }
+})
 
 const nonce = "00000000-0000-4000-8000-000000000003"
 const origin = "http://localhost:4321"
@@ -39,6 +51,17 @@ function receive(
     )
   })
 }
+
+function setUserActivation(isActive: boolean) {
+  Object.defineProperty(navigator, "userActivation", {
+    configurable: true,
+    value: { hasBeenActive: isActive, isActive },
+  })
+}
+
+afterEach(() => {
+  Reflect.deleteProperty(navigator, "userActivation")
+})
 
 function savedNotesFixture(captureFails = false) {
   const { fetch } = sharingFixture()
@@ -126,6 +149,341 @@ function savedNotesFixture(captureFails = false) {
 }
 
 describe("App()", () => {
+  it("toggles selection with plain S only when ready and keeps Escape cancellation", async () => {
+    vi.spyOn(crypto, "randomUUID").mockReturnValue(nonce)
+    const { fetch } = savedNotesFixture()
+    const view = render(
+      <App config={{ name: "Demo", prototypeUrl: origin, token: "local", pickAndPolish: true }} />,
+    )
+    const picker = await screen.findByRole("button", { name: copy.annotate })
+    expect(picker).toHaveAttribute("title", copy.annotateShortcut)
+    const frame = screen.getByTitle("Demo prototype")
+    if (!(frame instanceof HTMLIFrameElement)) throw new Error("Expected the prototype iframe.")
+    function captures() {
+      return fetch.mock.calls.filter(([path]) => path === "/api/improvement-notes/capture")
+    }
+    fireEvent.keyDown(window, { key: "s" })
+    expect(captures()).toHaveLength(0)
+    receive(frame, {
+      type: "replica:canvas:ready",
+      protocolVersion: 1,
+      improvementSelection: true,
+      route: anchor.route,
+    })
+    await waitFor(() => expect(picker).toBeEnabled())
+    const post = vi.spyOn(frame.contentWindow!, "postMessage")
+    const shortcutFocus = document.createElement("button")
+    document.body.append(shortcutFocus)
+    shortcutFocus.focus()
+    fireEvent.keyDown(shortcutFocus, { key: "s" })
+    expect(picker).toHaveAttribute("aria-pressed", "true")
+    expect(post).toHaveBeenCalledWith(
+      { type: "replica:canvas:select", nonce, mode: "improvement" },
+      origin,
+    )
+    expect(screen.queryByRole("complementary", { name: copy.notes })).not.toBeInTheDocument()
+    fireEvent.keyDown(shortcutFocus, { key: "S" })
+    expect(picker).toHaveAttribute("aria-pressed", "false")
+    expect(shortcutFocus).toHaveFocus()
+    expect(captures()).toHaveLength(1)
+    fireEvent.keyDown(window, { key: "s" })
+    fireEvent.keyDown(window, { key: "Escape" })
+    expect(picker).toHaveAttribute("aria-pressed", "false")
+    expect(captures()).toHaveLength(2)
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit details" }))
+    await screen.findByRole("complementary", { name: "Hub" })
+    fireEvent.keyDown(window, { key: "s" })
+    expect(picker).toHaveAttribute("aria-pressed", "false")
+    expect(captures()).toHaveLength(2)
+    fireEvent.click(screen.getByRole("button", { name: "Close Hub" }))
+    await act(async () => {
+      fireEvent.click(picker)
+      await Promise.resolve()
+    })
+    receive(frame, { type: "replica:canvas:selected", anchor })
+    const composer = within(await screen.findByRole("dialog", { name: copy.add }))
+    fireEvent.change(composer.getByRole("textbox", { name: copy.label }), {
+      target: { value: "Preserve this draft." },
+    })
+    fireEvent.keyDown(window, { key: "s" })
+    expect(captures()).toHaveLength(3)
+    expect(picker).toHaveAttribute("aria-pressed", "true")
+    expect(composer.getByRole("textbox", { name: copy.label })).toHaveValue("Preserve this draft.")
+    shortcutFocus.remove()
+    view.unmount()
+  })
+
+  it("accepts selection toggles only from the current focused preview during user activation", async () => {
+    vi.spyOn(crypto, "randomUUID").mockReturnValue(nonce)
+    const { fetch } = savedNotesFixture()
+    const view = render(
+      <App
+        config={{
+          name: "Demo",
+          prototypeUrl: origin,
+          previewUrl: "http://127.0.0.1:6789/",
+          token: "local",
+          pickAndPolish: true,
+        }}
+      />,
+    )
+    const picker = await screen.findByRole("button", { name: copy.annotate })
+    const frame = screen.getByTitle("Demo prototype")
+    if (!(frame instanceof HTMLIFrameElement)) throw new Error("Expected the prototype iframe.")
+    const post = vi.spyOn(frame.contentWindow!, "postMessage")
+    fireEvent.load(frame)
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "replica:canvas:request-ready",
+          nonce,
+          selectionShortcut: true,
+        }),
+        new URL(frame.src).origin,
+      ),
+    )
+    receive(frame, {
+      type: "replica:canvas:ready",
+      protocolVersion: 1,
+      improvementSelection: true,
+      route: anchor.route,
+    })
+    await waitFor(() => expect(picker).toBeEnabled())
+    const toggle = { type: "replica:canvas:selection-toggle-requested", nonce }
+    act(() => frame.focus())
+    setUserActivation(false)
+    receive(frame, toggle)
+    expect(picker).toHaveAttribute("aria-pressed", "false")
+    expect(fetch.mock.calls.filter(([path]) => path.endsWith("/capture"))).toHaveLength(0)
+
+    setUserActivation(true)
+    act(() => picker.focus())
+    receive(frame, toggle)
+    expect(picker).toHaveAttribute("aria-pressed", "false")
+    expect(fetch.mock.calls.filter(([path]) => path.endsWith("/capture"))).toHaveLength(0)
+
+    act(() => frame.focus())
+    receive(frame, toggle, origin)
+    receive(frame, { ...toggle, nonce: "stale-resolution" })
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          source: window,
+          origin: new URL(frame.src).origin,
+          data: toggle,
+        }),
+      )
+    })
+    expect(picker).toHaveAttribute("aria-pressed", "false")
+    expect(fetch.mock.calls.filter(([path]) => path.endsWith("/capture"))).toHaveLength(0)
+    receive(frame, toggle)
+    expect(picker).toHaveAttribute("aria-pressed", "true")
+    expect(fetch.mock.calls.filter(([path]) => path.endsWith("/capture"))).toHaveLength(1)
+
+    setUserActivation(false)
+    receive(frame, toggle)
+    expect(picker).toHaveAttribute("aria-pressed", "true")
+    expect(fetch.mock.calls.filter(([path]) => path.endsWith("/capture"))).toHaveLength(1)
+
+    setUserActivation(true)
+    receive(frame, toggle)
+    expect(picker).toHaveAttribute("aria-pressed", "false")
+    expect(fetch.mock.calls.filter(([path]) => path.endsWith("/capture"))).toHaveLength(1)
+    view.unmount()
+    expect(post).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "replica:canvas:request-ready",
+        nonce,
+        selectionShortcut: false,
+      }),
+      new URL(frame.src).origin,
+    )
+  })
+
+  it("arms selection before source capture finishes and saves an early target with its captured source", async () => {
+    vi.spyOn(navigator, "platform", "get").mockReturnValue("MacIntel")
+    vi.spyOn(crypto, "randomUUID").mockReturnValue(nonce)
+    const { fetch, saved } = savedNotesFixture()
+    const original = fetch.getMockImplementation()!
+    let finishCapture!: (response: Response) => void
+    const capture = new Promise<Response>((resolve) => {
+      finishCapture = resolve
+    })
+    fetch.mockImplementation((path, options) =>
+      path === "/api/improvement-notes/capture" && options?.method === "POST"
+        ? capture
+        : original(path, options),
+    )
+    const view = render(
+      <App
+        config={{
+          name: "Demo",
+          prototypeUrl: `${origin}/settings?tab=account#profile`,
+          token: "local",
+          pickAndPolish: true,
+        }}
+      />,
+    )
+    const frame = screen.getByTitle("Demo prototype")
+    if (!(frame instanceof HTMLIFrameElement)) throw new Error("Expected the prototype iframe.")
+    const picker = await screen.findByRole("button", { name: copy.annotate })
+    receive(frame, {
+      type: "replica:canvas:ready",
+      protocolVersion: 1,
+      improvementSelection: true,
+      route: anchor.route,
+    })
+    await waitFor(() => expect(picker).toBeEnabled())
+    const post = vi.spyOn(frame.contentWindow!, "postMessage")
+    expect(screen.getByRole("complementary", { name: copy.notes })).toBeVisible()
+    fireEvent.click(picker)
+
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/improvement-notes/capture",
+      expect.objectContaining({ method: "POST" }),
+    )
+    expect(picker).toHaveAttribute("aria-pressed", "true")
+    expect(picker).toBeEnabled()
+    expect(post).toHaveBeenCalledWith(
+      { type: "replica:canvas:select", nonce, mode: "improvement" },
+      origin,
+    )
+    expect(screen.queryByRole("complementary", { name: copy.notes })).not.toBeInTheDocument()
+    receive(frame, { type: "replica:canvas:selected", anchor })
+    receive(frame, {
+      type: "replica:canvas:conversation-dismiss-requested",
+      restoreFocus: false,
+    })
+    expect(picker).toHaveAttribute("aria-pressed", "true")
+    await act(async () => {
+      finishCapture(Response.json({ identity: saved.identity, sourceId: "early-target-source" }))
+      await capture
+    })
+    const composer = within(await screen.findByRole("dialog", { name: copy.add }))
+    const note = composer.getByRole("textbox", { name: copy.label })
+    const save = composer.getByRole("button", { name: copy.save })
+    expect(save).toHaveAttribute("aria-keyshortcuts", "Meta+Enter Control+Enter")
+    fireEvent.change(note, {
+      target: { value: "Keep the selected action visible." },
+    })
+    fireEvent.keyDown(note, { key: "Enter", metaKey: true })
+    await waitFor(() => expect(saved.notes).toHaveLength(1))
+    const write = fetch.mock.calls.find(
+      ([path, options]) => path === "/api/improvement-notes" && options?.method === "POST",
+    )
+    if (typeof write?.[1]?.body !== "string") throw new Error("Expected a serialized improvement.")
+    expect(JSON.parse(write[1].body)).toMatchObject({
+      identity: saved.identity,
+      sourceId: "early-target-source",
+      anchor,
+    })
+    const notesToggle = screen.getByRole("button", { name: copy.closeNotes(1) })
+    expect(notesToggle).toHaveAttribute("aria-expanded", "true")
+    act(() => notesToggle.focus())
+    fireEvent.click(notesToggle)
+    expect(notesToggle).toHaveFocus()
+    expect(notesToggle).toHaveAttribute("aria-expanded", "false")
+    expect(notesToggle).toHaveAccessibleName(copy.openNotes(1))
+    expect(screen.queryByRole("complementary", { name: copy.notes })).not.toBeInTheDocument()
+    fireEvent.click(notesToggle)
+    expect(notesToggle).toHaveAttribute("aria-expanded", "true")
+    expect(notesToggle).toHaveAccessibleName(copy.closeNotes(1))
+    expect(screen.getByRole("complementary", { name: copy.notes })).toBeVisible()
+    view.unmount()
+  })
+
+  it("cancels pending captures from the toolbar, preview, and shortcut before saving the next selection", async () => {
+    vi.spyOn(crypto, "randomUUID").mockReturnValue(nonce)
+    const { fetch, saved } = savedNotesFixture()
+    const original = fetch.getMockImplementation()!
+    const captures: ((response: Response) => void)[] = []
+    fetch.mockImplementation((path, options) =>
+      path === "/api/improvement-notes/capture" && options?.method === "POST"
+        ? new Promise<Response>((resolve) => {
+            captures.push(resolve)
+          })
+        : original(path, options),
+    )
+    const view = render(
+      <App
+        config={{
+          name: "Demo",
+          prototypeUrl: `${origin}/settings?tab=account#profile`,
+          previewUrl: "http://127.0.0.1:6789/settings?tab=account#profile",
+          token: "local",
+          pickAndPolish: true,
+        }}
+      />,
+    )
+    const frame = screen.getByTitle("Demo prototype")
+    if (!(frame instanceof HTMLIFrameElement)) throw new Error("Expected the prototype iframe.")
+    const picker = await screen.findByRole("button", { name: copy.annotate })
+    receive(frame, {
+      type: "replica:canvas:ready",
+      protocolVersion: 1,
+      improvementSelection: true,
+      route: anchor.route,
+    })
+    await waitFor(() => expect(picker).toBeEnabled())
+
+    const cancellations = [
+      () => fireEvent.click(picker),
+      () => receive(frame, { type: "replica:canvas:conversation-dismiss-requested" }),
+      () => fireEvent.keyDown(window, { key: "s" }),
+    ]
+    for (const [index, cancel] of cancellations.entries()) {
+      fireEvent.click(picker)
+      expect(picker).toHaveAttribute("aria-pressed", "true")
+      expect(picker).toBeEnabled()
+      expect(captures).toHaveLength(index + 1)
+      const cancelledAnchor = {
+        ...anchor,
+        selector: `#cancelled-${index}`,
+        accessibleName: `Cancelled ${index}`,
+      }
+      receive(frame, { type: "replica:canvas:selected", anchor: cancelledAnchor })
+
+      cancel()
+      expect(picker).toHaveAttribute("aria-pressed", "false")
+      await act(async () => {
+        captures[index]!(
+          Response.json({ identity: saved.identity, sourceId: `cancelled-source-${index}` }),
+        )
+        await Promise.resolve()
+      })
+      expect(picker).toHaveAttribute("aria-pressed", "false")
+      expect(screen.queryByRole("dialog", { name: copy.add })).not.toBeInTheDocument()
+      receive(frame, { type: "replica:canvas:selected", anchor: cancelledAnchor })
+      expect(screen.queryByRole("dialog", { name: copy.add })).not.toBeInTheDocument()
+    }
+
+    fireEvent.click(picker)
+    expect(captures).toHaveLength(4)
+    const nextAnchor = { ...anchor, selector: "#next", accessibleName: "Next" }
+    receive(frame, { type: "replica:canvas:selected", anchor: nextAnchor })
+    await act(async () => {
+      captures[3]!(Response.json({ identity: saved.identity, sourceId: "next-selection-source" }))
+      await Promise.resolve()
+    })
+    const composer = within(await screen.findByRole("dialog", { name: copy.add }))
+    fireEvent.change(composer.getByRole("textbox", { name: copy.label }), {
+      target: { value: "Clarify the next action." },
+    })
+    fireEvent.click(composer.getByRole("button", { name: copy.save }))
+    await waitFor(() => expect(saved.notes).toHaveLength(1))
+    const write = fetch.mock.calls.find(
+      ([path, options]) => path === "/api/improvement-notes" && options?.method === "POST",
+    )
+    if (typeof write?.[1]?.body !== "string") throw new Error("Expected a serialized improvement.")
+    expect(JSON.parse(write[1].body)).toMatchObject({
+      identity: saved.identity,
+      sourceId: "next-selection-source",
+      anchor: nextAnchor,
+    })
+    view.unmount()
+  })
+
   it("only dismisses saved conversations through the current authenticated preview connection and protects drafts", async () => {
     const { saved } = savedNotesFixture()
     saved.notes.push({
@@ -156,7 +514,7 @@ describe("App()", () => {
       />,
     )
     const card = await screen.findByRole("button", {
-      name: "Open improvement: Make the save action clearer.",
+      name: "Open note: Make the save action clearer.",
     })
     const frame = screen.getByTitle("Demo prototype")
     if (!(frame instanceof HTMLIFrameElement)) throw new Error("Expected the prototype iframe.")
@@ -200,7 +558,7 @@ describe("App()", () => {
     fireEvent.click(card)
     const dismiss = { type: "replica:canvas:conversation-dismiss-requested", nonce: currentNonce }
     receive(frame, dismiss, origin)
-    expect(screen.getByRole("dialog", { name: threadCopy.conversation })).toBeVisible()
+    expect(screen.getByRole("dialog", { name: "Save" })).toBeVisible()
     act(() => {
       window.dispatchEvent(
         new MessageEvent("message", {
@@ -210,12 +568,17 @@ describe("App()", () => {
         }),
       )
     })
-    expect(screen.getByRole("dialog", { name: threadCopy.conversation })).toBeVisible()
+    expect(screen.getByRole("dialog", { name: "Save" })).toBeVisible()
     receive(frame, { ...dismiss, nonce: staleNonce })
-    expect(screen.getByRole("dialog", { name: threadCopy.conversation })).toBeVisible()
+    expect(screen.getByRole("dialog", { name: "Save" })).toBeVisible()
     receive(frame, dismiss)
-    expect(screen.queryByRole("dialog", { name: threadCopy.conversation })).not.toBeInTheDocument()
+    expect(screen.queryByRole("dialog", { name: "Save" })).not.toBeInTheDocument()
     expect(card).toHaveFocus()
+
+    fireEvent.click(card)
+    receive(frame, { ...dismiss, restoreFocus: false })
+    expect(screen.queryByRole("dialog", { name: "Save" })).not.toBeInTheDocument()
+    expect(card).not.toHaveFocus()
 
     fireEvent.click(card)
     fireEvent.change(screen.getByRole("textbox", { name: threadCopy.comments.replyLabel }), {
@@ -227,10 +590,20 @@ describe("App()", () => {
     expect(screen.getByRole("textbox", { name: threadCopy.comments.replyLabel })).toHaveValue(
       "Keep this unsent follow-up",
     )
-    receive(frame, dismiss)
+    const notesToggle = screen.getByRole("button", { name: copy.closeNotes(1) })
+    fireEvent.pointerDown(notesToggle, { button: 0, isPrimary: true })
+    fireEvent.click(notesToggle)
+    expect(notesToggle).toHaveAttribute("aria-expanded", "true")
+    expect(screen.getByText(threadCopy.comments.threadDiscardPromptLabel)).toBeVisible()
+    fireEvent.click(screen.getByRole("button", { name: threadCopy.comments.keepLabel }))
+    fireEvent.click(notesToggle)
+    expect(notesToggle).toHaveAttribute("aria-expanded", "true")
+    expect(screen.getByText(threadCopy.comments.threadDiscardPromptLabel)).toBeVisible()
     fireEvent.click(screen.getByRole("button", { name: threadCopy.comments.discardButtonLabel }))
-    expect(screen.queryByRole("dialog", { name: threadCopy.conversation })).not.toBeInTheDocument()
-    expect(card).toHaveFocus()
+    expect(screen.queryByRole("dialog", { name: "Save" })).not.toBeInTheDocument()
+    expect(notesToggle).toHaveAttribute("aria-expanded", "false")
+    expect(notesToggle).toHaveFocus()
+    expect(screen.queryByRole("complementary", { name: copy.notes })).not.toBeInTheDocument()
     view.unmount()
   })
 
@@ -325,7 +698,7 @@ describe("App()", () => {
     if (!(frame instanceof HTMLIFrameElement)) throw new Error("Expected the prototype iframe.")
     const picker = await screen.findByRole("button", { name: copy.annotate })
     await screen.findByRole("button", {
-      name: "Open improvement: Make the save action clearer.",
+      name: "Open note: Make the save action clearer.",
     })
     receive(frame, {
       type: "replica:canvas:ready",
@@ -347,7 +720,7 @@ describe("App()", () => {
     const marker = screen.getByRole("button", { name: threadCopy.point(1) })
     expect(marker).toBeVisible()
     fireEvent.click(marker)
-    const dialog = screen.getByRole("dialog", { name: threadCopy.conversation })
+    const dialog = screen.getByRole("dialog", { name: "Save" })
     expect(dialog).toBeVisible()
     expect(screen.queryByRole("complementary", { name: copy.notes })).not.toBeInTheDocument()
     const input = within(dialog).getByRole("textbox", { name: threadCopy.comments.replyLabel })
@@ -361,8 +734,9 @@ describe("App()", () => {
     })
     expect(retainedInput).toHaveValue("Keep this unsent follow-up")
     fireEvent.change(retainedInput, { target: { value: "" } })
-    fireEvent.click(within(dialog).getByRole("button", { name: threadCopy.back }))
+    fireEvent.keyDown(dialog, { key: "Escape" })
     expect(marker).toHaveFocus()
+    expect(getComputedStyle(marker).outlineStyle).toBe("none")
     fireEvent.click(picker)
     expect(screen.queryByRole("button", { name: threadCopy.point(1) })).not.toBeInTheDocument()
     fireEvent.click(picker)
@@ -428,10 +802,8 @@ describe("App()", () => {
     render(
       <App config={{ name: "Demo", prototypeUrl: origin, token: "local", pickAndPolish: true }} />,
     )
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Open improvement: Original feedback." }),
-    )
-    const dialog = screen.getByRole("dialog", { name: threadCopy.conversation })
+    fireEvent.click(await screen.findByRole("button", { name: "Open note: Original feedback." }))
+    const dialog = screen.getByRole("dialog", { name: "Save" })
     const conversation = within(dialog)
     fireEvent.change(conversation.getByRole("textbox", { name: threadCopy.comments.replyLabel }), {
       target: { value: "Keep this follow-up draft." },
@@ -515,8 +887,8 @@ describe("App()", () => {
         }}
       />,
     )
-    await screen.findByRole("button", { name: "Open improvements" }, { timeout: 5000 })
-    expect(screen.getAllByRole("button", { name: /^Open improvement:/ })).toHaveLength(3)
+    await screen.findByRole("button", { name: "Open Notes" }, { timeout: 5000 })
+    expect(screen.getAllByRole("button", { name: /^Open note:/ })).toHaveLength(3)
     expect(screen.queryByText(/visual experiment/i)).not.toBeInTheDocument()
     expect(fetch.mock.calls.some(([path]) => path.startsWith("/api/improvement-notes"))).toBe(false)
     view.unmount()
@@ -589,7 +961,6 @@ describe("App()", () => {
       const composer = within(dialog)
       expect(composer.queryByRole("img")).not.toBeInTheDocument()
       expect(composer.queryByRole("status")).not.toBeInTheDocument()
-      expect(composer.queryByText(anchor.accessibleName, { exact: true })).not.toBeInTheDocument()
       expect(composer.queryByText("/settings?tab=account#profile")).not.toBeInTheDocument()
       expect(dialog.querySelector("code")).toBeNull()
       expect(composer.queryByRole("button", { name: copy.cancel })).not.toBeInTheDocument()
@@ -629,7 +1000,7 @@ describe("App()", () => {
 
       fireEvent.click(
         screen.getByRole("button", {
-          name: "Open improvement: Clarify this action.",
+          name: "Open note: Clarify this action.",
         }),
       )
       expect(screen.getByTitle("Demo prototype")).toHaveAttribute(
@@ -642,7 +1013,7 @@ describe("App()", () => {
         type: "replica:canvas:resolved",
         results: [{ id: 1, x: 80, y: 50 }],
       })
-      expect(screen.getByRole("button", { name: "Open improvement 1" })).toBeVisible()
+      expect(screen.getByRole("button", { name: "Open note 1" })).toBeVisible()
       expect(screen.getAllByText("Clarify this action.")).toHaveLength(2)
       fireEvent.click(screen.getByRole("button", { name: threadCopy.back }))
       expect(
@@ -739,13 +1110,9 @@ describe("App()", () => {
     )
     try {
       await act(() => vi.advanceTimersByTimeAsync(0))
-      fireEvent.click(screen.getByRole("button", { name: "Improvement actions: 1" }))
-      expect(screen.queryByRole("menuitem", { name: copy.editAction })).not.toBeInTheDocument()
-      expect(screen.queryByRole("menuitem", { name: "Add follow-up" })).not.toBeInTheDocument()
-      fireEvent.keyDown(screen.getByRole("menuitem", { name: threadCopy.delete }), {
-        key: "Escape",
-      })
-      fireEvent.click(screen.getByRole("button", { name: "Open improvement: Original feedback." }))
+      expect(screen.queryByRole("button", { name: "Note actions: 1" })).not.toBeInTheDocument()
+      expect(screen.getByRole("button", { name: `${threadCopy.delete}: 1` })).toBeInTheDocument()
+      fireEvent.click(screen.getByRole("button", { name: "Open note: Original feedback." }))
       fireEvent.change(screen.getByRole("textbox", { name: threadCopy.comments.replyLabel }), {
         target: { value: "Older unsaved draft." },
       })
@@ -772,8 +1139,7 @@ describe("App()", () => {
       ])
       expect(fetch.mock.calls.at(-1)?.[1]?.body).toContain('"expectedNoteRevision":2')
       fireEvent.click(screen.getByRole("button", { name: threadCopy.back }))
-      fireEvent.click(screen.getByRole("button", { name: "Improvement actions: 1" }))
-      fireEvent.click(screen.getByRole("menuitem", { name: threadCopy.delete }))
+      fireEvent.click(screen.getByRole("button", { name: `${threadCopy.delete}: 1` }))
       serverNote.revision = 4
       saved.revision++
       await act(() => vi.advanceTimersByTimeAsync(3000))
@@ -821,7 +1187,7 @@ describe("App()", () => {
     )
     try {
       await act(() => vi.advanceTimersByTimeAsync(0))
-      fireEvent.click(screen.getByRole("button", { name: "Open improvement: Original feedback." }))
+      fireEvent.click(screen.getByRole("button", { name: "Open note: Original feedback." }))
       fireEvent.change(screen.getByRole("textbox", { name: threadCopy.comments.replyLabel }), {
         target: { value: "Unsaved request." },
       })
@@ -854,7 +1220,7 @@ describe("App()", () => {
       expect(note.body).toBe("Original feedback.")
       expect(note.status).toBe("open")
       expect(note.thread.messages.map((entry) => entry.body)).toEqual([answer, "Unsaved request."])
-      const conversation = screen.getByRole("dialog", { name: threadCopy.conversation })
+      const conversation = screen.getByRole("dialog", { name: "Save" })
       expect(
         conversation.querySelector(
           ".review-thread-message:nth-child(2) .review-thread-message__body",

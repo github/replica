@@ -759,7 +759,11 @@ export function PrototypeCanvasHubPanel({
       }
       if (incompatible) return
       if (data.type === "replica:canvas:conversation-dismiss-requested") {
-        window.dispatchEvent(new Event("replica:review-dismiss"))
+        window.dispatchEvent(
+          new CustomEvent("replica:review-dismiss", {
+            detail: { restoreFocus: data.restoreFocus !== false },
+          }),
+        )
         return
       }
       if (data.type === "replica:canvas:resolved") {

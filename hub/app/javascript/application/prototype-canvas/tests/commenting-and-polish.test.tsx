@@ -142,19 +142,21 @@ describe("App()", () => {
       />,
     )
     const comments = await screen.findByRole("button", { name: /^Comments, 1/ })
-    const improvements = await screen.findByRole("button", { name: notesCopy.openNotes(1) })
+    const improvements = await screen.findByRole("button", {
+      name: /^(Open|Close) Notes \(1\)$/,
+    })
     expect(screen.getByRole("button", { name: commentsCopy.commentMenuLabel })).toBeVisible()
     expect(screen.getByRole("button", { name: notesCopy.annotate })).toBeVisible()
     const bridge = previewBridge()
-    fireEvent.click(improvements)
+    if (improvements.getAttribute("aria-expanded") !== "true") fireEvent.click(improvements)
     bridge.ready()
     expect(await screen.findByRole("complementary", { name: notesCopy.notes })).toBeVisible()
-    expect(screen.getByRole("button", { name: `Open improvement: ${note.body}` })).toBeVisible()
+    expect(screen.getByRole("button", { name: `Open note: ${note.body}` })).toBeVisible()
     const noteNonce = bridge.resolveNonce("#note-target")
     bridge.resolve(noteNonce)
     expect(screen.getByRole("button", { name: threadsCopy.point(1) })).toBeVisible()
-    fireEvent.click(screen.getByRole("button", { name: `Open improvement: ${note.body}` }))
-    const conversation = screen.getByRole("dialog", { name: threadsCopy.conversation })
+    fireEvent.click(screen.getByRole("button", { name: `Open note: ${note.body}` }))
+    const conversation = screen.getByRole("dialog", { name: note.target })
     const reply = within(conversation).getByRole("textbox", {
       name: threadsCopy.comments.replyLabel,
     })
@@ -197,7 +199,7 @@ describe("App()", () => {
     fireEvent.click(improvements)
     bridge.ready()
     expect(await screen.findByRole("complementary", { name: notesCopy.notes })).toBeVisible()
-    expect(screen.getByRole("button", { name: `Open improvement: ${note.body}` })).toBeVisible()
+    expect(screen.getByRole("button", { name: `Open note: ${note.body}` })).toBeVisible()
     expect(
       screen.queryByRole("searchbox", { name: commentsCopy.searchLabel }),
     ).not.toBeInTheDocument()
@@ -233,7 +235,9 @@ describe("App()", () => {
         />,
       )
       const comments = await screen.findByRole("button", { name: /^Comments, 1/ })
-      const improvements = await screen.findByRole("button", { name: notesCopy.openNotes(1) })
+      const improvements = await screen.findByRole("button", {
+        name: /^(Open|Close) Notes \(1\)$/,
+      })
       const bridge = previewBridge()
       const noteNonce = bridge.resolveNonce("#note-target")
       if (mode === "area") {
@@ -334,7 +338,7 @@ describe("App()", () => {
       />,
     )
     const comments = await screen.findByRole("button", { name: /^Comments, 1/ })
-    await screen.findByRole("button", { name: notesCopy.openNotes(1) })
+    await screen.findByRole("button", { name: /^(Open|Close) Notes \(1\)$/ })
     const bridge = previewBridge()
     fireEvent.click(screen.getByRole("button", { name: notesCopy.annotate }))
     await waitFor(() => expect(completeCapture).toBeTypeOf("function"))
