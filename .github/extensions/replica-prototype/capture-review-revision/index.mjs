@@ -1,9 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises"
 import path from "node:path"
-
 import { runCommand } from "../run-command/index.mjs"
 import { gitShaPattern } from "../identity-patterns/index.mjs"
-
 export async function captureReviewRevision(context) {
   const gitDirectory = await runCommand(
     "git",
@@ -18,7 +16,9 @@ export async function captureReviewRevision(context) {
     const result = await runCommand("git", [...config, ...args], context.repositoryPath, { env })
     if (!result.ok && !(optional && result.exitCode === 1))
       throw new Error(`Could not capture the local review revision: ${result.error}`)
-    return result
+    if (typeof result.stdout !== "string")
+      throw new Error("Git did not return output while capturing the local review revision.")
+    return { ...result, stdout: result.stdout }
   }
   try {
     // Snapshotting must not execute repository-defined clean filters or filter processes.
@@ -52,7 +52,7 @@ export async function captureReviewRevision(context) {
         ])
       ).stdout.split("\0")
       for (let index = 2; index < attributes.length; index += 3) {
-        if (!["unspecified", "unset"].includes(attributes[index]))
+        if (!["unspecified", "unset"].includes(attributes[index] ?? ""))
           throw new Error("Local review revisions do not support Git clean filters.")
       }
     }

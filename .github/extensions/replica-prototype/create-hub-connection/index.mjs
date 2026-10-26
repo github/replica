@@ -4,19 +4,16 @@ import { normalizeSelectedHubOrigin } from "../normalize-selected-hub-origin/ind
 import { createHubOriginStore } from "../create-hub-origin-store/index.mjs"
 import { discoverHub } from "../discover-hub/index.mjs"
 import { readCanvasRepository } from "../read-canvas-repository/index.mjs"
-
 export function createHubConnection(getContext, options = {}) {
   let hubPromise
   let hubRepository
   const origins = createHubOriginStore(options)
   const selectedOrigins = new Map()
   const discoveries = new Map()
-
   function invalidate() {
     hubPromise = undefined
     hubRepository = undefined
   }
-
   async function refreshDiscovery(force = false) {
     const context = getContext()
     const { repository } = await readCanvasRepository(context)
@@ -25,7 +22,6 @@ export function createHubConnection(getContext, options = {}) {
     invalidate()
     return discovery
   }
-
   async function hubClient() {
     const context = getContext()
     const { repository, legacyRepository } = await readCanvasRepository(context)
@@ -46,7 +42,7 @@ export function createHubConnection(getContext, options = {}) {
       ).then(async (origin) => {
         let selected = origin || options.origin || process.env.REPLICA_HUB_ORIGIN
         const discovery = discoveries.get(repository)
-        if (!selected && discovery?.state === "valid") {
+        if (!selected && repository && discovery?.state === "valid") {
           selected = await origins.save(repository, discovery.origin, { ifAbsent: true })
         }
         const client = selected ? createHubClient(context, { ...options, origin: selected }) : null
@@ -64,7 +60,6 @@ export function createHubConnection(getContext, options = {}) {
       throw error
     }
   }
-
   async function selectHubOrigin(value) {
     const context = getContext()
     const { repository } = await readCanvasRepository(context)
@@ -84,6 +79,5 @@ export function createHubConnection(getContext, options = {}) {
     hubRepository = repository
     return { hubOrigin: origin }
   }
-
   return { hubClient, refreshDiscovery, selectHubOrigin, discoveries, invalidate }
 }

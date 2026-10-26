@@ -1,8 +1,7 @@
 import { runCommand } from "../run-command/index.mjs"
-
+import { readHubObject } from "../read-hub-object/index.mjs"
 export function createReviewerProfile(context) {
   const profiles = new Map()
-
   async function load(scope) {
     const author = { login: scope.viewerLogin, name: null, avatarUrl: null }
     function unavailable(message) {
@@ -14,10 +13,10 @@ export function createReviewerProfile(context) {
       context.repositoryPath,
     )
     if (!result.ok) return unavailable("GitHub CLI could not read the authenticated account.")
-
     let profile
     try {
-      profile = JSON.parse(result.stdout)
+      const parsed = JSON.parse(result.stdout)
+      profile = readHubObject(parsed)
     } catch {
       return unavailable("GitHub CLI returned invalid account details.")
     }
@@ -30,7 +29,6 @@ export function createReviewerProfile(context) {
       return unavailable("GitHub CLI returned invalid account details.")
     if (profile.login.toLowerCase() !== scope.viewerLogin.toLowerCase())
       return unavailable("GitHub CLI is signed in as a different reviewer.")
-
     const avatar = profile.avatar_url ? URL.parse(profile.avatar_url) : null
     if (
       profile.avatar_url &&
@@ -42,7 +40,6 @@ export function createReviewerProfile(context) {
         avatar.password)
     )
       return unavailable("GitHub returned an unsupported profile photo URL.")
-
     return {
       author: {
         ...author,
@@ -52,7 +49,6 @@ export function createReviewerProfile(context) {
       error: null,
     }
   }
-
   return {
     async read(scope) {
       const key = JSON.stringify([
@@ -61,8 +57,12 @@ export function createReviewerProfile(context) {
         scope.connectionId,
         scope.viewerLogin,
       ])
-      if (!profiles.has(key)) profiles.set(key, load(scope))
-      return profiles.get(key)
+      let profile = profiles.get(key)
+      if (!profile) {
+        profile = load(scope)
+        profiles.set(key, profile)
+      }
+      return profile
     },
   }
 }

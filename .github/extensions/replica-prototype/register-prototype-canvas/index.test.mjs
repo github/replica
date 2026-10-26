@@ -14,6 +14,7 @@ import { requestPublish } from "../request-publish/index.mjs"
 import { writeState } from "../write-state/index.mjs"
 import { createPrivateStore } from "../private-store/index.mjs"
 import { createHubOriginStore } from "../create-hub-origin-store/index.mjs"
+import { prototypeConnection } from "../prototype-connection/index.mjs"
 import { rankForRecall, renderRecall } from "../../../../packages/learning/src/recall.mjs"
 import {
   metadataUpdateAcknowledgement,
@@ -333,6 +334,45 @@ describe("registerPrototypeCanvas()", () => {
         cwd: context.repositoryPath,
       })
       const requests = []
+      const note = {
+        id: 3,
+        kind: "improvement_note",
+        localId: "11111111-1111-4111-8111-111111111111",
+        revision: 2,
+        status: "ready",
+        body: "Improve Save without starting a preview",
+        anchor: { schemaVersion: 1, kind: "element", selector: "#save" },
+        thread: {
+          originalStatus: "ready",
+          originalAuthor: { id: 42, login: "octocat", avatarUrl: null },
+          messages: [
+            {
+              id: "22222222-2222-4222-8222-222222222222",
+              role: "author",
+              body: "Keep the shortcut",
+              status: "ready",
+              author: { id: 42, login: "octocat", avatarUrl: null },
+            },
+            {
+              id: "33333333-3333-4333-8333-333333333333",
+              role: "copilot",
+              body: "Save and its shortcut are ready.",
+              status: "ready",
+              requestIds: [
+                "11111111-1111-4111-8111-111111111111",
+                "22222222-2222-4222-8222-222222222222",
+              ],
+            },
+          ],
+        },
+        author: { login: "octocat", name: null, avatarUrl: null },
+        createdAt: "2026-10-01T10:00:00Z",
+        updatedAt: "2026-10-01T10:00:00Z",
+        deletedAt: null,
+        buildNumber: 1,
+        viewerCanEdit: true,
+        viewerCanDelete: true,
+      }
       function handleHubRequest(request, response) {
         response.setHeader("X-Replica-Canvas-Version", "1")
         requests.push({ method: request.method, url: request.url })
@@ -357,9 +397,22 @@ describe("registerPrototypeCanvas()", () => {
             }),
           )
         } else {
+          const improvementNotes = new URL(request.url, "http://localhost").searchParams.get(
+            "improvement_notes",
+          )
           response.end(
             JSON.stringify({
               comments: [
+                ...(["include", "only"].includes(improvementNotes)
+                  ? [
+                      {
+                        ...note,
+                        ...(request.url.includes("/prototypes/")
+                          ? {}
+                          : { prototype: { id: 2, name: "Example", branch: "prototype" } }),
+                      },
+                    ]
+                  : []),
                 {
                   id: 3,
                   kind: "root",
@@ -389,7 +442,9 @@ describe("registerPrototypeCanvas()", () => {
                         },
                       }),
                 },
-              ],
+              ].filter(
+                (record) => improvementNotes !== "only" || record.kind === "improvement_note",
+              ),
               hasMore: false,
               nextCursor: null,
             }),
@@ -440,6 +495,41 @@ describe("registerPrototypeCanvas()", () => {
         assert.equal(first.threads[0].body, "Review without a local preview")
         const prototypeList = canvas.actions.find((action) => action.name === "list_comments")
         assert.equal((await prototypeList.handler(ctx)).threads[0].id, 3)
+        for (const [listing, reading] of [
+          [prototypeList, "get_comment_thread"],
+          [list, "get_repository_comment_thread"],
+        ]) {
+          for (const improvementNotes of ["include", "only"]) {
+            const before = requests.length
+            const page = await listing.handler({ ...ctx, input: { improvementNotes } })
+            assert.equal(page.threads.length, improvementNotes === "include" ? 2 : 1)
+            const improvement = page.threads.find((record) => record.kind === "improvement_note")
+            assert.equal(improvement.id, "improvement_note-3")
+            assert.deepEqual(improvement.thread, note.thread)
+            assert.equal(improvement.replyRequestId, undefined)
+            const reads = requests
+              .slice(before)
+              .filter(({ url }) => url.includes("/review_comments"))
+            assert.equal(reads.length, 2)
+            for (const { url } of reads)
+              assert.equal(
+                new URL(url, origin).searchParams.get("improvement_notes"),
+                improvementNotes,
+              )
+            const thread = await canvas.actions
+              .find((action) => action.name === reading)
+              .handler({
+                ...ctx,
+                input: {
+                  target: page.target,
+                  snapshotId: page.snapshotId,
+                  threadId: improvement.id,
+                },
+              })
+            assert.equal(thread.thread.id, improvement.id)
+            assert.deepEqual(thread.thread.thread, note.thread)
+          }
+        }
         await new Promise((resolve) => alternateHub.listen(0, "127.0.0.1", resolve))
         const alternateOrigin = `http://127.0.0.1:${alternateHub.address().port}`
         const alternateKey = createHash("sha256")
@@ -610,7 +700,7 @@ describe("registerPrototypeCanvas()", () => {
           /HTTP or HTTPS/,
         )
         assert.equal((await canvas.open(ctx)).status, "Ready to connect")
-        assert.equal(logs.length, 4)
+        assert.equal(logs.length, 3)
         assert.ok(
           logs.every(
             (message) =>
@@ -1964,6 +2054,48 @@ esac
     })
   })
 
+  for (const [label, saved] of [
+    ["a non-object connection", ["http://localhost:5173"]],
+    ["a non-string URL", { prototypeUrl: 5173 }],
+    [
+      "a non-boolean thread sample flag",
+      { prototypeUrl: "http://localhost:5173", improvementThreadsSample: "true" },
+    ],
+    ["a non-HTTP preview URL", { prototypeUrl: "file:///private" }],
+    [
+      "a non-HTTP published URL",
+      {
+        prototypeUrl: "http://localhost:5173",
+        publishedUrl: "javascript:void(0)",
+      },
+    ],
+  ]) {
+    it(`rejects ${label} from saved state before checking a server`, async () => {
+      await withContext(async (context) => {
+        await prototypeConnection(context.sessionWorkspacePath, context.repositoryPath).save(saved)
+        let checked = false
+        const canvas = await register(context, [], async () => {
+          checked = true
+          return { available: true }
+        })
+        const ctx = {
+          instanceId: "invalid-saved-connection",
+          sessionId: "test-session",
+          session: { workingDirectory: context.repositoryPath },
+        }
+        try {
+          await assert.rejects(canvas.open(ctx), {
+            code: "saved_connection_invalid",
+            message: /saved prototype connection.*valid prototypeUrl.*connect_prototype/,
+          })
+          assert.equal(checked, false)
+        } finally {
+          await canvas.onClose(ctx)
+        }
+      })
+    })
+  }
+
   it("connects a detected server without chat and restores it after provider restart", async () => {
     await withContext(async (context) => {
       const prompts = []
@@ -2034,6 +2166,9 @@ esac
         )
         assert.equal(prompts.length, 0)
 
+        await prototypeConnection(context.sessionWorkspacePath, context.repositoryPath).save({
+          prototypeUrl: "file:///invalid-saved-connection",
+        })
         explicit = await register(context, prompts)
         const overridden = await explicit.open({
           ...openContext,
@@ -2043,6 +2178,17 @@ esac
           await (await fetch(overridden.url)).text(),
           /http:\/\/localhost:4321\/different/,
         )
+        const connection = prototypeConnection(context.sessionWorkspacePath, context.repositoryPath)
+        assert.equal((await connection.read()).prototypeUrl, "file:///invalid-saved-connection")
+        await explicit.actions
+          .find((action) => action.name === "connect_prototype")
+          .handler({
+            ...openContext,
+            input: { prototypeUrl: "http://localhost:4321/different" },
+          })
+        assert.equal((await connection.read()).prototypeUrl, "http://localhost:4321/different")
+        await explicit.onClose(openContext)
+        assert.equal((await explicit.open(openContext)).status, "Prototype connected")
       } finally {
         await canvas.onClose(openContext)
         await restored?.onClose({ ...openContext, instanceId: "fresh-panel" })

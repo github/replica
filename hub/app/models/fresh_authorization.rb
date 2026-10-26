@@ -5,9 +5,11 @@
 #
 #  id                 :integer          not null, primary key
 #  consumed_at        :datetime
+#  continued_at       :datetime
 #  credential_type    :string           not null
 #  expires_at         :datetime         not null
 #  oauth_state_digest :string
+#  pending_action     :text
 #  purpose            :string           not null
 #  return_to          :string           not null
 #  verified_at        :datetime
@@ -34,6 +36,7 @@
 #
 # Check Constraints
 #
+#  fresh_authorizations_continuation  (continued_at IS NULL OR (verified_at IS NOT NULL AND pending_action IS NULL))
 #  fresh_authorizations_identity      (credential_type IN ('Session', 'CanvasGrant') AND credential_id > 0 AND github_id > 0)
 #  fresh_authorizations_purpose       (purpose IN ('never_expiring_share', 'analytics_destination', 'hub_admin_management', 'sharing_settings', 'session_revocation', 'github_app_reset', 'github_app_credentials', 'github_app_webhook', 'github_app_finish_webhook', 'copilot_connection', 'copilot_disconnection'))
 #  fresh_authorizations_verification  (verified_at IS NULL OR consumed_at IS NOT NULL)
@@ -56,6 +59,9 @@ class FreshAuthorization < ApplicationRecord
 
   belongs_to :user
   belongs_to :repository, optional: true
+  has_object :continuation
+  encrypts :pending_action
+  serialize :pending_action, coder: JSON
   attr_readonly :public_id, :user_id, :github_id, :credential_type, :credential_id,
     :purpose, :return_to, :expires_at, :repository_id
   validates :public_id, :github_id, :credential_id, :expires_at, presence: true
@@ -74,7 +80,7 @@ class FreshAuthorization < ApplicationRecord
   end
 
   # Requires an existing Session or active access grant before creating a challenge.
-  def self.start!(credential:, purpose:, return_to: "/")
+  def self.start!(credential:, purpose:, return_to: "/", pending_action: nil)
     transaction do
       live = live_credential(credential)
       raise Invalid, "The initiating credential is no longer active." if live.nil? || live.user.local?
@@ -86,7 +92,7 @@ class FreshAuthorization < ApplicationRecord
         public_id: SecureRandom.uuid, user: live.user, github_id: live.user.github_id,
         repository: live.is_a?(CanvasGrant) ? live.repository : nil,
         credential_type: live.class.name, credential_id: live.id, purpose:, return_to:,
-        expires_at: LIFETIME.from_now
+        expires_at: LIFETIME.from_now, pending_action: pending_action
       challenge.audit!("succeeded", action: "fresh_authorization.request")
       challenge
     end
@@ -163,9 +169,10 @@ class FreshAuthorization < ApplicationRecord
   # Ends a cancelled request without renewing any credential.
   def cancel!(browser_session:)
     with_lock do
-      raise Invalid, "This authorization request is no longer available." if !available_to?(browser_session)
+      raise Invalid, "This authorization request is no longer available." if
+        !available_to?(browser_session) && !continuation.available_to?(browser_session)
 
-      update!(consumed_at: Time.current)
+      update!(consumed_at: consumed_at || Time.current, pending_action: nil)
       audit!("denied")
     end
   end

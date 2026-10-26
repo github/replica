@@ -12,6 +12,7 @@ import { withContext } from "../test-support/with-context/index.mjs"
 import { readState } from "../read-state/index.mjs"
 import { writeState } from "../write-state/index.mjs"
 import { createPublishPreferences } from "../publish-preferences/index.mjs"
+import { agentCommands } from "../agent-commands/index.mjs"
 
 function publishData(prompt) {
   assert.match(prompt, /\/replica-publish-prototype\b/)
@@ -21,6 +22,61 @@ function publishData(prompt) {
 }
 
 describe("startCanvasServer()", () => {
+  it("rejects malformed HTTP action results without consuming the pending command", async () => {
+    await withContext(async (context) => {
+      const commands = agentCommands()
+      const canvas = await startCanvasServer(
+        context,
+        {
+          send() {
+            throw new Error("Action results must not send chat requests.")
+          },
+        },
+        { agentCommands: commands },
+      )
+      try {
+        const html = await (await fetch(canvas.url)).text()
+        const { token } = JSON.parse(html.match(/window\.__REPLICA_CANVAS__ = ([^;]+);/)[1])
+        const headers = { "X-Replica-Canvas-Token": token, "X-Replica-Renderer-Id": "renderer-1" }
+        const pending = commands.invoke("reload")
+        pending.catch(() => {})
+        const next = await (await fetch(new URL("/api/agent/next", canvas.url), { headers })).json()
+        const id = next.command.id
+        for (const body of ["null", "[]", "{broken"]) {
+          const response = await fetch(new URL("/api/agent/result", canvas.url), {
+            method: "POST",
+            headers,
+            body,
+          })
+          assert.equal(response.status, 400)
+        }
+        for (const value of [
+          { id, ok: true, value: { reloaded: true, address: 123 } },
+          { id, ok: false, error: "" },
+          { id, ok: false, error: "Failed", extra: true },
+        ]) {
+          const response = await fetch(new URL("/api/agent/result", canvas.url), {
+            method: "POST",
+            headers,
+            body: JSON.stringify(value),
+          })
+          assert.equal(response.status, 422)
+        }
+        assert.equal(commands.diagnostics().requests[0].outcome, "pending")
+        const value = { reloaded: true, address: context.normalizedUrl }
+        const accepted = await fetch(new URL("/api/agent/result", canvas.url), {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ id, ok: true, value }),
+        })
+        assert.equal(accepted.status, 200)
+        assert.deepEqual(await pending, value)
+      } finally {
+        await canvas.close()
+      }
+    })
+  })
+
   it("protects saved notes with the canvas token and restores them after reopening", async () => {
     await withContext(async (context) => {
       const options = {

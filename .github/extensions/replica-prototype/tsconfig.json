@@ -11,8 +11,13 @@
     "noEmit": true,
     "noEmitOnError": true,
     "skipLibCheck": true,
+    "paths": {
+      "@github/copilot-sdk/extension": [
+        "../../../hub/node_modules/@github/copilot-sdk/dist/extension.d.ts"
+      ]
+    },
     "typeRoots": ["../../../hub/node_modules/@types"],
     "types": ["node"]
   },
-  "include": ["**/*.mts"]
+  "include": ["**/*.mts", "**/*.d.ts"]
 }

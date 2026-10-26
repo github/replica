@@ -1,7 +1,9 @@
 import { runCommand } from "../run-command/index.mjs"
 import { readCanvasRepository } from "../read-canvas-repository/index.mjs"
 import { githubLoginPattern } from "../identity-patterns/index.mjs"
-
+function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
 export async function readCanvasAuthorProfile(context, login, command = runCommand) {
   const repository = await readCanvasRepository(context)
   if (!repository.githubRepository || typeof login !== "string" || !githubLoginPattern.test(login))
@@ -28,7 +30,14 @@ export async function readCanvasAuthorProfile(context, login, command = runComma
       error: "GitHub returned an invalid author profile.",
     }
   }
-  const avatar = URL.canParse(profile?.avatar_url) ? new URL(profile.avatar_url) : null
+  if (!isRecord(profile))
+    return {
+      avatarUrl: null,
+      error: "GitHub did not confirm the connected author's avatar.",
+    }
+  const avatarValue = profile.avatar_url
+  const avatar =
+    typeof avatarValue === "string" && URL.canParse(avatarValue) ? new URL(avatarValue) : null
   if (
     typeof profile?.login !== "string" ||
     profile.login.toLowerCase() !== login.toLowerCase() ||

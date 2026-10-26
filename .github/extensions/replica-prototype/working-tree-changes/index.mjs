@@ -1,10 +1,9 @@
 import { spawn } from "node:child_process"
-
+import { readErrorCode } from "../read-error-code/index.mjs"
 // Agent skill directories hold local tooling, not prototype source, so they never make a
 // prototype checkout "changed". Every other path counts because it cannot be classified safely.
 export const LOCAL_SKILL_DIRECTORIES = [".github/skills/", ".agents/skills/", ".claude/skills/"]
 export const MAX_LISTED_CHANGES = 20
-
 export async function readWorkingTreeChanges(repositoryPath, { timeoutMs = 10_000 } = {}) {
   return new Promise((resolve) => {
     const changes = createChangeCollector()
@@ -29,7 +28,7 @@ export async function readWorkingTreeChanges(repositoryPath, { timeoutMs = 10_00
       clearTimeout(timer)
       resolve({
         state: "unavailable",
-        error: error.code === "ENOENT" ? "git is not installed." : error.message,
+        error: readErrorCode(error) === "ENOENT" ? "git is not installed." : error.message,
       })
     })
     child.on("close", (code, signal) => {
@@ -51,25 +50,21 @@ export async function readWorkingTreeChanges(repositoryPath, { timeoutMs = 10_00
     })
   })
 }
-
 export function classifyWorkingTreeChanges(porcelain) {
   const changes = createChangeCollector()
   changes.add(porcelain)
   return changes.finish()
 }
-
 function createChangeCollector() {
   const files = { paths: [], total: 0 }
   const localSkills = { paths: [], total: 0 }
   let pending = ""
   let renamedPath = null
-
   function record(paths) {
     const list = paths.every(isLocalSkillPath) ? localSkills : files
     list.total++
     if (list.paths.length < MAX_LISTED_CHANGES) list.paths.push(paths[0])
   }
-
   function consume(entry) {
     if (renamedPath !== null) {
       record([renamedPath, entry])
@@ -81,7 +76,6 @@ function createChangeCollector() {
     if (/[RC]/.test(entry.slice(0, 2))) renamedPath = path
     else record([path])
   }
-
   return {
     add(chunk) {
       pending += chunk
@@ -100,7 +94,6 @@ function createChangeCollector() {
     },
   }
 }
-
 function isLocalSkillPath(path) {
   return LOCAL_SKILL_DIRECTORIES.some((directory) => path.startsWith(directory))
 }

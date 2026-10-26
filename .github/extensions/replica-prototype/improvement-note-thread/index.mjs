@@ -1,7 +1,15 @@
 import { githubLoginPattern, uuidPattern } from "../identity-patterns/index.mjs"
-
 export const workStatuses = new Set(["open", "sent", "ready", "blocked"])
-
+const requestStatuses = ["open", "sent", "blocked"]
+function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+function isUnknownArray(value) {
+  return Array.isArray(value)
+}
+function isWorkStatus(value) {
+  return typeof value === "string" && workStatuses.has(value)
+}
 export function validMessageBody(body, role) {
   return (
     typeof body === "string" &&
@@ -9,48 +17,49 @@ export function validMessageBody(body, role) {
     (role === "copilot" ? body.length <= 2000 : Buffer.byteLength(body) <= 10_000)
   )
 }
-
-export function checkThread(thread, localId) {
-  function invalid() {
-    throw Object.assign(new Error("Invalid improvement conversation."), {
-      statusCode: 422,
-    })
-  }
+function invalid() {
+  throw Object.assign(new Error("Invalid improvement conversation."), {
+    statusCode: 422,
+  })
+}
+function checkAuthor(author) {
+  if (!isRecord(author)) invalid()
+  const avatarUrl = author.avatarUrl
   if (
-    !thread ||
-    !workStatuses.has(thread.originalStatus) ||
-    !Array.isArray(thread.messages) ||
+    typeof author.id !== "number" ||
+    !Number.isSafeInteger(author.id) ||
+    author.id < 1 ||
+    typeof author.login !== "string" ||
+    !githubLoginPattern.test(author.login) ||
+    Object.keys(author).sort().join(",") !== "avatarUrl,id,login" ||
+    (avatarUrl !== null &&
+      (typeof avatarUrl !== "string" ||
+        avatarUrl.length > 2048 ||
+        !URL.canParse(avatarUrl) ||
+        new URL(avatarUrl).protocol !== "https:" ||
+        new URL(avatarUrl).hostname !== "avatars.githubusercontent.com" ||
+        new URL(avatarUrl).username ||
+        new URL(avatarUrl).password ||
+        new URL(avatarUrl).port))
+  )
+    invalid()
+}
+function checkedThread(thread, localId) {
+  if (
+    !isRecord(thread) ||
+    !isWorkStatus(thread.originalStatus) ||
+    !isUnknownArray(thread.messages) ||
     Object.keys(thread).some(
       (key) => !["originalStatus", "messages", "originalAuthor"].includes(key),
     )
   )
     invalid()
-  function checkAuthor(author) {
-    if (
-      !author ||
-      !Number.isSafeInteger(author.id) ||
-      author.id < 1 ||
-      typeof author.login !== "string" ||
-      !githubLoginPattern.test(author.login) ||
-      Object.keys(author).sort().join(",") !== "avatarUrl,id,login" ||
-      (author.avatarUrl !== null &&
-        (typeof author.avatarUrl !== "string" ||
-          author.avatarUrl.length > 2048 ||
-          !URL.canParse(author.avatarUrl) ||
-          new URL(author.avatarUrl).protocol !== "https:" ||
-          new URL(author.avatarUrl).hostname !== "avatars.githubusercontent.com" ||
-          new URL(author.avatarUrl).username ||
-          new URL(author.avatarUrl).password ||
-          new URL(author.avatarUrl).port))
-    )
-      invalid()
-  }
   if (thread.originalAuthor !== undefined) checkAuthor(thread.originalAuthor)
   const ids = new Set([localId])
   const requests = new Set([localId])
   for (const message of thread.messages) {
     if (
-      !message ||
+      !isRecord(message) ||
       typeof message.id !== "string" ||
       !uuidPattern.test(message.id) ||
       ids.has(message.id) ||
@@ -60,7 +69,7 @@ export function checkThread(thread, localId) {
     ids.add(message.id)
     if (message.role === "author") {
       if (
-        !workStatuses.has(message.status) ||
+        !isWorkStatus(message.status) ||
         Object.keys(message).some(
           (key) => !["id", "role", "body", "status", "author"].includes(key),
         )
@@ -70,11 +79,11 @@ export function checkThread(thread, localId) {
       if (message.author !== undefined) checkAuthor(message.author)
     } else if (message.role === "copilot") {
       if (
-        !["ready", "blocked"].includes(message.status) ||
-        !Array.isArray(message.requestIds) ||
+        (message.status !== "ready" && message.status !== "blocked") ||
+        !isUnknownArray(message.requestIds) ||
         !message.requestIds.length ||
         new Set(message.requestIds).size !== message.requestIds.length ||
-        message.requestIds.some((id) => !requests.has(id)) ||
+        message.requestIds.some((id) => typeof id !== "string" || !requests.has(id)) ||
         Object.keys(message).some(
           (key) => !["id", "role", "body", "status", "requestIds"].includes(key),
         )
@@ -82,9 +91,12 @@ export function checkThread(thread, localId) {
         invalid()
     } else invalid()
   }
+  return true
+}
+export function checkThread(thread, localId) {
+  if (!checkedThread(thread, localId)) invalid()
   return thread
 }
-
 export function requestIds(note, status) {
   return [
     ...(note.thread.originalStatus === status ? [note.localId] : []),
@@ -93,12 +105,10 @@ export function requestIds(note, status) {
       .map((message) => message.id),
   ]
 }
-
 export function updateRequests(note, ids, status) {
   if (ids.includes(note.localId)) note.thread.originalStatus = status
   for (const message of note.thread.messages) {
     if (message.role === "author" && ids.includes(message.id)) message.status = status
   }
-  note.status =
-    ["open", "sent", "blocked"].find((value) => requestIds(note, value).length) ?? "ready"
+  note.status = requestStatuses.find((value) => requestIds(note, value).length) ?? "ready"
 }

@@ -1,0 +1,12 @@
+.canvas-review-feedback {
+  position: fixed;
+  z-index: 60;
+  top: calc(var(--canvas-preview-top, 5.25rem) + 0.75rem);
+  left: 50%;
+  width: min(32rem, calc(100% - 2rem));
+  transform: translateX(-50%);
+}
+
+.canvas-dialog .canvas-review-feedback {
+  top: 0.75rem;
+}

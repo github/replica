@@ -4,32 +4,28 @@ import {
   continuesPublishTarget,
   samePublishTarget,
 } from "../publish-target/index.mjs"
-import { readState } from "../read-state/index.mjs"
+import { readPublicationState } from "../read-publication-state/index.mjs"
 import { writeState } from "../write-state/index.mjs"
-
 export const PUBLISH_RESULT_OUTCOMES = ["blocked", "canceled", "failed"]
 export const MAX_PUBLISH_RESULT_REASON_LENGTH = 300
-
 const outcomeMessages = {
   blocked: "Copilot stopped before pushing because publishing was blocked.",
   canceled: "Publishing was canceled before anything was pushed.",
   failed: "Copilot could not publish this checkout.",
 }
-
 /**
  * Ends the pending publish request when the agent stops without pushing. Only the
  * request that the same canvas dispatched for the same target can be ended, and
  * observed push evidence always wins over the report.
  */
 export async function reportPublishResult(context, { instanceId, outcome, reason, target, mode }) {
-  if (!PUBLISH_RESULT_OUTCOMES.includes(outcome))
+  if (outcome !== "blocked" && outcome !== "canceled" && outcome !== "failed")
     throw new Error("Report a blocked, canceled, or failed publish outcome.")
   const safeReason = normalizeReason(reason)
   const message = safeReason
     ? `${outcomeMessages[outcome]} ${safeReason}`
     : outcomeMessages[outcome]
-
-  const request = (await readState(context)).publishRequest
+  const request = (await readPublicationState(context)).publishRequest
   const currentTarget = await capturePublishTarget(context)
   if (
     !matches(request) ||
@@ -42,14 +38,12 @@ export async function reportPublishResult(context, { instanceId, outcome, reason
     return acknowledge(context, false)
   if (request.state !== "requested")
     throw conflict("No matching publish request is waiting for Copilot. Refresh the canvas status.")
-
   const refreshed = await getPrototypeState(context, { refresh: true })
   if (refreshed.publishRequest.state === "idle")
     throw conflict(
       "A push was already observed for this request. Keep following publication with refresh_status.",
     )
-
-  const state = await readState(context)
+  const state = await readPublicationState(context)
   if (
     state.publishRequest.requestedAt !== request.requestedAt ||
     state.publishRequest.state !== "requested" ||
@@ -67,7 +61,6 @@ export async function reportPublishResult(context, { instanceId, outcome, reason
   state.updatedAt = reportedAt
   await writeState(context, state)
   return acknowledge(context, true)
-
   function matches(candidate) {
     return (
       typeof instanceId === "string" &&
@@ -80,9 +73,8 @@ export async function reportPublishResult(context, { instanceId, outcome, reason
     )
   }
 }
-
 async function acknowledge(context, reported) {
-  const { publishRequest } = await readState(context)
+  const { publishRequest } = await readPublicationState(context)
   return {
     reported,
     publishRequest: {
@@ -91,7 +83,6 @@ async function acknowledge(context, reported) {
     },
   }
 }
-
 function normalizeReason(value) {
   if (value == null) return ""
   if (typeof value !== "string") throw new Error("The publish result reason must be text.")
@@ -102,7 +93,6 @@ function normalizeReason(value) {
     )
   return reason
 }
-
 function conflict(message) {
   return Object.assign(new Error(message), { statusCode: 409 })
 }
