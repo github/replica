@@ -8,6 +8,7 @@ import { REACTION_CONTENT_SCHEMA } from "@utils/review-comment/schemas"
 import { reviewReactionEmoji } from "@utils/review-reaction-emoji"
 import { HubCounter } from "@components/hub-counter"
 import { HubVisuallyHidden } from "@components/hub-visually-hidden"
+import { useReviewError } from "@hooks/use-review-error"
 
 import type { ReviewCommentReactionsProps } from "./types"
 
@@ -141,6 +142,8 @@ export function ReviewCommentReactions({
     </ActionMenu>
   )
 
+  const showError = useReviewError(failed && copy.reactionErrorLabel)
+
   if (controlsHidden && !failed) return null
 
   return (
@@ -213,7 +216,7 @@ export function ReviewCommentReactions({
         </div>
       )}
 
-      {failed ? (
+      {showError ? (
         <span role="alert" className="review-comment-reactions__error">
           {copy.reactionErrorLabel}
         </span>

@@ -9,6 +9,7 @@ import { MentionInput } from "@components/mention-input"
 import { HubIconButton } from "@components/hub-icon-button"
 import { HubVisuallyHidden } from "@components/hub-visually-hidden"
 import { useReviewCardPosition } from "@hooks/use-review-card-position"
+import { useReviewError } from "@hooks/use-review-error"
 import { isMacPlatform } from "@utils/is-mac-platform"
 import { isSubmitShortcut } from "@utils/is-submit-shortcut"
 
@@ -39,6 +40,10 @@ export function ReviewCommentComposer({
   })
   const bodyBytes = TEXT_ENCODER.encode(draft).length
   const bodyTooLong = bodyBytes > bodyMaximumBytes
+  const showLengthError = useReviewError(bodyTooLong && copy.bodyTooLongLabel)
+  const showCreateError = useReviewError(
+    createFailed && [copy.createErrorLabel, submitError].filter(Boolean).join(" "),
+  )
   const canSubmit = draft.trim() !== "" && !bodyTooLong && !creating && !confirmingDiscard
   const submitTooltip = isMacPlatform() ? copy.submitTooltipMacLabel : copy.submitTooltipOtherLabel
 
@@ -139,13 +144,13 @@ export function ReviewCommentComposer({
             }}
           />
 
-          {bodyTooLong ? (
+          {showLengthError ? (
             <span role="alert" className="review-comment-composer__error">
               {copy.bodyTooLongLabel}
             </span>
           ) : null}
 
-          {createFailed ? (
+          {showCreateError ? (
             <HubAlert
               variant="critical"
               title={copy.createErrorLabel}

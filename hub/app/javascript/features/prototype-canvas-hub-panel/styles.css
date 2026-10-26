@@ -346,21 +346,6 @@ a.canvas-hub-publication__branch:hover {
   margin-inline: -1rem;
 }
 
-.canvas-comments-live-notices {
-  padding-top: 0.75rem;
-}
-
-.canvas-comments-live-status {
-  margin: 0;
-  padding: 0;
-  color: var(--hub-fg-muted);
-  font-size: var(--brand-text-size-100);
-}
-
-.canvas-comments-live-status + .canvas-comments-live-status {
-  margin-top: 0.5rem;
-}
-
 .canvas-conversation-shell {
   position: absolute;
   z-index: 40;

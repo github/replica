@@ -3,6 +3,7 @@ import type { ComponentProps, Ref } from "react"
 import { createPortal } from "react-dom"
 
 import { useMentionSource } from "@hooks/use-mention-source"
+import { useReviewError } from "@hooks/use-review-error"
 import type { MentionCandidate } from "@hooks/use-mention-source/context"
 import type { MentionSource } from "@hooks/use-mention-source/context"
 import { getMentionLogins } from "@utils/get-mention-logins"
@@ -41,6 +42,8 @@ export function MentionInput({ value, onValueChange, onKeyDown, ref, ...props }:
     .filter((candidate) => candidate.login.toLowerCase().includes(query ?? ""))
     .slice(0, 8)
   const activeIndex = Math.min(selected, Math.max(0, suggestions.length - 1))
+  const showLimitError = useReviewError(tooMany && source?.copy.limit)
+  const showLoadError = useReviewError(open && failed && !waiting && source?.copy.error)
 
   useEffect(() => {
     input.current?.setCustomValidity(tooMany ? (source?.copy.limit ?? "") : "")
@@ -137,6 +140,10 @@ export function MentionInput({ value, onValueChange, onKeyDown, ref, ...props }:
           onValueChange(event.currentTarget.value)
         }}
         onSelect={(event) => setCaret(event.currentTarget.selectionStart)}
+        onInvalid={(event) => {
+          if (tooMany && !showLimitError) event.preventDefault()
+          props.onInvalid?.(event)
+        }}
         onBlur={(event) => {
           if (!popup.current?.contains(event.relatedTarget)) setDismissed(true)
         }}
@@ -177,7 +184,7 @@ export function MentionInput({ value, onValueChange, onKeyDown, ref, ...props }:
           onKeyDown?.(event)
         }}
       />
-      {tooMany && source?.copy.limit ? <span role="alert">{source.copy.limit}</span> : null}
+      {showLimitError ? <span role="alert">{source?.copy.limit}</span> : null}
       {open && source
         ? createPortal(
             <div
@@ -207,8 +214,8 @@ export function MentionInput({ value, onValueChange, onKeyDown, ref, ...props }:
               {waiting ? (
                 <span role="status">{source.copy.loading}</span>
               ) : failed ? (
-                <div role="alert">
-                  {source.copy.error}{" "}
+                <div role={showLoadError ? "alert" : undefined}>
+                  {showLoadError ? `${source.copy.error} ` : null}
                   <button
                     ref={retryButton}
                     type="button"

@@ -14,10 +14,12 @@ import { createPortal } from "react-dom"
 import { HubCounter } from "@components/hub-counter"
 import { CanvasDialog } from "@components/prototype-canvas-dialog"
 import { ImprovementThreads } from "@features/prototype-canvas-improvement-threads"
+import { useReviewError } from "@hooks/use-review-error"
 import { isAnnotationShortcut } from "@utils/is-annotation-shortcut"
 import { isMacPlatform } from "@utils/is-mac-platform"
 import { isSubmitShortcut } from "@utils/is-submit-shortcut"
 import type { ReviewAnchor } from "@utils/review-anchor/types"
+import { canvasReviewError } from "@utils/canvas-review-error"
 import { copy } from "./en"
 import { improvementThreadView } from "./thread-view"
 import { usePreviewSelection } from "./use-preview-selection"
@@ -33,6 +35,9 @@ type Props = {
     prototypeUrl: string
     previewUrl?: string
     hubOpen: boolean
+    active?: boolean
+    selectionDisabled?: boolean
+    onInteractionChange?: (blocked: boolean) => void
     onOpenNotes: () => void
     onNavigate: (url: string) => void
   }
@@ -52,6 +57,7 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
   const [discarding, setDiscarding] = useState(false)
   const [panelOpen, setPanelOpen] = useState(true)
   const [message, setMessage] = useState("")
+  const [threadInteraction, setThreadInteraction] = useState(false)
   const captureGeneration = useRef(0)
   const capturePending = useRef(false)
   const annotateRef = useRef<HTMLButtonElement>(null)
@@ -59,15 +65,21 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
   const notesToggleRef = useRef<HTMLButtonElement>(null)
   const closeNotesRef = useRef<(() => void) | null>(null)
   const selectionChanged = selection !== null && selection.identity !== saved.state?.identity
+  const error = canvasReviewError(saved.error)
+  const syncError = canvasReviewError(saved.state?.syncError ?? "")
+  const showError = useReviewError(selection !== null && error)
+  const showBranchWarning = useReviewError(selectionChanged && copy.branchChanged)
   const composerOpen = selection !== null && !capturingSource && !discarding && saved.state !== null
   const notesCount = notes.filter((note) => note.status !== "resolved").length
-  const notesOpen = panelOpen && !canvas.hubOpen
+  const active = canvas.active !== false
+  const notesOpen = panelOpen && active && !canvas.hubOpen
   const canSave = Boolean(draft.trim()) && !saved.busy && !selectionChanged
-  const syncError =
-    saved.state?.syncError === "Notes are saved locally until Hub discovers this branch."
-      ? null
-      : saved.state?.syncError
   const saveShortcutModifier = isMacPlatform() ? copy.saveShortcutMac : copy.saveShortcutOther
+  const onInteractionChange = canvas.onInteractionChange
+
+  useLayoutEffect(() => {
+    onInteractionChange?.(capturingSource || annotating || selection !== null || threadInteraction)
+  }, [onInteractionChange, capturingSource, annotating, selection, threadInteraction])
 
   const receiveSelection = useCallback(
     (anchor: ReviewAnchor) => {
@@ -94,6 +106,8 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
     prototypeUrl: canvas.prototypeUrl,
     previewUrl: canvas.previewUrl,
     notes,
+    active,
+    selectionShortcut: !canvas.selectionDisabled,
     annotating,
     composing: selection !== null,
     pendingSelection: selection !== null && capturingSource,
@@ -131,6 +145,7 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
   }, [composerOpen])
 
   function openNotes() {
+    if (canvas.selectionDisabled) return
     setPanelOpen(true)
     canvas.onOpenNotes()
   }
@@ -144,6 +159,7 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
     if (
       !preview.ready ||
       !saved.state ||
+      canvas.selectionDisabled ||
       (selection && !capturingSource) ||
       discarding ||
       canvas.hubOpen ||
@@ -156,6 +172,8 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
   }
 
   async function beginSelection() {
+    if (canvas.selectionDisabled) return
+    canvas.onOpenNotes()
     const generation = ++captureGeneration.current
     capturePending.current = true
     setCapturingSource(true)
@@ -219,7 +237,7 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
               aria-keyshortcuts="S"
               leadingVisual={<CrosshairsIcon />}
               aria-pressed={annotating}
-              disabled={!preview.ready || !saved.state}
+              disabled={canvas.selectionDisabled || !preview.ready || !saved.state}
               onClick={() => {
                 if (annotating) cancelPreviewSelection()
                 else void beginSelection()
@@ -233,6 +251,7 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
               variant="secondary"
               aria-label={notesOpen ? copy.closeNotes(notesCount) : copy.openNotes(notesCount)}
               aria-expanded={notesOpen}
+              disabled={canvas.selectionDisabled}
               onClick={toggleNotes}
             >
               <HubCounter>{notesCount}</HubCounter>
@@ -245,8 +264,9 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
         controls={false}
         returnFocusRef={notesToggleRef}
         closeRequestRef={closeNotesRef}
-        open={panelOpen && !canvas.hubOpen && !selection}
-        active={(panelOpen || annotating) && !canvas.hubOpen && !selection}
+        open={notesOpen && !selection}
+        active={active && (panelOpen || annotating) && !canvas.hubOpen && !selection}
+        onInteractionChange={setThreadInteraction}
         onOpen={openNotes}
         onClose={() => {
           setPanelOpen(false)
@@ -256,10 +276,10 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
         busy={saved.busy || !saved.state}
         activeBatch={Boolean(saved.state?.activeBatch)}
         error={
-          saved.error ||
+          error ||
           syncError ||
           saved.state?.profileError ||
-          (!saved.state ? copy.storageLoading : !preview.ready ? copy.bridgeUnavailable : "")
+          (saved.state && !preview.ready ? copy.bridgeUnavailable : "")
         }
         onSelect={(id) => {
           const note = notes.find((item) => item.id === id)
@@ -296,7 +316,7 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
         }
       />
       <p className="visually-hidden" role="status">
-        {message}
+        {saved.state ? message : copy.storageLoading}
       </p>
       {composerOpen ? (
         <CanvasDialog
@@ -306,12 +326,12 @@ export function ImprovementNotesPrototype({ canvas }: Props) {
           onClose={closeComposer}
           className="improvement-demo__composer"
         >
-          {saved.error ? (
+          {showError ? (
             <p role="alert" className="improvement-demo__notice">
-              {saved.error}
+              {error}
             </p>
           ) : null}
-          {selectionChanged ? (
+          {showBranchWarning ? (
             <p role="alert" className="improvement-demo__notice">
               {copy.branchChanged}
             </p>

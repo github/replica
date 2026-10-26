@@ -233,13 +233,15 @@ describe("App()", () => {
     if (!(frame instanceof HTMLIFrameElement)) throw new Error("Expected the prototype iframe.")
     const post = vi.spyOn(frame.contentWindow!, "postMessage")
     fireEvent.load(frame)
-    expect(post).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: "replica:canvas:request-ready",
-        nonce,
-        selectionShortcut: true,
-      }),
-      new URL(frame.src).origin,
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "replica:canvas:request-ready",
+          nonce,
+          selectionShortcut: true,
+        }),
+        new URL(frame.src).origin,
+      ),
     )
     receive(frame, {
       type: "replica:canvas:ready",
@@ -605,7 +607,7 @@ describe("App()", () => {
     view.unmount()
   })
 
-  it("keeps a failed save visible in the composer with the draft intact", async () => {
+  it("reports a failed save outside the composer and keeps the unsaved draft", async () => {
     vi.spyOn(crypto, "randomUUID").mockReturnValue(nonce)
     const { fetch, saved } = savedNotesFixture()
     const original = fetch.getMockImplementation()!
@@ -637,18 +639,30 @@ describe("App()", () => {
     fireEvent.click(annotate)
     await waitFor(() => expect(annotate).toHaveAttribute("aria-pressed", "true"))
     receive(frame, { type: "replica:canvas:selected", anchor })
-    const composer = within(screen.getByRole("dialog", { name: copy.add }))
+    const dialog = screen.getByRole("dialog", { name: copy.add })
+    const composer = within(dialog)
     fireEvent.change(composer.getByRole("textbox", { name: copy.label }), {
       target: { value: "Keep the save action visible." },
     })
     fireEvent.click(composer.getByRole("button", { name: copy.save }))
-    const alert = await composer.findByRole("alert")
+    const notifications = await screen.findByRole("region", { name: "Comment notifications" })
+    const alert = within(notifications).getByRole("alert")
     expect(alert).toBeVisible()
     expect(alert).toHaveTextContent("Notes could not be saved.")
+    const form = composer.getByRole("textbox", { name: copy.label }).closest("form")
+    if (!form) throw new Error("Expected the improvement composer form.")
+    expect(form).not.toContainElement(notifications)
+    expect(within(form).queryByRole("alert")).not.toBeInTheDocument()
+    expect(within(form).queryByText("Notes could not be saved.")).not.toBeInTheDocument()
     expect(composer.getByRole("textbox", { name: copy.label })).toHaveValue(
       "Keep the save action visible.",
     )
     expect(saved.notes).toHaveLength(0)
+    fireEvent.click(within(notifications).getByRole("button", { name: "Dismiss notification" }))
+    expect(screen.queryByText("Notes could not be saved.")).not.toBeInTheDocument()
+    expect(composer.getByRole("textbox", { name: copy.label })).toHaveValue(
+      "Keep the save action visible.",
+    )
   })
 
   it("keeps saved pins and their protected conversation available in selection mode without a sidebar", async () => {
@@ -738,35 +752,127 @@ describe("App()", () => {
     view.unmount()
   })
 
-  it.each([
-    ["Notes are saved locally until Hub discovers this branch.", false],
-    ["Hub sync failed: Connection refused. Your notes remain saved locally.", true],
-  ])("only hides the informational branch-discovery notice: %s", async (syncError, visible) => {
-    vi.spyOn(crypto, "randomUUID").mockReturnValue(nonce)
-    const { saved } = savedNotesFixture()
-    saved.syncError = syncError
-    const view = render(
+  it("reports a note-loading failure outside the comments sidebar", async () => {
+    const { fetch } = savedNotesFixture()
+    const original = fetch.getMockImplementation()!
+    fetch.mockImplementation((path, options) =>
+      path === "/api/improvement-notes" && !options?.method
+        ? Promise.resolve(Response.json({ error: "Note storage is unavailable." }, { status: 503 }))
+        : original(path, options),
+    )
+    render(
       <App config={{ name: "Demo", prototypeUrl: origin, token: "local", pickAndPolish: true }} />,
     )
-    await waitFor(() => expect(saved.revision).toBeGreaterThan(0))
-    const frame = screen.getByTitle("Demo prototype")
-    if (!(frame instanceof HTMLIFrameElement)) throw new Error("Expected the prototype iframe.")
-    receive(frame, {
-      type: "replica:canvas:ready",
-      protocolVersion: 1,
-      improvementSelection: true,
-      route: { pathname: "/", search: "", hash: "" },
-    })
-    await waitFor(() => expect(screen.getByRole("button", { name: copy.annotate })).toBeEnabled())
-    if (visible) {
-      const alert = await screen.findByText(syncError)
-      expect(alert).toHaveAttribute("role", "alert")
-    } else {
-      expect(screen.queryByText(syncError)).not.toBeInTheDocument()
-    }
-    expect(saved.syncError).toBe(syncError)
-    view.unmount()
+    const notifications = await screen.findByRole("region", { name: "Comment notifications" })
+    expect(within(notifications).getByRole("alert")).toHaveTextContent(
+      "Note storage is unavailable.",
+    )
+    const sidebar = screen.getByRole("complementary", { name: copy.notes })
+    expect(sidebar).not.toContainElement(notifications)
+    expect(within(sidebar).queryByRole("alert")).not.toBeInTheDocument()
+    expect(within(sidebar).queryByText("Note storage is unavailable.")).not.toBeInTheDocument()
   })
+
+  it("reports a failed follow-up externally without discarding the draft or changing the thread", async () => {
+    const { fetch, saved } = savedNotesFixture()
+    saved.notes.push({
+      id: 1,
+      localId: "original",
+      kind: "improvement_note",
+      author: "local",
+      body: "Original feedback.",
+      route: "/settings",
+      target: "Save",
+      selector: "#save",
+      rect: anchor.rect,
+      thread: { originalStatus: "open", messages: [] },
+      anchor: REVIEW_ANCHOR_SCHEMA.parse(anchor),
+      status: "open",
+      sync: "local",
+      revision: 1,
+    })
+    const original = fetch.getMockImplementation()!
+    fetch.mockImplementation((path, options) =>
+      path === "/api/improvement-notes" && options?.method === "POST"
+        ? Promise.resolve(
+            Response.json({ error: "Follow-up could not be saved." }, { status: 503 }),
+          )
+        : original(path, options),
+    )
+    render(
+      <App config={{ name: "Demo", prototypeUrl: origin, token: "local", pickAndPolish: true }} />,
+    )
+    fireEvent.click(await screen.findByRole("button", { name: "Open note: Original feedback." }))
+    const dialog = screen.getByRole("dialog", { name: "Save" })
+    const conversation = within(dialog)
+    fireEvent.change(conversation.getByRole("textbox", { name: threadCopy.comments.replyLabel }), {
+      target: { value: "Keep this follow-up draft." },
+    })
+    fireEvent.click(
+      conversation.getByRole("button", { name: threadCopy.comments.replySubmitLabel }),
+    )
+    const notifications = await screen.findByRole("region", { name: "Comment notifications" })
+    expect(within(notifications).getByRole("alert")).toHaveTextContent(
+      "Follow-up could not be saved.",
+    )
+    expect(dialog).not.toContainElement(notifications)
+    expect(conversation.queryByRole("alert")).not.toBeInTheDocument()
+    expect(conversation.queryByText("Follow-up could not be saved.")).not.toBeInTheDocument()
+    expect(conversation.getByRole("textbox", { name: threadCopy.comments.replyLabel })).toHaveValue(
+      "Keep this follow-up draft.",
+    )
+    expect(saved.notes[0]?.thread.messages).toHaveLength(0)
+  })
+
+  it.each([
+    ["Notes are saved locally until Hub discovers this branch.", false],
+    ["Notes are saved locally. Connect to Hub to sync.", false],
+    ["Improvements are saved locally until their captured source has a published Build.", false],
+    [
+      "This local improvement has no captured source. It cannot sync. Keep it locally or select its target again as a new improvement.",
+      false,
+    ],
+    ["These notes changed in another panel. Reload before making changes.", false],
+    ["This note changed while it was open. Reopen it before making changes.", false],
+    ["Hub sync failed: Connection refused. Your notes remain saved locally.", true],
+  ])(
+    "hides local and stale-panel notices but reports genuine sync failures externally: %s",
+    async (syncError, visible) => {
+      vi.spyOn(crypto, "randomUUID").mockReturnValue(nonce)
+      const { saved } = savedNotesFixture()
+      saved.syncError = syncError
+      const view = render(
+        <App
+          config={{ name: "Demo", prototypeUrl: origin, token: "local", pickAndPolish: true }}
+        />,
+      )
+      await waitFor(() => expect(saved.revision).toBeGreaterThan(0))
+      const frame = screen.getByTitle("Demo prototype")
+      if (!(frame instanceof HTMLIFrameElement)) throw new Error("Expected the prototype iframe.")
+      receive(frame, {
+        type: "replica:canvas:ready",
+        protocolVersion: 1,
+        improvementSelection: true,
+        route: { pathname: "/", search: "", hash: "" },
+      })
+      await waitFor(() => expect(screen.getByRole("button", { name: copy.annotate })).toBeEnabled())
+      const sidebar = screen.getByRole("complementary", { name: copy.notes })
+      expect(within(sidebar).queryByRole("alert")).not.toBeInTheDocument()
+      if (visible) {
+        const notifications = await screen.findByRole("region", { name: "Comment notifications" })
+        expect(within(notifications).getByRole("alert")).toHaveTextContent(
+          "Hub sync failed: Connection refused",
+        )
+        expect(sidebar).not.toContainElement(notifications)
+        expect(within(sidebar).queryByText(/Connection refused/)).not.toBeInTheDocument()
+        expect(screen.queryByText(/Your notes remain saved locally/)).not.toBeInTheDocument()
+      } else {
+        expect(screen.queryByText(syncError)).not.toBeInTheDocument()
+      }
+      expect(saved.syncError).toBe(syncError)
+      view.unmount()
+    },
+  )
 
   it("mounts sample threads instead of accessing real improvement notes only with explicit opt-in", async () => {
     const { fetch } = savedNotesFixture()
@@ -934,7 +1040,7 @@ describe("App()", () => {
     },
   )
 
-  it("explains capture failure while still allowing an improvement to be saved privately", async () => {
+  it("allows a local save after source capture fails without a local-only composer notice", async () => {
     vi.spyOn(crypto, "randomUUID").mockReturnValue(nonce)
     const { fetch, saved } = savedNotesFixture(true)
     render(
@@ -954,7 +1060,10 @@ describe("App()", () => {
     await waitFor(() => expect(picker).toHaveAttribute("aria-pressed", "true"))
     receive(frame, { type: "replica:canvas:selected", anchor })
     const composer = within(screen.getByRole("dialog", { name: copy.add }))
-    expect(composer.getByRole("alert")).toHaveTextContent(copy.sourceUnavailable)
+    const form = composer.getByRole("textbox", { name: copy.label }).closest("form")
+    if (!form) throw new Error("Expected the improvement composer form.")
+    expect(within(form).queryByRole("alert")).not.toBeInTheDocument()
+    expect(screen.queryByText(copy.sourceUnavailable)).not.toBeInTheDocument()
     fireEvent.change(composer.getByRole("textbox", { name: copy.label }), {
       target: { value: "Keep this private local request" },
     })
@@ -1147,11 +1256,13 @@ describe("App()", () => {
       route: { pathname: "/projects", search: "", hash: "" },
     })
     expect(controls.getByRole("button", { name: copy.annotate })).toBeDisabled()
+    const notifications = await screen.findByRole("region", { name: "Comment notifications" })
+    expect(within(notifications).getByRole("alert")).toHaveTextContent(copy.bridgeUnavailable)
     expect(
-      screen
-        .getAllByText(copy.bridgeUnavailable)
-        .some((element) => element.closest(".hub-sidebar")),
-    ).toBe(true)
+      within(screen.getByRole("complementary", { name: copy.notes })).queryByText(
+        copy.bridgeUnavailable,
+      ),
+    ).not.toBeInTheDocument()
     view.unmount()
   })
 })
