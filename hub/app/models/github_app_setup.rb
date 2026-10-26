@@ -1,4 +1,4 @@
-# Creates this Hub's GitHub App and saves the credentials GitHub returns.
+# Creates or explicitly imports this Hub's verified GitHub App connection.
 class GithubAppSetup
   MAXIMUM_AGE = 15.minutes
 
@@ -61,6 +61,74 @@ class GithubAppSetup
     session.delete(:github_app_setup_organization)
     session[:github_app_install_authorized] = clock.call.to_i
     configuration
+  end
+
+  # Imports only an authenticated App and one explicitly confirmed active installation.
+  def import!(app_id:, client_id:, client_secret:, private_key:, webhook_secret:, installation_id:, confirmed:)
+    raise InvalidState, "Setup is unavailable in local mode" if LocalDevelopment.enabled?
+    raise InvalidState, "Setup authorization expired" if !authorized?
+
+    reject_if_configured!
+    raise InvalidState, "Confirm the GitHub App connection" if confirmed != "1"
+
+    limits = GithubAppConfiguration::Administration
+    valid = [ app_id, installation_id ].all? do |value|
+      value.to_s.match?(/\A[0-9]{1,19}\z/) && value.to_i.between?(1, 9_223_372_036_854_775_807)
+    end
+    valid &&= \
+      client_id.is_a?(String) && client_id.present? && client_id.bytesize <= 255 &&
+      [ client_secret, webhook_secret ].all? do |secret|
+        secret.is_a?(String) && secret.present? && secret.bytesize <= limits::CLIENT_SECRET_LIMIT
+      end
+    valid &&= private_key.is_a?(String) && private_key.present? && private_key.bytesize <= limits::PRIVATE_KEY_LIMIT
+    raise Error, "Invalid GitHub App credentials" if !valid
+
+    key = OpenSSL::PKey::RSA.new(private_key)
+    raise Error, "The GitHub App private key must contain a private RSA key" if !key.private?
+
+    candidate = GithubAppConfiguration.new \
+      github_app_id: app_id.to_i, client_id:, client_secret:, private_key:, webhook_secret:,
+      installation_policy: "pinned", installation_id: installation_id.to_i
+    app = candidate.github_client.apps.get(token: candidate.tokens.app)
+    owner = candidate.ownership.attributes_for(app)
+    raise Error, "The GitHub App ID or client ID does not match the supplied credentials" if app["client_id"] != client_id
+
+    candidate.assign_attributes(owner)
+    payload = candidate.github_client.installations.get(candidate.installation_id, token: candidate.tokens.app)
+    candidate.installation.verify_import!(payload)
+    account = payload.fetch("account")
+    candidate.assign_attributes \
+      installation_account_github_id: account.fetch("id"),
+      installation_account_login: account.fetch("login"),
+      installation_account_type: account.fetch("type"),
+      installation_state: "active", installed_at: clock.call, installation_checked_at: clock.call
+    token = candidate.tokens.for_installation(candidate.installation_id)
+    repositories = candidate.repositories.snapshot(token:)
+    configuration = GithubAppConfiguration.transaction do
+      raise InvalidState, "Setup authorization expired" if !authorized?
+
+      reject_if_configured!
+      saved = GithubAppConfiguration.install!(candidate.attributes.except("id", "created_at", "updated_at"))
+      saved.repositories.synchronize!(snapshot: repositories)
+      saved
+    end
+    clear_state!
+    session.delete(:github_app_setup_authorized)
+    session.delete(:github_app_setup_organization)
+    session.delete(:github_app_install_authorized)
+    configuration
+  rescue OpenSSL::PKey::RSAError, ArgumentError, TypeError
+    raise Error, "Invalid GitHub App credentials"
+  rescue GithubClient::Error => error
+    message = if error.status.is_a?(Integer)
+      "GitHub rejected the App connection (HTTP #{error.status}); check the credentials and installation"
+    else
+      "GitHub could not verify the App credentials and active installation"
+    end
+
+    raise Error, message
+  rescue ActiveRecord::RecordInvalid, ActiveRecord::RecordNotUnique
+    raise Error, "The GitHub App connection could not be saved; check setup and try again"
   end
 
   # Reports whether the browser may finish installing the new App.

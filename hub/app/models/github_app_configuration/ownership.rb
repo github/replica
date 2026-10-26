@@ -14,10 +14,10 @@ class GithubAppConfiguration::Ownership < ActiveRecord::AssociatedObject
         transferred = record.owner_github_id != attributes.fetch(:owner_github_id) ||
           record.owner_type != attributes.fetch(:owner_type)
         record.assign_attributes(attributes)
-        record.installation_state = "removed" if transferred && record.installation_id
+        record.installation_state = "removed" if transferred && record.installation_id && !record.pinned_installation?
         record.save! if record.changed?
         if transferred
-          record.repositories.remove_all!
+          record.repositories.remove_all! if !record.pinned_installation?
           SecurityAuditEvent.record! \
             action: "github_app.transfer", outcome: "succeeded", actor: nil,
             context: { source: "command", github_app_configuration_id: record.id }
@@ -25,8 +25,6 @@ class GithubAppConfiguration::Ownership < ActiveRecord::AssociatedObject
       end
     end
   end
-
-  private
 
   # Rejects incomplete identity before it can replace a saved owner.
   def attributes_for(app)

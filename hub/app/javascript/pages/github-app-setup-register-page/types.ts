@@ -6,4 +6,6 @@ export interface GithubAppSetupRegisterPageData extends GithubAppSetupHeaderData
   pageTitle: string
   submitLabel: string
   submitPath: string
+  manualLabel: string
+  manualPath: string
 }

@@ -1,0 +1,30 @@
+.setup-manual__section {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.setup-manual__section p {
+  margin: 0;
+}
+
+.setup-manual__settings {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+}
+
+.setup-manual__settings dt {
+  font-weight: 600;
+}
+
+.setup-manual__settings dd {
+  margin: 0.25rem 0 0;
+  overflow-wrap: anywhere;
+}
+
+.setup-manual__confirmation {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}

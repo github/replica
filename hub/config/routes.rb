@@ -30,6 +30,8 @@ Rails.application.routes.draw do
     post "auth/github", to: "github_authentications#create", as: :github_authentication
     post "auth/local", to: "local_authentications#create", as: :local_authentication
     get "auth/github/callback", to: "github_authentications#callback", as: :github_authentication_callback
+    get "setup/manual", to: "github_app_setup#manual", as: :manual_setup
+    post "setup/manual", to: "github_app_setup#import"
     resource :session, only: :destroy
     resource :welcome, only: %i[show update], controller: "welcome"
     resources :notifications, only: %i[index show update] do

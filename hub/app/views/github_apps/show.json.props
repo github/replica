@@ -8,7 +8,14 @@ else
   [ t("github_app.not_configured") ]
 end
 if @configuration&.installation_state.in?(%w[not_installed removed])
-  paragraphs << t("github_app.installation_required", owner: @configuration.owner_login)
+  paragraphs << if @configuration.pinned_installation?
+    t("github_app.pinned_installation_required")
+  else
+    t("github_app.installation_required", owner: @configuration.owner_login)
+  end
+end
+if @configuration&.pinned_installation?
+  paragraphs << t("github_app.pinned_webhook")
 end
 json.paragraphs paragraphs
 json.links \

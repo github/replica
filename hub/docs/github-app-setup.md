@@ -1,11 +1,11 @@
 # GitHub App setup
 
-Each team creates one private GitHub App for its self-hosted Hub. Installing that App on a prototype repository lets Hub discover its branches, follow GitHub Actions, and check each reviewer's access.
+Each self-hosted Hub connects one GitHub App and one installation. Create a private organization-owned App through the manifest flow, or manually connect an independently registered App to an explicitly approved installation. Installing the App on prototype repositories lets Hub discover branches, follow GitHub Actions, and check each reviewer's access.
 
 ```text
 team opens /setup on its self-hosted Hub
-  -> Hub creates a private GitHub App
-  -> team installs the App on prototype repositories
+  -> team creates an App through the manifest or configures it manually
+  -> team installs the App on prototype repositories or approves an existing installation
   -> Hub verifies the installation
   -> team members sign in with GitHub
 ```
@@ -46,7 +46,7 @@ To use a different Action repository, set `REPLICA_BUILD_ACTION` to its `owner/r
 
 To develop against GitHub, start Hub with `REPLICA_LOCAL_MODE=0 bin/devcontainer dev`. It uses `http://replica.localhost:19500`, so setup and sign-in work without a public tunnel.
 
-## Setup
+## Manifest setup
 
 Create the App under your GitHub organization so your team can sign in. A private App under your personal account allows only you to sign in.
 
@@ -76,15 +76,40 @@ An upgraded Hub does not automatically grant these write permissions to an exist
 
 Production usually receives GitHub notifications for pushes, workflows, and installation changes. Both environments also poll GitHub so Hub can recover missed changes; local development relies on polling because it has no public tunnel.
 
+## Manual creation and connection
+
+Use this flow when manifest registration is unavailable or you already administer an App installed in another account. The App registration owner and installation account may differ. You need the deployment bootstrap secret, permission to manage the App's settings and credentials, and an installation approved by someone authorized in the target account. Hub does not require organization-settings access from the person connecting an already approved installation, and it cannot bypass GitHub's installation or authorization policies.
+
+On an existing deployment, back up its database and retain its `.env`, storage, and encryption secrets before upgrading. The migration preserves configured manifest connections and their ownership-transfer behavior. Manual connection is initial setup only: it does not overwrite an existing Hub App configuration. Do not edit database owner fields or run a separate bootstrap script.
+
+1. Open `/setup`, enter the bootstrap secret, and choose **Create manually or connect an existing App**. The organization field is used only for manifest creation; manual import verifies the actual owner with GitHub. The manual page provides this deployment's exact URLs, GitHub form labels, permissions, and credential fields. Authorization expires after 15 minutes; keep this page open while configuring GitHub in another tab.
+2. On the configured GitHub host, open the intended account's **Settings**, **Developer settings**, **GitHub Apps**, then **New GitHub App**, or open an existing App. Under **General**, choose a unique **GitHub App name**, enter Hub's origin as **Homepage URL**, and enter `<hub-origin>/auth/github/callback` as **Callback URL**. Leave **Setup URL** blank and leave **Request user authorization (OAuth) during installation** and **Redirect on update** unchecked. Keep user authorization token expiration enabled.
+3. Under **Webhook**, select **Active**, set **Webhook URL** to `<hub-origin>/github/webhooks`, and create a long random **Webhook secret** through your approved secret-management tool. Keep SSL verification enabled. Retain the secret for Hub's connection form. GitHub must be able to reach this HTTPS endpoint.
+4. Under **Permissions & events**, grant **Administration: Read-only**, **Actions: Read-only**, **Contents: Read and write**, **Pull requests: Read and write**, and **Workflows: Read and write** under repository permissions. Under **Subscribe to events**, select **Push** and **Workflow run**, then save. GitHub also delivers installation lifecycle and installation-repository changes. An existing installation's account administrator must approve increased permissions separately.
+5. Check **Where can this GitHub App be installed?** and who may authorize the App. A private personal App does not support team sign-in. Cross-account installation may require public visibility. A public App does not publish private repositories, but it broadens who can authorize it: anyone who can read a connected public repository could read its Hub reviews. Choose repositories with that audience in mind; see [App visibility](authentication-and-repository-authorization.md#public-apps).
+6. Choose **Install App** and select the intended account, or use the existing installation. Choose **Only select repositories** and select the prototype repositories for this Hub. If GitHub requires approval, an authorized account administrator must finish that step. Copy the numeric **Installation ID** from the resulting installation settings URL, after `/installations/`. It is not the App ID and is not a credential. Use the actual deployment's ID; no ID is built into Hub.
+7. In the App's **General** settings, copy **App ID** and **Client ID**. Under **Client secrets**, choose **Generate a new client secret**. Under **Private keys**, choose **Generate a private key** and download the PEM file. Enter these values, the **Webhook secret**, and **Installation ID** in Hub. The client and webhook secrets are limited to 4 KiB each; the PEM is limited to 16 KiB. Never put secrets in links, Git, chat, or command-line arguments.
+8. Confirm the account and repository selection in GitHub, read Hub's approval statement, and choose **Verify and connect this installation**. Hub authenticates the App, verifies its App/client identity and actual owner, verifies that the specified active installation belongs to it, and reads its repositories before saving the connection atomically. If verification fails, nothing is saved and credentials must be re-entered. Hub does not automatically change GitHub settings.
+9. Enroll a Hub operator at `/operator/enrollment`, then verify ordinary GitHub sign-in with an intended reviewer. Private-key verification does not validate the OAuth client secret or prove user authorization eligibility. Check that only repositories selected in the installation are discoverable, that read-only users cannot perform write operations, and that a user without repository access is denied.
+10. In the App's **Advanced** settings, inspect a recent supported webhook delivery after pushing a test branch. Confirm GitHub can deliver to Hub and Hub discovers the Build. A successful import does not verify the webhook secret or network path. Use `replica:github:diagnose` for App/installation reachability and `replica:github:poll` to synchronize immediately; diagnosis does not prove end-user sign-in or webhook delivery.
+
+Webhook URL, secret, permissions, and credentials belong to the App, not an installation. Do not reuse an App whose webhook already serves another integration unless you have separately arranged compatible delivery. Hub's normal webhook rotation changes the App-wide webhook configuration and affects every installation; connecting an existing App does not isolate those settings.
+
+Manual connections pin the installation ID and immutable installation account. Polling never follows the registration owner to a different installation. Events from other installations cannot enroll them or change this connection. Suspension or confirmed removal marks repositories unavailable without deleting Builds or reviews. Reinstallation with a new ID requires a new deliberate connection; there is no automatic replacement or in-place installation-switch operation in this version. Resetting local App configuration to reconnect has the documented session and canvas revocation effects below, so back up and review those effects first.
+
+For GitHub Enterprise Server, register the App on that same instance and configure `REPLICA_GITHUB_URL=https://HOSTNAME` and `REPLICA_GITHUB_API_URL=https://HOSTNAME/api/v3` before starting Hub. Set `REPLICA_GITHUB_API_VERSION` to a REST API version supported by that instance. GitHub must reach Hub for webhooks, and Hub must reach GitHub for API and OAuth requests. This connection flow does not add enterprise-owned App registrations, multiple GitHub hosts, or multiple installations to one Hub, and does not establish compatibility with every GHES release.
+
 ## App ownership transfers
 
 Hub detects an ownership transfer by asking GitHub for the configured App's current owner. This uses the existing App credentials, not organization audit-log access. Hub accepts the response only for the same App ID, updates the owner and App slug, and records the transfer in its security audit.
 
 An App transfer can uninstall the App. Hub marks the previous installation and its repositories unavailable without deleting Builds, files, reviews, users, or administrator roles. Existing browser Sessions and canvas grants are retained, but they do not bypass repository checks while the installation is unavailable. Hub does not promise uninterrupted repository access during a transfer.
 
-The new owner installs the same App in their own account and selects its repositories. Hub accepts only an installation in the App owner's account; installing it in another organization is not supported. Hub stores the installation account separately so delayed removal notices for the previous account cannot remove a replacement installation.
+For manifest-created connections, the new owner installs the same App in their own account and selects its repositories. These connections retain the requirement that the installation belongs to the App owner's account. Hub stores the installation account separately so delayed removal notices for the previous account cannot remove a replacement installation.
 
-Installation notifications and the existing five-minute Build checks restore repository access after GitHub confirms the replacement installation. This also recovers a transfer completed before upgrading Hub, or one whose notifications were missed. Run `replica:github:poll` to check immediately. Transient GitHub failures do not count as proof that an installation was removed; failed jobs remain visible in the queue and a later check retries.
+For manually connected, pinned installations, Hub updates verified App ownership metadata but checks the approved installation independently. It never adopts an installation in the new owner's account. If the pinned installation no longer exists, access remains unavailable until deliberate reconnection.
+
+For manifest connections, installation notifications and the existing five-minute Build checks restore repository access after GitHub confirms the replacement installation. This also recovers a transfer completed before upgrading Hub, or one whose notifications were missed. Run `replica:github:poll` to check immediately. Transient GitHub failures do not count as proof that an installation was removed; failed jobs remain visible in the queue and a later check retries.
 
 Branch and workflow results remain bound to the owner and installation that started the poll or webhook processing. If a transfer replaces that installation before a result is saved, Hub rejects the old work even when the same repository is already available again.
 

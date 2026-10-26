@@ -23,6 +23,37 @@ class GithubAppSetupController < SuperglueController
     redirect_to setup_path
   end
 
+  # Shows the manual registration checklist only after bootstrap authorization.
+  # @route GET /setup/manual (manual_setup)
+  def manual
+    return setup_not_found if !setup.authorized? || GithubAppConfiguration.configured?
+
+    @registration = setup.registration
+  end
+
+  # Connects an independently registered App without changing its GitHub settings.
+  # @route POST /setup/manual (setup_manual)
+  def import
+    return setup_not_found if !setup.authorized? || GithubAppConfiguration.configured?
+
+    upload = params[:private_key]
+    limit = GithubAppConfiguration::Administration::PRIVATE_KEY_LIMIT
+    unless upload.is_a?(ActionDispatch::Http::UploadedFile) && upload.size <= limit
+      return manual_error(t("github_app_setup.manual.invalid_key"))
+    end
+
+    setup.import! \
+      app_id: params[:app_id], client_id: params[:client_id],
+      client_secret: params[:client_secret], private_key: upload.read(limit + 1),
+      webhook_secret: params[:webhook_secret], installation_id: params[:installation_id],
+      confirmed: params[:confirmed]
+    session[:github_app_manual_completed_at] = Time.current.to_i
+    redirect_to install_setup_path, status: :see_other
+  rescue GithubAppSetup::Error, GithubClient::Error,
+    GithubAppConfiguration::Installation::OwnerMismatch
+    manual_error(t("github_app_setup.manual.failed"))
+  end
+
   # @route GET /setup/callback (callback_setup)
   def callback
     configuration = setup.exchange!(code: params[:code], state: params[:state])
@@ -33,6 +64,13 @@ class GithubAppSetupController < SuperglueController
 
   # @route GET /setup/install (install_setup)
   def install
+    completed_at = session.delete(:github_app_manual_completed_at)
+    if completed_at && Time.current.to_i - completed_at.to_i <= GithubAppSetup::MAXIMUM_AGE &&
+        GithubAppConfiguration.configured?
+      @manual_connection = true
+      return render :install
+    end
+
     return setup_not_found if !setup.installation_authorized?
 
     configuration = GithubAppConfiguration.current
@@ -47,6 +85,7 @@ class GithubAppSetupController < SuperglueController
     {
       "create" => "github_app_setup.authorize",
       "callback" => "github_app_setup.exchange",
+      "import" => "github_app_setup.import",
       "install" => "github_app_setup.install"
     }[action_name]
   end
@@ -64,5 +103,11 @@ class GithubAppSetupController < SuperglueController
 
   def setup_not_found(_error = nil)
     head :not_found
+  end
+
+  def manual_error(message)
+    @setup_error = message
+    @registration = setup.registration
+    render :manual, status: :unprocessable_entity
   end
 end

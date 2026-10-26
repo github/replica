@@ -291,6 +291,8 @@ https://hub.example.com/setup
 
 Enter the setup code printed during initialization. Replica Hub then creates a private GitHub App and sends you to GitHub to install it on the prototype repositories Hub may use. See [GitHub App setup](github-app-setup.md) for the requested permissions and credential lifecycle.
 
+If manifest registration is unavailable or you already administer an installed App, choose **Create manually or connect an existing App** instead. Follow [manual creation and connection](github-app-setup.md#manual-creation-and-connection) to configure the GitHub form and approve one installation, even when its account differs from the App's registration owner.
+
 ## Prepare a prototype repository
 
 A compatible repository needs:

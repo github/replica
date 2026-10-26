@@ -10,6 +10,9 @@ en:
     identity: "App %{app_id} - %{owner} (%{owner_type}, identity %{owner_id})"
     installation: "Installation %{installation_id}: %{state}"
     installation_required: "Install this App in the %{owner} account and select its repositories. Hub checks GitHub automatically and restores access after installation."
+    pinned_installation: "Approved installation %{installation_id} in %{account}: %{state}"
+    pinned_installation_required: The approved installation is unavailable. Hub will not adopt another installation. Restore access to that installation at GitHub, or review the documented local reset and manual reconnection procedure if its ID has changed.
+    pinned_webhook: This connection uses an explicitly approved installation. Webhook configuration and secret rotation affect every installation of this App.
     busy: A webhook update is in progress. Wait for it to finish before changing the App.
     credentials:
       heading: Replace App credentials

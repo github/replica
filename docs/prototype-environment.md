@@ -89,6 +89,8 @@ Arrange consistent backups of the databases and Build files, and a separate prot
 
 Open `/setup` on your deployed Hub, enter the setup code printed during initialization, and follow [GitHub App setup](../hub/docs/github-app-setup.md). Create the private App under your GitHub organization and install it on the prototype repository. A private App owned by a personal account allows only that person to sign in. Keep the App private and check the intended review audience before connecting a public repository.
 
+If manifest registration is unavailable or the App already exists, follow [manual creation and connection](../hub/docs/github-app-setup.md#manual-creation-and-connection) instead. This lets you approve one existing installation in another account without changing how Hub checks each person's repository access.
+
 Enroll the person administering the hub through `/operator/enrollment`, following the [operator enrollment instructions](../hub/docs/security-audit.md#enroll-an-operator). Creating the App does not grant that role automatically.
 
 Sign in to the hub with a GitHub account that has write access to the prototype repository. Open that repository and choose **Open installation pull request**. Review and merge the proposed `.github/workflows/replica.yml` workflow. See [repository workflow installation](../hub/docs/github-actions-builds.md#install-the-repository-workflow).

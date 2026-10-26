@@ -46,7 +46,17 @@ class GithubAppConfiguration::Diagnostics < ActiveRecord::AssociatedObject
   def installation_status(payload)
     return "not installed" if payload.nil?
 
+    return "installation mismatch" if payload.fetch("id") != record.installation_id ||
+      payload.fetch("app_id") != record.github_app_id
+
     account = payload.fetch("account")
+    if record.pinned_installation?
+      return "account mismatch" if account.fetch("id") != record.installation_account_github_id ||
+        account.fetch("type") != record.installation_account_type
+
+      return payload["suspended_at"].present? ? "suspended" : "reachable"
+    end
+
     return "owner mismatch" if account.fetch("id").to_i != record.owner_github_id ||
       account.fetch("id").to_i != record.installation_account_github_id
 

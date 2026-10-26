@@ -8,6 +8,8 @@ const PAGE_DATA: GithubAppSetupRegisterPageData = {
   access: "You choose which repositories it can access.",
   description: "Replica Hub uses a private GitHub App.",
   heading: "Connect Replica Hub to GitHub.",
+  manualLabel: "Connect an existing App",
+  manualPath: "/setup/manual",
   manifest: '{"name":"Replica Hub"}',
   pageTitle: "Create App",
   productName: "Replica Hub",
