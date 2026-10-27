@@ -30,10 +30,19 @@ describe("createApp()", () => {
       await once(server, "listening")
       const { port } = server.address() as AddressInfo
 
-      const health = await fetch(`http://127.0.0.1:${port}/api/health`)
+      const headers = { "x-request-id": "untrusted-request-id" }
+      const health = await fetch(`http://127.0.0.1:${port}/api/health`, { headers })
+      expect(health.status).toBe(200)
+      expect(health.headers.get("content-type")).toMatch(/^application\/json\b/)
       expect(await health.json()).toEqual({ status: "ok" })
-      const missing = await fetch(`http://127.0.0.1:${port}/missing-private-path`)
+      const missing = await fetch(
+        `http://127.0.0.1:${port}/api/missing-private-path?token=query-secret`,
+        { headers },
+      )
+      expect(missing.status).toBe(404)
+      expect(missing.headers.get("content-type")).toMatch(/^application\/json\b/)
       expect(await missing.json()).toEqual({ error: "Not found" })
+      expect(health.headers.get("x-request-id")).not.toBe(missing.headers.get("x-request-id"))
 
       await vi.waitFor(() => expect(records).toHaveLength(2))
       expect(records[0]).toMatchObject({
@@ -51,7 +60,9 @@ describe("createApp()", () => {
         level: 40,
         outcome: "completed",
       })
-      expect(JSON.stringify(records)).not.toContain("missing-private-path")
+      expect(JSON.stringify(records)).not.toMatch(
+        /missing-private-path|query-secret|untrusted-request-id/,
+      )
     } finally {
       await new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()))
@@ -83,10 +94,7 @@ describe("createApp()", () => {
 
       expect(response.status).toBe(statusCode)
       expect(response.headers.get("content-type")).toMatch(/^application\/json\b/)
-      const payload: unknown = await response.json()
-      if (!isRecord(payload)) throw new Error("Expected a JSON error object")
-      expect(typeof payload.error).toBe("string")
-      expect(Object.keys(payload)).toEqual(["error"])
+      expect(await response.json()).toEqual({ error: "Invalid request" })
       await vi.waitFor(() => expect(records).toHaveLength(1))
       expect(records[0]).toMatchObject({
         reqId: response.headers.get("x-request-id"),
@@ -100,46 +108,6 @@ describe("createApp()", () => {
       expect(records[0]).not.toHaveProperty("res")
       expect(JSON.stringify(records)).not.toContain("malformed-body-secret")
       expect(stderr).not.toHaveBeenCalled()
-    } finally {
-      await new Promise<void>((resolve, reject) => {
-        server.close((error) => (error ? reject(error) : resolve()))
-      })
-    }
-  })
-
-  it("returns the health status as JSON", async () => {
-    const server = createServer(createApp())
-
-    try {
-      server.listen(0, "127.0.0.1")
-      await once(server, "listening")
-      const { port } = server.address() as AddressInfo
-
-      const response = await fetch(`http://127.0.0.1:${port}/api/health`)
-
-      expect(response.status).toBe(200)
-      expect(response.headers.get("content-type")).toMatch(/^application\/json\b/)
-      expect(await response.json()).toEqual({ status: "ok" })
-    } finally {
-      await new Promise<void>((resolve, reject) => {
-        server.close((error) => (error ? reject(error) : resolve()))
-      })
-    }
-  })
-
-  it("returns a JSON not-found error for an unknown API route", async () => {
-    const server = createServer(createApp())
-
-    try {
-      server.listen(0, "127.0.0.1")
-      await once(server, "listening")
-      const { port } = server.address() as AddressInfo
-
-      const response = await fetch(`http://127.0.0.1:${port}/api/not-a-route`)
-
-      expect(response.status).toBe(404)
-      expect(response.headers.get("content-type")).toMatch(/^application\/json\b/)
-      expect(await response.json()).toEqual({ error: "Not found" })
     } finally {
       await new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()))
