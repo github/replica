@@ -47,4 +47,6 @@ The [shared Prisma client](database.md#shared-client) lives in `server/integrati
 
 Compose repository functions in domains. The identity store binds standalone queries to a database client or transaction there; a repository must not import its neighboring queries to build that store.
 
-`staticSettingsRecordId` identifies Hub's single settings row, not a person or GitHub installation. Its fixed UUID lets every process lock the same row. Keep it with the identity-state repository.
+`staticIdentityStoreRecordId` identifies the row used to serialize identity-store transactions. It is not a user, provider configuration, or GitHub installation. Keep it with the identity-store state repository.
+
+GitHub source-integration credentials use a separate fixed state row. Authentication-provider configuration must not read or write that credential state.

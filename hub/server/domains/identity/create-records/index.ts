@@ -1,8 +1,13 @@
-import { advanceIdentityGeneration } from "#server/repositories/identity-state/advance-generation"
-import { getIdentityState } from "#server/repositories/identity-state/get-state"
-import { saveIdentityCredentials } from "#server/repositories/identity-state/save-credentials"
-import { consumeOAuthAttempt } from "#server/repositories/oauth-attempts/consume-attempt"
-import { createOAuthAttempt } from "#server/repositories/oauth-attempts/create-attempt"
+import { createAuthenticationProviderRevision } from "#server/repositories/authentication-providers/create-provider-revision"
+import { consumeAuthorizationAttempt } from "#server/repositories/authorization-attempts/consume-attempt"
+import { createAuthorizationAttempt } from "#server/repositories/authorization-attempts/create-attempt"
+import { getExternalIdentity } from "#server/repositories/external-identities/get-external-identity"
+import { saveExternalIdentity } from "#server/repositories/external-identities/save-external-identity"
+import { advanceGitHubIntegrationGeneration } from "#server/repositories/github-integration-state/advance-generation"
+import { getGitHubIntegrationState } from "#server/repositories/github-integration-state/get-state"
+import { saveGitHubIntegrationCredentials } from "#server/repositories/github-integration-state/save-credentials"
+import { getInstallationMembership } from "#server/repositories/installation-memberships/get-membership"
+import { saveInstallationMembership } from "#server/repositories/installation-memberships/save-membership"
 import { getSecurityAudits } from "#server/repositories/security-audits/get-audits"
 import { saveSecurityAudit } from "#server/repositories/security-audits/save-audit"
 import { createSession } from "#server/repositories/sessions/create-session"
@@ -12,23 +17,24 @@ import { getSession } from "#server/repositories/sessions/get-session"
 import { getSessionById } from "#server/repositories/sessions/get-session-by-id"
 import { invalidateFreshness } from "#server/repositories/sessions/invalidate-freshness"
 import { verifySession } from "#server/repositories/sessions/verify-session"
-import { enrollAdministrator } from "#server/repositories/users/enroll-administrator"
-import { getGitHubUser } from "#server/repositories/users/get-github-user"
+import { createUser } from "#server/repositories/users/create-user"
 import { getUser } from "#server/repositories/users/get-user"
-import { saveGitHubUser } from "#server/repositories/users/save-github-user"
 import type { IdentityRecords } from "#server/domains/identity/create-store/types"
 
 import type { Prisma } from "../../../generated/prisma/client.ts"
 
 export function createIdentityRecords(database: Prisma.TransactionClient): IdentityRecords {
   return {
-    state: getIdentityState.bind(null, database),
-    saveCredentials: saveIdentityCredentials.bind(null, database),
-    advanceGeneration: advanceIdentityGeneration.bind(null, database),
+    githubIntegrationState: getGitHubIntegrationState.bind(null, database),
+    saveGitHubIntegrationCredentials: saveGitHubIntegrationCredentials.bind(null, database),
+    advanceGitHubIntegrationGeneration: advanceGitHubIntegrationGeneration.bind(null, database),
     user: getUser.bind(null, database),
-    githubUser: getGitHubUser.bind(null, database),
-    saveUser: saveGitHubUser.bind(null, database),
-    enroll: enrollAdministrator.bind(null, database),
+    createUser: createUser.bind(null, database),
+    externalIdentity: getExternalIdentity.bind(null, database),
+    saveExternalIdentity: saveExternalIdentity.bind(null, database),
+    membership: getInstallationMembership.bind(null, database),
+    saveMembership: saveInstallationMembership.bind(null, database),
+    createAuthenticationProviderRevision: createAuthenticationProviderRevision.bind(null, database),
     session: getSession.bind(null, database),
     sessionById: getSessionById.bind(null, database),
     createSession: createSession.bind(null, database),
@@ -36,8 +42,8 @@ export function createIdentityRecords(database: Prisma.TransactionClient): Ident
     invalidateFreshness: invalidateFreshness.bind(null, database),
     deleteSession: deleteSession.bind(null, database),
     deleteSessions: deleteSessions.bind(null, database),
-    createAttempt: createOAuthAttempt.bind(null, database),
-    consumeAttempt: consumeOAuthAttempt.bind(null, database),
+    createAuthorizationAttempt: createAuthorizationAttempt.bind(null, database),
+    consumeAuthorizationAttempt: consumeAuthorizationAttempt.bind(null, database),
     audit: saveSecurityAudit.bind(null, database),
     audits: getSecurityAudits.bind(null, database),
   }

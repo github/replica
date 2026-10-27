@@ -1,21 +1,27 @@
 model Session {
   // ID columns
-  id     String @id @default(uuid()) @db.Uuid
-  userId String @map("user_id") @db.Uuid
+  id                               String @id @default(uuid()) @db.Uuid
+  userId                           String @map("user_id") @db.Uuid
+  externalIdentityId               String @map("external_identity_id") @db.Uuid
+  authenticationProviderRevisionId String @map("authentication_provider_revision_id") @db.Uuid
 
   // Relations
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user                           User                           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  externalIdentity               ExternalIdentity               @relation(fields: [externalIdentityId], references: [id], onDelete: Restrict)
+  authenticationProviderRevision AuthenticationProviderRevision @relation(fields: [authenticationProviderRevisionId], references: [id], onDelete: Restrict)
+  originatingAuthorizationAttempts AuthorizationAttempt[]       @relation("OriginatingSession")
 
   // Attribute columns
-  tokenDigest        String    @unique @map("token_digest")
-  signedInAt         DateTime  @map("signed_in_at") @db.Timestamptz(3)
-  freshAuthorizedAt  DateTime? @map("fresh_authorized_at") @db.Timestamptz(3)
-  credentialRevision String    @map("credential_revision")
+  tokenDigest       String    @unique @map("token_digest")
+  signedInAt        DateTime  @map("signed_in_at") @db.Timestamptz(3)
+  freshAuthorizedAt DateTime? @map("fresh_authorized_at") @db.Timestamptz(3)
 
   // Timestamp columns
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@index([userId])
+  @@index([externalIdentityId])
+  @@index([authenticationProviderRevisionId])
   @@map("sessions")
 }

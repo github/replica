@@ -3,20 +3,17 @@ model User {
   id String @id @default(uuid()) @db.Uuid
 
   // Relations
-  sessions Session[]
+  externalIdentities ExternalIdentity[]
+  memberships        InstallationMembership[]
+  sessions           Session[]
 
   // Attribute columns
-  provider      String  @default("github")
-  providerId    String  @map("provider_id")
-  login         String
-  name          String?
-  avatarUrl     String? @map("avatar_url")
-  administrator Boolean @default(false)
+  displayName String? @map("display_name")
+  avatarUrl   String? @map("avatar_url")
 
   // Timestamp columns
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  @@unique([provider, providerId])
   @@map("users")
 }

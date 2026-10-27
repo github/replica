@@ -2,6 +2,8 @@ import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { createIdentityStore } from "#server/domains/identity/create-store"
 
+type IdentityStore = ReturnType<typeof createIdentityStore>
+
 async function database() {
   vi.stubGlobal("prisma", undefined)
   const { prisma } = await import("../../../integrations/prisma")
@@ -9,41 +11,79 @@ async function database() {
   return { prisma, store: createIdentityStore(prisma) }
 }
 
-describe("createIdentityStore()", () => {
-  it("rolls back credential, session, generation, and audit changes together", async () => {
-    const { store } = await database()
-    await store.lock(async (records) => {
-      const user = await records.saveUser({
-        providerId: "10001",
-        login: "synthetic-user",
-        name: null,
-        avatarUrl: null,
-      })
-      await records.saveCredentials("initial-encrypted-fixture")
-      await records.createSession({
-        userId: user.id,
-        tokenDigest: "synthetic-token-digest",
-        signedInAt: new Date(),
-        freshAuthorizedAt: new Date(),
-        credentialRevision: "initial-revision",
-      })
+async function createIdentityGraph(store: IdentityStore, suffix: string) {
+  return store.lock(async (records) => {
+    const user = await records.createUser({
+      displayName: `Synthetic User ${suffix}`,
+      avatarUrl: null,
     })
+    const externalIdentity = await records.saveExternalIdentity({
+      userId: user.id,
+      provider: "oidc",
+      issuer: `https://issuer-${suffix}.example`,
+      subject: `subject-${suffix}`,
+      username: `synthetic-${suffix}`,
+      displayName: `Synthetic User ${suffix}`,
+      avatarUrl: null,
+    })
+    const authenticationProviderRevision = await records.createAuthenticationProviderRevision({
+      key: `oidc-${suffix}`,
+      type: "oidc",
+      enabled: true,
+      revision: 1,
+      issuer: `https://issuer-${suffix}.example`,
+      configuration: {
+        authorizationEndpoint: `https://issuer-${suffix}.example/authorize`,
+        clientId: `client-${suffix}`,
+      },
+    })
+    return { authenticationProviderRevision, externalIdentity, user }
+  })
+}
+
+async function createSession(store: IdentityStore, suffix: string) {
+  const graph = await createIdentityGraph(store, suffix)
+  const session = await store.lock((records) =>
+    records.createSession({
+      userId: graph.user.id,
+      externalIdentityId: graph.externalIdentity.id,
+      authenticationProviderRevisionId: graph.authenticationProviderRevision.id,
+      tokenDigest: `token-digest-${suffix}`,
+      signedInAt: new Date(),
+      freshAuthorizedAt: new Date(),
+    }),
+  )
+  return { ...graph, session }
+}
+
+describe("createIdentityStore()", () => {
+  it("rolls back GitHub integration, session, and audit changes together", async () => {
+    const { store } = await database()
+    const { session } = await createSession(store, "rollback")
+    await store.lock((records) =>
+      records.saveGitHubIntegrationCredentials("initial-encrypted-fixture"),
+    )
 
     await expect(
       store.lock(async (records) => {
-        await records.saveCredentials("replacement-encrypted-fixture")
-        await records.advanceGeneration()
+        await records.saveGitHubIntegrationCredentials("replacement-encrypted-fixture")
+        await records.advanceGitHubIntegrationGeneration()
         await records.deleteSessions()
-        await records.audit({ event: "session.revoke_all", actorId: null, sessionId: null })
+        await records.audit({
+          event: "session.revoke_all",
+          actorUserId: null,
+          sessionId: null,
+          authenticationProviderRevisionId: null,
+        })
         throw new Error("Transaction failed")
       }),
     ).rejects.toThrow("Transaction failed")
 
-    expect(await store.read.state()).toMatchObject({
+    expect(await store.read.githubIntegrationState()).toMatchObject({
       generation: 0,
       encryptedCredentials: "initial-encrypted-fixture",
     })
-    expect(await store.read.session("synthetic-token-digest")).not.toBeNull()
+    expect(await store.read.sessionById(session.id)).not.toBeNull()
     expect(await store.read.audits()).toEqual([])
   })
 
@@ -59,106 +99,270 @@ describe("createIdentityStore()", () => {
       release = resolve
     })
     const first = store.lock(async (records) => {
-      await records.advanceGeneration()
+      await records.advanceGitHubIntegrationGeneration()
       entered()
       await gate
     })
     await started
     const second = store.lock(async (records) => {
-      const state = await records.state()
-      await records.advanceGeneration()
+      const state = await records.githubIntegrationState()
+      await records.advanceGitHubIntegrationGeneration()
       return state.generation
     })
     release()
 
     await first
     expect(await second).toBe(1)
-    expect((await store.read.state()).generation).toBe(2)
+    expect((await store.read.githubIntegrationState()).generation).toBe(2)
   })
 
-  it("upserts by immutable GitHub account rather than a reused login", async () => {
+  it("links multiple issuer-scoped external identities without allowing a relink", async () => {
     const { store } = await database()
-    const profile = { providerId: "10001", login: "synthetic-user", name: null, avatarUrl: null }
-    const original = await store.lock((records) => records.saveUser(profile))
-    await store.lock((records) => records.enroll(original.id))
-    const renamed = await store.lock((records) =>
-      records.saveUser({ ...profile, login: "renamed-user" }),
+    const firstUser = await store.lock((records) =>
+      records.createUser({ displayName: "First user", avatarUrl: null }),
     )
-    const reused = await store.lock((records) =>
-      records.saveUser({ ...profile, providerId: "20002" }),
+    const secondUser = await store.lock((records) =>
+      records.createUser({ displayName: "Second user", avatarUrl: null }),
+    )
+    const firstIdentity = await store.lock((records) =>
+      records.saveExternalIdentity({
+        userId: firstUser.id,
+        provider: "oidc",
+        issuer: "https://first.example",
+        subject: "shared-subject",
+        username: "first-name",
+        displayName: "First identity",
+        avatarUrl: null,
+      }),
+    )
+    const secondIdentity = await store.lock((records) =>
+      records.saveExternalIdentity({
+        userId: firstUser.id,
+        provider: "oidc",
+        issuer: "https://second.example",
+        subject: "shared-subject",
+        username: "second-name",
+        displayName: "Second identity",
+        avatarUrl: null,
+      }),
+    )
+    const relinkAttempt = await store.lock((records) =>
+      records.saveExternalIdentity({
+        userId: secondUser.id,
+        provider: "oidc",
+        issuer: "https://first.example",
+        subject: "shared-subject",
+        username: "updated-name",
+        displayName: "Updated identity",
+        avatarUrl: null,
+      }),
     )
 
-    expect(renamed.id).toBe(original.id)
-    expect(renamed.administrator).toBe(true)
-    expect(reused.id).not.toBe(original.id)
-    expect(reused.administrator).toBe(false)
+    expect(secondIdentity.id).not.toBe(firstIdentity.id)
+    expect(secondIdentity.userId).toBe(firstUser.id)
+    expect(relinkAttempt).toMatchObject({
+      id: firstIdentity.id,
+      userId: firstUser.id,
+      username: "updated-name",
+    })
+    expect(
+      await store.read.externalIdentity("oidc", "https://first.example", "shared-subject"),
+    ).toMatchObject({ id: firstIdentity.id, user: { id: firstUser.id } })
+    expect(await store.read.user(firstUser.id)).not.toHaveProperty("administrator")
   })
 
-  it("consumes an OAuth attempt once across concurrent transactions and clears pending attempts on a cutoff", async () => {
+  it("persists installation status, role, and source independently from the user", async () => {
     const { store } = await database()
-    const input = {
-      stateDigest: "synthetic-state-digest",
-      browserDigest: "synthetic-browser-digest",
-      verifier: "synthetic-verifier",
+    const user = await store.lock((records) =>
+      records.createUser({ displayName: "Administrator", avatarUrl: null }),
+    )
+
+    await store.lock((records) =>
+      records.saveMembership({
+        userId: user.id,
+        status: "active",
+        role: "administrator",
+        source: "bootstrap",
+      }),
+    )
+    await store.lock((records) =>
+      records.saveMembership({
+        userId: user.id,
+        status: "suspended",
+        role: "member",
+        source: "manual",
+      }),
+    )
+
+    expect(await store.read.membership(user.id)).toMatchObject({
+      userId: user.id,
+      status: "suspended",
+      role: "member",
+      source: "manual",
+    })
+    expect(await store.read.user(user.id)).toEqual(user)
+    expect(user).not.toHaveProperty("administrator")
+  })
+
+  it("stores OIDC provider revisions separately from GitHub integration credentials", async () => {
+    const { prisma, store } = await database()
+    const revision = await store.lock((records) =>
+      records.createAuthenticationProviderRevision({
+        key: "workforce-oidc",
+        type: "oidc",
+        enabled: true,
+        revision: 7,
+        issuer: "https://login.example",
+        configuration: {
+          authorizationEndpoint: "https://login.example/authorize",
+          clientId: "replica-hub",
+        },
+      }),
+    )
+
+    expect(revision).toMatchObject({
+      revision: 7,
+      issuer: "https://login.example",
+      configuration: {
+        authorizationEndpoint: "https://login.example/authorize",
+        clientId: "replica-hub",
+      },
+      authenticationProvider: {
+        key: "workforce-oidc",
+        type: "oidc",
+        enabled: true,
+      },
+    })
+    expect(await store.read.githubIntegrationState()).toMatchObject({
       generation: 0,
-      credentialRevision: "synthetic-revision",
+      encryptedCredentials: null,
+    })
+
+    await expect(
+      store.lock((records) =>
+        records.createAuthenticationProviderRevision({
+          key: "workforce-oidc",
+          type: "oidc",
+          enabled: true,
+          revision: 7,
+          issuer: "https://replacement.example",
+          configuration: { clientId: "replacement-client" },
+        }),
+      ),
+    ).rejects.toThrow()
+    await store.lock((records) =>
+      records.saveGitHubIntegrationCredentials("encrypted-github-credentials"),
+    )
+
+    expect(
+      await prisma.authenticationProviderRevision.findUnique({ where: { id: revision.id } }),
+    ).toMatchObject({
+      issuer: "https://login.example",
+      configuration: revision.configuration,
+    })
+  })
+
+  it("keeps sessions tied to identity revisions when GitHub credentials rotate", async () => {
+    const { store } = await database()
+    const { authenticationProviderRevision, externalIdentity, session, user } = await createSession(
+      store,
+      "credential-rotation",
+    )
+
+    await store.lock(async (records) => {
+      await records.saveGitHubIntegrationCredentials("rotated-encrypted-credentials")
+      await records.advanceGitHubIntegrationGeneration()
+    })
+
+    expect(await store.read.session(session.tokenDigest)).toMatchObject({
+      id: session.id,
+      user: { id: user.id },
+      externalIdentity: { id: externalIdentity.id },
+      authenticationProviderRevision: {
+        id: authenticationProviderRevision.id,
+        authenticationProvider: { key: "oidc-credential-rotation", type: "oidc" },
+      },
+    })
+  })
+
+  it("prunes expired provider-aware attempts and consumes a live attempt once", async () => {
+    const { prisma, store } = await database()
+    const { authenticationProviderRevision, session } = await createSession(store, "attempt")
+    const otherProviderRevision = await store.lock((records) =>
+      records.createAuthenticationProviderRevision({
+        key: "other-oidc",
+        type: "oidc",
+        enabled: true,
+        revision: 2,
+        issuer: "https://other.example",
+        configuration: { clientId: "other-client" },
+      }),
+    )
+    const expired = {
+      authenticationProviderRevisionId: otherProviderRevision.id,
+      originatingSessionId: null,
+      stateDigest: "expired-state-digest",
+      browserDigest: "expired-browser-digest",
+      pkceVerifier: "expired-pkce-verifier",
+      nonce: null,
       purpose: "sign-in" as const,
-      sessionId: null,
+      expiresAt: new Date(Date.now() - 1),
+    }
+    const live = {
+      authenticationProviderRevisionId: authenticationProviderRevision.id,
+      originatingSessionId: session.id,
+      stateDigest: "live-state-digest",
+      browserDigest: "live-browser-digest",
+      pkceVerifier: "live-pkce-verifier",
+      nonce: "live-oidc-nonce",
+      purpose: "link-identity" as const,
       expiresAt: new Date(Date.now() + 15 * 60_000),
     }
-    await store.lock((records) => records.createAttempt(input))
-    const results = await Promise.all([
-      store.lock((records) => records.consumeAttempt(input.stateDigest)),
-      store.lock((records) => records.consumeAttempt(input.stateDigest)),
-    ])
-    expect(results.filter(Boolean)).toHaveLength(1)
-    expect(results.find(Boolean)).toMatchObject(input)
+    await store.lock((records) => records.createAuthorizationAttempt(expired))
+    await store.lock((records) => records.createAuthorizationAttempt(live))
 
-    await store.lock((records) => records.createAttempt({ ...input, stateDigest: "pending-state" }))
-    await store.lock((records) => records.advanceGeneration())
-    expect(await store.lock((records) => records.consumeAttempt("pending-state"))).toBeNull()
+    expect(
+      await prisma.authorizationAttempt.findUnique({
+        where: { stateDigest: expired.stateDigest },
+      }),
+    ).toBeNull()
+    const results = await Promise.all([
+      store.lock((records) => records.consumeAuthorizationAttempt(live.stateDigest)),
+      store.lock((records) => records.consumeAuthorizationAttempt(live.stateDigest)),
+    ])
+
+    expect(results.filter(Boolean)).toHaveLength(1)
+    expect(results.find(Boolean)).toMatchObject(live)
   })
 
-  it("invalidates fresh proof without deleting sessions and removes originating attempts on sign-out", async () => {
+  it("removes pending attempts with their originating session", async () => {
     const { store } = await database()
-    const session = await store.lock(async (records) => {
-      const user = await records.saveUser({
-        providerId: "10001",
-        login: "synthetic-user",
-        name: null,
-        avatarUrl: null,
-      })
-      const session = await records.createSession({
-        userId: user.id,
-        tokenDigest: "synthetic-token-digest",
-        signedInAt: new Date(),
-        freshAuthorizedAt: new Date(),
-        credentialRevision: "synthetic-revision",
-      })
-      await records.createAttempt({
-        stateDigest: "synthetic-state-digest",
-        browserDigest: "synthetic-browser-digest",
-        verifier: "synthetic-verifier",
-        generation: 0,
-        credentialRevision: "synthetic-revision",
-        purpose: "verify",
-        sessionId: session.id,
-        expiresAt: new Date(Date.now() + 15 * 60_000),
-      })
-      return session
-    })
+    const { authenticationProviderRevision, session } = await createSession(store, "sign-out")
+    const attempt = {
+      authenticationProviderRevisionId: authenticationProviderRevision.id,
+      originatingSessionId: session.id,
+      stateDigest: "originating-session-state",
+      browserDigest: "originating-session-browser",
+      pkceVerifier: "originating-session-verifier",
+      nonce: null,
+      purpose: "verify" as const,
+      expiresAt: new Date(Date.now() + 15 * 60_000),
+    }
+    await store.lock((records) => records.createAuthorizationAttempt(attempt))
 
     await store.lock((records) => records.invalidateFreshness())
     expect(await store.read.sessionById(session.id)).toMatchObject({ freshAuthorizedAt: null })
     await store.lock((records) => records.deleteSession(session.id))
-    expect(await store.read.session("synthetic-token-digest")).toBeNull()
+
+    expect(await store.read.session(session.tokenDigest)).toBeNull()
     expect(
-      await store.lock((records) => records.consumeAttempt("synthetic-state-digest")),
+      await store.lock((records) => records.consumeAuthorizationAttempt(attempt.stateDigest)),
     ).toBeNull()
   })
 
-  it("hides audits older than ninety days and prunes them on writes while retaining the cutoff", async () => {
+  it("retains minimal structured audits for ninety days and prunes older records on writes", async () => {
     const { prisma, store } = await database()
+    const { authenticationProviderRevision, session, user } = await createSession(store, "audit")
     const now = Date.now()
     vi.spyOn(Date, "now").mockReturnValue(now)
     const cutoff = now - 90 * 24 * 60 * 60_000
@@ -178,14 +382,24 @@ describe("createIdentityStore()", () => {
     expect((await store.read.audits()).map(({ id }) => id)).toEqual([retained.id])
     expect(await prisma.securityAudit.findUnique({ where: { id: old.id } })).not.toBeNull()
     await store.lock((records) =>
-      records.audit({ event: "credentials.setup", actorId: null, sessionId: null }),
+      records.audit({
+        event: "identity.verified",
+        actorUserId: user.id,
+        sessionId: session.id,
+        authenticationProviderRevisionId: authenticationProviderRevision.id,
+      }),
     )
 
     expect(await prisma.securityAudit.findUnique({ where: { id: old.id } })).toBeNull()
     expect(await prisma.securityAudit.findUnique({ where: { id: retained.id } })).not.toBeNull()
-    expect((await store.read.audits()).map(({ event }) => event)).toEqual([
-      "credentials.setup",
-      "session.sign_in",
+    expect(await store.read.audits()).toEqual([
+      expect.objectContaining({
+        event: "identity.verified",
+        actorUserId: user.id,
+        sessionId: session.id,
+        authenticationProviderRevisionId: authenticationProviderRevision.id,
+      }),
+      expect.objectContaining({ id: retained.id, event: "session.sign_in" }),
     ])
     expect(await prisma.securityAudit.count()).toBe(2)
   })

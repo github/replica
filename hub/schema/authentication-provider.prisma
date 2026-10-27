@@ -1,0 +1,42 @@
+model AuthenticationProvider {
+  // ID columns
+  id String @id @default(uuid()) @db.Uuid
+
+  // Relations
+  revisions AuthenticationProviderRevision[]
+
+  // Attribute columns
+  key     String  @unique
+  type    String
+  enabled Boolean @default(true)
+
+  // Timestamp columns
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("authentication_providers")
+}
+
+model AuthenticationProviderRevision {
+  // ID columns
+  id                       String @id @default(uuid()) @db.Uuid
+  authenticationProviderId String @map("authentication_provider_id") @db.Uuid
+
+  // Relations
+  authenticationProvider AuthenticationProvider @relation(fields: [authenticationProviderId], references: [id], onDelete: Cascade)
+  authorizationAttempts  AuthorizationAttempt[]
+  sessions               Session[]
+
+  // Attribute columns
+  revision      Int
+  issuer        String
+  configuration Json
+
+  // Timestamp columns
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([authenticationProviderId, revision])
+  @@index([issuer])
+  @@map("authentication_provider_revisions")
+}
