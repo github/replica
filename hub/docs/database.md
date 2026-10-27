@@ -50,7 +50,7 @@ Workspace and prototype access use separate grant tables so each user has at mos
 
 GitHub synchronization uses separate records:
 
-- `GitHubRepositorySource` identifies a repository by immutable GitHub ID and the App and installation configuration that confirmed it. Mutable owner, name, default branch, active/removed state, dirty state, failures, and synchronization timestamps do not define identity.
+- `GitHubRepositorySource` identifies a repository by immutable GitHub ID and the App and installation configuration that confirmed it. Mutable owner, name, default branch, active/removed state, dirty state, failures, synchronization generation, and timestamps do not define identity. The generation is a compare-and-set boundary for rejecting stale in-flight reconciliation results.
 - `GitHubSynchronizedAccess` stores one user's raw permission, mapped prototype role, admission eligibility, source, status, and last confirmation for one repository source.
 - `GitHubAuthorizationPolicy` stores the bounded last-known-good duration. The initial policy is one day and may not exceed seven days.
 - `GitHubWebhookDelivery` deduplicates verified deliveries by GitHub delivery ID.

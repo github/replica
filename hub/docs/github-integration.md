@@ -31,11 +31,13 @@ GitHub does not map to Hub installation administrator or prototype administrator
 
 `POST /api/administration/github/repositories/:repositorySourceId/reconcile` confirms repository metadata and every known GitHub identity's current collaborator permission. The API process also reconciles active sources every 15 minutes. Reconciliation repairs missed webhooks and permission changes for collaborators or teams because GitHub does not emit a complete permission-change stream.
 
+Each reconciliation claims a monotonically increasing source generation while holding the repository row lock. After GitHub replies, Hub locks and re-reads the source and applies results only when it is still active and the claimed generation is still current. Unlinking, removal webhooks, relinking, dirty webhooks, and newer reconciliation attempts invalidate older in-flight results, so stale replies cannot reactivate a source or replace newer permissions.
+
 `POST /api/github/webhooks` accepts only HMAC-SHA256 verified GitHub App payloads for the configured installation. Relevant installation, installation-repository, repository, member, membership, and team-add events mark affected sources dirty. Repository or installation removal marks synchronized records removed. Delivery IDs are unique, so replayed payloads are harmless. Webhooks do not grant access by themselves; reconciliation confirms it.
 
 ## Staleness and outages
 
-A successful confirmation records `lastConfirmedAt`. Failed provider calls record a bounded failure status and leave that time unchanged. Hub permits a last-known-good baseline for one day, then fails closed. Reconciliation also removes synchronized memberships and sessions when no fresh admission-eligible source remains.
+A successful confirmation records `lastConfirmedAt`. Failed provider calls record a bounded failure status and leave that time unchanged. Hub permits a last-known-good baseline for one day, then fails closed. Admission evaluates live and cached results per repository: a fresh denial for one source suppresses that source's old cache, while an outage may use only the still-fresh cache for the same source. Reconciliation also removes synchronized memberships and sessions when no fresh admission-eligible source remains.
 
 Manual Hub grants, denies, membership assignments, and suspensions are separate rows. Synchronization never deletes or rewrites them. Repository unlink, installation removal, and permission loss affect synchronized rows only.
 
