@@ -23,7 +23,7 @@ export async function consumeAuthorizationAttempt(
       nonce,
       purpose,
       expires_at AS "expiresAt",
-      expires_at > CURRENT_TIMESTAMP AS valid
+      expires_at > clock_timestamp() AS valid
   `
   if (!attempt) return null
   if (!attempt.valid) return null
