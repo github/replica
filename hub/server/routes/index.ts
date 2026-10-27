@@ -30,6 +30,8 @@ import {
   listWorkspaces,
   removePrototypeAccess,
   removeWorkspaceAccess,
+  revokePublisherCredential,
+  setPublisherActive,
   setPrototypeAccess,
   setPrototypeAuthorization,
   setWorkspaceAccess,
@@ -158,6 +160,16 @@ export function routes(app: Express, authentication?: AuthenticationRoutes): voi
     "/api/prototypes/:prototypeId/publishers",
     productMutationLimit,
     createPublisherCredential.bind(null, authentication),
+  )
+  app.patch(
+    "/api/prototypes/:prototypeId/publishers/:publisherId",
+    productMutationLimit,
+    setPublisherActive.bind(null, authentication),
+  )
+  app.delete(
+    "/api/prototypes/:prototypeId/publishers/:publisherId/credentials/:credentialId",
+    productMutationLimit,
+    revokePublisherCredential.bind(null, authentication),
   )
   app.get(
     "/api/prototypes/:prototypeId/access/explanation",

@@ -141,6 +141,44 @@ async function createAdministratorSession(prisma: PrismaClient, token: string) {
   return { actor, store }
 }
 
+async function provisionPublisher(prisma: PrismaClient, sessionToken: string) {
+  const { actor, store } = await createAdministratorSession(prisma, sessionToken)
+  const workspace = await prisma.workspace.create({
+    data: {
+      name: "Publisher workspace",
+      createdByUserId: actor.id,
+      grants: {
+        create: {
+          userId: actor.id,
+          effect: "allow",
+          role: "administrator",
+        },
+      },
+    },
+  })
+  const prototype = await prisma.prototype.create({
+    data: {
+      name: "Publisher prototype",
+      workspaceId: workspace.id,
+      createdByUserId: actor.id,
+    },
+  })
+  const authorization = createPrototypeAuthorizationService({ database: prisma, store })
+  const provisioned = (await authorization.createPublisherCredential(sessionToken, prototype.id, {
+    name: "CI publisher",
+    actions: ["publish", "read-status"],
+  })) as {
+    publisher: { id: string }
+    credential: { id: string; token: string }
+  }
+  return {
+    authorization,
+    prototype,
+    provisioned,
+    workloadAuthorization: `Bearer ${provisioned.credential.token}`,
+  }
+}
+
 async function createCredential(
   prisma: PrismaClient,
   prototypeId: string,
@@ -216,6 +254,32 @@ describe("createArtifactPublishingService() database behavior", () => {
         manifest: {
           ...valid.manifest,
           provenance: { ...valid.manifest.provenance, sourceUrl: "file:///private/build" },
+        },
+      }),
+    },
+    {
+      name: "provenance URL username",
+      change: (valid: ReturnType<typeof publicationInput>) => ({
+        ...valid,
+        manifest: {
+          ...valid.manifest,
+          provenance: {
+            ...valid.manifest.provenance,
+            sourceUrl: "https://publisher@ci.example/runs/123",
+          },
+        },
+      }),
+    },
+    {
+      name: "provenance URL password",
+      change: (valid: ReturnType<typeof publicationInput>) => ({
+        ...valid,
+        manifest: {
+          ...valid.manifest,
+          provenance: {
+            ...valid.manifest.provenance,
+            sourceUrl: "https://publisher:secret@ci.example/runs/123",
+          },
         },
       }),
     },
@@ -333,6 +397,97 @@ describe("createArtifactPublishingService() database behavior", () => {
     expect(saved.tokenDigest).toBe(digestSecret(provisioned.credential.token))
     expect(saved.tokenDigest).not.toContain(provisioned.credential.token)
     expect(JSON.stringify(saved)).not.toContain(provisioned.credential.token)
+  })
+
+  it("accepts and persists an ordinary HTTPS provenance source URL", async () => {
+    const context = await database()
+    const { prototype } = await createPrototype(context.prisma)
+    const credential = await createCredential(context.prisma, prototype.id)
+    const sourceUrl = "https://ci.example/runs/ordinary"
+
+    const result = await context.service.publish(
+      credential.authorization,
+      prototype.id,
+      "ordinary-source-url",
+      publicationInput(prototype.id, artifact("ordinary-source-url"), {
+        manifest: manifest(prototype.id, artifact("ordinary-source-url"), {
+          provenance: {
+            provider: "build-system",
+            sourceUrl,
+            revision: "abc123",
+            ref: "refs/heads/main",
+            pipeline: "publish",
+            runId: "123",
+          },
+        }),
+      }),
+    )
+
+    expect(
+      await context.prisma.prototypeVersion.findUniqueOrThrow({
+        where: { id: publishedVersion(result).id },
+        select: { provenanceSourceUrl: true },
+      }),
+    ).toEqual({ provenanceSourceUrl: sourceUrl })
+  })
+
+  it("keeps a revoked credential unusable after its publisher is disabled and re-enabled", async () => {
+    const context = await database()
+    const sessionToken = "publisher-lifecycle-session"
+    const { authorization, prototype, provisioned, workloadAuthorization } =
+      await provisionPublisher(context.prisma, sessionToken)
+
+    await context.service.publish(
+      workloadAuthorization,
+      prototype.id,
+      "before-disable",
+      publicationInput(prototype.id, artifact("before-disable")),
+    )
+    await authorization.setPublisherActive(sessionToken, prototype.id, provisioned.publisher.id, {
+      active: false,
+    })
+    await expect(
+      context.service.publish(
+        workloadAuthorization,
+        prototype.id,
+        "while-disabled",
+        publicationInput(prototype.id, artifact("while-disabled")),
+      ),
+    ).rejects.toMatchObject({ status: 403, code: "publisher_access_denied" })
+
+    await authorization.setPublisherActive(sessionToken, prototype.id, provisioned.publisher.id, {
+      active: true,
+    })
+    await context.service.publish(
+      workloadAuthorization,
+      prototype.id,
+      "after-enable",
+      publicationInput(prototype.id, artifact("after-enable")),
+    )
+    await authorization.revokePublisherCredential(
+      sessionToken,
+      prototype.id,
+      provisioned.publisher.id,
+      provisioned.credential.id,
+    )
+    await authorization.setPublisherActive(sessionToken, prototype.id, provisioned.publisher.id, {
+      active: false,
+    })
+    await authorization.setPublisherActive(sessionToken, prototype.id, provisioned.publisher.id, {
+      active: true,
+    })
+
+    await expect(
+      context.service.publish(
+        workloadAuthorization,
+        prototype.id,
+        "after-revocation",
+        publicationInput(prototype.id, artifact("after-revocation")),
+      ),
+    ).rejects.toMatchObject({ status: 403, code: "publisher_access_denied" })
+    expect(
+      await context.prisma.prototypeVersion.count({ where: { prototypeId: prototype.id } }),
+    ).toBe(2)
   })
 
   it("enforces publish and read-status action scopes independently", async () => {
@@ -542,6 +697,46 @@ describe("createArtifactPublishingService() database behavior", () => {
       { id: firstVersion.id, sequence: 1 },
       { id: secondVersion.id, sequence: 2 },
     ])
+  })
+
+  it("blocks publication and current or preview promotion after a prototype is archived", async () => {
+    const context = await database()
+    const { prototype } = await createPrototype(context.prisma)
+    const credential = await createCredential(context.prisma, prototype.id)
+    const published = await context.service.publish(
+      credential.authorization,
+      prototype.id,
+      "before-archive",
+      publicationInput(prototype.id, artifact("before-archive")),
+    )
+    const version = publishedVersion(published)
+    await context.prisma.prototype.update({
+      where: { id: prototype.id },
+      data: { archivedAt: new Date() },
+    })
+
+    await expect(
+      context.service.publish(
+        credential.authorization,
+        prototype.id,
+        "after-archive",
+        publicationInput(prototype.id, artifact("after-archive")),
+      ),
+    ).rejects.toMatchObject({ status: 409, code: "prototype_archived" })
+    for (const channel of ["current", "preview"] as const) {
+      await expect(
+        context.service.promote(credential.authorization, prototype.id, channel, {
+          versionId: version.id,
+        }),
+      ).rejects.toMatchObject({ status: 409, code: "prototype_archived" })
+    }
+
+    expect(
+      await context.prisma.prototypeVersion.count({ where: { prototypeId: prototype.id } }),
+    ).toBe(1)
+    expect(
+      await context.prisma.prototypeChannel.count({ where: { prototypeId: prototype.id } }),
+    ).toBe(0)
   })
 
   it("rolls back a published version when its audit cannot be saved", async () => {

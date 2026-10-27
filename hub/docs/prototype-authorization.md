@@ -75,6 +75,8 @@ The product API uses:
 - `GET /api/prototypes/:prototypeId/versions`
 - `GET /api/prototypes/:prototypeId/versions/:versionId`
 - `POST /api/prototypes/:prototypeId/publishers`
+- `PATCH /api/prototypes/:prototypeId/publishers/:publisherId`
+- `DELETE /api/prototypes/:prototypeId/publishers/:publisherId/credentials/:credentialId`
 
 List routes use an opaque UUID cursor and a limit from 1 through 100. Invalid pagination returns an explicit error. State-changing requests require the configured origin and matching CSRF cookie and header. Product responses are private and non-cacheable, request payloads are omitted from logs, and mutation routes use a bounded rate limit.
 

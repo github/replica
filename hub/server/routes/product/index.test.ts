@@ -39,6 +39,8 @@ function runtime(
       getPrototype: vi.fn(),
       archivePrototype: vi.fn(),
       createPublisherCredential: vi.fn(),
+      setPublisherActive: vi.fn(),
+      revokePublisherCredential: vi.fn(),
       explainPrototypeAccess: vi.fn(),
       setPrototypeAccess: vi.fn(),
       removePrototypeAccess: vi.fn(),
@@ -108,6 +110,17 @@ describe("product routes", () => {
       path: "/api/prototypes/prototype/publishers",
       call: "createPublisherCredential",
       body: { name: "Local publisher", actions: ["publish"] },
+    },
+    {
+      method: "PATCH",
+      path: "/api/prototypes/prototype/publishers/publisher",
+      call: "setPublisherActive",
+      body: { active: false },
+    },
+    {
+      method: "DELETE",
+      path: "/api/prototypes/prototype/publishers/publisher/credentials/credential",
+      call: "revokePublisherCredential",
     },
     {
       method: "POST",

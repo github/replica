@@ -165,6 +165,34 @@ export async function createPublisherCredential(
   response.status(201).json(result)
 }
 
+export async function setPublisherActive(
+  authentication: AuthenticationRoutes,
+  request: Request,
+  response: Response,
+): Promise<void> {
+  const publisher = await authentication.prototypeAuthorization.setPublisherActive(
+    mutationSessionToken(authentication, request),
+    parameter(request, "prototypeId"),
+    parameter(request, "publisherId"),
+    request.body,
+  )
+  response.json({ publisher })
+}
+
+export async function revokePublisherCredential(
+  authentication: AuthenticationRoutes,
+  request: Request,
+  response: Response,
+): Promise<void> {
+  await authentication.prototypeAuthorization.revokePublisherCredential(
+    mutationSessionToken(authentication, request),
+    parameter(request, "prototypeId"),
+    parameter(request, "publisherId"),
+    parameter(request, "credentialId"),
+  )
+  response.status(204).end()
+}
+
 export async function explainPrototypeAccess(
   authentication: AuthenticationRoutes,
   request: Request,

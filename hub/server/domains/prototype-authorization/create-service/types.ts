@@ -29,6 +29,18 @@ export interface PrototypeAuthorizationService {
     prototypeId: string,
     input: unknown,
   ): Promise<unknown>
+  setPublisherActive(
+    sessionToken: string,
+    prototypeId: string,
+    publisherId: string,
+    input: unknown,
+  ): Promise<unknown>
+  revokePublisherCredential(
+    sessionToken: string,
+    prototypeId: string,
+    publisherId: string,
+    credentialId: string,
+  ): Promise<void>
   archivePrototype(sessionToken: string, prototypeId: string): Promise<unknown>
   setPrototypeAuthorization(
     sessionToken: string,
