@@ -155,6 +155,12 @@ export function createArtifactPublishingService({
   database: PrismaClient
   storage: ArtifactStorage
 }): ArtifactPublishingService {
+  type PublisherAuthentication = {
+    credentialId: string
+    publisherId: string
+    tokenDigest: string
+  }
+
   async function requireUnarchivedPrototype(prototypeId: string) {
     const prototype = await database.prototype.findUnique({
       where: { id: prototypeId },
@@ -173,6 +179,7 @@ export function createArtifactPublishingService({
       error(401, "publisher_authentication_required", "Publisher authentication failed.")
     }
     const [, token, credentialId] = match
+    const tokenDigest = digestSecret(token)
     const credential = await database.workloadCredential.findUnique({
       where: { id: credentialId },
       include: { workloadPublisher: true },
@@ -184,7 +191,36 @@ export function createArtifactPublishingService({
       !credential.workloadPublisher.active ||
       credential.workloadPublisher.prototypeId !== prototypeId ||
       !credential.workloadPublisher.actions.includes(action) ||
-      !secretsMatch(credential.tokenDigest, digestSecret(token))
+      !secretsMatch(credential.tokenDigest, tokenDigest)
+    ) {
+      error(403, "publisher_access_denied", "Publisher access is denied.")
+    }
+    return {
+      credentialId: credential.id,
+      publisherId: credential.workloadPublisher.id,
+      tokenDigest,
+    }
+  }
+
+  async function requireCurrentPublisherAuthorization(
+    transaction: Prisma.TransactionClient,
+    authentication: PublisherAuthentication,
+    prototypeId: string,
+    action: PublisherAction,
+  ) {
+    const credential = await transaction.workloadCredential.findUnique({
+      where: { id: authentication.credentialId },
+      include: { workloadPublisher: true },
+    })
+    if (
+      !credential ||
+      credential.revokedAt ||
+      (credential.expiresAt && credential.expiresAt <= new Date()) ||
+      !credential.workloadPublisher.active ||
+      credential.workloadPublisher.id !== authentication.publisherId ||
+      credential.workloadPublisher.prototypeId !== prototypeId ||
+      !credential.workloadPublisher.actions.includes(action) ||
+      !secretsMatch(credential.tokenDigest, authentication.tokenDigest)
     ) {
       error(403, "publisher_access_denied", "Publisher access is denied.")
     }
@@ -193,7 +229,7 @@ export function createArtifactPublishingService({
 
   return {
     async publish(authorization, prototypeId, idempotencyKey, input) {
-      const publisher = await authenticate(authorization, prototypeId, "publish")
+      const authentication = await authenticate(authorization, prototypeId, "publish")
       await requireUnarchivedPrototype(prototypeId)
       const parsed = publishSchema.safeParse(input)
       if (!parsed.success || parsed.data.manifest.prototypeId !== prototypeId) {
@@ -217,6 +253,12 @@ export function createArtifactPublishingService({
 
       return database.$transaction(async (transaction) => {
         await lockPrototype(transaction, prototypeId)
+        const publisher = await requireCurrentPublisherAuthorization(
+          transaction,
+          authentication,
+          prototypeId,
+          "publish",
+        )
         const prototype = await transaction.prototype.findUnique({ where: { id: prototypeId } })
         if (!prototype) error(404, "prototype_not_found", "The prototype was not found.")
         if (prototype.archivedAt) {
@@ -325,11 +367,11 @@ export function createArtifactPublishingService({
     },
 
     async getStatus(authorization, prototypeId, idempotencyKey) {
-      const publisher = await authenticate(authorization, prototypeId, "read-status")
+      const authentication = await authenticate(authorization, prototypeId, "read-status")
       const publication = await database.artifactPublication.findUnique({
         where: {
           workloadPublisherId_idempotencyKeyDigest: {
-            workloadPublisherId: publisher.id,
+            workloadPublisherId: authentication.publisherId,
             idempotencyKeyDigest: digestSecret(parseIdempotencyKey(idempotencyKey)),
           },
         },
@@ -345,7 +387,7 @@ export function createArtifactPublishingService({
     },
 
     async promote(authorization, prototypeId, channel, input) {
-      const publisher = await authenticate(authorization, prototypeId, "publish")
+      const authentication = await authenticate(authorization, prototypeId, "publish")
       const parsedChannel = channelSchema.safeParse(channel)
       const parsed = promotionSchema.safeParse(input)
       if (!parsedChannel.success || !parsed.success) {
@@ -353,6 +395,12 @@ export function createArtifactPublishingService({
       }
       return database.$transaction(async (transaction) => {
         await lockPrototype(transaction, prototypeId)
+        const publisher = await requireCurrentPublisherAuthorization(
+          transaction,
+          authentication,
+          prototypeId,
+          "publish",
+        )
         const prototype = await transaction.prototype.findUnique({ where: { id: prototypeId } })
         if (!prototype) error(404, "prototype_not_found", "The prototype was not found.")
         if (prototype.archivedAt) {
