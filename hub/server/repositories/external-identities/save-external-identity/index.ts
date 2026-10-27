@@ -12,6 +12,7 @@ export function saveExternalIdentity(
     create: identity,
     update: {
       username: identity.username,
+      email: identity.email ?? null,
       displayName: identity.displayName,
       avatarUrl: identity.avatarUrl,
     },

@@ -8,6 +8,7 @@ const meta = {
   parameters: { layout: "fullscreen" },
   args: {
     configured: true,
+    providerLabel: "Company SSO",
     loading: false,
     user: null,
     error: null,

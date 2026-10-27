@@ -87,6 +87,9 @@ export interface IdentityRecords {
   currentAuthenticationProviderRevision(
     key: string,
   ): Promise<AuthenticationProviderRevisionRecord | null>
+  latestAuthenticationProviderRevision(
+    key: string,
+  ): Promise<AuthenticationProviderRevisionRecord | null>
   authenticationProviderRevision(id: string): Promise<AuthenticationProviderRevisionRecord | null>
   session(tokenDigest: string): Promise<SessionContext | null>
   sessionById(id: string): Promise<SessionContext | null>

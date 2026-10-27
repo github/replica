@@ -2,6 +2,8 @@
 
 Hub owns installation admission after an authentication provider proves an identity. Repository access affects installation membership only through the explicit GitHub-synchronized policy; Hub remains the final evaluator.
 
+For OIDC, a configured member or administrator app role is required before Hub evaluates membership. Under `jit-assignment`, a first successful sign-in may create membership from that assignment. Under `invitation-required`, the immutable provider, issuer, and subject must also have a usable Hub invitation. Suspended membership remains suspended. Removed membership requires a new invitation and is never silently reactivated from a provider claim.
+
 ## Membership contract
 
 Each Hub user has at most one installation membership.
@@ -64,4 +66,4 @@ Membership operations write a structured security record with a bounded action, 
 
 ## Non-goals
 
-This boundary does not grant direct prototype, workspace, or artifact roles. The separate [prototype authorization](prototype-authorization.md) boundary defines product access and can consume a repository baseline below Hub overrides. Membership synchronization does not browse source, implement production OIDC, link accounts across providers, provision users through SCIM, or ingest artifacts.
+This boundary does not grant direct prototype, workspace, or artifact roles. The separate [prototype authorization](prototype-authorization.md) boundary defines product access and can consume a synchronized repository baseline below Hub overrides. Entra assignment controls Hub installation admission, not prototype authorization. Hub does not link accounts across providers, provision or deprovision users through SCIM, synchronize Graph groups after setup, or grant artifact publishing authority from a user-provider claim.

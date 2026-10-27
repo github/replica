@@ -6,6 +6,7 @@ export interface SignInPageUser {
 
 export interface SignInPageProps {
   configured: boolean
+  providerLabel?: string | null
   loading: boolean
   user: SignInPageUser | null
   error: string | null

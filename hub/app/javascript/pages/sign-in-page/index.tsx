@@ -9,6 +9,7 @@ import "./styles.css"
 
 export function SignInPage({
   configured,
+  providerLabel,
   loading,
   user,
   error,
@@ -39,8 +40,8 @@ export function SignInPage({
         ) : (
           <>
             <Text as="p">
-              Sign in with GitHub to create a Hub session. Repository access is authorized
-              separately.
+              Sign in with {providerLabel ?? "the configured identity provider"} to create a Hub
+              session. Repository access is authorized separately.
             </Text>
             <Button
               type="button"
@@ -48,11 +49,9 @@ export function SignInPage({
               disabled={loading || !configured}
               onClick={onSignIn}
             >
-              Sign in with GitHub
+              Sign in with {providerLabel ?? "identity provider"}
             </Button>
-            {!configured && (
-              <Text as="p">GitHub sign-in has not been configured for this Hub.</Text>
-            )}
+            {!configured && <Text as="p">User sign-in has not been configured for this Hub.</Text>}
             {configured ? (
               <div className="sign-in-page__enrollment">
                 <details>

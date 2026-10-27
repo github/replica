@@ -23,6 +23,8 @@ export async function get(
     response.json({
       authenticated: true,
       configured: authentication.settings.configured,
+      provider: authentication.settings.provider,
+      providerLabel: authentication.settings.providerLabel,
       admissionPolicy: authentication.settings.admissionPolicy,
       csrfToken,
       user: {
@@ -48,6 +50,8 @@ export async function get(
     response.json({
       authenticated: false,
       configured: authentication.settings.configured,
+      provider: authentication.settings.provider,
+      providerLabel: authentication.settings.providerLabel,
       admissionPolicy: authentication.settings.admissionPolicy,
       csrfToken,
     })

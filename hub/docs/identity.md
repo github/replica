@@ -1,6 +1,13 @@
 # Hub identity
 
-Hub uses GitHub user authorization to prove an external identity. Hub then applies its configured installation admission and membership rules before creating a provider-neutral browser session. Repository permissions grant installation membership only when an operator explicitly selects GitHub-synchronized admission and opts in at least one linked repository.
+Hub uses one configured user sign-in provider to prove an external identity. Hub then applies its own installation admission and membership rules before creating a provider-neutral browser session. Provider assignment and repository permissions do not grant future prototype authorization.
+
+## Production OIDC
+
+Hub supports standards-based OIDC authorization code flow as a sibling of GitHub user authorization. The first deployment profile is single-tenant Microsoft Entra ID with `Hub.User` and `Hub.Administrator` app roles. See [Microsoft Entra OIDC](entra-oidc.md) for the setup script, exact configuration, assignment policy, and operational boundary.
+
+OIDC discovery must return the exact configured issuer. Hub binds state to the initiating browser, uses PKCE and nonce, consumes attempts once, exchanges the code with a bounded timeout, verifies the ID-token signature through cached rotating JWKS, and validates issuer, audience, authorized party, token lifetime, and nonce. The configured issuer is host configuration, never request input. Hub rejects non-public or cross-origin discovery endpoints.
+Hub maps `oidc + issuer/tenant + subject` to `ExternalIdentity`. Login, email, name, and picture are mutable display attributes. They never admit a user or select an existing identity. The authorization response and provider tokens are discarded after identity and app-role extraction.
 
 ## GitHub user authentication
 
@@ -20,7 +27,7 @@ Hub sessions use a random opaque cookie and store only its digest. Authenticatio
 
 Artifact publishing uses a separate workload identity boundary. Prototype administrators issue prototype-scoped credentials with `publish` and/or `read-status`; Hub returns the raw bearer token once and stores only its digest. Workload credentials never create browser sessions or inherit user, installation, repository, or source-provider access. See [Artifact ingestion](artifact-ingestion.md).
 
-Sign-out revokes the current database session. Every restored session requires an active installation membership. Suspension and removal therefore deny retained cookies immediately, and their administration operations delete the affected user's sessions. Fresh verification reuses GitHub authorization and must return the same external identity. An active Hub administrator membership with fresh verification may revoke all sessions; revocation also supersedes callbacks that started earlier.
+Sign-out revokes the current database session. Provider logout is optional and is not assumed. Every restored session requires an active installation membership. Suspension and removal therefore deny retained cookies immediately, and their administration operations delete the affected user's sessions. Fresh verification reuses the configured provider and must return the same external identity. An active Hub administrator membership with fresh verification may revoke all sessions; revocation also supersedes callbacks that started earlier.
 
 ## Persisted boundaries
 
@@ -58,6 +65,6 @@ Database credentials use AES-256-GCM with contextual additional authenticated da
 
 ## Current scope
 
-This layer adds GitHub sign-in, Hub-managed and opt-in GitHub-synchronized installation admission, invitations, member and administrator lifecycle, one-use bootstrap and recovery, session restoration, sign-out, fresh verification, global and per-member session revocation, structured security records, and the minimal frontend needed to use them. The separate [prototype authorization](prototype-authorization.md) boundary may consume a synchronized repository baseline without treating installation membership as product authority. Artifact ingestion composes with identity only when a browser administrator provisions a workload credential; publication itself does not use a browser session. Identity does not add production OIDC, account linking, or SCIM.
+This layer adds explicit GitHub or OIDC sign-in, Hub-managed and opt-in GitHub-synchronized installation admission, invitations, member and administrator lifecycle, one-use bootstrap and recovery, session restoration, sign-out, fresh verification, global and per-member session revocation, structured security records, and the minimal frontend needed to use them. The separate [prototype authorization](prototype-authorization.md) boundary may consume a synchronized repository baseline without treating installation membership as product authority. Artifact ingestion composes with identity only when a browser administrator provisions a workload credential; publication itself does not use a browser session. Identity does not add a multi-provider chooser, cross-provider account linking, SCIM or Graph lifecycle synchronization, or background Graph access.
 
 Apply the rewritten initial migration with `npm run db:deploy`. See [Database](database.md) for setup and schema rules.

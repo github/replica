@@ -31,7 +31,9 @@ export async function consumeAuthorizationAttempt(
   if (
     attempt.purpose !== "sign-in" &&
     attempt.purpose !== "verify" &&
-    attempt.purpose !== "link-identity"
+    attempt.purpose !== "link-identity" &&
+    attempt.purpose !== "bootstrap" &&
+    attempt.purpose !== "recovery"
   ) {
     throw new Error("Stored authorization purpose is invalid.")
   }

@@ -4,6 +4,7 @@ import type {
   GitHubUserAuthConfiguration,
   GitHubUserProfile,
 } from "#server/integrations/github/create-user-auth-client/types"
+import type { OidcClient, OidcConfiguration } from "#server/integrations/oidc/create-client/types"
 import type { InstallationMembershipRecord } from "#server/repositories/installation-memberships/types"
 import type { GitHubAdmissionBaseline } from "#server/domains/github-authorization/create-service/types"
 import type { Prisma } from "../../../generated/prisma/client.ts"
@@ -24,6 +25,8 @@ export interface AuthenticationSettings {
   origin: string
   secureCookies: boolean
   configured: boolean
+  provider?: "github" | "oidc" | null
+  providerLabel?: string | null
   admissionPolicy: AdmissionPolicy["name"]
   trustedProxyHops: number
 }
@@ -53,6 +56,10 @@ export interface AuthenticationDependencies {
   github: GitHubUserAuthClient | null
   configuration: GitHubUserAuthConfiguration | null
   providerRevisionId: string | null
+  oidc?: OidcClient | null
+  oidcConfiguration?: OidcConfiguration | null
+  oidcProviderRevisionId?: string | null
+  provider?: "github" | "oidc"
   admissionPolicy: AdmissionPolicy
   bootstrapSecret?: string | null
   recoverySecret?: string | null

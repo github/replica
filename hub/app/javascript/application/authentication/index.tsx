@@ -11,6 +11,8 @@ import type {
 interface SessionResponse {
   authenticated: boolean
   configured: boolean
+  provider: "github" | "oidc" | null
+  providerLabel: string | null
   csrfToken: string
   user?: SignInPageUser
   membership?: {
@@ -56,7 +58,8 @@ export function AuthenticationApplication() {
     setLoading(true)
     setError(null)
     try {
-      const response = await fetch("/api/auth/github", {
+      if (!session.provider) throw new Error("Sign-in provider is not configured")
+      const response = await fetch(`/api/auth/${session.provider}`, {
         method: "POST",
         credentials: "same-origin",
         headers: { "X-CSRF-Token": session.csrfToken },
@@ -65,7 +68,7 @@ export function AuthenticationApplication() {
       const data = (await response.json()) as { authorizationUrl: string }
       window.location.assign(data.authorizationUrl)
     } catch {
-      setError("Hub could not start GitHub sign-in.")
+      setError("Hub could not start sign-in.")
       setLoading(false)
     }
   }
@@ -177,6 +180,7 @@ export function AuthenticationApplication() {
   return (
     <SignInPage
       configured={session?.configured ?? false}
+      providerLabel={session?.providerLabel ?? null}
       loading={loading}
       user={session?.authenticated ? (session.user ?? null) : null}
       error={error}

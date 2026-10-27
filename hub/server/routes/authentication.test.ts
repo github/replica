@@ -16,6 +16,7 @@ function authentication(
   overrides: Partial<Mocked<AuthenticationService>> = {},
   secureCookies = true,
   trustedProxyHops = 0,
+  provider: "github" | "oidc" = "github",
 ) {
   const service = Object.assign(
     {
@@ -48,6 +49,8 @@ function authentication(
       origin: "https://hub.example",
       secureCookies,
       configured: true,
+      provider,
+      providerLabel: provider === "oidc" ? "Company SSO" : "GitHub",
       admissionPolicy: "hub-managed" as const,
       trustedProxyHops,
     },
@@ -112,6 +115,61 @@ describe("authentication routes", () => {
       ),
     )
     expect(runtime.service.start).toHaveBeenCalledWith("sign-in")
+  })
+
+  it("uses the same protected initiation and opaque callback session contract for OIDC", async () => {
+    const runtime = authentication(
+      {
+        start: vi.fn().mockResolvedValue({
+          authorizationUrl:
+            "https://login.example.test/tenant/authorize?state=state&nonce=nonce&code_challenge=challenge&code_challenge_method=S256",
+          browserToken,
+        }),
+        complete: vi.fn().mockResolvedValue({
+          purpose: "sign-in",
+          sessionToken,
+        }),
+      },
+      true,
+      0,
+      "oidc",
+    )
+    const baseUrl = await serve(runtime)
+
+    const unprotected = await fetch(`${baseUrl}/api/auth/oidc`, { method: "POST" })
+    expect(unprotected.status).toBe(403)
+    expect(runtime.service.start).not.toHaveBeenCalled()
+
+    const initiation = await fetch(`${baseUrl}/api/auth/oidc`, {
+      method: "POST",
+      headers: csrfHeaders,
+    })
+    expect(initiation.status).toBe(200)
+    expect(await initiation.json()).toEqual({
+      authorizationUrl:
+        "https://login.example.test/tenant/authorize?state=state&nonce=nonce&code_challenge=challenge&code_challenge_method=S256",
+    })
+    expect(initiation.headers.get("set-cookie")).toContain(
+      `__Host-replica-authorization=${browserToken}`,
+    )
+    expect(runtime.service.start).toHaveBeenCalledWith("sign-in")
+
+    const callback = await fetch(
+      `${baseUrl}/api/auth/oidc/callback?code=provider-code&state=${"s".repeat(43)}`,
+      {
+        headers: { cookie: `__Host-replica-authorization=${browserToken}` },
+        redirect: "manual",
+      },
+    )
+    expect(callback.status).toBe(303)
+    expect(callback.headers.get("location")).toBe("https://hub.example/?authentication=complete")
+    expect(callback.headers.get("set-cookie")).toContain(`__Host-replica-session=${sessionToken}`)
+    expect(callback.headers.get("set-cookie")).not.toContain("provider-code")
+    expect(runtime.service.complete).toHaveBeenCalledWith(
+      "provider-code",
+      "s".repeat(43),
+      browserToken,
+    )
   })
 
   it("rejects state-changing requests unless both the origin and CSRF token match", async () => {
@@ -371,6 +429,8 @@ describe("authentication routes", () => {
     expect(body).toMatchObject({
       authenticated: true,
       configured: true,
+      provider: "github",
+      providerLabel: "GitHub",
       admissionPolicy: "hub-managed",
       user: { id: "user", provider: "github", username: "octocat" },
       session: { id: "session", freshAuthorizedAt: null },

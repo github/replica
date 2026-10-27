@@ -13,6 +13,7 @@ model ExternalIdentity {
   issuer      String
   subject     String
   username    String?
+  email       String?
   displayName String? @map("display_name")
   avatarUrl   String? @map("avatar_url")
 
