@@ -1,12 +1,12 @@
 # API logging
 
-Hub writes newline-delimited JSON to stdout through the shared logger in `server/integrations/pino/index.ts`. `LOG_LEVEL` sets the minimum severity and defaults to `info`. Allowed values are `trace`, `debug`, `info`, `warn`, `error`, `fatal`, and `silent`; an invalid value prevents startup.
+Hub writes one JSON object per line to stdout through `server/integrations/pino/index.ts`. `LOG_LEVEL` sets the minimum severity: `trace`, `debug`, `info` (default), `warn`, `error`, `fatal`, or `silent`. Invalid values prevent startup.
 
-Log collection, access, retention, and deployment configuration are outside this integration. Logs can contain private information even after key redaction. Treat access to logs accordingly.
+Logs can still contain private information after redaction. Operators must restrict access and configure collection and retention separately.
 
 ## Application events
 
-Import the explicit logging function from its directory:
+Use `log()` for application events:
 
 ```ts
 import { log } from "../integrations/pino/log/index.ts"
@@ -14,36 +14,34 @@ import { log } from "../integrations/pino/log/index.ts"
 log("info", "Build imported", { buildId })
 ```
 
-Pass structured fields rather than interpolating user input into messages. Keep messages static and never put credentials, raw requests, or private content into a message or stack trace. Sensitive values in free text cannot be reliably detected.
+Keep messages short and static. Pass data as structured fields, not message text. Redaction matches keys; it cannot detect secrets in free text, including messages and stacks.
 
-Handlers can use `request.log.info({ buildId }, "Build imported")` to include the request ID automatically. The helper also accepts a request logger as its fourth argument: `log("info", "Build imported", { buildId }, request.log)`.
+In handlers, use `request.log.info({ buildId }, "Build imported")` to include the request ID, or pass `request.log` as the fourth argument to `log()`.
 
-Utilities cannot import integrations. Repositories and other integrations must receive a logger explicitly if they need one; domains and HTTP setup may import the Pino integration. Do not bind request payloads with `logger.child()` or `setBindings()`: arbitrary Pino bindings do not pass through the structured-field sanitizer.
+Follow the [import boundaries](backend-architecture.md#import-boundaries). Repositories and other integrations must receive a logger rather than import Pino's shared instance. Never put payloads in `logger.child()` or `setBindings()`: those fields bypass sanitization.
 
 ## Automatic HTTP records
 
-`createApp()` registers `createRequestLogger()` once, before JSON parsing and routes. Every request gets a server-generated UUID returned in `X-Request-Id`; incoming request ID headers are not trusted. Body parsing accepts JSON with Express's default 100 KiB limit.
+`createApp()` installs request logging before JSON parsing and routes. Every endpoint inherits it. Each request gets a server-generated UUID in the `X-Request-Id` response header; incoming IDs are ignored.
 
-The middleware emits one terminal record with `reqId`, `method`, `route`, `statusCode`, `responseTime` in milliseconds, and `outcome`. Completed responses below 400 use `info`, 4xx use `warn`, and 5xx or connection errors use `error`. An unfinished connection uses `outcome: "aborted"` and `statusCode: null`, even if headers were already sent.
+Each request produces one final record with `reqId`, `method`, `route`, `statusCode`, `responseTime` (milliseconds), and `outcome`. Responses below 400 use `info`, 4xx use `warn`, and 5xx or connection errors use `error`. Interrupted responses have `outcome: "aborted"` and `statusCode: null`.
 
-`route` is the handler's Express route template, such as `/builds/:id`, or `null` for an unmatched request. For mounted routers it is relative to the mount: Express exposes concrete mount values, not a safe complete template. The middleware captures route parameters when headers are written, before Express can restore outer-router parameters. It also captures the sanitized query and parsed JSON body at that point. Later mutations during a streaming response do not change the snapshot.
+`route` is the handler's template, such as `/builds/:id`, or `null` when unmatched. Mounted routers use a relative template to avoid exposing actual mount values. Sanitized parameters, query fields, and parsed JSON bodies are copied when headers are sent, before Express clears route data.
 
-Automatic records omit raw URLs, headers, cookies, raw or malformed bodies, uploads, response bodies, and error messages or stacks. Parser errors receive a generic JSON error response. Errors after headers are sent close the connection rather than sending raw errors to Express's default reporter.
+Automatic records exclude raw URLs, headers, cookies, uploads, response bodies, and error details. JSON parsing uses Express's default 100 KiB limit; rejected bodies are not logged. The Express error handler returns generic JSON errors, or closes the connection if headers were sent, without exposing raw errors.
 
-An endpoint handling sensitive content can exclude all payload fields before sending its response:
+For private free text or other sensitive payloads, exclude all payload fields before sending a response:
 
 ```ts
 response.locals.omitLogPayload = true
 ```
 
-This omits `params`, `query`, and `body`, but retains the method, route template, request ID, timing, and outcome.
+This omits `params`, `query`, and `body` while keeping request metadata.
 
 ## Structured-field safety
 
-The shared logger sanitizes structured event fields, including fields passed to `request.log`. Request snapshots use the same sanitizer without mutating the request.
+Application fields, `request.log` fields, and automatic payloads share the same sanitizer. It copies data without changing the request or invoking getters or custom serialization methods.
 
-Sensitive keys are replaced with `[REDACTED]`. Matching ignores case and punctuation and covers keys containing password, passwd, passphrase, secret, token, authorization, cookie, API key, private key, or session ID. The sanitizer visits nested objects and arrays; it does not search arbitrary string values for secrets. Endpoint authors must exclude payloads containing private free text or fields not covered by those key rules.
+Keys containing password, passwd, passphrase, secret, token, authorization, cookie, API key, private key, or session ID become `[REDACTED]`. Matching ignores case and punctuation and includes nested objects and arrays. Exclude payloads whose sensitive fields do not match these rules.
 
-Each top-level structured field is limited to 8 KiB of serialized JSON, six nesting levels, 100 visited entries, and 2,048 characters per string. Field names are capped at 128 characters. An event includes at most 100 caller-supplied top-level fields, plus a truncation marker when that limit is exceeded. Explicit markers identify redaction, truncation, cycles, unavailable getters, unsupported values, and oversized fields. The limits apply to structured fields, not Pino's message or custom bindings. Use short, static messages.
-
-The sanitizer copies ordinary objects, arrays, and Error data properties without invoking getters or custom `toJSON()` methods. Unsupported object instances are omitted with a marker. These bounds prevent log payloads from growing without limit; they are not a substitute for input validation or endpoint-specific privacy decisions.
+Structured fields have [size, depth, and entry limits](../server/utils/logging/sanitize-log-value/constants.ts); Pino also [caps top-level fields](../server/integrations/pino/format-log-fields/constants.ts). Markers replace truncated data, cycles, getters, and unsupported values. These limits do not apply to messages or custom bindings and do not replace endpoint validation or privacy decisions.
