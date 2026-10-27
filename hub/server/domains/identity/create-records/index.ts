@@ -1,4 +1,6 @@
 import { createAuthenticationProviderRevision } from "#server/repositories/authentication-providers/create-provider-revision"
+import { getCurrentAuthenticationProviderRevision } from "#server/repositories/authentication-providers/get-current-revision"
+import { getAuthenticationProviderRevision } from "#server/repositories/authentication-providers/get-revision"
 import { consumeAuthorizationAttempt } from "#server/repositories/authorization-attempts/consume-attempt"
 import { createAuthorizationAttempt } from "#server/repositories/authorization-attempts/create-attempt"
 import { getExternalIdentity } from "#server/repositories/external-identities/get-external-identity"
@@ -6,6 +8,8 @@ import { saveExternalIdentity } from "#server/repositories/external-identities/s
 import { advanceGitHubIntegrationGeneration } from "#server/repositories/github-integration-state/advance-generation"
 import { getGitHubIntegrationState } from "#server/repositories/github-integration-state/get-state"
 import { saveGitHubIntegrationCredentials } from "#server/repositories/github-integration-state/save-credentials"
+import { advanceSessionGeneration } from "#server/repositories/identity-store-state/advance-session-generation"
+import { getIdentityStoreState } from "#server/repositories/identity-store-state/get-state"
 import { getInstallationMembership } from "#server/repositories/installation-memberships/get-membership"
 import { saveInstallationMembership } from "#server/repositories/installation-memberships/save-membership"
 import { getSecurityAudits } from "#server/repositories/security-audits/get-audits"
@@ -19,22 +23,31 @@ import { invalidateFreshness } from "#server/repositories/sessions/invalidate-fr
 import { verifySession } from "#server/repositories/sessions/verify-session"
 import { createUser } from "#server/repositories/users/create-user"
 import { getUser } from "#server/repositories/users/get-user"
+import { updateUser } from "#server/repositories/users/update-user"
 import type { IdentityRecords } from "#server/domains/identity/create-store/types"
 
 import type { Prisma } from "../../../generated/prisma/client.ts"
 
 export function createIdentityRecords(database: Prisma.TransactionClient): IdentityRecords {
   return {
+    identityStoreState: getIdentityStoreState.bind(null, database),
+    advanceSessionGeneration: advanceSessionGeneration.bind(null, database),
     githubIntegrationState: getGitHubIntegrationState.bind(null, database),
     saveGitHubIntegrationCredentials: saveGitHubIntegrationCredentials.bind(null, database),
     advanceGitHubIntegrationGeneration: advanceGitHubIntegrationGeneration.bind(null, database),
     user: getUser.bind(null, database),
     createUser: createUser.bind(null, database),
+    updateUser: updateUser.bind(null, database),
     externalIdentity: getExternalIdentity.bind(null, database),
     saveExternalIdentity: saveExternalIdentity.bind(null, database),
     membership: getInstallationMembership.bind(null, database),
     saveMembership: saveInstallationMembership.bind(null, database),
     createAuthenticationProviderRevision: createAuthenticationProviderRevision.bind(null, database),
+    currentAuthenticationProviderRevision: getCurrentAuthenticationProviderRevision.bind(
+      null,
+      database,
+    ),
+    authenticationProviderRevision: getAuthenticationProviderRevision.bind(null, database),
     session: getSession.bind(null, database),
     sessionById: getSessionById.bind(null, database),
     createSession: createSession.bind(null, database),

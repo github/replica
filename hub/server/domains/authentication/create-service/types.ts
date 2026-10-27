@@ -1,0 +1,49 @@
+import type { IdentityStore, SessionContext } from "#server/domains/identity/create-store/types"
+import type {
+  GitHubUserAuthClient,
+  GitHubUserAuthConfiguration,
+  GitHubUserProfile,
+} from "#server/integrations/github/create-user-auth-client/types"
+import type { InstallationMembershipRecord } from "#server/repositories/installation-memberships/types"
+
+export type AuthorizationPurpose = "sign-in" | "verify"
+
+export interface AdmissionPolicy {
+  name: "hub-managed" | "legacy-repository"
+  admit(profile: GitHubUserProfile): Promise<boolean>
+}
+
+export interface AuthenticationSettings {
+  origin: string
+  secureCookies: boolean
+  configured: boolean
+  admissionPolicy: AdmissionPolicy["name"]
+}
+
+export interface AuthenticationContext extends SessionContext {
+  membership: InstallationMembershipRecord | null
+}
+
+export interface AuthenticationService {
+  start(
+    purpose: AuthorizationPurpose,
+    sessionToken?: string,
+  ): Promise<{ authorizationUrl: string; browserToken: string }>
+  complete(
+    code: string,
+    state: string,
+    browserToken: string,
+  ): Promise<{ sessionToken?: string; purpose: AuthorizationPurpose }>
+  current(sessionToken: string): Promise<AuthenticationContext>
+  signOut(sessionToken: string): Promise<void>
+  revokeAll(sessionToken: string): Promise<void>
+}
+
+export interface AuthenticationDependencies {
+  store: IdentityStore
+  github: GitHubUserAuthClient | null
+  configuration: GitHubUserAuthConfiguration | null
+  providerRevisionId: string | null
+  admissionPolicy: AdmissionPolicy
+  now: () => Date
+}

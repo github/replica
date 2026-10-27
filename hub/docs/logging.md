@@ -40,6 +40,8 @@ router.use(omitRequestLogPayload)
 
 This omits `params`, `query`, and `body` while keeping request metadata.
 
+Authentication and session routes install this omission before their handlers run. OAuth codes, state values, CSRF values, cookies, PKCE material, and provider responses therefore never enter automatic request payload records.
+
 ## Structured-field safety
 
 Application fields, `request.log` fields, and automatic payloads share the same sanitizer. It copies data without changing the request or invoking getters or custom serialization methods.
