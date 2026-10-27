@@ -30,7 +30,14 @@ const manifestSchema = z
       sourceUrl: z
         .url()
         .max(2_048)
-        .refine((value) => ["http:", "https:"].includes(new URL(value).protocol))
+        .refine((value) => {
+          const url = new URL(value)
+          return (
+            ["http:", "https:"].includes(url.protocol) &&
+            url.username.length === 0 &&
+            url.password.length === 0
+          )
+        })
         .optional(),
       revision: boundedIdentifier.optional(),
       ref: boundedIdentifier.optional(),
@@ -148,6 +155,17 @@ export function createArtifactPublishingService({
   database: PrismaClient
   storage: ArtifactStorage
 }): ArtifactPublishingService {
+  async function requireUnarchivedPrototype(prototypeId: string) {
+    const prototype = await database.prototype.findUnique({
+      where: { id: prototypeId },
+      select: { archivedAt: true },
+    })
+    if (!prototype) error(404, "prototype_not_found", "The prototype was not found.")
+    if (prototype.archivedAt) {
+      error(409, "prototype_archived", "Archived prototypes cannot be published.")
+    }
+  }
+
   async function authenticate(authorization: string, prototypeId: string, action: PublisherAction) {
     parsePrototypeId(prototypeId)
     const match = authorizationSchema.exec(authorization)
@@ -176,6 +194,7 @@ export function createArtifactPublishingService({
   return {
     async publish(authorization, prototypeId, idempotencyKey, input) {
       const publisher = await authenticate(authorization, prototypeId, "publish")
+      await requireUnarchivedPrototype(prototypeId)
       const parsed = publishSchema.safeParse(input)
       if (!parsed.success || parsed.data.manifest.prototypeId !== prototypeId) {
         error(422, "invalid_artifact_manifest", "The artifact manifest is invalid.")
@@ -336,6 +355,9 @@ export function createArtifactPublishingService({
         await lockPrototype(transaction, prototypeId)
         const prototype = await transaction.prototype.findUnique({ where: { id: prototypeId } })
         if (!prototype) error(404, "prototype_not_found", "The prototype was not found.")
+        if (prototype.archivedAt) {
+          error(409, "prototype_archived", "Archived prototypes cannot be promoted.")
+        }
         const version = await transaction.prototypeVersion.findFirst({
           where: { id: parsed.data.versionId, prototypeId },
         })

@@ -33,6 +33,7 @@ const publisherSchema = z
     expiresAt: z.iso.datetime({ offset: true }).nullable().optional(),
   })
   .strict()
+const publisherStateSchema = z.object({ active: z.boolean() }).strict()
 const pageSchema = z.object({
   cursor: z.uuid().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(20),
@@ -961,6 +962,13 @@ export function createPrototypeAuthorizationService({
           baseline,
         )
         requireDecision(decision, "administrator")
+        if (prototype.archivedAt) {
+          throw new AuthenticationError(
+            409,
+            "prototype_archived",
+            "Archived prototypes cannot receive publishers.",
+          )
+        }
         const credentialId = randomUUID()
         const token = `rpl_pub_${credentialId}.${randomBytes(32).toString("base64url")}`
         const publisher = await transaction.workloadPublisher.create({
@@ -995,6 +1003,118 @@ export function createPrototypeAuthorizationService({
           },
           credential: { id: credentialId, token },
         }
+      })
+    },
+
+    async setPublisherActive(sessionToken, prototypeId, publisherId, input) {
+      const parsed = publisherStateSchema.safeParse(input)
+      if (!parsed.success) {
+        throw new AuthenticationError(
+          422,
+          "invalid_workload_publisher",
+          "The workload publisher is invalid.",
+        )
+      }
+      return store.lock(async (_records, transaction) => {
+        const actor = await currentSession(store, sessionToken, transaction)
+        requireFreshAuthorization(actor)
+        requireIdentifier(prototypeId, "prototype_not_found", "The prototype was not found.")
+        requireIdentifier(
+          publisherId,
+          "workload_publisher_not_found",
+          "The workload publisher was not found.",
+        )
+        await lockPrototype(transaction, prototypeId)
+        const { prototype, decision } = await prototypeDecision(
+          transaction,
+          actor.userId,
+          prototypeId,
+          baseline,
+        )
+        requireDecision(decision, "administrator")
+        if (prototype.archivedAt && parsed.data.active) {
+          throw new AuthenticationError(
+            409,
+            "prototype_archived",
+            "Archived prototypes cannot enable publishers.",
+          )
+        }
+        const publisher = await transaction.workloadPublisher.findFirst({
+          where: { id: publisherId, prototypeId },
+        })
+        if (!publisher) {
+          throw new AuthenticationError(
+            404,
+            "workload_publisher_not_found",
+            "The workload publisher was not found.",
+          )
+        }
+        if (publisher.active === parsed.data.active) return publisher
+        const updated = await transaction.workloadPublisher.update({
+          where: { id: publisher.id },
+          data: { active: parsed.data.active },
+        })
+        await audit(transaction, actor, {
+          event: parsed.data.active ? "prototype.publisher.enable" : "prototype.publisher.disable",
+          workspaceId: prototype.workspaceId,
+          prototypeId,
+          workloadPublisherId: publisher.id,
+          context: { source: "prototype_administrator" },
+        })
+        return updated
+      })
+    },
+
+    async revokePublisherCredential(sessionToken, prototypeId, publisherId, credentialId) {
+      await store.lock(async (_records, transaction) => {
+        const actor = await currentSession(store, sessionToken, transaction)
+        requireFreshAuthorization(actor)
+        requireIdentifier(prototypeId, "prototype_not_found", "The prototype was not found.")
+        requireIdentifier(
+          publisherId,
+          "workload_publisher_not_found",
+          "The workload publisher was not found.",
+        )
+        requireIdentifier(
+          credentialId,
+          "workload_credential_not_found",
+          "The workload credential was not found.",
+        )
+        await lockPrototype(transaction, prototypeId)
+        const { prototype, decision } = await prototypeDecision(
+          transaction,
+          actor.userId,
+          prototypeId,
+          baseline,
+        )
+        requireDecision(decision, "administrator")
+        const credential = await transaction.workloadCredential.findFirst({
+          where: {
+            id: credentialId,
+            workloadPublisherId: publisherId,
+            workloadPublisher: { prototypeId },
+          },
+        })
+        if (!credential) {
+          throw new AuthenticationError(
+            404,
+            "workload_credential_not_found",
+            "The workload credential was not found.",
+          )
+        }
+        if (credential.revokedAt) return
+        await transaction.workloadCredential.update({
+          where: { id: credential.id },
+          data: { revokedAt: new Date() },
+        })
+        await audit(transaction, actor, {
+          event: "prototype.publisher.credential.revoke",
+          workspaceId: prototype.workspaceId,
+          prototypeId,
+          workloadPublisherId: publisherId,
+          workloadCredentialId: credential.id,
+          context: { source: "prototype_administrator" },
+        })
       })
     },
 

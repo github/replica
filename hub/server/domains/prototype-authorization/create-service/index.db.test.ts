@@ -137,6 +137,58 @@ async function holdPrototypeLock(database: PrismaClient, prototypeId: string) {
   return { holder, release: released.resolve }
 }
 
+async function createAdministeredPrototype({
+  service,
+  store,
+  subject,
+  token,
+}: {
+  service: ReturnType<typeof createPrototypeAuthorizationService>
+  store: IdentityStore
+  subject: string
+  token: string
+}) {
+  const actor = await createActor(store, { subject, token, role: "administrator" })
+  const workspace = (await service.createWorkspace(token, {
+    name: `${subject} workspace`,
+  })) as { id: string }
+  const prototype = (await service.createPrototype(token, workspace.id, {
+    name: `${subject} prototype`,
+  })) as { id: string }
+  return { actor, prototype, workspace }
+}
+
+async function rejectAudit(
+  database: PrismaClient,
+  event:
+    | "prototype.publisher.create"
+    | "prototype.publisher.disable"
+    | "prototype.publisher.credential.revoke",
+  action: () => Promise<unknown>,
+) {
+  await database.$executeRawUnsafe(`
+    CREATE FUNCTION reject_test_publisher_audit() RETURNS trigger AS $$
+    BEGIN
+      IF NEW.event = '${event}' THEN
+        RAISE EXCEPTION 'audit unavailable';
+      END IF;
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql;
+  `)
+  await database.$executeRawUnsafe(`
+    CREATE TRIGGER reject_test_publisher_audit
+    BEFORE INSERT ON security_audits
+    FOR EACH ROW EXECUTE FUNCTION reject_test_publisher_audit();
+  `)
+  try {
+    await expect(action()).rejects.toThrow("audit unavailable")
+  } finally {
+    await database.$executeRawUnsafe("DROP TRIGGER reject_test_publisher_audit ON security_audits")
+    await database.$executeRawUnsafe("DROP FUNCTION reject_test_publisher_audit()")
+  }
+}
+
 describe("createPrototypeAuthorizationService() database behavior", () => {
   it("separates installation authority from prototype access and explicitly grants a creator", async () => {
     const { prisma, service, store } = await database()
@@ -793,6 +845,236 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
       status: 404,
       code: "version_not_found",
     })
+  })
+
+  it("audits publisher disable, re-enable, and credential revocation with their state changes", async () => {
+    const { prisma, service, store } = await database()
+    const token = "publisher-lifecycle-token"
+    const { actor, prototype } = await createAdministeredPrototype({
+      service,
+      store,
+      subject: "publisher-lifecycle",
+      token,
+    })
+
+    await rejectAudit(prisma, "prototype.publisher.create", () =>
+      service.createPublisherCredential(token, prototype.id, {
+        name: "Rejected publisher",
+        actions: ["publish"],
+      }),
+    )
+    expect(await prisma.workloadPublisher.count({ where: { prototypeId: prototype.id } })).toBe(0)
+
+    const provisioned = (await service.createPublisherCredential(token, prototype.id, {
+      name: "CI publisher",
+      actions: ["publish", "read-status"],
+    })) as {
+      publisher: { id: string }
+      credential: { id: string }
+    }
+
+    await rejectAudit(prisma, "prototype.publisher.disable", () =>
+      service.setPublisherActive(token, prototype.id, provisioned.publisher.id, {
+        active: false,
+      }),
+    )
+    expect(
+      await prisma.workloadPublisher.findUniqueOrThrow({
+        where: { id: provisioned.publisher.id },
+        select: { active: true },
+      }),
+    ).toEqual({ active: true })
+
+    await service.setPublisherActive(token, prototype.id, provisioned.publisher.id, {
+      active: false,
+    })
+    await service.setPublisherActive(token, prototype.id, provisioned.publisher.id, {
+      active: true,
+    })
+    await rejectAudit(prisma, "prototype.publisher.credential.revoke", () =>
+      service.revokePublisherCredential(
+        token,
+        prototype.id,
+        provisioned.publisher.id,
+        provisioned.credential.id,
+      ),
+    )
+    expect(
+      await prisma.workloadCredential.findUniqueOrThrow({
+        where: { id: provisioned.credential.id },
+        select: { revokedAt: true },
+      }),
+    ).toEqual({ revokedAt: null })
+
+    await service.revokePublisherCredential(
+      token,
+      prototype.id,
+      provisioned.publisher.id,
+      provisioned.credential.id,
+    )
+
+    const revokedCredential = await prisma.workloadCredential.findUniqueOrThrow({
+      where: { id: provisioned.credential.id },
+      select: { revokedAt: true },
+    })
+    expect(revokedCredential.revokedAt).toBeInstanceOf(Date)
+    expect(
+      await prisma.securityAudit.findMany({
+        where: { prototypeId: prototype.id, workloadPublisherId: provisioned.publisher.id },
+        select: {
+          actorUserId: true,
+          event: true,
+          workloadCredentialId: true,
+          workloadPublisherId: true,
+        },
+      }),
+    ).toEqual(
+      expect.arrayContaining([
+        {
+          actorUserId: actor.user.id,
+          event: "prototype.publisher.create",
+          workloadCredentialId: null,
+          workloadPublisherId: provisioned.publisher.id,
+        },
+        {
+          actorUserId: actor.user.id,
+          event: "prototype.publisher.disable",
+          workloadCredentialId: null,
+          workloadPublisherId: provisioned.publisher.id,
+        },
+        {
+          actorUserId: actor.user.id,
+          event: "prototype.publisher.enable",
+          workloadCredentialId: null,
+          workloadPublisherId: provisioned.publisher.id,
+        },
+        {
+          actorUserId: actor.user.id,
+          event: "prototype.publisher.credential.revoke",
+          workloadCredentialId: provisioned.credential.id,
+          workloadPublisherId: provisioned.publisher.id,
+        },
+      ]),
+    )
+    expect(
+      await prisma.securityAudit.count({
+        where: { prototypeId: prototype.id, workloadPublisherId: provisioned.publisher.id },
+      }),
+    ).toBe(4)
+  })
+
+  it("does not apply publisher or credential lifecycle operations across prototypes", async () => {
+    const { prisma, service, store } = await database()
+    const token = "publisher-scope-token"
+    const { prototype, workspace } = await createAdministeredPrototype({
+      service,
+      store,
+      subject: "publisher-scope",
+      token,
+    })
+    const otherPrototype = (await service.createPrototype(token, workspace.id, {
+      name: "Other prototype",
+    })) as { id: string }
+    const provisioned = (await service.createPublisherCredential(token, prototype.id, {
+      name: "Scoped publisher",
+      actions: ["publish"],
+    })) as {
+      publisher: { id: string }
+      credential: { id: string }
+    }
+
+    await expect(
+      service.setPublisherActive(token, otherPrototype.id, provisioned.publisher.id, {
+        active: false,
+      }),
+    ).rejects.toMatchObject({ status: 404, code: "workload_publisher_not_found" })
+    await expect(
+      service.revokePublisherCredential(
+        token,
+        otherPrototype.id,
+        provisioned.publisher.id,
+        provisioned.credential.id,
+      ),
+    ).rejects.toMatchObject({ status: 404, code: "workload_credential_not_found" })
+
+    expect(
+      await prisma.workloadPublisher.findUniqueOrThrow({
+        where: { id: provisioned.publisher.id },
+        select: { active: true, credentials: { select: { revokedAt: true } } },
+      }),
+    ).toEqual({ active: true, credentials: [{ revokedAt: null }] })
+    expect(
+      await prisma.securityAudit.count({
+        where: {
+          prototypeId: otherPrototype.id,
+          event: { startsWith: "prototype.publisher." },
+        },
+      }),
+    ).toBe(0)
+  })
+
+  it("allows disable and credential revocation after archive but blocks creation and re-enable", async () => {
+    const { prisma, service, store } = await database()
+    const token = "archived-publisher-token"
+    const { prototype } = await createAdministeredPrototype({
+      service,
+      store,
+      subject: "archived-publisher",
+      token,
+    })
+    const provisioned = (await service.createPublisherCredential(token, prototype.id, {
+      name: "Archived publisher",
+      actions: ["publish"],
+    })) as {
+      publisher: { id: string }
+      credential: { id: string }
+    }
+    await service.archivePrototype(token, prototype.id)
+
+    await expect(
+      service.createPublisherCredential(token, prototype.id, {
+        name: "New archived publisher",
+        actions: ["publish"],
+      }),
+    ).rejects.toMatchObject({ status: 409, code: "prototype_archived" })
+    await service.setPublisherActive(token, prototype.id, provisioned.publisher.id, {
+      active: false,
+    })
+    await expect(
+      service.setPublisherActive(token, prototype.id, provisioned.publisher.id, {
+        active: true,
+      }),
+    ).rejects.toMatchObject({ status: 409, code: "prototype_archived" })
+    await service.revokePublisherCredential(
+      token,
+      prototype.id,
+      provisioned.publisher.id,
+      provisioned.credential.id,
+    )
+
+    const publisher = await prisma.workloadPublisher.findUniqueOrThrow({
+      where: { id: provisioned.publisher.id },
+      select: { active: true, credentials: { select: { revokedAt: true } } },
+    })
+    expect(publisher.active).toBe(false)
+    expect(publisher.credentials).toHaveLength(1)
+    expect(publisher.credentials[0]?.revokedAt).toBeInstanceOf(Date)
+    expect(
+      (
+        await prisma.securityAudit.findMany({
+          where: {
+            prototypeId: prototype.id,
+            event: {
+              in: ["prototype.publisher.disable", "prototype.publisher.credential.revoke"],
+            },
+          },
+          select: { event: true },
+        })
+      ).sort((left, right) => left.event.localeCompare(right.event)),
+    ).toEqual([
+      { event: "prototype.publisher.credential.revoke" },
+      { event: "prototype.publisher.disable" },
+    ])
   })
 
   it("rechecks membership in the mutation transaction instead of trusting a stale session", async () => {
