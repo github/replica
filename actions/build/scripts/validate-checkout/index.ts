@@ -12,13 +12,13 @@ const unsafeCheckout =
   "Use actions/checkout with persist-credentials: false, including nested checkouts and submodules."
 
 /** Rejects persisted Git authentication before repository-controlled scripts run. */
-export async function validateCheckout(root) {
+export async function validateCheckout(root: string): Promise<void> {
   root = await realpath(root)
   const pending = [{ directory: root, metadata: false }]
   const visited = new Set()
 
-  while (pending.length > 0) {
-    const { directory, metadata } = pending.pop()
+  for (let current = pending.pop(); current; current = pending.pop()) {
+    const { directory, metadata } = current
     const identity = `${metadata}:${directory}`
 
     if (visited.has(identity)) continue

@@ -7,18 +7,23 @@
     "node": "^24.15.0 || ^26.0.0"
   },
   "scripts": {
-    "lint": "eslint . && prettier --check .",
-    "test": "node --test --test-concurrency=1 scripts/*/index.test.mjs"
+    "lint": "tsc --noEmit && eslint . && prettier --check .",
+    "test": "node --import tsx --test --test-concurrency=1 scripts/*/index.test.mjs scripts/*/index.test.ts"
   },
   "dependencies": {
     "playwright": "1.64.1",
-    "pngjs": "7.0.0"
+    "pngjs": "7.0.0",
+    "tsx": "4.23.15"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
+    "@types/node": "26.6.4",
+    "@typescript/native": "npm:typescript@7.0.2",
     "eslint": "10.12.0",
     "eslint-config-prettier": "10.1.8",
     "globals": "17.13.0",
-    "prettier": "3.9.10"
+    "prettier": "3.9.10",
+    "typescript": "npm:@typescript/typescript6@6.0.2",
+    "typescript-eslint": "8.71.2"
   }
 }

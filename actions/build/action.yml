@@ -9,18 +9,18 @@ runs:
       with:
         node-version: 24
 
+    - name: Install action dependencies
+      run: npm ci --ignore-scripts --omit=dev
+      shell: bash
+      working-directory: ${{ github.action_path }}
+
     - name: Check checkout credentials
-      run: node "$GITHUB_ACTION_PATH/scripts/validate-checkout/index.mjs" --root "$GITHUB_WORKSPACE"
+      run: '"$GITHUB_ACTION_PATH/node_modules/.bin/tsx" --tsconfig "$GITHUB_ACTION_PATH/tsconfig.json" "$GITHUB_ACTION_PATH/scripts/validate-checkout/index.ts" --root "$GITHUB_WORKSPACE"'
       shell: bash
 
     - name: Check required npm files and build script
       run: node "$GITHUB_ACTION_PATH/scripts/validate-repository/index.mjs" --root "$GITHUB_WORKSPACE"
       shell: bash
-
-    - name: Install browser-check dependencies
-      run: npm ci --ignore-scripts --omit=dev
-      shell: bash
-      working-directory: ${{ github.action_path }}
 
     - name: Build prototype as a non-root user in a Node container
       run: |
