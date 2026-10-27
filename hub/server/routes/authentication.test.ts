@@ -152,6 +152,42 @@ describe("authentication routes", () => {
     expect(JSON.stringify(records)).not.toMatch(/query-private-value|body-private-value/)
   })
 
+  it.each([
+    {
+      name: "malformed",
+      body: '{"note":"body-private-value"',
+      status: 400,
+    },
+    {
+      name: "oversized",
+      body: JSON.stringify({ note: "body-private-value".repeat(100_000) }),
+      status: 413,
+    },
+  ])("omits auth payloads when the JSON parser rejects a $name body", async ({ body, status }) => {
+    const records: Record<string, unknown>[] = []
+    const logger = createLogger({
+      destination: {
+        write: (line) => records.push(JSON.parse(line) as Record<string, unknown>),
+      },
+    })
+    const baseUrl = await serve(authentication(), logger)
+
+    const response = await fetch(`${baseUrl}/api/auth/github?note=query-private-value`, {
+      method: "POST",
+      headers: {
+        ...csrfHeaders,
+        "content-type": "application/json",
+      },
+      body,
+    })
+
+    expect(response.status).toBe(status)
+    await vi.waitFor(() => expect(records).toHaveLength(1))
+    expect(records[0]).not.toHaveProperty("query")
+    expect(records[0]).not.toHaveProperty("body")
+    expect(JSON.stringify(records)).not.toMatch(/query-private-value|body-private-value/)
+  })
+
   it("rotates browser state on sign-out and delegates revoke-all only with a protected request", async () => {
     const runtime = authentication()
     const baseUrl = await serve(runtime)
