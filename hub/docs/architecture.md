@@ -14,9 +14,11 @@ Contributors can use PostgreSQL and Prisma locally or in the devcontainer. Ident
 
 API code lives under `server/`. As features are added, route handlers will read requests, call domains, and return responses. The [code conventions](backend-architecture.md) explain repositories, integrations, utilities, domains, and which layers may import others. Put these directories under `server/` when they are needed; do not add empty implementations.
 
-The only route is `GET /api/health`, which returns `{ "status": "ok" }`. Every other path returns a JSON 404 response. `createApp()` builds the Express app without starting a server. `server/index.ts` starts it at a local address.
+The only route is `GET /api/health`, which returns `{ "status": "ok" }`. Unknown paths return a JSON 404 response; invalid JSON is rejected before routing. `createApp()` builds the Express app without starting a server. `server/index.ts` starts it at a local address.
 
 The [database guide](database.md) defines the multi-file Prisma schema and shared client in integrations. The health route remains a process check, not a database readiness check.
+
+The [Pino integration](logging.md) writes structured application and HTTP logs to stdout. `createApp()` installs request logging and JSON parsing before routes, so new endpoints inherit completion records and server-generated request IDs without explicit logging calls.
 
 ## Frontend
 
