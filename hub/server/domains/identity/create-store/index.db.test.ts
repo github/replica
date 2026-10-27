@@ -1,6 +1,7 @@
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { createIdentityStore } from "#server/domains/identity/create-store"
+import { consumeAuthorizationAttempt } from "#server/repositories/authorization-attempts/consume-attempt"
 
 type IdentityStore = ReturnType<typeof createIdentityStore>
 
@@ -285,7 +286,153 @@ describe("createIdentityStore()", () => {
     })
   })
 
-  it("prunes expired provider-aware attempts and consumes a live attempt once", async () => {
+  it("rejects a session when the external identity provider type differs", async () => {
+    const { store } = await database()
+    const user = await store.lock((records) =>
+      records.createUser({ displayName: "Provider mismatch", avatarUrl: null }),
+    )
+    const externalIdentity = await store.lock((records) =>
+      records.saveExternalIdentity({
+        userId: user.id,
+        provider: "github",
+        issuer: "https://login.example",
+        subject: "provider-mismatch",
+        username: "provider-mismatch",
+        displayName: "Provider mismatch",
+        avatarUrl: null,
+      }),
+    )
+    const authenticationProviderRevision = await store.lock((records) =>
+      records.createAuthenticationProviderRevision({
+        key: "provider-mismatch",
+        type: "oidc",
+        enabled: true,
+        revision: 1,
+        issuer: "https://login.example",
+        configuration: { clientId: "provider-mismatch" },
+      }),
+    )
+
+    await expect(
+      store.lock((records) =>
+        records.createSession({
+          userId: user.id,
+          externalIdentityId: externalIdentity.id,
+          authenticationProviderRevisionId: authenticationProviderRevision.id,
+          tokenDigest: "provider-mismatch-token",
+          signedInAt: new Date(),
+          freshAuthorizedAt: new Date(),
+        }),
+      ),
+    ).rejects.toThrow("Session external identity provider must match")
+    expect(await store.read.session("provider-mismatch-token")).toBeNull()
+  })
+
+  it("rejects a session when the external identity issuer differs", async () => {
+    const { store } = await database()
+    const user = await store.lock((records) =>
+      records.createUser({ displayName: "Issuer mismatch", avatarUrl: null }),
+    )
+    const externalIdentity = await store.lock((records) =>
+      records.saveExternalIdentity({
+        userId: user.id,
+        provider: "oidc",
+        issuer: "https://identity.example",
+        subject: "issuer-mismatch",
+        username: "issuer-mismatch",
+        displayName: "Issuer mismatch",
+        avatarUrl: null,
+      }),
+    )
+    const authenticationProviderRevision = await store.lock((records) =>
+      records.createAuthenticationProviderRevision({
+        key: "issuer-mismatch",
+        type: "oidc",
+        enabled: true,
+        revision: 1,
+        issuer: "https://provider.example",
+        configuration: { clientId: "issuer-mismatch" },
+      }),
+    )
+
+    await expect(
+      store.lock((records) =>
+        records.createSession({
+          userId: user.id,
+          externalIdentityId: externalIdentity.id,
+          authenticationProviderRevisionId: authenticationProviderRevision.id,
+          tokenDigest: "issuer-mismatch-token",
+          signedInAt: new Date(),
+          freshAuthorizedAt: new Date(),
+        }),
+      ),
+    ).rejects.toThrow("Session external identity issuer must match")
+    expect(await store.read.session("issuer-mismatch-token")).toBeNull()
+  })
+
+  it("keeps a provider type and historical session context after rejecting a type change", async () => {
+    const { store } = await database()
+    const { authenticationProviderRevision, session } = await createSession(
+      store,
+      "immutable-provider-type",
+    )
+
+    await expect(
+      store.lock((records) =>
+        records.createAuthenticationProviderRevision({
+          key: "oidc-immutable-provider-type",
+          type: "github",
+          enabled: false,
+          revision: 2,
+          issuer: "https://github.com",
+          configuration: { clientId: "replacement-client" },
+        }),
+      ),
+    ).rejects.toThrow("Authentication provider type cannot change")
+
+    expect(await store.read.session(session.tokenDigest)).toMatchObject({
+      authenticationProviderRevision: {
+        id: authenticationProviderRevision.id,
+        revision: 1,
+        authenticationProvider: {
+          key: "oidc-immutable-provider-type",
+          type: "oidc",
+          enabled: true,
+        },
+      },
+    })
+  })
+
+  it("deletes an attempt expiring at the database transaction time without consuming it", async () => {
+    const { prisma, store } = await database()
+    const { authenticationProviderRevision } = await createIdentityGraph(store, "expiry-boundary")
+    const stateDigest = "expiry-boundary-state"
+
+    const consumed = await prisma.$transaction(async (database) => {
+      const [clock] = await database.$queryRaw<{ now: Date }[]>`
+        SELECT CURRENT_TIMESTAMP AS now
+      `
+      if (!clock) throw new Error("Expected the database transaction time")
+      await database.authorizationAttempt.create({
+        data: {
+          authenticationProviderRevisionId: authenticationProviderRevision.id,
+          originatingSessionId: null,
+          stateDigest,
+          browserDigest: "expiry-boundary-browser",
+          pkceVerifier: "expiry-boundary-verifier",
+          nonce: null,
+          purpose: "sign-in",
+          expiresAt: clock.now,
+        },
+      })
+      return consumeAuthorizationAttempt(database, stateDigest)
+    })
+
+    expect(consumed).toBeNull()
+    expect(await prisma.authorizationAttempt.findUnique({ where: { stateDigest } })).toBeNull()
+  })
+
+  it("prunes expired provider-aware attempts and atomically consumes a live attempt once", async () => {
     const { prisma, store } = await database()
     const { authenticationProviderRevision, session } = await createSession(store, "attempt")
     const otherProviderRevision = await store.lock((records) =>
@@ -327,12 +474,17 @@ describe("createIdentityStore()", () => {
       }),
     ).toBeNull()
     const results = await Promise.all([
-      store.lock((records) => records.consumeAuthorizationAttempt(live.stateDigest)),
-      store.lock((records) => records.consumeAuthorizationAttempt(live.stateDigest)),
+      prisma.$transaction((database) => consumeAuthorizationAttempt(database, live.stateDigest)),
+      prisma.$transaction((database) => consumeAuthorizationAttempt(database, live.stateDigest)),
     ])
 
     expect(results.filter(Boolean)).toHaveLength(1)
     expect(results.find(Boolean)).toMatchObject(live)
+    expect(
+      await prisma.authorizationAttempt.findUnique({
+        where: { stateDigest: live.stateDigest },
+      }),
+    ).toBeNull()
   })
 
   it("removes pending attempts with their originating session", async () => {

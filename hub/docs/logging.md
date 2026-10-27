@@ -30,10 +30,12 @@ Each request produces one final record with `reqId`, `method`, `route`, `statusC
 
 Automatic records exclude raw URLs, headers, cookies, uploads, response bodies, and error details. JSON parsing uses Express's default 100 KiB limit; rejected bodies are not logged. The Express error handler returns generic JSON errors, or closes the connection if headers were sent, without exposing raw errors.
 
-For private free text or other sensitive payloads, exclude all payload fields before sending a response:
+Authentication routers should install `omitRequestLogPayload` before their handlers so callback payloads are excluded by default:
 
 ```ts
-response.locals.omitLogPayload = true
+import { omitRequestLogPayload } from "../integrations/pino/omit-request-log-payload/index.ts"
+
+router.use(omitRequestLogPayload)
 ```
 
 This omits `params`, `query`, and `body` while keeping request metadata.
@@ -42,6 +44,6 @@ This omits `params`, `query`, and `body` while keeping request metadata.
 
 Application fields, `request.log` fields, and automatic payloads share the same sanitizer. It copies data without changing the request or invoking getters or custom serialization methods.
 
-Keys containing password, passwd, passphrase, secret, token, authorization, cookie, API key, private key, or session ID become `[REDACTED]`. Matching ignores case and punctuation and includes nested objects and arrays. Exclude payloads whose sensitive fields do not match these rules.
+Keys containing password, passwd, passphrase, secret, token, authorization, cookie, API key, private key, or session ID become `[REDACTED]`. Automatic request payloads also redact OAuth and OIDC `code`, `state`, `nonce`, and `code_verifier` fields. Matching ignores case and punctuation and includes nested objects and arrays. Exclude payloads whose sensitive fields do not match these rules.
 
 Structured fields have [size, depth, and entry limits](../server/utils/logging/sanitize-log-value/constants.ts). Markers replace truncated data, cycles, getters, and unsupported values. These limits do not apply to messages or custom bindings and do not replace endpoint validation or privacy decisions.
