@@ -5,12 +5,19 @@ import type {
   GitHubUserProfile,
 } from "#server/integrations/github/create-user-auth-client/types"
 import type { InstallationMembershipRecord } from "#server/repositories/installation-memberships/types"
+import type { GitHubAdmissionBaseline } from "#server/domains/github-authorization/create-service/types"
+import type { Prisma } from "../../../generated/prisma/client.ts"
 
 export type AuthorizationPurpose = "sign-in" | "verify" | "bootstrap" | "recovery"
 
 export interface AdmissionPolicy {
-  name: "hub-managed" | "legacy-repository"
-  admit(profile: GitHubUserProfile): Promise<boolean>
+  name: "hub-managed" | "github-synchronized" | "legacy-repository"
+  admit(profile: GitHubUserProfile): Promise<GitHubAdmissionBaseline | "legacy" | boolean | null>
+  saveBaseline?(
+    database: Prisma.TransactionClient,
+    userId: string,
+    baseline: GitHubAdmissionBaseline,
+  ): Promise<void>
 }
 
 export interface AuthenticationSettings {

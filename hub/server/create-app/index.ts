@@ -18,9 +18,17 @@ export function createApp({
   app.set("trust proxy", authentication?.settings.trustedProxyHops ?? 0)
   app.use(createRequestLogger(logger))
   app.use(
-    ["/api/auth", "/api/session", "/api/administration", "/api/workspaces", "/api/prototypes"],
+    [
+      "/api/auth",
+      "/api/session",
+      "/api/administration",
+      "/api/github/webhooks",
+      "/api/workspaces",
+      "/api/prototypes",
+    ],
     omitRequestLogPayload,
   )
+  app.use("/api/github/webhooks", express.raw({ type: "application/json", limit: "1mb" }))
   app.use(express.json())
 
   routes(app, authentication)

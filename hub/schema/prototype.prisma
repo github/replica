@@ -9,10 +9,13 @@ model Prototype {
   createdBy User                   @relation("PrototypeCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
   versions  PrototypeVersion[]
   grants    PrototypeAccessGrant[]
+  sourceRepository GitHubRepositorySource? @relation(fields: [sourceRepositoryId], references: [id], onDelete: SetNull)
 
   // Attribute columns
-  name       String
-  archivedAt DateTime? @map("archived_at") @db.Timestamptz(3)
+  name               String
+  authorizationMode  String  @default("hub-managed") @map("authorization_mode")
+  sourceRepositoryId String? @map("source_repository_id") @db.Uuid
+  archivedAt          DateTime? @map("archived_at") @db.Timestamptz(3)
 
   // Timestamp columns
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
@@ -20,5 +23,6 @@ model Prototype {
 
   @@index([workspaceId])
   @@index([createdByUserId])
+  @@index([sourceRepositoryId])
   @@map("prototypes")
 }
