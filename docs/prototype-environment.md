@@ -2,11 +2,16 @@
 
 Set up Replica so your team can build prototypes with its design system, share them, and collect feedback. This guide walks you through each step, from checking hosting requirements to publishing your first prototype.
 
-If you only want to try Replica locally, follow [Create your first local prototype](local-prototyping.md). If your team already has a connected repository and Hub, follow [Join your team's Replica environment](getting-started.md).
+- **Trying Replica locally?** Follow [Create your first local prototype](local-prototyping.md).
+- **Joining an existing setup?** Follow [Join your team's Replica environment](getting-started.md) if your team has a connected repository and Hub.
 
 Build and test prototypes in your local development environment, then publish them to Hub for your team to review and comment on. Your organization sets up and manages the server for Hub, rather than using a service hosted by GitHub.
 
-Confirm the server, dedicated domain, network access, and GitHub permissions needed for Hub. While hosting is arranged, set up your prototype repository with your team's design-system guidance and build a working prototype locally. Once Hub is running and connected to the repository, publish that prototype and collect comments from your team.
+The setup follows this sequence:
+
+1. Confirm the server, dedicated domain, network access, and GitHub permissions needed for Hub.
+2. Set up your prototype repository with your team's design-system guidance and build a working prototype locally while hosting is arranged.
+3. Once Hub is running and connected to the repository, publish that prototype and collect comments from your team.
 
 You can handle setup yourself or work with your infrastructure and GitHub administrators. The linked guides provide technical details for each step.
 
@@ -25,11 +30,13 @@ Use sample data for prototypes. Do not include passwords or access keys from liv
 
 ### If hosting is blocked
 
-You can build your prototype locally while hosting is being arranged. Follow steps 2 through 4 below, and prepare starting pages in step 9 if useful. Once the hosting requirements are in place, continue at step 5 with the same project.
+You can keep working while hosting is arranged:
 
-If GitHub approvals are also pending, keep working locally. You can share your code once you have an approved repository, even if the build workflow is still awaiting approval. You'll need the workflow approved and working before you can publish to Hub.
+- **Build locally:** Follow steps 2 through 4 below, and prepare starting pages in step 9 if useful.
+- **Share reviewed source:** Once you have an approved GitHub repository, follow [Share the reviewed starting version](#share-the-reviewed-starting-version) in step 6. Stop before the GitHub App and build setup, which need Hub.
+- **Resume hosted setup:** Once the hosting requirements are in place, continue at step 5 with the same project.
 
-To share the reviewed code while hosting is pending, follow [Share the reviewed starting version](#share-the-reviewed-starting-version) in step 6. Stop before the GitHub App and build setup, which need Hub.
+> **Note:** If GitHub approvals are also pending, keep working locally. Sharing source does not require the build workflow, but publishing to Hub does.
 
 ## 2. Connect a prototype repository
 
@@ -37,15 +44,27 @@ To share the reviewed code while hosting is pending, follow [Share the reviewed 
 
 You'll use the **Replica canvas**, a panel in the GitHub Copilot app that shows your running prototype beside your conversation. It is included in the Replica plugin.
 
-If you already have a Replica repository, open it in Copilot and continue at **Install the Replica plugin if needed** below. You don't need to copy the starter files or start again. If the app already works in the canvas, go to step 3.
+If you have already completed some setup, continue from there:
 
-If you already built a local prototype with approved guidance, keep that work and continue at step 5 once the hosting requirements are in place. If Hub is already running, continue at step 6 instead.
+| What is ready | Continue at |
+| --- | --- |
+| A Replica repository | Open it in Copilot and continue at **Install the Replica plugin if needed** below. Do not copy the starter again. |
+| The app works in the canvas | Step 3. |
+| A local prototype with approved guidance | Step 5 once hosting requirements are in place, or step 6 if Hub is already running. Keep your existing work. |
 
 ### Prepare your local development environment
 
-If you don't already have the [GitHub Copilot app](https://github.com/features/ai/github-app), install it and sign in. You also need [Git](https://git-scm.com/), [Node.js](https://nodejs.org/), and npm. Use a Node.js version matching `engines.node` in your repository's `package.json`, or [the starter's package.json](../starter/package.json) for a new repository. Reuse a compatible installation.
+Check that your local development environment has:
 
-The Replica canvas supports local previews on macOS and Linux. It uses `lsof` to find running local servers. Install missing tools through your organization's approved process. The starter installer does not install Node.js or change your shell configuration.
+- **The [GitHub Copilot app](https://github.com/features/ai/github-app)**, installed and signed in.
+- **[Git](https://git-scm.com/)**.
+- **[Node.js](https://nodejs.org/) and npm**, with a Node.js version matching `engines.node` in your repository's `package.json`, or [the starter's package.json](../starter/package.json) for a new repository.
+- **macOS or Linux**, the supported systems for local canvas previews.
+- **`lsof`**, which the canvas uses to find running local servers.
+
+Reuse compatible installations and install missing tools through your organization's approved process.
+
+> **Note:** The starter installer does not install Node.js or change your shell configuration.
 
 Copilot requires GitHub sign-in, but creating the local starter does not require GitHub repository access. You can use a Copilot plan or [connect your own model provider](https://docs.github.com/en/copilot/how-tos/github-copilot-app/use-byok-models).
 
@@ -53,51 +72,60 @@ Copilot requires GitHub sign-in, but creating the local starter does not require
 
 The starter provides a working app to build on. The installer creates a new folder for it, named `my-prototype` in the example below. Choose a name that is not already in use.
 
-In a terminal, go to the directory where you want the new folder created, then download the installer:
+The new folder is an independent local Git repository. The installer does not create a GitHub repository, commit files, or publish anything.
 
-```sh
-curl -fLSs https://raw.githubusercontent.com/github/replica/main/scripts/install-starter.sh -o install-starter.sh
-```
+> **Before accepting Copilot setup:** Session setup can install Copilot's command-line tool, the Replica plugin, and project dependencies.
 
-Review the installer, then run it with a name for your new project folder:
+1. In a terminal, go to the directory where you want the new folder created, then download the installer:
 
-```sh
-bash install-starter.sh my-prototype
-```
+   ```sh
+   curl -fLSs https://raw.githubusercontent.com/github/replica/main/scripts/install-starter.sh -o install-starter.sh
+   ```
 
-This creates `my-prototype` as an independent local Git repository. It does not create a GitHub repository, commit files, or publish anything.
+2. Review the installer, then run it with a name for your new project folder:
 
-In Copilot, choose **Projects → + → Local folder or repository** and add the new folder. Before accepting its setup settings, review `.github/github-app.yml` and the copied README. Setup can install Copilot's command-line tool, the Replica plugin, and project dependencies.
+   ```sh
+   bash install-starter.sh my-prototype
+   ```
 
-Start a fresh session in the new repository so Copilot can find its included skills. If another session created the folder, give the new session a summary of completed setup and what you want to build.
+3. In Copilot, choose **Projects → + → Local folder or repository** and add the new folder.
+4. Before accepting its setup settings, review `.github/github-app.yml` and the copied README.
+5. Start a fresh session in the new repository so Copilot can find its included skills. If another session created the folder, give the new session a summary of completed setup and what you want to build.
 
 ### Install the Replica plugin if needed
 
 If the Replica plugin appears under **Customize → Installed**, continue at **Open the app in the canvas** below.
 
-The Replica starter installs the plugin during session setup. It checks for Copilot CLI and installs it if missing. Check the session setup output for dependency or plugin failures. If setup failed, resolve the reported error, then run `node scripts/setup-replica-plugin.mjs` from the repository folder to retry plugin setup.
+The Replica starter installs the plugin during session setup. It checks for Copilot CLI and installs it if missing.
 
-For repositories without that setup script, use the manual plugin commands below. These require the `copilot` command in your terminal. Check with `copilot --version`; if the command is not found, follow the [Copilot CLI installation instructions](https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli) before continuing.
+- **If starter setup failed:** Check the session setup output, resolve the reported dependency or plugin error, then run `node scripts/setup-replica-plugin.mjs` from the repository folder to retry plugin setup.
+- **If your repository has no setup script:** Use the manual installation steps below.
 
-These commands install Replica from its default branch. If your organization requires a specific version or source, use its installation instructions instead.
+> **Before installing manually:** These commands install Replica from its default branch. If your organization requires a specific version or source, use its installation instructions instead.
 
-First, add Replica's plugin marketplace if you haven't already:
+For manual installation:
 
-```sh
-copilot plugin marketplace add github/replica
-```
+1. Check that `copilot` is available in your terminal with `copilot --version`. If it is not found, follow the [Copilot CLI installation instructions](https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli).
+2. Add Replica's plugin marketplace if you haven't already:
 
-Then install the Replica plugin:
+   ```sh
+   copilot plugin marketplace add github/replica
+   ```
 
-```sh
-copilot plugin install replica-prototype@replica
-```
+3. Install the Replica plugin:
+
+   ```sh
+   copilot plugin install replica-prototype@replica
+   ```
 
 ### Open the app in the canvas
 
-With the plugin installed, enable the canvas and try the app before making changes. In Copilot, open **Customize → Installed** and enable both the Replica plugin and its canvas extension. They are separate switches.
+With the plugin installed, enable the canvas and try the app before making changes:
 
-Start a fresh session after installation or enablement, then choose **+ → Canvas → Replica prototype**. Keep only one copy of the Replica canvas enabled.
+1. In Copilot, open **Customize → Installed**.
+2. Enable both the Replica plugin and its canvas extension. They are separate switches.
+3. Start a fresh session after installation or enablement.
+4. Choose **+ → Canvas → Replica prototype**. Keep only one copy of the Replica canvas enabled.
 
 Ask Copilot:
 
@@ -107,9 +135,19 @@ Use the run commands in its README and the URL printed by the server.
 Do not change the app, connect to Hub, or publish anything yet.
 ```
 
-If the canvas lists running servers, choose **Connect** beside your app's server. If none is running, choose **Start dev server**. Once the page appears, try its navigation and any included interactions. Installing dependencies or completing `/setup-skills` does not confirm that the preview works.
+Once Copilot starts the app:
 
-If installation fails, use the error and recovery instructions in the terminal or session setup output. Resolve policy or permission errors through your organization's approval process rather than bypassing them. If the canvas is missing, confirm both switches are enabled and start a fresh session after changing them. For preview errors, ask Copilot to investigate using the repository's README and, where present, `SETUP.md` before continuing.
+1. In the canvas, choose **Connect** beside your app's server. If none is running, choose **Start dev server**.
+2. Once the page appears, try its navigation and any included interactions.
+
+> **Note:** Installing dependencies or completing `/setup-skills` does not confirm that the preview works.
+
+**If setup fails:**
+
+- **Installation failure:** Use the error and recovery instructions in the terminal or session setup output.
+- **Policy or permission error:** Resolve it through your organization's approval process rather than bypassing it.
+- **Missing canvas:** Confirm both switches are enabled and start a fresh session after changing them.
+- **Preview error:** Ask Copilot to investigate using the repository's README and, where present, `SETUP.md` before continuing.
 
 **Ready to continue:** the app works in your canvas. You have not connected to Hub or published anything.
 
@@ -119,11 +157,19 @@ Give Copilot the information it needs to build prototypes that follow your team'
 
 If the repository already uses your team's approved guidance, review what is in place and continue to step 4. You do not need to create it again.
 
-Otherwise, run `/setup-skills` in your prototype session. Share approved product documentation, design-system guidance, and any component packages your team uses.
+Otherwise:
 
-Copilot drafts instructions from those sources and asks permission before installing packages. Review the drafts using your team's usual approval process and request any corrections. Once the drafts are reviewed, give Copilot separate approval to apply them. Ask it to confirm which guidance is now in use.
+1. Run `/setup-skills` in your prototype session.
+2. Share approved sources: product documentation, design-system guidance, and any component packages your team uses.
+3. Review the drafts using your team's usual approval process and request any corrections.
+4. Once the drafts are reviewed, give Copilot separate approval to apply them.
+5. Ask Copilot to confirm which guidance is now in use.
 
-You do not need to connect Hub to complete this step. Resolve any package installation or build errors before continuing.
+Copilot drafts instructions from those sources and asks permission before installing packages.
+
+**If setup fails:** Resolve package installation or build errors before continuing.
+
+> **Note:** You do not need to connect Hub to complete this step.
 
 ## 4. Build a useful first prototype
 
@@ -140,7 +186,10 @@ Use a separate branch for this prototype. Leave the default branch unchanged.
 Ask for approval before making any commits. Do not push or publish anything.
 ```
 
-The prompt asks Copilot to preserve a reusable starting version before experimenting. A new starter needs its first local commit before a separate prototype branch can keep those versions apart. Copilot must ask for your approval to make that commit; it does not upload or publish anything. For an existing team repository, use its usual review process for changes to the shared starting point.
+The prompt asks Copilot to preserve a reusable starting version before experimenting:
+
+- **New starter:** Its first local commit saves the starting version before work begins on a separate prototype branch. Copilot must ask for approval to make that commit. It does not upload or publish anything.
+- **Existing team repository:** Use its usual review process for changes to the shared starting point.
 
 Try the interactions and confirm that the prototype uses your team's components.
 
@@ -150,15 +199,24 @@ Try the interactions and confirm that the prototype uses your team's components.
 
 If Hub is already running, reuse it and continue at step 6. You do not need to deploy another Hub.
 
-Follow the [Hub deployment guide](../hub/docs/deployment.md) on the Hub server, or share it with the person handling deployment. This can happen alongside steps 2 through 4. Use the released installation package, not the developer setup.
+Deployment can happen alongside steps 2 through 4. Follow the [Hub deployment guide](../hub/docs/deployment.md) on the Hub server, or share it with the person handling deployment.
 
-Deployment includes downloading and checking the installation files, creating Hub's settings, setting up DNS and HTTPS, and starting Hub. The `./replica init` command creates settings; it does not complete all these steps.
+**Keep the deployment settings safe:**
 
-Keep the Hub web address and the setup code printed during installation for step 6. Store the private settings file (`.env`) securely and never add it to a Git repository. Do not run `./replica init` again on an existing installation. Keep the original security keys; new keys cannot read the saved GitHub connection details.
+- Store the private settings file (`.env`) securely and never add it to a Git repository.
+- Do not run `./replica init` again on an existing installation.
+- Keep the original security keys. New keys cannot read the saved GitHub connection details.
 
-Check the [web forwarding settings](../hub/docs/deployment.md#client-ip-addresses-and-trusted-proxies) and arrange [backups and recovery](../hub/docs/backups-and-restore.md) before the wider team joins.
+Using the released installation package, not the developer setup:
 
-Open the setup page at your Hub address, such as `https://hub.example.com/setup`. If it does not open, run `./replica logs` on the Hub server and follow the [startup troubleshooting instructions](../hub/docs/deployment.md#troubleshoot-startup).
+1. Download and check the installation files, create Hub's settings, set up DNS and HTTPS, and start Hub as described in the deployment guide.
+2. Keep the Hub web address and the setup code printed during installation for step 6.
+3. Check the [web forwarding settings](../hub/docs/deployment.md#client-ip-addresses-and-trusted-proxies) and arrange [backups and recovery](../hub/docs/backups-and-restore.md) before the wider team joins.
+4. Open the setup page at your Hub address, such as `https://hub.example.com/setup`.
+
+> **Note:** The `./replica init` command creates settings; it does not complete deployment.
+
+**If the setup page does not open:** Run `./replica logs` on the Hub server and follow the [startup troubleshooting instructions](../hub/docs/deployment.md#troubleshoot-startup).
 
 **Ready to continue:** the setup page opens, and DNS and HTTPS are configured for both Hub and its previews. Publishing is not tested yet.
 
@@ -168,56 +226,81 @@ With Hub running, connect the repository and enable its build workflow. If Hub a
 
 ### Share the reviewed starting version
 
-If your project is not on GitHub yet, agree which organization will own the repository and whether it should be private or public. Give prototype authors write access and reviewers read access.
-
 If the reviewed app and approved guidance are already on GitHub's default branch, reuse that version and continue at **Connect the repository to the GitHub App** below.
 
-Otherwise, ask Copilot to connect the agreed GitHub repository and upload the saved starting version to its intended default branch. Approve any repository creation, commits, and uploads before they proceed. Keep your prototype on its own branch. For an existing shared repository, use its usual review process; do not replace its files, remote, or history.
+1. If your project is not on GitHub yet, agree which organization will own the repository and whether it should be private or public.
+2. Give prototype authors write access and reviewers read access.
+3. Ask Copilot to connect the agreed GitHub repository and upload the saved starting version to its intended default branch. Approve any repository creation, commits, and uploads before they proceed.
+
+> **Note:** Keep your prototype on its own branch. For an existing shared repository, use its usual review process; do not replace its files, remote, or history.
 
 ### Connect the repository to the GitHub App
 
-Check the [prototype requirements](../hub/docs/github-actions-builds.md#prototype-requirements) before connecting the repository.
+**Access rules:**
 
-For a new Hub, open its `/setup` page and enter the setup code from step 5. Follow the [GitHub App setup instructions](../hub/docs/github-app-setup.md#setup) to create a private App owned by your organization and install it on the prototype repository.
+- Keep the App private and organization-owned. An App created under a personal account would only let that person sign in.
+- Before connecting a public repository, review [who will be able to access its reviews](../hub/docs/authentication-and-repository-authorization.md#app-ownership-and-repository-visibility).
+- Creating the App does not automatically make anyone a Hub administrator.
 
-For an existing Hub, reuse its GitHub App and include this repository in the App's installation on GitHub. If the repository is already included, no installation change is needed. Do not repeat Hub's initial setup.
+1. Check the [prototype requirements](../hub/docs/github-actions-builds.md#prototype-requirements) before connecting the repository.
+2. Connect the repository using the path for your Hub:
 
-Do not create the App under a personal account for a team environment: only that person would be able to sign in. Keep the App private. Before connecting a public repository, review [who will be able to access its reviews](../hub/docs/authentication-and-repository-authorization.md#app-ownership-and-repository-visibility).
+   | Hub setup | Action |
+   | --- | --- |
+   | New Hub | Open `/setup` and enter the setup code from step 5. Follow the [GitHub App setup instructions](../hub/docs/github-app-setup.md#setup) to create a private App owned by your organization and install it on the prototype repository. |
+   | Existing Hub | Reuse its GitHub App and include this repository in the App's installation on GitHub. If it is already included, no installation change is needed. Do not repeat initial setup. |
 
-If Hub does not have an administrator yet, the person who will look after it must [register as a Hub administrator](../hub/docs/security-audit.md#enroll-an-operator). Creating the App does not give them that role automatically.
+3. If Hub does not have an administrator yet, have the person who will look after it [register as a Hub administrator](../hub/docs/security-audit.md#enroll-an-operator).
 
 ### Enable the build workflow
 
-Sign in to Hub with a GitHub account that has write access to the repository. If the Replica build workflow is already installed, check its latest default-branch Build instead of installing it again. If it needs updating, follow the [workflow installation instructions](../hub/docs/github-actions-builds.md#install-the-repository-workflow).
+The workflow prepares your app for publishing. Hub downloads the result and calls each prepared version a **Build**.
 
-If the workflow is not installed, open the repository in Hub and choose **Open installation pull request**. This proposes a GitHub Actions workflow that prepares your app for publishing. Review and merge it using your team's usual review process and the workflow installation instructions above.
+1. Sign in to Hub with a GitHub account that has write access to the repository.
+2. Check the workflow's status:
 
-Wait for the workflow to finish and for Hub to download the result. Hub calls each prepared version a **Build**. If the workflow fails or a download is denied, investigate the displayed error.
+   | Workflow status | Action |
+   | --- | --- |
+   | Already installed | Check its latest default-branch Build rather than installing it again. If it needs updating, follow the [workflow installation instructions](../hub/docs/github-actions-builds.md#install-the-repository-workflow). |
+   | Not installed | Open the repository in Hub and choose **Open installation pull request**. Review and merge it using your team's usual review process and the workflow installation instructions. |
+
+3. Wait for the workflow to finish and for Hub to download the result.
+
+**If the workflow fails or a download is denied:** Investigate the displayed error before continuing.
 
 **Ready to continue:** Hub shows a successful Build for the repository's default branch. A successful GitHub workflow alone is not enough.
 
 ## 7. Connect your canvas to Hub
 
-Install [GitHub CLI](https://cli.github.com/) on your computer if needed. Sign in with an account that can access the repository. Copilot sign-in does not sign you in to GitHub CLI.
+1. Install [GitHub CLI](https://cli.github.com/) on your computer if needed, then sign in with an account that can access the repository.
+2. [Save your team's Hub address](../starter/README.md#connect-to-hub) in the repository's `.github/replica.json`. Keep any existing settings.
+3. Review and merge the change into the default branch so teammates can use it too.
+4. Open your prototype session and its canvas. If the app is not running, ask Copilot to start it and show it in the canvas.
+5. Choose **Connect to the hub** and enter your team's Hub URL if asked.
+6. In the browser, check the Hub address, repository, and approval code. Approve only if they match what the canvas shows.
 
-[Save your team's Hub address in the repository](../starter/README.md#connect-to-hub), in `.github/replica.json`. Keep any existing settings in that file. Review and merge the change into the default branch so teammates can use it too.
+> **Note:** Copilot sign-in does not sign you in to GitHub CLI. Saving the Hub address does not grant access; each person must approve their own connection.
 
-Saving the address does not grant access. Each person must still approve their own connection to Hub.
+**If the connection is wrong or fails:**
 
-Open your prototype session and its canvas. If the app is not running, ask Copilot to start it and show it in the canvas.
-
-Choose **Connect to the hub** and enter your team's Hub URL if asked. In the browser, check the Hub address, repository, and approval code. Approve only if they match what the canvas shows.
-
-If the canvas points to a different Hub, follow the [Hub switching instructions](../hub/docs/prototype-canvas.md#repository-hub-discovery). For approval problems, see [connection approval](../hub/docs/prototype-canvas.md#pairing-and-review).
+- **Wrong Hub:** Follow the [Hub switching instructions](../hub/docs/prototype-canvas.md#repository-hub-discovery).
+- **Approval problem:** See [connection approval](../hub/docs/prototype-canvas.md#pairing-and-review).
 
 **Ready to continue:** you can use the app in the canvas and have approved its connection to your team's Hub. Connecting does not publish anything.
 
 ## 8. Publish your prototype and exchange feedback
 
-Share the prototype you built with your team's guidance:
+Before publishing:
 
-1. Open your prototype session. Ask Copilot to confirm that you are on the prototype's branch, not the default branch, and that it includes `.github/workflows/replica.yml` from step 6. If the workflow is missing, ask Copilot to preserve your local prototype work and, with your approval, fetch and merge the reviewed default-branch changes into this branch. Resolve any conflicts before continuing. Check the result in the canvas.
-2. Choose **Publish** and approve saving and uploading your prototype changes. Wait until the canvas says **Published**. A completed upload alone does not mean Hub is ready to show it.
+1. Open your prototype session.
+2. Ask Copilot to confirm that you are on the prototype's branch, not the default branch, and that it includes `.github/workflows/replica.yml` from step 6.
+3. If the workflow is missing, ask Copilot to preserve your local prototype work and, with your approval, fetch and merge the reviewed default-branch changes into this branch. Resolve any conflicts before continuing.
+4. Check the result in the canvas.
+
+Then publish and exchange feedback:
+
+1. Choose **Publish** and approve saving and uploading your prototype changes.
+2. Wait until the canvas says **Published**. A completed upload alone does not mean Hub is ready to show it.
 3. Open **Share prototype**, copy the **Internal prototype link**, and send it to your teammate.
 4. Ask them to sign in, open the prototype, and leave a comment. They need at least read access to the repository.
 5. Check that you can read their comment in your connected canvas.
@@ -230,28 +313,37 @@ Use the internal link for this first review. Public sharing is off by default an
 
 ## 9. Prepare useful starting pages
 
-Create a few pages your teammates can use as starting points. For example, a list, a detail page, and an empty state might help them try common product ideas. Use sample data.
+Starting pages help teammates try common product ideas. For example, you might offer a list, a detail page, and an empty state. Hub already offers **Default**, which opens your app's main page.
 
-You can prepare these pages before Hub is ready. If you already have them, review and reuse them rather than creating them again.
+1. Create a few starting pages using sample data, or review and reuse pages you already have.
+2. Add them to `.github/replica.json` using the [template instructions](../hub/docs/github-actions-builds.md#uploaded-artifact). Keep the Hub address you added earlier in that file.
+3. Review the guidance and pages together.
+4. Have the approved changes merged into the default branch using your team's usual review process.
+5. Wait for the updated Build to appear in Hub, then check that the **Templates** list shows the starting pages you expect.
 
-Hub already offers **Default**, which opens your app's main page. To offer other starting pages, add them to `.github/replica.json` using the [template instructions](../hub/docs/github-actions-builds.md#uploaded-artifact). Keep the Hub address you added earlier in that file.
-
-Review the guidance and pages together. Have the approved changes merged into the default branch using your team's usual review process. Wait for the updated Build to appear in Hub, then check that the **Templates** list shows the starting pages you expect.
+> **Note:** You can prepare the pages before Hub is ready. Check their appearance in the Templates list once Hub is running.
 
 **Ready to continue:** your team's shared version has approved guidance and working starting pages. New prototypes can use that version without changing it.
 
 ## 10. Invite the team
 
-Ask someone who did not help with setup to follow [Join your team's Replica environment](getting-started.md). Check that they can create a prototype using the approved guidance, publish it, and exchange feedback.
+1. Ask someone who did not help with setup to follow [Join your team's Replica environment](getting-started.md).
+2. Check that they can create a prototype using the approved guidance, publish it, and exchange feedback.
+3. Share the setup details with the team:
 
-Share the repository link, Hub URL, and joining guide with the team. Include any required tool or plugin versions. Tell them who to ask about the design guidance, starting pages, and Hub itself.
+   | Detail | What to include |
+   | --- | --- |
+   | Getting started | Repository link, Hub URL, and joining guide. |
+   | Tooling | Any required tool or plugin versions. |
+   | Support | Who to ask about the design guidance, starting pages, and Hub. |
 
-They should use your existing repository and Hub, not install another starter or set up another server.
+> **Note:** Teammates should use your existing repository and Hub, not install another starter or set up another server.
 
 ## 11. Maintain the shared environment
 
-Keep the guidance and starting pages up to date. Review changes before adding them to the default branch for everyone to use.
+The people looking after the shared environment handle ongoing maintenance. Each prototype user does not need to repeat these tasks.
 
-The person running Hub should follow the [maintenance instructions](../hub/docs/deployment.md#operate-the-deployment) to check that it is working, investigate problems, and install updates. Keep the existing security keys and saved data when updating, and maintain the agreed backups.
-
-Review who has access and who will restore Hub if something goes wrong. If your organization enables public sharing, also review shared links and their expiration dates. The people looking after Hub handle these tasks; each prototype author does not need to repeat them.
+- **Guidance and pages:** Keep them up to date and review changes before adding them to the default branch for everyone to use.
+- **Hub operation:** Follow the [maintenance instructions](../hub/docs/deployment.md#operate-the-deployment) to check that it is working, investigate problems, and install updates.
+- **Recovery:** Keep the existing security keys and saved data when updating, maintain the agreed backups, and confirm who will restore Hub if something goes wrong.
+- **Access:** Review who has access. If your organization enables public sharing, also review shared links and their expiration dates.

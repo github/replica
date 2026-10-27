@@ -8,13 +8,22 @@ You'll use the **Replica canvas**, a panel in the GitHub Copilot app that shows 
 
 For a quick trial, stop after the app works in the canvas in step 4. Continue through steps 5 and 6 to build with your team's guidance.
 
-If your team already has a connected repository and Hub, follow [Join your team's Replica environment](getting-started.md). For the full team setup, including hosting, use [Set up shared hosting and team feedback](prototype-environment.md).
+- **Joining an existing setup?** Follow [Join your team's Replica environment](getting-started.md) if your team has a connected repository and Hub.
+- **Setting up hosting?** Follow [Set up shared hosting and team feedback](prototype-environment.md).
 
 ## 1. Prepare your local development environment
 
-If you don't already have the [GitHub Copilot app](https://github.com/features/ai/github-app), install it and sign in. You also need [Git](https://git-scm.com/), [Node.js](https://nodejs.org/), and npm. Use a Node.js version matching `engines.node` in your repository's `package.json`, or [the starter's package.json](../starter/package.json) for a new repository. Reuse a compatible installation.
+Check that your local development environment has:
 
-The Replica canvas supports local previews on macOS and Linux. It uses `lsof` to find running local servers. Install missing tools through your organization's approved process. The starter installer does not install Node.js or change your shell configuration.
+- **The [GitHub Copilot app](https://github.com/features/ai/github-app)**, installed and signed in.
+- **[Git](https://git-scm.com/)**.
+- **[Node.js](https://nodejs.org/) and npm**, with a Node.js version matching `engines.node` in your repository's `package.json`, or [the starter's package.json](../starter/package.json) for a new repository.
+- **macOS or Linux**, the supported systems for local canvas previews.
+- **`lsof`**, which the canvas uses to find running local servers.
+
+Reuse compatible installations and install missing tools through your organization's approved process.
+
+> **Note:** The starter installer does not install Node.js or change your shell configuration.
 
 Copilot requires GitHub sign-in, but creating the local starter does not require GitHub repository access. You can use a Copilot plan or [connect your own model provider](https://docs.github.com/en/copilot/how-tos/github-copilot-app/use-byok-models).
 
@@ -28,31 +37,39 @@ If you already have a Replica repository, use **Open an existing repository** be
 
 The installer creates a new folder for your prototype, named `my-prototype` in the example below. Choose a name that is not already in use.
 
-In a terminal, go to the directory where you want the new folder created, then download the installer:
+The new folder is an independent local Git repository. The installer does not create a GitHub repository, commit files, or publish anything.
 
-```sh
-curl -fLSs https://raw.githubusercontent.com/github/replica/main/scripts/install-starter.sh -o install-starter.sh
-```
+> **Before accepting Copilot setup:** Session startup can install Copilot CLI globally if missing, install or enable the Replica plugin, and install app dependencies with `npm ci`.
 
-Review the installer, then run it with a name for your new project folder:
+1. In a terminal, go to the directory where you want the new folder created, then download the installer:
 
-```sh
-bash install-starter.sh my-prototype
-```
+   ```sh
+   curl -fLSs https://raw.githubusercontent.com/github/replica/main/scripts/install-starter.sh -o install-starter.sh
+   ```
 
-This creates `my-prototype` as an independent local Git repository. It does not create a GitHub repository, commit files, or publish anything.
+2. Review the installer, then run it with a name for your new project folder:
 
-In the Copilot app, choose **Projects → + → Local folder or repository** and add the new folder. Before accepting its repository configuration, review `.github/github-app.yml` and the copied README. Session startup can install Copilot CLI globally if missing, install or enable the Replica plugin, and install app dependencies with `npm ci`.
+   ```sh
+   bash install-starter.sh my-prototype
+   ```
 
-Start a fresh session in the new repository so Copilot can discover its included skills. If another session created the folder, give the new session a summary of completed setup and what you want to build.
+3. In the Copilot app, choose **Projects → + → Local folder or repository** and add the new folder.
+4. Before accepting its repository configuration, review `.github/github-app.yml` and the copied README.
+5. Start a fresh session in the new repository so Copilot can discover its included skills. If another session created the folder, give the new session a summary of completed setup and what you want to build.
 
 Continue at step 3.
 
 ### Open an existing repository
 
-Choose the repository from **Projects** in Copilot. If it is not listed, choose **Projects → + → Local folder or repository** for a local copy, or **Projects → + → Add GitHub repository** to select your team's repository on GitHub. Start a session in that repository and review any setup configuration before accepting it.
+1. Choose the repository from **Projects** in Copilot. If it is not listed, add it using one of these options:
 
-If the repository does not already use Replica, ask Copilot to inspect its instructions, app, and Git state before changing it. Agree whether to adapt the existing app or create a separate starter repository. Preserve the existing files, remote, and history.
+   | Repository location | Choose |
+   | --- | --- |
+   | A local copy | **Projects → + → Local folder or repository** |
+   | Your team's repository on GitHub | **Projects → + → Add GitHub repository** |
+
+2. Start a session in that repository and review any setup configuration before accepting it.
+3. If the repository does not already use Replica, ask Copilot to inspect its instructions, app, and Git state before changing it. Agree whether to adapt the existing app or create a separate starter repository. Preserve the existing files, remote, and history.
 
 **Ready to continue:** the repository is open in Copilot. Opening it does not push changes or publish a prototype.
 
@@ -68,31 +85,40 @@ Check the session setup output for dependency or plugin failures. Successful dep
 
 If the Replica plugin appears under **Customize → Installed**, continue at [Activate the plugin and canvas](#activate-the-plugin-and-canvas) below.
 
-The Replica starter installs the plugin during session setup. It checks for Copilot CLI and installs it if missing. If setup failed, resolve the reported error, then run `node scripts/setup-replica-plugin.mjs` from the repository folder to retry plugin setup.
+The Replica starter installs the plugin during session setup. It checks for Copilot CLI and installs it if missing.
 
-For repositories without that setup script, use the manual plugin commands below. These require the `copilot` command in your terminal. Check with `copilot --version`; if the command is not found, follow the [Copilot CLI installation instructions](https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli) before continuing.
+- **If starter setup failed:** Resolve the reported error, then run `node scripts/setup-replica-plugin.mjs` from the repository folder to retry plugin setup.
+- **If your repository has no setup script:** Use the manual installation steps below.
 
-These commands install Replica from its default branch. If your organization requires a specific version or source, use its installation instructions instead.
+> **Before installing manually:** These commands install Replica from its default branch. If your organization requires a specific version or source, use its installation instructions instead.
 
-First, add Replica's plugin marketplace if you haven't already:
+For manual installation:
 
-```sh
-copilot plugin marketplace add github/replica
-```
+1. Check that `copilot` is available in your terminal with `copilot --version`. If it is not found, follow the [Copilot CLI installation instructions](https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli).
+2. Add Replica's plugin marketplace if you haven't already:
 
-Then install the Replica plugin:
+   ```sh
+   copilot plugin marketplace add github/replica
+   ```
 
-```sh
-copilot plugin install replica-prototype@replica
-```
+3. Install the Replica plugin:
+
+   ```sh
+   copilot plugin install replica-prototype@replica
+   ```
 
 ### Activate the plugin and canvas
 
-In the sidebar, open **Customize → Installed** and enable both the `replica-prototype` plugin and its canvas extension. They are separate switches.
+1. In the sidebar, open **Customize → Installed**.
+2. Enable both the `replica-prototype` plugin and its canvas extension. They are separate switches.
+3. Start a fresh session after installation or enablement.
+4. Open **+ → Canvas → Replica prototype**. Keep only one copy of the Replica canvas enabled.
 
-Start a fresh session after installation or enablement. Open **+ → Canvas → Replica prototype**. Keep only one copy of the Replica canvas enabled.
+**If setup fails:**
 
-If installation fails, use the error and recovery instructions in the terminal or session setup output. Resolve policy or permission errors through your organization's approval process rather than bypassing them. If the canvas is still missing, confirm both switches are enabled and start a fresh session after changing them.
+- **Installation failure:** Use the error and recovery instructions in the terminal or session setup output.
+- **Policy or permission error:** Resolve it through your organization's approval process rather than bypassing it.
+- **Missing canvas:** Confirm both switches are enabled and start a fresh session after changing them.
 
 **Ready to continue:** the Replica canvas opens in your current session. You do not need to connect it to Hub.
 
@@ -108,9 +134,12 @@ Use the run commands in its README and the URL printed by the server.
 Do not change the app, connect to Hub, or publish anything yet.
 ```
 
-If the canvas lists running servers, choose **Connect** beside your app's server. If none is running, choose **Start dev server**.
+Once Copilot starts the app:
 
-Once the page appears, try its navigation and any included interactions. Check the preview itself rather than relying on a setup success message.
+1. In the canvas, choose **Connect** beside your app's server. If none is running, choose **Start dev server**.
+2. Once the page appears, try its navigation and any included interactions.
+
+> **Note:** Check the preview itself rather than relying on a setup success message.
 
 If the page does not appear or reports an error, ask Copilot to investigate using the repository's README and, where present, `SETUP.md` before continuing.
 
@@ -122,13 +151,19 @@ Now that you can try the app, give Copilot the information it needs to build pro
 
 If the repository already uses your team's approved guidance, review what is in place and continue to step 6. You do not need to create it again.
 
-Otherwise, run `/setup-skills` in your Copilot conversation. Provide your product documentation, design-system documentation, and any component or token packages your team uses. Share only sources your organization permits you to use.
+Otherwise:
+
+1. Run `/setup-skills` in your Copilot conversation.
+2. Provide approved sources: product documentation, design-system documentation, and any component or token packages your team uses.
+3. Review the drafts using your team's usual approval process and request any corrections.
+4. Once the drafts are reviewed, give Copilot separate approval to apply them.
+5. Ask Copilot to confirm which guidance is now in use.
 
 Copilot checks those sources and drafts instructions for building prototypes. It asks for permission before installing any packages.
 
-Review the drafts using your team's usual approval process and request any corrections. Once the drafts are reviewed, give Copilot separate approval to apply them. Ask it to confirm which guidance is now in use.
+**If setup fails:** Resolve package installation or app errors before continuing.
 
-If a package cannot be installed or the app no longer runs, resolve the reported error before continuing. Without approved guidance, you can still explore the starter, but you have not yet checked whether Replica follows your team's design system.
+> **Note:** Without approved guidance, you can still explore the starter, but you have not yet checked whether Replica follows your team's design system.
 
 **Ready to continue:** the reviewed guidance is in use and the app still runs. The next step is to try that guidance in a prototype.
 
@@ -147,9 +182,16 @@ Use a separate branch for this prototype. Leave the default branch unchanged.
 Ask for approval before making any commits. Do not push or publish anything.
 ```
 
-The prompt asks Copilot to preserve a reusable starting version before experimenting. A new starter needs its first local commit before a separate prototype branch can keep those versions apart. Copilot must ask for your approval to make that commit; it does not upload or publish anything. For an existing team repository, use its usual review process for changes to the shared starting point.
+The prompt asks Copilot to preserve a reusable starting version before experimenting:
 
-Try the result in the canvas. For the example above, search for a project, try a search with no results, and clear the search. Check that the prototype uses your team's intended components and patterns, then ask Copilot to revise anything that does not match.
+- **New starter:** Its first local commit saves the starting version before work begins on a separate prototype branch. Copilot must ask for approval to make that commit. It does not upload or publish anything.
+- **Existing team repository:** Use its usual review process for changes to the shared starting point.
+
+Try the result in the canvas:
+
+1. Test the interactions. For the example above, search for a project, try a search with no results, and clear the search.
+2. Check that the prototype uses your team's intended components and patterns.
+3. Ask Copilot to revise anything that does not match.
 
 Use sample data throughout. Keep production credentials and real customer data out of the prototype.
 
@@ -161,18 +203,30 @@ Keep this repository and the work completed above. You can share a team starting
 
 ### Share a team starting point without Hub
 
-Review the app, active guidance, and any starting pages your team will reuse. Confirm the GitHub owner, repository visibility, and access before creating a repository or pushing files.
+1. Review the app, active guidance, and any starting pages your team will reuse.
+2. Confirm the GitHub owner, repository visibility, and access before creating a repository or pushing files.
+3. Share the reviewed starting version using the appropriate path below.
 
-For a new GitHub repository, authorize Copilot to create it or connect an agreed empty repository as `origin`, then push the saved starting version on the intended default branch. Approve any further local commits separately. Keep prototype-specific work on its separate branch. For an existing shared repository, use its contribution process to merge the reviewed changes. Preserve its files, remote, and history.
+- **New GitHub repository:** Authorize Copilot to create it or connect an agreed empty repository as `origin`, then push the saved starting version on the intended default branch. Approve any further local commits separately.
+- **Existing shared repository:** Use its contribution process to merge the reviewed changes. Preserve its files, remote, and history.
+
+Keep prototype-specific work on its separate branch.
 
 **Ready to share:** the repository's actual default branch on GitHub contains the reviewed app and active guidance. Teammates with repository access can use it locally, even while hosting or Actions approval is pending. This does not publish a Hub preview or enable shared review comments.
 
 ### Add hosted publishing and comments
 
-If your team's Hub already shows a successful Build for the repository's reviewed default branch, continue at [step 7: Connect your canvas to Hub](prototype-environment.md#7-connect-your-canvas-to-hub).
+Choose where to continue based on what is ready:
 
-If Hub exists but the repository connection or build workflow still needs setup, use [step 6: Connect GitHub and enable builds](prototype-environment.md#6-connect-github-and-enable-builds). Reuse the existing Hub and GitHub App rather than setting them up again.
+| What is ready | Continue at |
+| --- | --- |
+| Hub shows a successful Build for the repository's reviewed default branch | [Step 7: Connect your canvas to Hub](prototype-environment.md#7-connect-your-canvas-to-hub). |
+| Hub exists, but the repository connection or build workflow needs setup | [Step 6: Connect GitHub and enable builds](prototype-environment.md#6-connect-github-and-enable-builds). Reuse the existing Hub and GitHub App. |
+| Hosting is not set up | Check the [hosting requirements](prototype-environment.md#1-check-readiness-before-you-start), then continue at [step 5: Deploy the hub](prototype-environment.md#5-deploy-the-hub) once they are in place. |
 
-If hosting has not been set up, check the [hosting requirements](prototype-environment.md#1-check-readiness-before-you-start). Once those are in place, continue at [step 5: Deploy the hub](prototype-environment.md#5-deploy-the-hub). The repository setup, guidance, and local prototype are already complete; continue from there without repeating them.
+The repository setup, guidance, and local prototype are already complete. Do not repeat them.
 
-If you already shared the starting version on GitHub, skip that part of hosted step 6 and continue at [Connect the repository to the GitHub App](prototype-environment.md#connect-the-repository-to-the-github-app). If the App already includes the repository, continue at [Enable the build workflow](prototype-environment.md#enable-the-build-workflow).
+Within hosted step 6, skip completed work:
+
+- **Starting version already shared on GitHub:** Continue at [Connect the repository to the GitHub App](prototype-environment.md#connect-the-repository-to-the-github-app).
+- **App already includes the repository:** Continue at [Enable the build workflow](prototype-environment.md#enable-the-build-workflow).
