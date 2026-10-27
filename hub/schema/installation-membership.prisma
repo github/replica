@@ -4,12 +4,16 @@ model InstallationMembership {
   userId String @map("user_id") @db.Uuid
 
   // Relations
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user         User                   @relation(fields: [userId], references: [id], onDelete: Restrict)
+  invitations  MembershipInvitation[] @relation("ActivatedMembership")
+  auditTargets SecurityAudit[]        @relation("TargetMembership")
 
   // Attribute columns
-  status String
-  role   String
-  source String
+  status      String
+  role        String
+  source      String
+  suspendedAt DateTime? @map("suspended_at") @db.Timestamptz(3)
+  removedAt   DateTime? @map("removed_at") @db.Timestamptz(3)
 
   // Timestamp columns
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)

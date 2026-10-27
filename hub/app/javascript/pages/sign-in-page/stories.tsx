@@ -13,6 +13,8 @@ const meta = {
     error: null,
     onSignIn: () => undefined,
     onSignOut: () => undefined,
+    onBootstrap: () => undefined,
+    onRecovery: () => undefined,
   },
 } satisfies Meta<typeof SignInPage>
 

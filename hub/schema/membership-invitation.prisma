@@ -1,0 +1,31 @@
+model MembershipInvitation {
+  // ID columns
+  id                    String  @id @default(uuid()) @db.Uuid
+  createdByUserId       String? @map("created_by_user_id") @db.Uuid
+  activatedIdentityId   String? @map("activated_identity_id") @db.Uuid
+  activatedMembershipId String? @map("activated_membership_id") @db.Uuid
+
+  // Relations
+  createdByUser       User?                   @relation("InvitationCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  activatedIdentity   ExternalIdentity?       @relation("ActivatedIdentity", fields: [activatedIdentityId], references: [id], onDelete: SetNull)
+  activatedMembership InstallationMembership? @relation("ActivatedMembership", fields: [activatedMembershipId], references: [id], onDelete: SetNull)
+  audits              SecurityAudit[]
+
+  // Attribute columns
+  provider   String
+  issuer     String
+  subject    String
+  role       String
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(3)
+  consumedAt DateTime? @map("consumed_at") @db.Timestamptz(3)
+  revokedAt  DateTime? @map("revoked_at") @db.Timestamptz(3)
+
+  // Timestamp columns
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([provider, issuer, subject])
+  @@index([expiresAt])
+  @@index([createdByUserId])
+  @@map("membership_invitations")
+}

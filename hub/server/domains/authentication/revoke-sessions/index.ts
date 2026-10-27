@@ -31,6 +31,7 @@ export async function revokeSessions(
     await records.deleteSessions()
     await records.audit({
       event: "session.revoke_all",
+      outcome: "succeeded",
       actorUserId: current.userId,
       sessionId: current.id,
       authenticationProviderRevisionId: current.authenticationProviderRevisionId,

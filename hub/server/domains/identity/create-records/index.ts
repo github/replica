@@ -9,14 +9,27 @@ import { advanceGitHubIntegrationGeneration } from "#server/repositories/github-
 import { getGitHubIntegrationState } from "#server/repositories/github-integration-state/get-state"
 import { saveGitHubIntegrationCredentials } from "#server/repositories/github-integration-state/save-credentials"
 import { advanceSessionGeneration } from "#server/repositories/identity-store-state/advance-session-generation"
+import { completeBootstrap } from "#server/repositories/identity-store-state/complete-bootstrap"
+import { getBootstrapCompletedAt } from "#server/repositories/identity-store-state/get-bootstrap-completed-at"
 import { getIdentityStoreState } from "#server/repositories/identity-store-state/get-state"
+import { countActiveAdministrators } from "#server/repositories/installation-memberships/count-active-administrators"
 import { getInstallationMembership } from "#server/repositories/installation-memberships/get-membership"
+import { getInstallationMembershipById } from "#server/repositories/installation-memberships/get-membership-by-id"
+import { getInstallationMemberships } from "#server/repositories/installation-memberships/get-memberships"
 import { saveInstallationMembership } from "#server/repositories/installation-memberships/save-membership"
+import { consumeMembershipInvitation } from "#server/repositories/membership-invitations/consume-invitation"
+import { createMembershipInvitation } from "#server/repositories/membership-invitations/create-invitation"
+import { getMembershipInvitation } from "#server/repositories/membership-invitations/get-invitation"
+import { getMembershipInvitations } from "#server/repositories/membership-invitations/get-invitations"
+import { getUsableMembershipInvitation } from "#server/repositories/membership-invitations/get-usable-invitation"
+import { revokeMembershipInvitation } from "#server/repositories/membership-invitations/revoke-invitation"
+import { revokeExpiredMembershipInvitations } from "#server/repositories/membership-invitations/revoke-expired-invitations"
 import { getSecurityAudits } from "#server/repositories/security-audits/get-audits"
 import { saveSecurityAudit } from "#server/repositories/security-audits/save-audit"
 import { createSession } from "#server/repositories/sessions/create-session"
 import { deleteSession } from "#server/repositories/sessions/delete-session"
 import { deleteSessions } from "#server/repositories/sessions/delete-sessions"
+import { deleteUserSessions } from "#server/repositories/sessions/delete-user-sessions"
 import { getSession } from "#server/repositories/sessions/get-session"
 import { getSessionById } from "#server/repositories/sessions/get-session-by-id"
 import { invalidateFreshness } from "#server/repositories/sessions/invalidate-freshness"
@@ -31,7 +44,9 @@ import type { Prisma } from "../../../generated/prisma/client.ts"
 export function createIdentityRecords(database: Prisma.TransactionClient): IdentityRecords {
   return {
     identityStoreState: getIdentityStoreState.bind(null, database),
+    bootstrapCompletedAt: getBootstrapCompletedAt.bind(null, database),
     advanceSessionGeneration: advanceSessionGeneration.bind(null, database),
+    completeBootstrap: completeBootstrap.bind(null, database),
     githubIntegrationState: getGitHubIntegrationState.bind(null, database),
     saveGitHubIntegrationCredentials: saveGitHubIntegrationCredentials.bind(null, database),
     advanceGitHubIntegrationGeneration: advanceGitHubIntegrationGeneration.bind(null, database),
@@ -41,7 +56,17 @@ export function createIdentityRecords(database: Prisma.TransactionClient): Ident
     externalIdentity: getExternalIdentity.bind(null, database),
     saveExternalIdentity: saveExternalIdentity.bind(null, database),
     membership: getInstallationMembership.bind(null, database),
+    membershipById: getInstallationMembershipById.bind(null, database),
+    memberships: getInstallationMemberships.bind(null, database),
+    activeAdministratorCount: countActiveAdministrators.bind(null, database),
     saveMembership: saveInstallationMembership.bind(null, database),
+    createInvitation: createMembershipInvitation.bind(null, database),
+    invitation: getMembershipInvitation.bind(null, database),
+    invitations: getMembershipInvitations.bind(null, database),
+    usableInvitation: getUsableMembershipInvitation.bind(null, database),
+    consumeInvitation: consumeMembershipInvitation.bind(null, database),
+    revokeInvitation: revokeMembershipInvitation.bind(null, database),
+    revokeExpiredInvitations: revokeExpiredMembershipInvitations.bind(null, database),
     createAuthenticationProviderRevision: createAuthenticationProviderRevision.bind(null, database),
     currentAuthenticationProviderRevision: getCurrentAuthenticationProviderRevision.bind(
       null,
@@ -55,6 +80,7 @@ export function createIdentityRecords(database: Prisma.TransactionClient): Ident
     invalidateFreshness: invalidateFreshness.bind(null, database),
     deleteSession: deleteSession.bind(null, database),
     deleteSessions: deleteSessions.bind(null, database),
+    deleteUserSessions: deleteUserSessions.bind(null, database),
     createAuthorizationAttempt: createAuthorizationAttempt.bind(null, database),
     consumeAuthorizationAttempt: consumeAuthorizationAttempt.bind(null, database),
     audit: saveSecurityAudit.bind(null, database),
