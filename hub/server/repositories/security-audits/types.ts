@@ -10,6 +10,7 @@ export interface AuditInput {
   prototypeId?: string | null
   prototypeVersionId?: string | null
   targetUserId?: string | null
+  githubRepositorySourceId?: string | null
   context?: Record<string, string>
 }
 
@@ -26,6 +27,7 @@ export interface SecurityAuditRecord {
   prototypeId: string | null
   prototypeVersionId: string | null
   targetUserId: string | null
+  githubRepositorySourceId: string | null
   context: unknown
   createdAt: Date
 }

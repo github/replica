@@ -12,6 +12,7 @@ model User {
   createdVersions    PrototypeVersion[]       @relation("PrototypeVersionCreator")
   workspaceGrants    WorkspaceAccessGrant[]
   prototypeGrants    PrototypeAccessGrant[]
+  githubSynchronizedAccess GitHubSynchronizedAccess[]
 
   // Attribute columns
   displayName String? @map("display_name")

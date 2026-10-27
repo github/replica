@@ -31,14 +31,26 @@ import {
   removePrototypeAccess,
   removeWorkspaceAccess,
   setPrototypeAccess,
+  setPrototypeAuthorization,
   setWorkspaceAccess,
 } from "#server/routes/product"
+import {
+  linkRepository,
+  listRepositories,
+  processWebhook,
+  reconcileRepository,
+  unlinkRepository,
+  updateRepository,
+} from "#server/routes/github-authorization"
 import type { AuthenticationRoutes } from "#server/routes/types"
 
 /** Keep endpoint registration separate from the app's shared middleware. */
 export function routes(app: Express, authentication?: AuthenticationRoutes): void {
   app.get("/api/health", handleApiHealthGet)
   if (!authentication) return
+  if (authentication.githubAuthorization) {
+    app.post("/api/github/webhooks", processWebhook.bind(null, authentication))
+  }
 
   app.use(
     ["/api/auth", "/api/session", "/api/administration", "/api/workspaces", "/api/prototypes"],
@@ -89,6 +101,22 @@ export function routes(app: Express, authentication?: AuthenticationRoutes): voi
     "/api/administration/memberships/:id",
     handleApiAdministrationMembershipsPatch.bind(null, authentication),
   )
+  if (authentication.githubAuthorization) {
+    app.get("/api/administration/github/repositories", listRepositories.bind(null, authentication))
+    app.post("/api/administration/github/repositories", linkRepository.bind(null, authentication))
+    app.patch(
+      "/api/administration/github/repositories/:repositorySourceId",
+      updateRepository.bind(null, authentication),
+    )
+    app.delete(
+      "/api/administration/github/repositories/:repositorySourceId",
+      unlinkRepository.bind(null, authentication),
+    )
+    app.post(
+      "/api/administration/github/repositories/:repositorySourceId/reconcile",
+      reconcileRepository.bind(null, authentication),
+    )
+  }
   app.use("/api/administration", respondAdministrationError)
   const productMutationLimit = createRateLimit({
     limit: 120,
@@ -119,6 +147,11 @@ export function routes(app: Express, authentication?: AuthenticationRoutes): voi
     "/api/prototypes/:prototypeId/archive",
     productMutationLimit,
     archivePrototype.bind(null, authentication),
+  )
+  app.put(
+    "/api/prototypes/:prototypeId/authorization",
+    productMutationLimit,
+    setPrototypeAuthorization.bind(null, authentication),
   )
   app.get(
     "/api/prototypes/:prototypeId/access/explanation",

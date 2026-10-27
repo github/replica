@@ -10,10 +10,12 @@ model SecurityAudit {
   prototypeId                      String? @map("prototype_id") @db.Uuid
   prototypeVersionId               String? @map("prototype_version_id") @db.Uuid
   targetUserId                     String? @map("target_user_id") @db.Uuid
+  githubRepositorySourceId         String? @map("github_repository_source_id") @db.Uuid
 
   // Relations
   targetMembership InstallationMembership? @relation("TargetMembership", fields: [targetMembershipId], references: [id], onDelete: SetNull)
   invitation       MembershipInvitation?   @relation(fields: [invitationId], references: [id], onDelete: SetNull)
+  githubRepositorySource GitHubRepositorySource? @relation(fields: [githubRepositorySourceId], references: [id], onDelete: SetNull)
 
   // Attribute columns
   event   String
@@ -31,5 +33,6 @@ model SecurityAudit {
   @@index([prototypeId])
   @@index([prototypeVersionId])
   @@index([targetUserId])
+  @@index([githubRepositorySourceId])
   @@map("security_audits")
 }
