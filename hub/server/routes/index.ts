@@ -20,8 +20,8 @@ export function routes(app: Express, authentication?: AuthenticationRoutes): voi
 
   app.use(
     ["/api/auth", "/api/session"],
-    prepareAuthenticationRequest.bind(null, authentication.settings.origin),
     omitRequestLogPayload,
+    prepareAuthenticationRequest.bind(null, authentication.settings.origin),
   )
   const initiationLimit = createRateLimit({
     limit: 20,

@@ -14,6 +14,7 @@ import { createApp } from "../create-app/index.ts"
 function authentication(
   overrides: Partial<Mocked<AuthenticationService>> = {},
   secureCookies = true,
+  trustedProxyHops = 0,
 ) {
   const service = Object.assign(
     {
@@ -41,6 +42,7 @@ function authentication(
       secureCookies,
       configured: true,
       admissionPolicy: "hub-managed" as const,
+      trustedProxyHops,
     },
     service,
   }
@@ -123,6 +125,33 @@ describe("authentication routes", () => {
     expect(runtime.service.signOut).not.toHaveBeenCalled()
   })
 
+  it("omits rejected auth payloads before origin middleware can finish the request", async () => {
+    const records: Record<string, unknown>[] = []
+    const logger = createLogger({
+      destination: {
+        write: (line) => records.push(JSON.parse(line) as Record<string, unknown>),
+      },
+    })
+    const runtime = authentication()
+    const baseUrl = await serve(runtime, logger)
+
+    const response = await fetch(`${baseUrl}/api/auth/github?note=query-private-value`, {
+      method: "POST",
+      headers: {
+        ...csrfHeaders,
+        origin: "https://attacker.example",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ note: "body-private-value" }),
+    })
+
+    expect(response.status).toBe(403)
+    await vi.waitFor(() => expect(records).toHaveLength(1))
+    expect(records[0]).not.toHaveProperty("query")
+    expect(records[0]).not.toHaveProperty("body")
+    expect(JSON.stringify(records)).not.toMatch(/query-private-value|body-private-value/)
+  })
+
   it("rotates browser state on sign-out and delegates revoke-all only with a protected request", async () => {
     const runtime = authentication()
     const baseUrl = await serve(runtime)
@@ -195,7 +224,10 @@ describe("authentication routes", () => {
       responses.push(
         await fetch(`${baseUrl}/api/auth/github`, {
           method: "POST",
-          headers: csrfHeaders,
+          headers: {
+            ...csrfHeaders,
+            "x-forwarded-for": `198.51.100.${request + 1}`,
+          },
         }),
       )
     }
@@ -206,6 +238,36 @@ describe("authentication routes", () => {
     expect(limitedResponse!.status).toBe(429)
     expect(await limitedResponse!.json()).toEqual({ error: "Too many requests" })
     expect(runtime.service.start).toHaveBeenCalledTimes(20)
+  })
+
+  it("separates rate limits by forwarded client only behind the configured proxy boundary", async () => {
+    const runtime = authentication({}, true, 1)
+    const baseUrl = await serve(runtime)
+
+    const responses = []
+    for (let request = 0; request < 20; request++) {
+      responses.push(
+        await fetch(`${baseUrl}/api/auth/github`, {
+          method: "POST",
+          headers: {
+            ...csrfHeaders,
+            "x-forwarded-for": "198.51.100.10",
+          },
+        }),
+      )
+    }
+    responses.push(
+      await fetch(`${baseUrl}/api/auth/github`, {
+        method: "POST",
+        headers: {
+          ...csrfHeaders,
+          "x-forwarded-for": "203.0.113.20",
+        },
+      }),
+    )
+
+    expect(responses.every(({ status }) => status === 200)).toBe(true)
+    expect(runtime.service.start).toHaveBeenCalledTimes(21)
   })
 
   it("returns session state without exposing the session token and creates a readable CSRF cookie", async () => {
