@@ -3,7 +3,6 @@ import {
   maxLogEntries,
   maxLogKeyLength,
   maxLogStringLength,
-  sensitiveLogKeyPattern,
   truncationMarker,
 } from "../sanitize-log-value/constants.ts"
 import type { LogValue } from "../sanitize-log-value/types.ts"
@@ -45,7 +44,7 @@ export function visitLogValue(input: unknown, depth: number, traversal: LogTrave
     const descriptor = Object.getOwnPropertyDescriptor(input, key)
     if (!descriptor) continue
     let result: LogValue
-    if (sensitiveLogKeyPattern.test(key.toLowerCase().replace(/[^a-z0-9]/g, ""))) {
+    if (traversal.sensitiveKeyPattern.test(key.toLowerCase().replace(/[^a-z0-9]/g, ""))) {
       result = "[REDACTED]"
     } else if ("value" in descriptor) {
       result = visitLogValue(descriptor.value, depth + 1, traversal)

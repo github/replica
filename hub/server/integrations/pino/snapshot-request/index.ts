@@ -1,5 +1,6 @@
 import type { Request } from "express"
 
+import { sensitiveRequestLogKeyPattern } from "../../../utils/logging/sanitize-log-value/constants.ts"
 import { sanitizeLogValue } from "../../../utils/logging/sanitize-log-value/index.ts"
 
 import type { RequestSnapshot } from "./types.ts"
@@ -11,10 +12,10 @@ export function snapshotRequest(request: Request): RequestSnapshot {
     route !== null && typeof route === "object" && "path" in route ? route.path : undefined
   return {
     route: typeof path === "string" ? path : null,
-    params: sanitizeLogValue(request.params),
-    query: sanitizeLogValue(request.query),
+    params: sanitizeLogValue(request.params, sensitiveRequestLogKeyPattern),
+    query: sanitizeLogValue(request.query, sensitiveRequestLogKeyPattern),
     ...(request.is("application/json") && request.body !== undefined
-      ? { body: sanitizeLogValue(request.body) }
+      ? { body: sanitizeLogValue(request.body, sensitiveRequestLogKeyPattern) }
       : {}),
   }
 }

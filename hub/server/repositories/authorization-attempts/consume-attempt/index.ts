@@ -2,13 +2,31 @@ import type { AuthorizationAttempt } from "#server/repositories/authorization-at
 
 import type { Prisma } from "../../../generated/prisma/client.ts"
 
+interface ConsumedAuthorizationAttempt extends AuthorizationAttempt {
+  valid: boolean
+}
+
 export async function consumeAuthorizationAttempt(
   database: Prisma.TransactionClient,
   stateDigest: string,
 ): Promise<AuthorizationAttempt | null> {
-  const attempt = await database.authorizationAttempt.findUnique({ where: { stateDigest } })
+  const [attempt] = await database.$queryRaw<ConsumedAuthorizationAttempt[]>`
+    DELETE FROM authorization_attempts
+    WHERE state_digest = ${stateDigest}
+    RETURNING
+      id,
+      authentication_provider_revision_id AS "authenticationProviderRevisionId",
+      originating_session_id AS "originatingSessionId",
+      state_digest AS "stateDigest",
+      browser_digest AS "browserDigest",
+      pkce_verifier AS "pkceVerifier",
+      nonce,
+      purpose,
+      expires_at AS "expiresAt",
+      expires_at > CURRENT_TIMESTAMP AS valid
+  `
   if (!attempt) return null
-  await database.authorizationAttempt.delete({ where: { id: attempt.id } })
+  if (!attempt.valid) return null
   if (
     attempt.purpose !== "sign-in" &&
     attempt.purpose !== "verify" &&
@@ -16,5 +34,15 @@ export async function consumeAuthorizationAttempt(
   ) {
     throw new Error("Stored authorization purpose is invalid.")
   }
-  return { ...attempt, purpose: attempt.purpose }
+  return {
+    id: attempt.id,
+    authenticationProviderRevisionId: attempt.authenticationProviderRevisionId,
+    originatingSessionId: attempt.originatingSessionId,
+    stateDigest: attempt.stateDigest,
+    browserDigest: attempt.browserDigest,
+    pkceVerifier: attempt.pkceVerifier,
+    nonce: attempt.nonce,
+    purpose: attempt.purpose,
+    expiresAt: attempt.expiresAt,
+  }
 }
