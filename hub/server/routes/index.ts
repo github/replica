@@ -3,7 +3,6 @@ import type { Express } from "express"
 import { createRateLimit } from "#server/integrations/express/create-rate-limit"
 import { prepareAuthenticationRequest } from "#server/integrations/express/prepare-authentication-request"
 import { respondAuthenticationError } from "#server/integrations/express/respond-authentication-error"
-import { omitRequestLogPayload } from "#server/integrations/pino/omit-request-log-payload"
 import { get as handleApiAuthGithubCallbackGet } from "#server/routes/api/auth/github/callback/get"
 import { post as handleApiAuthGithubPost } from "#server/routes/api/auth/github/post"
 import { get as handleApiHealthGet } from "./api/health/get/index.ts"
@@ -20,7 +19,6 @@ export function routes(app: Express, authentication?: AuthenticationRoutes): voi
 
   app.use(
     ["/api/auth", "/api/session"],
-    omitRequestLogPayload,
     prepareAuthenticationRequest.bind(null, authentication.settings.origin),
   )
   const initiationLimit = createRateLimit({
