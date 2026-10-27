@@ -432,6 +432,84 @@ describe("createIdentityStore()", () => {
     expect(await prisma.authorizationAttempt.findUnique({ where: { stateDigest } })).toBeNull()
   })
 
+  it("rejects an attempt that expires while its consumer waits for the store lock", async () => {
+    const { prisma, store } = await database()
+    const { authenticationProviderRevision } = await createIdentityGraph(store, "waiting-expiry")
+    const stateDigest = "waiting-expiry-state"
+    await store.lock(() => Promise.resolve())
+    let announceAttempt!: (expiresAt: Date) => void
+    let releaseLock!: () => void
+    const attemptCreated = new Promise<Date>((resolve) => {
+      announceAttempt = resolve
+    })
+    const lockGate = new Promise<void>((resolve) => {
+      releaseLock = resolve
+    })
+    const holder = store.lock(async (records) => {
+      const expiresAt = new Date(Date.now() + 1_500)
+      await records.createAuthorizationAttempt({
+        authenticationProviderRevisionId: authenticationProviderRevision.id,
+        originatingSessionId: null,
+        stateDigest,
+        browserDigest: "waiting-expiry-browser",
+        pkceVerifier: "waiting-expiry-verifier",
+        nonce: null,
+        purpose: "sign-in",
+        expiresAt,
+      })
+      announceAttempt(expiresAt)
+      await lockGate
+    })
+    const expiresAt = await attemptCreated
+    let consumerEntered = false
+    const consumer = store.lock(async (records) => {
+      consumerEntered = true
+      return records.consumeAuthorizationAttempt(stateDigest)
+    })
+    onTestFinished(async () => {
+      releaseLock()
+      await Promise.allSettled([holder, consumer])
+    })
+
+    await vi.waitFor(
+      async () => {
+        const [waiting] = await prisma.$queryRaw<
+          { transactionStartedAt: Date; waitEventType: string | null }[]
+        >`
+          SELECT
+            xact_start AS "transactionStartedAt",
+            wait_event_type AS "waitEventType"
+          FROM pg_stat_activity
+          WHERE datname = current_database()
+            AND pid <> pg_backend_pid()
+            AND state = 'active'
+            AND query LIKE '%identity_store_states%'
+            AND wait_event_type = 'Lock'
+          ORDER BY xact_start DESC
+          LIMIT 1
+        `
+        expect(waiting?.waitEventType).toBe("Lock")
+        expect(waiting?.transactionStartedAt.getTime()).toBeLessThan(expiresAt.getTime())
+      },
+      { interval: 20, timeout: 5_000 },
+    )
+    await vi.waitFor(
+      async () => {
+        const [clock] = await prisma.$queryRaw<{ expired: boolean }[]>`
+          SELECT clock_timestamp() >= ${expiresAt} AS expired
+        `
+        expect(clock?.expired).toBe(true)
+      },
+      { interval: 20, timeout: 5_000 },
+    )
+    expect(consumerEntered).toBe(false)
+    releaseLock()
+
+    await holder
+    expect(await consumer).toBeNull()
+    expect(await prisma.authorizationAttempt.findUnique({ where: { stateDigest } })).toBeNull()
+  })
+
   it("prunes expired provider-aware attempts and atomically consumes a live attempt once", async () => {
     const { prisma, store } = await database()
     const { authenticationProviderRevision, session } = await createSession(store, "attempt")
