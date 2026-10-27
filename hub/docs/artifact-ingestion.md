@@ -13,7 +13,9 @@ A prototype administrator creates a workload publisher with one or both actions:
 
 Hub returns a bearer credential once and stores only its SHA-256 digest. The credential is scoped to one prototype through its workload publisher. It cannot create a browser session, view a prototype through user APIs, administer access, or publish to another prototype. A producer's source URL, revision, ref, pipeline, and run ID describe where a build came from; they never grant access.
 
-Browser users provision credentials through `POST /api/prototypes/:prototypeId/publishers`. This requires a fresh prototype-administrator session and returns the raw token only in that response.
+Browser users provision credentials through `POST /api/prototypes/:prototypeId/publishers`. This requires a fresh prototype-administrator session and returns the raw token only in that response. The same administrator may temporarily disable or re-enable a publisher with `PATCH /api/prototypes/:prototypeId/publishers/:publisherId`, or permanently revoke one credential with `DELETE /api/prototypes/:prototypeId/publishers/:publisherId/credentials/:credentialId`. Hub audits each state change. Re-enabling a publisher does not restore a revoked credential.
+
+Archiving a prototype blocks new publishers, publication, publisher re-enablement, and `current` or `preview` promotion. Administrators may still disable publishers and revoke credentials after archival. Existing versions and publication status remain readable through their authorized interfaces.
 
 ## Manifest contract
 
@@ -45,13 +47,13 @@ Browser users provision credentials through `POST /api/prototypes/:prototypeId/p
 }
 ```
 
-The manifest is closed to unknown fields. Hub bounds every string, accepts only HTTP or HTTPS source URLs, limits decoded artifacts to 8 MiB in this reference layer, verifies the decoded size, and recalculates the SHA-256 digest before storing bytes. The manifest prototype ID must match the route.
+The manifest is closed to unknown fields. Hub bounds every string, accepts only HTTP or HTTPS source URLs without embedded usernames or passwords, limits decoded artifacts to 8 MiB in this reference layer, verifies the decoded size, and recalculates the SHA-256 digest before storing bytes. The manifest prototype ID must match the route.
 
 ## Storage boundary
 
 `ArtifactStorage` separates ingestion from byte storage. The reference adapter writes content-addressed files under `HUB_ARTIFACT_STORAGE_PATH`, defaulting to `hub/.data/artifacts` for local use. Database rows store only the storage key and validated metadata, never the artifact bytes.
 
-The local adapter is suitable for one Hub process with a durable mounted filesystem. It does not provide replication, remote durability, encryption-key management, or multi-region consistency. A production object-store adapter must preserve the same content-addressed, immutable `put`, `read`, and `remove` boundary.
+The local adapter is suitable for one Hub process with a durable mounted filesystem. It rejects symbolic-link roots, shards, and artifact paths, resolves directories under the configured root, and opens artifact files without following a final symbolic link. Operators must keep the storage directory writable only by the Hub workload; the local adapter does not provide replication, remote durability, encryption-key management, hostile concurrent filesystem isolation, or multi-region consistency. A production object-store adapter must preserve the same content-addressed, immutable `put`, `read`, and `remove` boundary.
 
 Storage happens before the database transaction. A failed transaction can therefore leave an unreferenced content-addressed file. Hub never deletes referenced bytes automatically. Operators may remove only files that have no matching `PrototypeVersion.storageKey`; retain unreferenced files long enough to exclude in-flight transactions and backups. Version metadata has no deletion API and must not be rewritten silently.
 

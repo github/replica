@@ -55,10 +55,10 @@ GitHub synchronization uses separate records:
 - `GitHubSynchronizedAccess` stores one user's raw permission, mapped prototype role, admission eligibility, source, status, and last confirmation for one repository source.
 - `GitHubAuthorizationPolicy` stores the bounded last-known-good duration. The initial policy is one day and may not exceed seven days.
 - `GitHubWebhookDelivery` deduplicates verified deliveries by GitHub delivery ID.
-`Prototype.authorizationMode` defaults to `hub-managed`. `sourceRepositoryId` is nullable and applies only when the mode is explicitly `github-synchronized`. Synchronized records never share rows with workspace or prototype grants, so reconciliation cannot overwrite manual Hub decisions.
+
 `Prototype.authorizationMode` defaults to `hub-managed`. `sourceRepositoryId` is nullable and applies only when the mode is explicitly `github-synchronized`. Synchronized records never share rows with workspace or prototype grants, so reconciliation cannot overwrite manual Hub decisions.
 
-A database trigger rejects prototype version updates and deletions so history cannot be rewritten or silently removed. Workload credentials store token digests only. Publication rows bind a publisher-scoped idempotency-key digest to one version, and channel rows keep mutable pointers separate from immutable version metadata. Artifact bytes stay outside relational columns behind the storage boundary.
+A database trigger rejects prototype version updates and deletions so history cannot be rewritten or silently removed. Workload credentials store token digests plus optional expiry and revocation timestamps; publishers have an independent active flag for temporary suspension. Publication rows bind a publisher-scoped idempotency-key digest to one version, and channel rows keep mutable pointers separate from immutable version metadata. Artifact bytes stay outside relational columns behind the storage boundary.
 
 Installation membership `source` distinguishes linked-source synchronization from the `legacy-synchronized` compatibility policy. Any administrator lifecycle change or assignment of Hub administration converts a synchronized membership to `manual`, so reconciliation cannot undo the Hub override or orphan administration.
 

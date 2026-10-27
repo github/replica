@@ -10,6 +10,7 @@ model SecurityAudit {
   prototypeId                      String? @map("prototype_id") @db.Uuid
   prototypeVersionId               String? @map("prototype_version_id") @db.Uuid
   workloadPublisherId              String? @map("workload_publisher_id") @db.Uuid
+  workloadCredentialId             String? @map("workload_credential_id") @db.Uuid
   targetUserId                     String? @map("target_user_id") @db.Uuid
   githubRepositorySourceId         String? @map("github_repository_source_id") @db.Uuid
 
@@ -34,6 +35,7 @@ model SecurityAudit {
   @@index([prototypeId])
   @@index([prototypeVersionId])
   @@index([workloadPublisherId])
+  @@index([workloadCredentialId])
   @@index([targetUserId])
   @@index([githubRepositorySourceId])
   @@map("security_audits")
