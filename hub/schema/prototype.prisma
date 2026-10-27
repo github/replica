@@ -5,11 +5,14 @@ model Prototype {
   createdByUserId String @map("created_by_user_id") @db.Uuid
 
   // Relations
-  workspace Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  createdBy User                   @relation("PrototypeCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
-  versions  PrototypeVersion[]
-  grants    PrototypeAccessGrant[]
+  workspace        Workspace               @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy        User                    @relation("PrototypeCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  versions         PrototypeVersion[]
+  grants           PrototypeAccessGrant[]
   sourceRepository GitHubRepositorySource? @relation(fields: [sourceRepositoryId], references: [id], onDelete: SetNull)
+  publishers       WorkloadPublisher[]
+  publications     ArtifactPublication[]
+  channels         PrototypeChannel[]
 
   // Attribute columns
   name               String

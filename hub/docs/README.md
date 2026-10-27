@@ -11,6 +11,7 @@ Hub is being rebuilt. The [Hub overview](../README.md) describes what the baseli
 - [GitHub integration](github-integration.md): linked repository sources, reconciliation, webhooks, staleness, and permission mapping.
 - [Membership and administration](membership-and-administration.md): Hub admission, invitations, roles, lifecycle, bootstrap, and recovery.
 - [Prototype authorization](prototype-authorization.md): workspaces, prototypes, immutable versions, Hub overrides, synchronized baselines, and policy precedence.
+- [Artifact ingestion](artifact-ingestion.md): workload publishers, the versioned manifest, storage, immutable publishing, idempotency, and promotion.
 - [Logging](logging.md): application events, automatic request records, and payload safety.
 - [Background jobs](background-jobs.md): PostgreSQL queues, workers, schedules, setup, and test isolation.
 - [Testing and operations](testing-and-operations.md): baseline checks and their limits.

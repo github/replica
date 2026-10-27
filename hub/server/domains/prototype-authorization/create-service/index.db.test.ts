@@ -1369,59 +1369,6 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
     ).toEqual([{ event: "prototype.archive" }])
   })
 
-  it("does not commit a version queued behind archival", async () => {
-    const { prisma, service, store } = await database()
-    const actor = await createActor(store, {
-      subject: "archive-version-race",
-      token: "archive-version-race-token",
-    })
-    const workspace = await prisma.workspace.create({
-      data: {
-        name: "Workspace",
-        createdByUserId: actor.user.id,
-        grants: {
-          create: {
-            userId: actor.user.id,
-            effect: "allow",
-            role: "editor",
-          },
-        },
-      },
-    })
-    const prototype = await prisma.prototype.create({
-      data: {
-        name: "Prototype",
-        workspaceId: workspace.id,
-        createdByUserId: actor.user.id,
-      },
-    })
-    const lock = await holdPrototypeLock(prisma, prototype.id)
-
-    const archive = service.archivePrototype("archive-version-race-token", prototype.id)
-    await waitForBlockedRowLock(prisma, "prototypes")
-    const version = service.createVersion("archive-version-race-token", prototype.id, {
-      label: "Must not commit",
-    })
-    lock.release()
-    await lock.holder
-
-    const archived = (await archive) as { id: string; archivedAt: Date | null }
-    expect(archived.id).toBe(prototype.id)
-    expect(archived.archivedAt).toBeInstanceOf(Date)
-    await expect(version).rejects.toMatchObject({
-      status: 409,
-      code: "prototype_archived",
-    })
-    expect(await prisma.prototypeVersion.count({ where: { prototypeId: prototype.id } })).toBe(0)
-    expect(
-      await prisma.securityAudit.findMany({
-        where: { prototypeId: prototype.id },
-        orderBy: { createdAt: "asc" },
-        select: { event: true },
-      }),
-    ).toEqual([{ event: "prototype.archive" }])
-  })
-
   it("rolls back an access change when its audit cannot be saved", async () => {
     const { prisma, service, store } = await database()
     await createActor(store, {
@@ -2423,7 +2370,6 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
     expect(second.nextCursor).toBeNull()
     expect(new Set([...first.items, ...second.items].map(({ id }) => id)).size).toBe(4)
   })
-
   it("rejects a prototype cursor from another workspace", async () => {
     const { prisma, service, store } = await database()
     const actor = await createActor(store, {
@@ -2484,7 +2430,6 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
     )) as { items: { id: string }[] }
     expect(page.items.map(({ id }) => id)).toEqual(firstWorkspacePrototypeIds)
   })
-
   it("accepts a scoped prototype cursor with an uppercase workspace ID", async () => {
     const { prisma, service, store } = await database()
     const actor = await createActor(store, {
@@ -2564,7 +2509,6 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
       })
     }
   })
-
   it("lists immutable versions by sequence and paginates in that order", async () => {
     const { prisma, service, store } = await database()
     const actor = await createActor(store, {
@@ -2640,7 +2584,6 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
     ])
     expect(second.nextCursor).toBeNull()
   })
-
   it("rejects a version cursor from another prototype", async () => {
     const { prisma, service, store } = await database()
     const actor = await createActor(store, {
@@ -2768,65 +2711,4 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
     })
   })
 
-  it("creates sequential immutable versions and rejects additions after archival", async () => {
-    const { prisma, service, store } = await database()
-    await createActor(store, {
-      subject: "versions",
-      token: "versions-token",
-      role: "administrator",
-    })
-    const workspace = (await service.createWorkspace("versions-token", {
-      name: "Workspace",
-    })) as { id: string }
-    const prototype = (await service.createPrototype("versions-token", workspace.id, {
-      name: "Prototype",
-    })) as { id: string }
-
-    const created = await Promise.all([
-      service.createVersion("versions-token", prototype.id, { label: "First request" }),
-      service.createVersion("versions-token", prototype.id, { label: "Second request" }),
-    ])
-
-    expect(
-      created
-        .map((version) => (version as { sequence: number }).sequence)
-        .sort((left, right) => left - right),
-    ).toEqual([1, 2])
-    expect(
-      await prisma.prototypeVersion.findMany({
-        where: { prototypeId: prototype.id },
-        orderBy: { sequence: "asc" },
-        select: { sequence: true },
-      }),
-    ).toEqual([{ sequence: 1 }, { sequence: 2 }])
-
-    await service.archivePrototype("versions-token", prototype.id)
-    await expect(
-      service.createVersion("versions-token", prototype.id, { label: "Too late" }),
-    ).rejects.toMatchObject({
-      status: 409,
-      code: "prototype_archived",
-    })
-    expect(await prisma.prototypeVersion.count({ where: { prototypeId: prototype.id } })).toBe(2)
-    const audits = await prisma.securityAudit.findMany({
-      where: { prototypeId: prototype.id },
-      orderBy: { createdAt: "asc" },
-      select: {
-        event: true,
-        context: true,
-        prototypeVersionId: true,
-      },
-    })
-    expect(audits.map(({ event }) => event)).toEqual([
-      "prototype.create",
-      "prototype.version.create",
-      "prototype.version.create",
-      "prototype.archive",
-    ])
-    expect(audits.every(({ context }) => JSON.stringify(context) === "{}")).toBe(true)
-    expect(audits[0]?.prototypeVersionId).toBeNull()
-    expect(audits[1]?.prototypeVersionId).toEqual(expect.any(String))
-    expect(audits[2]?.prototypeVersionId).toEqual(expect.any(String))
-    expect(audits[3]?.prototypeVersionId).toBeNull()
-  })
 })

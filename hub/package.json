@@ -47,6 +47,7 @@
     "dev:api": "node --conditions=development --watch server/index.ts",
     "start": "node dist/server/index.js",
     "preview": "vite preview --host 127.0.0.1",
+    "publish:artifact": "node script/publish-artifact.mjs",
     "extension:assets:check": "node ../.github/extensions/replica-prototype/check-assets/index.mjs",
     "extension:build": "npm run extension:modules:build && vite build --config vite.prototype-canvas.config.mjs && node script/build-prototype-preview-bridge.mjs",
     "extension:modules:build": "node script/build-extension-modules.mjs",
