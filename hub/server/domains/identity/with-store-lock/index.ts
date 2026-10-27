@@ -11,6 +11,6 @@ export function withIdentityStoreLock<T>(
 ): Promise<T> {
   return withRepositoryLock(client, async (database) => {
     await ensureGitHubIntegrationCredentials(database)
-    return operation(createIdentityRecords(database))
+    return operation(createIdentityRecords(database), database)
   })
 }

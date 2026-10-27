@@ -272,7 +272,7 @@ export function createAdministrationService(
               "The membership was not found.",
             )
           }
-          return dependencies.store.lock(async (records) => {
+          return dependencies.store.lock(async (records, database) => {
             const actor = await getLockedAdministrator(dependencies, sessionToken, records)
             const target = await records.membershipById(parsedId.data)
             if (!target) {
@@ -308,6 +308,9 @@ export function createAdministrationService(
                 "last_administrator",
                 "The final active administrator cannot be changed.",
               )
+            }
+            if (target.status === "active" && nextStatus !== "active") {
+              await ensureProductAdministrationContinuity(database, target.userId)
             }
             const now = dependencies.now()
             const changed = await records.saveMembership({

@@ -10,7 +10,7 @@ A workspace owns prototypes. A prototype owns an ordered history of immutable ve
 - A workspace `editor` or `administrator` may create a prototype.
 - A prototype `editor` or `administrator` may create its next version.
 - A version cannot move to another prototype or be changed after creation.
-- Archiving a prototype keeps its versions readable but prevents new versions.
+- Archiving a prototype keeps its versions readable but prevents new versions. Archive and version creation lock and re-read the prototype so overlapping requests cannot add a version after archival.
 
 Artifact payloads are not part of this layer. A version identifies immutable prototype history without storing a build, manifest, or upload.
 
@@ -39,7 +39,11 @@ The evaluator applies this order:
 
 Every decision reports whether access is allowed, the effective role, the source, and a stable reason. Routes use this evaluator instead of reimplementing precedence. This release does not supply a synchronized baseline. Future GitHub synchronization must remain below explicit Hub deny and explicit Hub role rules.
 
-Workspace administrators cannot remove or replace the final direct workspace administrator. A prototype access change must also leave at least one effective prototype administrator. A workspace administrator can recover prototype access even when a prototype-specific administrator rule does not exist. Explicit prototype deny still blocks that administrator from the denied prototype until another workspace administrator changes the rule.
+Workspace administrators cannot remove or replace the final active workspace administrator. A prototype access change must also leave at least one active effective prototype administrator. Hub locks the owning records before checking these invariants, so overlapping changes cannot each remove a different final administrator. Suspended and removed users do not satisfy either invariant.
+
+Suspending or removing a membership fails with `product_administration_orphaned` when that user is the final active administrator for a workspace or prototype. An administrator must transfer product administration first. Changing an active installation administrator to a member does not remove an explicit product role, because installation and product authority remain separate.
+
+A workspace administrator can recover prototype access even when a prototype-specific administrator rule does not exist. Explicit prototype deny still blocks that administrator from the denied prototype until another workspace administrator changes the rule. Prototype lists omit prototypes that explicitly deny the requesting user.
 
 ## API and request boundaries
 

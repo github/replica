@@ -128,5 +128,7 @@ export interface IdentityQueries {
 
 export interface IdentityStore {
   read: IdentityQueries
-  lock<T>(operation: (records: IdentityRecords) => Promise<T>): Promise<T>
+  lock<T>(
+    operation: (records: IdentityRecords, database: Prisma.TransactionClient) => Promise<T>,
+  ): Promise<T>
 }
