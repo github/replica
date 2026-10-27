@@ -79,6 +79,56 @@ async function database() {
   }
 }
 
+function deferred() {
+  let resolvePromise!: () => void
+  const promise = new Promise<void>((resolve) => {
+    resolvePromise = resolve
+  })
+  return { promise, resolve: resolvePromise }
+}
+
+async function waitForBlockedDatabaseQuery(database: PrismaClient, queryPattern: string) {
+  await vi.waitFor(
+    async () => {
+      const [result] = await database.$queryRaw<{ blocked: boolean }[]>`
+        SELECT EXISTS (
+          SELECT 1
+          FROM pg_stat_activity
+          WHERE datname = current_database()
+            AND pid <> pg_backend_pid()
+            AND wait_event_type = 'Lock'
+            AND query LIKE ${queryPattern}
+        ) AS blocked
+      `
+      expect(result?.blocked).toBe(true)
+    },
+    { interval: 20, timeout: 5_000 },
+  )
+}
+
+async function holdPublisherAuthorizationRow(
+  database: PrismaClient,
+  target: { type: "credential" | "publisher"; id: string },
+) {
+  const released = deferred()
+  const locked = deferred()
+  const holder = database.$transaction(async (transaction) => {
+    if (target.type === "credential") {
+      await transaction.$queryRaw`
+        SELECT "id" FROM "workload_credentials" WHERE "id" = ${target.id}::uuid FOR UPDATE
+      `
+    } else {
+      await transaction.$queryRaw`
+        SELECT "id" FROM "workload_publishers" WHERE "id" = ${target.id}::uuid FOR UPDATE
+      `
+    }
+    locked.resolve()
+    await released.promise
+  })
+  await locked.promise
+  return { holder, release: released.resolve }
+}
+
 async function createPrototype(prisma: PrismaClient) {
   const user = await prisma.user.create({ data: { displayName: "Publisher owner" } })
   const workspace = await prisma.workspace.create({
@@ -489,6 +539,115 @@ describe("createArtifactPublishingService() database behavior", () => {
       await context.prisma.prototypeVersion.count({ where: { prototypeId: prototype.id } }),
     ).toBe(2)
   })
+
+  it.each([
+    { mutation: "revoke", operation: "publish" },
+    { mutation: "disable", operation: "publish" },
+    { mutation: "revoke", operation: "promote" },
+    { mutation: "disable", operation: "promote" },
+  ] as const)(
+    "rejects an already-started $operation after an administrator wins the $mutation race",
+    async ({ mutation, operation }) => {
+      const context = await database()
+      const sessionToken = `${mutation}-${operation}-session`
+      const { authorization, prototype, provisioned, workloadAuthorization } =
+        await provisionPublisher(context.prisma, sessionToken)
+      const published =
+        operation === "promote"
+          ? await context.service.publish(
+              workloadAuthorization,
+              prototype.id,
+              `${mutation}-promotion-source`,
+              publicationInput(prototype.id, artifact(`${mutation}-promotion-source`)),
+            )
+          : null
+      const version = published ? publishedVersion(published) : null
+      const authorizationRow =
+        mutation === "revoke"
+          ? { type: "credential" as const, id: provisioned.credential.id }
+          : { type: "publisher" as const, id: provisioned.publisher.id }
+      const authorizationTable =
+        mutation === "revoke" ? "workload_credentials" : "workload_publishers"
+      const before = {
+        publications: await context.prisma.artifactPublication.count({
+          where: { prototypeId: prototype.id },
+        }),
+        versions: await context.prisma.prototypeVersion.count({
+          where: { prototypeId: prototype.id },
+        }),
+        channels: await context.prisma.prototypeChannel.findMany({
+          where: { prototypeId: prototype.id },
+          select: { name: true, prototypeVersionId: true },
+          orderBy: { name: "asc" },
+        }),
+        workloadAudits: await context.prisma.securityAudit.count({
+          where: {
+            prototypeId: prototype.id,
+            event: { in: ["prototype.version.publish", "prototype.channel.promote"] },
+          },
+        }),
+      }
+      const rowLock = await holdPublisherAuthorizationRow(context.prisma, authorizationRow)
+
+      const administratorMutation =
+        mutation === "revoke"
+          ? authorization.revokePublisherCredential(
+              sessionToken,
+              prototype.id,
+              provisioned.publisher.id,
+              provisioned.credential.id,
+            )
+          : authorization.setPublisherActive(sessionToken, prototype.id, provisioned.publisher.id, {
+              active: false,
+            })
+      await waitForBlockedDatabaseQuery(context.prisma, `%${authorizationTable}%`)
+
+      const workloadResult = (
+        operation === "publish"
+          ? context.service.publish(
+              workloadAuthorization,
+              prototype.id,
+              `${mutation}-concurrent-publish`,
+              publicationInput(prototype.id, artifact(`${mutation}-concurrent-publish`)),
+            )
+          : context.service.promote(workloadAuthorization, prototype.id, "current", {
+              versionId: version!.id,
+            })
+      ).then(
+        () => ({ error: null }),
+        (error: unknown) => ({ error }),
+      )
+      await waitForBlockedDatabaseQuery(context.prisma, "%prototypes%FOR UPDATE%")
+
+      rowLock.release()
+      await rowLock.holder
+      await administratorMutation
+
+      expect((await workloadResult).error).toMatchObject({
+        status: 403,
+        code: "publisher_access_denied",
+      })
+      expect({
+        publications: await context.prisma.artifactPublication.count({
+          where: { prototypeId: prototype.id },
+        }),
+        versions: await context.prisma.prototypeVersion.count({
+          where: { prototypeId: prototype.id },
+        }),
+        channels: await context.prisma.prototypeChannel.findMany({
+          where: { prototypeId: prototype.id },
+          select: { name: true, prototypeVersionId: true },
+          orderBy: { name: "asc" },
+        }),
+        workloadAudits: await context.prisma.securityAudit.count({
+          where: {
+            prototypeId: prototype.id,
+            event: { in: ["prototype.version.publish", "prototype.channel.promote"] },
+          },
+        }),
+      }).toEqual(before)
+    },
+  )
 
   it("enforces publish and read-status action scopes independently", async () => {
     const context = await database()

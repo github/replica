@@ -15,6 +15,8 @@ Hub returns a bearer credential once and stores only its SHA-256 digest. The cre
 
 Browser users provision credentials through `POST /api/prototypes/:prototypeId/publishers`. This requires a fresh prototype-administrator session and returns the raw token only in that response. The same administrator may temporarily disable or re-enable a publisher with `PATCH /api/prototypes/:prototypeId/publishers/:publisherId`, or permanently revoke one credential with `DELETE /api/prototypes/:prototypeId/publishers/:publisherId/credentials/:credentialId`. Hub audits each state change. Re-enabling a publisher does not restore a revoked credential.
 
+Publication, promotion, publisher state changes, and credential revocation use the same prototype lock. Publication and promotion re-read credential expiry, revocation, scope, action, token digest, and publisher state after acquiring that lock. A revocation or disable that locks first prevents an already-started workload request from committing; a workload operation that locks first completes before the administrator mutation.
+
 Archiving a prototype blocks new publishers, publication, publisher re-enablement, and `current` or `preview` promotion. Administrators may still disable publishers and revoke credentials after archival. Existing versions and publication status remain readable through their authorized interfaces.
 
 ## Manifest contract
