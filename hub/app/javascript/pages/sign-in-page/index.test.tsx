@@ -14,6 +14,8 @@ describe("SignInPage()", () => {
         error={null}
         onSignIn={onSignIn}
         onSignOut={() => undefined}
+        onBootstrap={() => undefined}
+        onRecovery={() => undefined}
       />,
     )
 
@@ -32,6 +34,8 @@ describe("SignInPage()", () => {
         error={null}
         onSignIn={() => undefined}
         onSignOut={() => undefined}
+        onBootstrap={() => undefined}
+        onRecovery={() => undefined}
       />,
     )
 
@@ -48,6 +52,8 @@ describe("SignInPage()", () => {
         error={null}
         onSignIn={() => undefined}
         onSignOut={() => undefined}
+        onBootstrap={() => undefined}
+        onRecovery={() => undefined}
       />,
     )
 

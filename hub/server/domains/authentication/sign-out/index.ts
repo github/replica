@@ -10,6 +10,7 @@ export async function signOut(
     await records.deleteSession(current.id)
     await records.audit({
       event: "session.sign_out",
+      outcome: "succeeded",
       actorUserId: current.userId,
       sessionId: current.id,
       authenticationProviderRevisionId: current.authenticationProviderRevisionId,

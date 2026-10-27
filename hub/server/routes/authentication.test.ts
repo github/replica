@@ -36,6 +36,12 @@ function authentication(
     },
     overrides,
   )
+  const administration = {
+    list: vi.fn().mockResolvedValue({ memberships: [], invitations: [] }),
+    invite: vi.fn(),
+    revokeInvitation: vi.fn(),
+    changeMembership: vi.fn(),
+  }
   return {
     settings: {
       origin: "https://hub.example",
@@ -45,6 +51,7 @@ function authentication(
       trustedProxyHops,
     },
     service,
+    administration,
   }
 }
 
@@ -369,7 +376,15 @@ describe("authentication routes", () => {
             enabled: true,
           },
         },
-        membership: null,
+        membership: {
+          id: "membership",
+          userId: "user",
+          status: "active",
+          role: "member",
+          source: "invitation",
+          suspendedAt: null,
+          removedAt: null,
+        },
       }),
     })
     const baseUrl = await serve(runtime)

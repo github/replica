@@ -11,4 +11,6 @@ export interface SignInPageProps {
   error: string | null
   onSignIn: () => void
   onSignOut: () => void
+  onBootstrap: (secret: string) => void
+  onRecovery: (secret: string) => void
 }

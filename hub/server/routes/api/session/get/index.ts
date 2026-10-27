@@ -37,6 +37,11 @@ export async function get(
         signedInAt: current.signedInAt,
         freshAuthorizedAt: current.freshAuthorizedAt,
       },
+      membership: {
+        id: current.membership.id,
+        role: current.membership.role,
+        status: current.membership.status,
+      },
     })
   } catch (error) {
     if (!(error instanceof AuthenticationError) || error.status !== 401) throw error

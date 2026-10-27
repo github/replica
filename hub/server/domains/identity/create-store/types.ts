@@ -6,10 +6,15 @@ import type {
 } from "#server/repositories/external-identities/types"
 import type { GitHubIntegrationCredentials } from "#server/repositories/github-integration-credentials/types"
 import type {
+  InstallationMembershipDetails,
   InstallationMembershipInput,
   InstallationMembershipRecord,
 } from "#server/repositories/installation-memberships/types"
-import type { AuditInput } from "#server/repositories/security-audits/types"
+import type {
+  MembershipInvitationInput,
+  MembershipInvitationRecord,
+} from "#server/repositories/membership-invitations/types"
+import type { AuditInput, SecurityAuditRecord } from "#server/repositories/security-audits/types"
 import type { HubSession } from "#server/repositories/sessions/types"
 import type { HubUser, UserInput } from "#server/repositories/users/types"
 import type { IdentityStoreState } from "#server/repositories/identity-store-state/types"
@@ -37,7 +42,9 @@ export interface SessionContext extends HubSession {
 export interface IdentityRecords {
   githubIntegrationCredentials(): Promise<GitHubIntegrationCredentials>
   identityStoreState(): Promise<IdentityStoreState>
+  bootstrapCompletedAt(): Promise<Date | null>
   advanceSessionGeneration(): Promise<void>
+  completeBootstrap(completedAt: Date): Promise<boolean>
   saveGitHubIntegrationCredentials(encryptedCredentials: string): Promise<void>
   user(id: string): Promise<HubUser | null>
   createUser(input: UserInput): Promise<HubUser>
@@ -51,7 +58,27 @@ export interface IdentityRecords {
     input: ExternalIdentityInput,
   ): Promise<HubExternalIdentity & { user: HubUser }>
   membership(userId: string): Promise<InstallationMembershipRecord | null>
+  membershipById(id: string): Promise<InstallationMembershipDetails | null>
+  memberships(): Promise<InstallationMembershipDetails[]>
+  activeAdministratorCount(): Promise<number>
   saveMembership(input: InstallationMembershipInput): Promise<InstallationMembershipRecord>
+  createInvitation(input: MembershipInvitationInput): Promise<MembershipInvitationRecord>
+  invitation(id: string): Promise<MembershipInvitationRecord | null>
+  invitations(): Promise<MembershipInvitationRecord[]>
+  usableInvitation(
+    provider: string,
+    issuer: string,
+    subject: string,
+    now: Date,
+  ): Promise<MembershipInvitationRecord | null>
+  consumeInvitation(
+    id: string,
+    activatedIdentityId: string,
+    activatedMembershipId: string,
+    consumedAt: Date,
+  ): Promise<boolean>
+  revokeInvitation(id: string, revokedAt: Date): Promise<boolean>
+  revokeExpiredInvitations(revokedAt: Date): Promise<void>
   createAuthenticationProviderRevision(
     input: AuthenticationProviderInput,
   ): Promise<AuthenticationProviderRevisionRecord>
@@ -69,6 +96,7 @@ export interface IdentityRecords {
   invalidateFreshness(): Promise<void>
   deleteSession(id: string): Promise<void>
   deleteSessions(): Promise<void>
+  deleteUserSessions(userId: string): Promise<void>
   createAuthorizationAttempt(
     input: Omit<AuthorizationAttempt, "id" | "sessionGeneration"> & {
       sessionGeneration?: number
@@ -76,7 +104,7 @@ export interface IdentityRecords {
   ): Promise<void>
   consumeAuthorizationAttempt(stateDigest: string): Promise<AuthorizationAttempt | null>
   audit(input: AuditInput): Promise<void>
-  audits(): Promise<(AuditInput & { id: string; createdAt: Date })[]>
+  audits(): Promise<SecurityAuditRecord[]>
 }
 
 export interface IdentityQueries {
@@ -89,9 +117,11 @@ export interface IdentityQueries {
     subject: string,
   ): Promise<(HubExternalIdentity & { user: HubUser }) | null>
   membership(userId: string): Promise<InstallationMembershipRecord | null>
+  memberships(): Promise<InstallationMembershipDetails[]>
+  invitations(): Promise<MembershipInvitationRecord[]>
   session(tokenDigest: string): Promise<SessionContext | null>
   sessionById(id: string): Promise<SessionContext | null>
-  audits(): Promise<(AuditInput & { id: string; createdAt: Date })[]>
+  audits(): Promise<SecurityAuditRecord[]>
 }
 
 export interface IdentityStore {

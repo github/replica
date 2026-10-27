@@ -38,15 +38,26 @@ export async function completeGitHubAuthorization(
       "The authorization request is invalid or expired.",
     )
   }
+  if (attempt.purpose === "link-identity") {
+    throw new AuthenticationError(
+      401,
+      "invalid_authorization",
+      "The authorization request is invalid.",
+    )
+  }
+  const purpose: AuthorizationPurpose = attempt.purpose
   let profile: GitHubUserProfile
-  let admitted: boolean
+  let policyAdmitted = false
   try {
     profile = await github.identify(code, attempt.pkceVerifier)
-    admitted = attempt.purpose === "verify" ? true : await admissionPolicy.admit(profile)
+    if (attempt.purpose === "sign-in") {
+      policyAdmitted = await admissionPolicy.admit(profile)
+    }
   } catch (error) {
     await store.lock((records) =>
       records.audit({
         event: "authentication.provider_failed",
+        outcome: "failed",
         actorUserId: null,
         sessionId: attempt.originatingSessionId,
         authenticationProviderRevisionId: providerRevisionId,
@@ -59,18 +70,7 @@ export async function completeGitHubAuthorization(
       "The authentication provider failed.",
     )
   }
-  if (!admitted) {
-    await store.lock((records) =>
-      records.audit({
-        event: "authentication.admission_denied",
-        actorUserId: null,
-        sessionId: null,
-        authenticationProviderRevisionId: providerRevisionId,
-      }),
-    )
-    throw new AuthenticationError(403, "admission_denied", "This identity is not admitted.")
-  }
-  return store.lock(async (records) => {
+  const result = await store.lock(async (records) => {
     const [currentProvider, stateRecord] = await Promise.all([
       records.currentAuthenticationProviderRevision("github"),
       records.identityStoreState(),
@@ -85,7 +85,7 @@ export async function completeGitHubAuthorization(
         "The authorization request was superseded.",
       )
     }
-    if (attempt.purpose === "verify") {
+    if (purpose === "verify") {
       const session = attempt.originatingSessionId
         ? await records.sessionById(attempt.originatingSessionId)
         : null
@@ -100,13 +100,64 @@ export async function completeGitHubAuthorization(
       await records.verifySession(session.id, now())
       await records.audit({
         event: "session.verify",
+        outcome: "succeeded",
         actorUserId: session.userId,
         sessionId: session.id,
         authenticationProviderRevisionId: providerRevisionId,
       })
-      return { purpose: "verify" }
+      return { purpose: "verify" as const }
     }
     let identity = await records.externalIdentity("github", configuration.issuer, profile.subject)
+    let membership = identity ? await records.membership(identity.userId) : null
+    const invitation =
+      purpose === "sign-in" &&
+      membership?.status !== "active" &&
+      membership?.status !== "suspended" &&
+      !policyAdmitted
+        ? await records.usableInvitation("github", configuration.issuer, profile.subject, now())
+        : null
+    if (
+      purpose === "sign-in" &&
+      membership?.status !== "active" &&
+      !invitation &&
+      !(policyAdmitted && !membership)
+    ) {
+      await records.audit({
+        event: "authentication.admission_denied",
+        outcome: "denied",
+        actorUserId: identity?.userId ?? null,
+        sessionId: null,
+        authenticationProviderRevisionId: providerRevisionId,
+        targetMembershipId: membership?.id ?? null,
+        context: { reason: membership?.status ?? "unassigned" },
+      })
+      return { denied: true as const }
+    }
+    if (purpose === "bootstrap") {
+      const activeAdministrators = await records.activeAdministratorCount()
+      const completed = activeAdministrators === 0 && (await records.completeBootstrap(now()))
+      if (!completed) {
+        await records.audit({
+          event: "membership.bootstrap",
+          outcome: "denied",
+          actorUserId: identity?.userId ?? null,
+          sessionId: null,
+          authenticationProviderRevisionId: providerRevisionId,
+          context: { reason: "unavailable" },
+        })
+        return { denied: true as const }
+      }
+    } else if (purpose === "recovery" && (await records.activeAdministratorCount()) > 0) {
+      await records.audit({
+        event: "membership.recovery",
+        outcome: "denied",
+        actorUserId: identity?.userId ?? null,
+        sessionId: null,
+        authenticationProviderRevisionId: providerRevisionId,
+        context: { reason: "active_administrator_exists" },
+      })
+      return { denied: true as const }
+    }
     if (!identity) {
       const user = await records.createUser({
         displayName: profile.displayName ?? profile.username,
@@ -136,6 +187,84 @@ export async function completeGitHubAuthorization(
         avatarUrl: profile.avatarUrl,
       })
     }
+    membership = await records.membership(identity.userId)
+    if (purpose === "bootstrap") {
+      membership = await records.saveMembership({
+        userId: identity.userId,
+        status: "active",
+        role: "administrator",
+        source: "bootstrap",
+        suspendedAt: null,
+        removedAt: null,
+      })
+      await records.audit({
+        event: "membership.bootstrap",
+        outcome: "succeeded",
+        actorUserId: identity.userId,
+        sessionId: null,
+        authenticationProviderRevisionId: providerRevisionId,
+        targetMembershipId: membership.id,
+      })
+    } else if (purpose === "recovery") {
+      membership = await records.saveMembership({
+        userId: identity.userId,
+        status: "active",
+        role: "administrator",
+        source: "recovery",
+        suspendedAt: null,
+        removedAt: null,
+      })
+      await records.audit({
+        event: "membership.recovery",
+        outcome: "succeeded",
+        actorUserId: identity.userId,
+        sessionId: null,
+        authenticationProviderRevisionId: providerRevisionId,
+        targetMembershipId: membership.id,
+      })
+    } else if (!membership || membership.status !== "active") {
+      if (invitation && membership?.status !== "suspended") {
+        membership = await records.saveMembership({
+          userId: identity.userId,
+          status: "active",
+          role: invitation.role,
+          source: "invitation",
+          suspendedAt: null,
+          removedAt: null,
+        })
+        const consumed = await records.consumeInvitation(
+          invitation.id,
+          identity.id,
+          membership.id,
+          now(),
+        )
+        if (!consumed) {
+          throw new AuthenticationError(
+            409,
+            "invitation_changed",
+            "The invitation changed. Start again.",
+          )
+        }
+        await records.audit({
+          event: "membership.invitation.activate",
+          outcome: "succeeded",
+          actorUserId: identity.userId,
+          sessionId: null,
+          authenticationProviderRevisionId: providerRevisionId,
+          targetMembershipId: membership.id,
+          invitationId: invitation.id,
+        })
+      } else if (policyAdmitted && !membership) {
+        await records.saveMembership({
+          userId: identity.userId,
+          status: "active",
+          role: "member",
+          source: "synchronized",
+          suspendedAt: null,
+          removedAt: null,
+        })
+      }
+    }
     const sessionToken = randomBytes(32).toString("base64url")
     const session = await records.createSession({
       userId: identity.userId,
@@ -147,10 +276,15 @@ export async function completeGitHubAuthorization(
     })
     await records.audit({
       event: "session.sign_in",
+      outcome: "succeeded",
       actorUserId: identity.userId,
       sessionId: session.id,
       authenticationProviderRevisionId: providerRevisionId,
     })
-    return { sessionToken, purpose: "sign-in" }
+    return { sessionToken, purpose, denied: false as const }
   })
+  if ("denied" in result && result.denied) {
+    throw new AuthenticationError(403, "admission_denied", "This identity is not admitted.")
+  }
+  return result
 }

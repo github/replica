@@ -1,4 +1,6 @@
-import { Button, Heading, Stack, Text } from "@primer/react-brand"
+import { useState } from "react"
+
+import { Button, FormControl, Heading, Stack, Text, TextInput } from "@primer/react-brand"
 
 import { ReplicaLogo } from "@components/replica-logo"
 
@@ -12,7 +14,11 @@ export function SignInPage({
   error,
   onSignIn,
   onSignOut,
+  onBootstrap,
+  onRecovery,
 }: SignInPageProps) {
+  const [bootstrapSecret, setBootstrapSecret] = useState("")
+  const [recoverySecret, setRecoverySecret] = useState("")
   return (
     <main className="sign-in-page">
       <Stack direction="vertical" gap="normal" alignItems="center">
@@ -47,6 +53,50 @@ export function SignInPage({
             {!configured && (
               <Text as="p">GitHub sign-in has not been configured for this Hub.</Text>
             )}
+            {configured ? (
+              <div className="sign-in-page__enrollment">
+                <details>
+                  <summary>Enroll the first administrator</summary>
+                  <FormControl>
+                    <FormControl.Label>Bootstrap secret</FormControl.Label>
+                    <TextInput
+                      type="password"
+                      value={bootstrapSecret}
+                      disabled={loading}
+                      onChange={(event) => setBootstrapSecret(event.target.value)}
+                    />
+                  </FormControl>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={loading || !bootstrapSecret}
+                    onClick={() => onBootstrap(bootstrapSecret)}
+                  >
+                    Continue enrollment
+                  </Button>
+                </details>
+                <details>
+                  <summary>Recover administration</summary>
+                  <FormControl>
+                    <FormControl.Label>Recovery secret</FormControl.Label>
+                    <TextInput
+                      type="password"
+                      value={recoverySecret}
+                      disabled={loading}
+                      onChange={(event) => setRecoverySecret(event.target.value)}
+                    />
+                  </FormControl>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={loading || !recoverySecret}
+                    onClick={() => onRecovery(recoverySecret)}
+                  >
+                    Continue recovery
+                  </Button>
+                </details>
+              </div>
+            ) : null}
           </>
         )}
         {error && (

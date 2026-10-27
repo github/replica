@@ -3,8 +3,14 @@ import type { Express } from "express"
 import { createRateLimit } from "#server/integrations/express/create-rate-limit"
 import { prepareAuthenticationRequest } from "#server/integrations/express/prepare-authentication-request"
 import { respondAuthenticationError } from "#server/integrations/express/respond-authentication-error"
+import { respondAdministrationError } from "#server/integrations/express/respond-administration-error"
 import { get as handleApiAuthGithubCallbackGet } from "#server/routes/api/auth/github/callback/get"
 import { post as handleApiAuthGithubPost } from "#server/routes/api/auth/github/post"
+import { post as handleApiAuthEnrollmentPost } from "#server/routes/api/auth/enrollment/post"
+import { get as handleApiAdministrationGet } from "#server/routes/api/administration/get"
+import { post as handleApiAdministrationInvitationsPost } from "#server/routes/api/administration/invitations/post"
+import { remove as handleApiAdministrationInvitationsDelete } from "#server/routes/api/administration/invitations/delete"
+import { patch as handleApiAdministrationMembershipsPatch } from "#server/routes/api/administration/memberships/patch"
 import { get as handleApiHealthGet } from "./api/health/get/index.ts"
 import { delete as handleApiSessionDelete } from "#server/routes/api/session/delete"
 import { get as handleApiSessionGet } from "#server/routes/api/session/get"
@@ -43,5 +49,29 @@ export function routes(app: Express, authentication?: AuthenticationRoutes): voi
     handleApiSessionVerifyPost.bind(null, authentication),
   )
   app.post("/api/session/revoke-all", handleApiSessionRevokeAllPost.bind(null, authentication))
+  app.post(
+    "/api/auth/bootstrap",
+    initiationLimit,
+    handleApiAuthEnrollmentPost.bind(null, authentication, "bootstrap"),
+  )
+  app.post(
+    "/api/auth/recovery",
+    initiationLimit,
+    handleApiAuthEnrollmentPost.bind(null, authentication, "recovery"),
+  )
+  app.get("/api/administration", handleApiAdministrationGet.bind(null, authentication))
+  app.post(
+    "/api/administration/invitations",
+    handleApiAdministrationInvitationsPost.bind(null, authentication),
+  )
+  app.delete(
+    "/api/administration/invitations/:id",
+    handleApiAdministrationInvitationsDelete.bind(null, authentication),
+  )
+  app.patch(
+    "/api/administration/memberships/:id",
+    handleApiAdministrationMembershipsPatch.bind(null, authentication),
+  )
+  app.use("/api/administration", respondAdministrationError)
   app.use(respondAuthenticationError)
 }

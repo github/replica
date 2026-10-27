@@ -1,15 +1,18 @@
-import type { InstallationMembershipInput } from "#server/repositories/installation-memberships/types"
+import type {
+  InstallationMembershipInput,
+  InstallationMembershipRecord,
+} from "#server/repositories/installation-memberships/types"
 
 import type { Prisma } from "../../../generated/prisma/client.ts"
 
-export function saveInstallationMembership(
+export async function saveInstallationMembership(
   database: Prisma.TransactionClient,
   input: InstallationMembershipInput,
-) {
+): Promise<InstallationMembershipRecord> {
   const { userId, ...membership } = input
-  return database.installationMembership.upsert({
+  return (await database.installationMembership.upsert({
     where: { userId },
     create: input,
     update: membership,
-  })
+  })) as InstallationMembershipRecord
 }

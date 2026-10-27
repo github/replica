@@ -1,4 +1,5 @@
 import { createAdmissionPolicy } from "#server/domains/authentication/create-admission-policy"
+import { createAdministrationService } from "#server/domains/administration/create-service"
 import { createAuthenticationService } from "#server/domains/authentication/create-service"
 import type { AuthenticationSettings } from "#server/domains/authentication/create-service/types"
 import { ensureGitHubProviderRevision } from "#server/domains/authentication/ensure-provider-revision"
@@ -51,6 +52,15 @@ function readGitHubAuthentication(
   }
 }
 
+function readHostSecret(environment: NodeJS.ProcessEnv, key: string): string | null {
+  const value = environment[key]
+  if (!value) return null
+  if (value.length < 32 || value.length > 1_024) {
+    throw new Error(`${key} must contain between 32 and 1024 characters.`)
+  }
+  return value
+}
+
 export async function createAuthenticationRuntime(environment: NodeJS.ProcessEnv) {
   const origin = readOrigin(environment)
   const configuration = readGitHubAuthentication(environment, origin)
@@ -60,6 +70,11 @@ export async function createAuthenticationRuntime(environment: NodeJS.ProcessEnv
   const providerRevision = configuration
     ? await ensureGitHubProviderRevision(store, configuration)
     : null
+  const bootstrapSecret = readHostSecret(environment, "HUB_BOOTSTRAP_SECRET")
+  const recoverySecret = readHostSecret(environment, "HUB_ADMIN_RECOVERY_SECRET")
+  if (bootstrapSecret && recoverySecret && bootstrapSecret === recoverySecret) {
+    throw new Error("HUB_BOOTSTRAP_SECRET and HUB_ADMIN_RECOVERY_SECRET must be different.")
+  }
   const settings: AuthenticationSettings = {
     origin: origin.origin,
     secureCookies: origin.protocol === "https:",
@@ -68,12 +83,15 @@ export async function createAuthenticationRuntime(environment: NodeJS.ProcessEnv
     trustedProxyHops,
   }
   return {
+    administration: createAdministrationService({ store }),
     service: createAuthenticationService({
       store,
       github: configuration ? createGitHubUserAuthClient(configuration) : null,
       configuration,
       providerRevisionId: providerRevision?.id ?? null,
       admissionPolicy,
+      bootstrapSecret,
+      recoverySecret,
     }),
     settings,
   }

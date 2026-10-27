@@ -1,0 +1,45 @@
+.membership-administration-page {
+  display: grid;
+  gap: 2rem;
+  max-inline-size: 72rem;
+  margin-inline: auto;
+  padding: 2rem;
+}
+
+.membership-administration-page__header {
+  display: flex;
+  gap: 1rem;
+  align-items: start;
+  justify-content: space-between;
+}
+
+.membership-administration-page__form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 1rem;
+  align-items: end;
+  margin-block-start: 1rem;
+}
+
+.membership-administration-page__list {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0;
+  list-style: none;
+}
+
+.membership-administration-page__list > li {
+  padding: 1rem;
+  border: 0.0625rem solid var(--hub-border-default);
+  border-radius: 0.5rem;
+}
+
+.membership-administration-page__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.membership-administration-page__error {
+  color: var(--hub-fg-danger);
+}
