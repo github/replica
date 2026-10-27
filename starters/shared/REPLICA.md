@@ -22,7 +22,23 @@ Session startup runs `node scripts/setup-replica-plugin.mjs --startup`. It alway
 
 After `npm ci` finishes, the script prints a final summary of dependency installation and Replica plugin setup, including failure reasons and recovery commands. Plugin installation success does not prove that the current session loaded the canvas; the summary includes the separate activation steps.
 
-Agents do not automatically receive this output. Open the app's setup output to diagnose failures, then rerun `node scripts/setup-replica-plugin.mjs` after resolving them. Running that script without `--startup` only sets up the plugin and still exits nonzero on failure. For manual installation, updates or source changes, follow the [plugin guide](https://github.com/github/replica/blob/main/.github/extensions/replica-prototype/README.md#install). Keep only one Replica provider active.
+Agents do not automatically receive this output. Follow [app preparation](#prepare-the-app-without-a-setup-questionnaire) rather than asking the user to read it. When available, setup output provides failure reasons and recovery commands. Running `node scripts/setup-replica-plugin.mjs` without `--startup` only sets up the plugin and still exits nonzero on failure. Run it only when plugin recovery is needed and authorized, not to repair missing app dependencies. For manual installation, updates or source changes, follow the [plugin guide](https://github.com/github/replica/blob/main/.github/extensions/replica-prototype/README.md#install). Keep only one Replica provider active.
+
+## Prepare the app without a setup questionnaire
+
+The agent owns ordinary setup diagnostics. Users should not need to understand package folders, plugin summaries or command output to see their prototype. Creation intentionally leaves out `node_modules`; its absence alone does not mean setup failed.
+
+Check the host's available setup status and output first. If they are unavailable, inspect installation activity scoped to this repository using the host's task or process tools. Do not inspect unrelated processes' private data. A visible canvas proves that the current session has the preview tool, not that app dependencies are installed.
+
+| Observed state | Agent action |
+| --- | --- |
+| Setup is running | Wait for that installation and inspect its result. Do not start another. |
+| Setup finished successfully | Check the app's required runtime and dependencies, then continue with canvas preflight and the documented preview command. |
+| Dependencies are missing and no installation is active | With repository setup approved and a compatible runtime, run `npm ci` and inspect the result. Do not rerun plugin setup when the canvas is already available. |
+| Setup failed | Read the available error, resolve problems within existing authorization and rerun only the failed step. Do not bypass policy, change authentication or install global tools without the required approval. |
+| Setup activity cannot be determined | Explain that setup status cannot yet be confirmed. Resolve that status before starting another installation; do not treat unavailable logs as proof that setup failed or ask the user to interpret a summary. |
+
+Keep detailed output in the host's diagnostic artifacts when available, outside committed source. Report failures accurately, but reserve technical details for troubleshooting. For normal preparation, say "I'm preparing your prototype so you can open it." If an action is required, name that action and why it is needed, for example: "Before I can open your prototype, please approve this repository's setup configuration in Copilot." Ask for a specific error excerpt only when agent-accessible diagnostics are exhausted and that information is needed to resolve a blocker; explain where to find it and ask the user to omit credentials and private information.
 
 ## Canvas preflight
 
@@ -30,7 +46,7 @@ Agents complete this gate before ordinary UI edits, prototype preview, publishin
 
 When `replica-prototype` is available, discover its capabilities before the first required operation and reuse the same-provider schema in this session. Rediscover after a provider reload/reconnect, schema mismatch or explicit request to check for changed capabilities; a timeout alone does not invalidate a schema. Use the existing provider without reinstalling or updating it. If several providers are available, ask which to keep before changing plugin or extension settings.
 
-When the canvas is missing in a canvas-capable host, stop before UI edits or preview startup and tell the user: Open **Customization**, select **Installed** in the top-left bar, and make sure both the **Replica plugin** and the **Replica extension** are enabled. These are separate switches; CLI plugin enablement does not prove that the extension or canvas is available. If Replica is absent from Installed, ask the user to check the session setup output, resolve any reported CLI or policy error, and rerun setup. Agents leave installation and enablement to the setup script and user controls.
+When the canvas is missing in a canvas-capable host, stop before UI edits or preview startup. Tell the user: "To show your prototype beside this chat, open **Customization → Installed** and turn on both the **Replica plugin** and the **Replica extension**." These are separate switches; CLI plugin enablement does not prove that the extension or canvas is available. If Replica is absent from Installed, follow [app preparation](#prepare-the-app-without-a-setup-questionnaire) to diagnose installation and identify the specific approval or recovery action needed. Do not ask the user to interpret setup logs as the default next step. Agents leave installation and enablement to the setup script and user controls.
 
 If the canvas is still missing after enabling both, ask the user to start a fresh Copilot session. CLI changes apply to future sessions; setup success is not evidence that the current session loaded the canvas. Discover the canvas again after the user changes settings, and resume only when it is available.
 

@@ -4,6 +4,8 @@ These shared instructions apply alongside the selected app's `AGENTS.md`. Use th
 
 Check `node --version` before installing dependencies. Use an existing Node.js installation matching `engines.node` in [package.json](package.json). On macOS or Linux, if a compatible installation is missing, ask for approval before installing [nodenv](https://github.com/nodenv/nodenv), [node-build](https://github.com/nodenv/node-build), or Node.js, or changing shell configuration. Do not install automatically. Verify a compatible Node.js version is active before `npm ci`.
 
+For initial setup or missing dependencies, follow [app preparation](REPLICA.md#prepare-the-app-without-a-setup-questionnaire). Diagnose ordinary setup yourself, avoid overlapping installations and ask users only for actions or permissions they must supply. Do not begin with a request to read setup logs or report a plugin summary.
+
 ## Prototyping context
 
 This repository is for prototyping. Users may ask to rebuild existing experiences,
