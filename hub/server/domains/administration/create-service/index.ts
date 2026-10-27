@@ -46,7 +46,7 @@ async function getAdministrationSession(
         github: null,
         configuration: null,
         providerRevisionId: null,
-        admissionPolicy: { name: "hub-managed", admit: () => Promise.resolve(false) },
+        admissionPolicy: { name: "hub-managed", admit: () => Promise.resolve(null) },
         now: dependencies.now,
       },
       sessionToken,

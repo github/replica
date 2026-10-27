@@ -1,0 +1,21 @@
+model GitHubWebhookDelivery {
+  // ID columns
+  id                 String @id @default(uuid()) @db.Uuid
+  repositorySourceId String? @map("repository_source_id") @db.Uuid
+
+  // Relations
+  repositorySource GitHubRepositorySource? @relation(fields: [repositorySourceId], references: [id], onDelete: SetNull)
+
+  // Attribute columns
+  deliveryId    String @unique @map("delivery_id")
+  event         String
+  action        String?
+  installationId String @map("installation_id")
+
+  // Timestamp columns
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([installationId, createdAt])
+  @@map("github_webhook_deliveries")
+}

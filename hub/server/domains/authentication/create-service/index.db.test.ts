@@ -449,7 +449,7 @@ describe("createAuthenticationService() database behavior", () => {
       github: null,
       configuration: null,
       providerRevisionId: null,
-      admissionPolicy: { name: "hub-managed", admit: () => Promise.resolve(true) },
+      admissionPolicy: { name: "hub-managed", admit: () => Promise.resolve("legacy") },
     })
 
     const results = await Promise.allSettled([

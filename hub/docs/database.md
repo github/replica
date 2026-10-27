@@ -48,7 +48,16 @@ model Folder {
 
 `uuid()` generates UUIDs through Prisma. `@updatedAt` updates timestamps on Prisma writes, not through a database trigger. Raw SQL writers must supply UUIDs and maintain `updated_at` themselves. Use timezone-aware timestamps for stored instants.
 
-Workspace and prototype access use separate grant tables so each user has at most one rule per scope. The database requires an allowed rule to have a role and an explicit deny to have no role. Prototype versions have a unique sequence within their owning prototype and use restrictive deletion so history cannot be detached or silently removed.
+Workspace and prototype access use separate grant tables so each user has at most one manual rule per scope. The database requires an allowed rule to have a role and an explicit deny to have no role. Prototype versions have a unique sequence within their owning prototype and use restrictive deletion so history cannot be detached or silently removed.
+
+GitHub synchronization uses separate records:
+
+- `GitHubRepositorySource` identifies a repository by immutable GitHub ID and the App and installation configuration that confirmed it. Mutable owner, name, default branch, active/removed state, dirty state, failures, and synchronization timestamps do not define identity.
+- `GitHubSynchronizedAccess` stores one user's raw permission, mapped prototype role, admission eligibility, source, status, and last confirmation for one repository source.
+- `GitHubAuthorizationPolicy` stores the bounded last-known-good duration. The initial policy is one day and may not exceed seven days.
+- `GitHubWebhookDelivery` deduplicates verified deliveries by GitHub delivery ID.
+
+`Prototype.authorizationMode` defaults to `hub-managed`. `sourceRepositoryId` is nullable and applies only when the mode is explicitly `github-synchronized`. Synchronized records never share rows with workspace or prototype grants, so reconciliation cannot overwrite manual Hub decisions.
 
 ## Shared client
 

@@ -65,7 +65,7 @@ describe("createAuthenticationService() membership enforcement", () => {
         providerRevisionId: null,
         admissionPolicy: {
           name: "hub-managed",
-          admit: () => Promise.resolve(false),
+          admit: () => Promise.resolve(null),
         },
       })
 

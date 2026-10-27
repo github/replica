@@ -1,0 +1,13 @@
+model GitHubAuthorizationPolicy {
+  // ID columns
+  id String @id @db.Uuid
+
+  // Attribute columns
+  lastKnownGoodSeconds Int @default(86400) @map("last_known_good_seconds")
+
+  // Timestamp columns
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("github_authorization_policies")
+}

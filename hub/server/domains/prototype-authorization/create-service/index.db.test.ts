@@ -1546,9 +1546,16 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
   })
 
   it("returns an empty terminal prototype page for a baseline-authorized user", async () => {
-    const baselineRole = vi.fn<PrototypeBaselinePolicy["role"]>().mockResolvedValue("viewer")
+    const baselineAccess = vi.fn<PrototypeBaselinePolicy["baseline"]>().mockResolvedValue({
+      role: "viewer",
+      repositorySourceId: "repository-source",
+      githubRepositoryId: "100",
+      rawPermission: "read",
+      confirmedAt: new Date(),
+      synchronizationStatus: "current",
+    })
     const baseline: PrototypeBaselinePolicy = {
-      role: baselineRole,
+      baseline: baselineAccess,
     }
     const { prisma, service, store } = await database(baseline)
     const actor = await createActor(store, {
@@ -1575,7 +1582,7 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
         limit: 20,
       }),
     ).resolves.toEqual({ items: [], nextCursor: null })
-    expect(baselineRole.mock.calls).toContainEqual([actor.user.id, prototype.id])
+    expect(baselineAccess.mock.calls).toContainEqual([actor.user.id, prototype.id])
   })
 
   it("uses baseline authorization for single-prototype reads and role-gated mutations", async () => {
@@ -1744,11 +1751,11 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
   })
 
   it("lets a workspace deny override prototype and baseline access when listing", async () => {
-    const baselineRole = vi
-      .fn<PrototypeBaselinePolicy["role"]>()
+    const baselineAccess = vi
+      .fn<PrototypeBaselinePolicy["baseline"]>()
       .mockRejectedValue(new Error("baseline unavailable"))
     const baseline: PrototypeBaselinePolicy = {
-      role: baselineRole,
+      baseline: baselineAccess,
     }
     const { prisma, service, store } = await database(baseline)
     const actor = await createActor(store, {
@@ -1790,14 +1797,14 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
       code: "prototype_access_denied",
     })
     expect(prototypeScan).not.toHaveBeenCalled()
-    expect(baselineRole.mock.calls).toHaveLength(0)
+    expect(baselineAccess.mock.calls).toHaveLength(0)
   })
 
   it("uses an explicit prototype role without consulting a failing baseline", async () => {
-    const baselineRole = vi
-      .fn<PrototypeBaselinePolicy["role"]>()
+    const baselineAccess = vi
+      .fn<PrototypeBaselinePolicy["baseline"]>()
       .mockRejectedValue(new Error("baseline unavailable"))
-    const { prisma, service, store } = await database({ role: baselineRole })
+    const { prisma, service, store } = await database({ baseline: baselineAccess })
     const actor = await createActor(store, {
       subject: "explicit-role-baseline-failure",
       token: "explicit-role-baseline-failure-token",
@@ -1843,7 +1850,7 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
         "workspaceId",
       ].sort(),
     )
-    expect(baselineRole.mock.calls).toHaveLength(0)
+    expect(baselineAccess.mock.calls).toHaveLength(0)
   })
 
   it("fills prototype pages after excluding explicit denies and continues without duplicates", async () => {

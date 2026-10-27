@@ -1,19 +1,31 @@
 import type { AdmissionPolicy } from "#server/domains/authentication/create-service/types"
 import { createGitHubIntegrationCredentialProvider } from "#server/domains/github-integration/create-credential-provider"
 import type { IdentityStore } from "#server/domains/identity/create-store/types"
+import type { GitHubAuthorizationService } from "#server/domains/github-authorization/create-service/types"
 import { checkRepositoryAdmission } from "#server/integrations/github/check-repository-admission"
 import { AuthenticationError } from "#server/utils/authentication-error"
 
 export function createAdmissionPolicy(
   environment: NodeJS.ProcessEnv,
   store: IdentityStore,
+  githubAuthorization: GitHubAuthorizationService,
 ): AdmissionPolicy {
   const selected = environment.HUB_ADMISSION_POLICY ?? "hub-managed"
   if (selected === "hub-managed") {
-    return { name: "hub-managed", admit: () => Promise.resolve(false) }
+    return { name: "hub-managed", admit: () => Promise.resolve(null) }
+  }
+  if (selected === "github-synchronized") {
+    return {
+      name: "github-synchronized",
+      admit: (profile) => githubAuthorization.evaluateAdmission(profile),
+      saveBaseline: (database, userId, baseline) =>
+        githubAuthorization.saveAdmissionBaseline(database, userId, baseline),
+    }
   }
   if (selected !== "legacy-repository") {
-    throw new Error("HUB_ADMISSION_POLICY must be hub-managed or legacy-repository.")
+    throw new Error(
+      "HUB_ADMISSION_POLICY must be hub-managed, github-synchronized, or legacy-repository.",
+    )
   }
   const provider = createGitHubIntegrationCredentialProvider(environment)
   return {
@@ -28,7 +40,7 @@ export function createAdmissionPolicy(
             "GitHub source integration is not configured.",
           )
         }
-        return await checkRepositoryAdmission(credentials, profile)
+        return (await checkRepositoryAdmission(credentials, profile)) ? "legacy" : null
       } catch (error) {
         if (error instanceof AuthenticationError) throw error
         throw new AuthenticationError(

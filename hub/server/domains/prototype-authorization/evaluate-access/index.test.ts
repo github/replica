@@ -2,13 +2,22 @@ import { describe, expect, it } from "vitest"
 
 import { evaluatePrototypeAccess } from "#server/domains/prototype-authorization/evaluate-access"
 
+const baseline = {
+  role: "editor" as const,
+  repositorySourceId: "repository-source",
+  githubRepositoryId: "123",
+  rawPermission: "write",
+  confirmedAt: new Date("2026-10-27T20:00:00.000Z"),
+  synchronizationStatus: "current",
+}
+
 describe("evaluatePrototypeAccess()", () => {
   it("uses a prototype role even when it restricts a stronger workspace role", () => {
     expect(
       evaluatePrototypeAccess({
         workspaceGrant: { effect: "allow", role: "administrator" },
         prototypeGrant: { effect: "allow", role: "viewer" },
-        baselineRole: "editor",
+        baseline,
       }),
     ).toEqual({
       allowed: true,
@@ -36,7 +45,7 @@ describe("evaluatePrototypeAccess()", () => {
       evaluatePrototypeAccess({
         workspaceGrant: input.workspaceGrant,
         prototypeGrant: input.prototypeGrant,
-        baselineRole: "administrator",
+        baseline: { ...baseline, role: "administrator" },
       }),
     ).toEqual({
       allowed: false,
@@ -46,11 +55,24 @@ describe("evaluatePrototypeAccess()", () => {
     })
   })
 
-  it("orders workspace access before a future baseline", () => {
+  it("orders a prototype role before a workspace role before the GitHub baseline", () => {
+    expect(
+      evaluatePrototypeAccess({
+        prototypeGrant: { effect: "allow", role: "viewer" },
+        workspaceGrant: { effect: "allow", role: "commenter" },
+        baseline,
+      }),
+    ).toEqual({
+      allowed: true,
+      role: "viewer",
+      source: "hub-prototype",
+      reason: "prototype_role",
+    })
+
     expect(
       evaluatePrototypeAccess({
         workspaceGrant: { effect: "allow", role: "commenter" },
-        baselineRole: "administrator",
+        baseline: { ...baseline, role: "administrator" },
       }),
     ).toEqual({
       allowed: true,
@@ -59,11 +81,18 @@ describe("evaluatePrototypeAccess()", () => {
       reason: "workspace_role",
     })
 
-    expect(evaluatePrototypeAccess({ baselineRole: "editor" })).toEqual({
+    expect(evaluatePrototypeAccess({ baseline })).toEqual({
       allowed: true,
       role: "editor",
-      source: "baseline",
-      reason: "baseline_role",
+      source: "github-synchronized",
+      reason: "github_baseline",
+      baseline: {
+        repositorySourceId: "repository-source",
+        githubRepositoryId: "123",
+        rawPermission: "write",
+        confirmedAt: new Date("2026-10-27T20:00:00.000Z"),
+        synchronizationStatus: "current",
+      },
     })
   })
 

@@ -5,6 +5,7 @@ import type { AuthenticationSettings } from "#server/domains/authentication/crea
 import { ensureGitHubProviderRevision } from "#server/domains/authentication/ensure-provider-revision"
 import { createIdentityStore } from "#server/domains/identity/create-store"
 import { createPrototypeAuthorizationService } from "#server/domains/prototype-authorization/create-service"
+import { createGitHubAuthorizationService } from "#server/domains/github-authorization/create-service"
 import { createGitHubUserAuthClient } from "#server/integrations/github/create-user-auth-client"
 import type { GitHubUserAuthConfiguration } from "#server/integrations/github/create-user-auth-client/types"
 import { readTrustedProxyHops } from "#server/integrations/express/read-trusted-proxy-hops"
@@ -66,11 +67,15 @@ export async function createAuthenticationRuntime(environment: NodeJS.ProcessEnv
   const origin = readOrigin(environment)
   const configuration = readGitHubAuthentication(environment, origin)
   const store = createIdentityStore(prisma)
-  const admissionPolicy = createAdmissionPolicy(environment, store)
-  const trustedProxyHops = readTrustedProxyHops(environment)
+  const githubAuthorization = createGitHubAuthorizationService({
+    database: prisma,
+    environment,
+    store,
+  })
   const providerRevision = configuration
     ? await ensureGitHubProviderRevision(store, configuration)
     : null
+  const admissionPolicy = createAdmissionPolicy(environment, store, githubAuthorization)
   const bootstrapSecret = readHostSecret(environment, "HUB_BOOTSTRAP_SECRET")
   const recoverySecret = readHostSecret(environment, "HUB_ADMIN_RECOVERY_SECRET")
   if (bootstrapSecret && recoverySecret && bootstrapSecret === recoverySecret) {
@@ -81,11 +86,23 @@ export async function createAuthenticationRuntime(environment: NodeJS.ProcessEnv
     secureCookies: origin.protocol === "https:",
     configured: configuration !== null,
     admissionPolicy: admissionPolicy.name,
-    trustedProxyHops,
+    trustedProxyHops: readTrustedProxyHops(environment),
   }
   return {
     administration: createAdministrationService({ store }),
-    prototypeAuthorization: createPrototypeAuthorizationService({ database: prisma, store }),
+    githubAuthorization,
+    prototypeAuthorization: createPrototypeAuthorizationService({
+      baseline: {
+        baseline: (database, userId, prototypeId) =>
+          githubAuthorization.prototypeBaseline(database, userId, prototypeId),
+        workspaceIds: (database, userId) =>
+          githubAuthorization.prototypeWorkspaceIds(database, userId),
+        prototypeIds: (database, userId, workspaceId) =>
+          githubAuthorization.prototypeIds(database, userId, workspaceId),
+      },
+      database: prisma,
+      store,
+    }),
     service: createAuthenticationService({
       store,
       github: configuration ? createGitHubUserAuthClient(configuration) : null,

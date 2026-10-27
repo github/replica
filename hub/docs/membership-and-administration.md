@@ -1,6 +1,6 @@
 # Installation membership and administration
 
-Hub owns installation admission after an authentication provider proves an identity. Repository access and installation membership are separate decisions.
+Hub owns installation admission after an authentication provider proves an identity. Repository access affects installation membership only through the explicit GitHub-synchronized policy; Hub remains the final evaluator.
 
 ## Membership contract
 
@@ -11,9 +11,11 @@ Each Hub user has at most one installation membership.
 | Active member | May create and restore a Hub session. Product access remains a separate future decision. |
 | Active administrator | Has member access and may use installation administration after fresh identity verification. Existing product access remains separate. |
 | Suspended | Cannot create or use a Hub session. An administrator may restore the membership. |
-| Removed | Cannot create or use a Hub session. The retained record preserves audit linkage, and return requires a new invitation. |
+| Removed | Cannot create or use a Hub session. The retained record preserves audit linkage. Manual removals require a new invitation; synchronized removals can return only after a new qualifying confirmation. |
 
 Changing a membership to suspended or removed deletes that user's sessions in the same transaction. Every protected request also reloads membership, so a stale cookie cannot preserve access. Hub prevents overlapping administrator changes from removing the final active administrator.
+
+Synchronization creates and refreshes only memberships whose source is `synchronized`. It never reactivates or rewrites a manual, invitation, bootstrap, recovery, or suspended membership. When no fresh admission-eligible baseline remains, reconciliation marks the synchronized membership removed and deletes its sessions in the same transaction.
 
 Suspension and removal also check Hub-managed product administration in the same transaction. The change fails with `product_administration_orphaned` until another active user can administer every affected workspace and prototype. A role change from installation administrator to member does not remove explicit workspace or prototype roles.
 
@@ -48,6 +50,9 @@ The minimal administration surface uses:
 - `POST /api/administration/invitations`
 - `DELETE /api/administration/invitations/:id`
 - `PATCH /api/administration/memberships/:id`
+- `GET` and `POST /api/administration/github/repositories`
+- `PATCH` and `DELETE /api/administration/github/repositories/:repositorySourceId`
+- `POST /api/administration/github/repositories/:repositorySourceId/reconcile`
 - `POST /api/auth/bootstrap`
 - `POST /api/auth/recovery`
 
@@ -61,4 +66,4 @@ Membership operations write a structured security record with a bounded action, 
 
 ## Non-goals
 
-This boundary does not grant prototype, repository, workspace, or artifact roles. The separate [prototype authorization](prototype-authorization.md) boundary defines Hub-managed product access. Membership does not synchronize GitHub organization or repository permissions, implement production OIDC, link accounts across providers, provision users through SCIM, or ingest artifacts.
+This boundary does not grant direct prototype, workspace, or artifact roles. The separate [prototype authorization](prototype-authorization.md) boundary defines product access and can consume a repository baseline below Hub overrides. Membership synchronization does not browse source, implement production OIDC, link accounts across providers, provision users through SCIM, or ingest artifacts.
