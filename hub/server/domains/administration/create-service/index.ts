@@ -5,6 +5,7 @@ import type {
   AdministrationService,
 } from "#server/domains/administration/create-service/types"
 import { getCurrentSession } from "#server/domains/authentication/get-current-session"
+import { ensureProductAdministrationContinuity } from "#server/domains/prototype-authorization/ensure-administration-continuity"
 import { AuthenticationError } from "#server/utils/authentication-error"
 
 const invitationSchema = z.object({
@@ -183,7 +184,7 @@ export function createAdministrationService(
         )
       }
       const current = await requireFreshAdministrator(dependencies, sessionToken)
-      return dependencies.store.lock(async (records) => {
+      return dependencies.store.lock(async (records, database) => {
         const actor = await records.sessionById(current.id)
         const actorMembership = actor ? await records.membership(actor.userId) : null
         if (
@@ -231,6 +232,9 @@ export function createAdministrationService(
             "last_administrator",
             "The final active administrator cannot be changed.",
           )
+        }
+        if (target.status === "active" && nextStatus !== "active") {
+          await ensureProductAdministrationContinuity(database, target.userId)
         }
         const changed = await records.saveMembership({
           userId: target.userId,

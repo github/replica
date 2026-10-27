@@ -15,6 +15,8 @@ Each Hub user has at most one installation membership.
 
 Changing a membership to suspended or removed deletes that user's sessions in the same transaction. Every protected request also reloads membership, so a stale cookie cannot preserve access. Hub prevents overlapping administrator changes from removing the final active administrator.
 
+Suspension and removal also check Hub-managed product administration in the same transaction. The change fails with `product_administration_orphaned` until another active user can administer every affected workspace and prototype. A role change from installation administrator to member does not remove explicit workspace or prototype roles.
+
 ## Invitations
 
 An invitation targets an external identity assignment:

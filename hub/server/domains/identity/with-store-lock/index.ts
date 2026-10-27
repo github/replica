@@ -3,14 +3,14 @@ import { ensureGitHubIntegrationState } from "#server/repositories/github-integr
 import { withIdentityStoreLock as withRepositoryLock } from "#server/repositories/identity-store-state/with-store-lock"
 import type { IdentityRecords } from "#server/domains/identity/create-store/types"
 
-import type { PrismaClient } from "../../../generated/prisma/client.ts"
+import type { Prisma, PrismaClient } from "../../../generated/prisma/client.ts"
 
 export function withIdentityStoreLock<T>(
   client: PrismaClient,
-  operation: (records: IdentityRecords) => Promise<T>,
+  operation: (records: IdentityRecords, database: Prisma.TransactionClient) => Promise<T>,
 ): Promise<T> {
   return withRepositoryLock(client, async (database) => {
     await ensureGitHubIntegrationState(database)
-    return operation(createIdentityRecords(database))
+    return operation(createIdentityRecords(database), database)
   })
 }

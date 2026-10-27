@@ -4,6 +4,8 @@ import { createIdentityStore } from "#server/domains/identity/create-store"
 import { createPrototypeAuthorizationService } from "#server/domains/prototype-authorization/create-service"
 import { digestSecret } from "#server/utils/digest-secret"
 
+import type { PrismaClient } from "../../../generated/prisma/client.ts"
+
 type IdentityStore = ReturnType<typeof createIdentityStore>
 
 async function database() {
@@ -73,6 +75,62 @@ async function createActor(
     })
     return { membership, session, user }
   })
+}
+
+async function waitForBlockedRowLock(database: PrismaClient, table: string) {
+  const queryPattern = `%${table}%FOR UPDATE%`
+  await vi.waitFor(
+    async () => {
+      const [result] = await database.$queryRaw<{ blocked: boolean }[]>`
+        SELECT EXISTS (
+          SELECT 1
+          FROM pg_stat_activity
+          WHERE datname = current_database()
+            AND pid <> pg_backend_pid()
+            AND wait_event_type = 'Lock'
+            AND query LIKE ${queryPattern}
+        ) AS blocked
+      `
+      expect(result?.blocked).toBe(true)
+    },
+    { interval: 20, timeout: 5_000 },
+  )
+}
+
+function deferred() {
+  let resolvePromise!: () => void
+  const promise = new Promise<void>((resolve) => {
+    resolvePromise = resolve
+  })
+  return { promise, resolve: resolvePromise }
+}
+
+async function holdWorkspaceLock(database: PrismaClient, workspaceId: string) {
+  const released = deferred()
+  const locked = deferred()
+  const holder = database.$transaction(async (transaction) => {
+    await transaction.$queryRaw`
+      SELECT "id" FROM "workspaces" WHERE "id" = ${workspaceId}::uuid FOR UPDATE
+    `
+    locked.resolve()
+    await released.promise
+  })
+  await locked.promise
+  return { holder, release: released.resolve }
+}
+
+async function holdPrototypeLock(database: PrismaClient, prototypeId: string) {
+  const released = deferred()
+  const locked = deferred()
+  const holder = database.$transaction(async (transaction) => {
+    await transaction.$queryRaw`
+      SELECT "id" FROM "prototypes" WHERE "id" = ${prototypeId}::uuid FOR UPDATE
+    `
+    locked.resolve()
+    await released.promise
+  })
+  await locked.promise
+  return { holder, release: released.resolve }
 }
 
 describe("createPrototypeAuthorizationService() database behavior", () => {
@@ -247,6 +305,243 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
     ).toBe(0)
   })
 
+  it("serializes concurrent workspace administrator removal and downgrade", async () => {
+    const { prisma, service, store } = await database()
+    const first = await createActor(store, {
+      subject: "workspace-administrator-one",
+      token: "workspace-administrator-one-token",
+    })
+    const second = await createActor(store, {
+      subject: "workspace-administrator-two",
+      token: "workspace-administrator-two-token",
+    })
+    const workspace = await prisma.workspace.create({
+      data: {
+        name: "Workspace",
+        createdByUserId: first.user.id,
+        grants: {
+          create: [
+            {
+              userId: first.user.id,
+              effect: "allow",
+              role: "administrator",
+            },
+            {
+              userId: second.user.id,
+              effect: "allow",
+              role: "administrator",
+            },
+          ],
+        },
+      },
+    })
+    const lock = await holdWorkspaceLock(prisma, workspace.id)
+
+    const removal = service.removeWorkspaceAccess(
+      "workspace-administrator-one-token",
+      workspace.id,
+      first.user.id,
+    )
+    await waitForBlockedRowLock(prisma, "workspaces")
+    const downgrade = service.setWorkspaceAccess(
+      "workspace-administrator-two-token",
+      workspace.id,
+      second.user.id,
+      { effect: "allow", role: "viewer" },
+    )
+    lock.release()
+    await lock.holder
+    const results = await Promise.allSettled([removal, downgrade])
+
+    expect(results[0]).toMatchObject({ status: "fulfilled" })
+    if (results[1]?.status !== "rejected") throw new Error("The downgrade should be rejected.")
+    expect(results[1].reason).toMatchObject({
+      status: 409,
+      code: "last_workspace_administrator",
+    })
+    expect(
+      await prisma.workspaceAccessGrant.findMany({
+        where: { workspaceId: workspace.id, effect: "allow", role: "administrator" },
+        select: { userId: true },
+      }),
+    ).toEqual([{ userId: second.user.id }])
+    expect(
+      await prisma.securityAudit.findMany({
+        where: { workspaceId: workspace.id, event: { startsWith: "workspace.access." } },
+        select: { event: true, targetUserId: true },
+      }),
+    ).toEqual([{ event: "workspace.access.remove", targetUserId: first.user.id }])
+  })
+
+  it("lets exactly one prototype-direct administrator relinquish authority", async () => {
+    const { prisma, service, store } = await database()
+    const first = await createActor(store, {
+      subject: "prototype-administrator-one",
+      token: "prototype-administrator-one-token",
+    })
+    const second = await createActor(store, {
+      subject: "prototype-administrator-two",
+      token: "prototype-administrator-two-token",
+    })
+    const workspace = await prisma.workspace.create({
+      data: {
+        name: "Workspace",
+        createdByUserId: first.user.id,
+        grants: {
+          create: [
+            { userId: first.user.id, effect: "allow", role: "viewer" },
+            { userId: second.user.id, effect: "allow", role: "viewer" },
+          ],
+        },
+      },
+    })
+    const prototype = await prisma.prototype.create({
+      data: {
+        name: "Prototype",
+        workspaceId: workspace.id,
+        createdByUserId: first.user.id,
+        grants: {
+          create: [
+            { userId: first.user.id, effect: "allow", role: "administrator" },
+            { userId: second.user.id, effect: "allow", role: "administrator" },
+          ],
+        },
+      },
+    })
+    const lock = await holdPrototypeLock(prisma, prototype.id)
+
+    const removal = service.removePrototypeAccess(
+      "prototype-administrator-one-token",
+      prototype.id,
+      first.user.id,
+    )
+    await waitForBlockedRowLock(prisma, "prototypes")
+    const downgrade = service.setPrototypeAccess(
+      "prototype-administrator-two-token",
+      prototype.id,
+      second.user.id,
+      { effect: "allow", role: "viewer" },
+    )
+    lock.release()
+    await lock.holder
+    const results = await Promise.allSettled([removal, downgrade])
+
+    expect(results.filter(({ status }) => status === "fulfilled")).toHaveLength(1)
+    expect(results.filter(({ status }) => status === "rejected")).toHaveLength(1)
+    if (results[1]?.status !== "rejected") throw new Error("The downgrade should be rejected.")
+    expect(results[1].reason).toMatchObject({
+      status: 409,
+      code: "last_prototype_administrator",
+    })
+    expect(
+      await prisma.prototypeAccessGrant.findMany({
+        where: { prototypeId: prototype.id, effect: "allow", role: "administrator" },
+        select: { userId: true },
+      }),
+    ).toEqual([{ userId: second.user.id }])
+    expect(
+      await prisma.securityAudit.findMany({
+        where: { prototypeId: prototype.id, event: { startsWith: "prototype.access." } },
+        select: { event: true, targetUserId: true },
+      }),
+    ).toEqual([{ event: "prototype.access.remove", targetUserId: first.user.id }])
+  })
+
+  it("does not count suspended administrators in workspace or prototype continuity", async () => {
+    const { prisma, service, store } = await database()
+    const active = await createActor(store, {
+      subject: "active-product-administrator",
+      token: "active-product-administrator-token",
+    })
+    const suspended = await createActor(store, {
+      subject: "suspended-product-administrator",
+      token: "suspended-product-administrator-token",
+    })
+    const removed = await createActor(store, {
+      subject: "removed-product-administrator",
+      token: "removed-product-administrator-token",
+    })
+    await store.lock((records) =>
+      records.saveMembership({
+        userId: suspended.user.id,
+        status: "suspended",
+        role: "member",
+        source: "manual",
+        suspendedAt: new Date(),
+      }),
+    )
+    await store.lock((records) =>
+      records.saveMembership({
+        userId: removed.user.id,
+        status: "removed",
+        role: "member",
+        source: "manual",
+        removedAt: new Date(),
+      }),
+    )
+    const workspace = await prisma.workspace.create({
+      data: {
+        name: "Workspace",
+        createdByUserId: active.user.id,
+        grants: {
+          create: [
+            { userId: active.user.id, effect: "allow", role: "administrator" },
+            { userId: suspended.user.id, effect: "allow", role: "administrator" },
+            { userId: removed.user.id, effect: "allow", role: "administrator" },
+          ],
+        },
+      },
+    })
+    const prototypeWorkspace = await prisma.workspace.create({
+      data: {
+        name: "Prototype workspace",
+        createdByUserId: active.user.id,
+        grants: {
+          create: [
+            { userId: active.user.id, effect: "allow", role: "viewer" },
+            { userId: suspended.user.id, effect: "allow", role: "viewer" },
+            { userId: removed.user.id, effect: "allow", role: "viewer" },
+          ],
+        },
+      },
+    })
+    const prototype = await prisma.prototype.create({
+      data: {
+        name: "Prototype",
+        workspaceId: prototypeWorkspace.id,
+        createdByUserId: active.user.id,
+        grants: {
+          create: [
+            { userId: active.user.id, effect: "allow", role: "administrator" },
+            { userId: suspended.user.id, effect: "allow", role: "administrator" },
+            { userId: removed.user.id, effect: "allow", role: "administrator" },
+          ],
+        },
+      },
+    })
+
+    await expect(
+      service.removeWorkspaceAccess(
+        "active-product-administrator-token",
+        workspace.id,
+        active.user.id,
+      ),
+    ).rejects.toMatchObject({
+      status: 409,
+      code: "last_workspace_administrator",
+    })
+    await expect(
+      service.removePrototypeAccess(
+        "active-product-administrator-token",
+        prototype.id,
+        active.user.id,
+      ),
+    ).rejects.toMatchObject({
+      status: 409,
+      code: "last_prototype_administrator",
+    })
+  })
+
   it("commits one valid rule and an audit for each successful concurrent access change", async () => {
     const { prisma, service, store } = await database()
     const administrator = await createActor(store, {
@@ -307,6 +602,108 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
         : [grant?.effect === "deny" ? "prototype.access.deny" : "prototype.access.grant"],
     )
     expect(audits.every(({ actorUserId }) => actorUserId === administrator.user.id)).toBe(true)
+  })
+
+  it("commits one concurrent archive and returns one archived conflict", async () => {
+    const { prisma, service, store } = await database()
+    const actor = await createActor(store, {
+      subject: "concurrent-archive",
+      token: "concurrent-archive-token",
+    })
+    const workspace = await prisma.workspace.create({
+      data: {
+        name: "Workspace",
+        createdByUserId: actor.user.id,
+        grants: {
+          create: {
+            userId: actor.user.id,
+            effect: "allow",
+            role: "editor",
+          },
+        },
+      },
+    })
+    const prototype = await prisma.prototype.create({
+      data: {
+        name: "Prototype",
+        workspaceId: workspace.id,
+        createdByUserId: actor.user.id,
+      },
+    })
+    const lock = await holdPrototypeLock(prisma, prototype.id)
+
+    const first = service.archivePrototype("concurrent-archive-token", prototype.id)
+    await waitForBlockedRowLock(prisma, "prototypes")
+    const second = service.archivePrototype("concurrent-archive-token", prototype.id)
+    lock.release()
+    await lock.holder
+    const results = await Promise.allSettled([first, second])
+
+    expect(results[0]).toMatchObject({ status: "fulfilled" })
+    if (results[1]?.status !== "rejected") throw new Error("The second archive should be rejected.")
+    expect(results[1].reason).toMatchObject({
+      status: 409,
+      code: "prototype_archived",
+    })
+    expect(
+      await prisma.securityAudit.findMany({
+        where: { prototypeId: prototype.id, event: "prototype.archive" },
+        select: { event: true },
+      }),
+    ).toEqual([{ event: "prototype.archive" }])
+  })
+
+  it("does not commit a version queued behind archival", async () => {
+    const { prisma, service, store } = await database()
+    const actor = await createActor(store, {
+      subject: "archive-version-race",
+      token: "archive-version-race-token",
+    })
+    const workspace = await prisma.workspace.create({
+      data: {
+        name: "Workspace",
+        createdByUserId: actor.user.id,
+        grants: {
+          create: {
+            userId: actor.user.id,
+            effect: "allow",
+            role: "editor",
+          },
+        },
+      },
+    })
+    const prototype = await prisma.prototype.create({
+      data: {
+        name: "Prototype",
+        workspaceId: workspace.id,
+        createdByUserId: actor.user.id,
+      },
+    })
+    const lock = await holdPrototypeLock(prisma, prototype.id)
+
+    const archive = service.archivePrototype("archive-version-race-token", prototype.id)
+    await waitForBlockedRowLock(prisma, "prototypes")
+    const version = service.createVersion("archive-version-race-token", prototype.id, {
+      label: "Must not commit",
+    })
+    lock.release()
+    await lock.holder
+
+    const archived = (await archive) as { id: string; archivedAt: Date | null }
+    expect(archived.id).toBe(prototype.id)
+    expect(archived.archivedAt).toBeInstanceOf(Date)
+    await expect(version).rejects.toMatchObject({
+      status: 409,
+      code: "prototype_archived",
+    })
+    expect(await prisma.prototypeVersion.count({ where: { prototypeId: prototype.id } })).toBe(0)
+    expect(
+      await prisma.securityAudit.findMany({
+        where: { prototypeId: prototype.id },
+        orderBy: { createdAt: "asc" },
+        select: { event: true },
+      }),
+    ).toEqual([{ event: "prototype.archive" }])
   })
 
   it("rolls back an access change when its audit cannot be saved", async () => {
@@ -417,6 +814,64 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
       status: 422,
       code: "invalid_pagination",
     })
+  })
+
+  it("fills prototype pages after excluding explicit denies and continues without duplicates", async () => {
+    const { prisma, service, store } = await database()
+    const actor = await createActor(store, {
+      subject: "prototype-pagination",
+      token: "prototype-pagination-token",
+    })
+    const workspace = await prisma.workspace.create({
+      data: {
+        name: "Workspace",
+        createdByUserId: actor.user.id,
+        grants: {
+          create: {
+            userId: actor.user.id,
+            effect: "allow",
+            role: "viewer",
+          },
+        },
+      },
+    })
+    const prototypeIds = [
+      "00000000-0000-4000-8000-000000000001",
+      "00000000-0000-4000-8000-000000000002",
+      "00000000-0000-4000-8000-000000000003",
+      "00000000-0000-4000-8000-000000000004",
+      "00000000-0000-4000-8000-000000000005",
+      "00000000-0000-4000-8000-000000000006",
+    ]
+    await prisma.prototype.createMany({
+      data: prototypeIds.map((id) => ({
+        id,
+        name: `Prototype ${id.at(-1)}`,
+        workspaceId: workspace.id,
+        createdByUserId: actor.user.id,
+      })),
+    })
+    await prisma.prototypeAccessGrant.createMany({
+      data: [prototypeIds[1], prototypeIds[4]].map((prototypeId) => ({
+        prototypeId: prototypeId!,
+        userId: actor.user.id,
+        effect: "deny",
+      })),
+    })
+
+    const first = (await service.listPrototypes("prototype-pagination-token", workspace.id, {
+      limit: 2,
+    })) as { items: { id: string }[]; nextCursor: string | null }
+    const second = (await service.listPrototypes("prototype-pagination-token", workspace.id, {
+      limit: 2,
+      cursor: first.nextCursor,
+    })) as { items: { id: string }[]; nextCursor: string | null }
+
+    expect(first.items.map(({ id }) => id)).toEqual([prototypeIds[0], prototypeIds[2]])
+    expect(first.nextCursor).toBe(prototypeIds[2])
+    expect(second.items.map(({ id }) => id)).toEqual([prototypeIds[3], prototypeIds[5]])
+    expect(second.nextCursor).toBeNull()
+    expect(new Set([...first.items, ...second.items].map(({ id }) => id)).size).toBe(4)
   })
 
   it("creates sequential immutable versions and rejects additions after archival", async () => {

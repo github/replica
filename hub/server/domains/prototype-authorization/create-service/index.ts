@@ -116,6 +116,33 @@ async function requireActiveTarget(database: Prisma.TransactionClient, userId: s
   }
 }
 
+async function lockWorkspace(
+  database: Prisma.TransactionClient,
+  workspaceId: string,
+): Promise<void> {
+  await database.$queryRaw`SELECT "id" FROM "workspaces" WHERE "id" = ${workspaceId}::uuid FOR UPDATE`
+}
+
+async function lockPrototype(
+  database: Prisma.TransactionClient,
+  prototypeId: string,
+): Promise<void> {
+  await database.$queryRaw`SELECT "id" FROM "prototypes" WHERE "id" = ${prototypeId}::uuid FOR UPDATE`
+}
+
+async function lockWorkspacePrototypes(
+  database: Prisma.TransactionClient,
+  workspaceId: string,
+): Promise<string[]> {
+  const prototypes = await database.prototype.findMany({
+    where: { workspaceId },
+    orderBy: { id: "asc" },
+    select: { id: true },
+  })
+  for (const { id } of prototypes) await lockPrototype(database, id)
+  return prototypes.map(({ id }) => id)
+}
+
 async function workspaceDecision(
   database: Prisma.TransactionClient,
   userId: string,
@@ -165,6 +192,8 @@ async function hasPrototypeAdministratorAfter(
   prototypeId: string,
   targetUserId: string,
   replacement: GrantInput | null,
+  scope: "prototype" | "workspace" = "prototype",
+  excludedUserId?: string,
 ): Promise<boolean> {
   const prototype = await database.prototype.findUnique({
     where: { id: prototypeId },
@@ -176,13 +205,52 @@ async function hasPrototypeAdministratorAfter(
     ...prototype.grants.map(({ userId }) => userId),
     targetUserId,
   ])
+  const activeMemberships = await database.installationMembership.findMany({
+    where: {
+      userId: { in: [...userIds], ...(excludedUserId ? { not: excludedUserId } : {}) },
+      status: "active",
+    },
+    select: { userId: true },
+  })
+  const activeUserIds = new Set(activeMemberships.map(({ userId }) => userId))
   return [...userIds].some((userId) => {
-    const workspaceGrant = prototype.workspace.grants.find((grant) => grant.userId === userId)
+    if (!activeUserIds.has(userId)) return false
+    const workspaceGrant =
+      scope === "workspace" && userId === targetUserId
+        ? replacement
+        : prototype.workspace.grants.find((grant) => grant.userId === userId)
     const prototypeGrant =
-      userId === targetUserId
+      scope === "prototype" && userId === targetUserId
         ? replacement
         : prototype.grants.find((grant) => grant.userId === userId)
     return evaluatePrototypeAccess({ workspaceGrant, prototypeGrant }).role === "administrator"
+  })
+}
+
+async function hasWorkspaceAdministratorAfter(
+  database: Prisma.TransactionClient,
+  workspaceId: string,
+  targetUserId: string,
+  replacement: GrantInput | null,
+  excludedUserId?: string,
+): Promise<boolean> {
+  const grants = await database.workspaceAccessGrant.findMany({ where: { workspaceId } })
+  const userIds = new Set([...grants.map(({ userId }) => userId), targetUserId])
+  const activeMemberships = await database.installationMembership.findMany({
+    where: {
+      userId: { in: [...userIds], ...(excludedUserId ? { not: excludedUserId } : {}) },
+      status: "active",
+    },
+    select: { userId: true },
+  })
+  const activeUserIds = new Set(activeMemberships.map(({ userId }) => userId))
+  return [...userIds].some((userId) => {
+    if (!activeUserIds.has(userId)) return false
+    const grant =
+      userId === targetUserId
+        ? replacement
+        : grants.find((candidate) => candidate.userId === userId)
+    return grant?.effect === "allow" && grant.role === "administrator"
   })
 }
 
@@ -238,7 +306,7 @@ export function createPrototypeAuthorizationService({
 
     async createWorkspace(sessionToken, input) {
       const { name } = parseName(input, "invalid_workspace", "The workspace is invalid.")
-      return database.$transaction(async (transaction) => {
+      return store.lock(async (_records, transaction) => {
         const actor = await currentSession(store, sessionToken, transaction)
         requireFreshAuthorization(actor)
         if (actor.membership.role !== "administrator") {
@@ -285,30 +353,40 @@ export function createPrototypeAuthorizationService({
 
     async setWorkspaceAccess(sessionToken, workspaceId, targetUserId, input) {
       const change = parseGrant(input)
-      return database.$transaction(async (transaction) => {
+      return store.lock(async (_records, transaction) => {
         const actor = await currentSession(store, sessionToken, transaction)
         requireFreshAuthorization(actor)
+        requireIdentifier(workspaceId, "workspace_not_found", "The workspace was not found.")
+        await lockWorkspace(transaction, workspaceId)
         const { decision } = await workspaceDecision(transaction, actor.userId, workspaceId)
         requireDecision(decision, "administrator")
         await requireActiveTarget(transaction, targetUserId)
-        const existing = await transaction.workspaceAccessGrant.findUnique({
-          where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
-        })
-        const removesAdministrator =
-          existing?.effect === "allow" &&
-          existing.role === "administrator" &&
-          (change.effect === "deny" || change.role !== "administrator")
+        const prototypeIds = await lockWorkspacePrototypes(transaction, workspaceId)
         if (
-          removesAdministrator &&
-          (await transaction.workspaceAccessGrant.count({
-            where: { workspaceId, effect: "allow", role: "administrator" },
-          })) <= 1
+          !(await hasWorkspaceAdministratorAfter(transaction, workspaceId, targetUserId, change))
         ) {
           throw new AuthenticationError(
             409,
             "last_workspace_administrator",
             "The final workspace administrator cannot be changed.",
           )
+        }
+        for (const prototypeId of prototypeIds) {
+          if (
+            !(await hasPrototypeAdministratorAfter(
+              transaction,
+              prototypeId,
+              targetUserId,
+              change,
+              "workspace",
+            ))
+          ) {
+            throw new AuthenticationError(
+              409,
+              "last_prototype_administrator",
+              "The access change would leave a prototype without an administrator.",
+            )
+          }
         }
         const grant = await transaction.workspaceAccessGrant.upsert({
           where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
@@ -326,30 +404,44 @@ export function createPrototypeAuthorizationService({
     },
 
     async removeWorkspaceAccess(sessionToken, workspaceId, targetUserId) {
-      await database.$transaction(async (transaction) => {
+      await store.lock(async (_records, transaction) => {
         const actor = await currentSession(store, sessionToken, transaction)
         requireFreshAuthorization(actor)
+        requireIdentifier(workspaceId, "workspace_not_found", "The workspace was not found.")
+        await lockWorkspace(transaction, workspaceId)
         const { decision } = await workspaceDecision(transaction, actor.userId, workspaceId)
         requireDecision(decision, "administrator")
         requireIdentifier(targetUserId, "access_not_found", "The access rule was not found.")
+        const prototypeIds = await lockWorkspacePrototypes(transaction, workspaceId)
         const existing = await transaction.workspaceAccessGrant.findUnique({
           where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
         })
         if (!existing) {
           throw new AuthenticationError(404, "access_not_found", "The access rule was not found.")
         }
-        if (
-          existing.effect === "allow" &&
-          existing.role === "administrator" &&
-          (await transaction.workspaceAccessGrant.count({
-            where: { workspaceId, effect: "allow", role: "administrator" },
-          })) <= 1
-        ) {
+        if (!(await hasWorkspaceAdministratorAfter(transaction, workspaceId, targetUserId, null))) {
           throw new AuthenticationError(
             409,
             "last_workspace_administrator",
             "The final workspace administrator cannot be removed.",
           )
+        }
+        for (const prototypeId of prototypeIds) {
+          if (
+            !(await hasPrototypeAdministratorAfter(
+              transaction,
+              prototypeId,
+              targetUserId,
+              null,
+              "workspace",
+            ))
+          ) {
+            throw new AuthenticationError(
+              409,
+              "last_prototype_administrator",
+              "Removing access would leave a prototype without an administrator.",
+            )
+          }
         }
         await transaction.workspaceAccessGrant.delete({
           where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
@@ -368,7 +460,10 @@ export function createPrototypeAuthorizationService({
       const { decision } = await workspaceDecision(database, actor.userId, workspaceId)
       requireDecision(decision, "viewer")
       const items = await database.prototype.findMany({
-        where: { workspaceId },
+        where: {
+          workspaceId,
+          grants: { none: { userId: actor.userId, effect: "deny" } },
+        },
         orderBy: { id: "asc" },
         ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
         take: limit + 1,
@@ -378,7 +473,7 @@ export function createPrototypeAuthorizationService({
 
     async createPrototype(sessionToken, workspaceId, input) {
       const { name } = parseName(input, "invalid_prototype", "The prototype is invalid.")
-      return database.$transaction(async (transaction) => {
+      return store.lock(async (_records, transaction) => {
         const actor = await currentSession(store, sessionToken, transaction)
         const { decision } = await workspaceDecision(transaction, actor.userId, workspaceId)
         requireDecision(decision, "editor")
@@ -410,8 +505,10 @@ export function createPrototypeAuthorizationService({
     },
 
     async archivePrototype(sessionToken, prototypeId) {
-      return database.$transaction(async (transaction) => {
+      return store.lock(async (_records, transaction) => {
         const actor = await currentSession(store, sessionToken, transaction)
+        requireIdentifier(prototypeId, "prototype_not_found", "The prototype was not found.")
+        await lockPrototype(transaction, prototypeId)
         const { prototype, decision } = await prototypeDecision(
           transaction,
           actor.userId,
@@ -446,9 +543,11 @@ export function createPrototypeAuthorizationService({
 
     async setPrototypeAccess(sessionToken, prototypeId, targetUserId, input) {
       const change = parseGrant(input)
-      return database.$transaction(async (transaction) => {
+      return store.lock(async (_records, transaction) => {
         const actor = await currentSession(store, sessionToken, transaction)
         requireFreshAuthorization(actor)
+        requireIdentifier(prototypeId, "prototype_not_found", "The prototype was not found.")
+        await lockPrototype(transaction, prototypeId)
         const { prototype, decision } = await prototypeDecision(
           transaction,
           actor.userId,
@@ -482,9 +581,11 @@ export function createPrototypeAuthorizationService({
     },
 
     async removePrototypeAccess(sessionToken, prototypeId, targetUserId) {
-      await database.$transaction(async (transaction) => {
+      await store.lock(async (_records, transaction) => {
         const actor = await currentSession(store, sessionToken, transaction)
         requireFreshAuthorization(actor)
+        requireIdentifier(prototypeId, "prototype_not_found", "The prototype was not found.")
+        await lockPrototype(transaction, prototypeId)
         const { prototype, decision } = await prototypeDecision(
           transaction,
           actor.userId,
@@ -533,8 +634,10 @@ export function createPrototypeAuthorizationService({
       if (!parsed.success) {
         throw new AuthenticationError(422, "invalid_version", "The version is invalid.")
       }
-      return database.$transaction(async (transaction) => {
+      return store.lock(async (_records, transaction) => {
         const actor = await currentSession(store, sessionToken, transaction)
+        requireIdentifier(prototypeId, "prototype_not_found", "The prototype was not found.")
+        await lockPrototype(transaction, prototypeId)
         const { prototype, decision } = await prototypeDecision(
           transaction,
           actor.userId,
@@ -548,7 +651,6 @@ export function createPrototypeAuthorizationService({
             "Archived prototypes cannot receive versions.",
           )
         }
-        await transaction.$queryRaw`SELECT "id" FROM "prototypes" WHERE "id" = ${prototypeId}::uuid FOR UPDATE`
         const latest = await transaction.prototypeVersion.findFirst({
           where: { prototypeId },
           orderBy: { sequence: "desc" },
