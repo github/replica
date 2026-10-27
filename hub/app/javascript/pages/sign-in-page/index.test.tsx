@@ -4,11 +4,12 @@ import { describe, expect, it, vi } from "vitest"
 import { SignInPage } from "."
 
 describe("SignInPage()", () => {
-  it("starts GitHub sign-in without presenting repository access as authentication", () => {
+  it("starts sign-in with the configured provider label without presenting repository access as authentication", () => {
     const onSignIn = vi.fn()
     render(
       <SignInPage
         configured
+        providerLabel="Company SSO"
         loading={false}
         user={null}
         error={null}
@@ -19,9 +20,10 @@ describe("SignInPage()", () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole("button", { name: "Sign in with GitHub" }))
+    fireEvent.click(screen.getByRole("button", { name: "Sign in with Company SSO" }))
 
     expect(onSignIn).toHaveBeenCalledOnce()
+    expect(screen.getByText(/Sign in with Company SSO to create a Hub session/)).toBeVisible()
     expect(screen.getByText(/Repository access is authorized separately/)).toBeVisible()
   })
 
@@ -43,7 +45,7 @@ describe("SignInPage()", () => {
     expect(screen.getByRole("button", { name: "Sign out" })).toBeEnabled()
   })
 
-  it("disables sign-in when GitHub user authorization is not configured", () => {
+  it("disables provider-neutral sign-in when authentication is not configured", () => {
     render(
       <SignInPage
         configured={false}
@@ -57,7 +59,7 @@ describe("SignInPage()", () => {
       />,
     )
 
-    expect(screen.getByRole("button", { name: "Sign in with GitHub" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "Sign in with identity provider" })).toBeDisabled()
     expect(screen.getByText(/has not been configured/)).toBeVisible()
   })
 })
