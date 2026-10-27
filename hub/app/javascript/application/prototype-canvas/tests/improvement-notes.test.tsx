@@ -469,11 +469,13 @@ describe("App()", () => {
       await waitFor(() => expect(annotate).toBeEnabled())
       const post = vi.spyOn(frame.contentWindow!, "postMessage")
       fireEvent.click(annotate)
-      await waitFor(() => expect(annotate).toHaveAttribute("aria-pressed", "true"))
-      expect(post).toHaveBeenCalledWith(
-        { type: "replica:canvas:select", nonce, mode: "improvement" },
-        previewOrigin,
+      await waitFor(() =>
+        expect(post).toHaveBeenCalledWith(
+          { type: "replica:canvas:select", nonce, mode: "improvement" },
+          previewOrigin,
+        ),
       )
+      expect(annotate).toHaveAttribute("aria-pressed", "true")
       expect(screen.queryByRole("complementary", { name: copy.notes })).not.toBeInTheDocument()
 
       receive(frame, { type: "replica:canvas:selected", anchor }, "https://unrelated.example")
