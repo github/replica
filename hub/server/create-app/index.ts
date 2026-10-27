@@ -14,6 +14,7 @@ export function createApp({
 }: { authentication?: AuthenticationRoutes; logger?: Logger } = {}) {
   const app = express()
   app.disable("x-powered-by")
+  app.set("trust proxy", authentication?.settings.trustedProxyHops ?? 0)
   app.use(createRequestLogger(logger))
   app.use(express.json())
 

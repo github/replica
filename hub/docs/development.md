@@ -40,6 +40,8 @@ Open <http://127.0.0.1:5173>. Vite serves the sign-in surface and forwards `/api
 
 The API reads an optional `PORT` environment variable, defaulting to 3001. If you change it, update the local Vite proxy target to match. The editor forwards ports 3001, 5173, and 6006 from the devcontainer. API startup reads `.env` when present; Compose's environment takes precedence.
 
+Hub ignores forwarded client-address headers by default and rate-limits the direct connection address. Keep `HUB_TRUSTED_PROXY_HOPS=0` for local development and any deployment where clients can reach the API directly. A deployment whose API is reachable only through a fixed proxy chain may set the exact number of trusted hops. Every trusted proxy must replace or append the client address correctly, and the network must prevent clients from bypassing the first trusted proxy. Never enable proxy trust only to accept arbitrary `Forwarded` or `X-Forwarded-For` headers.
+
 ## Database lifecycle
 
 PostgreSQL stores data in a named Compose volume. Stopping or rebuilding the devcontainer preserves it. For a local Node.js setup, stop the database with `docker compose -f .devcontainer/compose.yaml down`; this also preserves data. Do not add `--volumes` unless you intend to permanently delete the local database.

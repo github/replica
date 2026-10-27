@@ -5,6 +5,7 @@ import { ensureGitHubProviderRevision } from "#server/domains/authentication/ens
 import { createIdentityStore } from "#server/domains/identity/create-store"
 import { createGitHubUserAuthClient } from "#server/integrations/github/create-user-auth-client"
 import type { GitHubUserAuthConfiguration } from "#server/integrations/github/create-user-auth-client/types"
+import { readTrustedProxyHops } from "#server/integrations/express/read-trusted-proxy-hops"
 import { prisma } from "#server/integrations/prisma"
 
 function readOrigin(environment: NodeJS.ProcessEnv): URL {
@@ -63,6 +64,7 @@ export async function createAuthenticationRuntime(environment: NodeJS.ProcessEnv
     secureCookies: origin.protocol === "https:",
     configured: configuration !== null,
     admissionPolicy: admissionPolicy.name,
+    trustedProxyHops: readTrustedProxyHops(environment),
   }
   return {
     service: createAuthenticationService({

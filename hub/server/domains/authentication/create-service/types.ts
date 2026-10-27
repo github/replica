@@ -18,6 +18,7 @@ export interface AuthenticationSettings {
   secureCookies: boolean
   configured: boolean
   admissionPolicy: AdmissionPolicy["name"]
+  trustedProxyHops: number
 }
 
 export interface AuthenticationContext extends SessionContext {
