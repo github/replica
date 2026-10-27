@@ -1,0 +1,23 @@
+/*
+ * Copyright (c) Microsoft Corporation.
+ * Licensed under the MIT license.
+ */
+
+@layer common {
+  .surface {
+    max-width: 600px;
+    width: 90vw;
+    padding: 0;
+    margin: 100px auto;
+  }
+
+  .closeButton {
+    flex-shrink: 0;
+  }
+
+  .searchBar {
+    width: 100%;
+    padding-right: var(--spacingS);
+    padding-block: var(--spacingS);
+  }
+}

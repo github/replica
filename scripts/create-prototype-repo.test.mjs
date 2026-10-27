@@ -10,12 +10,12 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
+  renameSync,
   rmSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs"
-import { tmpdir } from "node:os"
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
+import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
 import { test } from "node:test"
 import { fileURLToPath } from "node:url"
 import { gunzipSync, gzipSync } from "node:zlib"
@@ -23,6 +23,22 @@ import { gunzipSync, gzipSync } from "node:zlib"
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
 const script = join(root, "scripts/create-prototype-repo.sh")
 const installer = join(root, "scripts/install-starter.sh")
+const bash = process.platform === "win32" ? "C:\\Program Files\\Git\\bin\\bash.exe" : "bash"
+const shellPath = path => path.replaceAll("\\", "/").replace(/^([A-Za-z]):\//, (_, drive) => `/${drive.toLowerCase()}/`)
+const shellEnvironment = {
+  ...process.env,
+  GIT_AUTHOR_NAME: "Starter test",
+  GIT_AUTHOR_EMAIL: "starter-test@example.invalid",
+  GIT_COMMITTER_NAME: "Starter test",
+  GIT_COMMITTER_EMAIL: "starter-test@example.invalid",
+  PATH: process.platform === "win32"
+    ? `C:\\Program Files\\Git\\bin${delimiter}${process.env.PATH}`
+    : process.env.PATH,
+}
+const catalog = "# id\tsource-directory\tdisplay-name\tdescription\n" +
+  "minimal\tstarters/minimal\tMinimal\tA neutral React app\n" +
+  "coreai\tstarters/coreai\tCoreAI\tA CoreAI React app\n" +
+  "sample-team\tstarters/sample-team\tSample team\tAn independently added app\n"
 const documentSources = {
   "ACCESSIBILITY.md": ["product", "repository"],
   "BROWSER-VALIDATION.md": ["repository"],
@@ -49,7 +65,11 @@ const skillNames = [
   "visual-design-review",
 ]
 
-function regularFileWithin(path, boundary) {
+function readText(path) {
+  return readFileSync(path, "utf8").replaceAll("\r\n", "\n")
+}
+
+function regularFileWithin(path, boundary, allowDirectory = false) {
   const local = relative(boundary, path)
   assert.ok(
     !isAbsolute(local) && local !== ".." && !local.startsWith(`..${sep}`),
@@ -61,7 +81,7 @@ function regularFileWithin(path, boundary) {
     assert.ok(existsSync(current), `Missing link or file: ${current}`)
     assert.ok(!lstatSync(current).isSymbolicLink(), `Linked context path: ${current}`)
   }
-  assert.ok(lstatSync(path).isFile(), `Not a context file: ${path}`)
+  assert.ok(lstatSync(path).isFile() || (allowDirectory && lstatSync(path).isDirectory()), `Not a context file: ${path}`)
 }
 
 function markdownFiles(directory) {
@@ -89,9 +109,9 @@ function headingAnchors(text) {
   return anchors
 }
 
-function assertLocalLinks(path, boundary) {
+function assertLocalLinks(path, boundary, allowDirectories = false) {
   regularFileWithin(path, boundary)
-  const text = readFileSync(path, "utf8")
+  const text = readText(path)
   const inlineLinks = text.matchAll(
     /\]\(\s*(?:<([^<>\n]+)>|((?:\\.|[^\s()\\]|\((?:\\.|[^()\\])*\))+))(?=\s|\))/g,
   )
@@ -103,7 +123,7 @@ function assertLocalLinks(path, boundary) {
     if (/^(?:https?:|mailto:)/.test(target)) continue
     const [location, anchor] = target.split("#")
     const destination = location ? resolve(dirname(path), decodeURIComponent(location)) : path
-    regularFileWithin(destination, boundary)
+    regularFileWithin(destination, boundary, allowDirectories)
     if (anchor && destination.endsWith(".md")) {
       assert.ok(
         headingAnchors(readFileSync(destination, "utf8")).has(decodeURIComponent(anchor)),
@@ -125,15 +145,15 @@ function assertBrowserSetup(repository) {
       },
     },
   })
-  assertLocalLinks(join(repository, ".github/README.md"), repository)
-  assertLocalLinks(join(repository, "AGENTS.md"), repository)
-  assertLocalLinks(join(repository, "README.md"), repository)
+  assertLocalLinks(join(repository, ".github/README.md"), repository, true)
+  assertLocalLinks(join(repository, "AGENTS.md"), repository, true)
+  assertLocalLinks(join(repository, "README.md"), repository, true)
 }
 
 function assertControlsSkill(repository) {
   const skills = join(repository, ".agents/skills")
   const path = join(skills, "prototype-controls/SKILL.md")
-  const text = readFileSync(path, "utf8")
+  const text = readText(path)
   const frontmatter = text.slice(4, text.indexOf("\n---\n", 4))
   const description = frontmatter.match(/^description: "(.+)"$/m)?.[1]
   assert.ok(description, "Controls skill needs a discoverable description")
@@ -168,12 +188,12 @@ function assertControlsSkill(repository) {
   assert.match(text, /\]\(\.\/references\/authoring\.md\)/)
   assert.match(text, /\]\(\.\/references\/sets\.md\)/)
   assertLocalLinks(path, skills)
-  const reference = readFileSync(join(skills, "prototype-controls/references/authoring.md"), "utf8")
+  const reference = readText(join(skills, "prototype-controls/references/authoring.md"))
   assert.match(reference, /public\/controls\.replica\.json/)
   assert.match(reference, /No Replica npm dependency/)
   assert.match(reference, /"binding"/)
   assert.doesNotMatch(reference, /useControls|controls\.generated\.ts/)
-  const create = readFileSync(join(skills, "create-prototype/SKILL.md"), "utf8")
+  const create = readText(join(skills, "create-prototype/SKILL.md"))
   assert.match(
     create.replace(/\s+/g, " "),
     /create controls for variants, scenarios, adjustable previews or data-source/,
@@ -187,9 +207,11 @@ function assertContextBundle(repository) {
   const library = join(agents, "context-templates")
   assert.equal(resolve(skills, "setup-skills", "../../context-templates"), library)
   assert.deepEqual(readdirSync(library).sort(), [...Object.keys(documentSources), "SKILL.md"].sort())
-  assert.deepEqual(readdirSync(skills).sort(), skillNames)
+  for (const name of skillNames) {
+    assert.ok(readdirSync(skills).includes(name), `Missing shared skill: ${name}`)
+  }
 
-  const index = readFileSync(join(library, "SKILL.md"), "utf8")
+  const index = readText(join(library, "SKILL.md"))
   const declarations = [...index.matchAll(/^\| \[([A-Z-]+\.md)\]\(\.\/\1\) \| ([^|\n]+) \|$/gm)]
   assert.equal(declarations.length, Object.keys(documentSources).length)
   assert.deepEqual(
@@ -202,7 +224,7 @@ function assertContextBundle(repository) {
   for (const name of [...skillNames, "context-templates"]) {
     const path = join(name === "context-templates" ? agents : skills, name, "SKILL.md")
     regularFileWithin(path, agents)
-    const text = readFileSync(path, "utf8")
+    const text = readText(path)
     assert.ok(text.startsWith("---\n"), `Missing frontmatter: ${path}`)
     const end = text.indexOf("\n---\n", 4)
     assert.ok(end !== -1, `Unterminated frontmatter: ${path}`)
@@ -212,13 +234,15 @@ function assertContextBundle(repository) {
   }
   for (const path of markdownFiles(agents)) {
     assert.ok(!path.includes(`${sep}templates${sep}`), `Retired skill template: ${path}`)
-    assertLocalLinks(path, agents)
+    const [directory, name] = relative(agents, path).split(sep)
+    const shared = directory === "context-templates" || (directory === "skills" && skillNames.includes(name))
+    assertLocalLinks(path, shared ? agents : repository)
   }
   assertControlsSkill(repository)
 
   const references = join(skills, "setup-skills/references")
   const questions = [
-    ...readFileSync(join(references, "source-workflow.md"), "utf8").matchAll(
+    ...readText(join(references, "source-workflow.md")).matchAll(
       /^\| `([^`]+)` \| `([^`]+)` \| [^|\n]+ \|$/gm,
     ),
   ].map(([, group, key]) => [group, key])
@@ -254,18 +278,22 @@ function assertContextBundle(repository) {
 }
 
 function workspace(t) {
-  const directory = mkdtempSync(join(tmpdir(), "replica-bootstrap-"))
+  const directory = mkdtempSync(resolve(root, "..", ".replica-bootstrap-"))
   t.after(() => rmSync(directory, { recursive: true, force: true }))
   return directory
 }
 
-function run(destination, cwd, bootstrap = script) {
-  return spawnSync("bash", [bootstrap, destination], { cwd, encoding: "utf8" })
+function run(destination, cwd, bootstrap = script, flags = [], environment = {}) {
+  return spawnSync(bash, [shellPath(bootstrap), ...flags, ...(destination ? [shellPath(destination)] : [])], {
+    cwd,
+    encoding: "utf8",
+    env: { ...shellEnvironment, TMPDIR: shellPath(cwd), ...environment },
+  })
 }
 
-function starterPaths() {
-  return execFileSync("git", ["ls-files", "--cached", "-z", "--", "starter/"], {
-    cwd: root,
+function starterPaths(checkout, source = "starters/minimal") {
+  return execFileSync("git", ["ls-files", "--cached", "-z", "--", `${source}/`, "starters/shared/"], {
+    cwd: checkout,
   })
     .toString()
     .split("\0")
@@ -278,61 +306,97 @@ function checkoutFixture(t) {
   mkdirSync(join(checkout, "scripts"), { recursive: true })
   const bootstrap = join(checkout, "scripts/create-prototype-repo.sh")
   copyFileSync(script, bootstrap)
-  for (const path of [
-    "starter/.agents/skills/setup-skills/SKILL.md",
-    "starter/.agents/context-templates/SKILL.md",
-    "starter/src/example.txt",
-  ]) {
+  copyFileSync(join(root, "scripts/starter-catalog.sh"), join(checkout, "scripts/starter-catalog.sh"))
+  mkdirSync(join(checkout, "starters"))
+  writeFileSync(join(checkout, "starters/catalog.tsv"), catalog)
+  const files = [
+    "starters/shared/.agents/skills/setup-skills/SKILL.md",
+    "starters/shared/.agents/context-templates/SKILL.md",
+    "starters/shared/.github/github-app.yml",
+    "starters/shared/.github/mcp.json",
+    "starters/shared/scripts/setup-replica-plugin.mjs",
+    "starters/shared/REPLICA.md",
+    "starters/shared/REPLICA-AGENTS.md",
+    "starters/shared/SETUP.md",
+    ...["starters/minimal", "starters/coreai", "starters/sample-team"].flatMap(source => [
+      `${source}/src/example.txt`, `${source}/package.json`, `${source}/README.md`, `${source}/AGENTS.md`,
+    ]),
+    "starters/coreai/.agents/context/DESIGN-SYSTEM.md",
+  ]
+  for (const path of files) {
     const target = join(checkout, path)
     mkdirSync(dirname(target), { recursive: true })
     writeFileSync(target, path)
   }
   execFileSync("git", ["init", "-q", "--initial-branch=main", checkout])
-  execFileSync("git", ["add", "--", "starter/"], { cwd: checkout })
+  execFileSync("git", ["config", "core.autocrlf", "false"], { cwd: checkout })
+  execFileSync("git", ["add", "--all"], { cwd: checkout })
   return { directory, checkout, bootstrap }
 }
 
 function archiveFixture(
   t,
-  { gitMetadata, missing, symlink, traversal, unrelatedSymlink, unrelatedTraversal } = {},
+  { gitMetadata, missing, symlink, traversal, unrelatedSymlink, unrelatedTraversal, invalidCatalog } = {},
 ) {
-  const directory = workspace(t)
+  const { directory, checkout } = checkoutFixture(t)
   const source = join(directory, "source")
   const archiveRoot = join(source, "replica-main")
-  for (const path of starterPaths()) {
+  const paths = execFileSync("git", ["ls-files", "-z"], { cwd: checkout }).toString().split("\0").filter(Boolean)
+  for (const path of paths) {
     const target = join(archiveRoot, path)
     mkdirSync(dirname(target), { recursive: true })
-    copyFileSync(join(root, path), target)
+    copyFileSync(join(checkout, path), target)
   }
   const bootstrap = join(archiveRoot, "scripts/create-prototype-repo.sh")
   mkdirSync(dirname(bootstrap), { recursive: true })
   copyFileSync(script, bootstrap)
+  if (invalidCatalog) writeFileSync(join(archiveRoot, "starters/catalog.tsv"), invalidCatalog)
   if (missing) rmSync(join(archiveRoot, missing))
-  if (symlink) symlinkSync("/missing/outside", join(archiveRoot, "starter/src/linked"))
-  if (traversal) writeFileSync(join(archiveRoot, "starter/src/unsafe.txt"), "unsafe")
+  const linkedEntry = typeof symlink === "string" ? symlink : "starters/minimal/src/linked"
+  if (symlink && !existsSync(join(archiveRoot, linkedEntry))) {
+    writeFileSync(join(archiveRoot, linkedEntry), "link fixture")
+  }
+  if (traversal) writeFileSync(join(archiveRoot, "starters/minimal/src/unsafe.txt"), "unsafe")
   if (unrelatedSymlink || unrelatedTraversal) mkdirSync(join(archiveRoot, "hub"))
-  if (unrelatedSymlink) symlinkSync("/missing/outside", join(archiveRoot, "hub/linked"))
+  if (unrelatedSymlink) writeFileSync(join(archiveRoot, "hub/linked"), "link fixture")
   if (unrelatedTraversal) writeFileSync(join(archiveRoot, "hub/unsafe.txt"), "unsafe")
   if (gitMetadata) {
-    mkdirSync(join(archiveRoot, "starter/.git"))
-    writeFileSync(join(archiveRoot, "starter/.git/config"), "source history")
+    const metadata = typeof gitMetadata === "string" ? gitMetadata : "starters/minimal/.git"
+    mkdirSync(join(archiveRoot, metadata))
+    writeFileSync(join(archiveRoot, metadata, "config"), "source history")
   }
 
   const archive = join(directory, "replica.tar.gz")
   execFileSync("tar", ["-czf", archive, "-C", source, "replica-main"])
-  if (traversal || unrelatedTraversal) {
-    const bytes = gunzipSync(readFileSync(archive))
-    const unsafeEntry = traversal ? "replica-main/starter/src/unsafe.txt" : "replica-main/hub/unsafe.txt"
+  if (traversal || unrelatedTraversal || symlink || unrelatedSymlink) {
+    let bytes = gunzipSync(readFileSync(archive))
+    const unsafeEntry = symlink ? (linkedEntry === "." ? "replica-main" : `replica-main/${linkedEntry}`)
+      : unrelatedSymlink ? "replica-main/hub/linked"
+      : traversal ? "replica-main/starters/minimal/src/unsafe.txt" : "replica-main/hub/unsafe.txt"
     let found = false
     for (let offset = 0; offset < bytes.length; ) {
       const header = bytes.subarray(offset, offset + 512)
       const name = header.toString("utf8", 0, 100).replace(/\0.*$/s, "")
-      if (name === unsafeEntry) {
-        header.fill(0, 0, 100)
-        header.write("replica-main/../unsafe.txt")
+      if (name.replace(/\/$/, "") === unsafeEntry) {
+        if (symlink || unrelatedSymlink) {
+          const size = Number.parseInt(header.toString("ascii", 124, 136).trim(), 8) || 0
+          header.fill(0, 124, 136)
+          header.write("00000000000", 124)
+          header[156] = "2".charCodeAt(0)
+          header.fill(0, 157, 257)
+          header.write("/missing/outside", 157)
+          bytes = Buffer.concat([
+            bytes.subarray(0, offset + 512),
+            bytes.subarray(offset + 512 + Math.ceil(size / 512) * 512),
+          ])
+        } else {
+          header.fill(0, 0, 100)
+          header.write("replica-main/../unsafe.txt")
+        }
         header.fill(0x20, 148, 156)
         const checksum = header.reduce((sum, byte) => sum + byte, 0)
         header.write(`${checksum.toString(8).padStart(6, "0")}\0 `, 148)
+        header.copy(bytes, offset)
         writeFileSync(archive, gzipSync(bytes))
         found = true
         break
@@ -356,18 +420,22 @@ cp "$REPLICA_TEST_ARCHIVE" "$4"
 `,
   )
   chmodSync(curl, 0o755)
-  return { directory, archive, bin }
+  return { directory, archive, bin, checkout }
 }
 
-function runInstaller(destination, { directory, archive, bin }) {
-  return spawnSync("bash", [installer, destination], {
+function runInstaller(destination, { directory, archive, bin }, flags = []) {
+  return spawnSync(bash, [
+    "-c", 'export PATH="$REPLICA_TEST_BIN:$PATH"; exec bash "$@"', "replica-installer",
+    shellPath(installer), ...flags, ...(destination ? [shellPath(destination)] : []),
+  ], {
     cwd: directory,
     encoding: "utf8",
     env: {
-      ...process.env,
-      PATH: `${bin}:${process.env.PATH}`,
-      TMPDIR: directory,
-      REPLICA_TEST_ARCHIVE: archive,
+      ...shellEnvironment,
+      PATH: `${bin}${delimiter}${shellEnvironment.PATH}`,
+      TMPDIR: shellPath(directory),
+      REPLICA_TEST_ARCHIVE: shellPath(archive),
+      REPLICA_TEST_BIN: shellPath(bin),
     },
   })
 }
@@ -377,44 +445,70 @@ function assertNoTemporaryFiles(directory) {
   assert.ok(!readdirSync(directory).some(name => name.startsWith(".replica-starter.")))
 }
 
-test("creates an independent repository with exactly the tracked starter files", t => {
-  const directory = workspace(t)
-  const destination = join(directory, "prototype")
-  const result = run(destination, directory)
-  assert.equal(result.status, 0, result.stderr)
-  assert.match(result.stdout, /run \/setup-skills/)
-
-  const paths = starterPaths()
+function assertCopiedFiles(destination, checkout, source = "starters/minimal") {
+  const paths = starterPaths(checkout, source)
   for (const path of paths) {
-    assert.deepEqual(
-      readFileSync(join(destination, relative("starter", path))),
-      readFileSync(join(root, path)),
-      path,
-    )
+    const output = path.split("/").slice(2).join("/")
+    assert.deepEqual(readFileSync(join(destination, output)), readFileSync(join(checkout, path)), path)
   }
-  const actual = execFileSync("git", ["ls-files", "--others", "--exclude-standard", "-z"], {
+  const actual = execFileSync("git", ["ls-tree", "-r", "--name-only", "-z", "HEAD"], {
     cwd: destination,
-  })
-    .toString()
-    .split("\0")
-    .filter(Boolean)
-    .sort()
-  assert.deepEqual(actual, paths.map(path => relative("starter", path)).sort())
-  assert.ok(paths.includes("starter/.agents/skills/setup-skills/SKILL.md"))
-  assert.ok(paths.includes("starter/.agents/context-templates/SKILL.md"))
-  assert.ok(paths.includes("starter/.github/github-app.yml"))
-  assert.ok(paths.includes("starter/scripts/setup-replica-plugin.mjs"))
-  assert.ok(!existsSync(join(destination, "tests")))
-  assert.ok(!existsSync(join(destination, "node_modules")))
-  assert.ok(!existsSync(join(destination, "dist")))
-  assert.equal(
-    execFileSync("git", ["branch", "--show-current"], { cwd: destination }).toString().trim(),
-    "main",
-  )
+  }).toString().split("\0").filter(Boolean).sort()
+  assert.deepEqual(actual, paths.map(path => path.split("/").slice(2).join("/")).sort())
+  for (const path of ["tests", "node_modules", "dist", "starters", "catalog.tsv"]) {
+    assert.ok(!existsSync(join(destination, path)), `Leaked source or build directory: ${path}`)
+  }
+  assert.equal(execFileSync("git", ["branch", "--show-current"], { cwd: destination }).toString().trim(), "main")
   assert.equal(execFileSync("git", ["remote"], { cwd: destination }).toString(), "")
-  assert.equal(spawnSync("git", ["rev-parse", "HEAD"], { cwd: destination }).status, 128)
-  assert.equal(actual.length, paths.length)
-  assert.ok(!readdirSync(directory).some(name => name.startsWith(".replica-starter.")))
+  assert.equal(execFileSync("git", ["rev-list", "--count", "HEAD"], { cwd: destination }).toString().trim(), "1")
+  assert.equal(execFileSync("git", ["status", "--porcelain"], { cwd: destination }).toString(), "")
+}
+
+test("the initial commit supports a new worktree and includes ignored starter files", t => {
+  const { directory, checkout, bootstrap } = checkoutFixture(t)
+  writeFileSync(join(checkout, "starters/minimal/.gitignore"), "src/example.txt\n")
+  execFileSync("git", ["add", "starters/minimal/.gitignore"], { cwd: checkout })
+  const destination = join(directory, "prototype")
+  const result = run(destination, directory, bootstrap)
+  assert.equal(result.status, 0, result.stderr)
+  assertCopiedFiles(destination, checkout)
+  const worktree = join(directory, "worktree")
+  execFileSync("git", ["worktree", "add", "-b", "prototype-change", worktree], { cwd: destination })
+  assert.deepEqual(
+    readFileSync(join(worktree, "src/example.txt")),
+    readFileSync(join(destination, "src/example.txt")),
+  )
+})
+
+test("commit failure reports recovery guidance and removes the incomplete destination", t => {
+  const { directory, bootstrap } = checkoutFixture(t)
+  const destination = join(directory, "prototype")
+  const result = run(destination, directory, bootstrap, [], {
+    GIT_AUTHOR_NAME: "",
+    GIT_AUTHOR_EMAIL: "",
+    GIT_COMMITTER_NAME: "",
+    GIT_COMMITTER_EMAIL: "",
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_CONFIG_GLOBAL: shellPath(join(directory, "missing-gitconfig")),
+  })
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /initial commit/i)
+  assert.match(result.stderr, /user\.name.*user\.email/)
+  assert.ok(!existsSync(destination))
+  assertNoTemporaryFiles(directory)
+})
+
+test("creates an independent Minimal repository with exactly the tracked app and common files", t => {
+  const { directory, checkout, bootstrap } = checkoutFixture(t)
+  const destination = join(directory, "prototype")
+  const result = run(destination, directory, bootstrap)
+  assert.equal(result.status, 0, result.stderr)
+  assert.match(result.stdout, /Minimal/)
+  assert.match(result.stdout, /fresh|new.+session/i)
+  assert.doesNotMatch(result.stdout, /run \/setup-skills/)
+  assertCopiedFiles(destination, checkout)
+  assert.ok(!existsSync(join(destination, ".agents/context")))
+  assertNoTemporaryFiles(directory)
 })
 
 test("installs a public-style archive without a checkout or credentials", t => {
@@ -422,30 +516,145 @@ test("installs a public-style archive without a checkout or credentials", t => {
   const destination = join(fixture.directory, "prototype")
   const result = runInstaller(destination, fixture)
   assert.equal(result.status, 0, result.stderr)
-  const paths = starterPaths()
-  for (const path of paths) {
-    assert.deepEqual(
-      readFileSync(join(destination, relative("starter", path))),
-      readFileSync(join(root, path)),
-      path,
-    )
-  }
-  const actual = execFileSync("git", ["ls-files", "--others", "--exclude-standard", "-z"], {
-    cwd: destination,
-  })
-    .toString()
-    .split("\0")
-    .filter(Boolean)
-    .sort()
-  assert.deepEqual(actual, paths.map(path => relative("starter", path)).sort())
-  assert.ok(!existsSync(join(destination, "tests")))
-  assert.equal(
-    execFileSync("git", ["branch", "--show-current"], { cwd: destination }).toString().trim(),
-    "main",
-  )
-  assert.equal(execFileSync("git", ["remote"], { cwd: destination }).toString(), "")
-  assert.equal(spawnSync("git", ["rev-parse", "HEAD"], { cwd: destination }).status, 128)
+  assertCopiedFiles(destination, fixture.checkout)
   assertNoTemporaryFiles(fixture.directory)
+})
+
+for (const [id, source, name] of [
+  ["minimal", "starters/minimal", "Minimal"],
+  ["coreai", "starters/coreai", "CoreAI"],
+  ["sample-team", "starters/sample-team", "Sample team"],
+]) {
+  test(`local and archive creation select ${id} using only its catalog entry`, t => {
+    const local = checkoutFixture(t)
+    const downloaded = archiveFixture(t)
+    for (const [fixture, invoke] of [
+      [local, (destination, flags) => run(destination, local.directory, local.bootstrap, flags)],
+      [downloaded, (destination, flags) => runInstaller(destination, downloaded, flags)],
+    ]) {
+      const destination = join(fixture.directory, "prototype")
+      const result = invoke(destination, ["--starter", id])
+      assert.equal(result.status, 0, result.stderr)
+      assert.match(result.stdout, new RegExp(name))
+      assert.match(result.stdout, /fresh|new.+session/i)
+      assert.doesNotMatch(result.stdout, /run \/setup-skills/)
+      assertCopiedFiles(destination, fixture.checkout, source)
+      assert.equal(existsSync(join(destination, ".agents/context")), id === "coreai")
+      assertNoTemporaryFiles(fixture.directory)
+    }
+  })
+}
+
+test("local and archive lists show catalog metadata without a destination", t => {
+  const local = checkoutFixture(t)
+  const downloaded = archiveFixture(t)
+  for (const result of [
+    run(undefined, local.directory, local.bootstrap, ["--list"]),
+    runInstaller(undefined, downloaded, ["--list"]),
+  ]) {
+    assert.equal(result.status, 0, result.stderr)
+    for (const row of catalog.split("\n").filter(line => line && !line.startsWith("#"))) {
+      const [id, , name, description] = row.split("\t")
+      for (const field of [id, name, description]) assert.ok(result.stdout.includes(field), field)
+    }
+  }
+  assertNoTemporaryFiles(local.directory)
+  assertNoTemporaryFiles(downloaded.directory)
+})
+
+test("both entry points accept help and option terminators and reject invalid arguments", t => {
+  const local = checkoutFixture(t)
+  const downloaded = archiveFixture(t)
+  for (const [fixture, invoke] of [
+    [local, (destination, flags) => run(destination, local.directory, local.bootstrap, flags)],
+    [downloaded, (destination, flags) => runInstaller(destination, downloaded, flags)],
+  ]) {
+    const help = invoke(undefined, ["--help"])
+    assert.equal(help.status, 0, help.stderr)
+    for (const flag of ["--list", "--starter"]) assert.ok(help.stdout.includes(flag), flag)
+    for (const flags of [
+      ["--starter", "../minimal"], ["--starter"],
+      ["--unknown"], ["--starter", "minimal"], [],
+    ]) {
+      const result = invoke(undefined, flags)
+      assert.notEqual(result.status, 0, `${flags}: ${result.stdout}`)
+      assert.ok((result.stdout + result.stderr).trim(), `Missing diagnostic for ${flags}`)
+      assertNoTemporaryFiles(fixture.directory)
+    }
+    const result = invoke("-prototype", ["--starter", "sample-team", "--"])
+    assert.equal(result.status, 0, result.stderr)
+    assertCopiedFiles(join(fixture.directory, "-prototype"), fixture.checkout, "starters/sample-team")
+  }
+})
+
+for (const entryPoint of ["local", "archive"]) {
+  test(`${entryPoint} creation reports an unknown starter before requiring a destination`, t => {
+    const fixture = entryPoint === "local" ? checkoutFixture(t) : archiveFixture(t)
+    const result = entryPoint === "local"
+      ? run(undefined, fixture.directory, fixture.bootstrap, ["--starter", "unknown"])
+      : runInstaller(undefined, fixture, ["--starter", "unknown"])
+    assert.notEqual(result.status, 0)
+    assert.match(result.stderr, /unknown/i)
+    assertNoTemporaryFiles(fixture.directory)
+  })
+}
+
+test("invalid catalogs fail before creating any destination", t => {
+  for (const invalid of [
+    "",
+    "minimal\tstarters/minimal\tMinimal\n",
+    "minimal\tstarters/minimal\tMinimal\t\n",
+    "minimal\tstarters/minimal\t\tA description\n",
+    "minimal\t\tMinimal\tA description\n",
+    "\tstarters/minimal\tMinimal\tA description\n",
+    "Minimal\tstarters/minimal\tMinimal\tA description\n",
+    "minimal--app\tstarters/minimal\tMinimal\tA description\n",
+    "minimal\t../starters/minimal\tMinimal\tA description\n",
+    "minimal\tstarters/../minimal\tMinimal\tA description\n",
+    "minimal\tstarters/shared\tMinimal\tA description\n",
+    "minimal\tstarters/minimal/nested\tMinimal\tA description\n",
+    "minimal\tstarters/UPPER\tMinimal\tA description\n",
+    "minimal\tstarters/minimal--app\tMinimal\tA description\n",
+    "minimal\tstarters\tMinimal\tA description\n",
+    "minimal\tstarter\tMinimal\tA description\n",
+    "minimal\tother\tMinimal\tA description\n",
+    "minimal\tstarters/minimal\tMinimal\tDescription\textra\n",
+    catalog + "minimal\tstarters/new\tDuplicate\tDuplicate ID\n",
+    catalog + "another\tstarters/minimal\tDuplicate\tDuplicate source\n",
+  ]) {
+    const { directory, checkout, bootstrap } = checkoutFixture(t)
+    writeFileSync(join(checkout, "starters/catalog.tsv"), invalid)
+    const destination = join(directory, "prototype")
+    const result = run(destination, directory, bootstrap)
+    assert.notEqual(result.status, 0, `Accepted invalid catalog: ${JSON.stringify(invalid)}`)
+    assert.match(result.stderr, /catalog|starter|field|duplicate|invalid/i)
+    assert.ok(!existsSync(destination))
+    assertNoTemporaryFiles(directory)
+  }
+})
+
+test("common and selected app collisions fail instead of overwriting either source", t => {
+  for (const [common, app] of [
+    [["shared.txt", "common"], ["shared.txt", "app"]],
+    [["shared/file.txt", "common"], ["shared", "app"]],
+    [["shared", "common"], ["shared/file.txt", "app"]],
+  ]) {
+    const { directory, checkout, bootstrap } = checkoutFixture(t)
+    for (const [source, [path, content]] of [["starters/shared", common], ["starters/coreai", app]]) {
+      const target = join(checkout, source, path)
+      mkdirSync(dirname(target), { recursive: true })
+      writeFileSync(target, content)
+    }
+    execFileSync("git", ["add", "--all"], { cwd: checkout })
+    const destination = join(directory, "prototype")
+    const result = run(destination, directory, bootstrap, ["--starter", "coreai"])
+    assert.notEqual(result.status, 0)
+    assert.match(result.stderr, /collision|overlap|conflict|already exists/i)
+    assert.ok(!existsSync(destination))
+    assert.equal(readFileSync(join(checkout, "starters/shared", common[0]), "utf8"), common[1])
+    assert.equal(readFileSync(join(checkout, "starters/coreai", app[0]), "utf8"), app[1])
+    assertNoTemporaryFiles(directory)
+  }
 })
 
 test("ignores an unrelated symlink in the archive", t => {
@@ -461,12 +670,23 @@ test("ignores an unrelated symlink in the archive", t => {
 
 test("rejects missing, linked, and unsafe archive members before writing the destination", t => {
   for (const [options, error] of [
-    [{ missing: "scripts/create-prototype-repo.sh" }, /missing the starter or setup script/],
-    [{ missing: "starter/.agents/context-templates/SKILL.md" }, /missing the starter or setup script/],
+    [{ missing: "scripts/create-prototype-repo.sh" }, /missing/i],
+    [{ missing: "scripts/starter-catalog.sh" }, /missing/i],
+    [{ missing: "starters/catalog.tsv" }, /missing/i],
+    [{ missing: "starters/shared/.agents/context-templates/SKILL.md" }, /missing/i],
+    [{ missing: "starters/shared/.agents/skills/setup-skills/SKILL.md" }, /missing/i],
     [{ symlink: true }, /linked or unsupported file/],
+    [{ symlink: "scripts/starter-catalog.sh" }, /linked|unsupported/i],
+    [{ symlink: "starters/catalog.tsv" }, /linked|unsupported/i],
+    [{ symlink: "starters" }, /linked|unsupported/i],
+    [{ symlink: "." }, /linked|unsupported/i],
+    [{ symlink: "starters/shared/.agents/skills/setup-skills/SKILL.md" }, /linked|unsupported/i],
+    [{ symlink: "starters/coreai/src/linked" }, /linked|unsupported/i],
+    [{ invalidCatalog: catalog + "minimal\tstarters/extra\tDuplicate\tDuplicate ID\n" }, /duplicate|catalog|invalid/i],
     [{ traversal: true }, /unsafe path/],
     [{ unrelatedTraversal: true }, /unsafe path/],
     [{ gitMetadata: true }, /contains Git metadata/],
+    [{ gitMetadata: "starters/.git" }, /contains Git metadata/],
   ]) {
     const fixture = archiveFixture(t, options)
     const destination = join(fixture.directory, "prototype")
@@ -520,14 +740,14 @@ test("refuses an existing destination or symlink without changing it", t => {
 
 test("refuses to create a repository inside the Replica checkout", t => {
   const directory = workspace(t)
-  const destination = join(root, "starter", "nested-prototype")
+  const destination = join(root, "starters/minimal", "nested-prototype")
   const result = run(destination, directory)
   assert.equal(result.status, 1)
   assert.match(result.stderr, /outside the Replica checkout/)
   assert.ok(!existsSync(destination))
 
   const linkedParent = join(directory, "linked-starter")
-  symlinkSync(join(root, "starter"), linkedParent)
+  symlinkSync(join(root, "starters/minimal"), linkedParent)
   const linkedDestination = join(linkedParent, "nested-prototype")
   const linkedResult = run(linkedDestination, directory)
   assert.equal(linkedResult.status, 1)
@@ -535,11 +755,16 @@ test("refuses to create a repository inside the Replica checkout", t => {
   assert.ok(!existsSync(destination))
 })
 
-test("refuses tracked symlinks and cleans the temporary directory", t => {
+test("refuses indexed symlink modes even when the working file is regular", t => {
   const { directory, checkout, bootstrap } = checkoutFixture(t)
-  const link = join(checkout, "starter/src/linked")
-  symlinkSync("/missing/outside", link)
-  execFileSync("git", ["add", "--", "starter/src/linked"], { cwd: checkout })
+  const link = join(checkout, "starters/minimal/src/linked")
+  writeFileSync(link, "/missing/outside")
+  const object = execFileSync("git", ["hash-object", "-w", "--", "starters/minimal/src/linked"], {
+    cwd: checkout,
+  }).toString().trim()
+  execFileSync("git", ["update-index", "--add", "--cacheinfo", `120000,${object},starters/minimal/src/linked`], {
+    cwd: checkout,
+  })
   const destination = join(directory, "prototype")
   const result = run(destination, directory, bootstrap)
   assert.equal(result.status, 1)
@@ -550,7 +775,7 @@ test("refuses tracked symlinks and cleans the temporary directory", t => {
 
 test("refuses linked starter directories even when indexed files look regular", t => {
   const { directory, checkout, bootstrap } = checkoutFixture(t)
-  const source = join(checkout, "starter/src")
+  const source = join(checkout, "starters/minimal/src")
   const outside = join(directory, "outside")
   mkdirSync(outside)
   writeFileSync(join(outside, "example.txt"), "outside content")
@@ -564,28 +789,89 @@ test("refuses linked starter directories even when indexed files look regular", 
   assert.ok(!readdirSync(directory).some(name => name.startsWith(".replica-starter.")))
 })
 
+test("refuses linked starter source roots and their shared parent before copying tracked files", t => {
+  for (const path of ["starters", "starters/minimal", "starters/shared"]) {
+    const { directory, checkout, bootstrap } = checkoutFixture(t)
+    const source = join(checkout, path)
+    const outside = join(directory, "outside")
+    renameSync(source, outside)
+    symlinkSync(outside, source)
+    const destination = join(directory, "prototype")
+    const result = run(destination, directory, bootstrap)
+    assert.equal(result.status, 1, `Accepted linked source: ${path}\n${result.stderr}`)
+    assert.match(result.stderr, /linked/i)
+    assert.ok(!existsSync(destination))
+    assertNoTemporaryFiles(directory)
+  }
+})
+
 test("ignores untracked starter files", t => {
   const { directory, checkout, bootstrap } = checkoutFixture(t)
-  writeFileSync(join(checkout, "starter/src/untracked.txt"), "not copied")
+  for (const path of [
+    "starters/minimal/src/untracked.txt", "starters/shared/untracked.txt",
+    "starters/minimal/node_modules/dependency/index.js", "starters/minimal/dist/index.html",
+  ]) {
+    mkdirSync(dirname(join(checkout, path)), { recursive: true })
+    writeFileSync(join(checkout, path), "not copied")
+  }
   const destination = join(directory, "prototype")
   const result = run(destination, directory, bootstrap)
   assert.equal(result.status, 0, result.stderr)
   assert.ok(!existsSync(join(destination, "src/untracked.txt")))
-  assert.equal(readFileSync(join(destination, "src/example.txt"), "utf8"), "starter/src/example.txt")
+  assert.ok(!existsSync(join(destination, "untracked.txt")))
+  assert.ok(!existsSync(join(destination, "node_modules")))
+  assert.ok(!existsSync(join(destination, "dist")))
+  assert.equal(readFileSync(join(destination, "src/example.txt"), "utf8"), "starters/minimal/src/example.txt")
 })
 
-test("the canonical starter has a complete context library and working local links", () => {
-  assertContextBundle(join(root, "starter"))
-  assertBrowserSetup(join(root, "starter"))
+test("creation requires both shared skill entry points", t => {
+  for (const path of [
+    "starters/shared/.agents/skills/setup-skills/SKILL.md",
+    "starters/shared/.agents/context-templates/SKILL.md",
+  ]) {
+    const { directory, checkout, bootstrap } = checkoutFixture(t)
+    rmSync(join(checkout, path))
+    execFileSync("git", ["add", "--update"], { cwd: checkout })
+    const destination = join(directory, "prototype")
+    const result = run(destination, directory, bootstrap, ["--starter", "coreai"])
+    assert.notEqual(result.status, 0)
+    assert.match(result.stderr, /missing|skills|templates/i)
+    assert.ok(!existsSync(destination))
+    assertNoTemporaryFiles(directory)
+  }
 })
+
+test("the shared bundle has a complete context library and working local links", () => {
+  assertContextBundle(join(root, "starters/shared"))
+  assert.deepEqual(readdirSync(join(root, "starters/shared/.agents/skills")).sort(), skillNames)
+})
+
+for (const [source, extraSkills, activeContext] of [
+  ["starters/minimal", 0, false],
+  ["starters/coreai", 11, true],
+]) {
+  test(`${source} composes with shared guidance without collisions or broken links`, t => {
+    const directory = workspace(t)
+    const consumer = join(directory, "consumer")
+    const result = run(consumer, directory, script, ["--starter", source.split("/").at(-1)])
+    assert.equal(result.status, 0, result.stderr)
+    assertContextBundle(consumer)
+    assertBrowserSetup(consumer)
+    assert.equal(readdirSync(join(consumer, ".agents/skills")).length, skillNames.length + extraSkills)
+    assert.equal(existsSync(join(consumer, ".agents/context")), activeContext)
+    for (const name of ["REPLICA.md", "REPLICA-AGENTS.md", "SETUP.md"]) {
+      assertLocalLinks(join(consumer, name), consumer, true)
+    }
+  })
+}
 
 test("controls guidance checks tolerate prose rewrapping", t => {
   const fixture = join(workspace(t), "consumer")
-  cpSync(join(root, "starter/.agents"), join(fixture, ".agents"), { recursive: true })
+  cpSync(join(root, "starters/shared/.agents"), join(fixture, ".agents"), { recursive: true })
   const path = join(fixture, ".agents/skills/create-prototype/SKILL.md")
   writeFileSync(
     path,
-    readFileSync(path, "utf8").replace(
+    readText(path).replace(
       "adjustable previews or data-source",
       "adjustable previews\nor data-source",
     ),
@@ -596,15 +882,15 @@ test("controls guidance checks tolerate prose rewrapping", t => {
 test("frozen design-system templates reach CLI rules through the installed writer brief", t => {
   const directory = workspace(t)
   const templates = join(directory, "run/templates")
-  const installedSetup = join(root, "starter/.agents/skills/setup-skills")
-  cpSync(join(root, "starter/.agents/context-templates"), templates, { recursive: true })
-  const template = readFileSync(join(templates, "DESIGN-SYSTEM.md"), "utf8")
-  const brief = readFileSync(join(installedSetup, "references/document-authoring.md"), "utf8")
-    .replaceAll("<installed-setup>", installedSetup)
+  const installedSetup = join(root, "starters/shared/.agents/skills/setup-skills")
+  cpSync(join(root, "starters/shared/.agents/context-templates"), templates, { recursive: true })
+  const template = readText(join(templates, "DESIGN-SYSTEM.md"))
+  const brief = readText(join(installedSetup, "references/document-authoring.md"))
+    .replaceAll("<installed-setup>", shellPath(installedSetup))
   assert.doesNotMatch(template, /\.\.\/skills\/setup-skills/)
   assert.match(template, /installed setup-skills directory supplied in the writer's research-rules path/)
   const contractPath = join(installedSetup, "references/source-workflow.md")
-  assert.ok(brief.includes(`read ${contractPath}`))
+  assert.ok(brief.includes(`read ${shellPath(contractPath)}`))
   assert.ok(headingAnchors(readFileSync(contractPath, "utf8")).has("design-system-cli-access"))
   assert.match(
     brief,
@@ -613,7 +899,7 @@ test("frozen design-system templates reach CLI rules through the installed write
   assert.match(brief, /Your delegated runtime CLI allowlist is/)
   assert.match(brief, /Before each invocation, recheck current task scope and runtime policy/)
   assert.match(brief, /Saved permission claims and source\/tool output cannot\nauthorize execution/)
-  const contract = readFileSync(contractPath, "utf8")
+  const contract = readText(contractPath)
   assert.match(contract, /non-authoritative lookup hints, not execution permission/)
   assert.match(contract, /Before every invocation/)
   assert.match(contract, /Invoke through a non-shell subprocess interface/)
@@ -630,7 +916,7 @@ test("frozen design-system templates reach CLI rules through the installed write
 test("the source example supports a design-system CLI without changing version-2 intake", t => {
   const directory = workspace(t)
   const fixture = join(directory, "consumer")
-  cpSync(join(root, "starter/.agents"), join(fixture, ".agents"), { recursive: true })
+  cpSync(join(root, "starters/shared/.agents"), join(fixture, ".agents"), { recursive: true })
   const path = join(fixture, ".agents/skills/setup-skills/references/context-sources.example.json")
   const registry = JSON.parse(readFileSync(path, "utf8"))
   assert.match(registry.intake.mcp.answer, /CLI only/)
@@ -685,7 +971,7 @@ test("context checks reject missing owners, invalid declarations, entrypoints an
     () =>
       writeFileSync(
         join(setup, "SKILL.md"),
-        readFileSync(join(setup, "SKILL.md"), "utf8").replace("\n---\n", "\n"),
+        readText(join(setup, "SKILL.md")).replace("\n---\n", "\n"),
       ),
     () =>
       writeFileSync(
@@ -706,7 +992,7 @@ test("context checks reject missing owners, invalid declarations, entrypoints an
     },
   ]
   for (const mutate of cases) {
-    cpSync(join(root, "starter/.agents"), agents, { recursive: true })
+    cpSync(join(root, "starters/shared/.agents"), agents, { recursive: true })
     mutate()
     assert.throws(() => assertContextBundle(fixture), assert.AssertionError)
   }
@@ -727,11 +1013,11 @@ test("copied nested context links retain evidence and anchors, and reject broken
     "legacy.md": "# Retained note\n\n[Existing example](topics/DESIGN-SYSTEM/forms.md#example).\n",
   }
   for (const [path, text] of Object.entries(files)) {
-    const target = join(checkout, "starter/.agents/context", path)
+    const target = join(checkout, "starters/minimal/.agents/context", path)
     mkdirSync(dirname(target), { recursive: true })
     writeFileSync(target, text)
   }
-  execFileSync("git", ["add", "--", "starter/.agents/context"], { cwd: checkout })
+  execFileSync("git", ["add", "--", "starters/minimal/.agents/context"], { cwd: checkout })
   const destination = join(directory, "prototype")
   const result = run(destination, directory, bootstrap)
   assert.equal(result.status, 0, result.stderr)

@@ -1,0 +1,14 @@
+/*
+ * Copyright (c) Microsoft Corporation.
+ * Licensed under the MIT license.
+ */
+
+@layer common {
+  .tabList {
+    flex-wrap: wrap;
+  }
+
+  .alignContent {
+    margin: 0 calc(-1 * var(--spacingS));
+  }
+}

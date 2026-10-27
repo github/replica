@@ -1,0 +1,39 @@
+/*
+ * Copyright (c) Microsoft Corporation.
+ * Licensed under the MIT license.
+ */
+
+.menuButton {
+  min-width: 0;
+  padding: 0;
+  background-color: transparent;
+}
+
+.menuButton:hover {
+  background-color: transparent;
+}
+
+.menuButton:active {
+  background-color: transparent;
+}
+
+.menuButton:disabled {
+  color: var(--colorNeutralForeground2);
+}
+
+.menuButtonText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.menuPopover {
+  border: var(--strokeWidthThin) solid var(--colorNeutralStrokeDisabled);
+}
+
+.workspaceName {
+  overflow: hidden;
+  max-width: 142px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -10,7 +10,7 @@ updates:
     directories:
       - "/hub"
       - "/actions/build"
-      - "/starter"
+      - "/starters/*"
     schedule:
       interval: weekly
     cooldown:

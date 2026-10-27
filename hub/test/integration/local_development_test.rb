@@ -194,6 +194,10 @@ class LocalDevelopmentTest < ActionDispatch::IntegrationTest
       assert File.file?(example.join("package-lock.json"))
       assert File.file?(example.join(".agents/skills/setup-skills/SKILL.md"))
       assert File.file?(example.join(".agents/context-templates/SKILL.md"))
+      %w[.agents/skills/setup-skills/SKILL.md .agents/context-templates/SKILL.md scripts/setup-replica-plugin.mjs].each do |path|
+        assert_equal File.read(Rails.root.join("../starters/shared", path)).strip,
+          git!(example, "show", "main:#{path}")
+      end
       assert_equal "prototype/welcome", git!(example, "branch", "--show-current")
       assert_equal %w[main prototype/field-notes prototype/signal-room prototype/welcome],
         git!(example, "branch", "--format=%(refname:short)").lines.map(&:strip)
