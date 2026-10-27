@@ -7,5 +7,6 @@ export interface AuthorizationAttempt {
   pkceVerifier: string
   nonce: string | null
   purpose: "sign-in" | "verify" | "link-identity"
+  sessionGeneration: number
   expiresAt: Date
 }

@@ -2,6 +2,9 @@ model IdentityStoreState {
   // ID columns
   id String @id @db.Uuid
 
+  // Attribute columns
+  sessionGeneration Int @default(0) @map("session_generation")
+
   // Timestamp columns
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)

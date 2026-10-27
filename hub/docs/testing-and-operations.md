@@ -16,7 +16,7 @@ npm run storybook:build
 
 `npm test` runs API and utility tests in Node.js and frontend tests in jsdom, which provides a browser-like environment. Neither requires PostgreSQL. To run a focused API check, use `npm test -- server/create-app/index.test.ts`. HTTP tests listen on temporary loopback ports and close their servers afterward.
 
-The API health check proves only that Express responds. Routes that have not been built must return 404 rather than pretending to work.
+The API health check proves only that Express responds. Authentication route tests inject provider clients and identity services; they never require live GitHub credentials or make real GitHub requests. Routes that have not been built must return 404 rather than pretending to work.
 
 Installation generates Prisma Client without a database connection. Client tests check reuse across development reloads, production behavior, and errors for missing configuration.
 
@@ -53,7 +53,7 @@ Use `.test.ts` or `.test.tsx` for ordinary cases. Use `.db.test.ts` or `.db.test
 
 Start the PostgreSQL service as described in [Development](development.md) and set `TEST_DATABASE_URL` using `.env.example`. The devcontainer supplies this variable. Use a local database user with permission to create and drop databases, never a production connection.
 
-The database command uses `--passWithNoTests` so an empty selection exits successfully. It still fails when tests fail. Identity repository cases exercise external identity linking and uniqueness, installation membership, provider-specific authorization attempts, session context, independent GitHub credentials, transaction rollback, and concurrent store locks. Job integration cases exercise real PostgreSQL queues, schedules, and database resets.
+The database command uses `--passWithNoTests` so an empty selection exits successfully. It still fails when tests fail. Identity repository cases exercise external identity linking and uniqueness, installation membership, provider-aware one-use attempts, session context, GitHub integration credential independence, transaction rollback, and concurrent store locks. Authentication cases also cover PKCE, browser binding, provider revisions, revocation races, admission-policy separation, secure cookies, CSRF and origin checks, log omission, and transient GitHub user tokens. Job integration cases exercise real PostgreSQL queues, schedules, and database resets.
 
 Database-enabled jsdom tests use the browser setup and database hooks together. They can arrange records through server code, but frontend code must not import server modules. The setup does not start an API or connect frontend requests to one.
 

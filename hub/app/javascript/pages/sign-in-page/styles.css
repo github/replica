@@ -1,0 +1,15 @@
+.sign-in-page {
+  display: grid;
+  min-block-size: 100vh;
+  place-items: center;
+  padding: 2rem;
+  text-align: center;
+}
+
+.sign-in-page > * {
+  max-inline-size: 32rem;
+}
+
+.sign-in-page__error {
+  color: var(--hub-fg-danger);
+}
