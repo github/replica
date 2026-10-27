@@ -105,6 +105,18 @@ function webhook(body: object, event: string, deliveryId: string) {
   }
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise
+  })
+  return { promise, resolve }
+}
+
+function requestUrl(input: string | URL | Request): string {
+  return typeof input === "string" ? input : input instanceof URL ? input.href : input.url
+}
+
 describe("createGitHubAuthorizationService() database behavior", () => {
   it("uses only a fresh baseline for the linked repository and keeps repositories isolated", async () => {
     const { prisma, service, store } = await database()
@@ -355,6 +367,357 @@ describe("createGitHubAuthorizationService() database behavior", () => {
     ).toMatchObject({
       synchronizationStatus: "failed",
       lastConfirmedAt: reconciled?.lastConfirmedAt,
+    })
+  })
+
+  it("does not resurrect a repository removed while reconciliation is waiting on GitHub", async () => {
+    const { prisma, service, store } = await database()
+    const actor = await createUser(store, { subject: "42" })
+    const source = await prisma.gitHubRepositorySource.create({
+      data: {
+        githubRepositoryId: "100",
+        appId: "12345",
+        installationId: "7",
+        owner: "original-owner",
+        name: "original-name",
+        defaultBranch: "main",
+        admissionEnabled: true,
+      },
+    })
+    const workspace = await prisma.workspace.create({
+      data: {
+        name: "Workspace",
+        createdByUserId: actor.user.id,
+        grants: {
+          create: { userId: actor.user.id, effect: "allow", role: "commenter" },
+        },
+      },
+    })
+    await service.saveAdmissionBaseline(prisma, actor.user.id, {
+      repositorySourceId: source.id,
+      rawPermission: "read",
+      prototypeRole: "viewer",
+      admissionEligible: true,
+      confirmedAt: new Date(),
+    })
+    const repositoryResponse = deferred<Response>()
+    const repositoryRequested = deferred<void>()
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = requestUrl(input)
+        if (url.endsWith("/access_tokens")) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ token: "installation-token" }), { status: 200 }),
+          )
+        }
+        if (url.endsWith("/repositories/100")) {
+          repositoryRequested.resolve()
+          return repositoryResponse.promise
+        }
+        return Promise.resolve(
+          new Response(JSON.stringify({ user: { id: 42 }, permission: "write" }), {
+            status: 200,
+          }),
+        )
+      }),
+    )
+
+    const reconciliation = service.reconcileDue()
+    await repositoryRequested.promise
+    await service.processWebhook(
+      webhook(
+        {
+          action: "removed",
+          installation: { id: 7 },
+          repositories_removed: [{ id: 100 }],
+        },
+        "installation_repositories",
+        "delivery-during-reconcile",
+      ),
+    )
+    repositoryResponse.resolve(
+      new Response(
+        JSON.stringify({
+          id: 100,
+          full_name: "resurrected-owner/resurrected-name",
+          name: "resurrected-name",
+          owner: { login: "resurrected-owner" },
+          default_branch: "trunk",
+        }),
+        { status: 200 },
+      ),
+    )
+    await reconciliation
+
+    expect(
+      await prisma.gitHubRepositorySource.findUnique({ where: { id: source.id } }),
+    ).toMatchObject({
+      status: "removed",
+      owner: "original-owner",
+      name: "original-name",
+      defaultBranch: "main",
+      synchronizationGeneration: 2,
+    })
+    expect(
+      await prisma.gitHubSynchronizedAccess.findUnique({
+        where: {
+          repositorySourceId_userId: {
+            repositorySourceId: source.id,
+            userId: actor.user.id,
+          },
+        },
+      }),
+    ).toMatchObject({ status: "removed" })
+    expect(
+      await prisma.workspaceAccessGrant.findUnique({
+        where: { workspaceId_userId: { workspaceId: workspace.id, userId: actor.user.id } },
+      }),
+    ).toMatchObject({ effect: "allow", role: "commenter" })
+  })
+
+  it("keeps the newer result when overlapping reconciliations finish out of order", async () => {
+    const { prisma, service, store } = await database()
+    const actor = await createUser(store, { subject: "42" })
+    const source = await prisma.gitHubRepositorySource.create({
+      data: {
+        githubRepositoryId: "100",
+        appId: "12345",
+        installationId: "7",
+        owner: "original-owner",
+        name: "original-name",
+        defaultBranch: "main",
+        admissionEnabled: true,
+      },
+    })
+    const workspace = await prisma.workspace.create({
+      data: {
+        name: "Workspace",
+        createdByUserId: actor.user.id,
+        grants: {
+          create: { userId: actor.user.id, effect: "deny", role: null },
+        },
+      },
+    })
+    const firstRepositoryResponse = deferred<Response>()
+    const secondRepositoryResponse = deferred<Response>()
+    const firstRepositoryRequested = deferred<void>()
+    const secondRepositoryRequested = deferred<void>()
+    let repositoryRequests = 0
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = requestUrl(input)
+        if (url.endsWith("/access_tokens")) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ token: "installation-token" }), { status: 200 }),
+          )
+        }
+        if (url.endsWith("/repositories/100")) {
+          repositoryRequests += 1
+          if (repositoryRequests === 1) {
+            firstRepositoryRequested.resolve()
+            return firstRepositoryResponse.promise
+          }
+          secondRepositoryRequested.resolve()
+          return secondRepositoryResponse.promise
+        }
+        const permission = url.includes("newer-owner") ? "read" : "write"
+        return Promise.resolve(
+          new Response(JSON.stringify({ user: { id: 42 }, permission }), { status: 200 }),
+        )
+      }),
+    )
+
+    const olderReconciliation = service.reconcileDue()
+    await firstRepositoryRequested.promise
+    const newerReconciliation = service.reconcileDue()
+    await secondRepositoryRequested.promise
+    secondRepositoryResponse.resolve(
+      new Response(
+        JSON.stringify({
+          id: 100,
+          full_name: "newer-owner/newer-name",
+          name: "newer-name",
+          owner: { login: "newer-owner" },
+          default_branch: "newer-branch",
+        }),
+        { status: 200 },
+      ),
+    )
+    await newerReconciliation
+    firstRepositoryResponse.resolve(
+      new Response(
+        JSON.stringify({
+          id: 100,
+          full_name: "older-owner/older-name",
+          name: "older-name",
+          owner: { login: "older-owner" },
+          default_branch: "older-branch",
+        }),
+        { status: 200 },
+      ),
+    )
+    await olderReconciliation
+
+    expect(
+      await prisma.gitHubRepositorySource.findUnique({ where: { id: source.id } }),
+    ).toMatchObject({
+      synchronizationGeneration: 2,
+      synchronizationStatus: "current",
+      owner: "newer-owner",
+      name: "newer-name",
+      defaultBranch: "newer-branch",
+    })
+    expect(
+      await prisma.gitHubSynchronizedAccess.findUnique({
+        where: {
+          repositorySourceId_userId: {
+            repositorySourceId: source.id,
+            userId: actor.user.id,
+          },
+        },
+      }),
+    ).toMatchObject({
+      rawPermission: "read",
+      mappedPrototypeRole: "viewer",
+      status: "active",
+    })
+    expect(
+      await prisma.workspaceAccessGrant.findUnique({
+        where: { workspaceId_userId: { workspaceId: workspace.id, userId: actor.user.id } },
+      }),
+    ).toMatchObject({ effect: "deny", role: null })
+    expect(
+      await prisma.securityAudit.count({
+        where: { event: "github.repository.reconcile", githubRepositorySourceId: source.id },
+      }),
+    ).toBe(1)
+  })
+
+  it("does not use one repository's cached grant when another repository fails", async () => {
+    const { prisma, service, store } = await database()
+    const actor = await createUser(store, { subject: "42" })
+    const [sourceA, sourceB] = await Promise.all([
+      prisma.gitHubRepositorySource.create({
+        data: {
+          id: "00000000-0000-0000-0000-000000000001",
+          githubRepositoryId: "100",
+          appId: "12345",
+          installationId: "7",
+          owner: "owner",
+          name: "repository-a",
+          defaultBranch: "main",
+          admissionEnabled: true,
+        },
+      }),
+      prisma.gitHubRepositorySource.create({
+        data: {
+          id: "00000000-0000-0000-0000-000000000002",
+          githubRepositoryId: "200",
+          appId: "12345",
+          installationId: "7",
+          owner: "owner",
+          name: "repository-b",
+          defaultBranch: "main",
+          admissionEnabled: true,
+        },
+      }),
+    ])
+    await service.saveAdmissionBaseline(prisma, actor.user.id, {
+      repositorySourceId: sourceA.id,
+      rawPermission: "write",
+      prototypeRole: "editor",
+      admissionEligible: true,
+      confirmedAt: new Date(),
+    })
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) => {
+        const url = requestUrl(input)
+        if (url.endsWith("/access_tokens")) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ token: "installation-token" }), { status: 200 }),
+          )
+        }
+        if (url.includes("repository-a")) {
+          return Promise.resolve(new Response(null, { status: 404 }))
+        }
+        if (url.includes("repository-b")) {
+          return Promise.resolve(new Response(null, { status: 503 }))
+        }
+        throw new Error(`Unexpected request: ${url}`)
+      }),
+    )
+
+    await expect(
+      service.evaluateAdmission({
+        subject: actor.identity.subject,
+        username: actor.identity.username!,
+        displayName: actor.user.displayName,
+        avatarUrl: null,
+      }),
+    ).resolves.toBeNull()
+
+    expect(
+      await prisma.gitHubSynchronizedAccess.findUnique({
+        where: {
+          repositorySourceId_userId: {
+            repositorySourceId: sourceA.id,
+            userId: actor.user.id,
+          },
+        },
+      }),
+    ).toMatchObject({ rawPermission: "write", status: "active" })
+    expect(sourceB.id).not.toBe(sourceA.id)
+  })
+
+  it("uses a fresh cached grant only when that same repository's live check fails", async () => {
+    const { prisma, service, store } = await database()
+    const actor = await createUser(store, { subject: "42" })
+    const source = await prisma.gitHubRepositorySource.create({
+      data: {
+        githubRepositoryId: "100",
+        appId: "12345",
+        installationId: "7",
+        owner: "owner",
+        name: "repository",
+        defaultBranch: "main",
+        admissionEnabled: true,
+      },
+    })
+    const confirmedAt = new Date()
+    await service.saveAdmissionBaseline(prisma, actor.user.id, {
+      repositorySourceId: source.id,
+      rawPermission: "read",
+      prototypeRole: "viewer",
+      admissionEligible: true,
+      confirmedAt,
+    })
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL | Request) =>
+        Promise.resolve(
+          requestUrl(input).endsWith("/access_tokens")
+            ? new Response(JSON.stringify({ token: "installation-token" }), { status: 200 })
+            : new Response(null, { status: 503 }),
+        ),
+      ),
+    )
+
+    await expect(
+      service.evaluateAdmission({
+        subject: actor.identity.subject,
+        username: actor.identity.username!,
+        displayName: actor.user.displayName,
+        avatarUrl: null,
+      }),
+    ).resolves.toEqual({
+      repositorySourceId: source.id,
+      rawPermission: "read",
+      admissionEligible: true,
+      prototypeRole: "viewer",
+      confirmedAt,
     })
   })
 

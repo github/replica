@@ -25,6 +25,7 @@ CREATE TABLE "github_repository_sources" (
     "default_branch" TEXT NOT NULL,
     "status" TEXT NOT NULL DEFAULT 'active',
     "admission_enabled" BOOLEAN NOT NULL DEFAULT false,
+    "synchronization_generation" INTEGER NOT NULL DEFAULT 0,
     "synchronization_status" TEXT NOT NULL DEFAULT 'dirty',
     "synchronization_error" TEXT,
     "removed_at" TIMESTAMPTZ(3),
@@ -36,6 +37,9 @@ CREATE TABLE "github_repository_sources" (
 
     CONSTRAINT "github_repository_sources_pkey" PRIMARY KEY ("id"),
     CONSTRAINT "github_repository_sources_status" CHECK ("status" IN ('active', 'removed')),
+    CONSTRAINT "github_repository_sources_synchronization_generation" CHECK (
+      "synchronization_generation" >= 0
+    ),
     CONSTRAINT "github_repository_sources_synchronization_status" CHECK (
       "synchronization_status" IN ('dirty', 'current', 'failed', 'removed')
     )
