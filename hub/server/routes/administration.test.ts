@@ -91,6 +91,34 @@ describe("administration routes", () => {
       message: "Administrator access is required.",
     })
     expect(authentication.administration.list.mock.calls).toEqual([[sessionToken]])
+    expect(response.headers.get("cache-control")).toBe("private, no-store")
+    expect(response.headers.get("referrer-policy")).toBe("no-referrer")
+  })
+
+  it.each([
+    { name: "missing", origin: undefined },
+    { name: "wrong", origin: "https://attacker.example" },
+  ])("rejects a $name Origin before an administration mutation runs", async ({ origin }) => {
+    const authentication = runtime()
+    const baseUrl = await serve(authentication)
+    const headers = { ...protectedHeaders }
+    if (origin) headers.origin = origin
+    else delete (headers as { origin?: string }).origin
+
+    const response = await fetch(`${baseUrl}/api/administration/invitations`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        provider: "github",
+        issuer: "https://github.com",
+        subject: "42",
+        role: "member",
+      }),
+    })
+
+    expect(response.status).toBe(403)
+    expect(await response.json()).toEqual({ error: "Request not allowed" })
+    expect(authentication.administration.invite.mock.calls).toEqual([])
   })
 
   it("rejects membership changes without matching CSRF before calling the service", async () => {

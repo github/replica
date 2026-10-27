@@ -346,6 +346,14 @@ describe("createAuthenticationService()", () => {
       status: 404,
       code: "bootstrap_unavailable",
     })
+    expect(identityRecords.audit).toHaveBeenCalledWith({
+      event: "membership.bootstrap",
+      outcome: "denied",
+      actorUserId: null,
+      sessionId: null,
+      authenticationProviderRevisionId: providerRevision.id,
+      context: { reason: "secret_mismatch" },
+    })
     const result = await service.start("bootstrap", undefined, "bootstrap-secret")
     expect(result.authorizationUrl).toContain("state=")
     expect(typeof result.browserToken).toBe("string")
@@ -366,6 +374,52 @@ describe("createAuthenticationService()", () => {
       status: 404,
       code: "recovery_unavailable",
     })
+    expect(identityRecords.audit).toHaveBeenCalledWith({
+      event: "membership.recovery",
+      outcome: "denied",
+      actorUserId: null,
+      sessionId: null,
+      authenticationProviderRevisionId: providerRevision.id,
+      context: { reason: "active_administrator_exists" },
+    })
+    expect(identityRecords.createAuthorizationAttempt).not.toHaveBeenCalled()
+  })
+
+  it("audits missing recovery proof without recording the submitted request", async () => {
+    const identityRecords = records()
+    const service = createAuthenticationService({
+      ...dependencies(identityRecords),
+      recoverySecret: "recovery-secret",
+    })
+
+    await expect(service.start("recovery")).rejects.toMatchObject({
+      status: 404,
+      code: "recovery_unavailable",
+    })
+    expect(identityRecords.audit).toHaveBeenCalledWith({
+      event: "membership.recovery",
+      outcome: "denied",
+      actorUserId: null,
+      sessionId: null,
+      authenticationProviderRevisionId: providerRevision.id,
+      context: { reason: "secret_missing" },
+    })
+    expect(JSON.stringify(identityRecords.audit.mock.calls)).not.toContain("recovery-secret")
+    expect(identityRecords.createAuthorizationAttempt).not.toHaveBeenCalled()
+  })
+
+  it("does not turn a failed denied-audit write into a normal enrollment rejection", async () => {
+    const identityRecords = records({
+      audit: vi.fn().mockRejectedValue(new Error("audit failed")),
+    })
+    const service = createAuthenticationService({
+      ...dependencies(identityRecords),
+      bootstrapSecret: "bootstrap-secret",
+    })
+
+    await expect(service.start("bootstrap", undefined, "wrong-secret")).rejects.toThrow(
+      "audit failed",
+    )
     expect(identityRecords.createAuthorizationAttempt).not.toHaveBeenCalled()
   })
 
