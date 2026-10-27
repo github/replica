@@ -152,6 +152,19 @@ export async function setPrototypeAuthorization(
   response.json({ prototype })
 }
 
+export async function createPublisherCredential(
+  authentication: AuthenticationRoutes,
+  request: Request,
+  response: Response,
+): Promise<void> {
+  const result = await authentication.prototypeAuthorization.createPublisherCredential(
+    mutationSessionToken(authentication, request),
+    parameter(request, "prototypeId"),
+    request.body,
+  )
+  response.status(201).json(result)
+}
+
 export async function explainPrototypeAccess(
   authentication: AuthenticationRoutes,
   request: Request,
@@ -203,19 +216,6 @@ export async function listVersions(
       request.query,
     ),
   )
-}
-
-export async function createVersion(
-  authentication: AuthenticationRoutes,
-  request: Request,
-  response: Response,
-): Promise<void> {
-  const version = await authentication.prototypeAuthorization.createVersion(
-    mutationSessionToken(authentication, request),
-    parameter(request, "prototypeId"),
-    request.body,
-  )
-  response.status(201).json({ version })
 }
 
 export async function getVersion(

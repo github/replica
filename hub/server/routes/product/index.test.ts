@@ -38,11 +38,11 @@ function runtime(
       createPrototype: vi.fn(),
       getPrototype: vi.fn(),
       archivePrototype: vi.fn(),
+      createPublisherCredential: vi.fn(),
       explainPrototypeAccess: vi.fn(),
       setPrototypeAccess: vi.fn(),
       removePrototypeAccess: vi.fn(),
       listVersions: vi.fn(),
-      createVersion: vi.fn(),
       getVersion: vi.fn(),
     },
     overrides,
@@ -105,6 +105,12 @@ describe("product routes", () => {
     { method: "GET", path: "/api/prototypes/prototype", call: "getPrototype" },
     {
       method: "POST",
+      path: "/api/prototypes/prototype/publishers",
+      call: "createPublisherCredential",
+      body: { name: "Local publisher", actions: ["publish"] },
+    },
+    {
+      method: "POST",
       path: "/api/prototypes/prototype/archive",
       call: "archivePrototype",
     },
@@ -128,12 +134,6 @@ describe("product routes", () => {
       method: "GET",
       path: "/api/prototypes/prototype/versions",
       call: "listVersions",
-    },
-    {
-      method: "POST",
-      path: "/api/prototypes/prototype/versions",
-      call: "createVersion",
-      body: { label: "Version" },
     },
     {
       method: "GET",

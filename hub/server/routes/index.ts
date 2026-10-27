@@ -19,7 +19,7 @@ import { post as handleApiSessionVerifyPost } from "#server/routes/api/session/v
 import {
   archivePrototype,
   createPrototype,
-  createVersion,
+  createPublisherCredential,
   createWorkspace,
   explainPrototypeAccess,
   getPrototype,
@@ -42,6 +42,7 @@ import {
   unlinkRepository,
   updateRepository,
 } from "#server/routes/github-authorization"
+import { getPublicationStatus, promoteVersion, publishArtifact } from "#server/routes/publishing"
 import type { AuthenticationRoutes } from "#server/routes/types"
 
 /** Keep endpoint registration separate from the app's shared middleware. */
@@ -153,6 +154,11 @@ export function routes(app: Express, authentication?: AuthenticationRoutes): voi
     productMutationLimit,
     setPrototypeAuthorization.bind(null, authentication),
   )
+  app.post(
+    "/api/prototypes/:prototypeId/publishers",
+    productMutationLimit,
+    createPublisherCredential.bind(null, authentication),
+  )
   app.get(
     "/api/prototypes/:prototypeId/access/explanation",
     explainPrototypeAccess.bind(null, authentication),
@@ -168,12 +174,30 @@ export function routes(app: Express, authentication?: AuthenticationRoutes): voi
     removePrototypeAccess.bind(null, authentication),
   )
   app.get("/api/prototypes/:prototypeId/versions", listVersions.bind(null, authentication))
-  app.post(
-    "/api/prototypes/:prototypeId/versions",
-    productMutationLimit,
-    createVersion.bind(null, authentication),
-  )
   app.get("/api/prototypes/:prototypeId/versions/:versionId", getVersion.bind(null, authentication))
   app.use(["/api/workspaces", "/api/prototypes"], respondAdministrationError)
+  if (authentication.artifactPublishing) {
+    const publishingLimit = createRateLimit({
+      limit: 60,
+      windowMilliseconds: 5 * 60_000,
+      message: "Too many publishing requests.",
+    })
+    app.post(
+      "/api/publishing/prototypes/:prototypeId/versions",
+      publishingLimit,
+      publishArtifact.bind(null, authentication.artifactPublishing),
+    )
+    app.get(
+      "/api/publishing/prototypes/:prototypeId/status",
+      publishingLimit,
+      getPublicationStatus.bind(null, authentication.artifactPublishing),
+    )
+    app.put(
+      "/api/publishing/prototypes/:prototypeId/channels/:channel",
+      publishingLimit,
+      promoteVersion.bind(null, authentication.artifactPublishing),
+    )
+    app.use("/api/publishing", respondAdministrationError)
+  }
   app.use(respondAuthenticationError)
 }
