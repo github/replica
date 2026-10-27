@@ -24,7 +24,7 @@ export function routes(app: Express, authentication?: AuthenticationRoutes): voi
   if (!authentication) return
 
   app.use(
-    ["/api/auth", "/api/session"],
+    ["/api/auth", "/api/session", "/api/administration"],
     prepareAuthenticationRequest.bind(null, authentication.settings.origin),
   )
   const initiationLimit = createRateLimit({
