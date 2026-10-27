@@ -1,6 +1,26 @@
 require "test_helper"
 
 class GithubAppManualImportTest < ActiveSupport::TestCase
+  test "imports and polls an organization installation for a managed-user App owner" do
+    attributes = import_attributes
+    app = app_payload(attributes).merge(
+      "owner" => { "id" => 321, "login" => "operator_acme", "type" => "User" }
+    )
+    stub_import(attributes, app:)
+
+    configuration = authorized_setup.import!(**attributes)
+    configuration.synchronize_repositories!
+
+    assert_equal "operator_acme", configuration.reload.owner_login
+    assert_equal "User", configuration.owner_type
+    assert_equal 321, configuration.owner_github_id
+    assert_equal "pinned", configuration.installation_policy
+    assert_equal 8642, configuration.installation_id
+    assert_equal 654, configuration.installation_account_github_id
+    assert_equal "Organization", configuration.installation_account_type
+    assert_equal "active", configuration.installation_state
+  end
+
   test "imports one explicitly approved cross-account installation and its selected repositories" do
     setup = authorized_setup
     attributes = import_attributes
@@ -87,7 +107,12 @@ class GithubAppManualImportTest < ActiveSupport::TestCase
   {
     "another App" => { "id" => 908 },
     "another OAuth client" => { "client_id" => "Iv1.other" },
-    "a malformed App owner" => { "owner" => { "id" => "321", "login" => "github", "type" => "Organization" } }
+    "a malformed App owner" => { "owner" => { "id" => "321", "login" => "github", "type" => "Organization" } },
+    "an unsafe user login" => { "owner" => { "id" => 321, "login" => "operator/enterprise", "type" => "User" } },
+    "an underscore in an organization login" => {
+      "owner" => { "id" => 321, "login" => "invalid_org", "type" => "Organization" }
+    },
+    "an underscore in an App slug" => { "slug" => "invalid_app" }
   }.each do |description, changes|
     test "rejects #{description} returned by authenticated App lookup" do
       attributes = import_attributes
