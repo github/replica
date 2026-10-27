@@ -1,8 +1,9 @@
 model SecurityAudit {
   // ID columns
-  id        String  @id @default(uuid()) @db.Uuid
-  actorId   String? @map("actor_id") @db.Uuid
-  sessionId String? @map("session_id") @db.Uuid
+  id                               String  @id @default(uuid()) @db.Uuid
+  actorUserId                      String? @map("actor_user_id") @db.Uuid
+  sessionId                        String? @map("session_id") @db.Uuid
+  authenticationProviderRevisionId String? @map("authentication_provider_revision_id") @db.Uuid
 
   // Attribute columns
   event String

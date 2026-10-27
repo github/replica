@@ -1,0 +1,27 @@
+model AuthorizationAttempt {
+  // ID columns
+  id                               String  @id @default(uuid()) @db.Uuid
+  authenticationProviderRevisionId String  @map("authentication_provider_revision_id") @db.Uuid
+  originatingSessionId             String? @map("originating_session_id") @db.Uuid
+
+  // Relations
+  authenticationProviderRevision AuthenticationProviderRevision @relation(fields: [authenticationProviderRevisionId], references: [id], onDelete: Cascade)
+  originatingSession             Session?                        @relation("OriginatingSession", fields: [originatingSessionId], references: [id], onDelete: Cascade)
+
+  // Attribute columns
+  stateDigest   String   @unique @map("state_digest")
+  browserDigest String   @map("browser_digest")
+  pkceVerifier  String   @map("pkce_verifier")
+  nonce         String?
+  purpose       String
+  expiresAt     DateTime @map("expires_at") @db.Timestamptz(3)
+
+  // Timestamp columns
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([expiresAt])
+  @@index([authenticationProviderRevisionId])
+  @@index([originatingSessionId])
+  @@map("authorization_attempts")
+}

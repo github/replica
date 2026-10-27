@@ -1,5 +1,6 @@
 export interface AuditInput {
   event: string
-  actorId: string | null
+  actorUserId: string | null
   sessionId: string | null
+  authenticationProviderRevisionId: string | null
 }

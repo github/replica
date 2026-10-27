@@ -1,6 +1,6 @@
 # Hub database
 
-Hub uses PostgreSQL and Prisma. The initial migration stores the [identity boundary](identity.md); product models have not been added.
+Hub uses PostgreSQL and Prisma. The initial migration stores the provider-neutral [identity foundation](identity.md); product models have not been added.
 
 [Compose](../.devcontainer/compose.yaml) pins the development database image. [package.json](../package.json) pins the Prisma packages to the same version. Dependency updates must follow the [seven-day dependency policy](../../docs/testing-and-review.md#update-dependencies).
 
