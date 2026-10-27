@@ -24,6 +24,11 @@ export interface PrototypeAuthorizationService {
   listPrototypes(sessionToken: string, workspaceId: string, query: unknown): Promise<Page<unknown>>
   createPrototype(sessionToken: string, workspaceId: string, input: unknown): Promise<unknown>
   getPrototype(sessionToken: string, prototypeId: string): Promise<unknown>
+  createPublisherCredential(
+    sessionToken: string,
+    prototypeId: string,
+    input: unknown,
+  ): Promise<unknown>
   archivePrototype(sessionToken: string, prototypeId: string): Promise<unknown>
   setPrototypeAuthorization(
     sessionToken: string,
@@ -43,7 +48,6 @@ export interface PrototypeAuthorizationService {
     targetUserId: string,
   ): Promise<void>
   listVersions(sessionToken: string, prototypeId: string, query: unknown): Promise<Page<unknown>>
-  createVersion(sessionToken: string, prototypeId: string, input: unknown): Promise<unknown>
   getVersion(sessionToken: string, prototypeId: string, versionId: string): Promise<unknown>
 }
 

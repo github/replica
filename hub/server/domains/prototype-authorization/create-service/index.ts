@@ -1,3 +1,5 @@
+import { randomBytes, randomUUID } from "node:crypto"
+
 import { z } from "zod"
 
 import { createIdentityRecords } from "#server/domains/identity/create-records"
@@ -15,11 +17,22 @@ import type {
 import { getCurrentSession } from "#server/domains/authentication/get-current-session"
 import { saveSecurityAudit } from "#server/repositories/security-audits/save-audit"
 import { AuthenticationError } from "#server/utils/authentication-error"
+import { digestSecret } from "#server/utils/digest-secret"
 
 import type { Prisma, PrismaClient } from "../../../generated/prisma/client.ts"
 
 const nameSchema = z.object({ name: z.string().trim().min(1).max(120) })
-const versionSchema = z.object({ label: z.string().trim().min(1).max(120).nullable().optional() })
+const publisherSchema = z
+  .object({
+    name: z.string().trim().min(1).max(120),
+    actions: z
+      .array(z.enum(["publish", "read-status"]))
+      .min(1)
+      .max(2)
+      .refine((actions) => new Set(actions).size === actions.length),
+    expiresAt: z.iso.datetime({ offset: true }).nullable().optional(),
+  })
+  .strict()
 const pageSchema = z.object({
   cursor: z.uuid().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(20),
@@ -601,6 +614,52 @@ async function hasAnyPrototypeAccess({
   )
 }
 
+function versionResult(version: {
+  id: string
+  prototypeId: string
+  sequence: number
+  label: string | null
+  artifactFormat: string | null
+  artifactVersion: string | null
+  contentDigest: string | null
+  sizeBytes: number | null
+  builtAt: Date | null
+  provenanceProvider: string | null
+  provenanceSourceUrl: string | null
+  provenanceRevision: string | null
+  provenanceRef: string | null
+  provenancePipeline: string | null
+  provenanceRunId: string | null
+  createdAt: Date
+}) {
+  return {
+    id: version.id,
+    prototypeId: version.prototypeId,
+    sequence: version.sequence,
+    label: version.label,
+    artifact: version.contentDigest
+      ? {
+          format: version.artifactFormat,
+          version: version.artifactVersion,
+          digest: version.contentDigest,
+          sizeBytes: version.sizeBytes,
+          builtAt: version.builtAt,
+        }
+      : null,
+    provenance: version.provenanceProvider
+      ? {
+          provider: version.provenanceProvider,
+          sourceUrl: version.provenanceSourceUrl,
+          revision: version.provenanceRevision,
+          ref: version.provenanceRef,
+          pipeline: version.provenancePipeline,
+          runId: version.provenanceRunId,
+        }
+      : null,
+    createdAt: version.createdAt,
+  }
+}
+
 async function audit(
   database: Prisma.TransactionClient,
   actor: Awaited<ReturnType<typeof currentSession>>,
@@ -876,6 +935,69 @@ export function createPrototypeAuthorizationService({
       }
     },
 
+    async createPublisherCredential(sessionToken, prototypeId, input) {
+      const parsed = publisherSchema.safeParse(input)
+      if (
+        !parsed.success ||
+        (parsed.data.expiresAt !== null &&
+          parsed.data.expiresAt !== undefined &&
+          new Date(parsed.data.expiresAt) <= new Date())
+      ) {
+        throw new AuthenticationError(
+          422,
+          "invalid_workload_publisher",
+          "The workload publisher is invalid.",
+        )
+      }
+      return store.lock(async (_records, transaction) => {
+        const actor = await currentSession(store, sessionToken, transaction)
+        requireFreshAuthorization(actor)
+        requireIdentifier(prototypeId, "prototype_not_found", "The prototype was not found.")
+        await lockPrototype(transaction, prototypeId)
+        const { prototype, decision } = await prototypeDecision(
+          transaction,
+          actor.userId,
+          prototypeId,
+          baseline,
+        )
+        requireDecision(decision, "administrator")
+        const credentialId = randomUUID()
+        const token = `rpl_pub_${credentialId}.${randomBytes(32).toString("base64url")}`
+        const publisher = await transaction.workloadPublisher.create({
+          data: {
+            prototypeId,
+            name: parsed.data.name,
+            actions: parsed.data.actions,
+            credentials: {
+              create: {
+                id: credentialId,
+                tokenDigest: digestSecret(token),
+                expiresAt: parsed.data.expiresAt ? new Date(parsed.data.expiresAt) : null,
+              },
+            },
+          },
+        })
+        await audit(transaction, actor, {
+          event: "prototype.publisher.create",
+          workspaceId: prototype.workspaceId,
+          prototypeId,
+          workloadPublisherId: publisher.id,
+          context: { source: "prototype_administrator" },
+        })
+        return {
+          publisher: {
+            id: publisher.id,
+            prototypeId: publisher.prototypeId,
+            name: publisher.name,
+            actions: publisher.actions,
+            active: publisher.active,
+            createdAt: publisher.createdAt,
+          },
+          credential: { id: credentialId, token },
+        }
+      })
+    },
+
     async archivePrototype(sessionToken, prototypeId) {
       return store.lock(async (_records, transaction) => {
         const actor = await currentSession(store, sessionToken, transaction)
@@ -1068,52 +1190,8 @@ export function createPrototypeAuthorizationService({
         ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
         take: limit + 1,
       })
-      return pageResult(items, limit)
-    },
-
-    async createVersion(sessionToken, prototypeId, input) {
-      const parsed = versionSchema.safeParse(input)
-      if (!parsed.success) {
-        throw new AuthenticationError(422, "invalid_version", "The version is invalid.")
-      }
-      return store.lock(async (_records, transaction) => {
-        const actor = await currentSession(store, sessionToken, transaction)
-        requireIdentifier(prototypeId, "prototype_not_found", "The prototype was not found.")
-        await lockPrototype(transaction, prototypeId)
-        const { prototype, decision } = await prototypeDecision(
-          baseline,
-          transaction,
-          actor.userId,
-          prototypeId,
-        )
-        requireDecision(decision, "editor")
-        if (prototype.archivedAt) {
-          throw new AuthenticationError(
-            409,
-            "prototype_archived",
-            "Archived prototypes cannot receive versions.",
-          )
-        }
-        const latest = await transaction.prototypeVersion.findFirst({
-          where: { prototypeId },
-          orderBy: { sequence: "desc" },
-        })
-        const version = await transaction.prototypeVersion.create({
-          data: {
-            prototypeId,
-            createdByUserId: actor.userId,
-            sequence: (latest?.sequence ?? 0) + 1,
-            label: parsed.data.label ?? null,
-          },
-        })
-        await audit(transaction, actor, {
-          event: "prototype.version.create",
-          workspaceId: prototype.workspaceId,
-          prototypeId,
-          prototypeVersionId: version.id,
-        })
-        return version
-      })
+      const page = pageResult(items, limit)
+      return { ...page, items: page.items.map(versionResult) }
     },
 
     async getVersion(sessionToken, prototypeId, versionId) {
@@ -1127,7 +1205,7 @@ export function createPrototypeAuthorizationService({
       if (!version) {
         throw new AuthenticationError(404, "version_not_found", "The version was not found.")
       }
-      return version
+      return versionResult(version)
     },
   }
 }

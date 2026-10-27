@@ -1,22 +1,40 @@
 model PrototypeVersion {
   // ID columns
-  id              String @id @default(uuid()) @db.Uuid
-  prototypeId     String @map("prototype_id") @db.Uuid
-  createdByUserId String @map("created_by_user_id") @db.Uuid
+  id                  String  @id @default(uuid()) @db.Uuid
+  prototypeId         String  @map("prototype_id") @db.Uuid
+  createdByUserId     String? @map("created_by_user_id") @db.Uuid
+  workloadPublisherId String? @map("workload_publisher_id") @db.Uuid
 
   // Relations
-  prototype Prototype @relation(fields: [prototypeId], references: [id], onDelete: Restrict)
-  createdBy User      @relation("PrototypeVersionCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  prototype         Prototype            @relation(fields: [prototypeId], references: [id], onDelete: Restrict)
+  createdBy         User?                @relation("PrototypeVersionCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  workloadPublisher WorkloadPublisher?   @relation(fields: [workloadPublisherId], references: [id], onDelete: Restrict)
+  publication       ArtifactPublication?
+  channels          PrototypeChannel[]
 
   // Attribute columns
-  sequence Int
-  label    String?
+  sequence            Int
+  label               String?
+  artifactFormat      String?   @map("artifact_format")
+  artifactVersion     String?   @map("artifact_version")
+  contentDigest       String?   @map("content_digest")
+  sizeBytes           Int?      @map("size_bytes")
+  builtAt             DateTime? @map("built_at") @db.Timestamptz(3)
+  provenanceProvider  String?   @map("provenance_provider")
+  provenanceSourceUrl String?   @map("provenance_source_url")
+  provenanceRevision  String?   @map("provenance_revision")
+  provenanceRef       String?   @map("provenance_ref")
+  provenancePipeline  String?   @map("provenance_pipeline")
+  provenanceRunId     String?   @map("provenance_run_id")
+  storageKey          String?   @map("storage_key")
 
   // Timestamp columns
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@unique([prototypeId, sequence])
+  @@unique([prototypeId, contentDigest])
   @@index([createdByUserId])
+  @@index([workloadPublisherId])
   @@map("prototype_versions")
 }

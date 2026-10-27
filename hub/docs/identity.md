@@ -18,6 +18,8 @@ Hub sessions use a random opaque cookie and store only its digest. Authenticatio
 
 `legacy-repository` preserves the previous compatibility behavior. It scans repositories available to the installation and creates a `legacy-synchronized` member assignment after finding any repository permission, without requiring linked source records. The migration backfills pre-existing synchronized compatibility memberships to that source before linked-source synchronization begins. Linked-source reconciliation does not manage those compatibility assignments. It is not the normal synchronized authorization mode. The GitHub authentication adapter itself never reads installation credentials or performs repository authorization.
 
+Artifact publishing uses a separate workload identity boundary. Prototype administrators issue prototype-scoped credentials with `publish` and/or `read-status`; Hub returns the raw bearer token once and stores only its digest. Workload credentials never create browser sessions or inherit user, installation, repository, or source-provider access. See [Artifact ingestion](artifact-ingestion.md).
+
 Sign-out revokes the current database session. Every restored session requires an active installation membership. Suspension and removal therefore deny retained cookies immediately, and their administration operations delete the affected user's sessions. Fresh verification reuses GitHub authorization and must return the same external identity. An active Hub administrator membership with fresh verification may revoke all sessions; revocation also supersedes callbacks that started earlier.
 
 ## Persisted boundaries
@@ -45,10 +47,10 @@ Administrator mutations require an active administrator session verified less th
 
 GitHub source access is an optional integration boundary, not the global identity boundary. Set `HUB_GITHUB_CREDENTIAL_PROVIDER` in the [environment example](../.env.example):
 
-| Provider | Credentials |
-| --- | --- |
+| Provider             | Credentials                                                                                                                                                                         |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `database` (default) | Generate `HUB_GITHUB_CREDENTIAL_KEY` with `openssl rand -hex 32`. The provider encrypts GitHub integration credentials before storage and authenticates their context when reading. |
-| `environment` | Set every `GITHUB_*` value, including `GITHUB_INSTALLATION_ID`. This provider is read-only and ignores database credentials. |
+| `environment`        | Set every `GITHUB_*` value, including `GITHUB_INSTALLATION_ID`. This provider is read-only and ignores database credentials.                                                        |
 
 Both providers currently validate an App ID, installation ID, client ID, client secret, and RSA private key. IDs are positive decimal strings. The key must contain at least 2048 bits. A deployment may use the same GitHub App for user authorization and source integration, but it supplies and rotates the two configurations independently. Set `HUB_GITHUB_WEBHOOK_SECRET` separately when enabling the webhook route.
 
@@ -56,6 +58,6 @@ Database credentials use AES-256-GCM with contextual additional authenticated da
 
 ## Current scope
 
-This layer adds GitHub sign-in, Hub-managed and opt-in GitHub-synchronized installation admission, invitations, member and administrator lifecycle, one-use bootstrap and recovery, session restoration, sign-out, fresh verification, global and per-member session revocation, structured security records, and the minimal frontend needed to use them. The separate [prototype authorization](prototype-authorization.md) boundary may consume a synchronized repository baseline without treating installation membership as product authority. Identity does not add artifact ingestion, production OIDC, account linking, or SCIM.
+This layer adds GitHub sign-in, Hub-managed and opt-in GitHub-synchronized installation admission, invitations, member and administrator lifecycle, one-use bootstrap and recovery, session restoration, sign-out, fresh verification, global and per-member session revocation, structured security records, and the minimal frontend needed to use them. The separate [prototype authorization](prototype-authorization.md) boundary may consume a synchronized repository baseline without treating installation membership as product authority. Artifact ingestion composes with identity only when a browser administrator provisions a workload credential; publication itself does not use a browser session. Identity does not add production OIDC, account linking, or SCIM.
 
 Apply the rewritten initial migration with `npm run db:deploy`. See [Database](database.md) for setup and schema rules.

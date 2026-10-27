@@ -7,6 +7,7 @@ import { createRequestLogger } from "../integrations/pino/create-request-logger/
 import { omitRequestLogPayload } from "../integrations/pino/omit-request-log-payload/index.ts"
 import { routes } from "../routes/index.ts"
 import type { AuthenticationRoutes } from "../routes/types.ts"
+import { maximumPublishingJsonBytes } from "../domains/artifact-publishing/create-service/constants.ts"
 
 /** Give every endpoint the same request logging and safe error responses. */
 export function createApp({
@@ -25,10 +26,12 @@ export function createApp({
       "/api/github/webhooks",
       "/api/workspaces",
       "/api/prototypes",
+      "/api/publishing",
     ],
     omitRequestLogPayload,
   )
   app.use("/api/github/webhooks", express.raw({ type: "application/json", limit: "1mb" }))
+  app.use("/api/publishing", express.json({ limit: maximumPublishingJsonBytes }))
   app.use(express.json())
 
   routes(app, authentication)

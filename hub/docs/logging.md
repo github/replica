@@ -30,7 +30,7 @@ Each request produces one final record with `reqId`, `method`, `route`, `statusC
 
 Automatic records exclude raw URLs, headers, cookies, uploads, response bodies, and error details. JSON parsing uses Express's default 100 KiB limit; rejected bodies are not logged. The Express error handler returns generic JSON errors, or closes the connection if headers were sent, without exposing raw errors.
 
-`createApp()` installs `omitRequestLogPayload` for authentication and session paths after request logging but before JSON parsing. This ordering covers parser failures as well as later origin checks, rate limits, and handlers:
+`createApp()` installs `omitRequestLogPayload` for authentication, session, administration, product, and publishing paths after request logging but before JSON parsing. This ordering covers parser failures as well as later origin checks, rate limits, and handlers:
 
 ```ts
 import { omitRequestLogPayload } from "../integrations/pino/omit-request-log-payload/index.ts"
@@ -40,7 +40,7 @@ app.use(["/api/auth", "/api/session"], omitRequestLogPayload)
 
 This omits `params`, `query`, and `body` while keeping request metadata.
 
-OAuth codes, state values, CSRF values, cookies, PKCE material, provider responses, and unrelated private fields therefore never enter automatic request payload records, including when JSON is malformed or too large.
+OAuth codes, state values, CSRF values, cookies, PKCE material, provider responses, workload credentials, artifact manifests, and artifact bytes therefore never enter automatic request payload records, including when JSON is malformed or too large. Automatic records never include request headers, so bearer credentials are omitted as well.
 
 ## Structured-field safety
 
