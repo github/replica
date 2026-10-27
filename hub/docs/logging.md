@@ -44,4 +44,4 @@ Application fields, `request.log` fields, and automatic payloads share the same 
 
 Keys containing password, passwd, passphrase, secret, token, authorization, cookie, API key, private key, or session ID become `[REDACTED]`. Matching ignores case and punctuation and includes nested objects and arrays. Exclude payloads whose sensitive fields do not match these rules.
 
-Structured fields have [size, depth, and entry limits](../server/utils/logging/sanitize-log-value/constants.ts); Pino also [caps top-level fields](../server/integrations/pino/format-log-fields/constants.ts). Markers replace truncated data, cycles, getters, and unsupported values. These limits do not apply to messages or custom bindings and do not replace endpoint validation or privacy decisions.
+Structured fields have [size, depth, and entry limits](../server/utils/logging/sanitize-log-value/constants.ts). Markers replace truncated data, cycles, getters, and unsupported values. These limits do not apply to messages or custom bindings and do not replace endpoint validation or privacy decisions.

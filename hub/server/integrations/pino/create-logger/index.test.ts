@@ -95,22 +95,4 @@ describe("createLogger()", () => {
     expect(record).toHaveProperty("oversized")
     expect(Buffer.byteLength(JSON.stringify(record.oversized), "utf8")).toBeLessThanOrEqual(8192)
   })
-
-  it("limits the number of caller-supplied top-level fields to 100", () => {
-    const lines: string[] = []
-    const logger = createLogger({ destination: { write: (line) => lines.push(line) } })
-    const fields = Object.fromEntries(
-      Array.from({ length: 120 }, (_, index) => [`field${index}`, index]),
-    )
-
-    logger.info(fields, "Many fields")
-
-    expect(lines).toHaveLength(1)
-    const record = parseRecord(lines.join(""))
-    expect(record).toMatchObject({ field0: 0, msg: "Many fields" })
-    expect(Object.keys(record).filter((key) => /^field\d+$/.test(key)).length).toBeLessThanOrEqual(
-      100,
-    )
-    expect(record).not.toHaveProperty("field119")
-  })
 })
