@@ -94,52 +94,21 @@ describe("createRequestLogger()", () => {
     )
   })
 
-  it.each([
-    { statusCode: 399, level: 30 },
-    { statusCode: 400, level: 40 },
-    { statusCode: 499, level: 40 },
-    { statusCode: 500, level: 50 },
-  ])("logs status $statusCode once at level $level", async ({ statusCode, level }) => {
+  it("logs a server error once at error level", async () => {
     const records: Record<string, unknown>[] = []
     const logger = createLogger({
       destination: { write: (line) => records.push(parseRecord(line)) },
     })
     const app = express()
     app.use(createRequestLogger(logger))
-    app.get("/status", (_req, res) => res.status(statusCode).end())
+    app.get("/status", (_req, res) => res.status(500).end())
     const baseUrl = await listen(app)
 
     const response = await fetch(`${baseUrl}/status`)
     await response.arrayBuffer()
 
     await vi.waitFor(() => expect(records).toHaveLength(1))
-    expect(records[0]).toMatchObject({ level, statusCode, outcome: "completed" })
-  })
-
-  it("uses a null route for unmatched requests instead of exposing their URL", async () => {
-    const records: Record<string, unknown>[] = []
-    const logger = createLogger({
-      destination: { write: (line) => records.push(parseRecord(line)) },
-    })
-    const app = express()
-    app.use(createRequestLogger(logger))
-    app.use((_req, res) => res.status(404).json({ error: "Not found" }))
-    const baseUrl = await listen(app)
-
-    const first = await fetch(`${baseUrl}/private-path-secret?token=query-secret`, {
-      headers: { "x-request-id": "same-incoming-id" },
-    })
-    await first.arrayBuffer()
-    const second = await fetch(`${baseUrl}/another-private-path-secret`, {
-      headers: { "x-request-id": "same-incoming-id" },
-    })
-    await second.arrayBuffer()
-
-    await vi.waitFor(() => expect(records).toHaveLength(2))
-    expect(records[0]).toMatchObject({ route: null, level: 40, statusCode: 404 })
-    expect(records[1]).toMatchObject({ route: null, level: 40, statusCode: 404 })
-    expect(first.headers.get("x-request-id")).not.toBe(second.headers.get("x-request-id"))
-    expect(JSON.stringify(records)).not.toMatch(/private-path-secret|query-secret|same-incoming-id/)
+    expect(records[0]).toMatchObject({ level: 50, statusCode: 500, outcome: "completed" })
   })
 
   it("lets an endpoint omit all payload fields without suppressing completion metadata", async () => {

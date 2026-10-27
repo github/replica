@@ -1,10 +1,9 @@
 import "dotenv/config"
 
+import { logLevels } from "./constants.ts"
 import { createLogger } from "./create-logger/index.ts"
 
-const level = (["trace", "debug", "info", "warn", "error", "fatal", "silent"] as const).find(
-  (candidate) => candidate === (process.env.LOG_LEVEL ?? "info"),
-)
+const level = logLevels.find((candidate) => candidate === (process.env.LOG_LEVEL ?? "info"))
 if (!level) {
   throw new Error("LOG_LEVEL must be trace, debug, info, warn, error, fatal, or silent.")
 }

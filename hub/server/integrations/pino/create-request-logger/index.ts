@@ -4,40 +4,14 @@ import type { Request, RequestHandler, Response } from "express"
 import type { Logger } from "pino"
 import { pinoHttp } from "pino-http"
 
-import { sanitizeLogValue } from "../../../utils/logging/sanitize-log-value/index.ts"
+import { createRequestRecord } from "../create-request-record/index.ts"
 import { logger } from "../index.ts"
-import type { RequestSnapshot } from "./types.ts"
+import { snapshotRequest } from "../snapshot-request/index.ts"
+import type { RequestSnapshot } from "../snapshot-request/types.ts"
 
+/** Log each request once, including parser failures and interrupted responses. */
 export function createRequestLogger(target: Logger = logger): RequestHandler {
   const snapshots = new WeakMap<Response, RequestSnapshot>()
-
-  function snapshot(request: Request): RequestSnapshot {
-    const route: unknown = request.route
-    const path =
-      route !== null && typeof route === "object" && "path" in route ? route.path : undefined
-    return {
-      route: typeof path === "string" ? path : null,
-      params: sanitizeLogValue(request.params),
-      query: sanitizeLogValue(request.query),
-      ...(request.is("application/json") && request.body !== undefined
-        ? { body: sanitizeLogValue(request.body) }
-        : {}),
-    }
-  }
-
-  function record(request: Request, response: Response, responseTime: number) {
-    const captured = snapshots.get(response) ?? snapshot(request)
-    const completed = response.writableFinished && !request.readableAborted
-    const { route, ...payload } = captured
-    return {
-      method: request.method,
-      route,
-      statusCode: completed ? response.statusCode : null,
-      responseTime,
-      outcome: completed ? "completed" : "aborted",
-      ...(response.locals.omitLogPayload === true ? {} : payload),
-    }
-  }
 
   const middleware = pinoHttp<Request, Response>({
     logger: target,
@@ -66,10 +40,10 @@ export function createRequestLogger(target: Logger = logger): RequestHandler {
       return response.statusCode >= 400 ? "warn" : "info"
     },
     customSuccessObject(request, response, value: { responseTime: number }) {
-      return record(request, response, value.responseTime)
+      return createRequestRecord(request, response, value.responseTime, snapshots.get(response))
     },
     customErrorObject(request, response, _error, value: { responseTime: number }) {
-      return record(request, response, value.responseTime)
+      return createRequestRecord(request, response, value.responseTime, snapshots.get(response))
     },
     customSuccessMessage(request, response) {
       return response.writableFinished && !request.readableAborted
@@ -87,7 +61,7 @@ export function createRequestLogger(target: Logger = logger): RequestHandler {
       statusMessageOrHeaders?: string | OutgoingHttpHeaders | OutgoingHttpHeader[],
       headers?: OutgoingHttpHeaders | OutgoingHttpHeader[],
     ) {
-      snapshots.set(response, snapshot(request))
+      snapshots.set(response, snapshotRequest(request))
       return typeof statusMessageOrHeaders === "string"
         ? writeHead(statusCode, statusMessageOrHeaders, headers)
         : writeHead(statusCode, statusMessageOrHeaders)
