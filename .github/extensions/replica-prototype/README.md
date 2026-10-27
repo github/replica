@@ -10,13 +10,13 @@ The injected adapter applies JSON defaults and valid URL overrides. Missing defi
 
 Canvas and Hub save overrides in prototype URLs as `rc.<scope>.<controlId>`, never in private renderer/proxy capability URLs. Edits preserve history state without reload or extra entries. Back/Forward restores settings; reset-all removes overrides and resets inactive sets. Conditional hiding discards overrides, while ordinary page unmount/return preserves cached values. Private value files are no longer read or written; existing files remain untouched.
 
-Prototype authors own static definitions and ordinary app state. After verifying the preview belongs to the current worktree, agents call `validate_controls` until the served definitions pass, then `reload_preview` and `get_controls_status` with an optional `timeoutMs` (0 through 10000). The read-only status action returns the live route, origin and URL. Its `controls` match the accepted state rendered in the Controls panel; `runtime` provides the current in-frame adapter state to reveal stale panel/bridge differences. Both include control IDs, availability, busy state, visibility and exact binding errors, without values or callback results. It returns `pending` until frame and panel readiness settle. Runtime availability does not prove visual effects or reset behavior. `connect_prototype` can repoint an existing panel to another running server without publishing or stopping either server. See the [authoring reference](../../../starter/.agents/skills/prototype-controls/references/authoring.md) and [integration guide](../../../hub/docs/prototype-canvas.md#local-prototype-controls).
+Prototype authors own static definitions and ordinary app state. After verifying the preview belongs to the current worktree, agents call `validate_controls` until the served definitions pass, then `reload_preview` and `get_controls_status` with an optional `timeoutMs` (0 through 10000). The read-only status action returns the live route, origin and URL. Its `controls` match the accepted state rendered in the Controls panel; `runtime` provides the current in-frame adapter state to reveal stale panel/bridge differences. Both include control IDs, availability, busy state, visibility and exact binding errors, without values or callback results. It returns `pending` until frame and panel readiness settle. Runtime availability does not prove visual effects or reset behavior. `connect_prototype` can repoint an existing panel to another running server without publishing or stopping either server. See the [authoring reference](../../../starters/shared/.agents/skills/prototype-controls/references/authoring.md) and [integration guide](../../../hub/docs/prototype-canvas.md#local-prototype-controls).
 
 After a live action times out, `get_action_diagnostics` reads bounded request and renderer IDs, outcomes and transport stages without contacting the renderer. Timeout errors identify the last stage; traces omit app values and private URLs. See the integration guide for the stage contract.
 
 ## Install
 
-Choose either the current main branch or your organization's approved release. Both use [the same catalog](../../plugin/marketplace.json) and install the plugin with its bundled renderer, publish skill, and Pick & polish skill. If the `replica` marketplace is already registered, follow [Update or switch source](#update-or-switch-source) instead of adding it again.
+Choose either the current main branch or your organization's approved release. Both use [the same catalog](../../plugin/marketplace.json) and install the plugin with its bundled renderer, publish skill, feedback-review skill, and Pick & polish skill. If the `replica` marketplace is already registered, follow [Update or switch source](#update-or-switch-source) instead of adding it again.
 
 To follow the repository's default branch:
 
@@ -82,6 +82,8 @@ Copilot CLI runs extensions only while its extensions feature is on. In Copilot 
 
 ## Agent access to Hub comments
 
+For every connected user with repository access, including Read and Triage, **More actions → Improve context** requests the bundled `/review-hub-feedback` skill in the current chat. Hub checks access again on click. The skill identifies reusable feedback themes; it does not generate solutions or edit context. See [feedback review](../../../hub/docs/prototype-canvas.md#feedback-review) for access and recovery.
+
 Agents can use actions on the existing `replica-prototype` canvas to retrieve conversations for the current prototype or every reviewable prototype in the checkout's repository, across all Builds. Both use the approved repository connection. Repository retrieval requires a Hub deployment with the repository comments API; it needs no migration, MCP server or separate comment store. Open the canvas, but no running or connected local preview is required for comment actions. They reuse the saved Hub selection and approved credentials; missing authorization still requires connecting to Hub. Preview interactions and publishing still require a connected local preview.
 
 Before a local preview is connected, each comment action resolves the current checkout and saved Hub selection afresh. Changing that selection does not require reopening the canvas; continuations from a different Hub or branch are rejected as stale.
@@ -92,9 +94,15 @@ The following filters and snapshot continuations apply to the full-detail `list_
 
 Both list actions accept combinable `resolution` (`all`, `unresolved`, `resolved`), `read`
 (`all`, `unread`, `read`), and optional timezone-qualified ISO-8601 `from`/`to` timestamps.
-Defaults mean all conversations. The time range includes `from` and excludes `to`, matching a
+Defaults mean all review conversations. The time range includes `from` and excludes `to`, matching a
 starting comment or any reply created in that range. Edits, reactions and resolution changes
 do not make a thread match. Bounds preserve Hub's microsecond precision.
+
+Both actions also accept `improvementNotes: "exclude" | "include" | "only"`, corresponding to Hub's `improvement_notes` query. The default, `exclude`, preserves review-only retrieval. Use `include` for reviews and synchronized Pick & polish notes together, or `only` for those notes alone. Local unsynchronized notes are not in Hub's feed. Explicit inclusion uses the existing repository read permission, not the creator-only synchronization collection. Compact summaries and direct repository thread reads remain review-only.
+
+For example, call `list_comments` with `{"improvementNotes":"only"}` to retrieve this prototype's synchronized improvements. Notes retain `kind: "improvement_note"`, `localId`, `revision`, `status`, the original body and anchor, and `thread` with `originalStatus`, optional `originalAuthor`, and ordered `messages`. Messages preserve author follow-ups, Copilot answers and their `requestIds`. The public `id` is a namespaced string such as `improvement_note-7`, distinct from review ID `7`. Supply that exact string as `threadId` to the matching snapshot thread action. Never remove the prefix or submit an improvement to ordinary review mutation actions; those actions accept only numeric review IDs. Improvements do not receive a `replyRequestId`.
+
+Improvement conversations have no review unread state, so `read: "read"` and `"unread"` exclude them. `resolution: "resolved"` matches their `resolved` status; every other improvement status is unresolved. Their date filters match root creation only because saved follow-up messages have no creation timestamps. Notes use the same response budget and continuation fields as reviews, but paginate `thread.messages` rather than `replies`. Follow `repliesNextCursor` until `repliesHasMore` is false and combine the message pages in order. A deleted note retains its root tombstone with `thread: null`.
 
 For example, retrieve full unresolved, unread conversations on an open instance:
 
@@ -127,7 +135,7 @@ versions never include activity missing from the captured messages; later activi
 arrive and leave the snapshot out of date. Start a new scan with the same list action to refresh filters
 or read state. Snapshots from older, unverified collection formats expire after an extension update.
 Both thread actions check current root activity and reject a changed thread before returning
-a captured reply page.
+a captured reply page. Improvement scans and thread reads compare the complete saved note, including its revision, status and conversation. List continuations bind `improvementNotes` along with the other filters; changing it requires a fresh scan.
 
 Repository collection uses one full response across prototypes, not a separate request per prototype. Hub orders comments by creation time and ID, newest first; completed conversations retain newest-root-first order and oldest-reply-first order. A conflict or access failure stops the entire collection with an explicit error, not a success-shaped partial result. An authorized repository with no comments returns a completed empty result. Repository snapshots have a distinct `scope: "repository"` target and do not issue reply request IDs. Their targets cannot be passed to prototype-specific actions or mutations.
 
@@ -288,7 +296,7 @@ The iframe uses a separate local origin. The displayed address and external-brow
 
 Local Controls use public JSON bindings; retained Builds use their own copy of that asset. Standalone pages remain ordinary apps without an injected adapter.
 
-A missing handshake can mean a stopped server, delayed loading, unsupported HTML or a policy/origin blocker. **Fix with Copilot** requests read-only diagnosis of this preview connection before scoped repairs. Repository commands, dependency changes and server restarts still require explicit approval; the button itself does not approve them. **Dismiss** keeps the preview usable. See [connection troubleshooting](../../../starter/SETUP.md#canvas-commenting).
+A missing handshake can mean a stopped server, delayed loading, unsupported HTML or a policy/origin blocker. **Fix with Copilot** requests read-only diagnosis of this preview connection before scoped repairs. Repository commands, dependency changes and server restarts still require explicit approval; the button itself does not approve them. **Dismiss** keeps the preview usable. See [connection troubleshooting](../../../starters/shared/SETUP.md#canvas-commenting).
 
 These requirements are agent instructions, not a sandbox or a new host permission policy. The SDK's `session.send({ prompt })` and `session.rpc.send` do not support per-message command allowlists, checkout isolation, or command-specific approval grants. The SDK exposes `session.ui.confirm` when the host reports `session.capabilities.ui.elicitation`, but a confirmation alone does not restrict later tools. This extension only sends the repair request under the session's existing permissions; it does not install dependencies or execute repair commands itself. Repository-trust decisions and host tool permissions remain separate controls.
 

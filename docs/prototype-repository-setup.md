@@ -4,11 +4,13 @@ Copilot uses this guide to create a repository from the Replica starter or conti
 
 The first goal is to verify that the starter app, or the app in the existing repository, runs locally in the Replica canvas. Copilot then continues with the product guidance, starting pages, or publishing you requested. **Local prototyping does not need Hub or a GitHub repository.**
 
+Choose a starter at creation time. Each app keeps its own routing, dependencies, examples, and design-system guidance. Selection does not switch the design system of an existing app.
+
 For a walkthrough you can follow yourself, use [Create your first local prototype](local-prototyping.md) or [Set up shared hosting and team feedback](prototype-environment.md). Those guides contain the setup steps; this page is not an additional step you need to complete.
 
 ## 1. Confirm the repository and goal
 
-Use the repository name, destination, references, and decisions already supplied. Ask only for information needed to take the next step.
+Use the repository name, destination, starter choice, references, and decisions already supplied. Ask only for information needed to take the next step.
 
 If the user requests hosted publishing, identify the [hosting requirements](prototype-environment.md#1-check-readiness-before-you-start) early. Hosting can be arranged alongside local work.
 
@@ -19,11 +21,15 @@ If the user requests hosted publishing, identify the [hosting requirements](prot
 | Existing empty folder or repository | The installer needs a destination that does not exist. Propose creating the starter in a separate folder, then agree how to integrate it. Get approval before transferring files or changing repository configuration. |
 | Existing repository with another app | Inspect its instructions, files, Git state, and remote. Agree whether to adapt the app or create a separate prototype repository before installing anything. If adapting it, preserve its files and history and use its setup instructions rather than copying the starter over it. |
 
-If the user also requests a GitHub repository, confirm its owner and visibility before creating it. Follow the host's authorization rules for repository creation, commits, and pushes. Local setup alone does not authorize these actions.
+A local repository needs no GitHub credentials or Hub. Explain that starter creation includes an initial local commit. If the user also requests a GitHub repository, confirm its owner and visibility before creating it. Follow the host's authorization rules for remote repository creation, further commits, and pushes. Local setup alone does not authorize publication.
 
 Keep supplied reference apps and design-system sources for step 4. Creating the starter does not require product or design-system intake first.
 
-## 2. Create the independent starter
+## 2. Choose and create the independent starter
+
+Read the current [starter catalog](../starters/catalog.tsv) or run the installer's `--list`. Reuse an explicit choice from the conversation. Otherwise show the available names and descriptions and ask the user which app to start with. Do not infer selection from a passing design-system reference. A reference can instead be an input for later customization.
+
+The catalog currently offers `minimal` and `coreai`. Commands without `--starter` select Minimal for compatibility; agents should resolve the user's choice before creation. New catalog entries use the same commands.
 
 Create the starter only when a new repository is needed, using the destination agreed in step 1. When continuing with an existing app, preserve it and continue at step 3.
 
@@ -36,27 +42,37 @@ curl -fLSs https://raw.githubusercontent.com/github/replica/main/scripts/install
 Review the installer, then run it with a new project folder name. The destination must not exist, and its parent folder must exist:
 
 ```sh
-bash install-starter.sh my-prototype
+bash install-starter.sh --list
+bash install-starter.sh --starter coreai my-prototype
 ```
 
 If working from a local Replica checkout, use its script instead of downloading the installer:
 
 ```sh
-bash scripts/create-prototype-repo.sh ../my-prototype
+bash scripts/create-prototype-repo.sh --list
+bash scripts/create-prototype-repo.sh --starter coreai ../my-prototype
 ```
 
-Both commands create an independent Git repository with no commits or remote. They copy the starter without Replica's source history and require no GitHub credentials. Nothing is uploaded or published. Neither command installs Node.js or app dependencies.
+Replace `coreai` with the chosen catalog ID. Both paths use the same creation implementation and assemble shared Replica tooling with only the selected app:
 
-Before the user accepts the new project's Copilot configuration, review `.github/github-app.yml` and the startup instructions in its `README.md`. Explain the automatic setup actions: startup can install Copilot CLI globally if missing and install or enable the Replica plugin. It also runs `npm ci`.
+- They create an independent Git repository with all copied files in an initial commit on `main`, no remote, and nothing published. This gives worktrees and branch-based tools a starting commit.
+- Downloaded installation requires Bash, curl, tar, and Git. Creation from a checkout requires Bash and Git.
+- Copying requires no GitHub credentials or Node.js. The installer does not install Node.js or app dependencies.
+
+Git must have an author identity configured through `user.name` and `user.email` or its standard environment variables. The installer uses the existing Git configuration without changing it.
+
+**If creation fails:** The installer reports staging or commit errors and removes the incomplete destination. Resolve identity, signing, or hook failures before retrying.
+
+Before the user accepts the new project's Copilot configuration, review `.github/github-app.yml` and the startup details in the copied `REPLICA.md`. Explain that session startup can install Copilot CLI globally if missing, install or enable the Replica plugin, and run `npm ci`.
 
 ### Continue in a fresh session
 
-Ask the user to add the repository folder to Copilot using **Projects → + → Local folder or repository**, then start a fresh session there. A session in the Replica checkout cannot discover the new repository's local skills.
+Ask the user to open the repository folder in Copilot using **Sessions → + → Open folder**, then start a fresh session there. A session in the Replica checkout cannot discover the new repository's local skills.
 
 Before ending the original session, provide a message the user can paste into the new one, headed **Prompt 1: Continue prototype repository setup**. The new session does not inherit the conversation. Include:
 
 - The user's goal and requested outcome.
-- The project path and supplied references.
+- The project path, chosen starter ID and name, and supplied references.
 - Decisions and approvals already given.
 - Completed work, blockers, and the next step.
 
@@ -70,9 +86,11 @@ Check `node --version` against `engines.node` in the project's `package.json`. R
 
 The fresh session does not receive the previous setup output. Ask the user to report startup failures before repeating setup. Successful dependency installation does not confirm that the canvas is available in the current session.
 
-Follow the project's README sections **Connect the Replica canvas** and **Canvas preflight** to activate the plugin and check that the canvas is ready. Complete those checks before starting the preview. Use the README's **Run it** commands, reuse a responsive server when appropriate, and open the URL printed by the server.
+1. Follow the copied `REPLICA.md` for canvas activation and preflight. Complete those checks before starting the preview.
+2. Discover the selected app's run commands in its README and package scripts. Do not assume another starter's headings, router, or port.
+3. Reuse a responsive server only after confirming it serves the intended app. Open the actual URL printed by the server.
 
-For an adapted app without those sections, use the [starter's canvas setup instructions](../starter/README.md#connect-the-replica-canvas) alongside the app's own run commands. Preserve its existing instructions.
+For an adapted app without `REPLICA.md`, use the [shared canvas setup instructions](../starters/shared/REPLICA.md#connect-the-replica-canvas) alongside the app's own run commands. Preserve its existing instructions.
 
 Verify that the existing app renders without building new product UI. A successful dependency install or HTTP response is not enough. If Node.js, the canvas, or the preview is unavailable, report the specific problem and recovery step. Hub is not required.
 
@@ -84,13 +102,13 @@ For the outcomes below, complete only the work needed for the user's request.
 
 ### Add product and design-system guidance
 
-Run the project's `/setup-skills` with the supplied sources and reuse prior answers. Follow its source intake, package installation approvals, draft review, and separate activation steps. Plain setup drafts all documents in the shared context library unless the user requests a narrower scope.
+Preserve the app's supplied skills and active context. Run the project's `/setup-skills` when product or design-system guidance must be added or changed, using the supplied sources and prior answers. Follow its source intake, package installation approvals, draft review, and separate activation steps. Plain setup drafts all documents in the shared context library unless the user requests a narrower scope.
 
 Report whether guidance is drafted, reviewed, or active. Drafting does not activate it.
 
 ### Build from a reference
 
-Complete the relevant guidance setup, then use the project's `create-prototype` skill to build the requested page or app layout. Confirm whether components will come from an installable package, permitted source reuse, or new code.
+Use supplied active guidance where it applies and complete setup only for missing task-required context. Then use the project's `create-prototype` skill and the selected app's conventions to build the requested page or app layout. Confirm whether components will come from an installable package, permitted source reuse, or new code.
 
 Verify the rendered result against the authorized reference. Installing tokens or packages does not confirm that the intended components work or that the page matches the reference.
 
@@ -102,7 +120,12 @@ Continue with **Share the baseline on GitHub** below. This makes the reviewed ap
 
 ### Share the baseline on GitHub
 
-Use the intended empty GitHub repository or create one with the agreed owner and visibility. With authorization, connect it as `origin`, make the initial commit, and push the intended default branch. For an existing shared repository, follow its contribution process to merge the reviewed changes. Preserve its remote and history.
+1. Review the starter files, active guidance, and starting pages.
+2. With authorization, commit any customizations after the installer's initial commit.
+3. Use the intended empty GitHub repository or create one with the agreed owner and visibility.
+4. With authorization, connect it as `origin` and push the intended default branch.
+
+For an existing shared repository, follow its contribution process to merge the reviewed changes. Preserve its files, remote, and history.
 
 Verify that the repository's actual default branch contains the reviewed app, active guidance, and starting pages before reporting that it is ready for teammates. This is a shared source repository, not a published Hub Build.
 

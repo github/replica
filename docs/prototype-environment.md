@@ -57,8 +57,9 @@ If you have already completed some setup, continue from there:
 Check that your local development environment has:
 
 - **The [GitHub Copilot app](https://github.com/features/ai/github-app)**, installed and signed in.
-- **[Git](https://git-scm.com/)**.
-- **[Node.js](https://nodejs.org/) and npm**, with a Node.js version matching `engines.node` in your repository's `package.json`, or [the starter's package.json](../starter/package.json) for a new repository.
+- **[Git](https://git-scm.com/)**, with `user.name` and `user.email` configured for the installer's initial local commit.
+- **[Node.js](https://nodejs.org/) and npm**, with a Node.js version matching `engines.node` in your repository's `package.json`, or the selected app's `package.json` in the [starter catalog](../starters/catalog.tsv) for a new repository. npm comes with Node.js.
+- **Bash, curl, and tar**, for downloading and running the starter installer.
 - **macOS or Linux**, the supported systems for local canvas previews.
 - **`lsof`**, which the canvas uses to find running local servers.
 
@@ -70,9 +71,9 @@ Copilot requires GitHub sign-in, but creating the local starter does not require
 
 ### Create a starter if you need one
 
-The starter provides a working app to build on. The installer creates a new folder for it, named `my-prototype` in the example below. Choose a name that is not already in use.
+Choose an app to build on. The installer creates a new folder for it, named `my-prototype` in the example below. Choose a name that is not already in use.
 
-The new folder is an independent local Git repository. The installer does not create a GitHub repository, commit files, or publish anything.
+The new folder is an independent local Git repository with the copied files saved in an initial commit on `main`. The installer does not create a GitHub repository, set a remote, or publish anything.
 
 > **Before accepting Copilot setup:** Session setup can install Copilot's command-line tool, the Replica plugin, and project dependencies.
 
@@ -82,15 +83,32 @@ The new folder is an independent local Git repository. The installer does not cr
    curl -fLSs https://raw.githubusercontent.com/github/replica/main/scripts/install-starter.sh -o install-starter.sh
    ```
 
-2. Review the installer, then run it with a name for your new project folder:
+2. Review the installer, then list the available apps:
 
    ```sh
-   bash install-starter.sh my-prototype
+   bash install-starter.sh --list
    ```
 
-3. In Copilot, choose **Projects → + → Local folder or repository** and add the new folder.
-4. Before accepting its setup settings, review `.github/github-app.yml` and the copied README.
-5. Start a fresh session in the new repository so Copilot can find its included skills. If another session created the folder, give the new session a summary of completed setup and what you want to build.
+3. Choose an app from the [starter catalog](../starters/catalog.tsv):
+
+   | App | Starting point |
+   | --- | --- |
+   | **Minimal** (`minimal`) | A small React app with TanStack Router and no component library. |
+   | **CoreAI Sandbox** (`coreai`) | A React Router app with CoreAI components and a Foundry-style shell. |
+
+4. Run the installer with your choice and new folder name. This example selects Minimal; replace `minimal` with your chosen catalog ID:
+
+   ```sh
+   bash install-starter.sh --starter minimal my-prototype
+   ```
+
+5. In Copilot, choose **Sessions → + → Open folder** and open the new folder.
+6. Before accepting its setup settings, review `.github/github-app.yml` and the copied `REPLICA.md`.
+7. Start a fresh session in the new repository so Copilot can find its included skills. If another session created the folder, give the new session a summary of completed setup, the chosen app, and what you want to build.
+
+> **If creation fails:** Resolve the reported Git identity, signing, or hook error before retrying. The installer uses your existing Git configuration without changing it and removes an incomplete destination if the initial commit fails.
+
+The app's README explains its examples and run commands. The shared [Replica workflow guide](../starters/shared/REPLICA.md) and [troubleshooting guide](../starters/shared/SETUP.md) are copied into every repository.
 
 ### Install the Replica plugin if needed
 
@@ -147,7 +165,7 @@ Once Copilot starts the app:
 - **Installation failure:** Use the error and recovery instructions in the terminal or session setup output.
 - **Policy or permission error:** Resolve it through your organization's approval process rather than bypassing it.
 - **Missing canvas:** Confirm both switches are enabled and start a fresh session after changing them.
-- **Preview error:** Ask Copilot to investigate using the repository's README and, where present, `SETUP.md` before continuing.
+- **Preview error:** Ask Copilot to investigate using the repository's README, `REPLICA.md`, and `SETUP.md` where present before continuing.
 
 **Ready to continue:** the app works in your canvas. You have not connected to Hub or published anything.
 
@@ -155,7 +173,7 @@ Once Copilot starts the app:
 
 Give Copilot the information it needs to build prototypes that follow your team's product and design system.
 
-If the repository already uses your team's approved guidance, review what is in place and continue to step 4. You do not need to create it again.
+Review the selected app's supplied guidance first. Preserve its skills and active context. If the repository already uses your team's approved guidance, continue to step 4. You do not need to create it again.
 
 Otherwise:
 
@@ -180,15 +198,15 @@ Build a searchable project list using our approved design-system guidance.
 Use sample data. Include an empty result state and a way to clear the search.
 Show it in the Replica canvas.
 Before editing, check that the reviewed app and guidance are committed.
-If this is a new repository with no commits, ask for my approval to save
-that starting version in a local commit on its initial branch.
+If guidance or starting pages changed after setup, ask for my approval
+to save those changes in a local commit before creating the prototype branch.
 Use a separate branch for this prototype. Leave the default branch unchanged.
 Ask for approval before making any commits. Do not push or publish anything.
 ```
 
 The prompt asks Copilot to preserve a reusable starting version before experimenting:
 
-- **New starter:** Its first local commit saves the starting version before work begins on a separate prototype branch. Copilot must ask for approval to make that commit. It does not upload or publish anything.
+- **New starter:** The installer has already saved the copied files in an initial local commit. Approve a separate commit for any reviewed guidance or starting-page changes before experimenting. Neither local commit uploads or publishes anything.
 - **Existing team repository:** Use its usual review process for changes to the shared starting point.
 
 Try the interactions and confirm that the prototype uses your team's components.
@@ -273,7 +291,7 @@ The workflow prepares your app for publishing. Hub downloads the result and call
 ## 7. Connect your canvas to Hub
 
 1. Install [GitHub CLI](https://cli.github.com/) on your computer if needed, then sign in with an account that can access the repository.
-2. [Save your team's Hub address](../starter/README.md#connect-to-hub) in the repository's `.github/replica.json`. Keep any existing settings.
+2. [Save your team's Hub address](../starters/shared/REPLICA.md#connect-to-hub) in the repository's `.github/replica.json`. Keep any existing settings.
 3. Review and merge the change into the default branch so teammates can use it too.
 4. Open your prototype session and its canvas. If the app is not running, ask Copilot to start it and show it in the canvas.
 5. Choose **Connect to the hub** and enter your team's Hub URL if asked.

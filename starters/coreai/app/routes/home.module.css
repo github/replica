@@ -1,0 +1,369 @@
+/*
+ * Copyright (c) Microsoft Corporation.
+ * Licensed under the MIT license.
+ */
+
+.main {
+  display: flex;
+  flex-direction: column;
+  gap: 40px;
+  align-items: center;
+  width: 100%;
+  max-width: 1284px;
+  margin: 0 auto;
+  padding: 40px var(--spacingPagePadding) 80px;
+
+  @container app (width <= 720px) {
+    gap: var(--spacingXXXL);
+    padding-top: var(--spacingXXXL);
+  }
+}
+
+.hero {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacingXXL);
+  align-items: center;
+  width: 100%;
+
+  .header {
+    max-width: 95%;
+    text-align: center;
+  }
+
+  .headerPrimary {
+    color: var(--colorNeutralForeground1);
+  }
+  .headerSpacer {
+    color: var(--colorNeutralForeground4);
+    margin-inline: var(--spacingM);
+  }
+  .headerTagline {
+    color: var(--colorNeutralForeground2);
+    font-family: var(--fontFamilyMonospace);
+    font-weight: normal;
+  }
+
+  @container app (width <= 768px) {
+    .header {
+      /* stylelint-disable-next-line declaration-property-value-allowed-list -- responsive override not covered by Text preset */
+      font-size: 32px;
+    }
+  }
+
+  .getStarted {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacingM);
+    width: 100%;
+
+    .bentoGrid {
+      display: flex;
+      flex-direction: column;
+      gap: var(--spacingM);
+    }
+
+    .startTile {
+      position: relative;
+      display: flex;
+      gap: var(--spacingL);
+      align-items: center;
+      padding: var(--spacingXXL);
+      padding-right: 60px;
+      overflow: hidden;
+      background-color: var(--colorNeutralBackground1);
+      border-radius: var(--borderRadiusXLarge);
+
+      & > :not(.startIllicon) {
+        position: relative;
+        z-index: 1;
+      }
+
+      .startButton {
+        flex: 0 0 auto;
+      }
+    }
+
+    .startText {
+      display: flex;
+      flex: 1 1 auto;
+      flex-direction: column;
+      gap: var(--spacingXS);
+      min-width: 0;
+      text-wrap: pretty;
+    }
+
+    .startIllicon {
+      position: absolute;
+      inset: 50% 0 auto auto;
+      width: auto;
+      height: 100%;
+      min-height: 140px;
+      opacity: 0.05;
+      transform: translateX(25%) translateY(-50%);
+    }
+
+    .startIcon {
+      display: flex;
+      flex: 0 0 auto;
+      align-items: center;
+      justify-content: center;
+      width: 56px;
+      height: 56px;
+      background-color: var(--colorNeutralBackground3);
+      border-radius: var(--borderRadiusXLarge);
+
+      & > svg {
+        width: 32px;
+        height: 32px;
+      }
+    }
+
+    .useModelTile {
+      background-image: linear-gradient(
+        135deg,
+        color-mix(in srgb, var(--colorBrandBackground) 50%, transparent) 0%,
+        color-mix(in srgb, var(--colorBrandBackground) 20%, transparent) 20%,
+        color-mix(in srgb, var(--colorBrandBackground) 10%, transparent) 50%,
+        color-mix(in srgb, var(--colorBrandBackground) 5%, transparent) 80%,
+        transparent 100%
+      );
+
+      .startIcon {
+        background-color: var(--colorBrandBackground2);
+      }
+    }
+
+    .credentials {
+      display: flex;
+      flex-direction: column;
+      gap: var(--spacingS);
+      padding: var(--spacingL);
+      background-color: var(--colorNeutralBackground1);
+      border-radius: var(--borderRadiusXLarge);
+    }
+
+    .credentialFields {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: var(--spacingM);
+    }
+
+    .credentialField {
+      min-width: 0;
+    }
+
+    .endpointInput {
+      width: 100%;
+    }
+
+    @container app (width > 1024px) {
+      .bentoGrid {
+        display: grid;
+        grid-template-rows: 1fr 1fr;
+        grid-template-columns: 1fr 1fr;
+        min-height: 262px;
+      }
+
+      .startTile {
+        padding: var(--spacingXL) var(--spacingXXXL);
+        padding-right: 60px;
+      }
+
+      .useModelTile {
+        grid-row: 1 / 3;
+        grid-column: 1 / 1;
+        flex-direction: column;
+        align-items: start;
+        justify-content: start;
+        padding-block: var(--spacingXXXL);
+
+        h2 {
+          font-size: var(--fontSizeHero700);
+        }
+      }
+    }
+
+    @container app (width <= 720px) {
+      .credentialFields {
+        grid-template-columns: 1fr;
+      }
+
+      .startIcon {
+        width: 48px;
+        height: 48px;
+      }
+    }
+
+    @container app (width <= 600px) {
+      .startTile {
+        flex-direction: column;
+        align-items: start;
+      }
+    }
+  }
+}
+
+.announcementsContainer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacingM);
+  width: 100%;
+
+  .announcementsHeader {
+    margin: 0;
+  }
+
+  .modelActions {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--spacingM);
+  }
+
+  .actionIcon {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    background-color: var(--colorNeutralBackground3);
+    border-radius: var(--borderRadiusXLarge);
+
+    & > svg {
+      width: 20px;
+      height: 20px;
+    }
+  }
+
+  .modelCarousel {
+    width: 100%;
+  }
+
+  .modelCarouselRow {
+    display: flex;
+    gap: var(--spacingS);
+    align-items: center;
+    width: 100%;
+  }
+
+  .modelArrow {
+    flex: 0 0 auto;
+  }
+
+  .modelViewportWrapper {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .modelViewport {
+    width: 100%;
+    overflow: hidden;
+  }
+
+  .modelList {
+    display: flex;
+    gap: var(--spacingS);
+  }
+
+  .modelIcon {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    color: var(--colorBrandForeground3);
+    background-color: var(--colorNeutralBackground1);
+    /* stylelint-disable-next-line declaration-property-value-allowed-list -- translucent border follows the model mark color */
+    border: 1px solid hsl(from currentColor h s l / 0.3);
+    border-radius: var(--borderRadiusXLarge);
+  }
+
+  @container app (width <= 720px) {
+    .modelActions {
+      grid-template-columns: 1fr;
+    }
+  }
+}
+
+.recentResourcesContainer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacingM);
+  width: 100%;
+
+  .recentResourcesHeaderRow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin: 0;
+  }
+
+  .tableFrame {
+    width: 100%;
+    margin-top: var(--spacingM);
+    overflow-x: auto;
+    background-color: var(--colorNeutralBackground1);
+    border-radius: var(--borderRadiusXLarge);
+  }
+
+  .dataGrid {
+    min-width: 900px;
+  }
+
+  .pagination {
+    display: flex;
+    gap: var(--spacingXS);
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+  }
+}
+
+.exploreMoreContainer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacingL);
+  width: 100%;
+  padding-bottom: var(--spacingXXL);
+
+  .resources {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--spacingM);
+  }
+
+  .resourceCard {
+    height: 120px;
+  }
+
+  .resourceCardContent {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacingS);
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+  }
+
+  .resourceDescription {
+    text-align: center;
+  }
+
+  .resourceIcon {
+    flex: 0 0 auto;
+
+    & > svg {
+      width: 24px;
+      height: 24px;
+    }
+  }
+
+  @container app (width <= 720px) {
+    .resources {
+      grid-template-columns: 1fr;
+    }
+  }
+}

@@ -57,12 +57,12 @@ If hosting is blocked, you can work locally and connect the same repository late
 
 | Part | What it does |
 | --- | --- |
-| **Starter** | Creates a local prototype project with skills for Copilot and a working app you can adapt. |
+| **Starters** | Create a local prototype project from your choice of app, with shared skills for Copilot. |
 | **Replica plugin** | Adds the Replica canvas to Copilot, showing your running prototype beside your conversation. |
 | **Replica Hub (optional)** | Hosts published prototypes so your team can try them and leave comments. |
 | **GitHub build action** | Builds prototypes for publishing to Hub. It is not needed for local prototyping. |
 
-Agents creating or adapting repositories should follow [prototype repository setup](docs/prototype-repository-setup.md).
+For a new repository, choose **Minimal**, a small React app with no component library, or **CoreAI Sandbox**, a React Router app with CoreAI components and a Foundry-style shell. Agents creating or adapting repositories should follow [prototype repository setup](docs/prototype-repository-setup.md).
 
 ## Data and privacy
 

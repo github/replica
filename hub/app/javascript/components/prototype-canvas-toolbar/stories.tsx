@@ -1,5 +1,6 @@
 import { createRef } from "react"
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { fn } from "storybook/test"
 
 import { Toolbar } from "."
 
@@ -52,6 +53,26 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const NotPublished: Story = {}
+
+export const ImproveContext: Story = {
+  args: { onImproveContext: fn() },
+  parameters: {
+    docs: {
+      description: {
+        story:
+          "Presentation for a connected user with repository access. This story records the action without running a skill or calling Hub.",
+      },
+    },
+  },
+}
+
+export const MoreActionsOpen: Story = {
+  ...ImproveContext,
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: "More actions" }))
+    await canvas.findByRole("menuitem", { name: "Improve context" })
+  },
+}
 
 export const ControlsClosed: Story = {
   args: { onControls: () => undefined, controlsOpen: false },

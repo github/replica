@@ -1,7 +1,7 @@
 export const copy = {
   improvementNotesLoading: "Loading improvement notes...",
-  localCommentsSaved:
-    "Comments stay on this device until a Build with matching content is published and the canvas syncs them to Hub.",
+  commentNotifications: "Comment notifications",
+  dismissCommentNotification: "Dismiss notification",
   commentPreparationFailed: "Hub could not prepare this comment.",
   commentRefreshFailed: (detail: string) =>
     `The comment was saved, but Hub could not be refreshed: ${detail}`,
@@ -104,6 +104,10 @@ export const copy = {
   hubBuildMissing: "Hub has not imported a successful registered Build.",
   hubPublicationUnavailable: "Connect to Hub to verify publication.",
   editDetails: "Edit details",
+  improveContext: "Improve context",
+  improveContextDescription: "Run a skill to improve repository context from user feedback.",
+  feedbackReviewFailed: (detail: string) => `Could not request a feedback review: ${detail}`,
+  moreActions: "More actions",
   startPageHint: "Paste a prototype URL or route. Leave blank to start at /.",
   requestFailed: "The request failed.",
   statusUnavailable: "Publish status unavailable.",

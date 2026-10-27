@@ -1,0 +1,83 @@
+/*
+ * Copyright (c) Microsoft Corporation.
+ * Licensed under the MIT license.
+ */
+
+@layer common {
+  .header {
+    display: flex;
+    flex-shrink: 0;
+    flex-direction: column;
+    gap: var(--spacingM);
+    min-width: 0;
+    padding: var(--spacingXL) var(--spacingPagePadding) var(--spacingM);
+    border-bottom: var(--strokeWidthThin) solid var(--colorNeutralBackground4);
+  }
+
+  .withNavigation {
+    padding-bottom: 0;
+  }
+
+  .titleRow {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--spacingM);
+    min-width: 0;
+  }
+
+  .titleGroup {
+    display: flex;
+    flex: 1 1 240px;
+    align-items: center;
+    gap: var(--spacingS);
+    min-width: 0;
+
+    > :not(.title) {
+      flex-shrink: 0;
+    }
+  }
+
+  .linkButton {
+    margin-inline: -5px;
+  }
+
+  .title {
+    min-width: 0;
+    margin: 0;
+    overflow-wrap: anywhere;
+
+    :global(.fui-Badge) {
+      vertical-align: middle;
+    }
+  }
+
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--spacingS);
+    min-width: 0;
+  }
+
+  .slot {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .navigation {
+    min-width: 0;
+  }
+
+  @container app (width <= 480px) {
+    .titleRow {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .titleGroup {
+      flex-basis: auto;
+    }
+  }
+}

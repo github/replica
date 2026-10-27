@@ -3,6 +3,7 @@ import { Button, Heading, Tooltip } from "@primer/react-brand"
 import {
   useCallback,
   useEffect,
+  useEffectEvent,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -37,6 +38,7 @@ import { copy } from "@utils/prototype-canvas/en"
 import { BranchPublication } from "@components/prototype-branch-publication"
 import { CommentingRecovery } from "@components/prototype-commenting-recovery"
 import { useCommentingRecovery } from "@hooks/use-canvas-commenting-recovery"
+import { useReviewError } from "@hooks/use-review-error"
 import type { Publication } from "@utils/resolve-prototype-publication"
 import { publicationCopy } from "@utils/resolve-prototype-publication/en"
 import type { usePublishPreference } from "@hooks/use-canvas-publish-preference"
@@ -49,6 +51,10 @@ import "./styles.css"
 
 type Props = {
   config: CanvasConfig
+  active?: boolean
+  onActivate?: () => void
+  selectionDisabled?: boolean
+  onInteractionChange?: (blocked: boolean) => void
   frameRef: RefObject<HTMLIFrameElement | null>
   onRouteChange?: (route: ReviewRoute, replace?: boolean) => void
   status: HubStatus | null
@@ -85,6 +91,10 @@ function reviewRoute(value: unknown): ReviewRoute | null {
 
 export function PrototypeCanvasHubPanel({
   config,
+  active: reviewActive = true,
+  onActivate,
+  selectionDisabled = false,
+  onInteractionChange,
   frameRef,
   onRouteChange,
   status,
@@ -140,6 +150,8 @@ export function PrototypeCanvasHubPanel({
   const [previewRoute, setPreviewRoute] = useState<ReviewRoute | null>(null)
   const [selected, setSelected] = useState<number | null>(null)
   const [error, setError] = useState("")
+  const [commentError, setCommentError] = useState("")
+  useReviewError(commentError)
   const [createError, setCreateError] = useState("")
   const [rateLimitMessage, setRateLimitMessage] = useState("")
   const [disconnectWarning, setDisconnectWarning] = useState("")
@@ -176,6 +188,8 @@ export function PrototypeCanvasHubPanel({
     "element-unavailable" | "area-too-small" | "area-unavailable" | null
   >(null)
   const [liveError, setLiveError] = useState(false)
+  useReviewError(status?.reviewError || status?.localCommentsError)
+  useReviewError(liveError && copy.commentLiveUpdatesPaused)
   const [mutation, setMutation] = useState<ReviewCommentMutation | null>(null)
   const mutationRef = useRef(false)
   const commentMutationRevisionRef = useRef(0)
@@ -315,7 +329,29 @@ export function PrototypeCanvasHubPanel({
     Boolean(status?.repositoryAuthorized && status.branch && status.viewerLogin) ||
     Boolean(prototype)
   const selectionBlocked =
-    selectedAnchor !== null || draftActive || mutation !== null || preparingSelection
+    selectedAnchor !== null ||
+    draftActive ||
+    mutation !== null ||
+    preparingSelection ||
+    selectionDisabled
+  useLayoutEffect(() => {
+    onInteractionChange?.(
+      selectedAnchor !== null ||
+        draftActive ||
+        mutation !== null ||
+        preparingSelection ||
+        selectionMode !== null ||
+        selected !== null,
+    )
+  }, [
+    selectedAnchor,
+    draftActive,
+    mutation,
+    preparingSelection,
+    selectionMode,
+    selected,
+    onInteractionChange,
+  ])
   const hubVisible = open && !commentsOpen
   const reviewControlsTarget =
     typeof document === "undefined" ? null : document.getElementById("canvas-review-controls")
@@ -389,7 +425,7 @@ export function PrototypeCanvasHubPanel({
   }, [open, onClose])
   const editingCurrent = editing && draftIdentity === identity
   const anchorKey = JSON.stringify(
-    config.pickAndPolish ? [] : threads.map(({ root }) => ({ id: root.id, anchor: root.anchor })),
+    reviewActive ? threads.map(({ root }) => ({ id: root.id, anchor: root.anchor })) : [],
   )
 
   const loadComments = useCallback(async () => {
@@ -423,7 +459,7 @@ export function PrototypeCanvasHubPanel({
         return
       setCommentState({ identity: requestedIdentity, items: collection.comments })
       setCommentsLoadFailed(false)
-      setError("")
+      setCommentError("")
     } catch (cause) {
       if (
         commentIdentityRef.current === requestedIdentity &&
@@ -431,7 +467,7 @@ export function PrototypeCanvasHubPanel({
         commentMutationRevisionRef.current === commentMutationRevision
       ) {
         setCommentsLoadFailed(true)
-        setError(cause instanceof Error ? cause.message : String(cause))
+        setCommentError(cause instanceof Error ? cause.message : String(cause))
       }
     } finally {
       if (
@@ -472,6 +508,7 @@ export function PrototypeCanvasHubPanel({
       setSelectedAnchor(null)
       setSelectionFailure(null)
       setCreateError("")
+      setCommentError("")
       setRateLimitMessage("")
       setCommentsLoadFailed(false)
     }, 0)
@@ -550,7 +587,8 @@ export function PrototypeCanvasHubPanel({
 
   const startSelection = useCallback(
     async (mode: "element" | "area") => {
-      if (config.pickAndPolish || !bridgeReady || !canCreateComment || selectionBlocked) return
+      if (!bridgeReady || !canCreateComment || selectionBlocked) return
+      onActivate?.()
       const requestedIdentity = identity
       const selectionRequest = ++selectionRequestRef.current
       selectionRevisionRef.current = undefined
@@ -591,7 +629,7 @@ export function PrototypeCanvasHubPanel({
       }
     },
     [
-      config.pickAndPolish,
+      onActivate,
       bridgeReady,
       canCreateComment,
       config.token,
@@ -622,6 +660,37 @@ export function PrototypeCanvasHubPanel({
     setCreateError("")
   }, [sendBridge])
 
+  const receiveSelection = useEffectEvent((data: Record<string, unknown>) => {
+    if (!reviewActive || !selectionMode || preparingSelection) return
+    if (data.type === "replica:canvas:selected") {
+      const parsed = REVIEW_ANCHOR_SCHEMA.safeParse(data.anchor)
+      if (!parsed.success) {
+        sendBridge("replica:canvas:cancel-selection")
+        sendBridge("replica:canvas:clear-selection")
+        setSelectionMode(null)
+        setSelectionFailure(
+          isRecord(data.anchor) && data.anchor.kind === "area"
+            ? "area-unavailable"
+            : "element-unavailable",
+        )
+        return
+      }
+      setSelectedAnchor(parsed.data)
+      setSelectionMode(null)
+      setSelectionFailure(null)
+    } else if (
+      data.type === "replica:canvas:selection-failed" &&
+      (data.reason === "element-unavailable" ||
+        data.reason === "area-too-small" ||
+        data.reason === "area-unavailable")
+    ) {
+      setSelectionMode(null)
+      setSelectionFailure(data.reason)
+    } else if (data.type === "replica:canvas:selection-cancelled") {
+      setSelectionMode(null)
+    }
+  })
+
   useEffect(() => {
     const frame = frameRef.current
     if (!frame) {
@@ -648,7 +717,7 @@ export function PrototypeCanvasHubPanel({
       resolveAnchors()
     }
     function resolveAnchors() {
-      if (anchors.length)
+      if (reviewActive && anchors.length)
         frame?.contentWindow?.postMessage(
           {
             type: "replica:canvas:resolve",
@@ -690,7 +759,11 @@ export function PrototypeCanvasHubPanel({
       }
       if (incompatible) return
       if (data.type === "replica:canvas:conversation-dismiss-requested") {
-        window.dispatchEvent(new Event("replica:review-dismiss"))
+        window.dispatchEvent(
+          new CustomEvent("replica:review-dismiss", {
+            detail: { restoreFocus: data.restoreFocus !== false },
+          }),
+        )
         return
       }
       if (data.type === "replica:canvas:resolved") {
@@ -748,39 +821,7 @@ export function PrototypeCanvasHubPanel({
         setMarkers(next)
         return
       }
-      if (data.type === "replica:canvas:selected") {
-        if (config.pickAndPolish) return
-        const parsed = REVIEW_ANCHOR_SCHEMA.safeParse(data.anchor)
-        if (!parsed.success) {
-          sendBridge("replica:canvas:cancel-selection")
-          sendBridge("replica:canvas:clear-selection")
-          setSelectionMode(null)
-          setSelectionFailure(
-            isRecord(data.anchor) && data.anchor.kind === "area"
-              ? "area-unavailable"
-              : "element-unavailable",
-          )
-          return
-        }
-        setSelectedAnchor(parsed.data)
-        setSelectionMode(null)
-        setSelectionFailure(null)
-        return
-      }
-      if (
-        data.type === "replica:canvas:selection-failed" &&
-        (data.reason === "element-unavailable" ||
-          data.reason === "area-too-small" ||
-          data.reason === "area-unavailable")
-      ) {
-        setSelectionMode(null)
-        setSelectionFailure(data.reason)
-        return
-      }
-      if (data.type === "replica:canvas:selection-cancelled") {
-        setSelectionMode(null)
-        return
-      }
+      receiveSelection(data)
     }
     function onFrameLoad() {
       selectionRequestRef.current += 1
@@ -813,7 +854,7 @@ export function PrototypeCanvasHubPanel({
     identity,
     anchorKey,
     config.prototypeUrl,
-    config.pickAndPolish,
+    reviewActive,
     config.previewUrl,
     frameRef,
     onRouteChange,
@@ -842,6 +883,7 @@ export function PrototypeCanvasHubPanel({
       commentMutationRevisionRef.current += 1
     }
     setRateLimitMessage("")
+    setCommentError("")
     try {
       const result = await request(`/api/hub/comments/${path}`, config.token, {
         method,
@@ -863,7 +905,7 @@ export function PrototypeCanvasHubPanel({
       return true
     } catch (cause) {
       if (identityRef.current === requestedIdentity) {
-        setError(cause instanceof Error ? cause.message : String(cause))
+        setCommentError(cause instanceof Error ? cause.message : String(cause))
         if (cause instanceof Error && "statusCode" in cause && cause.statusCode === 429)
           setRateLimitMessage(cause.message)
       }
@@ -890,6 +932,7 @@ export function PrototypeCanvasHubPanel({
     setMutation({ kind: "create" })
     setRateLimitMessage("")
     setCreateError("")
+    setCommentError("")
     try {
       const result = REVIEW_COMMENT_MUTATION_SCHEMA.parse(
         await request("/api/hub/comments", config.token, {
@@ -926,14 +969,14 @@ export function PrototypeCanvasHubPanel({
         .catch((cause: unknown) => {
           if (identityRef.current === requestedIdentity) {
             const message = cause instanceof Error ? cause.message : String(cause)
-            setError(copy.commentRefreshFailed(message))
+            setCommentError(copy.commentRefreshFailed(message))
           }
         })
       return true
     } catch (cause) {
       if (identityRef.current === requestedIdentity) {
         const message = cause instanceof Error ? cause.message : String(cause)
-        setError(message)
+        setCommentError(message)
         setCreateError(message)
         if (cause instanceof Error && "statusCode" in cause && cause.statusCode === 429)
           setRateLimitMessage(cause.message)
@@ -949,11 +992,12 @@ export function PrototypeCanvasHubPanel({
 
   function toggleComments() {
     if (selectionBlocked) return
-    if (commentsOpen) {
+    if (commentsOpen && reviewActive) {
       setSelected(null)
       setCommentsOpen(false)
       return
     }
+    onActivate?.()
     setCommentsOpen(true)
     if (open) onClose()
   }
@@ -1097,7 +1141,7 @@ export function PrototypeCanvasHubPanel({
   return (
     <MentionProvider source={mentionSource}>
       {commentingRecovery.visible ? <CommentingRecovery {...commentingRecovery} /> : null}
-      {canLoadComments && reviewControlsTarget && !config.pickAndPolish
+      {canLoadComments && reviewControlsTarget
         ? createPortal(
             <div
               className="canvas-review-controls review-shell__comment-actions"
@@ -1127,7 +1171,7 @@ export function PrototypeCanvasHubPanel({
                   variant="secondary"
                   size="small"
                   aria-label={`${reviewCommentsCopy.heading}, ${visibleThreadCount}${hasUnreadVisibleThreads ? `, ${reviewCommentsCopy.unreadLabel}` : ""}`}
-                  aria-expanded={commentsOpen}
+                  aria-expanded={commentsOpen && reviewActive}
                   aria-keyshortcuts="Shift+C"
                   disabled={selectionBlocked}
                   onClick={toggleComments}
@@ -1145,7 +1189,7 @@ export function PrototypeCanvasHubPanel({
             reviewControlsTarget,
           )
         : null}
-      {showPins && visibleThreads.length && bridgeReady && !selectionMode ? (
+      {reviewActive && showPins && visibleThreads.length && bridgeReady && !selectionMode ? (
         <div className="canvas-marker-layer">
           <ReviewCommentMarkers
             threads={visibleThreads}
@@ -1473,7 +1517,7 @@ export function PrototypeCanvasHubPanel({
       {canLoadComments ? (
         <ReviewCommentsSidebar
           frame={{
-            open: commentsOpen,
+            open: commentsOpen && reviewActive,
             className: "canvas-comments-sidebar-shell",
             contentClassName: "canvas-comments-sidebar-content",
           }}
@@ -1491,28 +1535,6 @@ export function PrototypeCanvasHubPanel({
           showPins={showPins}
           loading={loading}
           loadFailed={commentsLoadFailed}
-          notice={
-            liveError || status?.reviewError || status?.localCommentsError || draftRevisionId ? (
-              <div className="canvas-comments-live-notices">
-                {liveError ? (
-                  <p className="canvas-comments-live-status" role="status">
-                    {copy.commentLiveUpdatesPaused}
-                  </p>
-                ) : null}
-                {status?.reviewError ? (
-                  <p className="canvas-comments-live-status">{status.reviewError}</p>
-                ) : null}
-                {status?.localCommentsError ? (
-                  <p className="canvas-comments-live-status" role="alert">
-                    {status.localCommentsError}
-                  </p>
-                ) : null}
-                {draftRevisionId ? (
-                  <p className="canvas-comments-live-status">{copy.localCommentsSaved}</p>
-                ) : null}
-              </div>
-            ) : null
-          }
           copy={reviewCommentsCopy}
           onClose={toggleComments}
           onFiltersChange={setFilters}

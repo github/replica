@@ -1,0 +1,17 @@
+/*
+ * Copyright (c) Microsoft Corporation.
+ * Licensed under the MIT license.
+ */
+
+@layer common {
+  .linkReset {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  .buttonReset {
+    font: inherit;
+    color: inherit;
+    text-align: inherit;
+  }
+}

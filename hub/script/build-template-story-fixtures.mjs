@@ -23,7 +23,7 @@ try {
   for (const id of ["default", "welcome", "field-notes", "signal-room"]) {
     const sourcePath =
       id === "default"
-        ? "../starter/src/routes/home/home-page/index.tsx"
+        ? "../starters/minimal/src/routes/home/home-page/index.tsx"
         : `db/seeds/local/example/${id}.tsx`
     const source = await readFile(resolve(root, sourcePath), "utf8")
     const css =

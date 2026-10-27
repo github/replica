@@ -1,0 +1,17 @@
+/*
+ * Copyright (c) Microsoft Corporation.
+ * Licensed under the MIT license.
+ */
+
+.toolMark {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  background-color: var(--colorNeutralBackground1);
+  /* stylelint-disable-next-line declaration-property-value-allowed-list -- translucent border follows the tool mark color */
+  border: 1px solid hsl(from currentColor h s l / 0.3);
+  border-radius: var(--borderRadiusXLarge);
+}

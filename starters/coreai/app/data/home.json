@@ -1,0 +1,265 @@
+{
+  "endpoints": [
+    {
+      "label": "API key",
+      "value": "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022"
+    },
+    {
+      "label": "Project endpoint",
+      "value": "https://coreai-sandbox.services.ai.azure.com/api/projects/demo"
+    },
+    {
+      "label": "Azure OpenAI endpoint",
+      "value": "https://coreai-sandbox.openai.azure.com/"
+    }
+  ],
+  "modelActions": [
+    {
+      "title": "Test in playground",
+      "description": "Run prompts and see responses.",
+      "icon": "chat"
+    },
+    {
+      "title": "Explore models",
+      "description": "Browse available models.",
+      "icon": "model"
+    },
+    {
+      "title": "Compare models",
+      "description": "Review benchmarks and capabilities.",
+      "icon": "compare"
+    }
+  ],
+  "models": [
+    {
+      "name": "FW-Kimi-K3",
+      "publisher": "Fireworks",
+      "mark": "K",
+      "initialsColor": "var(--colorBrandForeground1)"
+    },
+    {
+      "name": "qwen--qwen3.8-27b",
+      "publisher": "Hugging Face",
+      "mark": "HF",
+      "initialsColor": "var(--colorPaletteYellowForeground1)"
+    },
+    {
+      "name": "FW-MiniMax-M3",
+      "publisher": "Fireworks",
+      "mark": "M",
+      "initialsColor": "var(--colorBrandForeground1)"
+    },
+    {
+      "name": "model-router",
+      "publisher": "Microsoft",
+      "mark": "MR",
+      "initialsColor": "var(--colorPaletteBlueForeground2)"
+    },
+    {
+      "name": "claude-sonnet-5",
+      "publisher": "Anthropic",
+      "mark": "A",
+      "initialsColor": "var(--colorPaletteRedForeground1)"
+    },
+    {
+      "name": "gpt-5.2",
+      "publisher": "Microsoft",
+      "mark": "GPT",
+      "initialsColor": "var(--colorPaletteBlueForeground2)"
+    },
+    {
+      "name": "Phi-4-reasoning",
+      "publisher": "Microsoft",
+      "mark": "Phi",
+      "initialsColor": "var(--colorBrandForeground1)"
+    },
+    {
+      "name": "Llama-4-Maverick",
+      "publisher": "Meta",
+      "mark": "L",
+      "initialsColor": "var(--colorPaletteBlueForeground2)"
+    },
+    {
+      "name": "Mistral-Large-3",
+      "publisher": "Mistral AI",
+      "mark": "M",
+      "initialsColor": "var(--colorPaletteRedForeground1)"
+    },
+    {
+      "name": "Command-A",
+      "publisher": "Cohere",
+      "mark": "C",
+      "initialsColor": "var(--colorPaletteYellowForeground1)"
+    },
+    {
+      "name": "DeepSeek-V3.2",
+      "publisher": "DeepSeek",
+      "mark": "D",
+      "initialsColor": "var(--colorBrandForeground1)"
+    },
+    {
+      "name": "Qwen3-Coder",
+      "publisher": "Hugging Face",
+      "mark": "HF",
+      "initialsColor": "var(--colorPaletteYellowForeground1)"
+    }
+  ],
+  "recentWork": [
+    {
+      "name": "gpt-chat-latest",
+      "version": "gpt-chat-latest",
+      "type": "Model",
+      "lastViewed": "8/18/26, 3:16:19 PM"
+    },
+    {
+      "name": "Agent-007",
+      "version": "2",
+      "type": "Agent",
+      "lastViewed": "8/18/26, 3:16:03 PM"
+    },
+    {
+      "name": "Azure-AI-Content-Understanding",
+      "version": "Azure-AI-Content-Understanding",
+      "type": "Model",
+      "lastViewed": "8/18/26, 2:52:59 PM"
+    },
+    {
+      "name": "Azure-Content-Understanding-Layout",
+      "version": "Azure-Content-Understanding-Layout",
+      "type": "Model",
+      "lastViewed": "8/18/26, 2:52:31 PM"
+    },
+    {
+      "name": "Maybe-hosted-agent",
+      "version": "2",
+      "type": "Agent",
+      "lastViewed": "8/17/26, 9:05:55 AM"
+    },
+    {
+      "name": "gpt-5.3-codex",
+      "version": "gpt-5.3-codex",
+      "type": "Model",
+      "lastViewed": "8/16/26, 12:13:27 PM"
+    },
+    {
+      "name": "Customer-support-triage",
+      "version": "5",
+      "type": "Agent",
+      "lastViewed": "8/15/26, 4:42:10 PM"
+    },
+    {
+      "name": "gpt-5.2",
+      "version": "gpt-5.2",
+      "type": "Model",
+      "lastViewed": "8/14/26, 5:25:13 PM"
+    },
+    {
+      "name": "DeepSeek-V3.2",
+      "version": "DeepSeek-V3.2",
+      "type": "Model",
+      "lastViewed": "8/13/26, 5:19:54 PM"
+    },
+    {
+      "name": "Sales-insights-agent",
+      "version": "3",
+      "type": "Agent",
+      "lastViewed": "8/12/26, 11:31:08 AM"
+    },
+    {
+      "name": "Phi-4-reasoning",
+      "version": "Phi-4-reasoning",
+      "type": "Model",
+      "lastViewed": "8/11/26, 10:08:44 AM"
+    },
+    {
+      "name": "Invoice-processing-agent",
+      "version": "7",
+      "type": "Agent",
+      "lastViewed": "8/10/26, 2:17:36 PM"
+    },
+    {
+      "name": "Llama-4-Maverick",
+      "version": "Llama-4-Maverick",
+      "type": "Model",
+      "lastViewed": "8/9/26, 9:45:22 AM"
+    },
+    {
+      "name": "Research-assistant",
+      "version": "4",
+      "type": "Agent",
+      "lastViewed": "8/8/26, 1:12:49 PM"
+    },
+    {
+      "name": "Mistral-Large-3",
+      "version": "Mistral-Large-3",
+      "type": "Model",
+      "lastViewed": "8/7/26, 3:38:15 PM"
+    },
+    {
+      "name": "Security-review-agent",
+      "version": "6",
+      "type": "Agent",
+      "lastViewed": "8/6/26, 8:54:03 AM"
+    },
+    {
+      "name": "Command-A",
+      "version": "Command-A",
+      "type": "Model",
+      "lastViewed": "8/5/26, 4:26:51 PM"
+    },
+    {
+      "name": "Contract-analysis-agent",
+      "version": "3",
+      "type": "Agent",
+      "lastViewed": "8/4/26, 10:19:07 AM"
+    },
+    {
+      "name": "Qwen3-Coder",
+      "version": "Qwen3-Coder",
+      "type": "Model",
+      "lastViewed": "8/3/26, 12:47:29 PM"
+    },
+    {
+      "name": "Release-notes-agent",
+      "version": "8",
+      "type": "Agent",
+      "lastViewed": "8/2/26, 5:03:18 PM"
+    },
+    {
+      "name": "FW-Kimi-K3",
+      "version": "FW-Kimi-K3",
+      "type": "Model",
+      "lastViewed": "8/1/26, 11:22:40 AM"
+    },
+    {
+      "name": "Knowledge-base-curator",
+      "version": "2",
+      "type": "Agent",
+      "lastViewed": "7/31/26, 2:36:14 PM"
+    },
+    {
+      "name": "FW-MiniMax-M3",
+      "version": "FW-MiniMax-M3",
+      "type": "Model",
+      "lastViewed": "7/30/26, 9:14:52 AM"
+    },
+    {
+      "name": "Incident-response-agent",
+      "version": "5",
+      "type": "Agent",
+      "lastViewed": "7/29/26, 4:58:06 PM"
+    },
+    {
+      "name": "model-router",
+      "version": "model-router",
+      "type": "Model",
+      "lastViewed": "7/28/26, 1:41:33 PM"
+    },
+    {
+      "name": "Data-quality-monitor",
+      "version": "4",
+      "type": "Agent",
+      "lastViewed": "7/27/26, 10:27:11 AM"
+    }
+  ]
+}

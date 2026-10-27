@@ -108,6 +108,19 @@
   align-items: center;
 }
 
+.canvas-more-action {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.canvas-feedback-message {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--hub-fg-danger);
+  font-size: var(--brand-text-size-100);
+}
+
 .canvas-publish-button[aria-busy="true"] svg {
   animation: canvas-publish-spin 1s linear infinite;
 }

@@ -3,6 +3,7 @@ import { lazy, Suspense, useCallback, useLayoutEffect, useRef, useState } from "
 
 import { AppDialogs } from "@features/prototype-canvas-dialogs"
 import { BrowserBar } from "@components/prototype-browser-bar"
+import { CanvasReviewFeedback } from "@components/canvas-review-feedback"
 import { ControlsPanel } from "@components/prototype-controls-panel"
 import type { ControlsPanelLayout } from "@components/prototype-controls-panel/types"
 import { PrototypeCanvasHubPanel } from "@features/prototype-canvas-hub-panel"
@@ -59,8 +60,19 @@ export function App({ config }: Props) {
     collapsedGroups: {},
   })
   const [hubOpen, setHubOpen] = useState(false)
+  const [reviewSurface, setReviewSurface] = useState<"comments" | "improvements">(
+    config.pickAndPolish ? "improvements" : "comments",
+  )
+  const [commentInteraction, setCommentInteraction] = useState(false)
+  const [improvementInteraction, setImprovementInteraction] = useState(false)
   const [improvementControls, setImprovementControls] = useState<HTMLDivElement | null>(null)
   const [buildDetailsOpen, setBuildDetailsOpen] = useState(false)
+  const feedbackInFlight = useRef(false)
+  const [improvingContext, setImprovingContext] = useState(false)
+  const [feedbackMessage, setFeedbackMessage] = useState<{
+    target: string
+    message: string
+  } | null>(null)
   const closeHub = useCallback(() => {
     setHubOpen(false)
     hubButtonRef.current?.focus()
@@ -111,6 +123,15 @@ export function App({ config }: Props) {
     onStatusChange: hub.refresh,
     onSelectHub: hub.select,
   })
+  const feedbackTarget = JSON.stringify([
+    hub.status?.hubOrigin,
+    hub.status?.repository,
+    hub.status?.branch,
+  ])
+  const canReviewFeedback =
+    hub.status?.repositoryAuthorized === true &&
+    (hub.status.state === "connected" || hub.status.state === "undiscovered") &&
+    Boolean(hub.status.repository && hub.status.branch && hub.status.hubOrigin)
   const sharing = useShareLinks({
     token: config.token,
     hubStatus: hub.status,
@@ -182,6 +203,38 @@ export function App({ config }: Props) {
     shareIntent.begin()
   }
 
+  async function handleImproveContext() {
+    if (!canReviewFeedback || feedbackInFlight.current) return
+
+    feedbackInFlight.current = true
+    setImprovingContext(true)
+    setFeedbackMessage(null)
+    try {
+      const result = await request<{ requested: boolean }>(
+        "/api/hub/feedback-review",
+        config.token,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            repository: hub.status?.repository,
+            branch: hub.status?.branch,
+            hubOrigin: hub.status?.hubOrigin,
+          }),
+        },
+      )
+      if (result.requested !== true) throw new Error(copy.invalidResponse)
+    } catch (cause) {
+      setFeedbackMessage({
+        target: feedbackTarget,
+        message: copy.feedbackReviewFailed(cause instanceof Error ? cause.message : String(cause)),
+      })
+      await hub.refresh()
+    } finally {
+      feedbackInFlight.current = false
+      setImprovingContext(false)
+    }
+  }
+
   return (
     <ThemeProvider colorMode={appearance} className="canvas-base">
       <main
@@ -190,138 +243,157 @@ export function App({ config }: Props) {
         inert={sharing.state.open}
         aria-hidden={sharing.state.open ? true : undefined}
       >
-        <BrowserBar
-          address={address}
-          addressRef={addressRef}
-          canGoBack={navigation.index > 0}
-          canGoForward={navigation.index < navigation.entries.length - 1}
-          appearance={appearance}
-          onAppearanceChange={setAppearance}
-          onBack={() => travel(navigation.index - 1)}
-          onForward={() => travel(navigation.index + 1)}
-          onNavigate={navigate}
-          onOpenTab={async () => {
-            await request("/api/prototype/open", config.token, {
-              method: "POST",
-              body: JSON.stringify({ url: address }),
-            })
-          }}
-          onReload={reload}
-        />
-
-        <Toolbar
-          toolbarRef={toolbarRef}
-          improvementControlsRef={setImprovementControls}
-          config={config}
-          state={publication.presentedState}
-          prototypeName={
-            hub.status?.state === "connected" ? hub.status.prototype?.name || undefined : undefined
-          }
-          publishing={publication.busy}
-          publication={publication.publication}
-          publishButtonRef={publishButtonRef}
-          hubButtonRef={hubButtonRef}
-          titleButtonRef={titleButtonRef}
-          onBuildDetails={() => setBuildDetailsOpen(true)}
-          controlsButtonRef={controlsButtonRef}
-          controlsOpen={controlsOpen}
-          onControls={() => setControlsOpen(!controlsOpen)}
-          onPublish={() => void publication.publish()}
-          onShare={handleShare}
-          shareButtonRef={shareButtonRef}
-          hubOpen={hubOpen}
-          onHub={() => {
-            setHubOpen(!hubOpen)
-            void hub.refresh("interaction")
-          }}
-        />
-
-        <iframe
-          key={frameKey}
-          ref={frameRef}
-          className="prototype-frame"
-          title={copy.prototypeFrameTitle(config.name)}
-          src={source}
-          style={{
-            colorScheme: appearance,
-            backgroundColor: "var(--hub-canvas-default)",
-          }}
-        />
-
-        <PrototypeCanvasHubPanel
-          config={config}
-          frameRef={frameRef}
-          onRouteChange={reportRoute}
-          status={hub.status}
-          onStatusChange={hub.refresh}
-          onSelectHub={hub.select}
-          onConnect={connection.showAndConnect}
-          onDisconnected={connection.show}
-          connectionButtonRef={connectionButtonRef}
-          connecting={connection.connecting}
-          publication={publication.publication}
-          publicationBusy={publication.busy}
-          dirty={state?.stats.workingTree === "changed"}
-          onPublish={() => void publication.publish()}
-          onRetryPublication={() => void publication.retry()}
-          publishPreference={publishPreference}
-          open={hubOpen}
-          onClose={closeHub}
-        />
-
-        {config.improvementThreadsSample ? (
-          <Suspense fallback={<p role="status">{copy.improvementNotesLoading}</p>}>
-            <PrototypeCanvasThreadSample />
-          </Suspense>
-        ) : config.pickAndPolish ? (
-          <Suspense
-            fallback={
-              <p className="visually-hidden" role="status">
-                {copy.improvementNotesLoading}
-              </p>
-            }
-          >
-            <ImprovementNotesPrototype
-              canvas={{
-                token: config.token,
-                frameRef,
-                toolbarTarget: improvementControls,
-                prototypeUrl: config.prototypeUrl,
-                previewUrl: config.previewUrl,
-                hubOpen,
-                onOpenNotes: () => setHubOpen(false),
-                onNavigate: navigate,
-              }}
-            />
-          </Suspense>
-        ) : null}
-
-        {controlsOpen && controls.connection && controlsState ? (
-          <ControlsPanel
-            state={controlsState}
-            connection={controls.connection}
-            layout={controlsLayout}
-            onLayoutChange={setControlsLayout}
-            diagnosisTarget={address}
-            onDiagnose={() =>
-              request("/api/controls/diagnose", config.token, {
+        <CanvasReviewFeedback>
+          <BrowserBar
+            address={address}
+            addressRef={addressRef}
+            canGoBack={navigation.index > 0}
+            canGoForward={navigation.index < navigation.entries.length - 1}
+            appearance={appearance}
+            onAppearanceChange={setAppearance}
+            onBack={() => travel(navigation.index - 1)}
+            onForward={() => travel(navigation.index + 1)}
+            onNavigate={navigate}
+            onOpenTab={async () => {
+              await request("/api/prototype/open", config.token, {
                 method: "POST",
-                body: JSON.stringify({
-                  status: controlsState.status,
-                  runtimeAvailable: controlsState.runtimeAvailable,
-                  reconnectRequired: controlsState.reconnectRequired === true,
-                  hasError:
-                    Boolean(controlsState.error) ||
-                    controlsStatus(controlsState, controlsState.loading, address).controls.some(
-                      (control) => control.visible && Boolean(control.error),
-                    ),
-                  hasStorageError: Boolean(controlsState.storageError),
-                  previewUrl: address,
-                }),
+                body: JSON.stringify({ url: address }),
               })
-            }
+            }}
+            onReload={reload}
           />
-        ) : null}
+
+          <Toolbar
+            toolbarRef={toolbarRef}
+            improvementControlsRef={setImprovementControls}
+            config={config}
+            state={publication.presentedState}
+            prototypeName={
+              hub.status?.state === "connected"
+                ? hub.status.prototype?.name || undefined
+                : undefined
+            }
+            publishing={publication.busy}
+            publication={publication.publication}
+            publishButtonRef={publishButtonRef}
+            hubButtonRef={hubButtonRef}
+            titleButtonRef={titleButtonRef}
+            onBuildDetails={() => setBuildDetailsOpen(true)}
+            controlsButtonRef={controlsButtonRef}
+            controlsOpen={controlsOpen}
+            onControls={() => setControlsOpen(!controlsOpen)}
+            onPublish={() => void publication.publish()}
+            onShare={handleShare}
+            onImproveContext={canReviewFeedback ? () => void handleImproveContext() : undefined}
+            improvingContext={improvingContext}
+            feedbackMessage={
+              feedbackMessage?.target === feedbackTarget ? feedbackMessage : undefined
+            }
+            shareButtonRef={shareButtonRef}
+            hubOpen={hubOpen}
+            onHub={() => {
+              setHubOpen(!hubOpen)
+              void hub.refresh("interaction")
+            }}
+          />
+
+          <iframe
+            key={frameKey}
+            ref={frameRef}
+            className="prototype-frame"
+            title={copy.prototypeFrameTitle(config.name)}
+            src={source}
+            style={{
+              colorScheme: appearance,
+              backgroundColor: "var(--hub-canvas-default)",
+            }}
+          />
+
+          <PrototypeCanvasHubPanel
+            config={config}
+            active={reviewSurface === "comments"}
+            onActivate={() => setReviewSurface("comments")}
+            selectionDisabled={improvementInteraction}
+            onInteractionChange={setCommentInteraction}
+            frameRef={frameRef}
+            onRouteChange={reportRoute}
+            status={hub.status}
+            onStatusChange={hub.refresh}
+            onSelectHub={hub.select}
+            onConnect={connection.showAndConnect}
+            onDisconnected={connection.show}
+            connectionButtonRef={connectionButtonRef}
+            connecting={connection.connecting}
+            publication={publication.publication}
+            publicationBusy={publication.busy}
+            dirty={state?.stats.workingTree === "changed"}
+            onPublish={() => void publication.publish()}
+            onRetryPublication={() => void publication.retry()}
+            publishPreference={publishPreference}
+            open={hubOpen}
+            onClose={closeHub}
+          />
+
+          {config.improvementThreadsSample ? (
+            <Suspense fallback={<p role="status">{copy.improvementNotesLoading}</p>}>
+              <PrototypeCanvasThreadSample />
+            </Suspense>
+          ) : config.pickAndPolish ? (
+            <Suspense
+              fallback={
+                <p className="visually-hidden" role="status">
+                  {copy.improvementNotesLoading}
+                </p>
+              }
+            >
+              <ImprovementNotesPrototype
+                canvas={{
+                  token: config.token,
+                  frameRef,
+                  toolbarTarget: improvementControls,
+                  prototypeUrl: config.prototypeUrl,
+                  previewUrl: config.previewUrl,
+                  hubOpen,
+                  active: reviewSurface === "improvements",
+                  selectionDisabled: commentInteraction,
+                  onInteractionChange: setImprovementInteraction,
+                  onOpenNotes: () => {
+                    setHubOpen(false)
+                    setReviewSurface("improvements")
+                  },
+                  onNavigate: navigate,
+                }}
+              />
+            </Suspense>
+          ) : null}
+
+          {controlsOpen && controls.connection && controlsState ? (
+            <ControlsPanel
+              state={controlsState}
+              connection={controls.connection}
+              layout={controlsLayout}
+              onLayoutChange={setControlsLayout}
+              diagnosisTarget={address}
+              onDiagnose={() =>
+                request("/api/controls/diagnose", config.token, {
+                  method: "POST",
+                  body: JSON.stringify({
+                    status: controlsState.status,
+                    runtimeAvailable: controlsState.runtimeAvailable,
+                    reconnectRequired: controlsState.reconnectRequired === true,
+                    hasError:
+                      Boolean(controlsState.error) ||
+                      controlsStatus(controlsState, controlsState.loading, address).controls.some(
+                        (control) => control.visible && Boolean(control.error),
+                      ),
+                    hasStorageError: Boolean(controlsState.storageError),
+                    previewUrl: address,
+                  }),
+                })
+              }
+            />
+          ) : null}
+        </CanvasReviewFeedback>
       </main>
 
       <div role="status" aria-live="polite" className="visually-hidden">

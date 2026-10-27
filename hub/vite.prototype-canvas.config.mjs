@@ -24,7 +24,7 @@ export default defineConfig({
           groups: [
             {
               name: "improvement-notes-prototype",
-              test: /app[\\/]javascript[\\/]features[\\/]prototype-canvas-improvement-notes[\\/]/,
+              test: /app[\\/]javascript[\\/](?:features[\\/]prototype-canvas-improvement-notes|utils[\\/]is-annotation-shortcut)[\\/]/,
               priority: 5,
               includeDependenciesRecursively: false,
             },

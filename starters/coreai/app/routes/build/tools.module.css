@@ -1,0 +1,10 @@
+.detailsContent {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacingM);
+}
+
+.detailsSection {
+  display: flex;
+  flex-direction: column;
+}

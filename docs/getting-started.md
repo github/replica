@@ -43,10 +43,10 @@ Before adding the repository, get these details from your team:
 
 Add the repository to the Copilot app:
 
-1. In the sidebar, click **+** beside **Projects**.
+1. In the sidebar, click **+** beside **Sessions**.
 2. Choose **Add GitHub repository**.
 3. Find and select the repository your team gave you.
-4. Once it appears under **Projects**, click **+** beside that repository to start a new session.
+4. Once it appears under **Sessions**, click **+** beside that repository to start a new session.
 
 If the repository is missing or access is denied, ask its maintainer to check your GitHub access. See [connecting a repository in Copilot](https://docs.github.com/en/copilot/get-started/quickstart-copilot-app#connecting-a-repository-or-folder) for app setup help.
 
@@ -216,4 +216,4 @@ After Copilot adds the definitions:
 
 > **Note:** Controls work locally without Hub. Publish any new control definitions before sharing a scenario; a link cannot add controls missing from its Build.
 
-**If a control is disabled or reports an error:** Ask Copilot to investigate the displayed reason rather than assuming the change took effect. The [starter Controls guide](../starter/README.md#prototype-controls) covers authoring and recovery.
+**If a control is disabled or reports an error:** Ask Copilot to investigate the displayed reason rather than assuming the change took effect. The [shared Controls guide](../starters/shared/REPLICA.md#prototype-controls) covers authoring and recovery.

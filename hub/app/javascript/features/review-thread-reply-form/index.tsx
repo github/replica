@@ -7,6 +7,7 @@ import { MentionInput } from "@components/mention-input"
 import { ReviewConfirmationPanel } from "@features/review-confirmation-panel"
 import { isMacPlatform } from "@utils/is-mac-platform"
 import { isSubmitShortcut } from "@utils/is-submit-shortcut"
+import { useReviewError } from "@hooks/use-review-error"
 
 import type { ReviewThreadReplyFormProps } from "./types"
 
@@ -29,6 +30,8 @@ export function ReviewThreadReplyForm({
   onDraftChange,
 }: ReviewThreadReplyFormProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const showLengthError = useReviewError(replyBodyTooLong && copy.bodyTooLongLabel)
+  const showReplyError = useReviewError(replyFailed && copy.replyErrorLabel)
   const canSubmit =
     replyDraft.trim() !== "" &&
     !replyBodyTooLong &&
@@ -107,13 +110,13 @@ export function ReviewThreadReplyForm({
         </Tooltip>
       </div>
 
-      {replyBodyTooLong ? (
+      {showLengthError ? (
         <span role="alert" className="review-thread-reply-form__error">
           {copy.bodyTooLongLabel}
         </span>
       ) : null}
 
-      {replyFailed ? (
+      {showReplyError ? (
         <span role="alert" className="review-thread-reply-form__error">
           {copy.replyErrorLabel}
         </span>
