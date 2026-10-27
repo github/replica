@@ -28,7 +28,7 @@ Installation and update retries reuse a branch only when GitHub confirms it star
 
 The action:
 
-1. Checks for `package.json`, `package-lock.json`, and a build script.
+1. Checks for persisted Git authentication settings, then for `package.json`, `package-lock.json`, and a build script.
 2. Runs `npm ci` and `npm run build` in a pinned Node container.
 3. Checks the generated `dist` files and their sizes.
 4. Opens the prototype in Chromium.
@@ -36,6 +36,14 @@ The action:
 6. Uploads the `dist` files and screenshots as one GitHub Actions artifact.
 
 The build container receives no Hub, GitHub App, or storage credentials. It receives no credentials for any other repository.
+
+### Checkout credentials
+
+Use `persist-credentials: false` on every `actions/checkout` step that places files in the build workspace, including nested checkouts and submodules. Give the workflow only `contents: read` unless another step needs more access. Hub-generated workflows already use these settings.
+
+Before running repository scripts, the action rejects Git authentication settings in the workspace, including submodule configuration. Rejected settings include credential helpers, HTTP extra headers and cookie files, custom SSH and password-prompt commands, and URLs containing user information. Git configuration includes, symbolic links within Git metadata, and metadata references outside the workspace are also rejected so they cannot hide authentication settings from the check. Submodule metadata references within the workspace remain supported. Remove rejected settings or use a credential-free checkout with self-contained Git metadata before building. The action does not remove credentials or print their values.
+
+This check is not a general secret scanner. Do not place tokens, private keys, credential files, or other secrets in the build workspace. Repository-controlled install and build scripts can read that workspace and access the network.
 
 ## How Hub follows the workflow
 
