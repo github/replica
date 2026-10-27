@@ -1,0 +1,22 @@
+model PrototypeVersion {
+  // ID columns
+  id              String @id @default(uuid()) @db.Uuid
+  prototypeId     String @map("prototype_id") @db.Uuid
+  createdByUserId String @map("created_by_user_id") @db.Uuid
+
+  // Relations
+  prototype Prototype @relation(fields: [prototypeId], references: [id], onDelete: Restrict)
+  createdBy User      @relation("PrototypeVersionCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
+
+  // Attribute columns
+  sequence Int
+  label    String?
+
+  // Timestamp columns
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([prototypeId, sequence])
+  @@index([createdByUserId])
+  @@map("prototype_versions")
+}
