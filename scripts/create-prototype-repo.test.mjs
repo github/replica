@@ -38,7 +38,42 @@ const shellEnvironment = {
 const catalog = "# id\tsource-directory\tdisplay-name\tdescription\n" +
   "minimal\tstarters/minimal\tMinimal\tA neutral React app\n" +
   "coreai\tstarters/coreai\tCoreAI\tA CoreAI React app\n" +
-  "sample-team\tstarters/sample-team\tSample team\tAn independently added app\n"
+  "sample-team\tstarters/sample-team\tSample team\tAn independently added app\n" +
+  "generated-team\tstarters/generated-team\tGenerated team\tAn app assembled by its starter generator\n"
+const generatedStarterGenerator = `import { dirname } from "node:path"
+import { existsSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs"
+
+const args = process.argv.slice(2)
+const presetIndex = args.indexOf("--preset")
+const preset = presetIndex === -1 ? "default" : args[presetIndex + 1]
+
+if (existsSync(".git")) throw new Error("fixture generator must run before git init")
+
+function write(path, content) {
+  mkdirSync(dirname(path), { recursive: true })
+  writeFileSync(path, content)
+}
+
+write("src/generator-argv.json", JSON.stringify(args))
+write("src/generated.txt", preset)
+write(".agents/skills/generated-skill/SKILL.md", "fixture generated skill\\n")
+const manifest = { name: "generated-team", version: "0.0.0", private: true }
+if (preset !== "missing-package") write("package.json", JSON.stringify(manifest))
+if (preset !== "missing-lock") {
+  write("package-lock.json", JSON.stringify({
+    ...manifest,
+    lockfileVersion: 3,
+    requires: true,
+    packages: { "": manifest },
+  }))
+}
+write("node_modules/fixture.txt", "remove me")
+write("dist/fixture.txt", "remove me")
+
+if (preset === "fail") throw new Error("fixture generator failure")
+if (preset === "generated-git") write(".git/config", "fixture metadata")
+if (preset === "generated-link") symlinkSync("src/generated.txt", "generated-link")
+`
 const documentSources = {
   "ACCESSIBILITY.md": ["product", "repository"],
   "BROWSER-VALIDATION.md": ["repository"],
@@ -321,12 +356,15 @@ function checkoutFixture(t) {
     ...["starters/minimal", "starters/coreai", "starters/sample-team"].flatMap(source => [
       `${source}/src/example.txt`, `${source}/package.json`, `${source}/README.md`, `${source}/AGENTS.md`,
     ]),
+    "starters/generated-team/starter-generator.mjs",
     "starters/coreai/.agents/context/DESIGN-SYSTEM.md",
   ]
   for (const path of files) {
     const target = join(checkout, path)
     mkdirSync(dirname(target), { recursive: true })
-    writeFileSync(target, path)
+    writeFileSync(target, path === "starters/generated-team/starter-generator.mjs"
+      ? generatedStarterGenerator
+      : path)
   }
   execFileSync("git", ["init", "-q", "--initial-branch=main", checkout])
   execFileSync("git", ["config", "core.autocrlf", "false"], { cwd: checkout })
@@ -440,6 +478,21 @@ function runInstaller(destination, { directory, archive, bin }, flags = []) {
   })
 }
 
+function addMissingNodeRuntime(bin) {
+  for (const tool of ["node", "npm"]) {
+    const path = join(bin, tool)
+    writeFileSync(path, "#!/bin/sh\nexit 127\n")
+    chmodSync(path, 0o755)
+  }
+}
+
+function missingNodeEnvironment(directory) {
+  const bin = join(directory, "missing-node")
+  mkdirSync(bin)
+  addMissingNodeRuntime(bin)
+  return { PATH: `${bin}${delimiter}${shellEnvironment.PATH}` }
+}
+
 function assertNoTemporaryFiles(directory) {
   assert.ok(!readdirSync(directory).some(name => name.startsWith("replica-download.")))
   assert.ok(!readdirSync(directory).some(name => name.startsWith(".replica-starter.")))
@@ -457,6 +510,42 @@ function assertCopiedFiles(destination, checkout, source = "starters/minimal") {
   assert.deepEqual(actual, paths.map(path => path.split("/").slice(2).join("/")).sort())
   for (const path of ["tests", "node_modules", "dist", "starters", "catalog.tsv"]) {
     assert.ok(!existsSync(join(destination, path)), `Leaked source or build directory: ${path}`)
+  }
+  assert.equal(execFileSync("git", ["branch", "--show-current"], { cwd: destination }).toString().trim(), "main")
+  assert.equal(execFileSync("git", ["remote"], { cwd: destination }).toString(), "")
+  assert.equal(execFileSync("git", ["rev-list", "--count", "HEAD"], { cwd: destination }).toString().trim(), "1")
+  assert.equal(execFileSync("git", ["status", "--porcelain"], { cwd: destination }).toString(), "")
+}
+
+function assertGeneratedRepository(destination, argv, preset) {
+  const tracked = execFileSync("git", ["ls-tree", "-r", "--name-only", "-z", "HEAD"], {
+    cwd: destination,
+  }).toString().split("\0").filter(Boolean)
+  for (const path of [
+    "package.json",
+    "package-lock.json",
+    "src/generator-argv.json",
+    "src/generated.txt",
+    ".agents/skills/generated-skill/SKILL.md",
+  ]) {
+    assert.ok(tracked.includes(path), `Missing generated file: ${path}`)
+  }
+  assert.deepEqual(JSON.parse(readText(join(destination, "src/generator-argv.json"))), argv)
+  assert.equal(readText(join(destination, "src/generated.txt")), preset)
+  assert.equal(readText(join(destination, ".agents/skills/generated-skill/SKILL.md")), "fixture generated skill\n")
+  assert.deepEqual(JSON.parse(readText(join(destination, "package.json"))), {
+    name: "generated-team",
+    version: "0.0.0",
+    private: true,
+  })
+  assert.deepEqual(JSON.parse(readText(join(destination, "package-lock.json"))).packages[""], {
+    name: "generated-team",
+    version: "0.0.0",
+    private: true,
+  })
+  for (const path of ["starter-generator.mjs", "node_modules", "dist"]) {
+    assert.ok(!existsSync(join(destination, path)), `Generated artifact leaked: ${path}`)
+    assert.ok(!tracked.includes(path), `Generated artifact committed: ${path}`)
   }
   assert.equal(execFileSync("git", ["branch", "--show-current"], { cwd: destination }).toString().trim(), "main")
   assert.equal(execFileSync("git", ["remote"], { cwd: destination }).toString(), "")
@@ -520,6 +609,68 @@ test("installs a public-style archive without a checkout or credentials", t => {
   assertNoTemporaryFiles(fixture.directory)
 })
 
+test("runs a generic starter generator locally and from an archive, forwarding exact preset argv", t => {
+  const local = checkoutFixture(t)
+  const downloaded = archiveFixture(t)
+  for (const [fixture, invoke] of [
+    [local, (destination, flags) => run(destination, local.directory, local.bootstrap, flags)],
+    [downloaded, (destination, flags) => runInstaller(destination, downloaded, flags)],
+  ]) {
+    const defaultDestination = join(fixture.directory, "generated-default")
+    const defaultResult = invoke(defaultDestination, ["--starter", "generated-team"])
+    assert.equal(defaultResult.status, 0, defaultResult.stderr)
+    assertGeneratedRepository(defaultDestination, [], "default")
+
+    const presetDestination = join(fixture.directory, "generated-dashboard")
+    const presetResult = invoke(presetDestination, [
+      "--starter", "generated-team", "--preset", "dashboard", "--interactive",
+    ])
+    assert.equal(presetResult.status, 0, presetResult.stderr)
+    assertGeneratedRepository(
+      presetDestination,
+      ["--preset", "dashboard", "--interactive"],
+      "dashboard",
+    )
+    assertNoTemporaryFiles(fixture.directory)
+  }
+})
+
+test("generator failures remove the destination and staging directory", t => {
+  const local = checkoutFixture(t)
+  const downloaded = archiveFixture(t)
+  for (const [fixture, invoke] of [
+    [local, (destination, flags) => run(destination, local.directory, local.bootstrap, flags)],
+    [downloaded, (destination, flags) => runInstaller(destination, downloaded, flags)],
+  ]) {
+    const destination = join(fixture.directory, "failed-generation")
+    const result = invoke(destination, ["--starter", "generated-team", "--preset", "fail"])
+    assert.notEqual(result.status, 0)
+    assert.match(result.stderr, /fixture generator failure|Could not generate/i)
+    assert.ok(!existsSync(destination))
+    assertNoTemporaryFiles(fixture.directory)
+  }
+})
+
+test("generated output requires complete manifests and rejects Git metadata", t => {
+  const local = checkoutFixture(t)
+  const downloaded = archiveFixture(t)
+  for (const [fixture, invoke] of [
+    [local, (destination, flags) => run(destination, local.directory, local.bootstrap, flags)],
+    [downloaded, (destination, flags) => runInstaller(destination, downloaded, flags)],
+  ]) {
+    const invalidPresets = ["missing-package", "missing-lock", "generated-git"]
+    if (process.platform !== "win32") invalidPresets.push("generated-link")
+    for (const preset of invalidPresets) {
+      const destination = join(fixture.directory, `invalid-${preset}`)
+      const result = invoke(destination, ["--starter", "generated-team", "--preset", preset])
+      assert.notEqual(result.status, 0, preset)
+      assert.match(result.stderr, /package\.json|package-lock\.json|Git metadata|unsupported/i)
+      assert.ok(!existsSync(destination))
+      assertNoTemporaryFiles(fixture.directory)
+    }
+  }
+})
+
 for (const [id, source, name] of [
   ["minimal", "starters/minimal", "Minimal"],
   ["coreai", "starters/coreai", "CoreAI"],
@@ -571,10 +722,14 @@ test("both entry points accept help and option terminators and reject invalid ar
   ]) {
     const help = invoke(undefined, ["--help"])
     assert.equal(help.status, 0, help.stderr)
-    for (const flag of ["--list", "--starter"]) assert.ok(help.stdout.includes(flag), flag)
+    for (const flag of ["--list", "--starter", "--preset", "--interactive"]) {
+      assert.ok(help.stdout.includes(flag), flag)
+    }
+    assert.ok(help.stdout.includes("--preset"), "Missing generated starter preset help")
     for (const flags of [
       ["--starter", "../minimal"], ["--starter"],
-      ["--unknown"], ["--starter", "minimal"], [],
+      ["--unknown"], ["--starter", "minimal"], ["--interactive", "--interactive"],
+      ["--list", "--interactive"], [],
     ]) {
       const result = invoke(undefined, flags)
       assert.notEqual(result.status, 0, `${flags}: ${result.stdout}`)
@@ -585,6 +740,90 @@ test("both entry points accept help and option terminators and reject invalid ar
     assert.equal(result.status, 0, result.stderr)
     assertCopiedFiles(join(fixture.directory, "-prototype"), fixture.checkout, "starters/sample-team")
   }
+})
+
+test("both entry points reject malformed or copy-only presets before creating a destination", t => {
+  const cases = [
+    { flags: ["--preset", "--"], error: /preset/i },
+    { flags: ["--preset", "alpha", "--preset", "beta"], error: /preset|one/i },
+    { flags: ["--preset", "../unsafe"], error: /preset|letters|hyphens/i },
+    { flags: ["--list", "--preset", "alpha"], error: /usage|preset/i },
+    { flags: ["--starter", "minimal", "--preset", "alpha"], error: /copied starter|preset/i },
+    { flags: ["--starter", "minimal", "--interactive"], error: /copied starter|interactive/i },
+  ]
+  for (const [entryPoint, createFixture, invoke] of [
+    ["local", checkoutFixture, (fixture, destination, flags) =>
+      run(destination, fixture.directory, fixture.bootstrap, flags)],
+    ["archive", archiveFixture, (fixture, destination, flags) =>
+      runInstaller(destination, fixture, flags)],
+  ]) {
+    for (const [index, { flags, error }] of cases.entries()) {
+      const fixture = createFixture(t)
+      const destination = join(fixture.directory, `${entryPoint}-invalid-preset-${index}`)
+      const result = invoke(fixture, destination, flags)
+      assert.notEqual(result.status, 0, `${entryPoint}: ${flags}`)
+      assert.match(result.stderr, error, `${entryPoint}: ${flags}`)
+      assert.ok(!existsSync(destination))
+      assertNoTemporaryFiles(fixture.directory)
+    }
+  }
+})
+
+test("listing and copied starters do not require Node or npm", t => {
+  const local = checkoutFixture(t)
+  const downloaded = archiveFixture(t)
+  const localEnvironment = missingNodeEnvironment(local.directory)
+  addMissingNodeRuntime(downloaded.bin)
+
+  const localList = run(undefined, local.directory, local.bootstrap, ["--list"], localEnvironment)
+  assert.equal(localList.status, 0, localList.stderr)
+  const archiveList = runInstaller(undefined, downloaded, ["--list"])
+  assert.equal(archiveList.status, 0, archiveList.stderr)
+
+  const localDestination = join(local.directory, "minimal-without-node")
+  const localResult = run(
+    localDestination,
+    local.directory,
+    local.bootstrap,
+    ["--starter", "minimal"],
+    localEnvironment,
+  )
+  assert.equal(localResult.status, 0, localResult.stderr)
+  assertCopiedFiles(localDestination, local.checkout)
+
+  const archiveDestination = join(downloaded.directory, "minimal-without-node")
+  const archiveResult = runInstaller(archiveDestination, downloaded, ["--starter", "minimal"])
+  assert.equal(archiveResult.status, 0, archiveResult.stderr)
+  assertCopiedFiles(archiveDestination, downloaded.checkout)
+  assertNoTemporaryFiles(local.directory)
+  assertNoTemporaryFiles(downloaded.directory)
+})
+
+test("generated starters report a missing Node or npm runtime without creating a destination", t => {
+  const local = checkoutFixture(t)
+  const downloaded = archiveFixture(t)
+  const localEnvironment = missingNodeEnvironment(local.directory)
+  addMissingNodeRuntime(downloaded.bin)
+
+  const localDestination = join(local.directory, "generated-without-node")
+  const localResult = run(
+    localDestination,
+    local.directory,
+    local.bootstrap,
+    ["--starter", "generated-team"],
+    localEnvironment,
+  )
+  assert.notEqual(localResult.status, 0)
+  assert.match(localResult.stderr, /node|npm|generat/i)
+  assert.ok(!existsSync(localDestination))
+  assertNoTemporaryFiles(local.directory)
+
+  const archiveDestination = join(downloaded.directory, "generated-without-node")
+  const archiveResult = runInstaller(archiveDestination, downloaded, ["--starter", "generated-team"])
+  assert.notEqual(archiveResult.status, 0)
+  assert.match(archiveResult.stderr, /node|npm|generat/i)
+  assert.ok(!existsSync(archiveDestination))
+  assertNoTemporaryFiles(downloaded.directory)
 })
 
 for (const entryPoint of ["local", "archive"]) {

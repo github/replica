@@ -1,15 +1,19 @@
 #!/usr/bin/env bash
 
 starter_usage() {
-  printf 'Usage: %s [--starter <id>] <new-repository-directory>\n       %s --list\n' "$0" "$0"
+  printf 'Usage: %s [--starter <id>] [--preset <preset>] [--interactive] <new-repository-directory>\n       %s --list\n' "$0" "$0"
+  printf '\n--preset configures a generated starter. Omit it to use that starter'\''s default.\n'
+  printf '%s\n' '--interactive asks for generation choices in a terminal.'
 }
 
 parse_starter_arguments() {
   starter_id=minimal
   list_starters=0
   show_help=0
+  preset=""
+  interactive=0
   destination_argument=""
-  local selected=0 positional=0
+  local selected=0 preset_selected=0 positional=0
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --help|-h) show_help=1; shift ;;
@@ -22,6 +26,24 @@ parse_starter_arguments() {
         starter_id="$2"
         selected=1
         shift 2
+        ;;
+      --preset)
+        if [[ $# -lt 2 || $preset_selected -eq 1 ||
+              ! "$2" =~ ^[a-zA-Z0-9][a-zA-Z0-9-]{0,63}$ ]]; then
+          printf 'Provide one preset code or name after --preset, using letters, digits and hyphens.\n' >&2
+          return 2
+        fi
+        preset="$2"
+        preset_selected=1
+        shift 2
+        ;;
+      --interactive)
+        if [[ $interactive -eq 1 ]]; then
+          printf 'Provide --interactive only once.\n' >&2
+          return 2
+        fi
+        interactive=1
+        shift
         ;;
       --) shift; positional=1; break ;;
       -*)
@@ -46,7 +68,7 @@ parse_starter_arguments() {
     destination_argument="$1"
   fi
   if [[ $show_help -eq 0 &&
-        ( ( $list_starters -eq 1 && -n "$destination_argument" ) ||
+        ( ( $list_starters -eq 1 && ( -n "$destination_argument" || $preset_selected -eq 1 || $interactive -eq 1 ) ) ||
           ( $list_starters -eq 0 && -z "$destination_argument" && $selected -eq 0 ) ) ]]; then
     starter_usage >&2
     return 2

@@ -65,11 +65,14 @@ node --version
 bash scripts/create-prototype-repo.sh --list
 bash scripts/check-starter.sh minimal ../check-minimal
 bash scripts/check-starter.sh coreai ../check-coreai
+bash scripts/check-starter.sh shadcn ../check-shadcn
 ```
 
 Edit generic Replica skills and context templates under `starters/shared/.agents/`. App-specific skills and baseline context stay with the app. Keep consuming-team context separate from shared files. Local-checkout creation includes tracked files with working-tree edits; stage new files before checking assembly, without committing them.
 
-For selection, archive safety, static context links, plugin setup and CI selection, run `node --test scripts/create-prototype-repo.test.mjs scripts/setup-replica-plugin.test.mjs scripts/select-ci-suites.test.mjs` from the repository root. These checks do not verify agent authoring, semantic preservation or activation behavior; use the setup skill's real-host evaluation protocol for that evidence.
+Shadcn generates its components, dashboard block and official skill during creation. Its source holds the recipe and app integration, not the generated UI tree. Creation needs the compatible runtime and public registry access described in [starter development](docs/starter-development.md#generate-an-app-at-creation-time); Minimal and CoreAI remain copy-only.
+
+For selection, generation, archive safety, static context links, plugin setup and CI selection, run `node --test scripts/create-prototype-repo.test.mjs scripts/shadcn-starter.test.mjs scripts/setup-replica-plugin.test.mjs scripts/select-ci-suites.test.mjs` from the repository root. These checks do not verify agent authoring, semantic preservation or activation behavior; use the setup skill's real-host evaluation protocol for that evidence.
 
 Reuse an existing compatible Node.js installation. If it is unavailable on macOS or Linux, get approval before installing [nodenv](https://github.com/nodenv/nodenv), [node-build](https://github.com/nodenv/node-build), or Node.js, or changing shell configuration. The starter installer does not install them.
 

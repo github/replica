@@ -133,6 +133,48 @@ if [[ $count -eq 0 ]]; then
   exit 1
 fi
 
+generator="$temporary/files/starter-generator.mjs"
+if [[ -f "$generator" ]]; then
+  for tool in node npm; do
+    if ! command -v "$tool" >/dev/null 2>&1; then
+      printf 'Generating %s requires %s. Install a supported Node.js runtime and npm, then retry. No repository was created.\n' "$starter_name" "$tool" >&2
+      exit 1
+    fi
+  done
+  arguments=()
+  if [[ -n "$preset" ]]; then
+    arguments+=(--preset "$preset")
+  fi
+  if [[ $interactive -eq 1 ]]; then
+    arguments+=(--interactive)
+  fi
+  if ! (cd "$temporary/files" && node "$generator" "${arguments[@]}"); then
+    printf 'Could not generate %s. Resolve the generation error above and retry. No repository was created.\n' "$starter_name" >&2
+    exit 1
+  fi
+  for generated in node_modules dist; do
+    if [[ -e "$temporary/files/$generated" || -L "$temporary/files/$generated" ]]; then
+      rm -r -- "$temporary/files/$generated"
+    fi
+  done
+  rm -- "$generator"
+  unsupported="$(find "$temporary/files" ! -type d ! -type f -print -quit)"
+  metadata="$(find "$temporary/files" -name .git -print -quit)"
+  if [[ -n "$unsupported" || -n "$metadata" ]]; then
+    printf 'Generated starter contains a linked or unsupported file, or Git metadata: %s\n' "${unsupported:-$metadata}" >&2
+    exit 1
+  fi
+  for manifest in package.json package-lock.json; do
+    if [[ ! -f "$temporary/files/$manifest" ]]; then
+      printf 'Generated starter is missing %s. No repository was created.\n' "$manifest" >&2
+      exit 1
+    fi
+  done
+elif [[ -n "$preset" || $interactive -eq 1 ]]; then
+  printf '%s is a copied starter and does not accept --preset or --interactive. Choose a generated starter or omit these options.\n' "$starter_name" >&2
+  exit 2
+fi
+
 git init -q --initial-branch=main "$temporary/files"
 mkdir -- "$destination"
 created="$destination"
@@ -143,6 +185,10 @@ if ! git -C "$destination" add --force --all -- . ||
   printf 'Could not create the initial commit. Check the Git error above, configure user.name and user.email or resolve signing or hook failures, then rerun the installer. The incomplete destination will be removed.\n' >&2
   exit 1
 fi
+count=0
+while IFS= read -r -d '' path; do
+  ((count += 1))
+done < <(git -C "$destination" ls-files -z)
 created=""
 
 printf 'Created %s from %s (%s) with %s files committed on main in a new Git repository.\n' "$destination" "$starter_name" "$starter_id" "$count"

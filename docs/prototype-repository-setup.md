@@ -23,7 +23,9 @@ When a reference app is supplied, retain it for the guidance and component work 
 
 Read the current [starter catalog](../starters/catalog.tsv) or run the installer's `--list`. Reuse an explicit choice from the conversation. Otherwise show the available names and descriptions and ask the user which app to start with. Do not infer selection from a passing design-system reference. A reference can instead be an input for later customization.
 
-The catalog currently offers `minimal` and `coreai`. Commands without `--starter` select Minimal for compatibility; agents should resolve the user's choice before creation. New catalog entries use the same commands.
+The catalog currently offers `minimal`, `coreai` and `shadcn`. Shadcn generates a dashboard with official components, a page-level block, records and settings pages, and the official shadcn skill. Commands without `--starter` select Minimal for compatibility; agents should resolve the user's choice before creation. New catalog entries use the same commands.
+
+For Shadcn, offer its tested default theme or optional customization at [shadcn/create](https://ui.shadcn.com/create?template=vite). That visual builder produces a preset and setup command. Reuse an already supplied preset; otherwise do not require theme selection just to see the first app. Accept the preset code or name, not arbitrary shell commands. If the user supplies a full setup command, inspect it as data and explain which supported options will be used. The Replica installer accepts only `--preset <preset>`; do not silently discard a different component base or other requested options.
 
 Without a local Replica checkout, download the installer:
 
@@ -45,7 +47,17 @@ bash scripts/create-prototype-repo.sh --list
 bash scripts/create-prototype-repo.sh --starter coreai ../my-prototype
 ```
 
-Replace `coreai` with the chosen catalog ID. Both paths use the same creation implementation and assemble shared Replica tooling with only the selected app. They create an independent Git repository with all copied files in an initial commit on `main`, no remote and nothing published. This baseline provides the `HEAD` needed by worktrees and branch-based tools. The installer requires Bash, curl, tar and Git for download, or Bash and Git from a checkout. It does not require GitHub credentials, require or install Node.js for copying, or install app dependencies.
+Replace `coreai` with the chosen catalog ID. Both paths use the same creation implementation and assemble shared Replica tooling with only the selected app. They create an independent Git repository with all app files in an initial commit on `main`, no remote and nothing published. This baseline provides the `HEAD` needed by worktrees and branch-based tools. The installer requires Bash, curl, tar and Git for download, or Bash and Git from a checkout. Copied starters require no GitHub credentials or Node.js during creation and do not install app dependencies.
+
+For Shadcn, use `--starter shadcn` and optionally `--preset PRESET_CODE` before the destination. For example, from a checkout:
+
+```sh
+bash scripts/create-prototype-repo.sh --starter shadcn --preset PRESET_CODE ../my-prototype
+```
+
+Omit `--preset PRESET_CODE` for the tested default. Generated creation additionally requires an existing Node.js installation matching the selected app's `engines.node`, npm and access to its documented public package, registry and skill sources. It installs dependencies temporarily to generate the app, removes those dependencies before completing creation, and commits the resulting UI sources, local skill and lockfile. It does not install Node.js or regenerate on later `npm ci` or session startup. A generation failure reports the error and removes the incomplete output; resolve the runtime, network or registry problem before retrying. See the [Shadcn app guide](../starters/shadcn/README.md) for its supported inputs and commands.
+
+For a person running setup in a terminal, `--interactive` explains the included dashboard and offers a default or a preset from shadcn/create. Agents and CI should omit it and reuse the user's choice through `--preset`, or use the tested default. Interactive setup requires a terminal and never executes a pasted setup command.
 
 Git must have an author identity configured through `user.name` and `user.email` or its standard environment variables. The installer uses the existing Git configuration without changing it. If staging or committing fails, it reports the Git error and removes the incomplete destination. Resolve identity, signing or hook failures before retrying.
 

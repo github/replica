@@ -31,7 +31,7 @@ Replica has four parts:
 
 **Ready to make prototypes?** Follow [Get started with Replica](docs/getting-started.md) to install the GitHub Copilot app, add your team's prototyping repository, install the canvas, and create your first prototype. It also covers connecting to Hub, publishing, sharing and commenting, and adding controls.
 
-**Creating a prototyping repository?** Choose **Minimal**, a small React app with no component library, or **CoreAI Sandbox**, a React Router app with CoreAI components and a Foundry-style shell. Point your agent at [prototype repository setup](docs/prototype-repository-setup.md) to select an app, create the repository and verify its local preview. Local prototyping needs no Hub.
+**Creating a prototyping repository?** Choose **Minimal**, a small React app with no component library; **CoreAI Sandbox**, a React Router app with CoreAI components and a Foundry-style shell; or **Shadcn**, a generated dashboard with shadcn/ui components, blocks and an optional preset. Point your agent at [prototype repository setup](docs/prototype-repository-setup.md) to select an app, create the repository and verify its local preview. Local prototyping needs no Hub.
 
 **Setting up Replica for your organization?** Follow [environment setup](docs/prototype-environment.md) to add shared guidance and starting pages, deploy Hub, and connect publishing and team feedback. Your organization deploys and runs Hub on its own infrastructure. GitHub doesn't host it.
 

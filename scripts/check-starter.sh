@@ -14,6 +14,7 @@ node --input-type=module - <<'NODE'
 import { readFileSync } from "node:fs"
 
 const manifest = JSON.parse(readFileSync("package.json", "utf8"))
+const lock = JSON.parse(readFileSync("package-lock.json", "utf8"))
 for (const command of ["dev", "build", "preview", "check:starter"]) {
   if (typeof manifest.scripts?.[command] !== "string" || !manifest.scripts[command].trim()) {
     throw new Error(`Starter package.json must declare scripts.${command}.`)
@@ -21,6 +22,9 @@ for (const command of ["dev", "build", "preview", "check:starter"]) {
 }
 if (typeof manifest.engines?.node !== "string" || !manifest.engines.node.trim()) {
   throw new Error("Starter package.json must declare engines.node.")
+}
+if (lock.packages?.[""]?.engines?.node !== manifest.engines.node) {
+  throw new Error("Starter package-lock.json must declare the same Node.js engines as package.json.")
 }
 NODE
 npm ci --engine-strict

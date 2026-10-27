@@ -1,0 +1,37 @@
+{
+  "name": "replica-shadcn",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "^24.15.0 || ^26.0.0"
+  },
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "tsc --noEmit && vite build",
+    "preview": "npm run build && vite preview --host 127.0.0.1",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "check:starter": "npm run typecheck && npm test && npm run build"
+  },
+  "dependencies": {
+    "@tailwindcss/vite": "4.3.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "tailwindcss": "4.3.0"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "7.0.1",
+    "@testing-library/react": "16.1.0",
+    "@testing-library/user-event": "14.6.1",
+    "@types/node": "26.6.4",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.2",
+    "jsdom": "30.1.3",
+    "shadcn": "4.22.1",
+    "typescript": "npm:@typescript/typescript6@6.0.2",
+    "vite": "8.3.4",
+    "vitest": "5.0.3"
+  }
+}

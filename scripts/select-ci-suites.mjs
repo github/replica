@@ -22,6 +22,7 @@ const starterScripts = new Set([
   "scripts/starter-catalog.test.mjs",
   "scripts/create-prototype-repo.sh",
   "scripts/create-prototype-repo.test.mjs",
+  "scripts/shadcn-starter.test.mjs",
   "scripts/install-starter.sh",
   "scripts/setup-replica-plugin.test.mjs",
 ])

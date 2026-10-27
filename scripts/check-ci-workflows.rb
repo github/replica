@@ -123,8 +123,10 @@ check(catalog_status.success?, "Could not read the starter CI catalog:\n#{catalo
 projects = %w[hub actions/build packages/learning] + JSON.parse(catalog_output).map { |starter| starter.fetch("directory") }
 projects.each do |project|
   manifest = JSON.parse(File.read(File.join(root, project, "package.json")))
-  lock = JSON.parse(File.read(File.join(root, project, "package-lock.json")))
   check(manifest.dig("engines", "node") == "^24.15.0 || ^26.0.0", "#{project}: supported Node versions changed")
+  next if File.file?(File.join(root, project, "starter-generator.mjs"))
+
+  lock = JSON.parse(File.read(File.join(root, project, "package-lock.json")))
   check(lock.dig("packages", "", "engines") == manifest.fetch("engines"), "#{project}: locked Node engines differ from the manifest")
 end
 {

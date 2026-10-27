@@ -11,6 +11,7 @@ on:
       - "scripts/starter-ci-matrix.sh"
       - "scripts/create-prototype-repo.sh"
       - "scripts/create-prototype-repo.test.mjs"
+      - "scripts/shadcn-starter.test.mjs"
       - "scripts/setup-replica-plugin.test.mjs"
       - "scripts/install-starter.sh"
   push:
@@ -24,6 +25,7 @@ on:
       - "scripts/starter-ci-matrix.sh"
       - "scripts/create-prototype-repo.sh"
       - "scripts/create-prototype-repo.test.mjs"
+      - "scripts/shadcn-starter.test.mjs"
       - "scripts/setup-replica-plugin.test.mjs"
       - "scripts/install-starter.sh"
 
@@ -53,7 +55,7 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ matrix.node }}
-      - run: node --test scripts/create-prototype-repo.test.mjs scripts/setup-replica-plugin.test.mjs scripts/select-ci-suites.test.mjs
+      - run: node --test scripts/create-prototype-repo.test.mjs scripts/shadcn-starter.test.mjs scripts/setup-replica-plugin.test.mjs scripts/select-ci-suites.test.mjs
   test:
     name: Starter checks${{ matrix.starter.id != 'minimal' && format(' ({0})', matrix.starter.id) || '' }}${{ matrix.node == 26 && ' (Node 26)' || '' }}
     needs: catalog
@@ -69,7 +71,7 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           cache: npm
-          cache-dependency-path: ${{ matrix.starter.directory }}/package-lock.json
+          cache-dependency-path: ${{ matrix.starter.directory }}/package*.json
       - run: bash scripts/check-starter.sh "${{ matrix.starter.id }}" "$RUNNER_TEMP/prototype"
         env:
           # Bot commit identity: https://github.com/actions/checkout#push-a-commit-using-the-built-in-token

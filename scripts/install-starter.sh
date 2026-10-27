@@ -2,7 +2,9 @@
 set -euo pipefail
 
 if [[ $# -eq 0 || ( $# -eq 1 && ( "$1" == --help || "$1" == -h ) ) ]]; then
-  printf 'Usage: %s [--starter <id>] <new-repository-directory>\n       %s --list\n' "$0" "$0"
+  printf 'Usage: %s [--starter <id>] [--preset <preset>] [--interactive] <new-repository-directory>\n       %s --list\n' "$0" "$0"
+  printf '\n--preset configures a generated starter. Omit it to use that starter'\''s default.\n'
+  printf '%s\n' '--interactive asks for generation choices in a terminal.'
   [[ $# -gt 0 ]] && exit 0
   exit 2
 fi

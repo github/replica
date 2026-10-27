@@ -98,6 +98,7 @@ test("path selection keeps documentation and installer scripts out while coverin
     ".github/ISSUE_TEMPLATE/bug.yml",
     "scripts/create-prototype-repo.sh",
     "scripts/create-prototype-repo.test.mjs",
+    "scripts/shadcn-starter.test.mjs",
     "scripts/install-starter.sh",
     "scripts/setup-replica-plugin.test.mjs",
     "starters/catalog.tsv",

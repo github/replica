@@ -21,7 +21,7 @@ Commits and pull requests follow the [contribution conventions](../CONTRIBUTING.
 ## Project guidance
 
 - [Hub documentation](../hub/docs/README.md) covers the Rails application, deployment, previews, and review collaboration.
-- [Starter development](starter-development.md) owns the catalog, shared bundle, assembly contract and checks. [Minimal instructions](../starters/minimal/AGENTS.md) and [CoreAI instructions](../starters/coreai/AGENTS.md) own their apps. The copied [Replica instructions](../starters/shared/REPLICA-AGENTS.md), [workflow guide](../starters/shared/REPLICA.md) and [troubleshooting guide](../starters/shared/SETUP.md) use paths in the assembled repository.
+- [Starter development](starter-development.md) owns the catalog, shared bundle, assembly and generation contracts, and checks. [Minimal instructions](../starters/minimal/AGENTS.md), [CoreAI instructions](../starters/coreai/AGENTS.md) and [Shadcn instructions](../starters/shadcn/AGENTS.md) own their apps. The copied [Replica instructions](../starters/shared/REPLICA-AGENTS.md), [workflow guide](../starters/shared/REPLICA.md) and [troubleshooting guide](../starters/shared/SETUP.md) use paths in the assembled repository.
 - [Build action setup](../CONTRIBUTING.md#replica-build-action) covers the shared action.
 - [Controls documentation](../hub/docs/prototype-controls.md) covers the shared engine and definition schema owned by Hub.
 - [Prototype canvas](../hub/docs/prototype-canvas.md) covers the Copilot plugin and injected Controls integration.
