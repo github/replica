@@ -57,6 +57,8 @@ The database command uses `--passWithNoTests` so an empty selection exits succes
 
 A dedicated migration case applies the foundation migration, seeds retained lifecycle and security records, then applies the next migration. This catches upgrade behavior that an empty final schema cannot prove, including audit-outcome backfills and lifecycle constraints.
 
+Prototype authorization cases cover direct-rule precedence, explicit deny, no-access defaults, prototype-specific restrictions, cross-prototype isolation, installation membership versus product authority, stale sessions, overlapping grant changes, audit rollback, route enforcement, bounded pagination, version ownership, archival, and explainable decisions. The policy evaluator remains a database-free test target so a future synchronized baseline can be added without changing route-specific rules.
+
 Database-enabled jsdom tests use the browser setup and database hooks together. They can arrange records through server code, but frontend code must not import server modules. The setup does not start an API or connect frontend requests to one.
 
 The database setup follows this lifecycle:

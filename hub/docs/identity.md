@@ -25,7 +25,7 @@ Sign-out revokes the current database session. Every restored session requires a
 - `AuthenticationProvider` and its versioned revisions store provider-neutral authentication configuration. An OIDC-only configuration does not require GitHub source-integration credentials.
 - `Session` records the Hub user, external identity, and authentication-provider revision that established it. GitHub source-integration credential rotation does not change session identity context.
 - `AuthorizationAttempt` stores digested state and browser bindings, a PKCE verifier, an optional OIDC nonce, provider revision, purpose, optional originating session, and expiry. Consumption deletes the record in the same transaction so concurrent callbacks cannot reuse it.
-- `SecurityAudit` stores the event and minimal optional identity context.
+- `SecurityAudit` stores the event and minimal optional identity and product context. Audit records describe changes but do not grant access.
 
 Queries are available without a lock. Mutations run through one database transaction that locks a fixed store-state row. Related membership, invitation, session, and audit changes therefore commit or roll back together. Overlapping final-administrator changes and invitation activations observe committed state.
 
@@ -54,6 +54,6 @@ Database credentials use AES-256-GCM with contextual additional authenticated da
 
 ## Current scope
 
-This layer adds GitHub sign-in, installation admission, invitations, member and administrator lifecycle, one-use bootstrap and recovery, session restoration, sign-out, fresh verification, global and per-member session revocation, structured security records, and the minimal frontend needed to use them. It does not add prototype, repository, workspace, or artifact roles; GitHub membership synchronization; artifact ingestion; production OIDC; account linking; SCIM; or prototype APIs.
+This layer adds GitHub sign-in, installation admission, invitations, member and administrator lifecycle, one-use bootstrap and recovery, session restoration, sign-out, fresh verification, global and per-member session revocation, structured security records, and the minimal frontend needed to use them. The separate [prototype authorization](prototype-authorization.md) boundary uses these sessions without treating membership or repository access as product authority. Identity does not add GitHub membership synchronization, artifact ingestion, production OIDC, account linking, or SCIM.
 
 Apply migrations with `npm run db:deploy`. See [Database](database.md) for setup and schema rules.

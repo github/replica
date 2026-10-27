@@ -7,6 +7,11 @@ model User {
   memberships        InstallationMembership[]
   sessions           Session[]
   createdInvitations MembershipInvitation[]   @relation("InvitationCreator")
+  createdWorkspaces  Workspace[]              @relation("WorkspaceCreator")
+  createdPrototypes  Prototype[]              @relation("PrototypeCreator")
+  createdVersions    PrototypeVersion[]       @relation("PrototypeVersionCreator")
+  workspaceGrants    WorkspaceAccessGrant[]
+  prototypeGrants    PrototypeAccessGrant[]
 
   // Attribute columns
   displayName String? @map("display_name")

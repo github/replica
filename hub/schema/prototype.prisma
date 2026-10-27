@@ -1,0 +1,24 @@
+model Prototype {
+  // ID columns
+  id              String @id @default(uuid()) @db.Uuid
+  workspaceId     String @map("workspace_id") @db.Uuid
+  createdByUserId String @map("created_by_user_id") @db.Uuid
+
+  // Relations
+  workspace Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy User                   @relation("PrototypeCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  versions  PrototypeVersion[]
+  grants    PrototypeAccessGrant[]
+
+  // Attribute columns
+  name       String
+  archivedAt DateTime? @map("archived_at") @db.Timestamptz(3)
+
+  // Timestamp columns
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([workspaceId])
+  @@index([createdByUserId])
+  @@map("prototypes")
+}

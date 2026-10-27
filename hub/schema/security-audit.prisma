@@ -6,6 +6,10 @@ model SecurityAudit {
   authenticationProviderRevisionId String? @map("authentication_provider_revision_id") @db.Uuid
   targetMembershipId               String? @map("target_membership_id") @db.Uuid
   invitationId                     String? @map("invitation_id") @db.Uuid
+  workspaceId                      String? @map("workspace_id") @db.Uuid
+  prototypeId                      String? @map("prototype_id") @db.Uuid
+  prototypeVersionId               String? @map("prototype_version_id") @db.Uuid
+  targetUserId                     String? @map("target_user_id") @db.Uuid
 
   // Relations
   targetMembership InstallationMembership? @relation("TargetMembership", fields: [targetMembershipId], references: [id], onDelete: SetNull)
@@ -23,5 +27,9 @@ model SecurityAudit {
   @@index([createdAt])
   @@index([targetMembershipId])
   @@index([invitationId])
+  @@index([workspaceId])
+  @@index([prototypeId])
+  @@index([prototypeVersionId])
+  @@index([targetUserId])
   @@map("security_audits")
 }
