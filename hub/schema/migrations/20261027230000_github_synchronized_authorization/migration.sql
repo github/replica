@@ -14,6 +14,24 @@ CREATE TABLE "github_authorization_policies" (
 INSERT INTO "github_authorization_policies" ("id")
 VALUES ('00000000-0000-0000-0000-000000000001');
 
+ALTER TABLE "installation_memberships"
+DROP CONSTRAINT "installation_memberships_source";
+
+ALTER TABLE "installation_memberships"
+ADD CONSTRAINT "installation_memberships_source"
+CHECK ("source" IN (
+  'bootstrap',
+  'invitation',
+  'legacy-synchronized',
+  'manual',
+  'recovery',
+  'synchronized'
+));
+
+UPDATE "installation_memberships"
+SET "source" = 'legacy-synchronized'
+WHERE "source" = 'synchronized';
+
 -- CreateTable
 CREATE TABLE "github_repository_sources" (
     "id" UUID NOT NULL,

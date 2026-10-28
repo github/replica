@@ -2030,6 +2030,79 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
     ])
   })
 
+  it("gets a workspace through prototype or baseline access while an explicit workspace deny wins", async () => {
+    const baselineUsers = new Set<string>()
+    const baselineAccess = vi
+      .fn<PrototypeBaselinePolicy["baseline"]>()
+      .mockImplementation((_database, userId) =>
+        Promise.resolve(
+          baselineUsers.has(userId)
+            ? {
+                role: "viewer",
+                repositorySourceId: "repository-source",
+                githubRepositoryId: "100",
+                rawPermission: "read",
+                confirmedAt: new Date(),
+                synchronizationStatus: "current",
+              }
+            : null,
+        ),
+      )
+    const { prisma, service, store } = await database({ baseline: baselineAccess })
+    const prototypeOnly = await createActor(store, {
+      subject: "workspace-prototype-only",
+      token: "workspace-prototype-only-token",
+    })
+    const synchronized = await createActor(store, {
+      subject: "workspace-synchronized",
+      token: "workspace-synchronized-token",
+    })
+    const denied = await createActor(store, {
+      subject: "workspace-denied",
+      token: "workspace-denied-token",
+    })
+    baselineUsers.add(synchronized.user.id)
+    baselineUsers.add(denied.user.id)
+    const workspace = await prisma.workspace.create({
+      data: {
+        name: "Workspace",
+        createdByUserId: prototypeOnly.user.id,
+        grants: {
+          create: {
+            userId: denied.user.id,
+            effect: "deny",
+          },
+        },
+        prototypes: {
+          create: {
+            name: "Prototype",
+            createdByUserId: prototypeOnly.user.id,
+            grants: {
+              create: {
+                userId: prototypeOnly.user.id,
+                effect: "allow",
+                role: "viewer",
+              },
+            },
+          },
+        },
+      },
+    })
+
+    await expect(
+      service.getWorkspace("workspace-prototype-only-token", workspace.id),
+    ).resolves.toMatchObject({ id: workspace.id })
+    await expect(
+      service.getWorkspace("workspace-synchronized-token", workspace.id),
+    ).resolves.toMatchObject({ id: workspace.id })
+    await expect(
+      service.getWorkspace("workspace-denied-token", workspace.id),
+    ).rejects.toMatchObject({
+      status: 403,
+      code: "prototype_access_denied",
+    })
+  })
+
   it("fills prototype pages after excluding explicit denies and continues without duplicates", async () => {
     const { prisma, service, store } = await database()
     const actor = await createActor(store, {

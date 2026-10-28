@@ -8,6 +8,7 @@ import { getExternalIdentity } from "#server/repositories/external-identities/ge
 import { saveExternalIdentity } from "#server/repositories/external-identities/save-external-identity"
 import { getGitHubIntegrationCredentials } from "#server/repositories/github-integration-credentials/get-credentials"
 import { saveGitHubIntegrationCredentials } from "#server/repositories/github-integration-credentials/save-credentials"
+import { hasFreshGitHubAdmission } from "#server/repositories/github-synchronized-access/has-fresh-admission"
 import { advanceSessionGeneration } from "#server/repositories/identity-store-state/advance-session-generation"
 import { completeBootstrap } from "#server/repositories/identity-store-state/complete-bootstrap"
 import { getBootstrapCompletedAt } from "#server/repositories/identity-store-state/get-bootstrap-completed-at"
@@ -49,6 +50,7 @@ export function createIdentityRecords(database: Prisma.TransactionClient): Ident
     advanceSessionGeneration: advanceSessionGeneration.bind(null, database),
     completeBootstrap: completeBootstrap.bind(null, database),
     saveGitHubIntegrationCredentials: saveGitHubIntegrationCredentials.bind(null, database),
+    hasFreshGitHubAdmission: hasFreshGitHubAdmission.bind(null, database),
     user: getUser.bind(null, database),
     createUser: createUser.bind(null, database),
     updateUser: updateUser.bind(null, database),

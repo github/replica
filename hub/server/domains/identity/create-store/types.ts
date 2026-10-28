@@ -49,6 +49,7 @@ export interface IdentityRecords {
   advanceSessionGeneration(): Promise<void>
   completeBootstrap(completedAt: Date): Promise<boolean>
   saveGitHubIntegrationCredentials(encryptedCredentials: string): Promise<void>
+  hasFreshGitHubAdmission(userId: string, now: Date): Promise<boolean>
   user(id: string): Promise<HubUser | null>
   createUser(input: UserInput): Promise<HubUser>
   updateUser(id: string, input: UserInput): Promise<HubUser>

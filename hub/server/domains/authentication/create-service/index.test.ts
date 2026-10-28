@@ -250,7 +250,7 @@ describe("createAuthenticationService()", () => {
     )
   })
 
-  it("activates only an exact provider identity invitation before issuing a session", async () => {
+  it("uses an exact invitation before a qualifying synchronized baseline for an inactive identity", async () => {
     const existingIdentity = {
       id: "identity",
       userId: "user",
@@ -301,10 +301,19 @@ describe("createAuthenticationService()", () => {
         freshAuthorizedAt: now,
       }),
     })
+    const saveBaseline = vi.fn()
     const options = dependencies(identityRecords, {
       admissionPolicy: {
-        name: "hub-managed",
-        admit: vi.fn().mockResolvedValue(false),
+        name: "github-synchronized",
+        admit: vi.fn().mockResolvedValue({
+          repositorySourceId: "00000000-0000-0000-0000-000000000001",
+          sourceGeneration: 3,
+          rawPermission: "write",
+          admissionEligible: true,
+          prototypeRole: "editor",
+          confirmedAt: now,
+        }),
+        saveBaseline,
       },
     })
     options.github.identify.mockResolvedValue({
@@ -334,6 +343,97 @@ describe("createAuthenticationService()", () => {
       "membership",
       now,
     )
+    expect(identityRecords.saveMembership).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: "user",
+        role: "administrator",
+        source: "invitation",
+      }),
+    )
+    expect(saveBaseline).toHaveBeenCalledWith(expect.anything(), "user", expect.any(Object))
+  })
+
+  it("uses an invitation before a qualifying synchronized baseline for a new identity", async () => {
+    const invitation = {
+      id: "invitation",
+      createdByUserId: "administrator",
+      activatedIdentityId: null,
+      activatedMembershipId: null,
+      provider: "github",
+      issuer: configuration.issuer,
+      subject: "42",
+      role: "administrator" as const,
+      expiresAt: new Date(now.getTime() + 60_000),
+      consumedAt: null,
+      revokedAt: null,
+      createdAt: now,
+    }
+    const identity = {
+      id: "identity",
+      userId: "user",
+      provider: "github",
+      issuer: configuration.issuer,
+      subject: "42",
+      username: "octocat",
+      displayName: "Octocat",
+      avatarUrl: null,
+      user: { id: "user", displayName: "Octocat", avatarUrl: null },
+    }
+    const identityRecords = records({
+      consumeAuthorizationAttempt: vi.fn().mockResolvedValue(attempt()),
+      usableInvitation: vi.fn().mockResolvedValue(invitation),
+      createUser: vi.fn().mockResolvedValue(identity.user),
+      saveExternalIdentity: vi.fn().mockResolvedValue(identity),
+      createSession: vi.fn().mockResolvedValue({
+        id: "session",
+        userId: "user",
+        externalIdentityId: "identity",
+        authenticationProviderRevisionId: providerRevision.id,
+        tokenDigest: "stored-digest",
+        signedInAt: now,
+        freshAuthorizedAt: now,
+      }),
+    })
+    const saveBaseline = vi.fn()
+    const options = dependencies(identityRecords, {
+      admissionPolicy: {
+        name: "github-synchronized",
+        admit: vi.fn().mockResolvedValue({
+          repositorySourceId: "00000000-0000-0000-0000-000000000001",
+          sourceGeneration: 3,
+          rawPermission: "read",
+          admissionEligible: true,
+          prototypeRole: "viewer",
+          confirmedAt: now,
+        }),
+        saveBaseline,
+      },
+    })
+    options.github.identify.mockResolvedValue({
+      subject: "42",
+      username: "octocat",
+      displayName: "Octocat",
+      avatarUrl: null,
+    })
+
+    await expect(
+      createAuthenticationService(options).complete("code", "state", "browser-token"),
+    ).resolves.toMatchObject({ purpose: "sign-in" })
+
+    expect(identityRecords.saveMembership).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: "user",
+        role: "administrator",
+        source: "invitation",
+      }),
+    )
+    expect(identityRecords.consumeInvitation).toHaveBeenCalledWith(
+      "invitation",
+      "identity",
+      "membership",
+      now,
+    )
+    expect(saveBaseline).toHaveBeenCalledWith(expect.anything(), "user", expect.any(Object))
   })
 
   it("admits an active Hub member without consulting legacy repository policy", async () => {
