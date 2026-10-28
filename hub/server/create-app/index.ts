@@ -1,13 +1,14 @@
 import express from "express"
 import type { Logger } from "pino"
 
+import { maximumPublishingJsonBytes } from "../domains/artifact-publishing/create-service/constants.ts"
+import { createRateLimit } from "../integrations/express/create-rate-limit/index.ts"
 import { handleError } from "../integrations/express/handle-error/index.ts"
 import { respondNotFound } from "../integrations/express/respond-not-found/index.ts"
 import { createRequestLogger } from "../integrations/pino/create-request-logger/index.ts"
 import { omitRequestLogPayload } from "../integrations/pino/omit-request-log-payload/index.ts"
 import { routes } from "../routes/index.ts"
 import type { AuthenticationRoutes } from "../routes/types.ts"
-import { maximumPublishingJsonBytes } from "../domains/artifact-publishing/create-service/constants.ts"
 
 /** Give every endpoint the same request logging and safe error responses. */
 export function createApp({
@@ -31,7 +32,18 @@ export function createApp({
     omitRequestLogPayload,
   )
   app.use("/api/github/webhooks", express.raw({ type: "application/json", limit: "1mb" }))
-  app.use("/api/publishing", express.json({ limit: maximumPublishingJsonBytes }))
+  app.use(
+    "/api/publishing",
+    createRateLimit({
+      limit: 60,
+      windowMilliseconds: 5 * 60_000,
+      message: "Too many publishing requests.",
+    }),
+  )
+  app.use(
+    "/api/publishing/prototypes/:prototypeId/versions",
+    express.json({ limit: maximumPublishingJsonBytes }),
+  )
   app.use(express.json())
 
   routes(app, authentication)

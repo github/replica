@@ -30,7 +30,7 @@ Each request produces one final record with `reqId`, `method`, `route`, `statusC
 
 Automatic records exclude raw URLs, headers, cookies, uploads, response bodies, and error details. JSON parsing uses Express's default 100 KiB limit; rejected bodies are not logged. The Express error handler returns generic JSON errors, or closes the connection if headers were sent, without exposing raw errors.
 
-`createApp()` installs `omitRequestLogPayload` for authentication, session, administration, product, and publishing paths after request logging but before JSON parsing. This ordering covers parser failures as well as later origin checks, rate limits, and handlers:
+`createApp()` installs `omitRequestLogPayload` for authentication, session, administration, product, and publishing paths after request logging but before JSON parsing. Publishing rate limits also run before parsing, and only the artifact-upload route receives the larger bounded parser. This ordering covers parser failures as well as later origin checks and handlers:
 
 ```ts
 import { omitRequestLogPayload } from "../integrations/pino/omit-request-log-payload/index.ts"

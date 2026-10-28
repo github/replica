@@ -232,4 +232,74 @@ describe("publishing routes", () => {
     expect(records[0]).not.toHaveProperty("body")
     expect(JSON.stringify(records)).not.toContain(privateContent.slice(0, 100))
   })
+
+  it("applies publishing rate limits before parsing malformed JSON", async () => {
+    const getStatus = vi.fn().mockResolvedValue({ publicationId: null })
+    const publish = vi.fn()
+    const baseUrl = await serve(
+      runtime({ getStatus, publish }),
+      createLogger({ destination: { write: () => undefined } }),
+    )
+
+    for (let request = 0; request < 60; request++) {
+      const response = await fetch(`${baseUrl}/api/publishing/prototypes/prototype-id/status`, {
+        headers: { authorization: "******" },
+      })
+      expect(response.status).toBe(200)
+    }
+    const rejected = await fetch(`${baseUrl}/api/publishing/prototypes/prototype-id/versions`, {
+      method: "POST",
+      headers: {
+        authorization: "******",
+        "content-type": "application/json",
+        "idempotency-key": "rate-limited",
+      },
+      body: "{",
+    })
+
+    expect(rejected.status).toBe(429)
+    expect(await rejected.json()).toEqual({
+      error: "rate_limited",
+      message: "Too many publishing requests.",
+    })
+    expect(getStatus).toHaveBeenCalledTimes(60)
+    expect(publish).not.toHaveBeenCalled()
+  })
+
+  it("uses the larger JSON limit only for version uploads", async () => {
+    const publish = vi.fn().mockResolvedValue({
+      version: { id: "version-id" },
+      replayed: false,
+      promotedChannel: null,
+    })
+    const promote = vi.fn()
+    const baseUrl = await serve(runtime({ publish, promote }))
+    const padding = "x".repeat(128 * 1024)
+
+    const upload = await fetch(`${baseUrl}/api/publishing/prototypes/prototype-id/versions`, {
+      method: "POST",
+      headers: {
+        authorization: "******",
+        "content-type": "application/json",
+        "idempotency-key": "larger-parser",
+      },
+      body: JSON.stringify({ padding }),
+    })
+    const promotion = await fetch(
+      `${baseUrl}/api/publishing/prototypes/prototype-id/channels/current`,
+      {
+        method: "PUT",
+        headers: {
+          authorization: "******",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ padding }),
+      },
+    )
+
+    expect(upload.status).toBe(201)
+    expect(publish).toHaveBeenCalledOnce()
+    expect(promotion.status).toBe(413)
+    expect(promote).not.toHaveBeenCalled()
+  })
 })
