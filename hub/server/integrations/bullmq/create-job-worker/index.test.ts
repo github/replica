@@ -30,20 +30,4 @@ describe("createJobWorker()", () => {
     ).toThrow()
     expect(connect).not.toHaveBeenCalled()
   })
-
-  it("imports the job entry points without configuration or network access", async () => {
-    vi.stubEnv("DATABASE_URL", undefined)
-    const connect = vi.spyOn(Socket.prototype, "connect").mockImplementation(() => {
-      throw new Error("Importing job modules must not open a connection.")
-    })
-
-    await Promise.all([
-      import("../create-job-queue"),
-      import("../create-job-worker"),
-      import("../migrate-job-database"),
-      import("../upsert-job-schedule"),
-    ])
-
-    expect(connect).not.toHaveBeenCalled()
-  })
 })

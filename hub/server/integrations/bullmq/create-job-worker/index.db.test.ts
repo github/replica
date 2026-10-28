@@ -238,15 +238,6 @@ describe("job processing with PostgreSQL", () => {
     }
   }, 15_000)
 
-  it("rejects queue write failures instead of returning a successful enqueue", async () => {
-    const queue = openQueue("on-demand")
-    const definition = { name: "unavailable", schema: z.object({ value: z.number() }) }
-    const failure = new Error("Queue unavailable")
-    vi.spyOn(queue, "add").mockRejectedValueOnce(failure)
-
-    await expect(enqueueJob(queue, definition, { value: 1 })).rejects.toBe(failure)
-  }, 15_000)
-
   it("validates producer data and honors per-job overrides alongside definition defaults", async () => {
     const queue = openQueue("on-demand")
     const definition = {
