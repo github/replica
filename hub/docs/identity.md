@@ -14,7 +14,7 @@ Hub sessions use a random opaque cookie and store only its digest. Authenticatio
 
 `HUB_ADMISSION_POLICY=hub-managed` is the default. GitHub proves identity, and no repository permission check gates sign-in. `legacy-repository` is an explicit compatibility policy that uses the separate GitHub source integration to require access to at least one installed repository. The GitHub authentication adapter never reads installation credentials or performs repository authorization.
 
-Sign-out revokes the current database session. Fresh verification reuses GitHub authorization and must return the same external identity. An active Hub administrator membership with fresh verification may revoke all sessions; revocation also supersedes callbacks that started earlier.
+Sign-out revokes the current database session. Fresh verification reuses GitHub authorization and must return the same external identity. An active Hub administrator membership with verification less than five minutes old may revoke all sessions; revocation also supersedes callbacks that started earlier.
 
 ## Persisted boundaries
 

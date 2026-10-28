@@ -313,7 +313,7 @@ describe("createAuthenticationService()", () => {
     expect(identityRecords.verifySession).toHaveBeenCalledWith(session.id, now)
   })
 
-  it("signs out only the current session and requires fresh administrator access to revoke all", async () => {
+  it("signs out only the current session and requires administrator proof strictly younger than five minutes to revoke all", async () => {
     const current = {
       id: "current-session",
       userId: "user",
@@ -321,7 +321,7 @@ describe("createAuthenticationService()", () => {
       authenticationProviderRevisionId: providerRevision.id,
       tokenDigest: digestSecret("session-token"),
       signedInAt: now,
-      freshAuthorizedAt: new Date(now.getTime() - 11 * 60_000),
+      freshAuthorizedAt: new Date(now.getTime() - 5 * 60_000),
       user: { id: "user", displayName: "Administrator", avatarUrl: null },
       externalIdentity: {
         id: "identity",
@@ -357,7 +357,13 @@ describe("createAuthenticationService()", () => {
     })
     expect(identityRecords.advanceSessionGeneration).not.toHaveBeenCalled()
 
-    current.freshAuthorizedAt = now
+    current.freshAuthorizedAt = new Date(now.getTime() + 1)
+    await expect(service.revokeAll("session-token")).rejects.toMatchObject({
+      status: 403,
+      code: "fresh_authorization_required",
+    })
+
+    current.freshAuthorizedAt = new Date(now.getTime() - (5 * 60_000 - 1))
     await service.revokeAll("session-token")
     expect(identityRecords.advanceSessionGeneration).toHaveBeenCalledOnce()
     expect(identityRecords.deleteSessions).toHaveBeenCalledOnce()
