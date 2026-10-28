@@ -263,6 +263,49 @@ describe("createAuthenticationService() OIDC", () => {
     expect(client.identify).not.toHaveBeenCalled()
   })
 
+  it("consumes a long-code attempt once before exchanging it and rejects a replay", async () => {
+    const longCode = `oidc.${"Ab9_-".repeat(410)}`.slice(0, 2_048)
+    let available: ReturnType<typeof attempt> | null = attempt()
+    const identityRecords = records({
+      consumeAuthorizationAttempt: vi.fn(() => {
+        const result = available
+        available = null
+        return Promise.resolve(result)
+      }),
+    })
+    const client = oidc()
+    const { authentication } = service(identityRecords, client)
+
+    const result = await authentication.complete(longCode, "state", "browser-token")
+    await expect(authentication.complete(longCode, "state", "browser-token")).rejects.toMatchObject(
+      {
+        status: 401,
+        code: "invalid_authorization",
+      },
+    )
+
+    expect(result.sessionToken).toEqual(expect.any(String))
+    expect(identityRecords.consumeAuthorizationAttempt).toHaveBeenCalledTimes(2)
+    expect(identityRecords.consumeAuthorizationAttempt).toHaveBeenNthCalledWith(
+      1,
+      digestSecret("state"),
+    )
+    expect(client.identify).toHaveBeenCalledOnce()
+    expect(client.identify).toHaveBeenCalledWith(longCode, "pkce-verifier", "one-use-nonce")
+    expect(identityRecords.consumeAuthorizationAttempt.mock.invocationCallOrder[0]).toBeLessThan(
+      client.identify.mock.invocationCallOrder[0]!,
+    )
+    expect(
+      JSON.stringify([
+        identityRecords.createUser.mock.calls,
+        identityRecords.saveExternalIdentity.mock.calls,
+        identityRecords.saveMembership.mock.calls,
+        identityRecords.createSession.mock.calls,
+        identityRecords.audit.mock.calls,
+      ]),
+    ).not.toContain(longCode)
+  })
+
   it.each([
     ["expired", attempt({ expiresAt: now })],
     ["old provider revision", attempt({ authenticationProviderRevisionId: "superseded-revision" })],
