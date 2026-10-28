@@ -26,6 +26,7 @@ CREATE TABLE "authentication_provider_revisions" (
 -- CreateTable
 CREATE TABLE "identity_store_states" (
     "id" UUID NOT NULL,
+    "session_generation" INTEGER NOT NULL DEFAULT 0,
     "created_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -111,6 +112,7 @@ CREATE TABLE "authorization_attempts" (
     "pkce_verifier" TEXT NOT NULL,
     "nonce" TEXT,
     "purpose" TEXT NOT NULL,
+    "session_generation" INTEGER NOT NULL DEFAULT 0,
     "expires_at" TIMESTAMPTZ(3) NOT NULL,
     "created_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,

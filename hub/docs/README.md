@@ -7,7 +7,7 @@ Hub is being rebuilt. The [Hub overview](../README.md) describes what the baseli
 - [Coding conventions](coding-conventions.md): frontend layers and interface rules.
 - [Development](development.md): local API and frontend setup.
 - [Database](database.md): Prisma schema conventions, migrations, and the shared client.
-- [Identity](identity.md): credential storage and providers.
+- [Identity](identity.md): GitHub user authentication, provider-neutral sessions, admission policy, and source-integration credentials.
 - [Logging](logging.md): application events, automatic request records, and payload safety.
 - [Testing and operations](testing-and-operations.md): baseline checks and their limits.
 - [Storybook](storybook.md): retained presentation, fixtures, and screenshot evidence.

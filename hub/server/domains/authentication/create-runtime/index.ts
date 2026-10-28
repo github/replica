@@ -1,0 +1,79 @@
+import { createAdmissionPolicy } from "#server/domains/authentication/create-admission-policy"
+import { createAuthenticationService } from "#server/domains/authentication/create-service"
+import type { AuthenticationSettings } from "#server/domains/authentication/create-service/types"
+import { ensureGitHubProviderRevision } from "#server/domains/authentication/ensure-provider-revision"
+import { createIdentityStore } from "#server/domains/identity/create-store"
+import { createGitHubUserAuthClient } from "#server/integrations/github/create-user-auth-client"
+import type { GitHubUserAuthConfiguration } from "#server/integrations/github/create-user-auth-client/types"
+import { readTrustedProxyHops } from "#server/integrations/express/read-trusted-proxy-hops"
+import { prisma } from "#server/integrations/prisma"
+
+function readOrigin(environment: NodeJS.ProcessEnv): URL {
+  const origin = new URL(environment.HUB_ORIGIN ?? "http://127.0.0.1:5173")
+  const secure = origin.protocol === "https:"
+  if (
+    !["https:", "http:"].includes(origin.protocol) ||
+    origin.origin !== origin.href.replace(/\/$/, "") ||
+    origin.username ||
+    origin.password ||
+    (!secure &&
+      (environment.NODE_ENV === "production" ||
+        !["localhost", "127.0.0.1", "[::1]"].includes(origin.hostname)))
+  ) {
+    throw new Error(
+      "Set HUB_ORIGIN to an HTTPS origin, or a loopback HTTP origin outside production.",
+    )
+  }
+  return origin
+}
+
+function readGitHubAuthentication(
+  environment: NodeJS.ProcessEnv,
+  origin: URL,
+): GitHubUserAuthConfiguration | null {
+  const clientId = environment.HUB_GITHUB_AUTH_CLIENT_ID
+  const clientSecret = environment.HUB_GITHUB_AUTH_CLIENT_SECRET
+  if (!clientId && !clientSecret) return null
+  if (
+    !clientId ||
+    !clientSecret ||
+    clientId.length > 255 ||
+    clientSecret.length < 20 ||
+    clientSecret.length > 1024
+  ) {
+    throw new Error("Set both HUB_GITHUB_AUTH_CLIENT_ID and HUB_GITHUB_AUTH_CLIENT_SECRET.")
+  }
+  return {
+    clientId,
+    clientSecret,
+    callbackUrl: `${origin.origin}/api/auth/github/callback`,
+    issuer: "https://github.com",
+  }
+}
+
+export async function createAuthenticationRuntime(environment: NodeJS.ProcessEnv) {
+  const origin = readOrigin(environment)
+  const configuration = readGitHubAuthentication(environment, origin)
+  const store = createIdentityStore(prisma)
+  const providerRevision = configuration
+    ? await ensureGitHubProviderRevision(store, configuration)
+    : null
+  const admissionPolicy = createAdmissionPolicy(environment, store)
+  const settings: AuthenticationSettings = {
+    origin: origin.origin,
+    secureCookies: origin.protocol === "https:",
+    configured: configuration !== null,
+    admissionPolicy: admissionPolicy.name,
+    trustedProxyHops: readTrustedProxyHops(environment),
+  }
+  return {
+    service: createAuthenticationService({
+      store,
+      github: configuration ? createGitHubUserAuthClient(configuration) : null,
+      configuration,
+      providerRevisionId: providerRevision?.id ?? null,
+      admissionPolicy,
+    }),
+    settings,
+  }
+}

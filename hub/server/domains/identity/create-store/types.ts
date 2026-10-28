@@ -12,6 +12,7 @@ import type {
 import type { AuditInput } from "#server/repositories/security-audits/types"
 import type { HubSession } from "#server/repositories/sessions/types"
 import type { HubUser, UserInput } from "#server/repositories/users/types"
+import type { IdentityStoreState } from "#server/repositories/identity-store-state/types"
 
 export interface AuthenticationProviderRevisionRecord {
   id: string
@@ -34,11 +35,14 @@ export interface SessionContext extends HubSession {
 }
 
 export interface IdentityRecords {
+  identityStoreState(): Promise<IdentityStoreState>
+  advanceSessionGeneration(): Promise<void>
   githubIntegrationState(): Promise<GitHubIntegrationState>
   saveGitHubIntegrationCredentials(encryptedCredentials: string): Promise<void>
   advanceGitHubIntegrationGeneration(): Promise<void>
   user(id: string): Promise<HubUser | null>
   createUser(input: UserInput): Promise<HubUser>
+  updateUser(id: string, input: UserInput): Promise<HubUser>
   externalIdentity(
     provider: string,
     issuer: string,
@@ -52,6 +56,10 @@ export interface IdentityRecords {
   createAuthenticationProviderRevision(
     input: AuthenticationProviderInput,
   ): Promise<AuthenticationProviderRevisionRecord>
+  currentAuthenticationProviderRevision(
+    key: string,
+  ): Promise<AuthenticationProviderRevisionRecord | null>
+  authenticationProviderRevision(id: string): Promise<AuthenticationProviderRevisionRecord | null>
   session(tokenDigest: string): Promise<SessionContext | null>
   sessionById(id: string): Promise<SessionContext | null>
   createSession(input: Omit<HubSession, "id">): Promise<HubSession>
@@ -59,7 +67,11 @@ export interface IdentityRecords {
   invalidateFreshness(): Promise<void>
   deleteSession(id: string): Promise<void>
   deleteSessions(): Promise<void>
-  createAuthorizationAttempt(input: Omit<AuthorizationAttempt, "id">): Promise<void>
+  createAuthorizationAttempt(
+    input: Omit<AuthorizationAttempt, "id" | "sessionGeneration"> & {
+      sessionGeneration?: number
+    },
+  ): Promise<void>
   consumeAuthorizationAttempt(stateDigest: string): Promise<AuthorizationAttempt | null>
   audit(input: AuditInput): Promise<void>
   audits(): Promise<(AuditInput & { id: string; createdAt: Date })[]>

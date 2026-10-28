@@ -22,6 +22,7 @@ export async function consumeAuthorizationAttempt(
       pkce_verifier AS "pkceVerifier",
       nonce,
       purpose,
+      session_generation AS "sessionGeneration",
       expires_at AS "expiresAt",
       expires_at > clock_timestamp() AS valid
   `
@@ -43,6 +44,7 @@ export async function consumeAuthorizationAttempt(
     pkceVerifier: attempt.pkceVerifier,
     nonce: attempt.nonce,
     purpose: attempt.purpose,
+    sessionGeneration: attempt.sessionGeneration,
     expiresAt: attempt.expiresAt,
   }
 }
