@@ -68,6 +68,7 @@ export function checkWorkflows(root: string): void {
     "lint",
     "typecheck",
     "test",
+    "test:entra-setup",
     "build",
     "storybook:build",
     "db:validate",

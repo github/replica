@@ -23,7 +23,7 @@ param(
   [ValidateRange(1, 2147483647)]
   [int] $ProviderRevision = 1,
 
-  [ValidatePattern("^[A-Z][A-Z0-9_]{2,127}$")]
+  [ValidatePattern("(?-i)^[A-Z][A-Z0-9_]{2,127}$")]
   [string] $ClientCredentialReference = "HUB_OIDC_CLIENT_SECRET",
 
   [ValidateSet("jit-assignment", "invitation-required")]
@@ -199,10 +199,8 @@ function Assert-ManagedRoleIdsAvailable {
   param($Application)
 
   foreach ($role in @($Application.AppRoles)) {
-    if (($role.Id -eq $userRoleId -and $role.Value -ne "Hub.User") -or
-      ($role.Id -eq $administratorRoleId -and $role.Value -ne "Hub.Administrator") -or
-      ($role.Value -eq "Hub.User" -and $role.Id -ne $userRoleId) -or
-      ($role.Value -eq "Hub.Administrator" -and $role.Id -ne $administratorRoleId)) {
+    if (($role.Value -ceq "Hub.User" -and $role.Id -ne $userRoleId) -or
+      ($role.Value -ceq "Hub.Administrator" -and $role.Id -ne $administratorRoleId)) {
       throw "The application has a conflicting Replica Hub app-role ID or value."
     }
   }
@@ -213,7 +211,10 @@ function Get-ConvergedRoles {
 
   Assert-ManagedRoleIdsAvailable -Application $Application
   $otherRoles = @($Application.AppRoles).Where({
-      $_.Value -notin @("Hub.User", "Hub.Administrator")
+      $_.Id -ne $userRoleId -and
+      $_.Id -ne $administratorRoleId -and
+      $_.Value -cne "Hub.User" -and
+      $_.Value -cne "Hub.Administrator"
     }).ForEach({
       @{
         Id = $_.Id
@@ -243,7 +244,7 @@ function Test-ApplicationDrift {
   }
 
   foreach ($desired in Get-AppRoles) {
-    $actual = @($Application.AppRoles).Where({ $_.Value -eq $desired.Value })
+    $actual = @($Application.AppRoles).Where({ $_.Value -ceq $desired.Value })
     if ($actual.Count -ne 1) { return $true }
     $actualRole = $actual[0]
     if ($actualRole.Id -ne $desired.Id -or
@@ -270,7 +271,7 @@ function Get-ConvergedRedirectUris {
     return @($CallbackUrl)
   }
   $redirectUris = @($Application.Web.RedirectUris) + @($CallbackUrl)
-  return @($redirectUris | Sort-Object -Unique)
+  return @($redirectUris | Sort-Object -CaseSensitive -Unique)
 }
 
 function Get-ServicePrincipal {

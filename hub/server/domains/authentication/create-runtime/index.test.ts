@@ -3,7 +3,7 @@ import path from "node:path"
 
 import { describe, expect, it, vi } from "vitest"
 
-const { createLocalArtifactStorage } = vi.hoisted(() => ({
+const { createLocalArtifactStorage, ensureOidcProviderRevision } = vi.hoisted(() => ({
   createLocalArtifactStorage: vi.fn((root: string) => {
     if (!path.isAbsolute(root)) {
       throw new Error("HUB_ARTIFACT_STORAGE_PATH must be an absolute path.")
@@ -14,10 +14,14 @@ const { createLocalArtifactStorage } = vi.hoisted(() => ({
       remove: vi.fn(),
     }
   }),
+  ensureOidcProviderRevision: vi.fn(),
 }))
 
 vi.mock("#server/integrations/artifact-storage/create-local-storage", () => ({
   createLocalArtifactStorage,
+}))
+vi.mock("#server/domains/authentication/ensure-oidc-provider-revision", () => ({
+  ensureOidcProviderRevision,
 }))
 vi.mock("#server/integrations/prisma", () => ({ prisma: {} }))
 
@@ -51,5 +55,16 @@ describe("createAuthenticationRuntime()", () => {
     ).rejects.toThrow("HUB_ARTIFACT_STORAGE_PATH must be an absolute path.")
 
     expect(createLocalArtifactStorage).toHaveBeenCalledWith("relative/artifacts")
+  })
+
+  it("rejects an incompatible OIDC admission policy before persisting a provider revision", async () => {
+    await expect(
+      createAuthenticationRuntime({
+        HUB_AUTH_PROVIDER: "oidc",
+        HUB_ADMISSION_POLICY: "github-synchronized",
+      }),
+    ).rejects.toThrow("OIDC authentication requires HUB_ADMISSION_POLICY=hub-managed.")
+
+    expect(ensureOidcProviderRevision).not.toHaveBeenCalled()
   })
 })

@@ -43,10 +43,13 @@ export function readOidcConfiguration(
     .filter(Boolean)
   if (
     !scopes.includes("openid") ||
+    !scopes.includes("profile") ||
     scopes.includes("offline_access") ||
     scopes.some((scope) => !/^[\x21\x23-\x5b\x5d-\x7e]+$/.test(scope))
   ) {
-    throw new Error("HUB_OIDC_SCOPES must include openid and must not request offline_access.")
+    throw new Error(
+      "HUB_OIDC_SCOPES must include openid and profile and must not request offline_access.",
+    )
   }
   const memberRole = requiredEnvironmentValue(environment, "HUB_OIDC_MEMBER_ROLE")
   const administratorRole = requiredEnvironmentValue(environment, "HUB_OIDC_ADMINISTRATOR_ROLE")

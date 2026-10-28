@@ -49,6 +49,7 @@ cd starter
 npm ci
 npm run typecheck
 npm test
+npm run test:entra-setup
 npm run build
 ```
 

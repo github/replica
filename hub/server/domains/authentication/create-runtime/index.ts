@@ -76,6 +76,7 @@ function readHostSecret(environment: NodeJS.ProcessEnv, key: string): string | n
 export async function createAuthenticationRuntime(environment: NodeJS.ProcessEnv) {
   const origin = readOrigin(environment)
   const provider = readAuthenticationProvider(environment)
+  ensureProviderAdmissionPolicy(provider, environment)
   const configuration = provider === "github" ? readGitHubAuthentication(environment, origin) : null
   const oidcConfiguration = provider === "oidc" ? readOidcConfiguration(environment, origin) : null
   const store = createIdentityStore(prisma)
@@ -90,7 +91,6 @@ export async function createAuthenticationRuntime(environment: NodeJS.ProcessEnv
   const oidcProviderRevision = oidcConfiguration
     ? await ensureOidcProviderRevision(store, oidcConfiguration)
     : null
-  ensureProviderAdmissionPolicy(provider, environment)
   const admissionPolicy = createAdmissionPolicy(environment, store, githubAuthorization)
   const bootstrapSecret = readHostSecret(environment, "HUB_BOOTSTRAP_SECRET")
   const recoverySecret = readHostSecret(environment, "HUB_ADMIN_RECOVERY_SECRET")

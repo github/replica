@@ -104,11 +104,7 @@ export async function completeOidcAuthorization(
           targetMembershipId: membership?.id ?? null,
           context: { reason: "provider_role_changed" },
         })
-        throw new AuthenticationError(
-          403,
-          "provider_role_changed",
-          "Your provider role changed. Sign in again.",
-        )
+        return { providerRoleChanged: true as const }
       }
       await records.verifySession(session.id, now())
       await records.audit({
@@ -133,6 +129,26 @@ export async function completeOidcAuthorization(
       return { denied: true as const }
     }
     let identity = await records.externalIdentity("oidc", oidcConfiguration.issuer, profile.subject)
+    const directoryIdentity = profile.directoryObjectId
+      ? await records.externalIdentityByDirectoryObjectId(
+          "oidc",
+          oidcConfiguration.issuer,
+          profile.directoryObjectId,
+        )
+      : null
+    if (!identity && directoryIdentity) {
+      const directoryMembership = await records.membership(directoryIdentity.userId)
+      await records.audit({
+        event: "authentication.admission_denied",
+        outcome: "denied",
+        actorUserId: directoryIdentity.userId,
+        sessionId: null,
+        authenticationProviderRevisionId: oidcProviderRevisionId,
+        targetMembershipId: directoryMembership?.id ?? null,
+        context: { reason: "provider_subject_changed" },
+      })
+      return { denied: true as const }
+    }
     let membership = identity ? await records.membership(identity.userId) : null
     const invitationSubject = profile.directoryObjectId
     const invitation =
@@ -317,7 +333,7 @@ export async function completeOidcAuthorization(
         sessionId: null,
         authenticationProviderRevisionId: oidcProviderRevisionId,
         targetMembershipId: membership.id,
-        context: { role: profile.role },
+        context: { reason: `role_${profile.role}` },
       })
     }
     if (!membership || membership.status !== "active") return { denied: true as const }
@@ -341,6 +357,13 @@ export async function completeOidcAuthorization(
   })
   if ("denied" in result && result.denied) {
     throw new AuthenticationError(403, "admission_denied", "This identity is not admitted.")
+  }
+  if ("providerRoleChanged" in result && result.providerRoleChanged) {
+    throw new AuthenticationError(
+      403,
+      "provider_role_changed",
+      "Your provider role changed. Sign in again.",
+    )
   }
   return result
 }

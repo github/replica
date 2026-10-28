@@ -123,13 +123,14 @@ describe("readOidcConfiguration()", () => {
     ).toThrow("HUB_OIDC_ISSUER must be https://login.microsoftonline.com/<tenant-id>/v2.0.")
   })
 
-  it("rejects offline_access so Hub cannot receive a provider refresh token", () => {
-    expect(() =>
-      readOidcConfiguration(
-        environment({ HUB_OIDC_SCOPES: "openid profile email offline_access" }),
-        origin,
-      ),
-    ).toThrow("HUB_OIDC_SCOPES must include openid and must not request offline_access.")
+  it.each([
+    ["without openid", "profile email"],
+    ["without profile", "openid email"],
+    ["with offline_access", "openid profile email offline_access"],
+  ])("rejects scopes %s", (_description, scopes) => {
+    expect(() => readOidcConfiguration(environment({ HUB_OIDC_SCOPES: scopes }), origin)).toThrow(
+      "HUB_OIDC_SCOPES must include openid and profile and must not request offline_access.",
+    )
   })
 
   it("rejects an unknown membership policy instead of falling back to JIT admission", () => {

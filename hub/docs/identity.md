@@ -1,6 +1,6 @@
 # Hub identity
 
-Hub uses one configured user sign-in provider to prove an external identity. Hub then applies its own installation admission and membership rules before creating a provider-neutral browser session. Provider assignment and repository permissions do not grant future prototype authorization.
+Hub uses one configured user sign-in provider to prove an external identity. Hub then applies its installation admission and membership rules before creating a provider-neutral browser session. Entra app-role assignments do not grant prototype access. Repository permissions affect installation admission only through the explicitly selected GitHub synchronization policy, and affect prototype access only when a prototype separately opts into a synchronized repository baseline.
 
 ## Production OIDC
 

@@ -33,6 +33,21 @@ describe("checkWorkflows()", () => {
     expect(() => checkWorkflows(root)).not.toThrow()
   })
 
+  it("runs the Entra setup contract through the Hub package command on both Node versions", () => {
+    const workflow = parse(
+      readFileSync(join(root, ".github/workflows/hub-ci.yml"), "utf8"),
+    ) as Workflow
+    const manifest = JSON.parse(readFileSync(join(root, "hub/package.json"), "utf8"))
+
+    expect(manifest.scripts["test:entra-setup"]).toBe(
+      "node --test script/tests/setup-entra-oidc.test.mjs",
+    )
+    expect(workflow.jobs.check.strategy?.matrix.command).toContain("test:entra-setup")
+    expect(workflow.jobs.check.steps).toContainEqual(
+      expect.objectContaining({ run: "npm run ${{ matrix.command }}" }),
+    )
+  })
+
   it("rejects an aggregate result gate", () => {
     const directory = fixture()
     const path = join(directory, ".github/workflows/hub-ci.yml")

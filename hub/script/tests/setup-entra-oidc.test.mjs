@@ -96,6 +96,32 @@ describe("setup-entra-oidc.ps1", () => {
     assert.doesNotMatch(drift, /\bCompare-Object\b/)
   })
 
+  it("keeps client credential references case-sensitive", () => {
+    assert.match(
+      script,
+      /\[ValidatePattern\("\(\?-i\)\^\[A-Z\]\[A-Z0-9_\]\{2,127\}\$"\)\]\s*\[string\] \$ClientCredentialReference/,
+    )
+  })
+
+  it("matches and preserves app-role values case-sensitively", () => {
+    const available = functionBody("Assert-ManagedRoleIdsAvailable")
+    const converged = functionBody("Get-ConvergedRoles")
+    const drift = functionBody("Test-ApplicationDrift")
+
+    assert.match(available, /\$role\.Value -ceq "Hub\.User"/)
+    assert.match(available, /\$role\.Value -ceq "Hub\.Administrator"/)
+    assert.match(converged, /\$_.Value -cne "Hub\.User"/)
+    assert.match(converged, /\$_.Value -cne "Hub\.Administrator"/)
+    assert.match(drift, /\$_.Value -ceq \$desired\.Value/)
+  })
+
+  it("deduplicates redirect URIs without collapsing case variants", () => {
+    const redirects = functionBody("Get-ConvergedRedirectUris")
+
+    assert.match(redirects, /Sort-Object -CaseSensitive -Unique/)
+    assert.doesNotMatch(redirects, /Sort-Object -Unique/)
+  })
+
   it("limits obsolete assignments to managed group roles and preserves unrelated assignments", () => {
     const assignments = functionBody("Get-AssignmentChanges")
 

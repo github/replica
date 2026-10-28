@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises"
+
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { createIdentityStore } from "#server/domains/identity/create-store"
@@ -268,6 +270,64 @@ describe("createIdentityStore()", () => {
     })
     expect(await store.read.user(user.id)).toEqual(user)
     expect(user).not.toHaveProperty("administrator")
+  })
+
+  it("applies the migration constraint for every current installation membership source", async () => {
+    const { prisma, store } = await database()
+    await prisma.$executeRawUnsafe(`
+      ALTER TABLE "installation_memberships"
+      ADD CONSTRAINT "installation_memberships_source"
+      CHECK ("source" IN ('bootstrap', 'invitation', 'manual', 'recovery', 'synchronized'))
+    `)
+    const migration = await readFile(
+      new URL(
+        "../../../../schema/migrations/20261028210000_oidc_review_hardening/migration.sql",
+        import.meta.url,
+      ),
+      "utf8",
+    )
+    const constraintSql = migration.slice(
+      migration.indexOf('ALTER TABLE "installation_memberships"'),
+    )
+    await prisma.$executeRawUnsafe(constraintSql)
+
+    for (const source of [
+      "bootstrap",
+      "invitation",
+      "legacy-synchronized",
+      "manual",
+      "oidc-assignment",
+      "recovery",
+      "synchronized",
+    ] as const) {
+      const user = await store.lock((records) =>
+        records.createUser({ displayName: `Source ${source}`, avatarUrl: null }),
+      )
+      await expect(
+        store.lock((records) =>
+          records.saveMembership({
+            userId: user.id,
+            status: "active",
+            role: "member",
+            source,
+          }),
+        ),
+      ).resolves.toMatchObject({ source })
+    }
+
+    const unsupportedUser = await store.lock((records) =>
+      records.createUser({ displayName: "Unsupported source", avatarUrl: null }),
+    )
+    await expect(
+      prisma.installationMembership.create({
+        data: {
+          userId: unsupportedUser.id,
+          status: "active",
+          role: "member",
+          source: "provider-default",
+        },
+      }),
+    ).rejects.toThrow()
   })
 
   it("stores OIDC provider revisions separately from GitHub integration credentials", async () => {

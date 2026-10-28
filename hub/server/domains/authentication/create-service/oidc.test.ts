@@ -463,6 +463,38 @@ describe("createAuthenticationService() OIDC", () => {
     })
   })
 
+  it("denies a changed provider subject that reuses an existing directory object ID", async () => {
+    const identity = existingIdentity()
+    const membership = activeMembership()
+    const identityRecords = records({
+      consumeAuthorizationAttempt: vi.fn().mockResolvedValue(attempt()),
+      externalIdentityByDirectoryObjectId: vi.fn().mockResolvedValue(identity),
+      membership: vi.fn().mockResolvedValue(membership),
+    })
+    const client = oidc({
+      identify: vi.fn().mockResolvedValue(profile({ subject: "replacement-subject" })),
+    })
+    const { authentication } = service(identityRecords, client)
+
+    await expect(authentication.complete("code", "state", "browser-token")).rejects.toMatchObject({
+      status: 403,
+      code: "admission_denied",
+    })
+
+    expect(identityRecords.audit).toHaveBeenCalledWith({
+      event: "authentication.admission_denied",
+      outcome: "denied",
+      actorUserId: "user",
+      sessionId: null,
+      authenticationProviderRevisionId: providerRevision.id,
+      targetMembershipId: membership.id,
+      context: { reason: "provider_subject_changed" },
+    })
+    expect(identityRecords.createUser).not.toHaveBeenCalled()
+    expect(identityRecords.saveExternalIdentity).not.toHaveBeenCalled()
+    expect(identityRecords.createSession).not.toHaveBeenCalled()
+  })
+
   it("refreshes authorization only when the active membership still matches the signed provider role", async () => {
     const session = {
       id: "session",
@@ -554,6 +586,58 @@ describe("createAuthenticationService() OIDC", () => {
       expect.objectContaining({ context: { reason: "last_administrator" } }),
     )
   })
+
+  it.each([
+    ["member", "administrator", "role_administrator"],
+    ["administrator", "member", "role_member"],
+  ] as const)(
+    "refreshes an active %s to %s and audits the supported reason",
+    async (currentRole, providerRole, reason) => {
+      const membership = activeMembership(currentRole)
+      const refreshedMembership = { ...membership, role: providerRole }
+      const identityRecords = records({
+        consumeAuthorizationAttempt: vi.fn().mockResolvedValue(attempt()),
+        externalIdentity: vi.fn().mockResolvedValue(existingIdentity()),
+        membership: vi.fn().mockResolvedValueOnce(membership).mockResolvedValueOnce(membership),
+        activeAdministratorCount: vi.fn().mockResolvedValue(2),
+        saveMembership: vi.fn().mockResolvedValue(refreshedMembership),
+      })
+      const { authentication } = service(
+        identityRecords,
+        oidc({ identify: vi.fn().mockResolvedValue(profile({ role: providerRole })) }),
+      )
+
+      await expect(
+        authentication.complete("code", "state", "browser-token"),
+      ).resolves.toMatchObject({ purpose: "sign-in" })
+
+      expect(identityRecords.saveMembership).toHaveBeenCalledWith({
+        userId: membership.userId,
+        status: "active",
+        role: providerRole,
+        source: "oidc-assignment",
+        suspendedAt: null,
+        removedAt: null,
+      })
+      expect(identityRecords.audit).toHaveBeenCalledWith({
+        event: "membership.provider_role.refresh",
+        outcome: "succeeded",
+        actorUserId: "user",
+        sessionId: null,
+        authenticationProviderRevisionId: providerRevision.id,
+        targetMembershipId: membership.id,
+        context: { reason },
+      })
+      expect(identityRecords.saveMembership.mock.invocationCallOrder[0]).toBeLessThan(
+        identityRecords.audit.mock.invocationCallOrder.find(
+          (order, index) =>
+            identityRecords.audit.mock.calls[index]?.[0].event ===
+            "membership.provider_role.refresh",
+        )!,
+      )
+      expect(identityRecords.createSession).toHaveBeenCalledOnce()
+    },
+  )
 
   it("keeps a suspended member denied even when current provider claims still grant a role", async () => {
     const identityRecords = records({
