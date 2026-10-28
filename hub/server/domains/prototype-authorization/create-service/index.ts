@@ -9,6 +9,7 @@ import {
 import { evaluatePrototypeAccess } from "#server/domains/prototype-authorization/evaluate-access"
 import type {
   GrantInput,
+  PrototypeBaselinePolicy,
   PrototypeAuthorizationService,
 } from "#server/domains/prototype-authorization/create-service/types"
 import { getCurrentSession } from "#server/domains/authentication/get-current-session"
@@ -263,6 +264,106 @@ function pageResult<T extends { id: string }>(items: T[], limit: number) {
   }
 }
 
+function prototypeDto(prototype: {
+  id: string
+  workspaceId: string
+  createdByUserId: string
+  name: string
+  archivedAt: Date | null
+  createdAt: Date
+  updatedAt: Date
+}) {
+  return prototype
+}
+
+async function prototypeAccessDecision(
+  baseline: PrototypeBaselinePolicy | null,
+  userId: string,
+  workspaceGrant: GrantInput | null,
+  prototype: {
+    id: string
+    grants: GrantInput[]
+  },
+) {
+  return evaluatePrototypeAccess({
+    workspaceGrant,
+    prototypeGrant: prototype.grants[0] ?? null,
+    baselineRole: baseline ? await baseline.role(userId, prototype.id) : null,
+  })
+}
+
+async function readAccessiblePrototypePage({
+  baseline,
+  database,
+  userId,
+  workspaceId,
+  workspaceGrant,
+  cursor,
+  limit,
+}: {
+  baseline: PrototypeBaselinePolicy | null
+  database: PrismaClient
+  userId: string
+  workspaceId: string
+  workspaceGrant: GrantInput | null
+  cursor?: string
+  limit: number
+}) {
+  const items = []
+  let scanCursor = cursor
+  while (items.length <= limit) {
+    const candidates = await database.prototype.findMany({
+      where: { workspaceId },
+      include: { grants: { where: { userId } } },
+      orderBy: { id: "asc" },
+      ...(scanCursor ? { cursor: { id: scanCursor }, skip: 1 } : {}),
+      take: 100,
+    })
+    if (candidates.length === 0) break
+    for (const candidate of candidates) {
+      scanCursor = candidate.id
+      const decision = await prototypeAccessDecision(baseline, userId, workspaceGrant, candidate)
+      if (decision.allowed) items.push(prototypeDto(candidate))
+      if (items.length > limit) break
+    }
+    if (candidates.length < 100) break
+  }
+  return pageResult(items, limit)
+}
+
+async function hasAnyPrototypeAccess({
+  baseline,
+  database,
+  userId,
+  workspaceId,
+  workspaceGrant,
+}: {
+  baseline: PrototypeBaselinePolicy | null
+  database: PrismaClient
+  userId: string
+  workspaceId: string
+  workspaceGrant: GrantInput | null
+}) {
+  if (evaluatePrototypeAccess({ workspaceGrant }).allowed) return true
+  let cursor: string | undefined
+  while (true) {
+    const candidates = await database.prototype.findMany({
+      where: { workspaceId },
+      include: { grants: { where: { userId } } },
+      orderBy: { id: "asc" },
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      take: 100,
+    })
+    for (const candidate of candidates) {
+      if ((await prototypeAccessDecision(baseline, userId, workspaceGrant, candidate)).allowed) {
+        return true
+      }
+    }
+    if (candidates.length < 100) return false
+    cursor = candidates.at(-1)?.id
+  }
+}
+
 async function audit(
   database: Prisma.TransactionClient,
   actor: Awaited<ReturnType<typeof currentSession>>,
@@ -280,9 +381,11 @@ async function audit(
 }
 
 export function createPrototypeAuthorizationService({
+  baseline = null,
   database,
   store,
 }: {
+  baseline?: PrototypeBaselinePolicy | null
   database: PrismaClient
   store: IdentityStore
 }): PrototypeAuthorizationService {
@@ -300,6 +403,13 @@ export function createPrototypeAuthorizationService({
         orderBy: { id: "asc" },
         ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
         take: limit + 1,
+        select: {
+          id: true,
+          createdByUserId: true,
+          name: true,
+          createdAt: true,
+          updatedAt: true,
+        },
       })
       return pageResult(items, limit)
     },
@@ -457,18 +567,28 @@ export function createPrototypeAuthorizationService({
     async listPrototypes(sessionToken, workspaceId, query) {
       const { cursor, limit } = parsePage(query)
       const actor = await currentSession(store, sessionToken)
-      const { decision } = await workspaceDecision(database, actor.userId, workspaceId)
-      requireDecision(decision, "viewer")
-      const items = await database.prototype.findMany({
-        where: {
+      const { workspace } = await workspaceDecision(database, actor.userId, workspaceId)
+      const workspaceGrant = workspace.grants[0] ?? null
+      if (
+        !(await hasAnyPrototypeAccess({
+          baseline,
+          database,
+          userId: actor.userId,
           workspaceId,
-          grants: { none: { userId: actor.userId, effect: "deny" } },
-        },
-        orderBy: { id: "asc" },
-        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-        take: limit + 1,
+          workspaceGrant,
+        }))
+      ) {
+        throw new AuthenticationError(403, "prototype_access_denied", "Prototype access is denied.")
+      }
+      return readAccessiblePrototypePage({
+        baseline,
+        database,
+        userId: actor.userId,
+        workspaceId,
+        workspaceGrant,
+        cursor,
+        limit,
       })
-      return pageResult(items, limit)
     },
 
     async createPrototype(sessionToken, workspaceId, input) {

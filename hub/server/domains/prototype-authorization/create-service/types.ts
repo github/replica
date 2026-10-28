@@ -45,3 +45,7 @@ export interface GrantInput {
   effect: "allow" | "deny"
   role: PrototypeRole | null
 }
+
+export interface PrototypeBaselinePolicy {
+  role(userId: string, prototypeId: string): Promise<PrototypeRole | null>
+}
