@@ -6,6 +6,8 @@ import { digestSecret } from "#server/utils/digest-secret"
 
 type IdentityStore = ReturnType<typeof createIdentityStore>
 
+const entraIssuer = "https://login.microsoftonline.com/a0b1c2d3-e4f5-4a67-8b9c-0d1e2f3a4b5c/v2.0"
+
 async function database() {
   vi.stubGlobal("prisma", undefined)
   const { prisma } = await import("../../../integrations/prisma")
@@ -80,7 +82,7 @@ describe("createAdministrationService() database behavior", () => {
       await records.saveExternalIdentity({
         userId: user.id,
         provider: "oidc",
-        issuer: "https://login.example.test/tenant",
+        issuer: entraIssuer,
         subject: "provider-subject",
         directoryObjectId,
         username: "member@example.test",
@@ -102,13 +104,75 @@ describe("createAdministrationService() database behavior", () => {
     await expect(
       service.invite("actor-token", {
         provider: "oidc",
-        issuer: "https://login.example.test/tenant",
+        issuer: "https://login.microsoftonline.com/A0B1C2D3-E4F5-4A67-8B9C-0D1E2F3A4B5C/v2.0/",
         subject: directoryObjectId.toUpperCase(),
         role: "member",
       }),
     ).rejects.toMatchObject({
       status: 409,
       code: "identity_already_assigned",
+    })
+    expect(await store.read.invitations()).toEqual([])
+  })
+
+  it("normalizes an Entra invitation before persistence and duplicate lookup", async () => {
+    const { store } = await database()
+    await createAdministrator(store, "actor", "actor-token")
+    const service = createAdministrationService({
+      store,
+      now: () => new Date("2026-10-27T18:01:00.000Z"),
+    })
+    const directoryObjectId = "b1e2d3c4-a5b6-4789-abcd-ef0123456789"
+
+    await expect(
+      service.invite("actor-token", {
+        provider: "oidc",
+        issuer: "https://login.microsoftonline.com/A0B1C2D3-E4F5-4A67-8B9C-0D1E2F3A4B5C/v2.0/",
+        subject: directoryObjectId.toUpperCase(),
+        role: "member",
+      }),
+    ).resolves.toMatchObject({
+      issuer: entraIssuer,
+      subject: directoryObjectId,
+    })
+
+    await expect(
+      service.invite("actor-token", {
+        provider: "oidc",
+        issuer: entraIssuer,
+        subject: directoryObjectId,
+        role: "member",
+      }),
+    ).rejects.toMatchObject({
+      status: 409,
+      code: "invitation_exists",
+    })
+    expect(await store.read.invitations()).toEqual([
+      expect.objectContaining({
+        issuer: entraIssuer,
+        subject: directoryObjectId,
+      }),
+    ])
+  })
+
+  it("rejects an OIDC invitation for an unsupported Entra issuer", async () => {
+    const { store } = await database()
+    await createAdministrator(store, "actor", "actor-token")
+    const service = createAdministrationService({
+      store,
+      now: () => new Date("2026-10-27T18:01:00.000Z"),
+    })
+
+    await expect(
+      service.invite("actor-token", {
+        provider: "oidc",
+        issuer: "https://login.example.test/tenant/v2.0",
+        subject: "b1e2d3c4-a5b6-4789-abcd-ef0123456789",
+        role: "member",
+      }),
+    ).rejects.toMatchObject({
+      status: 422,
+      code: "invalid_invitation",
     })
     expect(await store.read.invitations()).toEqual([])
   })

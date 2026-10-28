@@ -154,12 +154,16 @@ describe("readOidcConfiguration()", () => {
     },
   )
 
-  it("rejects the largest safe integer because a later provider change cannot increment it", () => {
+  it("accepts the largest incrementable database provider revision", () => {
+    expect(
+      readOidcConfiguration(environment({ HUB_OIDC_PROVIDER_REVISION: "2147483646" }), origin)
+        .providerRevision,
+    ).toBe(2_147_483_646)
+  })
+
+  it("rejects a provider revision that cannot be incremented in the database", () => {
     expect(() =>
-      readOidcConfiguration(
-        environment({ HUB_OIDC_PROVIDER_REVISION: String(Number.MAX_SAFE_INTEGER) }),
-        origin,
-      ),
-    ).toThrow("HUB_OIDC_PROVIDER_REVISION must be an incrementable positive integer.")
+      readOidcConfiguration(environment({ HUB_OIDC_PROVIDER_REVISION: "2147483647" }), origin),
+    ).toThrow("HUB_OIDC_PROVIDER_REVISION must fit the incrementable database integer range.")
   })
 })

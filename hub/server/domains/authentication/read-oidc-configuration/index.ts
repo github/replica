@@ -1,4 +1,5 @@
 import type { OidcConfiguration } from "#server/integrations/oidc/create-client/types"
+import { normalizeEntraIssuer } from "#server/utils/normalize-entra-issuer"
 
 function requiredEnvironmentValue(environment: NodeJS.ProcessEnv, key: string): string {
   const value = environment[key]
@@ -15,14 +16,10 @@ export function readOidcConfiguration(
     throw new Error("HUB_OIDC_ENABLED must be true or false.")
   }
   const issuerValue = requiredEnvironmentValue(environment, "HUB_OIDC_ISSUER")
-  const issuerMatch = issuerValue.match(
-    /^https:\/\/login\.microsoftonline\.com\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/v2\.0\/?$/i,
-  )
-  const tenantId = issuerMatch?.[1]
-  if (!tenantId) {
+  const issuer = normalizeEntraIssuer(issuerValue)
+  if (!issuer) {
     throw new Error("HUB_OIDC_ISSUER must be https://login.microsoftonline.com/<tenant-id>/v2.0.")
   }
-  const issuer = `https://login.microsoftonline.com/${tenantId.toLowerCase()}/v2.0`
   const callbackUrl = requiredEnvironmentValue(environment, "HUB_OIDC_CALLBACK_URL")
   if (callbackUrl !== `${origin.origin}/api/auth/oidc/callback`) {
     throw new Error("HUB_OIDC_CALLBACK_URL must match the Hub OIDC callback URL.")
@@ -67,11 +64,11 @@ export function readOidcConfiguration(
   const providerRevision = Number(
     requiredEnvironmentValue(environment, "HUB_OIDC_PROVIDER_REVISION"),
   )
-  if (!Number.isSafeInteger(providerRevision) || providerRevision < 1) {
+  if (!Number.isInteger(providerRevision) || providerRevision < 1) {
     throw new Error("HUB_OIDC_PROVIDER_REVISION must be a positive integer.")
   }
-  if (providerRevision >= Number.MAX_SAFE_INTEGER) {
-    throw new Error("HUB_OIDC_PROVIDER_REVISION must be an incrementable positive integer.")
+  if (providerRevision > 2_147_483_646) {
+    throw new Error("HUB_OIDC_PROVIDER_REVISION must fit the incrementable database integer range.")
   }
   const clientId = requiredEnvironmentValue(environment, "HUB_OIDC_CLIENT_ID")
   if (clientId.length > 255) {

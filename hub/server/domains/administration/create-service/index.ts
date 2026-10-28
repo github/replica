@@ -7,6 +7,7 @@ import type {
 import { getCurrentSession } from "#server/domains/authentication/get-current-session"
 import { ensureProductAdministrationContinuity } from "#server/domains/prototype-authorization/ensure-administration-continuity"
 import { AuthenticationError } from "#server/utils/authentication-error"
+import { normalizeEntraIssuer } from "#server/utils/normalize-entra-issuer"
 
 const invitationSchema = z
   .object({
@@ -26,8 +27,16 @@ const invitationSchema = z
   })
   .transform((input) => ({
     ...input,
+    issuer:
+      input.provider === "oidc"
+        ? (normalizeEntraIssuer(input.issuer) ?? input.issuer)
+        : input.issuer,
     subject: input.provider === "oidc" ? input.subject.toLowerCase() : input.subject,
   }))
+  .refine(({ provider, issuer }) => provider !== "oidc" || normalizeEntraIssuer(issuer) !== null, {
+    path: ["issuer"],
+    message: "OIDC invitations require a supported Entra issuer.",
+  })
 
 const membershipChangeSchema = z
   .object({

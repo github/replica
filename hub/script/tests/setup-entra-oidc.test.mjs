@@ -103,6 +103,14 @@ describe("setup-entra-oidc.ps1", () => {
     )
   })
 
+  it("keeps membership policy casing and provider revision bounds aligned with Hub", () => {
+    assert.match(script, /\[ValidateRange\(1, 2147483646\)\]\s*\[int\] \$ProviderRevision/)
+    assert.match(
+      script,
+      /\[ValidateSet\("jit-assignment", "invitation-required", IgnoreCase = \$false\)\]\s*\[string\] \$MembershipPolicy/,
+    )
+  })
+
   it("matches and preserves app-role values case-sensitively", () => {
     const available = functionBody("Assert-ManagedRoleIdsAvailable")
     const converged = functionBody("Get-ConvergedRoles")

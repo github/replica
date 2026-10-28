@@ -2,7 +2,7 @@
 
 Hub owns installation admission after an authentication provider proves an identity. Repository access affects installation membership only through the explicit GitHub-synchronized policy; Hub remains the final evaluator.
 
-For OIDC, a configured member or administrator app role is required before Hub evaluates membership. Under `jit-assignment`, a first successful sign-in may create an `oidc-assignment` membership from that assignment. Under `invitation-required`, an Entra administrator creates the invitation with the tenant issuer and the user's directory Object ID (`oid`) from the Entra admin center or approved Graph tooling. Hub matches that signed tenant-scoped claim while retaining the application-specific OIDC `sub` as the external identity. Suspended membership remains suspended. Removed membership requires a new invitation and is never silently reactivated from a provider claim.
+For OIDC, a configured member or administrator app role is required before Hub evaluates membership. Under `jit-assignment`, a first successful sign-in may create an `oidc-assignment` membership from that assignment; only this provider-owned source tracks later app-role changes. Under `invitation-required`, an Entra administrator creates the invitation with the tenant issuer and the user's directory Object ID (`oid`) from the Entra admin center or approved Graph tooling. Hub matches that signed tenant-scoped claim while retaining the application-specific OIDC `sub` as the external identity. Invitation, bootstrap, recovery, and manually changed membership roles remain Hub-owned. Suspended membership remains suspended. Removed membership requires a new invitation and is never silently reactivated from a provider claim.
 
 ## Membership contract
 

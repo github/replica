@@ -412,6 +412,58 @@ describe("createAuthenticationService() database behavior", () => {
     ])
   })
 
+  it("rolls back a new OIDC assignment when its activation audit cannot be written", async () => {
+    const { prisma, store } = await database()
+    const provider = await store.lock((records) =>
+      records.createAuthenticationProviderRevision({
+        key: "oidc",
+        type: "oidc",
+        enabled: true,
+        revision: 4,
+        issuer: oidcIssuer,
+        configuration: { clientId: "hub-client" },
+      }),
+    )
+    await store.lock((records) =>
+      records.createAuthorizationAttempt({
+        authenticationProviderRevisionId: provider.id,
+        originatingSessionId: null,
+        stateDigest: digestSecret("new-assignment-state"),
+        browserDigest: digestSecret("browser-token"),
+        pkceVerifier: "pkce-verifier",
+        nonce: "nonce",
+        purpose: "sign-in",
+        expiresAt: new Date(Date.now() + 60_000),
+      }),
+    )
+
+    await prisma.$executeRawUnsafe(`
+      ALTER TABLE "security_audits"
+      ADD CONSTRAINT "test_reject_oidc_assignment_activation"
+      CHECK ("event" <> 'membership.oidc_assignment.activate')
+    `)
+    try {
+      await expect(
+        oidcService(store, provider.id, "member").complete(
+          "provider-code",
+          "new-assignment-state",
+          "browser-token",
+        ),
+      ).rejects.toThrow()
+
+      expect(await prisma.user.count()).toBe(0)
+      expect(await prisma.externalIdentity.count()).toBe(0)
+      expect(await prisma.installationMembership.count()).toBe(0)
+      expect(await prisma.session.count()).toBe(0)
+      expect(await store.read.audits()).toEqual([])
+    } finally {
+      await prisma.$executeRawUnsafe(`
+        ALTER TABLE "security_audits"
+        DROP CONSTRAINT IF EXISTS "test_reject_oidc_assignment_activation"
+      `)
+    }
+  })
+
   it("commits a verification role-change denial before returning the error", async () => {
     const { prisma, store } = await database()
     const graph = await createOidcMember(store, "administrator")

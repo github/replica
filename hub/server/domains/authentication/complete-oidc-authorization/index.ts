@@ -94,7 +94,11 @@ export async function completeOidcAuthorization(
       ) {
         throw new AuthenticationError(403, "identity_mismatch", "Verify the same OIDC identity.")
       }
-      if (!profile.role || membership?.status !== "active" || membership.role !== profile.role) {
+      if (
+        !profile.role ||
+        membership?.status !== "active" ||
+        (membership.source === "oidc-assignment" && membership.role !== profile.role)
+      ) {
         await records.audit({
           event: "session.verify",
           outcome: "denied",
@@ -301,7 +305,20 @@ export async function completeOidcAuthorization(
         suspendedAt: null,
         removedAt: null,
       })
-    } else if (membership.status === "active" && membership.role !== profile.role) {
+      await records.audit({
+        event: "membership.oidc_assignment.activate",
+        outcome: "succeeded",
+        actorUserId: identity.userId,
+        sessionId: null,
+        authenticationProviderRevisionId: oidcProviderRevisionId,
+        targetMembershipId: membership.id,
+        context: { reason: `role_${profile.role}` },
+      })
+    } else if (
+      membership.status === "active" &&
+      membership.source === "oidc-assignment" &&
+      membership.role !== profile.role
+    ) {
       if (
         membership.role === "administrator" &&
         profile.role === "member" &&

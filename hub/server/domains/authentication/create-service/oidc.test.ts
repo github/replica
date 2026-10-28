@@ -187,13 +187,16 @@ function service(
   }
 }
 
-function activeMembership(role: "member" | "administrator" = "member") {
+function activeMembership(
+  role: "member" | "administrator" = "member",
+  source: InstallationMembershipInput["source"] = "oidc-assignment",
+) {
   return {
     id: "membership",
     userId: "user",
     status: "active" as const,
     role,
-    source: "oidc-assignment" as const,
+    source,
     suspendedAt: null,
     removedAt: null,
   }
@@ -422,6 +425,15 @@ describe("createAuthenticationService() OIDC", () => {
         suspendedAt: null,
         removedAt: null,
       })
+      expect(identityRecords.audit).toHaveBeenCalledWith({
+        event: "membership.oidc_assignment.activate",
+        outcome: "succeeded",
+        actorUserId: "user",
+        sessionId: null,
+        authenticationProviderRevisionId: providerRevision.id,
+        targetMembershipId: "membership",
+        context: { reason: `role_${role}` },
+      })
     },
   )
 
@@ -566,6 +578,72 @@ describe("createAuthenticationService() OIDC", () => {
     })
     expect(identityRecords.verifySession).toHaveBeenCalledWith(session.id, now)
   })
+
+  it.each(["invitation", "manual", "bootstrap", "recovery"] as const)(
+    "preserves a %s role override when the provider still grants an admitted role",
+    async (source) => {
+      const membership = activeMembership("administrator", source)
+      const identityRecords = records({
+        consumeAuthorizationAttempt: vi.fn().mockResolvedValue(attempt()),
+        externalIdentity: vi.fn().mockResolvedValue(existingIdentity()),
+        membership: vi.fn().mockResolvedValue(membership),
+      })
+      const { authentication } = service(
+        identityRecords,
+        oidc({ identify: vi.fn().mockResolvedValue(profile({ role: "member" })) }),
+      )
+
+      await expect(
+        authentication.complete("code", "state", "browser-token"),
+      ).resolves.toMatchObject({ purpose: "sign-in" })
+
+      expect(identityRecords.saveMembership).not.toHaveBeenCalled()
+      expect(identityRecords.createSession).toHaveBeenCalledOnce()
+    },
+  )
+
+  it.each(["invitation", "manual", "bootstrap", "recovery"] as const)(
+    "verifies a %s role override while requiring an admitted provider role",
+    async (source) => {
+      const session = {
+        id: "session",
+        userId: "user",
+        externalIdentityId: "identity",
+        authenticationProviderRevisionId: providerRevision.id,
+        tokenDigest: "digest",
+        signedInAt: now,
+        freshAuthorizedAt: null,
+        user: { id: "user", displayName: "Member Name", avatarUrl: null },
+        externalIdentity: existingIdentity(),
+        authenticationProviderRevision: providerRevision,
+      }
+      const identityRecords = records({
+        consumeAuthorizationAttempt: vi
+          .fn()
+          .mockResolvedValue(attempt({ purpose: "verify", originatingSessionId: session.id })),
+        sessionById: vi.fn().mockResolvedValue(session),
+        membership: vi.fn().mockResolvedValue(activeMembership("administrator", source)),
+      })
+      const client = oidc({ identify: vi.fn().mockResolvedValue(profile({ role: "member" })) })
+      const { authentication } = service(identityRecords, client)
+
+      await expect(authentication.complete("code", "state", "browser-token")).resolves.toEqual({
+        purpose: "verify",
+      })
+
+      identityRecords.consumeAuthorizationAttempt.mockResolvedValueOnce(
+        attempt({ purpose: "verify", originatingSessionId: session.id }),
+      )
+      client.identify.mockResolvedValueOnce(profile({ role: null }))
+      await expect(authentication.complete("code", "state", "browser-token")).rejects.toMatchObject(
+        {
+          status: 403,
+          code: "provider_role_changed",
+        },
+      )
+      expect(identityRecords.verifySession).toHaveBeenCalledOnce()
+    },
+  )
 
   it("refuses a role refresh that would remove the final active administrator", async () => {
     const identityRecords = records({

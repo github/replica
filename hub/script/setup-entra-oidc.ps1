@@ -20,13 +20,13 @@ param(
   [ValidateNotNullOrEmpty()]
   [string] $DisplayName = "Replica Hub",
 
-  [ValidateRange(1, 2147483647)]
+  [ValidateRange(1, 2147483646)]
   [int] $ProviderRevision = 1,
 
   [ValidatePattern("(?-i)^[A-Z][A-Z0-9_]{2,127}$")]
   [string] $ClientCredentialReference = "HUB_OIDC_CLIENT_SECRET",
 
-  [ValidateSet("jit-assignment", "invitation-required")]
+  [ValidateSet("jit-assignment", "invitation-required", IgnoreCase = $false)]
   [string] $MembershipPolicy = "jit-assignment",
 
   [string[]] $UserGroupId = @(),
