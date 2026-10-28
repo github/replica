@@ -1,0 +1,6 @@
+enum PrototypeRole {
+  viewer
+  commenter
+  editor
+  administrator
+}

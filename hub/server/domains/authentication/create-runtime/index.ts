@@ -4,6 +4,7 @@ import { createAuthenticationService } from "#server/domains/authentication/crea
 import type { AuthenticationSettings } from "#server/domains/authentication/create-service/types"
 import { ensureGitHubProviderRevision } from "#server/domains/authentication/ensure-provider-revision"
 import { createIdentityStore } from "#server/domains/identity/create-store"
+import { createPrototypeAuthorizationService } from "#server/domains/prototype-authorization/create-service"
 import { createGitHubUserAuthClient } from "#server/integrations/github/create-user-auth-client"
 import type { GitHubUserAuthConfiguration } from "#server/integrations/github/create-user-auth-client/types"
 import { readTrustedProxyHops } from "#server/integrations/express/read-trusted-proxy-hops"
@@ -83,6 +84,7 @@ export async function createAuthenticationRuntime(environment: NodeJS.ProcessEnv
   }
   return {
     administration: createAdministrationService({ store }),
+    prototypeAuthorization: createPrototypeAuthorizationService({ database: prisma, store }),
     service: createAuthenticationService({
       store,
       github: configuration ? createGitHubUserAuthClient(configuration) : null,

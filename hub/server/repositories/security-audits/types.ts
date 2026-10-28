@@ -6,6 +6,10 @@ export interface AuditInput {
   authenticationProviderRevisionId: string | null
   targetMembershipId?: string | null
   invitationId?: string | null
+  workspaceId?: string | null
+  prototypeId?: string | null
+  prototypeVersionId?: string | null
+  targetUserId?: string | null
   context?: Record<string, string>
 }
 
@@ -18,6 +22,10 @@ export interface SecurityAuditRecord {
   authenticationProviderRevisionId: string | null
   targetMembershipId: string | null
   invitationId: string | null
+  workspaceId: string | null
+  prototypeId: string | null
+  prototypeVersionId: string | null
+  targetUserId: string | null
   context: unknown
   createdAt: Date
 }

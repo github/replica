@@ -5,6 +5,7 @@ import { describe, expect, it, onTestFinished, vi } from "vitest"
 import type { Mocked } from "vitest"
 
 import type { AuthenticationService } from "#server/domains/authentication/create-service/types"
+import type { PrototypeAuthorizationService } from "#server/domains/prototype-authorization/create-service/types"
 import type { AuthenticationRoutes } from "#server/routes/types"
 import { createLogger } from "#server/integrations/pino/create-logger"
 import { AuthenticationError } from "#server/utils/authentication-error"
@@ -52,6 +53,7 @@ function authentication(
     },
     service,
     administration,
+    prototypeAuthorization: {} as PrototypeAuthorizationService,
   }
 }
 

@@ -6,10 +6,12 @@ export function createRateLimit({
   limit,
   windowMilliseconds,
   maxEntries = 10_000,
+  message = "Too many authentication requests.",
 }: {
   limit: number
   windowMilliseconds: number
   maxEntries?: number
+  message?: string
 }) {
   const entries = new Map<string, { count: number; resetAt: number }>()
 
@@ -29,7 +31,7 @@ export function createRateLimit({
     entry.count++
     entries.set(key, entry)
     if (entry.count > limit) {
-      next(new AuthenticationError(429, "rate_limited", "Too many authentication requests."))
+      next(new AuthenticationError(429, "rate_limited", message))
       return
     }
     next()

@@ -16,6 +16,23 @@ import { delete as handleApiSessionDelete } from "#server/routes/api/session/del
 import { get as handleApiSessionGet } from "#server/routes/api/session/get"
 import { post as handleApiSessionRevokeAllPost } from "#server/routes/api/session/revoke-all/post"
 import { post as handleApiSessionVerifyPost } from "#server/routes/api/session/verify/post"
+import {
+  archivePrototype,
+  createPrototype,
+  createVersion,
+  createWorkspace,
+  explainPrototypeAccess,
+  getPrototype,
+  getVersion,
+  getWorkspace,
+  listPrototypes,
+  listVersions,
+  listWorkspaces,
+  removePrototypeAccess,
+  removeWorkspaceAccess,
+  setPrototypeAccess,
+  setWorkspaceAccess,
+} from "#server/routes/product"
 import type { AuthenticationRoutes } from "#server/routes/types"
 
 /** Keep endpoint registration separate from the app's shared middleware. */
@@ -24,7 +41,7 @@ export function routes(app: Express, authentication?: AuthenticationRoutes): voi
   if (!authentication) return
 
   app.use(
-    ["/api/auth", "/api/session", "/api/administration"],
+    ["/api/auth", "/api/session", "/api/administration", "/api/workspaces", "/api/prototypes"],
     prepareAuthenticationRequest.bind(null, authentication.settings.origin),
   )
   const initiationLimit = createRateLimit({
@@ -73,5 +90,57 @@ export function routes(app: Express, authentication?: AuthenticationRoutes): voi
     handleApiAdministrationMembershipsPatch.bind(null, authentication),
   )
   app.use("/api/administration", respondAdministrationError)
+  const productMutationLimit = createRateLimit({
+    limit: 120,
+    windowMilliseconds: 5 * 60_000,
+    message: "Too many product requests.",
+  })
+  app.get("/api/workspaces", listWorkspaces.bind(null, authentication))
+  app.post("/api/workspaces", productMutationLimit, createWorkspace.bind(null, authentication))
+  app.get("/api/workspaces/:workspaceId", getWorkspace.bind(null, authentication))
+  app.put(
+    "/api/workspaces/:workspaceId/access/:userId",
+    productMutationLimit,
+    setWorkspaceAccess.bind(null, authentication),
+  )
+  app.delete(
+    "/api/workspaces/:workspaceId/access/:userId",
+    productMutationLimit,
+    removeWorkspaceAccess.bind(null, authentication),
+  )
+  app.get("/api/workspaces/:workspaceId/prototypes", listPrototypes.bind(null, authentication))
+  app.post(
+    "/api/workspaces/:workspaceId/prototypes",
+    productMutationLimit,
+    createPrototype.bind(null, authentication),
+  )
+  app.get("/api/prototypes/:prototypeId", getPrototype.bind(null, authentication))
+  app.post(
+    "/api/prototypes/:prototypeId/archive",
+    productMutationLimit,
+    archivePrototype.bind(null, authentication),
+  )
+  app.get(
+    "/api/prototypes/:prototypeId/access/explanation",
+    explainPrototypeAccess.bind(null, authentication),
+  )
+  app.put(
+    "/api/prototypes/:prototypeId/access/:userId",
+    productMutationLimit,
+    setPrototypeAccess.bind(null, authentication),
+  )
+  app.delete(
+    "/api/prototypes/:prototypeId/access/:userId",
+    productMutationLimit,
+    removePrototypeAccess.bind(null, authentication),
+  )
+  app.get("/api/prototypes/:prototypeId/versions", listVersions.bind(null, authentication))
+  app.post(
+    "/api/prototypes/:prototypeId/versions",
+    productMutationLimit,
+    createVersion.bind(null, authentication),
+  )
+  app.get("/api/prototypes/:prototypeId/versions/:versionId", getVersion.bind(null, authentication))
+  app.use(["/api/workspaces", "/api/prototypes"], respondAdministrationError)
   app.use(respondAuthenticationError)
 }

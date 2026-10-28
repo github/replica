@@ -18,6 +18,7 @@ import type { AuditInput, SecurityAuditRecord } from "#server/repositories/secur
 import type { HubSession } from "#server/repositories/sessions/types"
 import type { HubUser, UserInput } from "#server/repositories/users/types"
 import type { IdentityStoreState } from "#server/repositories/identity-store-state/types"
+import type { Prisma } from "../../../generated/prisma/client.ts"
 
 export interface AuthenticationProviderRevisionRecord {
   id: string
@@ -107,5 +108,7 @@ export interface IdentityRecords {
 
 export interface IdentityStore {
   read: IdentityRecords
-  lock<T>(operation: (records: IdentityRecords) => Promise<T>): Promise<T>
+  lock<T>(
+    operation: (records: IdentityRecords, database: Prisma.TransactionClient) => Promise<T>,
+  ): Promise<T>
 }

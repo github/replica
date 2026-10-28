@@ -56,7 +56,7 @@ describe("createAuthenticationService() membership enforcement", () => {
       } as unknown as IdentityRecords
       const store: IdentityStore = {
         read: records,
-        lock: (operation) => operation(records),
+        lock: (operation) => operation(records, {} as never),
       }
       const service = createAuthenticationService({
         store,
