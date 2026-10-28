@@ -2403,7 +2403,7 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
 
   it("passes the mutation transaction to a synchronized prototype baseline", async () => {
     const baselineAccess = vi.fn<PrototypeBaselinePolicy["baseline"]>().mockResolvedValue({
-      role: "editor",
+      role: "administrator",
       repositorySourceId: "repository-source",
       githubRepositoryId: "100",
       rawPermission: "write",
@@ -2427,10 +2427,11 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
     })
 
     await expect(
-      service.createVersion("transaction-baseline-token", prototype.id, {
-        label: "Baseline version",
+      service.createPublisherCredential("transaction-baseline-token", prototype.id, {
+        name: "Baseline publisher",
+        actions: ["publish"],
       }),
-    ).resolves.toMatchObject({ prototypeId: prototype.id, sequence: 1 })
+    ).resolves.toMatchObject({ publisher: { prototypeId: prototype.id } })
 
     expect(baselineAccess).toHaveBeenCalledOnce()
     expect(baselineAccess.mock.calls[0]?.slice(1)).toEqual([actor.user.id, prototype.id])
