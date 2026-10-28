@@ -826,10 +826,10 @@ export function createPrototypeAuthorizationService({
         requireIdentifier(prototypeId, "prototype_not_found", "The prototype was not found.")
         await lockPrototype(transaction, prototypeId)
         const { prototype, decision } = await prototypeDecision(
+          baseline,
           transaction,
           actor.userId,
           prototypeId,
-          baseline,
         )
         requireDecision(decision, "administrator")
         if (prototype.archivedAt) {
@@ -884,10 +884,10 @@ export function createPrototypeAuthorizationService({
         requireIdentifier(prototypeId, "prototype_not_found", "The prototype was not found.")
         await lockPrototype(transaction, prototypeId)
         const { decision } = await prototypeDecision(
+          baseline,
           transaction,
           actor.userId,
           prototypeId,
-          baseline,
         )
         requireDecision(decision, "administrator")
         const items = await transaction.workloadPublisher.findMany({
@@ -937,10 +937,10 @@ export function createPrototypeAuthorizationService({
         )
         await lockPrototype(transaction, prototypeId)
         const { prototype, decision } = await prototypeDecision(
+          baseline,
           transaction,
           actor.userId,
           prototypeId,
-          baseline,
         )
         requireDecision(decision, "administrator")
         if (prototype.archivedAt && parsed.data.active) {
@@ -993,10 +993,10 @@ export function createPrototypeAuthorizationService({
         )
         await lockPrototype(transaction, prototypeId)
         const { prototype, decision } = await prototypeDecision(
+          baseline,
           transaction,
           actor.userId,
           prototypeId,
-          baseline,
         )
         requireDecision(decision, "administrator")
         const credential = await transaction.workloadCredential.findFirst({
