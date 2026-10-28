@@ -10,7 +10,6 @@ import { temporaryDirectory } from "../../test/temporary-directory/index.mjs"
 import { validateCheckout } from "./index.ts"
 
 const actionRoot = fileURLToPath(new URL("../../", import.meta.url))
-const tsx = path.join(actionRoot, "node_modules", ".bin", "tsx")
 const script = fileURLToPath(new URL("./index.ts", import.meta.url))
 const secret = "dummy-checkout-credential-do-not-log"
 const authorization = `[http]\nextraHeader = AUTHORIZATION: basic ${secret}\n`
@@ -49,7 +48,7 @@ describe("validateCheckout()", () => {
 
   it("runs the action guard before npm lifecycle and build scripts without leaking authorization", async (t) => {
     const action = await readFile(path.join(actionRoot, "action.yml"), "utf8")
-    const guard = action.match(/run: '([^'\n]+validate-checkout[^'\n]+)'/)
+    const guard = action.match(/run: (node [^\n]+validate-checkout[^\n]+)/)
     assert.ok(guard, "The action must run checkout validation")
     assert.ok(typeof guard.index === "number")
     const guardCommand = guard[1]
@@ -156,7 +155,10 @@ describe("validateCheckout()", () => {
     const root = await checkout(t)
     await writeFile(path.join(root, ".git", "config"), `${authorization}[broken\n`)
 
-    const result = spawnSync(tsx, [script, "--root", root], { encoding: "utf8", cwd: root })
+    const result = spawnSync(process.execPath, [script, "--root", root], {
+      encoding: "utf8",
+      cwd: root,
+    })
 
     assert.ifError(result.error)
     assert.equal(result.status, 1)
