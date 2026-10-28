@@ -940,8 +940,11 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
   })
 
   it("lets a workspace deny override prototype and baseline access when listing", async () => {
+    const baselineRole = vi
+      .fn<PrototypeBaselinePolicy["role"]>()
+      .mockRejectedValue(new Error("baseline unavailable"))
     const baseline: PrototypeBaselinePolicy = {
-      role: vi.fn().mockResolvedValue("viewer"),
+      role: baselineRole,
     }
     const { prisma, service, store } = await database(baseline)
     const actor = await createActor(store, {
@@ -981,6 +984,46 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
       status: 403,
       code: "prototype_access_denied",
     })
+    expect(baselineRole.mock.calls).toHaveLength(0)
+  })
+
+  it("uses an explicit prototype role without consulting a failing baseline", async () => {
+    const baselineRole = vi
+      .fn<PrototypeBaselinePolicy["role"]>()
+      .mockRejectedValue(new Error("baseline unavailable"))
+    const { prisma, service, store } = await database({ role: baselineRole })
+    const actor = await createActor(store, {
+      subject: "explicit-role-baseline-failure",
+      token: "explicit-role-baseline-failure-token",
+    })
+    const workspace = await prisma.workspace.create({
+      data: {
+        name: "Workspace",
+        createdByUserId: actor.user.id,
+      },
+    })
+    const prototype = await prisma.prototype.create({
+      data: {
+        name: "Prototype",
+        workspaceId: workspace.id,
+        createdByUserId: actor.user.id,
+        grants: {
+          create: {
+            userId: actor.user.id,
+            effect: "allow",
+            role: "viewer",
+          },
+        },
+      },
+    })
+
+    await expect(
+      service.listPrototypes("explicit-role-baseline-failure-token", workspace.id, {}),
+    ).resolves.toMatchObject({
+      items: [{ id: prototype.id }],
+      nextCursor: null,
+    })
+    expect(baselineRole.mock.calls).toHaveLength(0)
   })
 
   it("fills prototype pages after excluding explicit denies and continues without duplicates", async () => {

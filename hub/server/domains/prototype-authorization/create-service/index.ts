@@ -285,10 +285,13 @@ async function prototypeAccessDecision(
     grants: GrantInput[]
   },
 ) {
-  return evaluatePrototypeAccess({
+  const hubDecision = evaluatePrototypeAccess({
     workspaceGrant,
     prototypeGrant: prototype.grants[0] ?? null,
-    baselineRole: baseline ? await baseline.role(userId, prototype.id) : null,
+  })
+  if (hubDecision.source !== "none" || !baseline) return hubDecision
+  return evaluatePrototypeAccess({
+    baselineRole: await baseline.role(userId, prototype.id),
   })
 }
 
