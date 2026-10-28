@@ -33,6 +33,10 @@ const grantSchema = z.discriminatedUnion("effect", [
 ])
 const roles: PrototypeRole[] = ["viewer", "commenter", "editor", "administrator"]
 const identifierSchema = z.uuid()
+const authorizationSchema = z.discriminatedUnion("mode", [
+  z.object({ mode: z.literal("hub-managed") }),
+  z.object({ mode: z.literal("github-synchronized"), repositorySourceId: z.uuid() }),
+])
 
 function authenticationDependencies(store: IdentityStore) {
   return {
@@ -40,7 +44,7 @@ function authenticationDependencies(store: IdentityStore) {
     github: null,
     configuration: null,
     providerRevisionId: null,
-    admissionPolicy: { name: "hub-managed" as const, admit: () => Promise.resolve(false) },
+    admissionPolicy: { name: "hub-managed" as const, admit: () => Promise.resolve(null) },
     now: () => new Date(),
   }
 }
@@ -122,6 +126,18 @@ async function requireActiveTarget(database: Prisma.TransactionClient, userId: s
   }
 }
 
+async function preserveManualAdministration(
+  database: Prisma.TransactionClient,
+  userId: string,
+  change: GrantInput,
+): Promise<void> {
+  if (change.effect !== "allow" || change.role !== "administrator") return
+  await database.installationMembership.updateMany({
+    where: { userId, source: "synchronized", status: "active" },
+    data: { source: "manual" },
+  })
+}
+
 async function lockWorkspace(
   database: Prisma.TransactionClient,
   workspaceId: string,
@@ -134,6 +150,18 @@ async function lockPrototype(
   prototypeId: string,
 ): Promise<void> {
   await database.$queryRaw`SELECT "id" FROM "prototypes" WHERE "id" = ${prototypeId}::uuid FOR UPDATE`
+}
+
+async function lockGitHubRepositorySource(
+  database: Prisma.TransactionClient,
+  repositorySourceId: string,
+): Promise<void> {
+  await database.$queryRaw`
+    SELECT "id"
+    FROM "github_repository_sources"
+    WHERE "id" = ${repositorySourceId}::uuid
+    FOR UPDATE
+  `
 }
 
 async function lockWorkspacePrototypes(
@@ -185,14 +213,16 @@ async function prototypeDecision(
   if (!prototype) {
     throw new AuthenticationError(404, "prototype_not_found", "The prototype was not found.")
   }
+  const decision = await prototypeAccessDecision(
+    baseline,
+    database,
+    userId,
+    prototype.workspace.grants[0] ?? null,
+    prototype,
+  )
   return {
     prototype,
-    decision: await prototypeAccessDecision(
-      baseline,
-      userId,
-      prototype.workspace.grants[0] ?? null,
-      prototype,
-    ),
+    decision,
   }
 }
 
@@ -294,6 +324,7 @@ function prototypeDto(prototype: {
 
 async function prototypeAccessDecision(
   baseline: PrototypeBaselinePolicy | null,
+  database: Prisma.TransactionClient | PrismaClient,
   userId: string,
   workspaceGrant: GrantInput | null,
   prototype: {
@@ -307,8 +338,69 @@ async function prototypeAccessDecision(
   })
   if (hubDecision.source !== "none" || !baseline) return hubDecision
   return evaluatePrototypeAccess({
-    baselineRole: await baseline.role(userId, prototype.id),
+    baseline: await baseline.baseline(database, userId, prototype.id),
   })
+}
+
+async function readAccessibleWorkspacePage({
+  baseline,
+  database,
+  userId,
+  cursor,
+  limit,
+}: {
+  baseline: PrototypeBaselinePolicy | null
+  database: PrismaClient
+  userId: string
+  cursor?: string
+  limit: number
+}) {
+  const baselineWorkspaceIds = baseline?.workspaceIds
+    ? await baseline.workspaceIds(database, userId)
+    : []
+  const items = []
+  let scanCursor = cursor
+  while (items.length <= limit) {
+    const candidates = await database.workspace.findMany({
+      where: {
+        OR: [
+          { grants: { some: { userId } } },
+          { prototypes: { some: { grants: { some: { userId } } } } },
+          ...(baselineWorkspaceIds.length > 0 ? [{ id: { in: baselineWorkspaceIds } }] : []),
+        ],
+      },
+      include: { grants: { where: { userId } } },
+      orderBy: { id: "asc" },
+      ...(scanCursor ? { cursor: { id: scanCursor }, skip: 1 } : {}),
+      take: 100,
+    })
+    if (candidates.length === 0) break
+    for (const candidate of candidates) {
+      scanCursor = candidate.id
+      const workspaceGrant = candidate.grants[0] ?? null
+      if (
+        evaluatePrototypeAccess({ workspaceGrant }).allowed ||
+        (await hasAnyPrototypeAccess({
+          baseline,
+          database,
+          userId,
+          workspaceId: candidate.id,
+          workspaceGrant,
+        }))
+      ) {
+        items.push({
+          id: candidate.id,
+          createdByUserId: candidate.createdByUserId,
+          name: candidate.name,
+          createdAt: candidate.createdAt,
+          updatedAt: candidate.updatedAt,
+        })
+      }
+      if (items.length > limit) break
+    }
+    if (candidates.length < 100) break
+  }
+  return pageResult(items, limit)
 }
 
 async function readAccessiblePrototypePage({
@@ -341,7 +433,13 @@ async function readAccessiblePrototypePage({
     if (candidates.length === 0) break
     for (const candidate of candidates) {
       scanCursor = candidate.id
-      const decision = await prototypeAccessDecision(baseline, userId, workspaceGrant, candidate)
+      const decision = await prototypeAccessDecision(
+        baseline,
+        database,
+        userId,
+        workspaceGrant,
+        candidate,
+      )
       if (decision.allowed) items.push(prototypeDto(candidate))
       if (items.length > limit) break
     }
@@ -375,7 +473,10 @@ async function hasAnyPrototypeAccess({
       take: 100,
     })
     for (const candidate of candidates) {
-      if ((await prototypeAccessDecision(baseline, userId, workspaceGrant, candidate)).allowed) {
+      if (
+        (await prototypeAccessDecision(baseline, database, userId, workspaceGrant, candidate))
+          .allowed
+      ) {
         return true
       }
     }
@@ -413,25 +514,13 @@ export function createPrototypeAuthorizationService({
     async listWorkspaces(sessionToken, query) {
       const { cursor, limit } = parsePage(query)
       const actor = await currentSession(store, sessionToken)
-      const items = await database.workspace.findMany({
-        where: {
-          grants: {
-            some: { userId: actor.userId, effect: "allow" },
-            none: { userId: actor.userId, effect: "deny" },
-          },
-        },
-        orderBy: { id: "asc" },
-        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-        take: limit + 1,
-        select: {
-          id: true,
-          createdByUserId: true,
-          name: true,
-          createdAt: true,
-          updatedAt: true,
-        },
+      return readAccessibleWorkspacePage({
+        baseline,
+        database,
+        userId: actor.userId,
+        cursor,
+        limit,
       })
-      return pageResult(items, limit)
     },
 
     async createWorkspace(sessionToken, input) {
@@ -526,6 +615,7 @@ export function createPrototypeAuthorizationService({
           create: { workspaceId, userId: targetId, ...change },
           update: change,
         })
+        await preserveManualAdministration(transaction, targetUserId, change)
         await audit(transaction, actor, {
           event: change.effect === "deny" ? "workspace.access.deny" : "workspace.access.grant",
           workspaceId,
@@ -694,6 +784,64 @@ export function createPrototypeAuthorizationService({
       return decision
     },
 
+    async setPrototypeAuthorization(sessionToken, prototypeId, input) {
+      const parsed = authorizationSchema.safeParse(input)
+      if (!parsed.success) {
+        throw new AuthenticationError(
+          422,
+          "invalid_authorization_policy",
+          "The prototype authorization policy is invalid.",
+        )
+      }
+      return store.lock(async (_records, transaction) => {
+        const actor = await currentSession(store, sessionToken, transaction)
+        requireFreshAuthorization(actor)
+        requireIdentifier(prototypeId, "prototype_not_found", "The prototype was not found.")
+        await lockPrototype(transaction, prototypeId)
+        const { prototype, decision } = await prototypeDecision(
+          baseline,
+          transaction,
+          actor.userId,
+          prototypeId,
+        )
+        requireDecision(decision, "administrator")
+        if (parsed.data.mode === "github-synchronized") {
+          await lockGitHubRepositorySource(transaction, parsed.data.repositorySourceId)
+          const source = await transaction.gitHubRepositorySource.findUnique({
+            where: { id: parsed.data.repositorySourceId },
+          })
+          if (!source || source.status !== "active") {
+            throw new AuthenticationError(
+              422,
+              "repository_source_unavailable",
+              "The linked GitHub repository is unavailable.",
+            )
+          }
+        }
+        const updated = await transaction.prototype.update({
+          where: { id: prototypeId },
+          data:
+            parsed.data.mode === "hub-managed"
+              ? { authorizationMode: "hub-managed", sourceRepositoryId: null }
+              : {
+                  authorizationMode: "github-synchronized",
+                  sourceRepositoryId: parsed.data.repositorySourceId,
+                },
+        })
+        await audit(transaction, actor, {
+          event: "prototype.authorization.policy",
+          workspaceId: prototype.workspaceId,
+          prototypeId,
+          githubRepositorySourceId:
+            parsed.data.mode === "github-synchronized" ? parsed.data.repositorySourceId : null,
+          context: {
+            reason: parsed.data.mode === "hub-managed" ? "hub_managed" : "github_synchronized",
+          },
+        })
+        return updated
+      })
+    },
+
     async setPrototypeAccess(sessionToken, prototypeId, targetUserId, input) {
       const change = parseGrant(input)
       const targetId = normalizeIdentifier(
@@ -726,6 +874,7 @@ export function createPrototypeAuthorizationService({
           create: { prototypeId, userId: targetId, ...change },
           update: change,
         })
+        await preserveManualAdministration(transaction, targetId, change)
         await audit(transaction, actor, {
           event: change.effect === "deny" ? "prototype.access.deny" : "prototype.access.grant",
           workspaceId: prototype.workspaceId,

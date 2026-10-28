@@ -1,6 +1,6 @@
 # Hub identity
 
-Hub uses GitHub user authorization to prove an external identity. Hub then applies its own installation admission and membership rules before creating a provider-neutral browser session. Repository permissions do not grant installation membership.
+Hub uses GitHub user authorization to prove an external identity. Hub then applies its configured installation admission and membership rules before creating a provider-neutral browser session. Repository permissions grant installation membership only when an operator explicitly selects GitHub-synchronized admission and opts in at least one linked repository.
 
 ## GitHub user authentication
 
@@ -12,7 +12,11 @@ The callback consumes an attempt once, checks the same-browser binding and curre
 
 Hub sessions use a random opaque cookie and store only its digest. Authentication and session cookies are `HttpOnly`, `SameSite=Lax`, path-scoped, and `Secure` on HTTPS. State-changing routes require the configured origin and a matching CSRF cookie and header. Authentication routes omit request payloads from logs.
 
-`HUB_ADMISSION_POLICY=hub-managed` is the default. GitHub proves identity, then Hub admits only an active member, an exact provider assignment with a usable invitation, or an authorized bootstrap or recovery enrollment. `legacy-repository` is an explicit compatibility policy that uses the separate GitHub source integration to create a member assignment after repository admission. The GitHub authentication adapter never reads installation credentials or performs repository authorization.
+`HUB_ADMISSION_POLICY=hub-managed` is the default. GitHub proves identity, then Hub admits only an active member, an exact provider assignment with a usable invitation, or an authorized bootstrap or recovery enrollment.
+
+`github-synchronized` is opt-in. It checks only repository source records whose admission switch is enabled, resolves their current metadata by immutable GitHub repository ID, uses the separately configured GitHub App installation credentials, and records the confirmed raw permission and mapped baseline separately from the membership. A qualifying baseline creates or refreshes only a `synchronized` member assignment. Manual, invitation, bootstrap, recovery, suspended, and administratively removed assignments remain Hub overrides and are never rewritten by synchronization. Permission loss removes a synchronized membership and its sessions only after reconciliation or the bounded last-known-good window expires.
+
+`legacy-repository` preserves the previous compatibility behavior. It scans repositories available to the installation and creates a `legacy-synchronized` member assignment after finding any repository permission, without requiring linked source records. Linked-source reconciliation does not manage those compatibility assignments. It is not the normal synchronized authorization mode. The GitHub authentication adapter itself never reads installation credentials or performs repository authorization.
 
 Sign-out revokes the current database session. Every restored session requires an active installation membership. Suspension and removal therefore deny retained cookies immediately, and their administration operations delete the affected user's sessions. Fresh verification reuses GitHub authorization and must return the same external identity. An active Hub administrator membership with fresh verification may revoke all sessions; revocation also supersedes callbacks that started earlier.
 
@@ -46,12 +50,12 @@ GitHub source access is an optional integration boundary, not the global identit
 | `database` (default) | Generate `HUB_GITHUB_CREDENTIAL_KEY` with `openssl rand -hex 32`. The provider encrypts GitHub integration credentials before storage and authenticates their context when reading. |
 | `environment` | Set every `GITHUB_*` value, including `GITHUB_INSTALLATION_ID`. This provider is read-only and ignores database credentials. |
 
-Both providers currently validate an App ID, installation ID, client ID, client secret, and RSA private key. IDs are positive decimal strings. The key must contain at least 2048 bits. A deployment may use the same GitHub App for user authorization and source integration, but it supplies and rotates the two configurations independently.
+Both providers currently validate an App ID, installation ID, client ID, client secret, and RSA private key. IDs are positive decimal strings. The key must contain at least 2048 bits. A deployment may use the same GitHub App for user authorization and source integration, but it supplies and rotates the two configurations independently. Set `HUB_GITHUB_WEBHOOK_SECRET` separately when enabling the webhook route.
 
 Database credentials use AES-256-GCM with contextual additional authenticated data. Keep the encryption key outside the database and back it up separately. Losing or replacing it makes saved credentials unreadable. Invalid provider settings or unreadable ciphertext cause errors; Hub never falls back to another provider.
 
 ## Current scope
 
-This layer adds GitHub sign-in, installation admission, invitations, member and administrator lifecycle, one-use bootstrap and recovery, session restoration, sign-out, fresh verification, global and per-member session revocation, structured security records, and the minimal frontend needed to use them. The separate [prototype authorization](prototype-authorization.md) boundary uses these sessions without treating membership or repository access as product authority. Identity does not add GitHub membership synchronization, artifact ingestion, production OIDC, account linking, or SCIM.
+This layer adds GitHub sign-in, Hub-managed and opt-in GitHub-synchronized installation admission, invitations, member and administrator lifecycle, one-use bootstrap and recovery, session restoration, sign-out, fresh verification, global and per-member session revocation, structured security records, and the minimal frontend needed to use them. The separate [prototype authorization](prototype-authorization.md) boundary may consume a synchronized repository baseline without treating installation membership as product authority. Identity does not add artifact ingestion, production OIDC, account linking, or SCIM.
 
 Apply the rewritten initial migration with `npm run db:deploy`. See [Database](database.md) for setup and schema rules.

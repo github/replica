@@ -6,7 +6,7 @@ import type {
 export function evaluatePrototypeAccess({
   workspaceGrant,
   prototypeGrant,
-  baselineRole = null,
+  baseline = null,
 }: AccessInput): AccessDecision {
   if (prototypeGrant?.effect === "deny" || workspaceGrant?.effect === "deny") {
     return {
@@ -32,12 +32,19 @@ export function evaluatePrototypeAccess({
       reason: "workspace_role",
     }
   }
-  if (baselineRole) {
+  if (baseline) {
     return {
       allowed: true,
-      role: baselineRole,
-      source: "baseline",
-      reason: "baseline_role",
+      role: baseline.role,
+      source: "github-synchronized",
+      reason: "github_baseline",
+      baseline: {
+        repositorySourceId: baseline.repositorySourceId,
+        githubRepositoryId: baseline.githubRepositoryId,
+        rawPermission: baseline.rawPermission,
+        confirmedAt: baseline.confirmedAt,
+        synchronizationStatus: baseline.synchronizationStatus,
+      },
     }
   }
   return {

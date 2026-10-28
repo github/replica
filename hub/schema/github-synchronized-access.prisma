@@ -1,0 +1,28 @@
+model GitHubSynchronizedAccess {
+  // ID columns
+  id                 String @id @default(uuid()) @db.Uuid
+  repositorySourceId String @map("repository_source_id") @db.Uuid
+  userId             String @map("user_id") @db.Uuid
+
+  // Relations
+  repositorySource GitHubRepositorySource @relation(fields: [repositorySourceId], references: [id], onDelete: Cascade)
+  user             User                   @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  // Attribute columns
+  rawPermission         String @map("raw_permission")
+  mappedPrototypeRole   PrototypeRole? @map("mapped_prototype_role")
+  admissionEligible     Boolean @map("admission_eligible")
+  status                String @default("active")
+  source                String @default("github_app_installation")
+  synchronizationStatus String @default("current") @map("synchronization_status")
+  lastConfirmedAt       DateTime @map("last_confirmed_at") @db.Timestamptz(3)
+  removedAt             DateTime? @map("removed_at") @db.Timestamptz(3)
+
+  // Timestamp columns
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([repositorySourceId, userId])
+  @@index([userId, status])
+  @@map("github_synchronized_access")
+}

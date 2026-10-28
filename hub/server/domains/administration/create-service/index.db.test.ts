@@ -13,7 +13,18 @@ async function database() {
   return { prisma, store: createIdentityStore(prisma) }
 }
 
-async function createAdministrator(store: IdentityStore, subject: string, token: string) {
+async function createAdministrator(
+  store: IdentityStore,
+  subject: string,
+  token: string,
+  {
+    role = "administrator",
+    source = "manual",
+  }: {
+    role?: "member" | "administrator"
+    source?: "manual" | "synchronized"
+  } = {},
+) {
   const authorizedAt = new Date("2026-10-27T18:00:00.000Z")
   return store.lock(async (records) => {
     const user = await records.createUser({
@@ -42,8 +53,8 @@ async function createAdministrator(store: IdentityStore, subject: string, token:
     const membership = await records.saveMembership({
       userId: user.id,
       status: "active",
-      role: "administrator",
-      source: "manual",
+      role,
+      source,
       suspendedAt: null,
       removedAt: null,
     })
@@ -270,4 +281,51 @@ describe("createAdministrationService() database behavior", () => {
       },
     ])
   })
+
+  it("makes a synchronized membership manual when an administrator grants installation administration", async () => {
+    const { store } = await database()
+    await createAdministrator(store, "actor", "actor-token")
+    const target = await createAdministrator(store, "target", "target-token", {
+      role: "member",
+      source: "synchronized",
+    })
+    const service = createAdministrationService({
+      store,
+      now: () => new Date("2026-10-27T18:01:00.000Z"),
+    })
+
+    await expect(
+      service.changeMembership("actor-token", target.membership.id, {
+        role: "administrator",
+      }),
+    ).resolves.toMatchObject({
+      role: "administrator",
+      source: "manual",
+      status: "active",
+    })
+  })
+
+  it.each(["suspended", "removed"] as const)(
+    "makes an administrator's %s decision manual for a synchronized membership",
+    async (status) => {
+      const { store } = await database()
+      await createAdministrator(store, "actor", "actor-token")
+      const target = await createAdministrator(store, "target", "target-token", {
+        role: "member",
+        source: "synchronized",
+      })
+      const service = createAdministrationService({
+        store,
+        now: () => new Date("2026-10-27T18:01:00.000Z"),
+      })
+
+      await expect(
+        service.changeMembership("actor-token", target.membership.id, { status }),
+      ).resolves.toMatchObject({
+        source: "manual",
+        status,
+      })
+      expect(await store.read.session(digestSecret("target-token"))).toBeNull()
+    },
+  )
 })

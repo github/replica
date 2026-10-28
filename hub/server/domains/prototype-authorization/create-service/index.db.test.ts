@@ -30,10 +30,12 @@ async function createActor(
     subject,
     token,
     role = "member",
+    source = "manual",
   }: {
     subject: string
     token: string
     role?: "member" | "administrator"
+    source?: "manual" | "synchronized"
   },
 ) {
   const authorizedAt = new Date()
@@ -65,7 +67,7 @@ async function createActor(
       userId: user.id,
       status: "active",
       role,
-      source: "manual",
+      source,
     })
     const session = await records.createSession({
       userId: user.id,
@@ -1174,9 +1176,16 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
   })
 
   it("returns an empty terminal prototype page for a baseline-authorized user", async () => {
-    const baselineRole = vi.fn<PrototypeBaselinePolicy["role"]>().mockResolvedValue("viewer")
+    const baselineAccess = vi.fn<PrototypeBaselinePolicy["baseline"]>().mockResolvedValue({
+      role: "viewer",
+      repositorySourceId: "repository-source",
+      githubRepositoryId: "100",
+      rawPermission: "read",
+      confirmedAt: new Date(),
+      synchronizationStatus: "current",
+    })
     const baseline: PrototypeBaselinePolicy = {
-      role: baselineRole,
+      baseline: baselineAccess,
     }
     const { prisma, service, store } = await database(baseline)
     const actor = await createActor(store, {
@@ -1203,12 +1212,19 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
         limit: 20,
       }),
     ).resolves.toEqual({ items: [], nextCursor: null })
-    expect(baselineRole.mock.calls).toContainEqual([actor.user.id, prototype.id])
+    expect(baselineAccess.mock.calls).toContainEqual([prisma, actor.user.id, prototype.id])
   })
 
   it("uses baseline authorization for single-prototype reads and role-gated mutations", async () => {
-    const baselineRole = vi.fn<PrototypeBaselinePolicy["role"]>().mockResolvedValue("administrator")
-    const { prisma, service, store } = await database({ role: baselineRole })
+    const baselineAccess = vi.fn<PrototypeBaselinePolicy["baseline"]>().mockResolvedValue({
+      role: "administrator",
+      repositorySourceId: "repository-source",
+      githubRepositoryId: "100",
+      rawPermission: "admin",
+      confirmedAt: new Date(),
+      synchronizationStatus: "current",
+    })
+    const { prisma, service, store } = await database({ baseline: baselineAccess })
     const actor = await createActor(store, {
       subject: "baseline-single-prototype",
       token: "baseline-single-prototype-token",
@@ -1258,7 +1274,7 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
     ).resolves.toMatchObject({
       allowed: true,
       role: "administrator",
-      source: "baseline",
+      source: "github-synchronized",
     })
     await expect(
       service.listVersions("baseline-single-prototype-token", prototype.id, {}),
@@ -1290,10 +1306,11 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
     )) as { archivedAt: Date | null }
     expect(archived.archivedAt).toBeInstanceOf(Date)
 
-    expect(baselineRole.mock.calls.length).toBeGreaterThanOrEqual(8)
+    expect(baselineAccess.mock.calls.length).toBeGreaterThanOrEqual(8)
     expect(
-      baselineRole.mock.calls.every(
-        ([userId, prototypeId]) => userId === actor.user.id && prototypeId === prototype.id,
+      baselineAccess.mock.calls.every(
+        ([database, userId, prototypeId]) =>
+          database && userId === actor.user.id && prototypeId === prototype.id,
       ),
     ).toBe(true)
     expect(
@@ -1309,10 +1326,10 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
   })
 
   it("short-circuits the baseline for explicit prototype roles and denies", async () => {
-    const baselineRole = vi
-      .fn<PrototypeBaselinePolicy["role"]>()
+    const baselineAccess = vi
+      .fn<PrototypeBaselinePolicy["baseline"]>()
       .mockRejectedValue(new Error("baseline unavailable"))
-    const { prisma, service, store } = await database({ role: baselineRole })
+    const { prisma, service, store } = await database({ baseline: baselineAccess })
     const actor = await createActor(store, {
       subject: "single-prototype-short-circuit",
       token: "single-prototype-short-circuit-token",
@@ -1368,15 +1385,15 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
       allowed: false,
       source: "hub-prototype",
     })
-    expect(baselineRole).not.toHaveBeenCalled()
+    expect(baselineAccess).not.toHaveBeenCalled()
   })
 
   it("lets a workspace deny override prototype and baseline access when listing", async () => {
-    const baselineRole = vi
-      .fn<PrototypeBaselinePolicy["role"]>()
+    const baselineAccess = vi
+      .fn<PrototypeBaselinePolicy["baseline"]>()
       .mockRejectedValue(new Error("baseline unavailable"))
     const baseline: PrototypeBaselinePolicy = {
-      role: baselineRole,
+      baseline: baselineAccess,
     }
     const { prisma, service, store } = await database(baseline)
     const actor = await createActor(store, {
@@ -1418,14 +1435,14 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
       code: "prototype_access_denied",
     })
     expect(prototypeScan).not.toHaveBeenCalled()
-    expect(baselineRole.mock.calls).toHaveLength(0)
+    expect(baselineAccess.mock.calls).toHaveLength(0)
   })
 
   it("uses an explicit prototype role without consulting a failing baseline", async () => {
-    const baselineRole = vi
-      .fn<PrototypeBaselinePolicy["role"]>()
+    const baselineAccess = vi
+      .fn<PrototypeBaselinePolicy["baseline"]>()
       .mockRejectedValue(new Error("baseline unavailable"))
-    const { prisma, service, store } = await database({ role: baselineRole })
+    const { prisma, service, store } = await database({ baseline: baselineAccess })
     const actor = await createActor(store, {
       subject: "explicit-role-baseline-failure",
       token: "explicit-role-baseline-failure-token",
@@ -1471,7 +1488,174 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
         "workspaceId",
       ].sort(),
     )
-    expect(baselineRole.mock.calls).toHaveLength(0)
+    expect(baselineAccess.mock.calls).toHaveLength(0)
+  })
+
+  it("makes synchronized memberships manual when granting workspace or prototype administration", async () => {
+    const { prisma, service, store } = await database()
+    const actor = await createActor(store, {
+      subject: "administration-actor",
+      token: "administration-actor-token",
+      role: "administrator",
+    })
+    const workspaceTarget = await createActor(store, {
+      subject: "workspace-administrator-target",
+      token: "workspace-administrator-target-token",
+      source: "synchronized",
+    })
+    const prototypeTarget = await createActor(store, {
+      subject: "prototype-administrator-target",
+      token: "prototype-administrator-target-token",
+      source: "synchronized",
+    })
+    const workspace = await prisma.workspace.create({
+      data: {
+        name: "Workspace",
+        createdByUserId: actor.user.id,
+        grants: {
+          create: {
+            userId: actor.user.id,
+            effect: "allow",
+            role: "administrator",
+          },
+        },
+      },
+    })
+    const prototype = await prisma.prototype.create({
+      data: {
+        name: "Prototype",
+        workspaceId: workspace.id,
+        createdByUserId: actor.user.id,
+        grants: {
+          create: {
+            userId: actor.user.id,
+            effect: "allow",
+            role: "administrator",
+          },
+        },
+      },
+    })
+
+    await service.setWorkspaceAccess(
+      "administration-actor-token",
+      workspace.id,
+      workspaceTarget.user.id,
+      { effect: "allow", role: "administrator" },
+    )
+    await service.setPrototypeAccess(
+      "administration-actor-token",
+      prototype.id,
+      prototypeTarget.user.id,
+      { effect: "allow", role: "administrator" },
+    )
+
+    expect(
+      await prisma.installationMembership.findUnique({
+        where: { userId: workspaceTarget.user.id },
+      }),
+    ).toMatchObject({ source: "manual", status: "active" })
+    expect(
+      await prisma.installationMembership.findUnique({
+        where: { userId: prototypeTarget.user.id },
+      }),
+    ).toMatchObject({ source: "manual", status: "active" })
+  })
+
+  it("passes the mutation transaction to a synchronized prototype baseline", async () => {
+    const baselineAccess = vi.fn<PrototypeBaselinePolicy["baseline"]>().mockResolvedValue({
+      role: "editor",
+      repositorySourceId: "repository-source",
+      githubRepositoryId: "100",
+      rawPermission: "write",
+      confirmedAt: new Date(),
+      synchronizationStatus: "current",
+    })
+    const { prisma, service, store } = await database({ baseline: baselineAccess })
+    const actor = await createActor(store, {
+      subject: "transaction-baseline",
+      token: "transaction-baseline-token",
+    })
+    const workspace = await prisma.workspace.create({
+      data: { name: "Workspace", createdByUserId: actor.user.id },
+    })
+    const prototype = await prisma.prototype.create({
+      data: {
+        name: "Prototype",
+        workspaceId: workspace.id,
+        createdByUserId: actor.user.id,
+      },
+    })
+
+    await expect(
+      service.createVersion("transaction-baseline-token", prototype.id, {
+        label: "Baseline version",
+      }),
+    ).resolves.toMatchObject({ prototypeId: prototype.id, sequence: 1 })
+
+    expect(baselineAccess).toHaveBeenCalledOnce()
+    expect(baselineAccess.mock.calls[0]?.slice(1)).toEqual([actor.user.id, prototype.id])
+    expect(baselineAccess.mock.calls[0]?.[0]).not.toBe(prisma)
+  })
+
+  it("does not evaluate prototype baselines in unrelated workspaces while listing workspaces", async () => {
+    const baselineAccess = vi.fn<PrototypeBaselinePolicy["baseline"]>().mockResolvedValue({
+      role: "viewer",
+      repositorySourceId: "repository-source",
+      githubRepositoryId: "100",
+      rawPermission: "read",
+      confirmedAt: new Date(),
+      synchronizationStatus: "current",
+    })
+    const baselineWorkspaceIds = vi.fn<NonNullable<PrototypeBaselinePolicy["workspaceIds"]>>()
+    const { prisma, service, store } = await database({
+      baseline: baselineAccess,
+      workspaceIds: baselineWorkspaceIds,
+    })
+    const actor = await createActor(store, {
+      subject: "workspace-baseline-scope",
+      token: "workspace-baseline-scope-token",
+    })
+    const accessibleWorkspace = await prisma.workspace.create({
+      data: {
+        name: "Accessible workspace",
+        createdByUserId: actor.user.id,
+        prototypes: {
+          create: {
+            name: "Accessible prototype",
+            createdByUserId: actor.user.id,
+          },
+        },
+      },
+      include: { prototypes: true },
+    })
+    await Promise.all(
+      Array.from({ length: 5 }, (_, index) =>
+        prisma.workspace.create({
+          data: {
+            name: `Unrelated workspace ${index}`,
+            createdByUserId: actor.user.id,
+            prototypes: {
+              create: {
+                name: `Unrelated prototype ${index}`,
+                createdByUserId: actor.user.id,
+              },
+            },
+          },
+        }),
+      ),
+    )
+    baselineWorkspaceIds.mockResolvedValue([accessibleWorkspace.id])
+
+    await expect(
+      service.listWorkspaces("workspace-baseline-scope-token", {}),
+    ).resolves.toMatchObject({
+      items: [{ id: accessibleWorkspace.id }],
+      nextCursor: null,
+    })
+    expect(baselineWorkspaceIds).toHaveBeenCalledWith(prisma, actor.user.id)
+    expect(baselineAccess.mock.calls).toEqual([
+      [prisma, actor.user.id, accessibleWorkspace.prototypes[0]!.id],
+    ])
   })
 
   it("fills prototype pages after excluding explicit denies and continues without duplicates", async () => {

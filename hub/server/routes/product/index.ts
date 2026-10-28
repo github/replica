@@ -139,6 +139,19 @@ export async function archivePrototype(
   response.json({ prototype })
 }
 
+export async function setPrototypeAuthorization(
+  authentication: AuthenticationRoutes,
+  request: Request,
+  response: Response,
+): Promise<void> {
+  const prototype = await authentication.prototypeAuthorization.setPrototypeAuthorization(
+    mutationSessionToken(authentication, request),
+    parameter(request, "prototypeId"),
+    request.body,
+  )
+  response.json({ prototype })
+}
+
 export async function explainPrototypeAccess(
   authentication: AuthenticationRoutes,
   request: Request,

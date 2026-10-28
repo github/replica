@@ -1,4 +1,5 @@
-import type { AccessDecision, PrototypeRole } from "../evaluate-access/types.ts"
+import type { AccessDecision, AccessInput, PrototypeRole } from "../evaluate-access/types.ts"
+import type { Prisma, PrismaClient } from "../../../generated/prisma/client.ts"
 
 export interface Page<T> {
   items: T[]
@@ -24,6 +25,11 @@ export interface PrototypeAuthorizationService {
   createPrototype(sessionToken: string, workspaceId: string, input: unknown): Promise<unknown>
   getPrototype(sessionToken: string, prototypeId: string): Promise<unknown>
   archivePrototype(sessionToken: string, prototypeId: string): Promise<unknown>
+  setPrototypeAuthorization(
+    sessionToken: string,
+    prototypeId: string,
+    input: unknown,
+  ): Promise<unknown>
   explainPrototypeAccess(sessionToken: string, prototypeId: string): Promise<AccessDecision>
   setPrototypeAccess(
     sessionToken: string,
@@ -47,5 +53,13 @@ export interface GrantInput {
 }
 
 export interface PrototypeBaselinePolicy {
-  role(userId: string, prototypeId: string): Promise<PrototypeRole | null>
+  baseline(
+    database: Prisma.TransactionClient | PrismaClient,
+    userId: string,
+    prototypeId: string,
+  ): Promise<AccessInput["baseline"]>
+  workspaceIds?(
+    database: Prisma.TransactionClient | PrismaClient,
+    userId: string,
+  ): Promise<string[]>
 }

@@ -34,7 +34,7 @@ function requireFreshAdministrator(
         github: null,
         configuration: null,
         providerRevisionId: null,
-        admissionPolicy: { name: "hub-managed", admit: () => Promise.resolve(false) },
+        admissionPolicy: { name: "hub-managed", admit: () => Promise.resolve(null) },
         now: dependencies.now,
       },
       sessionToken,
@@ -240,7 +240,7 @@ export function createAdministrationService(
           userId: target.userId,
           role: nextRole,
           status: nextStatus,
-          source: target.source,
+          source: "manual",
           suspendedAt: nextStatus === "suspended" ? dependencies.now() : null,
           removedAt: nextStatus === "removed" ? dependencies.now() : null,
         })
