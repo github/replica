@@ -3,6 +3,20 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "imports": {
+    "#server/*/constants": {
+      "development": "./server/*/constants.ts",
+      "default": "./dist/server/*/constants.js"
+    },
+    "#server/*/types": {
+      "development": "./server/*/types.ts",
+      "default": "./dist/server/*/types.js"
+    },
+    "#server/*": {
+      "development": "./server/*/index.ts",
+      "default": "./dist/server/*/index.js"
+    }
+  },
   "engines": {
     "node": "^24.15.0 || ^26.0.0"
   },
@@ -22,7 +36,7 @@
     "build": "npm run typecheck && vite build && tsc --project tsconfig.server.json",
     "dev": "npm run dev:client",
     "dev:client": "vite --host 127.0.0.1",
-    "dev:api": "node --watch server/index.ts",
+    "dev:api": "node --conditions=development --watch server/index.ts",
     "start": "node dist/server/index.js",
     "preview": "vite preview --host 127.0.0.1",
     "extension:assets:check": "node ../.github/extensions/replica-prototype/check-assets/index.mjs",

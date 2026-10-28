@@ -25,6 +25,24 @@ describe("sanitizeLogValue()", () => {
     expect(input).toEqual(original)
   })
 
+  it("keeps callback-shaped fields in general application log data", () => {
+    const input = {
+      code: "application-code",
+      STATE: "application-state",
+      "no-nce": "application-nonce",
+      code_verifier: "application-verifier",
+      access_token: "application-token",
+    }
+
+    expect(sanitizeLogValue(input)).toEqual({
+      code: "application-code",
+      STATE: "application-state",
+      "no-nce": "application-nonce",
+      code_verifier: "application-verifier",
+      access_token: "[REDACTED]",
+    })
+  })
+
   it("makes cycles and non-JSON primitives safe to serialize", () => {
     const input: Record<string, unknown> = {
       title: "Keep this",

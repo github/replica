@@ -37,6 +37,16 @@ Export route handlers by HTTP method, such as `get()`, and alias them to descrip
 
 Add directories when their functions are needed. Do not add empty implementations just to fill out the structure.
 
+Keep function implementations flat. A composition factory may bind imported functions to dependencies, but must not contain their implementations. Put schemas and constants in a colocated `constants.ts`, and types in `types.ts`.
+
+Keep domain contracts with their domains, GitHub types and errors with that integration, and database inputs with their repositories. Keep only general helpers in utilities.
+
 ## Database access
 
 The [shared Prisma client](database.md#shared-client) lives in `server/integrations/prisma/index.ts`. Domains may pass it to repositories for database queries without letting repositories import integrations. Keep model definitions, naming, and migrations consistent with the [database conventions](database.md#schema-conventions).
+
+Compose repository functions in domains. The identity store binds standalone queries to a database client or transaction there; a repository must not import its neighboring queries to build that store.
+
+`staticIdentityStoreRecordId` identifies the row used to serialize identity-store transactions. It is not a user, provider configuration, or GitHub installation. Keep it with the identity-store state repository.
+
+GitHub source-integration credentials use a separate fixed state row. Authentication-provider configuration must not read or write that credential state.

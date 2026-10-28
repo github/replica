@@ -1,0 +1,17 @@
+model SecurityAudit {
+  // ID columns
+  id                               String  @id @default(uuid()) @db.Uuid
+  actorUserId                      String? @map("actor_user_id") @db.Uuid
+  sessionId                        String? @map("session_id") @db.Uuid
+  authenticationProviderRevisionId String? @map("authentication_provider_revision_id") @db.Uuid
+
+  // Attribute columns
+  event String
+
+  // Timestamp columns
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([createdAt])
+  @@map("security_audits")
+}
