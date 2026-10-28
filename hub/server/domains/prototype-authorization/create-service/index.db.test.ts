@@ -2,13 +2,14 @@ import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { createIdentityStore } from "#server/domains/identity/create-store"
 import { createPrototypeAuthorizationService } from "#server/domains/prototype-authorization/create-service"
+import type { PrototypeBaselinePolicy } from "#server/domains/prototype-authorization/create-service/types"
 import { digestSecret } from "#server/utils/digest-secret"
 
 import type { PrismaClient } from "../../../generated/prisma/client.ts"
 
 type IdentityStore = ReturnType<typeof createIdentityStore>
 
-async function database() {
+async function database(baseline?: PrototypeBaselinePolicy) {
   vi.stubGlobal("prisma", undefined)
   const { prisma } = await import("../../../integrations/prisma")
   onTestFinished(() => prisma.$disconnect())
@@ -16,6 +17,7 @@ async function database() {
     prisma,
     store: createIdentityStore(prisma),
     service: createPrototypeAuthorizationService({
+      baseline,
       database: prisma,
       store: createIdentityStore(prisma),
     }),
@@ -813,6 +815,171 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
     await expect(service.listWorkspaces("pagination-token", { limit: 101 })).rejects.toMatchObject({
       status: 422,
       code: "invalid_pagination",
+    })
+  })
+
+  it("returns scalar workspaces without inaccessible prototype or grant metadata", async () => {
+    const { prisma, service, store } = await database()
+    const actor = await createActor(store, {
+      subject: "workspace-list-leak",
+      token: "workspace-list-leak-token",
+    })
+    const other = await createActor(store, {
+      subject: "workspace-list-other",
+      token: "workspace-list-other-token",
+    })
+    const workspace = await prisma.workspace.create({
+      data: {
+        name: "Workspace",
+        createdByUserId: actor.user.id,
+        grants: {
+          create: {
+            userId: actor.user.id,
+            effect: "allow",
+            role: "viewer",
+          },
+        },
+        prototypes: {
+          create: {
+            name: "Denied prototype",
+            createdByUserId: other.user.id,
+            grants: {
+              create: {
+                userId: actor.user.id,
+                effect: "deny",
+              },
+            },
+          },
+        },
+      },
+    })
+
+    const page = (await service.listWorkspaces("workspace-list-leak-token", {})) as {
+      items: Record<string, unknown>[]
+    }
+
+    expect(page.items).toHaveLength(1)
+    expect(page.items[0]).toMatchObject({
+      id: workspace.id,
+      createdByUserId: actor.user.id,
+      name: "Workspace",
+    })
+    expect(page.items[0]?.createdAt).toBeInstanceOf(Date)
+    expect(page.items[0]?.updatedAt).toBeInstanceOf(Date)
+    expect(page.items[0]).not.toHaveProperty("prototypes")
+    expect(page.items[0]).not.toHaveProperty("grants")
+    expect(JSON.stringify(page)).not.toContain("Denied prototype")
+  })
+
+  it("returns an empty terminal prototype page for a prototype-only user", async () => {
+    const { prisma, service, store } = await database()
+    const actor = await createActor(store, {
+      subject: "prototype-only-terminal",
+      token: "prototype-only-terminal-token",
+    })
+    const workspace = await prisma.workspace.create({
+      data: {
+        name: "Workspace",
+        createdByUserId: actor.user.id,
+      },
+    })
+    const prototype = await prisma.prototype.create({
+      data: {
+        name: "Prototype",
+        workspaceId: workspace.id,
+        createdByUserId: actor.user.id,
+        grants: {
+          create: {
+            userId: actor.user.id,
+            effect: "allow",
+            role: "viewer",
+          },
+        },
+      },
+    })
+
+    await expect(
+      service.listPrototypes("prototype-only-terminal-token", workspace.id, {
+        cursor: prototype.id,
+        limit: 20,
+      }),
+    ).resolves.toEqual({ items: [], nextCursor: null })
+  })
+
+  it("returns an empty terminal prototype page for a baseline-authorized user", async () => {
+    const baselineRole = vi.fn<PrototypeBaselinePolicy["role"]>().mockResolvedValue("viewer")
+    const baseline: PrototypeBaselinePolicy = {
+      role: baselineRole,
+    }
+    const { prisma, service, store } = await database(baseline)
+    const actor = await createActor(store, {
+      subject: "baseline-terminal",
+      token: "baseline-terminal-token",
+    })
+    const workspace = await prisma.workspace.create({
+      data: {
+        name: "Workspace",
+        createdByUserId: actor.user.id,
+      },
+    })
+    const prototype = await prisma.prototype.create({
+      data: {
+        name: "Prototype",
+        workspaceId: workspace.id,
+        createdByUserId: actor.user.id,
+      },
+    })
+
+    await expect(
+      service.listPrototypes("baseline-terminal-token", workspace.id, {
+        cursor: prototype.id,
+        limit: 20,
+      }),
+    ).resolves.toEqual({ items: [], nextCursor: null })
+    expect(baselineRole.mock.calls).toContainEqual([actor.user.id, prototype.id])
+  })
+
+  it("lets a workspace deny override prototype and baseline access when listing", async () => {
+    const baseline: PrototypeBaselinePolicy = {
+      role: vi.fn().mockResolvedValue("viewer"),
+    }
+    const { prisma, service, store } = await database(baseline)
+    const actor = await createActor(store, {
+      subject: "workspace-denied-prototype-list",
+      token: "workspace-denied-prototype-list-token",
+    })
+    const workspace = await prisma.workspace.create({
+      data: {
+        name: "Workspace",
+        createdByUserId: actor.user.id,
+        grants: {
+          create: {
+            userId: actor.user.id,
+            effect: "deny",
+          },
+        },
+      },
+    })
+    await prisma.prototype.create({
+      data: {
+        name: "Directly allowed prototype",
+        workspaceId: workspace.id,
+        createdByUserId: actor.user.id,
+        grants: {
+          create: {
+            userId: actor.user.id,
+            effect: "allow",
+            role: "viewer",
+          },
+        },
+      },
+    })
+
+    await expect(
+      service.listPrototypes("workspace-denied-prototype-list-token", workspace.id, {}),
+    ).rejects.toMatchObject({
+      status: 403,
+      code: "prototype_access_denied",
     })
   })
 
