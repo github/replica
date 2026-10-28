@@ -58,7 +58,7 @@ function store(latest: ReturnType<typeof revision> | null) {
   } as unknown as IdentityRecords
   const identityStore: IdentityStore = {
     read: records,
-    lock: (operation) => operation(records),
+    lock: (operation) => operation(records, {} as never),
   }
   return {
     records: records as IdentityRecords & {

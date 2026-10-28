@@ -114,7 +114,7 @@ function store(testRecords: TestRecords): IdentityStore {
   const typedRecords = testRecords as unknown as IdentityRecords
   return {
     read: typedRecords,
-    lock: (operation) => operation(typedRecords),
+    lock: (operation) => operation(typedRecords, {} as never),
   }
 }
 
