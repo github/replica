@@ -126,6 +126,18 @@ async function requireActiveTarget(database: Prisma.TransactionClient, userId: s
   }
 }
 
+async function preserveManualAdministration(
+  database: Prisma.TransactionClient,
+  userId: string,
+  change: GrantInput,
+): Promise<void> {
+  if (change.effect !== "allow" || change.role !== "administrator") return
+  await database.installationMembership.updateMany({
+    where: { userId, source: "synchronized", status: "active" },
+    data: { source: "manual" },
+  })
+}
+
 async function lockWorkspace(
   database: Prisma.TransactionClient,
   workspaceId: string,
@@ -201,14 +213,16 @@ async function prototypeDecision(
   if (!prototype) {
     throw new AuthenticationError(404, "prototype_not_found", "The prototype was not found.")
   }
+  const decision = await prototypeAccessDecision(
+    baseline,
+    database,
+    userId,
+    prototype.workspace.grants[0] ?? null,
+    prototype,
+  )
   return {
     prototype,
-    decision: await prototypeAccessDecision(
-      baseline,
-      userId,
-      prototype.workspace.grants[0] ?? null,
-      prototype,
-    ),
+    decision,
   }
 }
 
@@ -310,6 +324,7 @@ function prototypeDto(prototype: {
 
 async function prototypeAccessDecision(
   baseline: PrototypeBaselinePolicy | null,
+  database: Prisma.TransactionClient | PrismaClient,
   userId: string,
   workspaceGrant: GrantInput | null,
   prototype: {
@@ -323,7 +338,7 @@ async function prototypeAccessDecision(
   })
   if (hubDecision.source !== "none" || !baseline) return hubDecision
   return evaluatePrototypeAccess({
-    baseline: await baseline.baseline(userId, prototype.id),
+    baseline: await baseline.baseline(database, userId, prototype.id),
   })
 }
 
@@ -340,10 +355,20 @@ async function readAccessibleWorkspacePage({
   cursor?: string
   limit: number
 }) {
+  const baselineWorkspaceIds = baseline?.workspaceIds
+    ? await baseline.workspaceIds(database, userId)
+    : []
   const items = []
   let scanCursor = cursor
   while (items.length <= limit) {
     const candidates = await database.workspace.findMany({
+      where: {
+        OR: [
+          { grants: { some: { userId } } },
+          { prototypes: { some: { grants: { some: { userId } } } } },
+          ...(baselineWorkspaceIds.length > 0 ? [{ id: { in: baselineWorkspaceIds } }] : []),
+        ],
+      },
       include: { grants: { where: { userId } } },
       orderBy: { id: "asc" },
       ...(scanCursor ? { cursor: { id: scanCursor }, skip: 1 } : {}),
@@ -408,7 +433,13 @@ async function readAccessiblePrototypePage({
     if (candidates.length === 0) break
     for (const candidate of candidates) {
       scanCursor = candidate.id
-      const decision = await prototypeAccessDecision(baseline, userId, workspaceGrant, candidate)
+      const decision = await prototypeAccessDecision(
+        baseline,
+        database,
+        userId,
+        workspaceGrant,
+        candidate,
+      )
       if (decision.allowed) items.push(prototypeDto(candidate))
       if (items.length > limit) break
     }
@@ -442,7 +473,10 @@ async function hasAnyPrototypeAccess({
       take: 100,
     })
     for (const candidate of candidates) {
-      if ((await prototypeAccessDecision(baseline, userId, workspaceGrant, candidate)).allowed) {
+      if (
+        (await prototypeAccessDecision(baseline, database, userId, workspaceGrant, candidate))
+          .allowed
+      ) {
         return true
       }
     }
@@ -581,6 +615,7 @@ export function createPrototypeAuthorizationService({
           create: { workspaceId, userId: targetId, ...change },
           update: change,
         })
+        await preserveManualAdministration(transaction, targetUserId, change)
         await audit(transaction, actor, {
           event: change.effect === "deny" ? "workspace.access.deny" : "workspace.access.grant",
           workspaceId,
@@ -721,7 +756,6 @@ export function createPrototypeAuthorizationService({
           transaction,
           actor.userId,
           prototypeId,
-          baseline,
         )
         requireDecision(decision, "editor")
         if (prototype.archivedAt) {
@@ -765,10 +799,10 @@ export function createPrototypeAuthorizationService({
         requireIdentifier(prototypeId, "prototype_not_found", "The prototype was not found.")
         await lockPrototype(transaction, prototypeId)
         const { prototype, decision } = await prototypeDecision(
+          baseline,
           transaction,
           actor.userId,
           prototypeId,
-          baseline,
         )
         requireDecision(decision, "administrator")
         if (parsed.data.mode === "github-synchronized") {
@@ -825,7 +859,6 @@ export function createPrototypeAuthorizationService({
           transaction,
           actor.userId,
           prototypeId,
-          baseline,
         )
         requireDecision(decision, "administrator")
         await requireActiveTarget(transaction, targetId)
@@ -841,6 +874,7 @@ export function createPrototypeAuthorizationService({
           create: { prototypeId, userId: targetId, ...change },
           update: change,
         })
+        await preserveManualAdministration(transaction, targetId, change)
         await audit(transaction, actor, {
           event: change.effect === "deny" ? "prototype.access.deny" : "prototype.access.grant",
           workspaceId: prototype.workspaceId,
@@ -868,7 +902,6 @@ export function createPrototypeAuthorizationService({
           transaction,
           actor.userId,
           prototypeId,
-          baseline,
         )
         requireDecision(decision, "administrator")
         if (!(await hasPrototypeAdministratorAfter(transaction, prototypeId, targetId, null))) {
@@ -921,7 +954,6 @@ export function createPrototypeAuthorizationService({
           transaction,
           actor.userId,
           prototypeId,
-          baseline,
         )
         requireDecision(decision, "editor")
         if (prototype.archivedAt) {

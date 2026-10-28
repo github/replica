@@ -240,7 +240,7 @@ export function createAdministrationService(
           userId: target.userId,
           role: nextRole,
           status: nextStatus,
-          source: target.source,
+          source: "manual",
           suspendedAt: nextStatus === "suspended" ? dependencies.now() : null,
           removedAt: nextStatus === "removed" ? dependencies.now() : null,
         })

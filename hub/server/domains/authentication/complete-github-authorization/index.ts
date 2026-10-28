@@ -111,7 +111,10 @@ export async function completeGitHubAuthorization(
     let identity = await records.externalIdentity("github", configuration.issuer, profile.subject)
     let membership = identity ? await records.membership(identity.userId) : null
     const synchronizableMembership =
-      admissionBaseline !== null && (membership === null || membership.source === "synchronized")
+      admissionBaseline !== null &&
+      membership?.status !== "suspended" &&
+      (membership === null ||
+        (membership.source === "synchronized" && membership.status === "removed"))
     const invitation =
       purpose === "sign-in" &&
       membership?.status !== "active" &&
@@ -280,7 +283,7 @@ export async function completeGitHubAuthorization(
           userId: identity.userId,
           status: "active",
           role: "member",
-          source: "synchronized",
+          source: admissionBaseline === "legacy" ? "legacy-synchronized" : "synchronized",
           suspendedAt: null,
           removedAt: null,
         })

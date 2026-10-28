@@ -93,8 +93,10 @@ export async function createAuthenticationRuntime(environment: NodeJS.ProcessEnv
     githubAuthorization,
     prototypeAuthorization: createPrototypeAuthorizationService({
       baseline: {
-        baseline: (userId, prototypeId) =>
-          githubAuthorization.prototypeBaseline(prisma, userId, prototypeId),
+        baseline: (database, userId, prototypeId) =>
+          githubAuthorization.prototypeBaseline(database, userId, prototypeId),
+        workspaceIds: (database, userId) =>
+          githubAuthorization.prototypeWorkspaceIds(database, userId),
       },
       database: prisma,
       store,
