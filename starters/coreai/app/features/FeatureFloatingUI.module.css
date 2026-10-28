@@ -1,0 +1,60 @@
+/*
+ * Copyright (c) Microsoft Corporation.
+ * Licensed under the MIT license.
+ */
+
+.floating {
+  position: fixed;
+  bottom: var(--spacingS);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  width: max-content;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100dvh - 16px);
+  overflow: auto;
+  border: var(--strokeWidthThin) solid var(--colorNeutralStroke1);
+  border-radius: var(--borderRadiusLarge);
+  background-color: var(--colorNeutralBackground1);
+  box-shadow: var(--shadow16);
+  /* padding: var(--spacingXS); */
+  padding: 0;
+}
+
+.bar {
+  display: flex;
+  /* gap: var(--spacingS); */
+  align-items: stretch;
+}
+
+.features {
+  display: flex;
+  flex-wrap: wrap;
+  /* gap: var(--spacingS); */
+  min-width: 0;
+}
+
+.feature {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--spacingS);
+  padding: var(--spacingXS) var(--spacingS);
+  min-width: 0;
+  border-left: var(--strokeWidthThin) solid var(--colorNeutralStroke1);
+}
+
+.variants {
+  max-width: 100%;
+}
+
+.dragHandle {
+  cursor: grab;
+  touch-action: none;
+  flex-shrink: 0;
+  margin: var(--spacingXS);
+}
+
+.dragging {
+  cursor: grabbing;
+}

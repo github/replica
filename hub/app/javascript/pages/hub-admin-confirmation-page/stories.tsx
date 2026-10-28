@@ -19,7 +19,7 @@ const data: HubAdminConfirmationPageData = {
   cancelLabel: "Cancel",
   cancelPath: "/hub_admins",
   verification:
-    "A role change requires GitHub to have verified this browser's account within the last five minutes. If verification is required, return here and confirm again. Hub never replays the change.",
+    "A role change requires GitHub to have verified this browser's account within the last five minutes. If verification is required, Hub continues your confirmed change after it succeeds.",
   blockedLabel: null,
 }
 
@@ -44,15 +44,6 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Designate: Story = {}
-export const FreshVerificationComplete: Story = {
-  args: {
-    data: {
-      ...data,
-      notice:
-        "GitHub authorization succeeded for this connection only. Return to the action and submit it again within five minutes.",
-    },
-  },
-}
 export const Remove: Story = {
   args: { data: removalData },
 }

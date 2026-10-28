@@ -1,0 +1,79 @@
+.improvement-demo {
+  display: contents;
+}
+
+.improvement-demo__split {
+  display: flex;
+}
+
+.improvement-demo__split button:first-child {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.improvement-demo__split button:last-child {
+  margin-inline-start: -1px;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.improvement-demo__split button[aria-pressed="true"] {
+  background: var(--brand-button-secondary-bgColor-active);
+}
+
+.improvement-demo__split button:focus-visible {
+  position: relative;
+  z-index: 1;
+}
+
+.improvement-demo__notice {
+  flex: none;
+  margin: 0;
+  padding: var(--hub-space-8);
+  overflow-wrap: anywhere;
+}
+
+.improvement-demo__composer {
+  width: min(34rem, calc(100vw - 2rem));
+}
+
+.improvement-demo__dialog-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.improvement-demo__save-shortcut {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--base-size-2);
+  margin-inline-start: var(--base-size-8);
+  color: inherit;
+  transform: translateY(-1px);
+}
+
+.improvement-demo__save-shortcut kbd {
+  display: inline-flex;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  align-items: center;
+  justify-content: center;
+  padding-inline: var(--base-size-4);
+  border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
+  border-radius: var(--base-size-4);
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, currentColor 25%, transparent);
+  font: inherit;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.improvement-demo button:not(.review-comment-marker):focus-visible,
+.improvement-demo [tabindex]:focus-visible {
+  outline: 2px solid var(--hub-focus);
+  outline-offset: 3px;
+}

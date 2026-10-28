@@ -1,0 +1,77 @@
+/*
+ * Copyright (c) Microsoft Corporation.
+ * Licensed under the MIT license.
+ */
+
+@layer common {
+  .container {
+    container-name: catalog-grid;
+    container-type: inline-size;
+  }
+
+  .cardGroup {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: var(--spacingL);
+    margin-bottom: var(--spacingS);
+  }
+
+  .card {
+    height: 100%;
+  }
+
+  /* stylelint-disable-next-line selector-disallowed-list -- child of Card component */
+  .cardIcon {
+    flex: 0 0 auto;
+    align-self: center;
+    margin: 0;
+  }
+
+  /* stylelint-disable-next-line selector-disallowed-list -- child of Card component */
+  .cardHeader {
+    overflow: hidden;
+    flex: 1 1 auto;
+    align-self: center;
+  }
+
+  /* stylelint-disable-next-line selector-disallowed-list -- child of Card component */
+  .cardDescription {
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    text-overflow: ellipsis;
+  }
+
+  .customGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: var(--spacingL);
+    margin-bottom: var(--spacingS);
+  }
+
+  .loadingContainer {
+    padding: var(--spacingXXL);
+  }
+
+  @container catalog-grid (width <= 640px) {
+    .cardGroup {
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    }
+
+    .customGrid {
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    }
+  }
+
+  @container catalog-grid (width <= 480px) {
+    .cardGroup {
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    }
+
+    .customGrid {
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    }
+  }
+}

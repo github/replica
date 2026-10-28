@@ -6,6 +6,7 @@ import { reviewCommentsCopy } from "@utils/review-comment/en"
 import type { HubStatus } from "@utils/prototype-canvas/types"
 import { publicationCopy } from "@utils/resolve-prototype-publication/en"
 import { importedPrototype, publicationHub } from "@utils/resolve-prototype-publication/fixtures"
+import { CanvasReviewFeedback } from "@components/canvas-review-feedback"
 
 import { PrototypeCanvasHubPanel } from "."
 
@@ -208,6 +209,13 @@ function ConnectedDemo({
 const meta = {
   title: "Prototype canvas/Hub panel",
   component: PrototypeCanvasHubPanel,
+  decorators: [
+    (Story) => (
+      <CanvasReviewFeedback>
+        <Story />
+      </CanvasReviewFeedback>
+    ),
+  ],
   args: {
     config: {
       prototypeUrl: "http://localhost:4321/",
@@ -680,8 +688,7 @@ export const LocalCommentUploadFailed: Story = {
     ...LocalDraftComments.args,
     status: {
       ...LocalDraftComments.args!.status!,
-      localCommentsError:
-        "Local comments not synced: Hub is unavailable. Your drafts are kept on this device.",
+      localCommentsError: "Local comments not synced: Hub is unavailable.",
     },
   },
 }

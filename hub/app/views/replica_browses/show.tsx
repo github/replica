@@ -30,7 +30,7 @@ function TemplatePreviewView({ data }: { data: ReplicaBrowsePageData }) {
     selectedBuild: data.selectedBuild,
     route: bridge.route,
     initiallyMinimized: data.minimizedPreview,
-    pinBuild: false,
+    buildSelection: "ignore",
   })
 
   return (

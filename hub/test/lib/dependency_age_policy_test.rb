@@ -232,9 +232,9 @@ class DependencyAgePolicyTest < ActiveSupport::TestCase
 
     Dir.mktmpdir do |root|
       write_repository(root)
-      FileUtils.mkdir_p(File.join(root, "starter"))
+      FileUtils.mkdir_p(File.join(root, "starters/minimal"))
       File.write \
-        File.join(root, "starter/package-lock.json"),
+        File.join(root, "starters/minimal/package-lock.json"),
         JSON.generate(
           "packages" => {
             "" => {},
@@ -248,7 +248,7 @@ class DependencyAgePolicyTest < ActiveSupport::TestCase
       }
       client = FakeClient.new(publication_times)
 
-      result = DependencyAgePolicy::Audit.new(root:, client:, now:, excluded_paths: [ "starter" ]).call
+      result = DependencyAgePolicy::Audit.new(root:, client:, now:, excluded_paths: [ "starters" ]).call
 
       assert_predicate result, :success?
       assert_equal 3, result.checked_count

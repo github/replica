@@ -7,6 +7,7 @@ import { HubSpinner } from "@components/hub-spinner"
 import { HubSidebar } from "@components/hub-sidebar"
 import { ReviewCommentFilterControls } from "@features/review-comment-filter-controls"
 import { ReviewCommentRow } from "@features/review-comment-row"
+import { useReviewError } from "@hooks/use-review-error"
 
 import type { ReviewCommentsSidebarProps } from "./types"
 
@@ -37,6 +38,7 @@ export function ReviewCommentsSidebar({
   onSelect,
 }: ReviewCommentsSidebarProps) {
   const emptyLabel = hasThreads ? copy.noMatchesLabel : copy.emptyLabel
+  const showLoadError = useReviewError(loadFailed && copy.loadErrorLabel)
 
   const content = (
     <>
@@ -54,8 +56,11 @@ export function ReviewCommentsSidebar({
 
       <div className="review-comments-sidebar__body" aria-live="polite">
         {loadFailed ? (
-          <div className="review-comments-sidebar__state" role="alert">
-            <span>{copy.loadErrorLabel}</span>
+          <div
+            className="review-comments-sidebar__state"
+            role={showLoadError ? "alert" : undefined}
+          >
+            {showLoadError ? <span>{copy.loadErrorLabel}</span> : null}
 
             <Button size="small" onClick={onRetry}>
               {copy.retryLabel}

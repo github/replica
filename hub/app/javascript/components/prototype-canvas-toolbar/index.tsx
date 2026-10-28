@@ -1,6 +1,14 @@
-import { CheckCircleIcon, LinkIcon, SyncIcon, UploadIcon } from "@primer/octicons-react"
-import { Button, Tooltip } from "@primer/react-brand"
-import type { RefObject } from "react"
+import {
+  CheckCircleIcon,
+  KebabHorizontalIcon,
+  LinkIcon,
+  PencilIcon,
+  SparkleIcon,
+  SyncIcon,
+  UploadIcon,
+} from "@primer/octicons-react"
+import { ActionMenu, Button, Tooltip } from "@primer/react-brand"
+import type { ComponentProps, Ref, RefObject } from "react"
 
 import { ControlsToggle } from "../prototype-controls-toggle"
 import { HubIconButton } from "@components/hub-icon-button"
@@ -14,6 +22,7 @@ import "./styles.css"
 
 type Props = {
   toolbarRef?: RefObject<HTMLElement | null>
+  improvementControlsRef?: Ref<HTMLDivElement>
   config: CanvasConfig
   onPublish: () => void
   publishButtonRef: RefObject<HTMLButtonElement | null>
@@ -31,10 +40,14 @@ type Props = {
   controlsButtonRef?: RefObject<HTMLButtonElement | null>
   onShare?: () => void
   shareButtonRef?: RefObject<HTMLButtonElement | null>
+  onImproveContext?: () => void
+  improvingContext?: boolean
+  feedbackMessage?: { message: string }
 }
 
 export function Toolbar({
   toolbarRef,
+  improvementControlsRef,
   config,
   onPublish,
   publishButtonRef,
@@ -52,6 +65,9 @@ export function Toolbar({
   controlsButtonRef,
   onShare,
   shareButtonRef,
+  onImproveContext,
+  improvingContext = false,
+  feedbackMessage,
 }: Props) {
   const status = state?.publishStatus ?? {
     state: "unavailable" as const,
@@ -121,6 +137,9 @@ export function Toolbar({
       </Button>
 
       <div id="canvas-review-controls" className="canvas-review-controls-slot" />
+      {config.pickAndPolish ? (
+        <div ref={improvementControlsRef} id="canvas-improvement-controls" />
+      ) : null}
       {onControls ? (
         <ControlsToggle buttonRef={controlsButtonRef} open={controlsOpen} onToggle={onControls} />
       ) : null}
@@ -131,10 +150,14 @@ export function Toolbar({
           ref={hubButtonRef}
           size="small"
           variant="secondary"
+          className="canvas-toolbar-compact-button"
+          leadingVisual={<PencilIcon size={16} />}
+          aria-label={copy.editDetails}
+          title={copy.editDetails}
           aria-expanded={hubOpen}
           onClick={onHub}
         >
-          {copy.editDetails}
+          <span className="canvas-toolbar-button-label">{copy.editDetails}</span>
         </Button>
       ) : null}
       <div className="canvas-publish-share" role="group" aria-label={shareCopy.group}>
@@ -160,7 +183,55 @@ export function Toolbar({
           />
         ) : null}
       </div>
+
+      {onImproveContext ? (
+        <ActionMenu
+          size="small"
+          selectionVariant="none"
+          menuAlignment="end"
+          disabled={improvingContext}
+        >
+          <ActionMenu.IconButton
+            icon={KebabHorizontalIcon}
+            variant="secondary"
+            aria-label={copy.moreActions}
+            aria-busy={improvingContext}
+          />
+          <ActionMenu.Overlay aria-label={copy.moreActions}>
+            <ImproveContextAction
+              className="canvas-more-action"
+              leadingVisual={<SparkleIcon size={16} />}
+              onClick={onImproveContext}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault()
+                  onImproveContext()
+                }
+                if (event.key === " ") {
+                  event.preventDefault()
+                  event.currentTarget.click()
+                }
+              }}
+            >
+              {copy.improveContext}
+            </ImproveContextAction>
+          </ActionMenu.Overlay>
+        </ActionMenu>
+      ) : null}
+      {feedbackMessage ? (
+        <p className="canvas-feedback-message" role="alert">
+          {feedbackMessage.message}
+        </p>
+      ) : null}
     </header>
+  )
+}
+
+function ImproveContextAction(props: ComponentProps<typeof ActionMenu.Item>) {
+  return (
+    <Tooltip text={copy.improveContextDescription} type="description" direction="w">
+      <ActionMenu.Item {...props} />
+    </Tooltip>
   )
 }
 

@@ -14,7 +14,7 @@ const meta = {
       pageTitle: "Fresh GitHub authorization required",
       heading: "Fresh GitHub authorization required",
       description:
-        "Verify the same GitHub account before changing sensitive settings. GitHub may reuse your signed-in browser; this is not a guaranteed password or MFA challenge.",
+        "Verify the same GitHub account to continue your confirmed action. GitHub may reuse your signed-in browser; this is not a guaranteed password or MFA challenge.",
       submitLabel: "Verify with GitHub",
       submitPath: "/authorization/example",
       cancelLabel: "Cancel",
@@ -34,14 +34,22 @@ export const HubAdministratorChange: Story = {
       ...meta.args.data,
       administrationWorkspace: hubAdministrationWorkspaceData,
       description:
-        "Verify the same GitHub account before changing a Hub administrator role. Return to the confirmation page and submit again. No role change is saved or replayed.",
+        "Verify the same GitHub account to continue the Hub administrator role change you confirmed.",
     },
   },
 }
-export const Narrow: Story = {
-  render: (args) => (
-    <div style={{ width: "24rem", maxWidth: "100%" }}>
-      <FreshAuthorizationPage {...args} />
-    </div>
-  ),
+export const Continuing: Story = {
+  args: {
+    data: {
+      ...meta.args.data,
+      administrationWorkspace: hubAdministrationWorkspaceData,
+      pageTitle: "Completing your action",
+      heading: "Completing your action",
+      description:
+        "GitHub verified your account. Hub is continuing the action you confirmed. If it does not continue automatically, choose Continue.",
+      submitLabel: "Continue",
+      submitPath: "/hub_admins",
+      continuation: { id: "example", method: "post" },
+    },
+  },
 }

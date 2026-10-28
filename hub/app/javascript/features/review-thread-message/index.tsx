@@ -6,9 +6,11 @@ import { HubVisuallyHidden } from "@components/hub-visually-hidden"
 import { MentionInput } from "@components/mention-input"
 import { MentionText } from "@components/mention-text"
 import { HubUserAvatar } from "@components/hub-user-avatar"
+import { ReviewMessageHeading } from "@components/review-message-heading"
 import { ReviewConfirmationPanel } from "@features/review-confirmation-panel"
 import { ReviewCommentReactions } from "@features/review-comment-reactions"
 import { ReviewRelativeTime } from "@features/review-relative-time"
+import { useReviewError } from "@hooks/use-review-error"
 
 import type { ReviewThreadMessageProps } from "./types"
 
@@ -47,6 +49,9 @@ export function ReviewThreadMessage({
   const editFormRef = useRef<HTMLFormElement>(null)
   const wasConfirmingEditDiscard = useRef(false)
   const [menuSide, setMenuSide] = useState<"outside-bottom" | "outside-top">("outside-bottom")
+  const showLengthError = useReviewError(editBodyTooLong && copy.bodyTooLongLabel)
+  const showEditError = useReviewError(editFailed && copy.editErrorLabel)
+  const showDeleteError = useReviewError(deleteFailed && copy.deleteErrorLabel)
   const author = comment.author.name || `@${comment.author.login}`
   const actionLabel = copy.commentActionsLabel.replace("%{author}", `@${comment.author.login}`)
   const menuDisabled = actionsDisabled && (!onMarkUnread || markUnreadDisabled)
@@ -67,15 +72,16 @@ export function ReviewThreadMessage({
 
   return (
     <article className="review-thread-message" data-review-message-id={comment.id}>
-      <div className="review-thread-message__header">
-        <HubUserAvatar src={comment.author.avatarUrl} size={28} />
-
-        <span className="review-thread-message__byline">
-          <strong className="review-thread-message__identity">{author}</strong>
-          <ReviewRelativeTime value={comment.createdAt} />
-          {comment.editedAt ? <span>{copy.editedLabel}</span> : null}
-        </span>
-
+      <ReviewMessageHeading
+        visual={<HubUserAvatar src={comment.author.avatarUrl} size={28} />}
+        author={author}
+        metadata={
+          <>
+            <ReviewRelativeTime value={comment.createdAt} />
+            {comment.editedAt ? <span>{copy.editedLabel}</span> : null}
+          </>
+        }
+      >
         {onMarkUnread || canEdit || canDelete ? (
           menuDisabled ? (
             <div title={actionLabel}>
@@ -189,7 +195,7 @@ export function ReviewThreadMessage({
             </Tooltip>
           )
         ) : null}
-      </div>
+      </ReviewMessageHeading>
 
       {editing ? (
         <form
@@ -208,13 +214,13 @@ export function ReviewThreadMessage({
             onValueChange={onEditDraftChange}
           />
 
-          {editBodyTooLong ? (
+          {showLengthError ? (
             <span role="alert" className="review-thread-message__error">
               {copy.bodyTooLongLabel}
             </span>
           ) : null}
 
-          {editFailed ? (
+          {showEditError ? (
             <span role="alert" className="review-thread-message__error">
               {copy.editErrorLabel}
             </span>
@@ -255,7 +261,7 @@ export function ReviewThreadMessage({
         <ReviewConfirmationPanel
           heading={copy.deleteHeading}
           description={copy.deletePromptLabel}
-          errorLabel={deleteFailed ? copy.deleteErrorLabel : undefined}
+          errorLabel={showDeleteError ? copy.deleteErrorLabel : undefined}
           cancelLabel={copy.cancelEditLabel}
           confirmLabel={copy.confirmDeleteLabel}
           loading={deleting}

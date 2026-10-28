@@ -88,6 +88,49 @@ describe("commentActions()", () => {
     assert.deepEqual(snapshotThread.inputSchema.required, ["target", "threadId", "snapshotId"])
   })
 
+  it("exposes optional improvement filters only on full snapshots and note IDs only on snapshot reads", async () => {
+    const calls = []
+    const actions = commentActions(async (...args) => calls.push(args), TestCanvasError)
+    for (const name of ["list_comments", "list_repository_comments"]) {
+      const action = actions.find((item) => item.name === name)
+      assert.deepEqual(action.inputSchema.properties.improvementNotes.enum, [
+        "exclude",
+        "include",
+        "only",
+      ])
+      assert.equal(action.inputSchema.required.includes("improvementNotes"), false)
+      await action.handler({ instanceId: "panel", input: { improvementNotes: "only" } })
+      assert.deepEqual(calls.at(-1), ["panel", name, { improvementNotes: "only" }])
+    }
+    for (const name of ["get_comment_thread", "get_repository_comment_thread"]) {
+      const action = actions.find((item) => item.name === name)
+      const schema = action.inputSchema.properties.threadId
+      const variants = schema.anyOf ?? schema.oneOf ?? [schema]
+      assert.ok(variants.some((variant) => variant.type === "integer" && variant.minimum === 1))
+      assert.ok(
+        variants.some(
+          (variant) =>
+            variant.type === "string" &&
+            new RegExp(variant.pattern).test("improvement_note-7") &&
+            !new RegExp(variant.pattern).test("improvement_note-0") &&
+            !new RegExp(variant.pattern).test("7"),
+        ),
+      )
+    }
+    for (const name of [
+      "list_repository_comment_summaries",
+      "get_repository_thread",
+      "mark_comment_read",
+      "reply_to_comment",
+      "resolve_comment",
+    ]) {
+      const properties = actions.find((item) => item.name === name).inputSchema.properties
+      assert.equal("improvementNotes" in properties, false)
+      if ("threadId" in properties)
+        assert.deepEqual(properties.threadId, { type: "integer", minimum: 1 })
+    }
+  })
+
   it("returns stable errors without exposing arbitrary Hub error text", async () => {
     for (const [error, code] of [
       [{ statusCode: 401 }, "hub_disconnected"],
@@ -98,7 +141,6 @@ describe("commentActions()", () => {
       [{ statusCode: 422 }, "invalid_comment_request"],
       [{ code: "stale_comment_target" }, "stale_comment_target"],
       [{ code: "reply_delivery_unknown" }, "reply_delivery_unknown"],
-      [{ code: "comment_scan_limit" }, "comment_scan_limit"],
       [{ code: "comment_response_limit", statusCode: 413 }, "comment_response_limit"],
       [{}, "comment_action_failed"],
     ]) {

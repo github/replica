@@ -5,13 +5,31 @@ import { runInNewContext } from "node:vm"
 import { renderCanvasHtml } from "./index.mjs"
 
 describe("renderCanvasHtml()", () => {
+  it("only shows thread samples for an explicit sample context", () => {
+    for (const enabled of [undefined, false, true]) {
+      const html = renderCanvasHtml(
+        {
+          name: "Sample",
+          normalizedUrl: "http://localhost:5173/",
+          improvementThreadsSample: enabled,
+        },
+        "local-token",
+      )
+      const script = [...html.matchAll(/<script>([\s\S]*?)<\/script\s*>/gi)][0][1]
+      const window = {}
+      runInNewContext(script, { window })
+      assert.equal(window.__REPLICA_CANVAS__.improvementThreadsSample, enabled ? true : undefined)
+      assert.equal(window.__REPLICA_CANVAS__.pickAndPolish, true)
+    }
+  })
+
   it("bootstraps the full renderer without a prototype URL and enables its health monitor", () => {
     const html = renderCanvasHtml(
       { name: "New prototype", normalizedUrl: null, monitorPrototype: true },
       "canvas-token",
     )
     const window = {}
-    const script = html.match(/<script>([\s\S]*?)<\/script\s*>/)[1]
+    const script = html.match(/<script>([\s\S]*?)<\/script\s*>/i)[1]
     runInNewContext(script, { window })
 
     assert.equal(window.__REPLICA_CANVAS__.prototypeUrl, null)
@@ -30,7 +48,7 @@ describe("renderCanvasHtml()", () => {
     }
     const html = renderCanvasHtml(context, "canvas-token")
     const window = {}
-    const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script\s*>/g)]
+    const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script\s*>/gi)]
     assert.equal(scripts.length, 1)
     runInNewContext(scripts[0][1], { window })
 

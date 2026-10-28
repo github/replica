@@ -30,7 +30,7 @@ module ReplicaHub
     # Please, add to the `ignore` list any other `lib` subdirectories that do
     # not contain `.rb` files, or that should not be reloaded or eager loaded.
     # Common ones are `templates`, `generators`, or `middleware`, for example.
-    config.autoload_lib(ignore: %w[assets tasks])
+    config.autoload_lib(ignore: %w[assets hub_tracing tasks])
 
     # Configuration for the application, engines, and railties goes here.
     #
@@ -85,4 +85,7 @@ module ReplicaHub
     # only to replica-learning and never stores it. See docs/copilot.md.
     config.x.copilot_token = ENV["REPLICA_COPILOT_TOKEN"].presence
   end
+
+  require_relative "../lib/hub_tracing"
+  HubTracing.start!
 end

@@ -155,6 +155,8 @@ export type CanvasConfig = {
   name: string
   token: string
   monitorPrototype?: boolean
+  improvementThreadsSample?: boolean
+  pickAndPolish?: boolean
 }
 
 export type PublishPreparation = {

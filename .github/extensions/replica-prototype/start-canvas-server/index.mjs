@@ -1,7 +1,6 @@
 import { createHash, randomBytes } from "node:crypto"
 import { readFile } from "node:fs/promises"
 import { createServer } from "node:http"
-
 import { MAX_RELOAD_ADDRESS_LENGTH } from "../agent-commands/index.mjs"
 import { projectControlsStatus } from "../controls-status/index.mjs"
 import { currentCanvasContext } from "../create-canvas-context/index.mjs"
@@ -14,6 +13,7 @@ import { readPrototypeStartPage } from "../read-prototype-start-page/index.mjs"
 import { refreshPrototypeStatus } from "../refresh-prototype-status/index.mjs"
 import { renderCanvasHtml } from "../render-canvas-html/index.mjs"
 import { requestPublish } from "../request-publish/index.mjs"
+import { requestFeedbackReview } from "../request-feedback-review/index.mjs"
 import { preparePublish } from "../prepare-publish/index.mjs"
 import { createPublishPreferences } from "../publish-preferences/index.mjs"
 import { samePublishTarget } from "../publish-target/index.mjs"
@@ -21,13 +21,16 @@ import { requestCommentingFix } from "../request-commenting-fix/index.mjs"
 import { requestControlsDiagnosis } from "../request-controls-diagnosis/index.mjs"
 import { reviewAction } from "../review-action/index.mjs"
 import { createCommentStore } from "../comment-store/index.mjs"
+import { createImprovementNotes } from "../improvement-notes/index.mjs"
 import { createShareLinks } from "../share-links/index.mjs"
 import { startPreviewProxy } from "../start-preview-proxy/index.mjs"
 import { captureReviewRevision } from "../capture-review-revision/index.mjs"
 import { createLocalReviewComments } from "../create-local-review-comments/index.mjs"
 import { createReviewerProfile } from "../create-reviewer-profile/index.mjs"
+import { readHubObject } from "../read-hub-object/index.mjs"
+import { readHubError } from "../read-hub-error/index.mjs"
 import { requestPrototypeCreation } from "../request-prototype-creation/index.mjs"
-
+import { uuidInputPattern } from "../identity-patterns/index.mjs"
 const ASSET_PATHS = new Map([
   [
     "/avatar-placeholder.svg",
@@ -43,7 +46,15 @@ const ASSET_PATHS = new Map([
       fileUrl: new URL("../assets/renderer.css", import.meta.url),
     },
   ],
-  ...["renderer.js", "renderer-vendor.js", "renderer-rolldown-runtime.js"].map((name) => [
+  ...[
+    "renderer.js",
+    "renderer-vendor.js",
+    "renderer-rolldown-runtime.js",
+    "renderer-improvement-notes-prototype.js",
+    "renderer-improvement-notes-vendor.js",
+    "renderer-prototype-canvas-thread-sample.js",
+    "renderer-prototype-canvas-improvement-threads.js",
+  ].map((name) => [
     `/assets/${name}`,
     {
       contentType: "text/javascript; charset=utf-8",
@@ -60,7 +71,6 @@ const ASSET_PATHS = new Map([
     ],
   ),
 ])
-
 export async function startCanvasServer(initialContext, session, options = {}) {
   let context = initialContext
   let preview
@@ -69,6 +79,9 @@ export async function startCanvasServer(initialContext, session, options = {}) {
   const source = await readFile(new URL("../assets/canvas-bridge.js", import.meta.url), "utf8")
   const hubConnection = createHubConnection(() => context, options.hubOptions)
   const { hubClient, refreshDiscovery, selectHubOrigin, discoveries } = hubConnection
+  const improvementNotes = createImprovementNotes(() => context, session, hubClient, {
+    directory: options.improvementNotesDirectory,
+  })
   const localComments = createLocalReviewComments(initialContext, {
     directory: options.localCommentsDirectory,
   })
@@ -81,10 +94,14 @@ export async function startCanvasServer(initialContext, session, options = {}) {
       hubOrigin: hub.origin,
       repository: status.repository,
       branch: status.branch,
-      viewerLogin: status.prototype?.viewerLogin || status.viewerLogin,
+      viewerLogin: status.state === "connected" ? status.prototype.viewerLogin : status.viewerLogin,
       connectionId,
     }
-    if (!scope.viewerLogin) throw new Error("Hub did not identify the connected reviewer.")
+    if (typeof scope.viewerLogin !== "string" || !scope.viewerLogin)
+      throw new Error("Hub did not identify the connected reviewer.")
+    if (typeof scope.branch !== "string" || !scope.branch)
+      throw new Error("Open a named branch before using local comments.")
+    const identifiedScope = { ...scope, viewerLogin: scope.viewerLogin, branch: scope.branch }
     const identity = await readCanvasRepository(context)
     const hubHostname = new URL(hub.origin).hostname
     const local =
@@ -95,13 +112,13 @@ export async function startCanvasServer(initialContext, session, options = {}) {
         hubHostname.endsWith(".localhost"))
     const profile = local
       ? {
-          author: { login: scope.viewerLogin, name: null, avatarUrl: null },
+          author: { login: identifiedScope.viewerLogin, name: null, avatarUrl: null },
           error: null,
         }
-      : await reviewerProfile.read(scope)
+      : await reviewerProfile.read(identifiedScope)
     if ((await hub.connectionKey(status.repository)) !== connectionId)
       throw httpError(409, "The Hub connection changed. Refresh before using local comments.")
-    return { ...scope, author: profile.author, profileError: profile.error }
+    return { ...identifiedScope, author: profile.author, profileError: profile.error }
   }
   async function updateMetadata({ name, description, startPage }, expectedTarget) {
     const hub = await hubClient()
@@ -174,14 +191,13 @@ export async function startCanvasServer(initialContext, session, options = {}) {
       return {
         state: "registered",
         alreadyRegistered: true,
-        buildNumber: status.prototype.build?.number ?? 0,
+        buildNumber: readHubObject(status.prototype.build)?.number ?? 0,
       }
     }
     if (!status.prototype.canRegister) {
       throw httpError(403, "This branch is not eligible for registration in Hub.")
     }
-
-    const branchName = status.branch.split("/").at(-1).replaceAll(/[-_]+/g, " ").trim()
+    const branchName = status.branch.split("/").at(-1)?.replaceAll(/[-_]+/g, " ").trim()
     const canvasName =
       context.target.branch === publishContext.target.branch &&
       publishContext.normalizedUrl &&
@@ -198,7 +214,7 @@ export async function startCanvasServer(initialContext, session, options = {}) {
     )
     return {
       state: "registered",
-      buildNumber: status.prototype.build?.number ?? 0,
+      buildNumber: readHubObject(status.prototype.build)?.number ?? 0,
     }
   }
   async function hubStatus() {
@@ -214,7 +230,7 @@ export async function startCanvasServer(initialContext, session, options = {}) {
         }
     if (
       hub &&
-      status.repositoryAuthorized &&
+      (status.state === "connected" || status.state === "undiscovered") &&
       status.branch &&
       status.registrationReason !== "branch_not_reviewable"
     ) {
@@ -231,26 +247,39 @@ export async function startCanvasServer(initialContext, session, options = {}) {
         if (scope.connectionId !== connectionId)
           throw httpError(409, "The Hub connection changed while preparing local comments.")
         if (scope.profileError) status = { ...status, localCommentsError: scope.profileError }
-        if (status.prototype?.build) {
+        const prototype = status.state === "connected" ? status.prototype : undefined
+        const build = readHubObject(prototype?.build)
+        if (prototype?.build) {
           try {
+            if (
+              !build ||
+              typeof prototype.repositoryId !== "number" ||
+              typeof prototype.id !== "number" ||
+              typeof build.number !== "number" ||
+              typeof build.commitSha !== "string" ||
+              typeof build.publishedAt !== "string"
+            )
+              throw new Error("Hub returned an invalid Build for local comments.")
             await localComments.sync(
               scope,
               {
-                ...status.prototype.build,
-                repositoryId: status.prototype.repositoryId,
-                prototypeId: status.prototype.id,
+                ...build,
+                number: build.number,
+                commitSha: build.commitSha,
+                publishedAt: build.publishedAt,
+                repositoryId: prototype.repositoryId,
+                prototypeId: prototype.id,
               },
               hub,
             )
           } catch (error) {
             status = {
               ...status,
-              localCommentsError: `Local comments not synced: ${error.message}`,
+              localCommentsError: `Local comments not synced: ${readHubError(error).message}`,
             }
           }
         }
-        const published =
-          snapshot.clean && status.prototype?.build?.commitSha === snapshot.commitSha
+        const published = snapshot.clean && build?.commitSha === snapshot.commitSha
         status = {
           ...status,
           reviewRevision: {
@@ -261,10 +290,10 @@ export async function startCanvasServer(initialContext, session, options = {}) {
                   createHash("sha256").update(snapshot.treeSha).digest("hex").slice(0, 12),
                   16,
                 ) + 1,
-            prototypeId: status.prototype?.id ?? null,
+            prototypeId: prototype?.id ?? null,
             repository: status.repository,
             branch: status.branch,
-            buildNumber: published ? status.prototype.build.number : null,
+            buildNumber: published ? build?.number : null,
             hubOrigin: hub.origin,
             connectionId,
           },
@@ -272,7 +301,7 @@ export async function startCanvasServer(initialContext, session, options = {}) {
       } catch (error) {
         status = {
           ...status,
-          reviewError: `Local comments unavailable: ${error.message}`,
+          reviewError: `Local comments unavailable: ${readHubError(error).message}`,
         }
       }
     }
@@ -293,7 +322,10 @@ export async function startCanvasServer(initialContext, session, options = {}) {
   const shareLinks = createShareLinks(hubClient, options.openBrowser || openBrowser)
   const token = randomBytes(24).toString("base64url")
   const documentToken = randomBytes(32).toString("base64url")
-  const server = createServer(async (request, response) => {
+  const server = createServer((request, response) => {
+    void serve(request, response)
+  })
+  async function serve(request, response) {
     try {
       if (request.headers.host !== `127.0.0.1:${request.socket.localPort}`) {
         throw httpError(403, "Invalid canvas host.")
@@ -317,27 +349,44 @@ export async function startCanvasServer(initialContext, session, options = {}) {
         options.agentCommands,
         shareLinks,
         publishPreferences,
+        improvementNotes,
         localComments,
         localScope,
+        async (expectedContext, expectedHub) => {
+          const selected = await hubClient()
+          if (
+            context.stateFile !== expectedContext.stateFile ||
+            context.normalizedUrl !== expectedContext.normalizedUrl ||
+            selected?.origin !== expectedHub.origin
+          )
+            throw httpError(
+              409,
+              "Hub or canvas changed. Refresh before requesting a feedback review.",
+            )
+        },
       )
-    } catch (error) {
+    } catch (caught) {
+      const error = readHubError(caught)
       sendJson(
         response,
-        error?.statusCode || (error?.code === "stale_comment_target" ? 409 : 500),
+        typeof error.statusCode === "number"
+          ? error.statusCode
+          : error.code === "stale_comment_target"
+            ? 409
+            : 500,
         {
           error: error instanceof Error ? error.message : String(error),
           ...(request.url?.startsWith("/api/hub/share-links")
             ? {
                 code: error.code,
                 deliveryPhase: error.deliveryPhase,
-                authorization: error.authorization,
+                authorization: readHubObject(error)?.authorization,
               }
             : {}),
         },
       )
     }
-  })
-
+  }
   await new Promise((resolve, reject) => {
     server.once("error", reject)
     server.listen(0, "127.0.0.1", () => {
@@ -345,15 +394,14 @@ export async function startCanvasServer(initialContext, session, options = {}) {
       resolve()
     })
   })
-
   const address = server.address()
   if (!address || typeof address === "string") {
     await closeServer(server)
     throw new Error("Replica prototype server did not receive a loopback port.")
   }
-
   const url = `http://127.0.0.1:${address.port}/?document=${documentToken}`
   function connectPreview(current) {
+    if (!current.normalizedUrl) throw new Error("Connect a prototype before starting its preview.")
     return startPreviewProxy({
       prototypeUrl: current.normalizedUrl,
       parentOrigin: new URL(url).origin,
@@ -396,6 +444,7 @@ export async function startCanvasServer(initialContext, session, options = {}) {
     getHubStatus: hubStatus,
     reviewAction: async (action, input) => reviewAction(await hubClient(), action, input, comments),
     updateMetadata,
+    improvementNotes,
     close: async () => {
       options.agentCommands?.close()
       for (const stream of streams) stream.end()
@@ -411,7 +460,6 @@ export async function startCanvasServer(initialContext, session, options = {}) {
     },
   }
 }
-
 async function routeRequest(
   request,
   response,
@@ -431,11 +479,12 @@ async function routeRequest(
   agentCommands,
   shareLinks,
   publishPreferences,
+  improvementNotes,
   localComments,
   localScope,
+  verifyFeedbackContext,
 ) {
   const requestUrl = new URL(request.url || "/", "http://127.0.0.1")
-
   if (request.method === "GET" && requestUrl.pathname === "/") {
     if (
       requestUrl.searchParams.getAll("document").length !== 1 ||
@@ -450,14 +499,14 @@ async function routeRequest(
     return
   }
   if (request.method === "GET" && ASSET_PATHS.has(requestUrl.pathname)) {
-    await sendAsset(response, ASSET_PATHS.get(requestUrl.pathname))
+    const asset = ASSET_PATHS.get(requestUrl.pathname)
+    if (asset) await sendAsset(response, asset)
     return
   }
   if (request.method === "GET" && requestUrl.pathname === "/api/state") {
     sendJson(response, 200, await getPrototypeState(await currentCanvasContext(context)))
     return
   }
-
   requireToken(request, token)
   if (
     options.serverConnection &&
@@ -522,11 +571,31 @@ async function routeRequest(
     )
     return
   }
+  if (requestUrl.pathname === "/api/improvement-notes/capture" && request.method === "POST") {
+    sendJson(response, 200, await improvementNotes.capture())
+    return
+  }
+  if (requestUrl.pathname === "/api/improvement-notes" && request.method === "GET") {
+    sendJson(response, 200, await improvementNotes.load())
+    return
+  }
+  if (requestUrl.pathname === "/api/improvement-notes" && request.method === "POST") {
+    sendJson(response, 200, await improvementNotes.save(await readJson(request, 1_550_000)))
+    return
+  }
+  if (
+    request.method === "POST" &&
+    ["/api/improvement-notes/sync", "/api/improvement-notes/fix"].includes(requestUrl.pathname)
+  ) {
+    const action = requestUrl.pathname.endsWith("/fix") ? "fix" : "sync"
+    sendJson(response, 200, await improvementNotes[action](await readJson(request)))
+    return
+  }
   const sharingRoute =
     /^\/api\/hub\/share-links\/(context|list|create|delete|open|controls-preference|authorize)$/.exec(
       requestUrl.pathname,
     )
-  if (sharingRoute) {
+  if (sharingRoute?.[1]) {
     if (request.method !== "POST") throw httpError(405, "Sharing action not supported.")
     sendJson(
       response,
@@ -629,7 +698,7 @@ async function routeRequest(
         const status = await hubStatus()
         sendJson(response, 200, {
           ...status,
-          message: `Connection activity could not be verified: ${error.message}`,
+          message: `Connection activity could not be verified: ${readHubError(error).message}`,
         })
         return
       }
@@ -639,215 +708,256 @@ async function routeRequest(
   }
   if (request.method === "POST" && requestUrl.pathname === "/api/hub/origin") {
     const { origin } = await readJson(request)
+    if (typeof origin !== "string") throw httpError(422, "Enter a valid Hub URL.")
     sendJson(response, 200, await selectHubOrigin(origin))
     return
   }
-  const hub = requestUrl.pathname.startsWith("/api/hub/") ? await hubClient() : null
-
   if (request.method === "GET" && requestUrl.pathname === "/api/hub/status") {
     sendJson(response, 200, await hubStatus())
     return
   }
+  const hub = requestUrl.pathname.startsWith("/api/hub/") ? await hubClient() : null
   if (requestUrl.pathname.startsWith("/api/hub/") && !hub) {
     throw httpError(409, "Enter a Hub URL before connecting.")
   }
-  if (
-    request.method === "POST" &&
-    ["/api/hub/pair", "/api/hub/connect"].includes(requestUrl.pathname)
-  ) {
-    const pairing = await hub.pair()
-    let browserError
-    if (requestUrl.pathname === "/api/hub/connect") {
-      try {
-        const result = await launchBrowser(pairing.verificationUrl)
-        if (!result.ok) browserError = result.error
-      } catch (error) {
-        browserError = error instanceof Error ? error.message : String(error)
-      }
-    }
-    sendJson(response, 201, {
-      ...pairing,
-      ...(browserError ? { browserError } : {}),
-    })
-    return
-  }
-  if (request.method === "POST" && requestUrl.pathname === "/api/hub/poll") {
-    sendJson(response, 200, await hub.poll())
-    return
-  }
-  if (request.method === "POST" && requestUrl.pathname === "/api/hub/disconnect") {
-    await hub.disconnect()
-    sendJson(response, 200, { state: "disconnected" })
-    return
-  }
-  if (request.method === "PATCH" && requestUrl.pathname === "/api/hub/metadata") {
-    sendJson(response, 200, await updateMetadata(await readJson(request)))
-    return
-  }
-  if (requestUrl.pathname === "/api/hub/comments" && request.method === "GET") {
-    const status = await hub.status()
-    if (!status.repositoryAuthorized) throw httpError(403, "Connect to Hub before commenting.")
-    const scope = await localScope(hub, status)
-    const cursor = requestUrl.searchParams.get("cursor")
-    const page = status.prototype
-      ? await hub.request(
-          `${await reviewPath(hub)}${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`,
-        )
-      : { comments: [], hasMore: false, nextCursor: null }
-    const revision = requestUrl.searchParams.get("local_revision_id")
-    const drafts = cursor
-      ? []
-      : (await localComments.list(scope)).filter(
-          (comment) => !revision || comment.draftRevisionId === Number(revision),
-        )
-    sendJson(response, 200, {
-      ...page,
-      comments: [...page.comments, ...drafts],
-    })
-    return
-  }
-  if (requestUrl.pathname === "/api/hub/mention-candidates" && request.method === "GET") {
-    const base = await reviewPath(hub)
-    const expected = `/api/canvas/repositories/${requestUrl.searchParams.get("repositoryId")}/prototypes/${requestUrl.searchParams.get("prototypeId")}/review_comments`
-    if (base !== expected)
-      throw httpError(409, "The Hub prototype changed. Refresh before mentioning someone.")
-    sendJson(
-      response,
-      200,
-      await hub.request(base.replace(/\/review_comments$/, "/mention_candidates")),
-    )
-    return
-  }
-  if (requestUrl.pathname === "/api/hub/comments" && request.method === "POST") {
-    const body = await readJson(request, 32_768)
-    const expected = body.review_revision
-    const status = await hub.status()
-    if (
-      !expected ||
-      expected.hubOrigin !== hub.origin ||
-      typeof expected.connectionId !== "string" ||
-      !expected.connectionId ||
-      !status.repositoryAuthorized ||
-      (status.prototype?.id ?? null) !== expected.prototypeId ||
-      status.repository !== expected.repository ||
-      status.branch !== expected.branch ||
-      expected.connectionId !== (await hub.connectionKey(status.repository))
-    )
-      throw httpError(
-        409,
-        "The Hub review target changed. Select a target again before commenting.",
+  if (hub) {
+    if (request.method === "POST" && requestUrl.pathname === "/api/hub/feedback-review") {
+      sendJson(
+        response,
+        202,
+        await requestFeedbackReview(context, session, hub, await readJson(request), {
+          verifyCurrent: () => verifyFeedbackContext(context, hub),
+        }),
       )
-    const attributes = {
-      body: body.review_comment?.body,
-      anchor: body.review_comment?.anchor,
-    }
-    if (expected.id === null) {
-      if (!Number.isSafeInteger(expected.buildNumber) || expected.buildNumber < 1)
-        throw httpError(400, "Select a valid published Build before commenting.")
-      attributes.build_number = expected.buildNumber
-    } else {
-      if (!Number.isSafeInteger(expected.id) || expected.id < 1)
-        throw httpError(400, "Select a valid local revision before commenting.")
-      const scope = await localScope(hub, status)
-      if (scope.connectionId !== expected.connectionId)
-        throw httpError(409, "The Hub connection changed. Select a target again.")
-      const comment = await localComments.create(scope, expected, attributes)
-      sendJson(response, 201, { comments: [comment] })
       return
     }
-    const base = `/api/canvas/repositories/${status.prototype.repositoryId}/prototypes/${status.prototype.id}/review_comments`
-    sendJson(
-      response,
-      201,
-      await hub.request(base, {
-        method: "POST",
-        interactive: true,
-        expectedTarget: status,
-        connectionScope: { identity: expected.connectionId },
-        body: { review_comment: attributes },
-      }),
-    )
-    return
-  }
-  if (requestUrl.pathname === "/api/hub/events" && request.method === "GET") {
-    const socket = await hub.subscribe(
-      () => {
-        if (!response.writableEnded) response.write("event: comments\ndata: {}\n\n")
-      },
-      (error) => {
-        if (response.writableEnded) return
-        response.write(`event: error\ndata: ${JSON.stringify(error.message)}\n\n`)
-        response.end()
-      },
-    )
-    response.writeHead(200, {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-store",
-      "X-Content-Type-Options": "nosniff",
-    })
-    response.write(": connected\n\n")
-    streams.add(response)
-    const heartbeat = setInterval(() => {
-      if (!response.writableEnded) response.write(": keepalive\n\n")
-    }, 25_000)
-    response.on("close", () => {
-      streams.delete(response)
-      clearInterval(heartbeat)
-      socket.close()
-    })
-    return
-  }
-  const commentRoute =
-    /^\/api\/hub\/comments\/(\d+)(?:\/(replies|resolution|read|reactions)(?:\/(%2B1|\+1|-1|laugh|hooray|confused|heart|rocket|eyes))?)?$/i.exec(
-      requestUrl.pathname,
-    )
-  if (commentRoute) {
-    const [, id, operation, content] = commentRoute
-    const method = request.method
-    const valid = !operation
-      ? ["PATCH", "DELETE"].includes(method)
-      : operation === "replies"
-        ? method === "POST" && !content
-        : operation === "resolution" || operation === "read"
-          ? ["POST", "DELETE"].includes(method) && !content
-          : (method === "POST" && !content) || (method === "DELETE" && !!content)
-    if (!valid) throw httpError(405, "Review action not supported.")
-    const body =
-      (!operation && method === "PATCH") ||
-      operation === "replies" ||
-      (operation === "read" && method === "POST") ||
-      operation === "reactions"
-        ? await readJson(request)
-        : undefined
-    const status = await hub.status()
-    if (!status.repositoryAuthorized) throw httpError(403, "Connect to Hub before commenting.")
-    const scope = await localScope(hub, status)
-    if ((await localComments.list(scope)).some((comment) => comment.id === Number(id))) {
-      if (operation === "read" && method === "POST") {
-        sendJson(response, 200, {})
+    if (
+      request.method === "POST" &&
+      ["/api/hub/pair", "/api/hub/connect"].includes(requestUrl.pathname)
+    ) {
+      const pairing = await hub.pair()
+      let browserError
+      if (requestUrl.pathname === "/api/hub/connect") {
+        try {
+          const result = await launchBrowser(pairing.verificationUrl)
+          if (!result.ok) browserError = result.error
+        } catch (error) {
+          browserError = error instanceof Error ? error.message : String(error)
+        }
+      }
+      sendJson(response, 201, {
+        ...pairing,
+        ...(browserError ? { browserError } : {}),
+      })
+      return
+    }
+    if (request.method === "POST" && requestUrl.pathname === "/api/hub/poll") {
+      sendJson(response, 200, await hub.poll())
+      return
+    }
+    if (request.method === "POST" && requestUrl.pathname === "/api/hub/disconnect") {
+      await hub.disconnect()
+      sendJson(response, 200, { state: "disconnected" })
+      return
+    }
+    if (request.method === "PATCH" && requestUrl.pathname === "/api/hub/metadata") {
+      sendJson(response, 200, await updateMetadata(await readJson(request)))
+      return
+    }
+    if (requestUrl.pathname === "/api/hub/comments" && request.method === "GET") {
+      const status = await hub.status()
+      if (status.state !== "connected" && status.state !== "undiscovered")
+        throw httpError(403, "Connect to Hub before commenting.")
+      const scope = await localScope(hub, status)
+      const cursor = requestUrl.searchParams.get("cursor")
+      const page =
+        status.state === "connected"
+          ? await hub.request(
+              `${await reviewPath(hub)}${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`,
+            )
+          : { comments: [], hasMore: false, nextCursor: null }
+      if (!Array.isArray(page.comments)) throw httpError(502, "Hub returned invalid comments.")
+      const remoteComments = page.comments
+      const revision = requestUrl.searchParams.get("local_revision_id")
+      const drafts = cursor
+        ? []
+        : (await localComments.list(scope)).filter(
+            (comment) => !revision || comment.draftRevisionId === Number(revision),
+          )
+      sendJson(response, 200, {
+        ...page,
+        comments: [...remoteComments, ...drafts],
+      })
+      return
+    }
+    if (requestUrl.pathname === "/api/hub/mention-candidates" && request.method === "GET") {
+      const base = await reviewPath(hub)
+      const expected = `/api/canvas/repositories/${requestUrl.searchParams.get("repositoryId")}/prototypes/${requestUrl.searchParams.get("prototypeId")}/review_comments`
+      if (base !== expected)
+        throw httpError(409, "The Hub prototype changed. Refresh before mentioning someone.")
+      sendJson(
+        response,
+        200,
+        await hub.request(base.replace(/\/review_comments$/, "/mention_candidates")),
+      )
+      return
+    }
+    if (requestUrl.pathname === "/api/hub/comments" && request.method === "POST") {
+      const body = await readJson(request, 32_768)
+      const expected = readHubObject(body.review_revision)
+      const status = await hub.status()
+      if (
+        !expected ||
+        expected.hubOrigin !== hub.origin ||
+        typeof expected.connectionId !== "string" ||
+        !expected.connectionId ||
+        (status.state !== "connected" && status.state !== "undiscovered") ||
+        (status.state === "connected" ? status.prototype.id : null) !== expected.prototypeId ||
+        status.repository !== expected.repository ||
+        status.branch !== expected.branch ||
+        expected.connectionId !== (await hub.connectionKey(status.repository))
+      )
+        throw httpError(
+          409,
+          "The Hub review target changed. Select a target again before commenting.",
+        )
+      const commentInput = readHubObject(body.review_comment)
+      const attributes = {
+        body: commentInput?.body,
+        anchor: commentInput?.anchor,
+      }
+      if (expected.id === null) {
+        if (
+          typeof expected.buildNumber !== "number" ||
+          !Number.isSafeInteger(expected.buildNumber) ||
+          expected.buildNumber < 1
+        )
+          throw httpError(400, "Select a valid published Build before commenting.")
+        attributes.build_number = expected.buildNumber
+      } else {
+        if (
+          typeof expected.id !== "number" ||
+          !Number.isSafeInteger(expected.id) ||
+          expected.id < 1
+        )
+          throw httpError(400, "Select a valid local revision before commenting.")
+        const scope = await localScope(hub, status)
+        if (scope.connectionId !== expected.connectionId)
+          throw httpError(409, "The Hub connection changed. Select a target again.")
+        if (
+          typeof expected.treeSha !== "string" ||
+          (expected.prototypeId !== null && typeof expected.prototypeId !== "number")
+        )
+          throw httpError(400, "Select a valid local revision before commenting.")
+        const comment = await localComments.create(
+          scope,
+          {
+            ...expected,
+            id: expected.id,
+            treeSha: expected.treeSha,
+            prototypeId: expected.prototypeId,
+          },
+          attributes,
+        )
+        sendJson(response, 201, { comments: [comment] })
         return
       }
-      if (operation) throw httpError(409, "Publish this comment before starting a conversation.")
-      const comment =
-        method === "PATCH"
-          ? await localComments.update(scope, id, body?.review_comment?.body)
-          : await localComments.remove(scope, id)
-      sendJson(response, 200, { comments: [comment] })
+      if (status.state !== "connected")
+        throw httpError(409, "Connect to a discovered Hub prototype.")
+      const base = prototypeReviewPath(status.prototype)
+      sendJson(
+        response,
+        201,
+        await hub.request(base, {
+          method: "POST",
+          interactive: true,
+          expectedTarget: status,
+          connectionScope: { identity: expected.connectionId },
+          body: { review_comment: attributes },
+        }),
+      )
       return
     }
-    const suffix = operation ? `/${operation}${content ? `/${content}` : ""}` : ""
-    sendJson(
-      response,
-      200,
-      await hub.request(`${await reviewPath(hub)}/${id}${suffix}`, {
-        method,
-        body,
-        interactive: operation !== "read" || method === "DELETE",
-      }),
-    )
-    return
+    if (requestUrl.pathname === "/api/hub/events" && request.method === "GET") {
+      const socket = await hub.subscribe(
+        () => {
+          if (!response.writableEnded) response.write("event: comments\ndata: {}\n\n")
+        },
+        (error) => {
+          if (response.writableEnded) return
+          response.write(`event: error\ndata: ${JSON.stringify(error.message)}\n\n`)
+          response.end()
+        },
+      )
+      response.writeHead(200, {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
+      })
+      response.write(": connected\n\n")
+      streams.add(response)
+      const heartbeat = setInterval(() => {
+        if (!response.writableEnded) response.write(": keepalive\n\n")
+      }, 25_000)
+      response.on("close", () => {
+        streams.delete(response)
+        clearInterval(heartbeat)
+        socket.close()
+      })
+      return
+    }
+    const commentRoute =
+      /^\/api\/hub\/comments\/(\d+)(?:\/(replies|resolution|read|reactions)(?:\/(%2B1|\+1|-1|laugh|hooray|confused|heart|rocket|eyes))?)?$/i.exec(
+        requestUrl.pathname,
+      )
+    if (commentRoute) {
+      const [, id, operation, content] = commentRoute
+      const method = request.method || ""
+      const valid = !operation
+        ? ["PATCH", "DELETE"].includes(method)
+        : operation === "replies"
+          ? method === "POST" && !content
+          : operation === "resolution" || operation === "read"
+            ? ["POST", "DELETE"].includes(method) && !content
+            : (method === "POST" && !content) || (method === "DELETE" && !!content)
+      if (!valid) throw httpError(405, "Review action not supported.")
+      const body =
+        (!operation && method === "PATCH") ||
+        operation === "replies" ||
+        (operation === "read" && method === "POST") ||
+        operation === "reactions"
+          ? await readJson(request)
+          : undefined
+      const status = await hub.status()
+      if (status.state !== "connected" && status.state !== "undiscovered")
+        throw httpError(403, "Connect to Hub before commenting.")
+      const scope = await localScope(hub, status)
+      if ((await localComments.list(scope)).some((comment) => comment.id === Number(id))) {
+        if (operation === "read" && method === "POST") {
+          sendJson(response, 200, {})
+          return
+        }
+        if (operation) throw httpError(409, "Publish this comment before starting a conversation.")
+        const comment =
+          method === "PATCH"
+            ? await localComments.update(scope, id, readHubObject(body?.review_comment)?.body)
+            : await localComments.remove(scope, id)
+        sendJson(response, 200, { comments: [comment] })
+        return
+      }
+      const suffix = operation ? `/${operation}${content ? `/${content}` : ""}` : ""
+      sendJson(
+        response,
+        200,
+        await hub.request(`${await reviewPath(hub)}/${id}${suffix}`, {
+          method,
+          body,
+          interactive: operation !== "read" || method === "DELETE",
+        }),
+      )
+      return
+    }
   }
-
   if (request.method === "POST" && requestUrl.pathname === "/api/refresh") {
     sendJson(response, 200, await refreshPrototypeStatus(await currentCanvasContext(context)))
     return
@@ -856,17 +966,18 @@ async function routeRequest(
     const input = await readJson(request, 16_384, { allowEmpty: true })
     const publishContext = await currentCanvasContext(context)
     const preparation = await preparePublish(publishContext, publishPreferences)
-    if (input.target && !samePublishTarget(input.target, preparation.target))
+    if (input.target && !samePublishTarget(readPublishTarget(input.target), preparation.target))
       throw httpError(409, "The checkout changed while preparing to publish. Try again.")
     if (
       input.workingTree !== undefined &&
-      !["clean", "changed", "unavailable"].includes(input.workingTree)
+      (typeof input.workingTree !== "string" ||
+        !["clean", "changed", "unavailable"].includes(input.workingTree))
     )
       throw httpError(422, "Invalid working tree state.")
     if (preparation.workingTree === "unavailable" && input.mode !== "committed-only")
       throw httpError(
         409,
-        `Could not check local changes. Retry the check or choose Publish committed version only. ${preparation.workingTreeError}`,
+        `Could not check local changes. Retry the check or choose Publish committed version only. ${"workingTreeError" in preparation ? preparation.workingTreeError : undefined}`,
       )
     if (input.workingTree === "clean" && preparation.workingTree === "changed")
       throw httpError(409, "Uncommitted changes appeared while preparing to publish. Try again.")
@@ -879,12 +990,13 @@ async function routeRequest(
           : null)
     if (!mode)
       throw httpError(409, "Uncommitted changes exist. Choose how to publish before continuing.")
-    if (!["commit-changes", "committed-only"].includes(mode))
+    if (mode !== "commit-changes" && mode !== "committed-only")
       throw httpError(422, "Choose a supported publishing mode.")
     if (input.remember !== undefined && typeof input.remember !== "boolean")
       throw httpError(422, "Invalid publishing preference.")
     if (input.remember === true && mode !== "commit-changes")
       throw httpError(422, "Only Commit changes & publish can be remembered.")
+    const remember = input.remember
     sendJson(
       response,
       202,
@@ -894,8 +1006,8 @@ async function routeRequest(
         mode,
         expectedTarget: preparation.target,
         savePreference:
-          input.remember !== undefined
-            ? (target) => publishPreferences.write(target, input.remember)
+          remember !== undefined
+            ? (target) => publishPreferences.write(target, remember)
             : undefined,
       }),
     )
@@ -915,22 +1027,45 @@ async function routeRequest(
       await currentCanvasContext(context),
       publishPreferences,
     )
-    if (!input.target || !samePublishTarget(input.target, preparation.target))
+    if (!input.target || !samePublishTarget(readPublishTarget(input.target), preparation.target))
       throw httpError(409, "The checkout changed. Refresh Settings and try again.")
+    if (typeof input.remember !== "boolean") throw new Error("Invalid publishing preference.")
     await publishPreferences.write(preparation.target, input.remember)
     sendJson(response, 200, { remember: input.remember })
     return
   }
-
   sendJson(response, 404, { error: "Not found." })
 }
-
+function readPublishTarget(input) {
+  const value = readHubObject(input)
+  if (!value) return null
+  if (
+    (value.repository !== undefined &&
+      value.repository !== null &&
+      typeof value.repository !== "string") ||
+    (value.branch !== undefined && typeof value.branch !== "string") ||
+    (value.commitSha !== undefined && typeof value.commitSha !== "string") ||
+    (value.originFingerprint !== undefined &&
+      value.originFingerprint !== null &&
+      typeof value.originFingerprint !== "string") ||
+    (value.pushFingerprint !== undefined &&
+      value.pushFingerprint !== null &&
+      typeof value.pushFingerprint !== "string")
+  )
+    throw httpError(422, "Invalid publication target.")
+  return {
+    repository: value.repository,
+    branch: value.branch,
+    commitSha: value.commitSha,
+    originFingerprint: value.originFingerprint,
+    pushFingerprint: value.pushFingerprint,
+  }
+}
 function requireToken(request, token) {
   if (request.headers["x-replica-canvas-token"] !== token) {
     throw httpError(403, "Invalid canvas request token.")
   }
 }
-
 function sendHtml(response, html) {
   response.writeHead(200, {
     "Cache-Control": "no-store",
@@ -951,7 +1086,6 @@ function sendHtml(response, html) {
   })
   response.end(html)
 }
-
 async function sendAsset(response, asset) {
   const body = await readFile(asset.fileUrl)
   response.writeHead(200, {
@@ -961,12 +1095,10 @@ async function sendAsset(response, asset) {
   })
   response.end(body)
 }
-
 function sendJson(response, statusCode, body) {
   if (response.headersSent) {
     return
   }
-
   response.writeHead(statusCode, {
     "Cache-Control": "no-store",
     "Content-Type": "application/json; charset=utf-8",
@@ -974,13 +1106,9 @@ function sendJson(response, statusCode, body) {
   })
   response.end(`${JSON.stringify(body)}\n`)
 }
-
 function httpError(statusCode, message) {
-  const error = new Error(message)
-  error.statusCode = statusCode
-  return error
+  return Object.assign(new Error(message), { statusCode })
 }
-
 function hasKeys(value, keys) {
   return (
     value !== null &&
@@ -990,11 +1118,9 @@ function hasKeys(value, keys) {
     keys.every((key) => Object.hasOwn(value, key))
   )
 }
-
 function boundedString(value, limit) {
   return typeof value === "string" && value.length <= limit
 }
-
 function validRoute(route) {
   return (
     hasKeys(route, ["pathname", "search", "hash"]) &&
@@ -1003,13 +1129,8 @@ function validRoute(route) {
     boundedString(route.hash, 1024)
   )
 }
-
 function validAgentResult(result) {
-  if (
-    !boundedString(result.id, 36) ||
-    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(result.id)
-  )
-    return false
+  if (!boundedString(result.id, 36) || !uuidInputPattern.test(result.id)) return false
   if (result.ok === false)
     return (
       hasKeys(result, ["id", "ok", "error"]) &&
@@ -1045,7 +1166,7 @@ function validAgentResult(result) {
     ]) &&
     boundedString(value.address, 2048) &&
     boundedString(value.addressDraft, 2048) &&
-    ["light", "dark"].includes(value.appearance) &&
+    (value.appearance === "light" || value.appearance === "dark") &&
     typeof value.canGoBack === "boolean" &&
     typeof value.canGoForward === "boolean" &&
     Number.isSafeInteger(value.historyIndex) &&
@@ -1053,31 +1174,42 @@ function validAgentResult(result) {
     (value.route === null || validRoute(value.route))
   )
 }
-
 async function reviewPath(hub) {
   const status = await hub.status()
   if (status.state !== "connected") throw httpError(409, "Connect to a discovered Hub prototype.")
-  return `/api/canvas/repositories/${status.prototype.repositoryId}/prototypes/${status.prototype.id}/review_comments`
+  return prototypeReviewPath(status.prototype)
 }
-
+function prototypeReviewPath(prototype) {
+  if (
+    typeof prototype.repositoryId !== "number" ||
+    !Number.isSafeInteger(prototype.repositoryId) ||
+    prototype.repositoryId < 1 ||
+    typeof prototype.id !== "number" ||
+    !Number.isSafeInteger(prototype.id) ||
+    prototype.id < 1
+  )
+    throw httpError(502, "Hub returned an invalid prototype identity.")
+  return `/api/canvas/repositories/${prototype.repositoryId}/prototypes/${prototype.id}/review_comments`
+}
 async function readJson(request, limit = 16_384, { allowEmpty = false } = {}) {
   const chunks = []
   let bytes = 0
-  for await (const chunk of request) {
+  const incoming = request
+  for await (const chunk of incoming) {
+    if (!Buffer.isBuffer(chunk)) throw httpError(400, "Invalid canvas request body.")
     bytes += chunk.length
     if (bytes > limit) throw httpError(413, "Canvas request is too large.")
     chunks.push(chunk)
   }
   if (bytes === 0 && allowEmpty) return {}
   try {
-    const parsed = JSON.parse(Buffer.concat(chunks).toString("utf8"))
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed
+    const parsed = readHubObject(JSON.parse(Buffer.concat(chunks).toString("utf8")))
+    if (parsed && !Array.isArray(parsed)) return parsed
   } catch {
     // Report malformed JSON as an invalid request.
   }
   throw httpError(400, "Invalid canvas JSON.")
 }
-
 function closeServer(server) {
   return new Promise((resolve, reject) => {
     server.close((error) => (error ? reject(error) : resolve()))

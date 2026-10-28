@@ -124,6 +124,13 @@ class GalleryTest < ActionDispatch::IntegrationTest
     assert_response :success
     data = JSON.parse(response.body).fetch("data")
     assert_empty data.fetch("prototypes")
+    assert_equal 0, data.fetch("listing").fetch("matchingCount")
+    assert_equal 1, data.fetch("listing").fetch("page")
+    assert_equal 1, data.fetch("listing").fetch("pageCount")
+    assert_equal repository_path(repository.route_id), data.fetch("listing").fetch("pagePath")
+    %w[previousPath nextPath newestPath].each do |key|
+      assert_not data.fetch("listing").key?(key)
+    end
     assert_equal "No prototypes yet", data.fetch("emptyHeading")
     assert_equal "Build prototype", data.fetch("buildPrototypeLabel")
     assert_equal repository_new_prototype_path(repository.github_id), data.fetch("newPrototypePath")
@@ -135,7 +142,10 @@ class GalleryTest < ActionDispatch::IntegrationTest
     sign_in
     repository = Repository.find_by!(github_id: 2001)
     prototype = prototypes.create(repository:, branch_name: "prototype/welcome")
-    prototype.register!(name: "Welcome", description: "Try the new welcome flow.")
+    prototype.register! \
+      name: "Welcome",
+      description: "Try the new welcome flow.",
+      author: User.find_by!(github_id: 1001)
     build_with_state(prototype, 1, "successful", "a", Time.current)
     latest = build_with_state(prototype, 2, "running", "b", Time.current)
     latest.commit_author.record!(commit_payload(latest.commit_sha))
@@ -281,7 +291,11 @@ class GalleryTest < ActionDispatch::IntegrationTest
     assert_equal repository_path(repository.github_id), history.fetch("prototypesPath")
     assert_equal repository.route_id.to_s, history.fetch("repositories").first.fetch("id")
     assert_equal successful.number, history.fetch("selectedBuild").fetch("number")
-    assert_equal repository_prototype_path(repository.github_id, prototype, build: successful.number),
+    assert_equal \
+      repository_prototype_path(repository.github_id, prototype),
+      history.fetch("branchPath")
+    assert_equal \
+      repository_prototype_path(repository.github_id, prototype),
       history.fetch("closePath")
     assert_equal failed.number, history.fetch("latestBuild").fetch("number")
     assert_equal 2, history.fetch("buildOptions").size
@@ -290,6 +304,22 @@ class GalleryTest < ActionDispatch::IntegrationTest
     assert_not history.key?("reviewCommentsPath")
     assert_equal %w[detailsLabel detailsPath number], history.fetch("selectedBuild").keys.sort
 
+    get repository_prototype_path(repository.github_id, prototype, build: successful.number),
+      headers: { "Accept" => "application/json" }
+    pinned_review = JSON.parse(response.body).fetch("data")
+    pinned_history_path = repository_prototype_builds_path \
+      repository.github_id,
+      prototype,
+      build: successful.number
+    assert_equal pinned_history_path, pinned_review.fetch("historyPath")
+
+    get pinned_history_path, headers: { "Accept" => "application/json" }
+    pinned_history = JSON.parse(response.body).fetch("data")
+    assert_equal successful.number, pinned_history.fetch("selectedBuild").fetch("number")
+    assert_equal \
+      repository_prototype_path(repository.github_id, prototype, build: successful.number),
+      pinned_history.fetch("closePath")
+
     get repository_prototype_build_path(repository.github_id, prototype, successful.number),
       headers: { "Accept" => "application/json" }
 
@@ -297,9 +327,13 @@ class GalleryTest < ActionDispatch::IntegrationTest
     details = JSON.parse(response.body).fetch("data")
     assert_equal repository_new_prototype_path(repository.github_id), details.fetch("newPrototypePath")
     assert_equal successful.number, details.fetch("selectedBuild").fetch("number")
-    assert_equal repository_prototype_path(repository.github_id, prototype, build: successful.number),
+    assert_equal \
+      repository_prototype_path(repository.github_id, prototype),
       details.fetch("branchPath")
-    assert_equal details.fetch("branchPath"), details.fetch("closePath")
+    assert_equal \
+      repository_prototype_path(repository.github_id, prototype, build: successful.number),
+      details.fetch("closePath")
+    assert_equal details.fetch("closePath"), details.fetch("previewPath")
     assert_equal %w[detailsLabel detailsPath number], details.fetch("selectedBuild").keys.sort
 
     get repository_prototype_build_path(repository.github_id, prototype, failed.number),
@@ -325,6 +359,9 @@ class GalleryTest < ActionDispatch::IntegrationTest
 
     assert_response :success
     assert_includes response.body, PreviewOrigin.current.url(selected.id)
+    data = JSON.parse(response.body).fetch("data")
+    assert_equal false, data.fetch("buildPinned")
+    assert_equal repository_prototype_path(repository.github_id, prototype), data.fetch("branchPath")
     assert_equal "The latest update failed. You're viewing an earlier version.",
       JSON.parse(response.body).fetch("data").fetch("newerBuildLabel")
     assert_includes response.body, "Failed to build"
@@ -348,17 +385,40 @@ class GalleryTest < ActionDispatch::IntegrationTest
       JSON.parse(response.body).fetch("data").fetch("newerBuildLabel")
   end
 
-  test "reviews an explicitly selected older successful Build" do
+  test "reloads the default view on the latest successful Build while explicit links stay pinned" do
     repository, prototype = sign_in_and_create_prototype
     selected = build_with_state(prototype, 1, "successful", "a", Time.current)
-    latest = build_with_state(prototype, 2, "successful", "b", Time.current)
+    default_path = repository_prototype_path(repository.github_id, prototype)
+    pinned_path = repository_prototype_path(repository.github_id, prototype, build: selected.number)
 
-    get repository_prototype_path(repository.github_id, prototype, build: selected.number), as: :json
+    get default_path, as: :json
+    assert_response :success
+    data = JSON.parse(response.body).fetch("data")
+    assert_equal selected.number, data.fetch("selectedBuild").fetch("number")
+    assert_equal false, data.fetch("buildPinned")
 
+    get pinned_path, as: :json
+    assert_response :success
+    assert_equal true, JSON.parse(response.body).fetch("data").fetch("buildPinned")
+
+    latest = build_with_state(prototype, 2, "successful", "b", 1.minute.from_now)
+
+    get default_path, as: :json
+    assert_response :success
+    data = JSON.parse(response.body).fetch("data")
+    assert_equal latest.number, data.fetch("selectedBuild").fetch("number")
+    assert_equal false, data.fetch("buildPinned")
+    assert_includes data.fetch("selectedBuild").fetch("previewUrl"), PreviewOrigin.current.url(latest.id)
+
+    get pinned_path, as: :json
     assert_response :success
     assert_includes response.body, PreviewOrigin.current.url(selected.id)
     assert_not_includes response.body, PreviewOrigin.current.url(latest.id)
-    assert_not JSON.parse(response.body).fetch("data").key?("newerBuildLabel")
+    data = JSON.parse(response.body).fetch("data")
+    assert_equal selected.number, data.fetch("selectedBuild").fetch("number")
+    assert_equal true, data.fetch("buildPinned")
+    assert_equal default_path, data.fetch("branchPath")
+    assert_not data.key?("newerBuildLabel")
   end
 
   test "includes localized submit shortcuts for comments and replies" do
@@ -401,13 +461,19 @@ class GalleryTest < ActionDispatch::IntegrationTest
     build = build_with_state(prototype, 1, "successful", "a", Time.current)
     build.commit_author.record!(commit_payload(build.commit_sha))
 
-    get repository_prototype_path(repository.github_id, prototype)
+    get repository_prototype_path(repository.github_id, prototype), as: :json
 
     assert_response :success
-    assert_includes response.body, I18n.t("prototypes.show.share_links")
-    assert_includes \
-      response.body,
-      repository_prototype_share_links_path(repository.github_id, prototype, build: build.number)
+    data = JSON.parse(response.body).fetch("data")
+    assert_equal \
+      repository_prototype_share_links_path(repository.github_id, prototype),
+      data.fetch("shareLinksPath")
+
+    get repository_prototype_path(repository.github_id, prototype, build: build.number), as: :json
+    assert_response :success
+    assert_equal \
+      repository_prototype_share_links_path(repository.github_id, prototype, build: build.number),
+      JSON.parse(response.body).fetch("data").fetch("shareLinksPath")
   end
 
   test "offers detail editing only to a prototype author with write access" do
@@ -500,9 +566,15 @@ class GalleryTest < ActionDispatch::IntegrationTest
     end
     selected = prototype.builds.find_by!(number: 1)
 
-    get repository_prototype_path(repository.github_id, prototype, build: selected.number)
+    get repository_prototype_path(repository.github_id, prototype, build: selected.number), as: :json
 
     assert_response :success
+    data = JSON.parse(response.body).fetch("data")
+    data.fetch("buildOptions").each do |option|
+      assert_equal \
+        repository_prototype_path(repository.github_id, prototype, build: option.fetch("number")),
+        option.fetch("path")
+    end
     assert_includes response.body, PreviewOrigin.current.url(selected.id)
     assert_includes response.body, '"number":1'
     assert_includes response.body, '"number":2,'
@@ -698,36 +770,34 @@ class GalleryTest < ActionDispatch::IntegrationTest
 
   test "paginates build history without shifting when a build is discovered" do
     repository, prototype = sign_in_and_create_prototype
-    26.times do |index|
+    selected = build_with_state(prototype, 1, "successful", "a", Time.current)
+    25.times do |index|
       builds.create \
         prototype:,
-        number: index + 1,
-        commit_sha: index.to_s(16).rjust(40, "0")
+        number: index + 2,
+        commit_sha: (index + 1).to_s(16).rjust(40, "0")
     end
 
-    get repository_prototype_builds_path(repository.github_id, prototype),
+    get repository_prototype_builds_path(repository.github_id, prototype, build: selected.number),
       headers: { "Accept" => "application/json" }
 
     assert_response :success
     assert_includes response.body, "build 26"
-    assert_not_includes JSON.parse(response.body).fetch("data").fetch("builds").pluck("number"), 1
+    first_page = JSON.parse(response.body).fetch("data")
+    assert_not_includes first_page.fetch("builds").pluck("number"), 1
     assert_includes response.body, "Older builds"
+    next_page_path = first_page.fetch("nextPagePath")
+    assert_includes next_page_path, "build=#{selected.number}"
 
     builds.create(prototype:, number: 27, commit_sha: "f" * 40)
-    cursor = prototype.builds.find_by!(number: 2)
-    get \
-      repository_prototype_builds_path(
-        repository.github_id,
-        prototype,
-        before: cursor.number,
-        before_at: cursor.chronological_at.iso8601(6)
-      ),
-      headers: { "Accept" => "application/json" }
+    get next_page_path, headers: { "Accept" => "application/json" }
 
     assert_response :success
-    assert_includes JSON.parse(response.body).fetch("data").fetch("builds").pluck("number"), 1
+    next_page = JSON.parse(response.body).fetch("data")
+    assert_includes next_page.fetch("builds").pluck("number"), 1
     assert_includes response.body, "Newest builds"
-    assert_not_includes JSON.parse(response.body).fetch("data").fetch("builds").pluck("number"), 27
+    assert_includes next_page.fetch("newestPagePath"), "build=#{selected.number}"
+    assert_not_includes next_page.fetch("builds").pluck("number"), 27
   end
 
   test "rejects malformed build-history cursors" do

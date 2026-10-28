@@ -1,0 +1,40 @@
+/*
+ * Copyright (c) Microsoft Corporation.
+ * Licensed under the MIT license.
+ */
+
+@layer common {
+  [role='row']:not(:hover, :focus-within:has(:focus-visible), [aria-selected='true'])
+    .menuButton:not(:hover, :focus-visible, [aria-expanded='true']) {
+    position: absolute;
+
+    overflow: hidden;
+
+    width: 1px;
+    height: 1px;
+
+    white-space: nowrap;
+
+    clip-path: inset(50%);
+  }
+
+  [role='gridcell']:has(> .menuButton),
+  [role='columnheader']:has(> * > .menuHeader) {
+    min-width: 48px;
+    max-width: 48px;
+  }
+
+  .menuHeader {
+    position: absolute;
+
+    overflow: hidden;
+
+    width: 1px;
+    height: 1px;
+    min-width: 0;
+
+    white-space: nowrap;
+
+    clip-path: inset(50%);
+  }
+}

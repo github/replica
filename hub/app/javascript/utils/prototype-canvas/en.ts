@@ -1,7 +1,7 @@
 export const copy = {
-  localCommentsSaved:
-    "Comments stay on this device until a Build with matching content is published and the canvas syncs them to Hub.",
-  commentPagesExceeded: "Too many review comment pages.",
+  improvementNotesLoading: "Loading improvement notes...",
+  commentNotifications: "Comment notifications",
+  dismissCommentNotification: "Dismiss notification",
   commentPreparationFailed: "Hub could not prepare this comment.",
   commentRefreshFailed: (detail: string) =>
     `The comment was saved, but Hub could not be refreshed: ${detail}`,
@@ -24,6 +24,7 @@ export const copy = {
   controlsConnecting: "Connecting controls...",
   controlsEmpty:
     "No active controls. This prototype may have no declaration or this route may not mount controls.",
+  controlsLearnMore: "Learn more",
   controlsMissingRuntime: "No supported controls runtime found.",
   controlsLocalMissingRuntime: "Local controls couldn't connect.",
   controlsLocalConnectionFailed:
@@ -104,6 +105,10 @@ export const copy = {
   hubBuildMissing: "Hub has not imported a successful registered Build.",
   hubPublicationUnavailable: "Connect to Hub to verify publication.",
   editDetails: "Edit details",
+  improveContext: "Improve context",
+  improveContextDescription: "Run a skill to improve repository context from user feedback.",
+  feedbackReviewFailed: (detail: string) => `Could not request a feedback review: ${detail}`,
+  moreActions: "More actions",
   startPageHint: "Paste a prototype URL or route. Leave blank to start at /.",
   requestFailed: "The request failed.",
   statusUnavailable: "Publish status unavailable.",

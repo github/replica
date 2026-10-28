@@ -1,8 +1,10 @@
-import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
+import { ThemeProvider } from "@primer/react-brand"
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { createRef } from "react"
 import { describe, expect, it, vi } from "vitest"
 
 import { octocatRootComment } from "@/storybook/fixtures/review/comments"
+import { CanvasReviewFeedback } from "@components/canvas-review-feedback"
 import { reviewCommentsCopy } from "@utils/review-comment/en"
 import {
   importedPrototype,
@@ -12,7 +14,133 @@ import {
 import { resolvePublication } from "@utils/resolve-prototype-publication"
 import type { HubStatus } from "@utils/prototype-canvas/types"
 
+import { PrototypeCanvasHubPanel } from "."
 import { renderPrototypeCanvasHubPanel } from "./test-support/render-prototype-canvas-hub-panel"
+
+it("reports an ordinary comment-loading failure outside the Comments sidebar", async () => {
+  render(<div id="canvas-review-controls" />)
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() =>
+      Promise.resolve(Response.json({ error: "Comments could not be loaded." }, { status: 503 })),
+    ),
+  )
+  render(
+    <ThemeProvider>
+      <CanvasReviewFeedback>
+        <PrototypeCanvasHubPanel
+          config={{ name: "Example", prototypeUrl: "http://localhost:4321/", token: "local" }}
+          frameRef={createRef<HTMLIFrameElement>()}
+          status={{ ...publicationHub, state: "connected", prototype: importedPrototype }}
+          onStatusChange={async () => {}}
+          onSelectHub={async () => {}}
+          onConnect={() => {}}
+          onClose={() => {}}
+          open
+        />
+      </CanvasReviewFeedback>
+    </ThemeProvider>,
+  )
+  fireEvent.click(await screen.findByRole("button", { name: /^Comments, 0/ }))
+  const notifications = await screen.findByRole("region", { name: "Comment notifications" })
+  expect(within(notifications).getByRole("alert")).toHaveTextContent(
+    "Comments could not be loaded.",
+  )
+  const sidebar = screen.getByRole("complementary", { name: reviewCommentsCopy.heading })
+  expect(sidebar).not.toContainElement(notifications)
+  expect(within(sidebar).queryByRole("alert")).not.toBeInTheDocument()
+  expect(within(sidebar).queryByText("Comments could not be loaded.")).not.toBeInTheDocument()
+})
+
+it("reports a comment sync failure externally without exposing local storage details", async () => {
+  render(<div id="canvas-review-controls" />)
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() => Promise.resolve(Response.json({ comments: [], hasMore: false, nextCursor: null }))),
+  )
+  render(
+    <ThemeProvider>
+      <CanvasReviewFeedback>
+        <PrototypeCanvasHubPanel
+          config={{ name: "Example", prototypeUrl: "http://localhost:4321/", token: "local" }}
+          frameRef={createRef<HTMLIFrameElement>()}
+          status={{
+            ...publicationHub,
+            state: "connected",
+            prototype: importedPrototype,
+            localCommentsError: "Local comments not synced: Hub is unavailable.",
+          }}
+          onStatusChange={async () => {}}
+          onSelectHub={async () => {}}
+          onConnect={() => {}}
+          onClose={() => {}}
+          open
+        />
+      </CanvasReviewFeedback>
+    </ThemeProvider>,
+  )
+  const notifications = await screen.findByRole("region", { name: "Comment notifications" })
+  expect(within(notifications).getByRole("alert")).toHaveTextContent(
+    "Comments could not be synced: Hub is unavailable.",
+  )
+  expect(notifications).not.toHaveTextContent("Local comments")
+  fireEvent.click(screen.getByRole("button", { name: /^Comments, 0/ }))
+  const sidebar = screen.getByRole("complementary", { name: reviewCommentsCopy.heading })
+  expect(sidebar).not.toContainElement(notifications)
+  expect(within(sidebar).queryByText(/Hub is unavailable/)).not.toBeInTheDocument()
+})
+
+it("reports an ordinary reply failure externally and preserves the unsent reply", async () => {
+  render(<div id="canvas-review-controls" />)
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((input: RequestInfo | URL) => {
+      const path = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
+      if (path === "/api/hub/events") throw new Error("Live connection unavailable")
+      return Promise.resolve(
+        path.endsWith("/replies")
+          ? Response.json({ error: "Reply could not be saved." }, { status: 503 })
+          : Response.json({ comments: [octocatRootComment], hasMore: false, nextCursor: null }),
+      )
+    }),
+  )
+  render(
+    <ThemeProvider>
+      <CanvasReviewFeedback>
+        <PrototypeCanvasHubPanel
+          config={{ name: "Example", prototypeUrl: "http://localhost:4321/", token: "local" }}
+          frameRef={createRef<HTMLIFrameElement>()}
+          status={{ ...publicationHub, state: "connected", prototype: importedPrototype }}
+          onStatusChange={async () => {}}
+          onSelectHub={async () => {}}
+          onConnect={() => {}}
+          onClose={() => {}}
+          open
+        />
+      </CanvasReviewFeedback>
+    </ThemeProvider>,
+  )
+  fireEvent.click(await screen.findByRole("button", { name: /^Comments, 1/ }))
+  fireEvent.click(
+    screen.getByRole("button", { name: /Please align this control with the content above it/ }),
+  )
+  const dialog = screen.getByRole("dialog", { name: reviewCommentsCopy.threadHeading })
+  const conversation = within(dialog)
+  fireEvent.change(conversation.getByRole("textbox", { name: "Reply" }), {
+    target: { value: "Keep this unsent reply." },
+  })
+  fireEvent.click(conversation.getByRole("button", { name: "Reply" }))
+  const notifications = await screen.findByRole("region", { name: "Comment notifications" })
+  await waitFor(() =>
+    expect(within(notifications).getByRole("alert")).toHaveTextContent(/reply could not be saved/i),
+  )
+  expect(dialog).not.toContainElement(notifications)
+  expect(conversation.queryByRole("alert")).not.toBeInTheDocument()
+  expect(conversation.queryByText(/reply could not be saved/i)).not.toBeInTheDocument()
+  expect(conversation.getByRole("textbox", { name: "Reply" })).toHaveValue(
+    "Keep this unsent reply.",
+  )
+})
 
 it.each(["undiscovered", "unregistered", "no-build", "disconnected"] as const)(
   "hides publishing Settings for a %s prototype",
@@ -514,6 +642,57 @@ it("offers an explicit local switch with a warning when the selected Hub cannot 
     "role",
     "alert",
   )
+  view.unmount()
+})
+
+it("retains every preview pin for collections larger than 200 threads", async () => {
+  const comments = Array.from({ length: 201 }, (_, index) => ({
+    ...octocatRootComment,
+    id: index + 1,
+  }))
+  const nonce = "00000000-0000-4000-8000-000000000000"
+  vi.spyOn(crypto, "randomUUID").mockReturnValue(nonce)
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() => Promise.resolve(Response.json({ comments, hasMore: false, nextCursor: null }))),
+  )
+  const frameRef = createRef<HTMLIFrameElement>()
+  const view = renderPrototypeCanvasHubPanel(
+    {
+      status: { ...publicationHub, state: "connected", prototype: importedPrototype },
+      frameRef,
+      open: false,
+    },
+    <iframe ref={frameRef} title="Prototype preview" src="about:blank" />,
+  )
+  await screen.findByRole("button", { name: /^Comments, 201/ })
+  const post = vi.spyOn(frameRef.current!.contentWindow!, "postMessage")
+  fireEvent.load(frameRef.current!)
+  expect(post).toHaveBeenCalledWith(
+    expect.objectContaining({
+      type: "replica:canvas:resolve",
+      anchors: comments.toReversed().map(({ id, anchor }) => ({ id, anchor })),
+    }),
+    "http://localhost:4321",
+  )
+  act(() => {
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        source: frameRef.current?.contentWindow,
+        origin: "http://localhost:4321",
+        data: {
+          type: "replica:canvas:resolved",
+          protocolVersion: 1,
+          nonce,
+          route: { pathname: "/", search: "", hash: "" },
+          results: comments.map(({ id }) => ({ id, x: 0, y: 0 })),
+        },
+      }),
+    )
+  })
+  expect(
+    screen.queryAllByRole("button", { name: "Unread thread started by @octocat" }),
+  ).toHaveLength(comments.length)
   view.unmount()
 })
 
@@ -1061,6 +1240,7 @@ describe("PrototypeCanvasHubPanel()", () => {
       },
     })
     fireEvent.click(await screen.findByRole("button", { name: /^Comments, 1/ }))
+    expect(screen.queryByText(/Comments stay on this device until a Build/)).not.toBeInTheDocument()
     fireEvent.click(await screen.findByRole("button", { name: /Local feedback before/ }))
     const conversation = await screen.findByRole("dialog", {
       name: reviewCommentsCopy.threadHeading,

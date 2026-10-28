@@ -1,0 +1,266 @@
+/*
+ * Copyright (c) Microsoft Corporation.
+ * Licensed under the MIT license.
+ */
+
+.container {
+  display: grid;
+
+  /* minmax(0, 1fr) ensures the two columns are always the same size */
+  grid-template-columns:
+    minmax(auto, 1fr)
+    auto
+    minmax(auto, 1fr);
+  flex-shrink: 0;
+  gap: var(--spacingS);
+
+  height: 48px;
+  padding: 0 var(--spacingXL);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+}
+
+.logoWrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  margin-right: var(--spacingXS);
+  margin-left: calc(-1 * var(--spacingXS));
+  padding: var(--spacingXS);
+
+  color: var(--colorNeutralForeground1);
+}
+
+.appName {
+  margin-right: var(--spacingS);
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+.actions {
+  display: flex;
+  gap: var(--spacingXS);
+  align-items: center;
+  margin-left: auto;
+}
+
+.brandLink {
+  display: flex;
+  align-items: center;
+  color: var(--colorNeutralForeground1);
+}
+
+.brandLink:hover {
+  color: var(--colorNeutralForeground1);
+  text-decoration: none;
+}
+
+.brandLink:focus-visible {
+  color: var(--colorNeutralForeground1);
+  text-decoration: none;
+  outline: var(--strokeWidthThick) solid var(--colorStrokeFocus1);
+  outline-offset: var(--spacingXXS);
+}
+
+.rightSection {
+  display: flex;
+  flex-shrink: 0;
+  gap: var(--spacingXXL);
+  align-items: center;
+  justify-self: end;
+}
+
+.buttonsContainer {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+
+  /* visually align to icons */
+  margin-left: calc(-1 * var(--spacingS));
+}
+
+.leftSection {
+  display: flex;
+  gap: var(--spacingS);
+  align-items: center;
+}
+
+.centerSection {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.largeSearchButton {
+  width: 200px;
+  .searchButtonText {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+    gap: var(--spacingS);
+    align-items: baseline;
+  }
+}
+
+.smallSearchButton {
+  display: none;
+}
+
+.linkContainer {
+  display: flex;
+  gap: var(--spacingS);
+  align-items: center;
+
+  margin: calc(-1 * var(--spacingXS));
+
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.breadCrumbDivider {
+  flex-shrink: 0;
+  color: var(--colorNeutralForegroundDisabled);
+}
+
+.navLink {
+  position: relative;
+
+  padding: var(--spacingS) var(--spacingXS);
+
+  font-size: 0.9rem;
+  color: var(--colorNeutralForeground3);
+  text-decoration: none;
+
+  transition: color 0.2s ease;
+}
+
+.navLink:hover {
+  color: var(--colorNeutralForeground1);
+}
+
+.navLink:global(.active) {
+  font-weight: 600;
+  color: var(--colorNeutralForeground2LinkSelected);
+}
+
+.navLink:global(.active):hover {
+  color: var(--colorNeutralForeground1);
+}
+
+.nextGenToggle,
+.notificationButton,
+.feedbackButton {
+  display: flex;
+}
+
+.userMarkButton {
+  display: flex;
+}
+
+.menuButton {
+  display: none;
+}
+
+.agentHelperButtonWithGlobalSearch {
+  display: none;
+}
+
+@container app (width <= 1470px) {
+  .container {
+    display: flex;
+    justify-content: space-between;
+  }
+}
+
+@container app (width <= 1280px) {
+  .centerSection {
+    position: absolute;
+    z-index: 1;
+    top: 0;
+    right: 0;
+    left: 0;
+
+    display: flex;
+    align-items: center;
+
+    margin-inline: auto;
+
+    opacity: 1;
+
+    transition:
+      opacity 0.4s ease,
+      display 0.4s ease allow-discrete;
+  }
+
+  .centerSection:not(:focus-within) {
+    display: none;
+    opacity: 0;
+  }
+
+  .agentHelperButtonWithGlobalSearch {
+    display: flex;
+  }
+
+  .searchAgentHelperButton {
+    display: none;
+  }
+
+  .smallSearchButton {
+    display: flex;
+  }
+}
+
+@container app (width <= 970px) {
+  .appName {
+    display: none;
+  }
+}
+
+@container app (width <= 900px) {
+  .linkContainer {
+    display: none;
+  }
+
+  .feedbackButton {
+    margin-right: 0;
+    margin-left: 0;
+  }
+
+  .logoWrapper {
+    padding-right: 0;
+  }
+
+  .leftSection {
+    gap: var(--spacingXS);
+  }
+
+  .menuButton {
+    display: flex;
+  }
+}
+
+@container app (width <= 620px) {
+  .notificationButton,
+  .feedbackButton,
+  .agentHelperButtonWithGlobalSearch,
+  .smallSearchButton {
+    display: none;
+  }
+}
+
+@container app (width <= 520px) {
+  .nextGenToggle {
+    display: none;
+  }
+}
+
+@container app (width <= 481px) {
+  .container {
+    column-gap: var(--spacingXS);
+    padding: 0 0 0 var(--spacingXS);
+  }
+}

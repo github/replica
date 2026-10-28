@@ -1,9 +1,8 @@
 import type { z } from "zod"
 
-import type { REVIEW_COMMENT_PAGE_SCHEMA, REVIEW_COMMENT_SCHEMA } from "./schemas"
+import type { REVIEW_COMMENT_SCHEMA } from "./schemas"
 
 export type ReviewComment = z.infer<typeof REVIEW_COMMENT_SCHEMA>
-export type ReviewCommentPage = z.infer<typeof REVIEW_COMMENT_PAGE_SCHEMA>
 export type ReviewRootComment = Extract<ReviewComment, { kind: "root" }>
 export type ReviewReply = Extract<ReviewComment, { kind: "reply" }>
 export type ReviewCommentAuthor = ReviewComment["author"]

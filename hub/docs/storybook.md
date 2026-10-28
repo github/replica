@@ -57,6 +57,14 @@ The `Hub/Design/Banner inventory` story compares the repository workflow panel's
 
 `Hub/Pages/Security/Hub administrators` lists administrators only. **Add administrator** opens the searchable multi-select dialog with synthetic Hub users. `Hub/Features/Hub Administrators/Add administrators` covers empty, single, multiple, loading, and failed searches. Selection and confirmation work in these stories, but form submission is blocked and no roles are saved.
 
+## Component usage
+
+Open **Used in** below a component's story to see its direct production consumers and the pages or application surfaces reached through those consumers. Counts are JSX source locations, including repeated tags on one line, not runtime instances. Each consumer lists its source lines; related story links use the current Storybook index and navigate the parent Storybook document. GitHub source links open `main` in a new tab and can differ from local edits. Components without consumers show an explicit empty state. Stories without a local `component` in their default metadata show that usage is unavailable rather than implying a zero count.
+
+The Storybook-only Vite plugin reads Hub's TypeScript configuration on relevant development source changes and static builds. Development updates refresh the usage report without reloading the preview, preserving normal React Fast Refresh. It resolves local JSX tags through TypeScript symbols, including aliases, namespace imports and re-exports. Test and story files, test-support and fixture directories, and the `storybook/` catalogue directory are excluded from counts. No generated report is committed, and the production app does not load the analyzer or usage view.
+
+Traversal follows component files to consuming files, stopping cycles. A page or application file in the result is a possible source dependency, not proof of runtime reachability. Multiple exports in one file share usage. Story-only helpers outside the excluded directories can appear as consumers. Same-file references, dynamic component props, registries, `createElement` calls, non-JSX templates and external packages are not traced. Default metadata must directly declare `component`; title-only and render-only stories are not guessed. The `Hub/Design/Component usage` stories cover populated, unused and unmapped states.
+
 ## Story data
 
 Story fixtures use the Oaken personas as their source:
@@ -93,6 +101,8 @@ Deleted stories need no after screenshot; explain removed UI in the PR. Omit the
 
 ## Story ownership
 
+`Components/Prototype canvas/Improvement threads` is the presentation workbench for [Pick & polish](prototype-canvas.md#pick--polish). Small fixtures render the real conversation component with pins, active notes, a Copilot answer, no pending work and an identity error. They do not implement a second prototype app, selection bridge, storage, synchronization or agent workflow. The former `Improvement notes prototype` stories and their standalone simulated app have been removed.
+
 Keep `stories.tsx` beside the code it presents:
 
 ```text
@@ -106,6 +116,10 @@ app/javascript/features/review-comments-sidebar/
 Stories may use local state and Storybook fixtures. They must not fetch data, depend on repository access, mutate saved Hub data, or copy application orchestration into a second implementation.
 
 Catalogue-only overview and inventory stories live under `app/javascript/storybook/`. Demo stories stay beside their demo, such as `storybook/inbox-prototype/stories.tsx`. The canvas application example stays beside `application/prototype-canvas/`. Preserve titles and exported story names when reorganizing files unless the catalogue hierarchy is intentionally changing. Intentional cleanup may rename, remove, or consolidate entries; update their references instead of retaining duplicate aliases.
+
+`Prototype canvas/Publication example/Improve Context` previews **Improve context** in the **More actions** menu at the right end of the toolbar for a connected user with repository access. Storybook records the request without calling Hub or running a skill. In the live canvas, Hub verifies repository access, including Read and Triage, before the action requests `/review-hub-feedback` in the current chat. `Prototype canvas/Toolbar/Improve Context` isolates the same control.
+
+Both groups include **More Actions Open**, which opens the real menu for inspecting its alignment, focus, and item spacing. Hovering or focusing **Improve context** shows "Run a skill to improve repository context from user feedback." The current action still requests feedback review only; context edits and solution generation remain deferred. The existing **Not Published** toolbar story omits the action and menu.
 
 `Hub/Pages/Inbox prototype` preserves the approved visual-only conversation-activity demo. In Workspace, hover or focus Inbox immediately after Prototypes to inspect the latest ten items under a compact Inbox and View all header. Unread rows use a muted green tint; counter badges consistently use the Hub's dark-green primary background with light text. The sidebar and inbox badges count all unread activity, including items outside those ten, update with local read controls, and disappear when nothing is unread; the collapsed sidebar keeps a compact count over the Inbox icon. Click Inbox or View all for the full-page list; All/Unread filters appear only on that page, and its scroll container reserves a stable scrollbar gutter across views. A triangular pointer-intent corridor keeps the card open while moving diagonally toward it, with a short grace period when the pointer stops outside. Clicking an activity from either surface opens its mock prototype and focuses and highlights the exact source message in a read-only conversation. This uses the authored static preview and shared message presentation, not real Hub routing. Empty and Collapsed Sidebar cover the other entry-point layouts. Filters and read controls change only in-memory sample data.
 

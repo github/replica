@@ -1,0 +1,173 @@
+.parametersSection {
+  display: flex;
+  gap: var(--spacingS);
+  padding: var(--spacingL) var(--spacingPagePadding);
+  border-bottom: var(--strokeWidthThin) solid var(--colorNeutralBackground4);
+}
+
+.modelDropdown {
+  flex: 1;
+  min-width: 0;
+}
+
+.accordion {
+  padding-block: var(--spacingS);
+  border-bottom: var(--strokeWidthThin) solid var(--colorNeutralBackground4);
+}
+
+.accordionHeaderButton {
+  padding-inline: var(--spacingPagePadding);
+}
+
+.accordionPanel {
+  margin: 0;
+  padding: 0 var(--spacingPagePadding) var(--spacingL);
+}
+
+.instructionsTextarea {
+  width: 100%;
+}
+
+.sectionDescription {
+  margin-bottom: var(--spacingM);
+}
+
+.sectionButtonGroup {
+  display: flex;
+  gap: var(--spacingS);
+  flex-wrap: wrap;
+}
+
+.emptySection {
+  padding: var(--spacingL);
+  color: var(--colorNeutralForeground3);
+  text-align: center;
+}
+
+/* Right Chat/Code Panel */
+.rightPanel {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background-color: var(--colorNeutralBackground1);
+}
+
+.content {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacingL);
+  padding: var(--spacingL);
+  overflow: hidden;
+}
+
+.topBar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--spacingL);
+}
+
+.tabsContainer {
+  display: flex;
+  align-items: center;
+  gap: var(--spacingS);
+}
+
+.topBarActions {
+  display: flex;
+  gap: var(--spacingXS);
+  align-items: center;
+}
+
+.tabContent {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Chat Container */
+.chatContainer {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  gap: var(--spacingL);
+}
+
+.chatMessages {
+  flex: 1;
+  background-color: var(--colorNeutralBackground3);
+  border-radius: var(--borderRadiusLarge);
+}
+
+.inputContainer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacingS);
+  position: relative;
+}
+
+.inputWrapper {
+  align-items: flex-end;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  grid-template-columns: 1fr auto;
+}
+
+.inputTextarea {
+  grid-row: 1 / 3;
+  grid-column: 1 / 3;
+  z-index: 0;
+
+  :global(.fui-Textarea__textarea) {
+    padding-bottom: 40px;
+  }
+}
+
+.inputActions {
+  display: flex;
+  gap: var(--spacingS);
+  align-items: center;
+  justify-content: end;
+  margin: var(--spacingXXS) var(--spacingS);
+  grid-row: 2 / 3;
+  grid-column: 2 / 3;
+  z-index: 1;
+}
+
+.disclaimer {
+  padding: var(--spacingXS);
+  text-align: center;
+}
+
+/* Code Container */
+.codeContainer {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.codeBlock {
+  flex: 1;
+  min-height: 0;
+}
+
+.codePlaceholder {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--colorNeutralForeground3);
+}

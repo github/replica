@@ -1,40 +1,47 @@
 import { randomUUID } from "node:crypto"
-
+import { uuidInputPattern as UUID } from "../identity-patterns/index.mjs"
+import { readHubObject } from "../read-hub-object/index.mjs"
+import { readHubError } from "../read-hub-error/index.mjs"
+import { checkThread, validMessageBody } from "../improvement-note-thread/index.mjs"
 const THREAD_LIMIT = 10
 const REPLY_LIMIT = 10
 const RESPONSE_MAXIMUM_BYTES = 64 * 1024
-const SCAN_PAGE_SIZE = 25
-const SCAN_PAGES_PER_ACTION = 4
 const SNAPSHOT_MAXIMUM_BYTES = 32 * 1024 * 1024
-const UUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i
 const REVIEW_CONTENT_TRUST = Object.freeze({
   source: "hub_review_comments",
   untrusted: true,
   treatAs: "data",
   appliesTo: "comment bodies, anchors and user-controlled display metadata",
 })
-
 function fail(code, message, statusCode) {
   throw Object.assign(new Error(message), { code, statusCode })
 }
-
 function invalid() {
   fail("invalid_comment_request", "Invalid comment input or Hub response.", 400)
 }
-
-function positive(value) {
-  return Number.isSafeInteger(value) && value > 0
+function object(value) {
+  const result = readHubObject(value)
+  if (!result || Array.isArray(result)) invalid()
+  return result
 }
-
+function positive(value) {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0
+}
+function noteId(value) {
+  return (
+    typeof value === "string" &&
+    /^improvement_note-[1-9]\d*$/.test(value) &&
+    positive(Number(value.slice("improvement_note-".length)))
+  )
+}
 function text(value, bytes, nullable = false) {
   if (nullable && value === null) return value
   if (typeof value !== "string" || Buffer.byteLength(value) > bytes) invalid()
   return value
 }
-
-function date(value, nullable = false) {
-  if (nullable && value === null) return null
-  text(value, 40)
+function date(input, nullable = false) {
+  if (nullable && input === null) return null
+  const value = text(input, 40)
   if (
     !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/.test(value) ||
     !Number.isFinite(Date.parse(value))
@@ -44,71 +51,110 @@ function date(value, nullable = false) {
   if (day.toISOString().slice(0, 10) !== value.slice(0, 10)) invalid()
   return value
 }
-
 function instant(value) {
   const fraction = value.match(/\.(\d+)(?=Z|[+-])/)?.[1] ?? ""
   return BigInt(Date.parse(value.replace(/\.\d+/, ""))) * 1000n + BigInt(fraction.padEnd(6, "0"))
 }
-
 function chronological(left, right) {
   const a = instant(left.createdAt)
   const b = instant(right.createdAt)
-  return a < b ? -1 : a > b ? 1 : left.id - right.id
+  if (a !== b) return a < b ? -1 : 1
+  const leftId =
+    typeof left.id === "number" ? left.id : Number(left.id.slice("improvement_note-".length))
+  const rightId =
+    typeof right.id === "number" ? right.id : Number(right.id.slice("improvement_note-".length))
+  return leftId - rightId || left.kind.localeCompare(right.kind, "en")
 }
-
-function author(value) {
-  if (!value || typeof value !== "object") invalid()
+function author(input) {
+  const value = object(input)
   return {
     login: text(value.login, 256),
     name: text(value.name, 1024, true),
     avatarUrl: text(value.avatarUrl, 2048, true),
   }
 }
-
-function message(value, repositoryScope = false) {
-  if (!value || !positive(value.id) || !["root", "reply"].includes(value.kind)) invalid()
+function message(input, repositoryScope = false) {
+  const value = object(input)
+  if (!positive(value.id) || !["root", "reply", "improvement_note"].includes(String(value.kind)))
+    invalid()
+  const improvement = value.kind === "improvement_note"
   const deletedAt = date(value.deletedAt, true)
   const body = text(value.body, 10000, deletedAt !== null)
   if (deletedAt && body !== null) invalid()
   const result = {
     id: value.id,
-    kind: value.kind,
     body,
     author: author(value.author),
     createdAt: date(value.createdAt),
     updatedAt: date(value.updatedAt),
-    editedAt: date(value.editedAt, true),
     deletedAt,
   }
   if (repositoryScope) {
-    if (!value.prototype || !positive(value.prototype.id)) invalid()
+    const prototype = object(value.prototype)
+    if (!positive(prototype.id)) invalid()
     result.prototype = {
-      id: value.prototype.id,
-      name: text(value.prototype.name, 1024, true),
-      branch: text(value.prototype.branch, 1024),
+      id: prototype.id,
+      name: text(prototype.name, 1024, true),
+      branch: text(prototype.branch, 1024),
     }
     if (!result.prototype.branch) invalid()
   }
   if (value.kind === "reply") {
     if (!positive(value.rootId)) invalid()
-    return { ...result, rootId: value.rootId }
+    return { ...result, editedAt: date(value.editedAt, true), kind: "reply", rootId: value.rootId }
   }
   if (
     !positive(value.buildNumber) ||
-    !positive(value.activityVersion) ||
-    !(
-      value.viewerLastSeenActivityVersion === null || positive(value.viewerLastSeenActivityVersion)
-    ) ||
-    !value.anchor ||
-    typeof value.anchor !== "object" ||
+    !readHubObject(value.anchor) ||
     Array.isArray(value.anchor) ||
     Buffer.byteLength(JSON.stringify(value.anchor)) > 16384
   )
     invalid()
+  if (improvement) {
+    if (
+      typeof value.localId !== "string" ||
+      !UUID.test(value.localId) ||
+      !positive(value.revision) ||
+      (value.status !== "open" &&
+        value.status !== "sent" &&
+        value.status !== "ready" &&
+        value.status !== "blocked" &&
+        value.status !== "resolved") ||
+      (deletedAt ? value.thread !== null : !validMessageBody(body, "author"))
+    )
+      invalid()
+    let conversation = null
+    if (!deletedAt) {
+      try {
+        conversation = checkThread(value.thread, value.localId)
+      } catch (error) {
+        if (readHubError(error).statusCode !== 422) throw error
+        invalid()
+      }
+    }
+    return {
+      ...result,
+      id: `improvement_note-${value.id}`,
+      kind: "improvement_note",
+      localId: value.localId,
+      revision: value.revision,
+      status: value.status,
+      buildNumber: value.buildNumber,
+      anchor: object(value.anchor),
+      thread: conversation,
+    }
+  }
+  if (
+    !positive(value.activityVersion) ||
+    !(value.viewerLastSeenActivityVersion === null || positive(value.viewerLastSeenActivityVersion))
+  )
+    invalid()
   return {
     ...result,
+    editedAt: date(value.editedAt, true),
+    kind: "root",
     buildNumber: value.buildNumber,
-    anchor: value.anchor,
+    anchor: object(value.anchor),
     resolvedAt: date(value.resolvedAt, true),
     resolvedBy: value.resolvedBy === null ? null : author(value.resolvedBy),
     activityVersion: value.activityVersion,
@@ -116,20 +162,6 @@ function message(value, repositoryScope = false) {
     unread: value.activityVersion > (value.viewerLastSeenActivityVersion ?? 0),
   }
 }
-
-function continuation(page) {
-  if (
-    !Array.isArray(page.comments) ||
-    page.comments.length > SCAN_PAGE_SIZE ||
-    typeof page.hasMore !== "boolean" ||
-    (page.hasMore
-      ? typeof page.nextCursor !== "string" || !page.nextCursor
-      : page.nextCursor !== null)
-  )
-    invalid()
-  return page.nextCursor === null ? null : text(page.nextCursor, 4096)
-}
-
 function directContinuation(page, records, pageSize) {
   if (
     !page ||
@@ -143,13 +175,14 @@ function directContinuation(page, records, pageSize) {
     invalid()
   return page.nextCursor === null ? null : text(page.nextCursor, 4096)
 }
-
-function compactContext(value) {
-  if (!value || !["element", "area"].includes(value.kind) || !value.route) invalid()
+function compactContext(input) {
+  const value = object(input)
+  if ((value.kind !== "element" && value.kind !== "area") || !value.route) invalid()
+  const inputRoute = object(value.route)
   const route = {
-    pathname: text(value.route.pathname, 2048),
-    search: text(value.route.search, 2048),
-    hash: text(value.route.hash, 1024),
+    pathname: text(inputRoute.pathname, 2048),
+    search: text(inputRoute.search, 2048),
+    hash: text(inputRoute.hash, 1024),
   }
   if (!route.pathname.startsWith("/")) invalid()
   if (value.kind === "element")
@@ -164,8 +197,8 @@ function compactContext(value) {
   return {
     kind: value.kind,
     route,
-    elements: value.elements.map((element) => {
-      if (!element || typeof element !== "object" || Array.isArray(element)) invalid()
+    elements: value.elements.map((input) => {
+      const element = object(input)
       return {
         accessibleName: text(element.accessibleName, 1000),
         tagName: text(element.tagName, 64),
@@ -175,16 +208,17 @@ function compactContext(value) {
     }),
   }
 }
-
-function summary(value) {
+function summary(input) {
+  const value = object(input)
+  const prototype = object(value.prototype)
   if (
     !value ||
     !positive(value.id) ||
     !positive(value.buildNumber) ||
+    typeof value.replyCount !== "number" ||
     !Number.isSafeInteger(value.replyCount) ||
     value.replyCount < 0 ||
-    !value.prototype ||
-    !positive(value.prototype.id) ||
+    !positive(prototype.id) ||
     !value.targetContext ||
     typeof value.targetContext !== "object" ||
     Array.isArray(value.targetContext) ||
@@ -204,9 +238,9 @@ function summary(value) {
     createdAt: date(value.createdAt),
     editedAt: date(value.editedAt, true),
     prototype: {
-      id: value.prototype.id,
-      name: text(value.prototype.name, 1024, true),
-      branch: text(value.prototype.branch, 1024),
+      id: prototype.id,
+      name: text(prototype.name, 1024, true),
+      branch: text(prototype.branch, 1024),
     },
     buildNumber: value.buildNumber,
     buildPath: text(value.buildPath, 2048),
@@ -216,22 +250,29 @@ function summary(value) {
     screenshotReference,
   }
 }
-
-function filters(input) {
-  const result = {
-    resolution: input.resolution ?? "all",
-    read: input.read ?? "all",
-    from: input.from ?? null,
-    to: input.to ?? null,
-  }
+function filters(input, improvements = false) {
+  const resolution = input.resolution ?? "all"
+  const read = input.read ?? "all"
   if (
-    !["all", "unresolved", "resolved"].includes(result.resolution) ||
-    !["all", "unread", "read"].includes(result.read)
+    (resolution !== "all" && resolution !== "unresolved" && resolution !== "resolved") ||
+    (read !== "all" && read !== "unread" && read !== "read")
   )
     invalid()
+  const result = { resolution, read, from: null, to: null }
+  if (improvements) {
+    const improvementNotes =
+      input.improvementNotes === undefined ? "exclude" : input.improvementNotes
+    if (
+      improvementNotes !== "exclude" &&
+      improvementNotes !== "include" &&
+      improvementNotes !== "only"
+    )
+      invalid()
+    result.improvementNotes = improvementNotes
+  }
   for (const key of ["from", "to"]) {
-    if (result[key] !== null) {
-      const value = result[key]
+    if (input[key] != null) {
+      const value = input[key]
       if (
         typeof value !== "string" ||
         !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/.test(value)
@@ -245,8 +286,8 @@ function filters(input) {
   if (result.from && result.to && instant(result.from) >= instant(result.to)) invalid()
   return result
 }
-
-function sameTarget(left, right) {
+function sameTarget(input, right) {
+  const left = readHubObject(input)
   return (
     left &&
     typeof left === "object" &&
@@ -255,32 +296,58 @@ function sameTarget(left, right) {
     Object.entries(right).every(([key, value]) => left[key] === value)
   )
 }
-
-function cursor(value) {
-  text(value, 4096)
+function cursor(input) {
+  const value = text(input, 4096)
   const [id, kind, first, second, ...extra] = value.split(":")
-  if (!UUID.test(id) || extra.length || !["scan", "list", "reply"].includes(kind)) invalid()
+  if (
+    !id ||
+    !UUID.test(id) ||
+    extra.length ||
+    (kind !== "scan" && kind !== "list" && kind !== "reply")
+  )
+    invalid()
   if (kind === "scan") {
     if (first !== undefined || second !== undefined) invalid()
     return { id, kind }
   }
-  if (!/^(0|[1-9]\d*)$/.test(first ?? "") || !Number.isSafeInteger(Number(first))) invalid()
+  if (
+    !noteId(first) &&
+    (!/^(0|[1-9]\d*)$/.test(first ?? "") || !Number.isSafeInteger(Number(first)))
+  )
+    invalid()
   if (kind === "list") {
-    if (second !== undefined) invalid()
+    if (second !== undefined || noteId(first)) invalid()
     return { id, kind, offset: Number(first) }
   }
   if (
-    !positive(Number(first)) ||
+    !(positive(Number(first)) || noteId(first)) ||
     !/^(0|[1-9]\d*)$/.test(second ?? "") ||
     !Number.isSafeInteger(Number(second))
   )
     invalid()
-  return { id, kind, threadId: Number(first), offset: Number(second) }
+  return { id, kind, threadId: noteId(first) ? first : Number(first), offset: Number(second) }
 }
-
+function activity(root) {
+  if (root.kind !== "improvement_note") return root.activityVersion
+  const note = { ...root }
+  delete note.prototype
+  return JSON.stringify(note)
+}
+function commentsRoute(base, improvementNotes = "exclude") {
+  return improvementNotes === "exclude" ? base : `${base}?improvement_notes=${improvementNotes}`
+}
+function savedMessage(input, repositoryScope) {
+  const value = object(input)
+  if (value.kind !== "improvement_note") return message(input, repositoryScope)
+  if (!noteId(value.id)) invalid()
+  return message(
+    { ...value, id: Number(value.id.slice("improvement_note-".length)) },
+    repositoryScope,
+  )
+}
 async function snapshot(store, id, target) {
   if (!UUID.test(id)) invalid()
-  const value = await store.read(`snapshot-${id}.json`)
+  const value = readHubObject(await store.read(`snapshot-${id}.json`))
   if (
     !value ||
     value.scanVersion !== 2 ||
@@ -290,90 +357,101 @@ async function snapshot(store, id, target) {
     typeof value.complete !== "boolean"
   )
     fail("comment_snapshot_expired", "Retrieve comments again to start a new snapshot.", 409)
-  return value
-}
-
-async function scan(hub, store, value, base, options) {
-  for (let i = 0; i < SCAN_PAGES_PER_ACTION && !value.complete; i++) {
-    const query = new URLSearchParams({ pageSize: String(SCAN_PAGE_SIZE) })
-    if (value.hubCursor) query.set("cursor", value.hubCursor)
-    const page = await hub.request(`${base}?${query}`, options)
-    const next = continuation(page)
-    if (next && next === value.hubCursor) invalid()
-    const records = page.comments.map((record) =>
-      message(record, value.target.scope === "repository"),
-    )
-    if (value.baseline) {
-      for (const root of records.filter((item) => item.kind === "root"))
-        if (value.baseline[root.id] !== root.activityVersion)
-          fail(
-            "comment_conflict",
-            "Thread changed during collection. Retrieve comments again.",
-            409,
-          )
+  const baseline = value.baseline === undefined ? undefined : object(value.baseline)
+  const versions = {}
+  if (baseline) {
+    for (const [key, version] of Object.entries(baseline)) {
+      if (!positive(version)) invalid()
+      versions[key] = version
     }
-    value.comments.push(...records)
-    value.hubCursor = next
-    if (!page.hasMore) {
-      if (!value.baseline) {
-        // A second traversal brackets its messages with the first traversal's root versions.
-        value.baseline = Object.fromEntries(
-          value.comments
-            .filter((item) => item.kind === "root")
-            .map((root) => [root.id, root.activityVersion]),
-        )
-        value.comments = []
-      } else {
-        if (
-          value.comments.filter((item) => item.kind === "root").length !==
-          Object.keys(value.baseline).length
-        )
-          fail(
-            "comment_conflict",
-            "Threads changed during collection. Retrieve comments again.",
-            409,
-          )
-        if (value.target.scope === "repository") {
-          const roots = new Map(
-            value.comments.filter((item) => item.kind === "root").map((root) => [root.id, root]),
-          )
-          const ids = new Set()
-          for (const record of value.comments) {
-            if (
-              ids.has(record.id) ||
-              (record.kind === "reply" &&
-                roots.get(record.rootId)?.prototype.id !== record.prototype.id)
-            )
-              fail(
-                "comment_conflict",
-                "Conversations changed during collection. Retrieve comments again.",
-                409,
-              )
-            ids.add(record.id)
-          }
-        }
-        value.complete = true
-      }
-    }
-    if (Buffer.byteLength(JSON.stringify(value)) > SNAPSHOT_MAXIMUM_BYTES)
-      fail(
-        "comment_scan_limit",
-        "The comment collection exceeds the extension's 32 MiB snapshot limit.",
-      )
-    await store.write(`snapshot-${value.id}.json`, value)
+  }
+  if (
+    value.hubCursor !== undefined &&
+    value.hubCursor !== null &&
+    typeof value.hubCursor !== "string"
+  )
+    invalid()
+  return {
+    id,
+    scanVersion: value.scanVersion,
+    target,
+    filters: filters(object(value.filters), true),
+    capturedAt: date(value.capturedAt),
+    comments: value.comments.map((record) => savedMessage(record, target.scope === "repository")),
+    hubCursor: typeof value.hubCursor === "string" ? value.hubCursor : null,
+    complete: value.complete,
+    ...(baseline ? { baseline: versions } : {}),
   }
 }
-
+async function scan(hub, store, value, base, options) {
+  if (value.complete) return
+  const repositoryScope = value.target.scope === "repository"
+  const first = (await completeComments(hub, base, options)).map((record) =>
+    message(record, repositoryScope),
+  )
+  const versions = new Map(
+    first.filter((item) => item.kind !== "reply").map((root) => [root.id, activity(root)]),
+  )
+  const comments = (await completeComments(hub, base, options)).map((record) =>
+    message(record, repositoryScope),
+  )
+  const roots = new Map(
+    comments.filter((item) => item.kind !== "reply").map((root) => [root.id, root]),
+  )
+  if (
+    roots.size !== versions.size ||
+    [...roots.values()].some((root) => versions.get(root.id) !== activity(root))
+  )
+    fail("comment_conflict", "Threads changed during collection. Retrieve comments again.", 409)
+  {
+    const ids = new Set()
+    for (const record of comments) {
+      const root = record.kind === "reply" ? roots.get(record.rootId) : undefined
+      if (
+        ids.has(record.id) ||
+        (record.kind === "reply" && (!root || root.prototype?.id !== record.prototype?.id))
+      )
+        fail(
+          "comment_conflict",
+          "Conversations changed during collection. Retrieve comments again.",
+          409,
+        )
+      ids.add(record.id)
+    }
+  }
+  value.comments = comments
+  value.hubCursor = null
+  delete value.baseline
+  value.complete = true
+  if (Buffer.byteLength(JSON.stringify(value)) > SNAPSHOT_MAXIMUM_BYTES)
+    fail(
+      "comment_scan_limit",
+      "The comment collection exceeds the extension's 32 MiB snapshot limit.",
+    )
+  await store.write(`snapshot-${value.id}.json`, value)
+}
+async function completeComments(hub, base, options) {
+  const collection = await hub.request(base, options)
+  if (
+    !Array.isArray(collection.comments) ||
+    collection.hasMore !== false ||
+    collection.nextCursor !== null
+  )
+    invalid()
+  return collection.comments.map((record) => record)
+}
 function replies(value, threadId) {
+  if (noteId(threadId)) {
+    const root = value.comments.find((item) => item.id === threadId)
+    return root?.kind === "improvement_note" ? (root.thread?.messages ?? []) : []
+  }
   return value.comments
     .filter((item) => item.kind === "reply" && item.rootId === threadId)
     .sort(chronological)
 }
-
 function fitsResponse(value) {
   return Buffer.byteLength(JSON.stringify(value), "utf8") <= RESPONSE_MAXIMUM_BYTES
 }
-
 function boundedResponse(value) {
   if (!fitsResponse(value))
     fail(
@@ -383,23 +461,31 @@ function boundedResponse(value) {
     )
   return value
 }
-
 function thread(value, root, offset, all, count, replyRequestId) {
   if (offset > all.length) invalid()
   const hasMore = offset + count < all.length
   return {
     ...root,
-    replies: all.slice(offset, offset + count),
+    ...(root.kind === "improvement_note"
+      ? {
+          thread:
+            root.thread === null
+              ? null
+              : { ...root.thread, messages: all.slice(offset, offset + count) },
+        }
+      : { replies: all.slice(offset, offset + count) }),
     threadComplete: offset === 0 && !hasMore,
     repliesHasMore: hasMore,
     repliesNextCursor: hasMore ? `${value.id}:reply:${root.id}:${offset + count}` : null,
     ...(replyRequestId ? { replyRequestId } : {}),
   }
 }
-
 function boundedThread(value, root, offset, all, envelope) {
   if (offset > all.length) invalid()
-  const replyRequestId = value.target.scope === "repository" ? undefined : randomUUID()
+  const replyRequestId =
+    value.target.scope === "repository" || root.kind === "improvement_note"
+      ? undefined
+      : randomUUID()
   const maximum = Math.min(REPLY_LIMIT, all.length - offset)
   // A reply continuation must consume a message, never return its own cursor unchanged.
   const minimum = maximum === 0 ? 0 : 1
@@ -413,30 +499,43 @@ function boundedThread(value, root, offset, all, envelope) {
     413,
   )
 }
-
 function list(value, offset = 0) {
   const grouped = new Map()
   for (const item of value.comments) {
     if (item.kind !== "reply") continue
-    if (!grouped.has(item.rootId)) grouped.set(item.rootId, [])
-    grouped.get(item.rootId).push(item)
+    const records = grouped.get(item.rootId) ?? []
+    records.push(item)
+    grouped.set(item.rootId, records)
   }
   for (const records of grouped.values()) records.sort(chronological)
   const roots = value.comments
     .filter((item) => {
-      if (item.kind !== "root") return false
+      if (item.kind === "reply") return false
       const filter = value.filters
-      if (filter.resolution !== "all" && (filter.resolution === "resolved") !== !!item.resolvedAt)
+      if (
+        (item.kind === "improvement_note" && filter.improvementNotes === "exclude") ||
+        (item.kind === "root" && filter.improvementNotes === "only")
+      )
         return false
-      if (filter.read !== "all" && (filter.read === "unread") !== item.unread) return false
+      const resolved =
+        item.kind === "improvement_note" ? item.status === "resolved" : !!item.resolvedAt
+      if (filter.resolution !== "all" && (filter.resolution === "resolved") !== resolved)
+        return false
+      if (
+        filter.read !== "all" &&
+        (item.kind === "improvement_note" || (filter.read === "unread") !== item.unread)
+      )
+        return false
       if (filter.from || filter.to) {
         const from = filter.from ? instant(filter.from) : null
         const to = filter.to ? instant(filter.to) : null
         if (
-          ![item, ...(grouped.get(item.id) ?? [])].some((record) => {
-            const created = instant(record.createdAt)
-            return (from === null || created >= from) && (to === null || created < to)
-          })
+          ![item, ...(typeof item.id === "number" ? (grouped.get(item.id) ?? []) : [])].some(
+            (record) => {
+              const created = instant(record.createdAt)
+              return (from === null || created >= from) && (to === null || created < to)
+            },
+          )
         )
           return false
       }
@@ -460,8 +559,14 @@ function list(value, offset = 0) {
   }
   const threads = []
   for (const root of roots.slice(offset, offset + THREAD_LIMIT)) {
-    const all = grouped.get(root.id) ?? []
-    const replyRequestId = value.target.scope === "repository" ? undefined : randomUUID()
+    const all =
+      root.kind === "improvement_note"
+        ? (root.thread?.messages ?? [])
+        : (grouped.get(root.id) ?? [])
+    const replyRequestId =
+      value.target.scope === "repository" || root.kind === "improvement_note"
+        ? undefined
+        : randomUUID()
     const candidate = thread(value, root, 0, all, Math.min(REPLY_LIMIT, all.length), replyRequestId)
     if (fitsResponse(envelope([...threads, candidate]))) {
       threads.push(candidate)
@@ -472,35 +577,40 @@ function list(value, offset = 0) {
   }
   return boundedResponse(envelope(threads))
 }
-
 async function freshRoot(hub, base, threadId, options) {
-  let next = null
-  const deadline = Date.now() + 30_000
-  do {
-    const query = new URLSearchParams({ pageSize: String(SCAN_PAGE_SIZE) })
-    if (next) query.set("cursor", next)
-    const page = await hub.request(`${base}?${query}`, options)
-    const following = continuation(page)
-    if (following && following === next) invalid()
-    const root = page.comments.find((item) => item.kind === "root" && item.id === threadId)
-    if (root) return message(root)
-    next = following
-    if (next && Date.now() >= deadline)
-      fail(
-        "comment_check_incomplete",
-        "Could not finish checking the current thread. No mutation was submitted.",
-      )
-  } while (next)
+  const comments = await completeComments(
+    hub,
+    commentsRoute(base, noteId(threadId) ? "only" : "exclude"),
+    options,
+  )
+  const root = comments.find((input) => {
+    const item = readHubObject(input)
+    return noteId(threadId)
+      ? item?.kind === "improvement_note" && `improvement_note-${String(item.id)}` === threadId
+      : item?.kind === "root" && item.id === threadId
+  })
+  if (root) {
+    const result = message(root)
+    if (result.kind === "reply") invalid()
+    return result
+  }
   fail("comments_not_found", "The thread no longer exists in this prototype.", 404)
 }
-
-export async function reviewAction(hub, action, input = {}, store) {
+export async function reviewAction(hub, action, rawInput = {}, store) {
   if (!hub) fail("hub_disconnected", "Connect to Hub first.", 401)
   if (!store) throw new Error("Comment actions require private session storage.")
-  if (!input || typeof input !== "object" || Array.isArray(input)) invalid()
-  const allowed = {
-    list_comments: ["resolution", "read", "from", "to", "cursor", "target"],
-    list_repository_comments: ["resolution", "read", "from", "to", "cursor", "target"],
+  const input = object(rawInput)
+  const allowedActions = {
+    list_comments: ["resolution", "read", "from", "to", "improvementNotes", "cursor", "target"],
+    list_repository_comments: [
+      "resolution",
+      "read",
+      "from",
+      "to",
+      "improvementNotes",
+      "cursor",
+      "target",
+    ],
     get_comment_thread: ["target", "threadId", "snapshotId", "cursor"],
     get_repository_comment_thread: ["target", "threadId", "snapshotId", "cursor"],
     list_repository_comment_summaries: ["resolution", "from", "to", "pageSize", "cursor", "target"],
@@ -508,7 +618,8 @@ export async function reviewAction(hub, action, input = {}, store) {
     mark_comment_read: ["target", "threadId", "activityVersion"],
     reply_to_comment: ["target", "threadId", "body", "requestId"],
     resolve_comment: ["target", "threadId", "activityVersion"],
-  }[action]
+  }
+  const allowed = allowedActions[action]
   if (!allowed || Object.keys(input).some((key) => !allowed.includes(key))) invalid()
   const repositoryScope = [
     "list_repository_comments",
@@ -525,33 +636,47 @@ export async function reviewAction(hub, action, input = {}, store) {
     "list_repository_comment_summaries",
   ].includes(action)
   const readingThread = ["get_comment_thread", "get_repository_comment_thread"].includes(action)
-  if (input.target && (input.target.scope === "repository") !== repositoryScope) invalid()
-  if (!listing && (!positive(input.threadId) || !input.target)) invalid()
+  const inputTarget = input.target ? object(input.target) : undefined
+  if (inputTarget && (inputTarget.scope === "repository") !== repositoryScope) invalid()
+  if (
+    !listing &&
+    (!(positive(input.threadId) || (readingThread && noteId(input.threadId))) || !input.target)
+  )
+    invalid()
   if (directThread && !positive(input.prototypeId)) invalid()
   const pageSize = input.pageSize ?? 200
   if (direct && (!positive(pageSize) || pageSize > 200)) invalid()
   if (direct && input.cursor !== undefined && !text(input.cursor, 4096)) invalid()
   if (["mark_comment_read", "resolve_comment"].includes(action) && !positive(input.activityVersion))
     invalid()
-  if (readingThread && !UUID.test(input.snapshotId ?? "")) invalid()
+  if (readingThread && (typeof input.snapshotId !== "string" || !UUID.test(input.snapshotId)))
+    invalid()
   if (
     action === "reply_to_comment" &&
-    (!text(input.body, 10000).trim() || !UUID.test(input.requestId ?? ""))
+    (!text(input.body, 10000).trim() ||
+      typeof input.requestId !== "string" ||
+      !UUID.test(input.requestId))
   )
     invalid()
-  const filter = listing ? filters(input) : null
+  const filter = listing ? filters(input, !direct) : undefined
   const position = !direct && input.cursor !== undefined ? cursor(input.cursor) : null
   if (input.cursor !== undefined && !input.target) invalid()
   const checkout = await hub.checkout()
   if (!checkout.repository || !checkout.branch) invalid()
   if (
-    input.target &&
-    (input.target.hubOrigin !== hub.origin ||
-      input.target.repository !== checkout.repository ||
-      input.target.branch !== checkout.branch)
+    inputTarget &&
+    (inputTarget.hubOrigin !== hub.origin ||
+      inputTarget.repository !== checkout.repository ||
+      inputTarget.branch !== checkout.branch)
   )
     fail("stale_comment_target", "Checkout changed. Retrieve comments again.")
-  const options = { expectedTarget: checkout, connectionScope: {} }
+  const options = {
+    expectedTarget: {
+      repository: checkout.repository,
+      branch: checkout.branch,
+    },
+    connectionScope: {},
+  }
   const identity = await hub.request(
     repositoryScope
       ? "/api/canvas/connection"
@@ -560,7 +685,8 @@ export async function reviewAction(hub, action, input = {}, store) {
   )
   if (
     !positive(identity.repositoryId) ||
-    identity.repository?.toLowerCase() !== checkout.repository.toLowerCase() ||
+    typeof identity.repository !== "string" ||
+    identity.repository.toLowerCase() !== checkout.repository.toLowerCase() ||
     (!repositoryScope && (!positive(identity.id) || identity.branch !== checkout.branch))
   )
     invalid()
@@ -569,23 +695,27 @@ export async function reviewAction(hub, action, input = {}, store) {
     repository: checkout.repository,
     branch: checkout.branch,
     repositoryId: identity.repositoryId,
-    ...(repositoryScope ? { scope: "repository" } : { prototypeId: identity.id }),
+    ...(repositoryScope
+      ? { scope: "repository" }
+      : { prototypeId: positive(identity.id) ? identity.id : invalid() }),
     viewerLogin: text(identity.viewerLogin, 256),
   }
   if (input.target && !sameTarget(input.target, target))
     fail("stale_comment_target", "Hub identity changed. Retrieve comments again.")
   if (direct) {
+    if (!positive(pageSize)) invalid()
     const query = new URLSearchParams({ pageSize: String(pageSize) })
-    if (input.cursor !== undefined) query.set("cursor", input.cursor)
+    if (input.cursor !== undefined) query.set("cursor", text(input.cursor, 4096))
     if (compactListing) {
+      if (!filter) invalid()
       query.set("resolution", filter.resolution)
       if (filter.from) query.set("from", filter.from)
       if (filter.to) query.set("to", filter.to)
     }
     const route = compactListing
       ? `/api/canvas/repositories/${target.repositoryId}/review_comment_summaries`
-      : `/api/canvas/repositories/${target.repositoryId}/prototypes/${input.prototypeId}/review_comments/${input.threadId}/thread`
-    const page = await hub.request(`${route}?${query}`, options)
+      : `/api/canvas/repositories/${target.repositoryId}/prototypes/${String(input.prototypeId)}/review_comments/${String(input.threadId)}/thread`
+    const page = await hub.request(`${route}?${query.toString()}`, options)
     const nextCursor = directContinuation(
       page,
       compactListing ? page?.comments : page?.replies,
@@ -596,10 +726,11 @@ export async function reviewAction(hub, action, input = {}, store) {
       contentTrust: REVIEW_CONTENT_TRUST,
       target,
       capturedAt: new Date().toISOString(),
-      hasMore: page.hasMore,
+      hasMore: nextCursor !== null,
       nextCursor,
     }
     if (compactListing) {
+      if (!Array.isArray(page.comments)) invalid()
       const comments = page.comments.map(summary)
       if (new Set(comments.map(({ id }) => id)).size !== comments.length) invalid()
       return boundedResponse({ ...envelope, comments })
@@ -608,8 +739,10 @@ export async function reviewAction(hub, action, input = {}, store) {
     if (
       root.kind !== "root" ||
       root.id !== input.threadId ||
-      root.prototype.id !== input.prototypeId ||
+      root.prototype?.id !== input.prototypeId ||
+      typeof page.replyCount !== "number" ||
       !Number.isSafeInteger(page.replyCount) ||
+      !Array.isArray(page.replies) ||
       page.replyCount < page.replies.length
     )
       invalid()
@@ -631,6 +764,7 @@ export async function reviewAction(hub, action, input = {}, store) {
     if (position && !["scan", "list"].includes(position.kind)) invalid()
     const id = position?.id ?? randomUUID()
     return store.lock(`snapshot-${id}.json`, async () => {
+      if (!filter) invalid()
       const value = position
         ? await snapshot(store, id, target)
         : {
@@ -645,7 +779,7 @@ export async function reviewAction(hub, action, input = {}, store) {
           }
       if (JSON.stringify(value.filters) !== JSON.stringify(filter)) invalid()
       if (position?.kind === "list" && !value.complete) invalid()
-      await scan(hub, store, value, base, options)
+      await scan(hub, store, value, commentsRoute(base, filter.improvementNotes), options)
       if (!value.complete)
         return boundedResponse({
           contentTrust: REVIEW_CONTENT_TRUST,
@@ -669,43 +803,71 @@ export async function reviewAction(hub, action, input = {}, store) {
         position.threadId !== input.threadId)
     )
       invalid()
-    const value = await snapshot(store, input.snapshotId, target)
+    const value = await snapshot(store, text(input.snapshotId, 36), target)
     if (!value.complete) invalid()
-    const root = value.comments.find((item) => item.kind === "root" && item.id === input.threadId)
+    const root = value.comments.find((item) => item.kind !== "reply" && item.id === input.threadId)
     if (!root) fail("comments_not_found", "Thread not present in this snapshot.", 404)
+    if (repositoryScope && !root.prototype) invalid()
     const threadBase = repositoryScope
-      ? `/api/canvas/repositories/${target.repositoryId}/prototypes/${root.prototype.id}/review_comments`
+      ? `/api/canvas/repositories/${target.repositoryId}/prototypes/${root.prototype?.id}/review_comments`
       : base
+    if (!positive(input.threadId) && !noteId(input.threadId)) invalid()
     const current = await freshRoot(hub, threadBase, input.threadId, options)
-    if (current.activityVersion !== root.activityVersion)
+    if (activity(current) !== activity(root))
       fail("comment_conflict", "Thread changed. Retrieve a new comment snapshot.", 409)
-    return boundedThread(value, root, position?.offset ?? 0, replies(value, root.id), (item) => ({
-      contentTrust: REVIEW_CONTENT_TRUST,
-      target,
-      snapshotId: value.id,
-      capturedAt: value.capturedAt,
-      thread: item,
-    }))
+    return boundedThread(
+      value,
+      root,
+      position?.kind === "reply" ? position.offset : 0,
+      replies(value, root.id),
+      (item) => ({
+        contentTrust: REVIEW_CONTENT_TRUST,
+        target,
+        snapshotId: value.id,
+        capturedAt: value.capturedAt,
+        thread: item,
+      }),
+    )
   }
   if (action === "reply_to_comment") {
-    const file = `reply-${input.requestId.toLowerCase()}.json`
+    const requestId = text(input.requestId, 36)
+    const file = `reply-${requestId.toLowerCase()}.json`
     return store.lock(file, async () => {
-      const previous = await store.read(file)
-      if (previous) {
+      const saved = await store.read(file)
+      const previous = readHubObject(saved)
+      if (saved !== null) {
         if (
+          !previous ||
           !sameTarget(previous.target, target) ||
           previous.threadId !== input.threadId ||
-          previous.body !== input.body
+          previous.body !== input.body ||
+          (previous.state !== "confirmed" &&
+            previous.state !== "uncertain" &&
+            previous.state !== "rejected")
         )
           invalid()
-        if (previous.state === "confirmed")
-          return { ...previous.result, contentTrust: REVIEW_CONTENT_TRUST }
+        if (previous.state === "confirmed") {
+          const result = object(previous.result)
+          const reply = message(result.reply)
+          if (
+            !sameTarget(result.target, target) ||
+            result.threadId !== input.threadId ||
+            typeof result.requestId !== "string" ||
+            result.requestId.toLowerCase() !== requestId.toLowerCase() ||
+            reply.kind !== "reply" ||
+            reply.rootId !== input.threadId ||
+            reply.body !== input.body
+          )
+            invalid()
+          return { ...result, reply, contentTrust: REVIEW_CONTENT_TRUST }
+        }
         if (previous.state === "uncertain")
           fail(
             "reply_delivery_unknown",
             "A previous reply attempt may have completed. Inspect Hub; do not resend it.",
           )
       }
+      if (!positive(input.threadId)) invalid()
       await freshRoot(hub, base, input.threadId, options)
       const receipt = {
         target,
@@ -722,10 +884,12 @@ export async function reviewAction(hub, action, input = {}, store) {
           interactive: true,
           body: { review_comment: { body: input.body } },
         })
-      } catch (error) {
+      } catch (caught) {
+        const error = readHubError(caught)
         if (
           error.deliveryPhase === "before_dispatch" ||
           (error.code !== "stale_comment_target" &&
+            typeof error.statusCode === "number" &&
             [400, 401, 403, 404, 409, 413, 422, 429].includes(error.statusCode))
         )
           await store.write(file, { ...receipt, state: "rejected" })
@@ -737,13 +901,17 @@ export async function reviewAction(hub, action, input = {}, store) {
         throw error
       }
       const reply = Array.isArray(response.comments)
-        ? response.comments.find((item) => item.kind === "reply" && item.rootId === input.threadId)
+        ? response.comments.find((value) => {
+            const item = readHubObject(value)
+            return item?.kind === "reply" && item.rootId === input.threadId
+          })
         : null
       let projected
       try {
         projected = message(reply)
         if (projected.body !== input.body) invalid()
-      } catch (error) {
+      } catch (caught) {
+        const error = readHubError(caught)
         if (error.code !== "invalid_comment_request") throw error
         fail(
           "reply_delivery_unknown",
@@ -755,14 +923,16 @@ export async function reviewAction(hub, action, input = {}, store) {
         target,
         threadId: input.threadId,
         reply: projected,
-        requestId: input.requestId,
+        requestId,
       }
       await store.write(file, { ...receipt, state: "confirmed", result })
       return result
     })
   }
+  if (!positive(input.threadId)) invalid()
   if (action === "resolve_comment") {
     const root = await freshRoot(hub, base, input.threadId, options)
+    if (root.kind !== "root") invalid()
     if (root.resolvedAt) return { target, threadId: input.threadId, resolvedAt: root.resolvedAt }
     if (root.activityVersion !== input.activityVersion)
       fail("comment_conflict", "New activity arrived. Retrieve comments before resolving.", 409)
@@ -781,12 +951,17 @@ export async function reviewAction(hub, action, input = {}, store) {
       : {}),
   })
   const root = Array.isArray(response.comments)
-    ? response.comments.find((item) => item.kind === "root" && item.id === input.threadId)
+    ? response.comments.find((value) => {
+        const item = readHubObject(value)
+        return item?.kind === "root" && item.id === input.threadId
+      })
     : null
   const projected = message(root)
+  if (projected.kind !== "root") invalid()
   if (action === "mark_comment_read") {
     if (
       !positive(projected.viewerLastSeenActivityVersion) ||
+      !positive(input.activityVersion) ||
       projected.viewerLastSeenActivityVersion < input.activityVersion
     )
       invalid()

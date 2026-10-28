@@ -8,7 +8,7 @@ This ends existing authentication, not the ability to sign in. People can comple
 
 Only a current, persisted, GitHub-backed Hub administrator may open `/session_revocation` or submit its CSRF-protected form. The same browser Session must have verified the same GitHub identity strictly less than five minutes ago. Another browser's proof or a canvas grant cannot authorize this action.
 
-If Hub opens **Verify with GitHub**, complete that check, return to the confirmation page, and submit again. The callback never replays the original mutation. Cancel and missing confirmation leave all credentials unchanged and record a denial. See [Fresh GitHub authorization](fresh-authorization.md).
+If Hub opens **Verify with GitHub**, complete that check and Hub continues the session revocation you already confirmed, including ending your own session. Cancel and missing confirmation leave all credentials unchanged and record a denial. See [Fresh GitHub authorization](fresh-authorization.md).
 
 The page explains that the operator's own Session will end. Counts are advisory: new sessions or approvals can arrive before confirmation. With only the operator's browser remaining, the action still ends that Session.
 

@@ -4,9 +4,17 @@ module ReviewCommentPages
 
   included do
     rescue_from ReviewComment::InvalidPagination, with: :invalid_pagination
+    rescue_from ReviewComment::ResponseTooLarge, with: -> { head :content_too_large }
   end
 
   private
+
+  def improvement_notes_filter
+    value = params[:improvement_notes] || "exclude"
+    raise ReviewComment::InvalidPagination unless %w[exclude include only].include?(value)
+
+    value
+  end
 
   def pagination_cursor
     cursor = params[:cursor]
@@ -63,7 +71,7 @@ module ReviewCommentPages
   end
 
   def prepare_viewer_thread_reads(comments)
-    root_ids = comments.filter_map { _1.id if _1.root_comment? }
+    root_ids = comments.filter_map { _1.id if _1.is_a?(ReviewComment) && _1.root_comment? }
     @viewer_thread_reads = ReviewThreadRead.where \
       root_id: root_ids,
       user: Current.user

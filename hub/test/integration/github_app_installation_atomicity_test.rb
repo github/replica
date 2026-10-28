@@ -120,7 +120,9 @@ class GithubAppInstallationAtomicityTest < ActionDispatch::IntegrationTest
   def stub_installation
     stub_request(:get, "#{GITHUB_API_URL}/app/installations/456")
       .with { assert_no_write_transaction }
-      .to_return(status: 200, body: JSON.generate(id: 456, account: @credentials.fetch("owner")))
+      .to_return(status: 200, body: JSON.generate(
+        id: 456, app_id: @credentials.fetch("id"), account: @credentials.fetch("owner")
+      ))
     stub_request(:post, "#{GITHUB_API_URL}/app/installations/456/access_tokens")
       .with { assert_no_write_transaction }
       .to_return(status: 201, body: JSON.generate(token: "installation-token", expires_at: 1.hour.from_now.iso8601))
@@ -138,7 +140,7 @@ class GithubAppInstallationAtomicityTest < ActionDispatch::IntegrationTest
 
   def installation_state
     @configuration.reload.attributes.slice \
-      "installation_id", "installation_state", "owner_login", "installed_at",
+      "installation_id", "installation_account_github_id", "installation_state", "owner_login", "installed_at",
       "suspended_at", "installation_checked_at", "updated_at"
   end
 

@@ -1,9 +1,8 @@
 import path from "node:path"
-
 import { createHubClient } from "../create-hub-client/index.mjs"
 import { createHubOriginStore } from "../create-hub-origin-store/index.mjs"
 import { readCanvasRepository } from "../read-canvas-repository/index.mjs"
-
+import { readHubObject } from "../read-hub-object/index.mjs"
 const TIMEOUT_MS = 3_000
 // How many sessions the hook remembers learnings for; it forgets the least recent first.
 const SESSIONS = 100
@@ -11,7 +10,6 @@ const SESSIONS = 100
 function count(singular, plural = `${singular}s`) {
   return String.raw`(?:1 ${singular}|(?:0|[2-9]|[1-9]\d+) ${plural})`
 }
-
 // Hub passes on the text replica-learning's recall writes, so the hook adds only text recall
 // could have written. A misbehaving Hub then cannot add other lines, hidden characters, or text
 // without the safety line, and the text names exactly the learnings Hub returned.
@@ -49,7 +47,6 @@ const INVISIBLE = /[\p{Cc}\p{Cf}\p{Cs}\u{E0000}-\u{E007F}]/u
 // following a learning that was edited or retired after the session got it.
 const REPLACES = "This list replaces all earlier approved team learnings in this session."
 const NONE = `${INTRO}: none apply anymore. This replaces all earlier approved team learnings in this session.`
-
 /**
  * Whether Hub returned what replica-learning's recall writes: its heading and safety line, then
  * for each learning a numbered line, an optional "Applies to" line, and a support line that ends
@@ -66,7 +63,7 @@ function wellFormed({ text, memories }) {
     return false
   if (!memories.length && (text === "" || text === EMPTY)) return true
   const lines = text.split("\n")
-  const heading = HEADING.exec(lines[0])
+  const heading = HEADING.exec(lines[0] ?? "")
   if (
     lines.pop() !== "" ||
     !heading ||
@@ -77,8 +74,8 @@ function wellFormed({ text, memories }) {
     return false
   let line = 2
   for (const [index, { id }] of memories.entries()) {
-    const item = ITEM.exec(lines[line++])
-    if (item?.[1] !== String(index + 1)) return false
+    const item = ITEM.exec(lines[line++] ?? "")
+    if (!item || item[1] !== String(index + 1) || item[2] === undefined) return false
     let content
     try {
       content = JSON.parse(item[2])
@@ -92,12 +89,11 @@ function wellFormed({ text, memories }) {
       INVISIBLE.test(content)
     )
       return false
-    if (APPLIES_TO.test(lines[line])) line++
-    if (SUPPORT.exec(lines[line++])?.[1] !== id) return false
+    if (APPLIES_TO.test(lines[line] ?? "")) line++
+    if (SUPPORT.exec(lines[line++] ?? "")?.[1] !== id) return false
   }
   return line === lines.length
 }
-
 /**
  * Adds the learnings a repository's administrators accepted in Hub to each prompt a person
  * submits there. It never sends the prompt to Hub, so Hub orders the learnings by how many
@@ -113,9 +109,8 @@ export function createLearningsHook(options = {}) {
   // For each session: how many recalls it started, the newest one whose answer the hook used, and
   // the learnings the hook last added, as sorted "id digest" lines.
   const sessions = new Map()
-
   async function recall(input) {
-    const repositoryPath = input?.workingDirectory
+    const repositoryPath = readHubObject(input)?.workingDirectory
     if (typeof repositoryPath !== "string" || !repositoryPath) return null
     // A local Hub names a checkout under .local/prototypes/ by its folder; elsewhere this is ignored.
     const context = {
@@ -134,9 +129,8 @@ export function createLearningsHook(options = {}) {
     if (!origin) return null
     return createHubClient(context, { ...options, origin }).recallLearnings({ timeoutMs })
   }
-
   return async function onUserPromptSubmitted(input) {
-    const sessionId = input?.sessionId
+    const sessionId = readHubObject(input)?.sessionId
     const session = sessions.get(sessionId) ?? { started: 0, used: 0, given: undefined }
     sessions.delete(sessionId)
     sessions.set(sessionId, session)

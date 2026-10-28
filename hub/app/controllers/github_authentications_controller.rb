@@ -82,16 +82,22 @@ class GithubAuthenticationsController < ApplicationController
     SessionRevocation.with_generation!(generation) do
       GithubAppConfiguration.with_credentials!(**snapshot) { challenge.verify!(profile) }
     end
-    redirect_to challenge.return_to, notice: t("fresh_authorization.succeeded"), status: :see_other
+    if challenge.pending_action.present?
+      redirect_to fresh_authorization_path(challenge.public_id), status: :see_other
+    else
+      redirect_to challenge.return_to, notice: t("fresh_authorization.succeeded"), status: :see_other
+    end
   rescue FreshAuthorization::Invalid, GithubAppConfiguration::Oauth::InvalidState,
     SessionRevocation::Superseded, GithubAppConfiguration::Superseded, ActiveRecord::RecordNotFound
     if challenge
+      challenge.continuation.discard!
       challenge.audit!("denied")
     else
       SecurityAuditEvent.record!(action: "fresh_authorization.verify", outcome: "denied")
     end
     redirect_to root_path, alert: t("fresh_authorization.failure"), status: :see_other
   rescue GithubClient::Error
+    challenge&.continuation&.discard!
     challenge&.audit!("failed")
     redirect_to root_path, alert: t("fresh_authorization.failure"), status: :see_other
   ensure

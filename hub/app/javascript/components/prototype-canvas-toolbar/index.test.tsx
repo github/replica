@@ -16,6 +16,90 @@ const props = {
 }
 
 describe("Toolbar()", () => {
+  it("shows the more menu only when the caller supplies a context action", () => {
+    const onImproveContext = vi.fn()
+    const view = render(
+      <ThemeProvider>
+        <Toolbar {...props} state={null} />
+      </ThemeProvider>,
+    )
+    expect(screen.queryByRole("button", { name: "More actions" })).not.toBeInTheDocument()
+
+    view.rerender(
+      <ThemeProvider>
+        <Toolbar {...props} state={null} onImproveContext={onImproveContext} />
+      </ThemeProvider>,
+    )
+    const more = screen.getByRole("button", { name: "More actions" })
+    const publish = screen.getByRole("button", { name: "Publish" })
+    expect(publish.compareDocumentPosition(more) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.queryByRole("menuitem", { name: "Improve context" })).not.toBeInTheDocument()
+    fireEvent.click(more)
+    fireEvent.click(screen.getByRole("menuitem", { name: "Improve context" }))
+    expect(onImproveContext).toHaveBeenCalledOnce()
+    expect(more).toHaveAttribute("aria-expanded", "false")
+    expect(more).toHaveFocus()
+
+    view.rerender(
+      <ThemeProvider>
+        <Toolbar {...props} state={null} />
+      </ThemeProvider>,
+    )
+    expect(screen.queryByRole("button", { name: "More actions" })).not.toBeInTheDocument()
+  })
+
+  it.each(["Enter", " "])("runs the menu action once with %j", (key) => {
+    const onImproveContext = vi.fn()
+    render(
+      <ThemeProvider>
+        <Toolbar {...props} state={null} onImproveContext={onImproveContext} />
+      </ThemeProvider>,
+    )
+    fireEvent.click(screen.getByRole("button", { name: "More actions" }))
+    expect(
+      fireEvent.keyDown(screen.getByRole("menuitem", { name: "Improve context" }), { key }),
+    ).toBe(false)
+    expect(onImproveContext).toHaveBeenCalledOnce()
+    expect(screen.getByRole("button", { name: "More actions" })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    )
+    expect(screen.getByRole("button", { name: "More actions" })).toHaveFocus()
+  })
+
+  it("explains feedback review on hover and keyboard focus without running it", async () => {
+    const onImproveContext = vi.fn()
+    render(
+      <ThemeProvider>
+        <Toolbar {...props} state={null} onImproveContext={onImproveContext} />
+      </ThemeProvider>,
+    )
+    fireEvent.click(screen.getByRole("button", { name: "More actions" }))
+    const item = screen.getByRole("menuitem", { name: "Improve context" })
+    expect(item).toHaveAccessibleDescription(
+      "Run a skill to improve repository context from user feedback.",
+    )
+    const tooltip = document.getElementById(item.getAttribute("aria-describedby")!)!
+    fireEvent.mouseEnter(item)
+    await waitFor(() => expect(tooltip.matches(":popover-open")).toBe(true))
+    tooltip.hidePopover()
+    fireEvent.focus(item)
+    expect(tooltip.matches(":popover-open")).toBe(true)
+    expect(onImproveContext).not.toHaveBeenCalled()
+  })
+
+  it("preserves the full long branch in its accessible name and hover title", () => {
+    const branch = "prototype/refine-project-navigation-and-review-workflow"
+    render(
+      <ThemeProvider>
+        <Toolbar {...props} state={{ name: "Projects", stats: { branch } }} />
+      </ThemeProvider>,
+    )
+    const title = screen.getByRole("button", { name: branch })
+    expect(title).toHaveAttribute("title", expect.stringContaining(branch))
+    expect(title).toHaveTextContent(branch)
+  })
+
   it("places the labeled share icon to the right of Publish without disabling it during publishing", () => {
     const onShare = vi.fn()
     const shareButtonRef = createRef<HTMLButtonElement>()
@@ -53,6 +137,7 @@ describe("Toolbar()", () => {
     const button = screen.getByRole("button", { name: "Edit details" })
     expect(hubButtonRef.current).toBe(button)
     expect(button).toHaveAttribute("aria-expanded", "true")
+    expect(button).toHaveAttribute("title", "Edit details")
     fireEvent.click(button)
     expect(onHub).toHaveBeenCalledOnce()
     expect(screen.queryByRole("button", { name: "Hub" })).not.toBeInTheDocument()

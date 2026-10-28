@@ -1,0 +1,15 @@
+.placeholder {
+  padding: var(--spacingXXL);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 400px;
+}
+
+.placeholderContent {
+  text-align: center;
+}
+
+.placeholderDescription {
+  color: var(--colorNeutralForeground3);
+}

@@ -1,16 +1,17 @@
 import { XIcon } from "@primer/octicons-react"
 import { Button, Heading } from "@primer/react-brand"
 import { useCallback, useEffect, useId, useRef, useState } from "react"
-import type { CSSProperties } from "react"
 
 import { ReviewThreadReplyForm } from "@features/review-thread-reply-form"
 import { ReviewThreadMessage } from "@features/review-thread-message"
 import { HubAlert } from "@components/hub-alert"
 import { HubIconButton } from "@components/hub-icon-button"
 import { HubVisuallyHidden } from "@components/hub-visually-hidden"
+import { ReviewConversationFrame } from "@components/review-conversation-frame"
 import { useEmojiBurst } from "@hooks/use-emoji-burst"
 import { useReviewCardPosition } from "@hooks/use-review-card-position"
 import { useReviewThreadConversation } from "@hooks/use-review-thread-conversation"
+import { useReviewError } from "@hooks/use-review-error"
 
 import type { ReviewThreadConversationProps } from "./types"
 
@@ -80,6 +81,9 @@ export function ReviewThreadConversation({
     onReopen,
   })
   const { state, actions } = conversation
+  const showResolutionError = useReviewError(state.resolutionFailed && copy.resolutionErrorLabel)
+  const showReadError = useReviewError(readFailed && copy.readErrorLabel)
+  const showUnreadError = useReviewError(unreadFailed && copy.markUnreadErrorLabel)
   const fallbackPoint = { x: 12, y: 12 }
   const comments = [thread.root, ...thread.replies]
   const { cardRef, position } = useReviewCardPosition({
@@ -112,10 +116,6 @@ export function ReviewThreadConversation({
       comments.map((comment) => comment.reactions.length).join(","),
     ].join(":"),
   })
-  const positionStyle = {
-    "--review-thread-left": `${position.left}px`,
-    "--review-thread-top": `${position.top}px`,
-  } as CSSProperties
   const blockedLabel = state.replyBlocked
     ? thread.root.deletedAt
       ? copy.deletedReplyBlockedLabel
@@ -219,7 +219,18 @@ export function ReviewThreadConversation({
       dismiss()
     }
 
-    function handlePreviewDismissal() {
+    function handlePreviewDismissal(event: Event) {
+      if (event instanceof CustomEvent) {
+        const detail: unknown = event.detail
+        if (
+          typeof detail === "object" &&
+          detail !== null &&
+          "restoreFocus" in detail &&
+          detail.restoreFocus === false
+        ) {
+          return
+        }
+      }
       const active = document.activeElement
       if (
         cardRef.current?.querySelector('[role="menu"]') ||
@@ -241,16 +252,11 @@ export function ReviewThreadConversation({
   }, [actions, cardRef, state.confirmingDiscard, state.confirmingEditDiscard])
 
   return (
-    <section
+    <ReviewConversationFrame
       ref={cardRef}
-      role="dialog"
       aria-labelledby={headingId}
-      className={`review-thread-conversation${
-        anchorPoint
-          ? " review-thread-conversation--anchored"
-          : " review-thread-conversation--docked"
-      }`}
-      style={positionStyle}
+      anchored={Boolean(anchorPoint)}
+      position={position}
       onKeyDown={(event) => {
         if (
           event.key !== "Escape" ||
@@ -309,7 +315,7 @@ export function ReviewThreadConversation({
           />
         </header>
 
-        {state.resolutionFailed ? (
+        {showResolutionError ? (
           <HubAlert
             variant="critical"
             title={copy.resolutionErrorLabel}
@@ -317,7 +323,7 @@ export function ReviewThreadConversation({
           />
         ) : null}
 
-        {readFailed ? (
+        {showReadError ? (
           <HubAlert
             variant="critical"
             title={copy.readErrorLabel}
@@ -325,7 +331,7 @@ export function ReviewThreadConversation({
           />
         ) : null}
 
-        {unreadFailed ? (
+        {showUnreadError ? (
           <HubAlert
             variant="critical"
             title={copy.markUnreadErrorLabel}
@@ -455,6 +461,6 @@ export function ReviewThreadConversation({
         ) : null}
       </div>
       {canvas}
-    </section>
+    </ReviewConversationFrame>
   )
 }

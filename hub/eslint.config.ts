@@ -53,6 +53,11 @@ export default defineConfig(
     rules: { "func-style": "off" },
   },
   {
+    files: ["../.github/extensions/replica-prototype/validate-controls/index.mts"],
+    // Diagnostic text deliberately coerces values before bounding and sanitizing them.
+    rules: { "@typescript-eslint/no-base-to-string": "off" },
+  },
+  {
     files: ["app/javascript/pages/**/*.{ts,tsx}"],
     rules: {
       "no-restricted-imports": [
@@ -104,6 +109,7 @@ export default defineConfig(
       "test/**/*.mjs",
       "../.github/extensions/replica-prototype/**/*.mjs",
       "../.github/extensions/replica-prototype/**/*.d.mts",
+      "../.github/extensions/replica-prototype/**/*.d.ts",
       "app/javascript/utils/prototype-controls/**/*.mjs",
       "app/javascript/utils/prototype-controls/**/*.d.mts",
       "../packages/learning/**/*.mjs",

@@ -1,7 +1,16 @@
 import { XIcon } from "@primer/octicons-react"
 import { Heading } from "@primer/react-brand"
-import { useId, useLayoutEffect, useRef, type ReactNode, type RefObject } from "react"
+import {
+  useCallback,
+  useContext,
+  useId,
+  useLayoutEffect,
+  useRef,
+  type ReactNode,
+  type RefObject,
+} from "react"
 import { HubIconButton } from "@components/hub-icon-button"
+import { ReviewErrorContext } from "@hooks/use-review-error/context"
 
 import "./styles.css"
 
@@ -24,6 +33,16 @@ export function CanvasDialog({
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null)
   const titleId = useId()
+  const feedback = useContext(ReviewErrorContext)
+  const registerDialog = feedback?.registerDialog
+  const attachDialog = useCallback(
+    (dialog: HTMLDialogElement | null) => {
+      dialogRef.current = dialog
+      // Keep canvas notifications in the modal's top layer, outside its content.
+      if (dialog) return registerDialog?.(dialog)
+    },
+    [registerDialog],
+  )
 
   // Open the dialog before child effects try to focus its controls.
   useLayoutEffect(() => {
@@ -34,13 +53,15 @@ export function CanvasDialog({
     dialog?.showModal()
     return () => {
       dialog?.close()
-      returnFocus?.focus()
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- The caller can replace a deleted opener with a live fallback.
+      const target = returnFocusRef?.current ?? returnFocus
+      target?.focus()
     }
   }, [returnFocusRef])
 
   return (
     <dialog
-      ref={dialogRef}
+      ref={attachDialog}
       aria-labelledby={titleId}
       aria-describedby={descriptionId}
       className={className ? `canvas-dialog ${className}` : "canvas-dialog"}
@@ -65,7 +86,7 @@ export function CanvasDialog({
           {title}
         </Heading>
         <HubIconButton
-          variant="invisible"
+          variant="default"
           size="small"
           icon={XIcon}
           aria-label={closeLabel}

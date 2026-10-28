@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react"
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { fn } from "storybook/test"
 
 import { App } from "."
 import { publicationExamples } from "@utils/resolve-prototype-publication/fixtures"
@@ -21,6 +22,8 @@ function PublicationDemo({
   withoutPreview = false,
   catalogState = "ready",
   serverState = "empty",
+  withPickAndPolish = false,
+  onImproveContext,
 }: {
   scenario: string
   prototypeUrl: string
@@ -29,6 +32,8 @@ function PublicationDemo({
   withoutPreview?: boolean
   catalogState?: "ready" | "default" | "loading" | "failed" | "submission-failed"
   serverState?: string
+  withPickAndPolish?: boolean
+  onImproveContext?: () => void
 }) {
   const [ready, setReady] = useState(false)
   useEffect(() => {
@@ -36,6 +41,7 @@ function PublicationDemo({
     if (!fixture) throw new Error(`Unknown publication example: ${scenario}`)
     let state: PrototypeState | null = structuredClone(fixture.state)
     let hub: HubStatus | null = structuredClone(fixture.hub)
+    if (onImproveContext && hub) hub.repositoryAuthorized = true
     let remember = false
     if (withShareLinks && hub?.prototype)
       hub.prototype = { ...hub.prototype, canManageShareLinks: true }
@@ -128,7 +134,10 @@ function PublicationDemo({
       else if (path === "/api/hub/status") data = hub
       else if (path === "/api/hub/open" || path === "/api/hub/activity") data = hub
       else if (path === "/api/hub/discovery") data = hub
-      else if (
+      else if (path === "/api/hub/feedback-review" && onImproveContext) {
+        onImproveContext()
+        data = { requested: true }
+      } else if (
         path === "/api/publish/prepare" &&
         state?.stats.repository &&
         state.stats.branch &&
@@ -219,6 +228,34 @@ function PublicationDemo({
           hasMore: false,
           nextCursor: null,
         }
+      else if (
+        withPickAndPolish &&
+        (path === "/api/improvement-notes" || path === "/api/improvement-notes/sync")
+      )
+        data = {
+          identity: "storybook-notes",
+          revision: 1,
+          syncError: null,
+          activeBatch: null,
+          notes: [
+            {
+              id: 1,
+              localId: "storybook-save-action",
+              kind: "improvement_note",
+              author: "local",
+              body: "Keep the save action visible while editing project details.",
+              thread: { originalStatus: "open", messages: [] },
+              anchor: repliedReviewThread.root.anchor,
+              status: "open",
+              sync: "local",
+              revision: 1,
+              route: "/",
+              target: "Save",
+              selector: "#save",
+              rect: { x: 64, y: 180, width: 88, height: 44 },
+            },
+          ],
+        }
       else if (withComments && /^\/api\/hub\/comments\/\d+\/read$/.test(path)) {
         const id = Number(path.split("/").at(-2))
         const root = comments.find((comment) => comment.id === id && comment.kind === "root")
@@ -256,7 +293,16 @@ function PublicationDemo({
       window.clearTimeout(timer)
       window.fetch = originalFetch
     }
-  }, [scenario, withShareLinks, withComments, withoutPreview, catalogState, serverState])
+  }, [
+    scenario,
+    withShareLinks,
+    withComments,
+    withoutPreview,
+    catalogState,
+    serverState,
+    withPickAndPolish,
+    onImproveContext,
+  ])
   return (
     <div className="publication-demo">
       <div className="publication-demo-canvas">
@@ -266,6 +312,7 @@ function PublicationDemo({
               prototypeUrl: withoutPreview ? null : prototypeUrl,
               name: "Welcome prototype",
               token: "fixture-only",
+              pickAndPolish: withPickAndPolish,
             }}
           />
         ) : null}
@@ -297,7 +344,7 @@ const meta = {
   argTypes: { scenario: { control: "select", options: Object.keys(publicationExamples) } },
   render: (args) => (
     <PublicationDemo
-      key={`${args.scenario}/${args.withShareLinks}/${args.withComments}/${args.withoutPreview}/${args.catalogState}/${args.serverState}`}
+      key={`${args.scenario}/${args.withShareLinks}/${args.withComments}/${args.withoutPreview}/${args.catalogState}/${args.serverState}/${args.withPickAndPolish}`}
       {...args}
     />
   ),
@@ -450,6 +497,35 @@ export const UnknownRegistrationReason: Story = {
 }
 export const Failed: Story = { args: { scenario: "Build failed" } }
 export const Ready: Story = { args: { scenario: "Published" } }
+export const ImproveContext: Story = {
+  args: {
+    scenario: "Published",
+    onImproveContext: fn(),
+  },
+  render: (args) => (
+    <PublicationDemo
+      {...args}
+      prototypeUrl={new URL("/prototype-preview/index.html", window.location.href).href}
+    />
+  ),
+  parameters: {
+    docs: {
+      description: {
+        story:
+          "Any connected user with repository access can request feedback review through Improve context. This story records the request without running a skill or calling Hub.",
+      },
+    },
+  },
+}
+export const MoreActionsOpen: Story = {
+  ...ImproveContext,
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "More actions" }, { timeout: 5_000 }),
+    )
+    await canvas.findByRole("menuitem", { name: "Improve context" })
+  },
+}
 export const CommentsSidebar: Story = {
   args: {
     scenario: "Published",
@@ -501,6 +577,30 @@ export const CommentsSidebar: Story = {
       Math.abs(avatar.top + avatar.height / 2 - author.top - author.height / 2) > 0.5
     )
       throw new Error("The compact avatar must align above the unread dot beside the author.")
+  },
+}
+
+export const CommentsAndPickAndPolish: Story = {
+  args: {
+    scenario: "Published",
+    withComments: true,
+    withPickAndPolish: true,
+  },
+  render: (args) => (
+    <PublicationDemo
+      {...args}
+      prototypeUrl={new URL("/prototype-preview/index.html", window.location.href).href}
+    />
+  ),
+}
+
+export const CommentsWithPickAndPolishSidebar: Story = {
+  ...CommentsAndPickAndPolish,
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(
+      await canvas.findByRole("button", { name: /^Comments, 3/ }, { timeout: 5_000 }),
+    )
+    await canvas.findByRole("complementary", { name: "Comments" })
   },
 }
 export const ShareManagement: Story = {

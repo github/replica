@@ -1,0 +1,65 @@
+/*
+ * Copyright (c) Microsoft Corporation.
+ * Licensed under the MIT license.
+ */
+
+/* stylelint-disable selector-class-pattern */
+/* stylelint-disable order/order */
+
+/* The app-owned Griffel renderer creates the griffel layer.
+   Griffel is the CSS-in-JS used by Fluent components
+   and should always have the lowest priority.
+   
+   Common layer is used by common components (eg. link, button, etc)
+   and should have the second lowest priority.
+   */
+@layer base, griffel, common;
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+}
+
+@layer common {
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6,
+  p {
+    margin: 0;
+  }
+
+  html,
+  body {
+    overflow: hidden;
+    margin: 0;
+    padding: 0;
+  }
+
+  /* Scroll full screen on short viewports */
+  @media (height <= 480px) {
+    html,
+    /* Revert to visible for sticky elements to work. 
+       But keep overflow hidden for the main content if dialog is open */
+    body:not(:has(.fui-DialogSurface__backdrop)) {
+      overflow: revert;
+    }
+  }
+}
+
+:root {
+  /*
+   * Variables that change depending on the viewport width. 
+   * [coreai-sandbox] overridden in ContainerQueryProvider.module.css
+   */
+  --spacingPagePadding: var(--spacingXXL, 24px);
+
+  @media (width <= 768px) {
+    --spacingPagePadding: var(--spacingL, 16px);
+  }
+}
