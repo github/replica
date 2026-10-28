@@ -59,6 +59,8 @@ GitHub synchronization uses separate records:
 
 `Prototype.authorizationMode` defaults to `hub-managed`. `sourceRepositoryId` is nullable and applies only when the mode is explicitly `github-synchronized`. Synchronized records never share rows with workspace or prototype grants, so reconciliation cannot overwrite manual Hub decisions.
 
+Installation membership `source` distinguishes linked-source synchronization from the `legacy-synchronized` compatibility policy. Any administrator lifecycle change or assignment of Hub administration converts a synchronized membership to `manual`, so reconciliation cannot undo the Hub override or orphan administration.
+
 ## Shared client
 
 Import `prisma` from `server/integrations/prisma/index.ts` rather than constructing clients in each caller. The integration uses Prisma's [documented global cache pattern](https://www.prisma.io/docs/orm/v7/more/troubleshooting/nextjs#avoiding-multiple-prisma-client-instances) to reuse one client across development module reloads. Production uses the module instance without setting the global variable.

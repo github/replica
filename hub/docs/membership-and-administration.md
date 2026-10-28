@@ -15,7 +15,7 @@ Each Hub user has at most one installation membership.
 
 Changing a membership to suspended or removed deletes that user's sessions in the same transaction. Every protected request also reloads membership, so a stale cookie cannot preserve access. Hub prevents overlapping administrator changes from removing the final active administrator.
 
-Synchronization creates and refreshes only memberships whose source is `synchronized`. It never reactivates or rewrites a manual, invitation, bootstrap, recovery, or suspended membership. When no fresh admission-eligible baseline remains, reconciliation marks the synchronized membership removed and deletes its sessions in the same transaction.
+Synchronization creates and refreshes only memberships whose source is `synchronized`. It never reactivates or rewrites a manual, invitation, bootstrap, recovery, suspended, or administratively removed membership. Administrator membership changes convert a synchronized assignment to `manual`. Assigning installation, workspace, or prototype administrator authority also makes the membership manual, because GitHub never owns Hub administration. When no fresh admission-eligible baseline remains, reconciliation marks only an ordinary synchronized member removed and deletes its sessions in the same serialized transaction. The compatibility policy uses `legacy-synchronized`, which linked-source reconciliation does not manage.
 
 Suspension and removal also check Hub-managed product administration in the same transaction. The change fails with `product_administration_orphaned` until another active user can administer every affected workspace and prototype. A role change from installation administrator to member does not remove explicit workspace or prototype roles.
 

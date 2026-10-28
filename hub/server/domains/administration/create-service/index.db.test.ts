@@ -20,6 +20,7 @@ async function createAdministrator(
   options: {
     role?: "member" | "administrator"
     freshAuthorizedAt?: Date | null
+    source?: "manual" | "synchronized"
   } = {},
 ) {
   const authorizedAt = new Date("2026-10-27T18:00:00.000Z")
@@ -52,7 +53,7 @@ async function createAdministrator(
       userId: user.id,
       status: "active",
       role,
-      source: "manual",
+      source: options.source ?? "manual",
       suspendedAt: null,
       removedAt: null,
     })

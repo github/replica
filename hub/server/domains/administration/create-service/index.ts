@@ -318,7 +318,7 @@ export function createAdministrationService(
               userId: target.userId,
               role: nextRole,
               status: nextStatus,
-              source: target.source,
+              source: "manual",
               suspendedAt:
                 nextStatus === "suspended"
                   ? target.status === "suspended"
