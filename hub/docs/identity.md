@@ -11,7 +11,7 @@ Hub maps `oidc + issuer/tenant + subject` to `ExternalIdentity`. Login, email, n
 
 ## GitHub user authentication
 
-Set `HUB_ORIGIN`, `HUB_GITHUB_AUTH_CLIENT_ID`, and `HUB_GITHUB_AUTH_CLIENT_SECRET` to enable GitHub sign-in. `HUB_ORIGIN` must be an HTTPS origin, except that local development may use HTTP on loopback. The callback is always `${HUB_ORIGIN}/api/auth/github/callback`.
+Set `HUB_AUTH_PROVIDER=github`, `HUB_ORIGIN`, `HUB_GITHUB_AUTH_CLIENT_ID`, and `HUB_GITHUB_AUTH_CLIENT_SECRET` to enable GitHub sign-in. `HUB_AUTH_PROVIDER` is always required; Hub does not infer a provider from whichever credentials happen to be present. `HUB_ORIGIN` must be an HTTPS origin, except that local development may use HTTP on loopback. The callback is always `${HUB_ORIGIN}/api/auth/github/callback`.
 
 Hub stores a versioned authentication-provider revision with non-secret configuration and a fingerprint that changes when the client secret changes. The client secret remains in the process environment. Each authorization attempt stores digested state and browser bindings, a PKCE verifier, the provider revision, the current session-revocation generation, its purpose, and a ten-minute expiry.
 

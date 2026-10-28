@@ -41,10 +41,10 @@ describe("setup-entra-oidc.ps1", () => {
     assert.match(plan, /Group\.Read\.All/)
   })
 
-  it("converges only drift and missing assignments", () => {
+  it("converges application drift and missing assignments", () => {
     const apply = functionBody("Invoke-Apply")
     const drift = functionBody("Test-ApplicationDrift")
-    const assignments = functionBody("Get-MissingAssignments")
+    const assignments = functionBody("Get-AssignmentChanges")
 
     assert.match(apply, /if \(-not \$application\)[\s\S]*New-MgApplication/)
     assert.match(apply, /if \(Test-ApplicationDrift[\s\S]*Update-MgApplication/)
@@ -55,13 +55,55 @@ describe("setup-entra-oidc.ps1", () => {
     )
     assert.match(
       assignments,
-      /\$_.ResourceId -eq \$ServicePrincipal\.Id -and \$_.AppRoleId -eq \$assignment\.RoleId/,
+      /\$_.PrincipalId -eq \$candidate\.GroupId -and \$_.AppRoleId -eq \$candidate\.RoleId/,
     )
-    assert.match(apply, /foreach \(\$assignment in \$missing\)[\s\S]*New-MgGroupAppRoleAssignment/)
+    assert.match(
+      apply,
+      /foreach \(\$assignment in \$changes\.Missing\)[\s\S]*New-MgGroupAppRoleAssignment/,
+    )
     assert.match(drift, /AzureADMyOrg/)
     assert.match(drift, /Compare-Object \$actualRedirectUris \$expectedRedirectUris/)
     assert.match(apply, /Assert-GroupsExist[\s\S]*Resolve-Application/)
-    assert.match(apply, /Get-MissingAssignments[\s\S]*foreach \(\$assignment in \$missing\)/)
+    assert.match(
+      apply,
+      /Get-AssignmentChanges[\s\S]*foreach \(\$assignment in \$changes\.Missing\)/,
+    )
+  })
+
+  it("limits obsolete assignments to managed group roles and preserves unrelated assignments", () => {
+    const assignments = functionBody("Get-AssignmentChanges")
+
+    assert.match(assignments, /Get-MgServicePrincipalAppRoleAssignedTo/)
+    assert.match(assignments, /\$_.PrincipalType -eq "Group"/)
+    assert.match(assignments, /\$_.AppRoleId -in @\(\$userRoleId, \$administratorRoleId\)/)
+    assert.match(assignments, /\$obsolete = @\(\$managed\)\.Where/)
+    assert.doesNotMatch(assignments, /\$obsolete = @\(\$existing\)\.Where/)
+  })
+
+  it("reports both missing and obsolete managed assignments in the plan", () => {
+    const plan = functionBody("Invoke-Plan")
+
+    assert.match(
+      plan,
+      /foreach \(\$assignment in \$changes\.Missing\)[\s\S]*Assign group '\$\(\$assignment\.GroupId\)'/,
+    )
+    assert.match(
+      plan,
+      /foreach \(\$assignment in \$changes\.Obsolete\)[\s\S]*Remove group '\$\(\$assignment\.PrincipalId\)'/,
+    )
+    assert.match(plan, /if \(\$assignment\.AppRoleId -eq \$userRoleId\) \{ "Hub\.User" \}/)
+    assert.match(plan, /else \{ "Hub\.Administrator" \}/)
+  })
+
+  it("removes obsolete managed group assignments during apply", () => {
+    const apply = functionBody("Invoke-Apply")
+
+    assert.match(
+      apply,
+      /foreach \(\$assignment in \$changes\.Obsolete\)[\s\S]*Remove-MgGroupAppRoleAssignment/,
+    )
+    assert.match(apply, /-GroupId \$assignment\.PrincipalId/)
+    assert.match(apply, /-AppRoleAssignmentId \$assignment\.Id/)
   })
 
   it("fails closed before removing unowned resources", () => {

@@ -22,7 +22,7 @@ Install the listed Microsoft Graph PowerShell modules, sign in with the required
   -AdministratorGroupId <administrator-group-object-id>
 ```
 
-Use `-Apply` with the same arguments to converge the application, service principal, assignment requirement, callback, `Hub.User` and `Hub.Administrator` app roles, and group assignments. Use `-ExistingApplicationId <application-client-id>` to converge an existing application without claiming removal ownership. `-Remove` deletes only resources tagged as created by this script and refuses unowned resources.
+Use `-Apply` with the same arguments to converge the application, service principal, assignment requirement, callback, `Hub.User` and `Hub.Administrator` app roles, and group assignments. Apply adds missing requested groups and removes obsolete group assignments for those two managed roles; unrelated app roles and their assignments are preserved. Use `-ExistingApplicationId <application-client-id>` to converge an existing application without claiming removal ownership. `-Remove` deletes only resources tagged as created by this script and refuses unowned resources.
 
 The script prints nonsecret Hub configuration. It does not create or print a client credential. Create the credential through the tenant's approved process, place it in the secret store exposed by `HUB_OIDC_CLIENT_CREDENTIAL_REFERENCE`, and protect it separately from the database.
 
@@ -45,7 +45,7 @@ HUB_OIDC_MEMBERSHIP_POLICY=jit-assignment
 HUB_OIDC_PROVIDER_REVISION=1
 ```
 
-The callback must exactly match `HUB_ORIGIN` plus `/api/auth/oidc/callback`. The issuer and discovered authorization, token, and JWKS endpoints must use the same public HTTPS origin. Increase `HUB_OIDC_PROVIDER_REVISION` whenever any OIDC setting or referenced credential changes. Hub rejects revision rollback and same-revision configuration drift.
+The callback must exactly match `HUB_ORIGIN` plus `/api/auth/oidc/callback`. The first supported profile requires the issuer `https://login.microsoftonline.com/<tenant-uuid>/v2.0`; Hub does not accept a generic hostname or tenant alias. Discovered authorization, token, and JWKS endpoints must use that same HTTPS origin. Increase `HUB_OIDC_PROVIDER_REVISION` whenever any OIDC setting or referenced credential changes. Hub rejects revision rollback and same-revision configuration drift.
 
 `jit-assignment` creates a membership for a newly seen identity that has `Hub.User` or `Hub.Administrator`. `invitation-required` also requires a matching Hub invitation. Both policies preserve suspended membership. A removed membership returns only through a new matching invitation; an app-role claim alone does not silently reactivate it. An administrator claim may promote an active member. Hub refuses a claim-driven demotion that would remove the final active administrator.
 

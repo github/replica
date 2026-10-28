@@ -14,17 +14,15 @@ export function readOidcConfiguration(
   if (!["true", "false"].includes(enabledValue)) {
     throw new Error("HUB_OIDC_ENABLED must be true or false.")
   }
-  const issuerUrl = new URL(requiredEnvironmentValue(environment, "HUB_OIDC_ISSUER"))
-  if (
-    issuerUrl.protocol !== "https:" ||
-    issuerUrl.username ||
-    issuerUrl.password ||
-    issuerUrl.search ||
-    issuerUrl.hash
-  ) {
-    throw new Error("HUB_OIDC_ISSUER must be an HTTPS URL without credentials, query, or fragment.")
+  const issuerValue = requiredEnvironmentValue(environment, "HUB_OIDC_ISSUER")
+  const issuerMatch = issuerValue.match(
+    /^https:\/\/login\.microsoftonline\.com\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/v2\.0\/?$/i,
+  )
+  const tenantId = issuerMatch?.[1]
+  if (!tenantId) {
+    throw new Error("HUB_OIDC_ISSUER must be https://login.microsoftonline.com/<tenant-id>/v2.0.")
   }
-  const issuer = issuerUrl.href.replace(/\/$/, "")
+  const issuer = `https://login.microsoftonline.com/${tenantId.toLowerCase()}/v2.0`
   const callbackUrl = requiredEnvironmentValue(environment, "HUB_OIDC_CALLBACK_URL")
   if (callbackUrl !== `${origin.origin}/api/auth/oidc/callback`) {
     throw new Error("HUB_OIDC_CALLBACK_URL must match the Hub OIDC callback URL.")
