@@ -1,3 +1,5 @@
+# This setup script is still being tested. Review the Plan output and intended tenant
+# changes before running Apply.
 [CmdletBinding()]
 param(
   [Parameter(Mandatory = $true)]
