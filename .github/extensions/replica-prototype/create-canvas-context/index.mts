@@ -5,7 +5,7 @@ import { readRepositoryName } from "../read-repository-name/index.mjs"
 import { runCommand } from "../run-command/index.mjs"
 
 type CanvasContextInput = {
-  prototypeUrl: string
+  prototypeUrl?: string | null
   name?: unknown
   repository?: unknown
   branch?: unknown
@@ -45,9 +45,9 @@ export async function createCanvasContext({
     )
   }
 
-  const normalizedUrl = normalizePrototypeUrl(prototypeUrl)
-  const stateUrl = new URL(normalizedUrl)
-  stateUrl.hash = ""
+  const normalizedUrl = prototypeUrl == null ? null : normalizePrototypeUrl(prototypeUrl)
+  const stateUrl = normalizedUrl ? new URL(normalizedUrl) : null
+  if (stateUrl) stateUrl.hash = ""
   const resolvedRepositoryPath = path.resolve(repositoryPath)
   const target = await resolvePublishTarget({
     repository,
@@ -60,7 +60,7 @@ export async function createCanvasContext({
     .update(
       [
         path.resolve(sessionWorkspacePath),
-        stateUrl.toString(),
+        stateUrl?.toString() ?? "disconnected",
         target.repository || "",
         target.branch || "",
         target.commitSha || "",
@@ -80,7 +80,7 @@ export async function createCanvasContext({
     stateDirectory,
     stateFile: path.join(stateDirectory, `${stateId}.json`),
     stateId,
-    urlHost: new URL(normalizedUrl).host,
+    urlHost: normalizedUrl ? new URL(normalizedUrl).host : null,
   }
 }
 
@@ -135,9 +135,9 @@ function normalizePrototypeUrl(value: string) {
   return url.toString()
 }
 
-function normalizeName(name: unknown, normalizedUrl: string) {
+function normalizeName(name: unknown, normalizedUrl: string | null) {
   if (name === undefined) {
-    return new URL(normalizedUrl).hostname
+    return normalizedUrl ? new URL(normalizedUrl).hostname : "New prototype"
   }
   if (typeof name !== "string" || name.trim() === "") {
     throw new Error("name must contain visible text.")

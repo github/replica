@@ -5,47 +5,39 @@ import { runInNewContext } from "node:vm"
 import { renderCanvasHtml } from "./index.mjs"
 
 describe("renderCanvasHtml()", () => {
-  it("checks preview health repeatedly and returns to setup when the server stops", async () => {
+  it("bootstraps the full renderer without a prototype URL and enables its health monitor", () => {
     const html = renderCanvasHtml(
-      { name: "Demo", normalizedUrl: "http://localhost:5173/" },
+      { name: "New prototype", normalizedUrl: null, monitorPrototype: true },
       "canvas-token",
-      "http://127.0.0.1:12345/?document=setup-document",
     )
-    const script = [...html.matchAll(/<script>([\s\S]*?)<\/script\s*>/gi)].at(-1)[1]
-    let nextCheck
-    let destination
-    let available = true
-    let failed = false
-    const error = { textContent: "" }
-    await runInNewContext(script, {
-      window: {
-        __REPLICA_CANVAS__: { token: "canvas-token" },
-        location: {
-          replace(url) {
-            destination = url
-          },
-        },
-      },
-      document: { querySelector: () => error },
-      fetch: async (url, options) => {
-        assert.equal(url, "/api/prototype/status")
-        assert.equal(options.headers["X-Replica-Canvas-Token"], "canvas-token")
-        if (failed) throw new Error("Canvas connection interrupted")
-        return new Response(JSON.stringify({ available }))
-      },
-      setTimeout(callback, delay) {
-        assert.equal(delay, 5000)
-        nextCheck = callback
-      },
-    })
-    assert.equal(destination, undefined)
-    assert.equal(error.textContent, "")
-    failed = true
-    await nextCheck()
-    assert.match(error.textContent, /Canvas connection interrupted/)
-    failed = false
-    available = false
-    await nextCheck()
-    assert.equal(destination, "http://127.0.0.1:12345/?document=setup-document")
+    const window = {}
+    const script = html.match(/<script>([\s\S]*?)<\/script\s*>/)[1]
+    runInNewContext(script, { window })
+
+    assert.equal(window.__REPLICA_CANVAS__.prototypeUrl, null)
+    assert.equal(window.__REPLICA_CANVAS__.name, "New prototype")
+    assert.equal(window.__REPLICA_CANVAS__.token, "canvas-token")
+    assert.equal(window.__REPLICA_CANVAS__.monitorPrototype, true)
+    assert.match(html, /<div id="root"><\/div>/)
+    assert.match(html, /src="\/assets\/renderer\.js"/)
+  })
+
+  it("preserves a connected preview and keeps health monitoring off unless requested", () => {
+    const context = {
+      name: "</script><script>untrusted()</script>",
+      normalizedUrl: "http://localhost:5173/settings?q=1#details",
+      previewUrl: "http://127.0.0.1:12345/preview/",
+    }
+    const html = renderCanvasHtml(context, "canvas-token")
+    const window = {}
+    const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script\s*>/g)]
+    assert.equal(scripts.length, 1)
+    runInNewContext(scripts[0][1], { window })
+
+    assert.equal(window.__REPLICA_CANVAS__.prototypeUrl, context.normalizedUrl)
+    assert.equal(window.__REPLICA_CANVAS__.previewUrl, context.previewUrl)
+    assert.equal(window.__REPLICA_CANVAS__.name, context.name)
+    assert.equal(window.__REPLICA_CANVAS__.monitorPrototype, false)
+    assert.doesNotMatch(html, /<script>untrusted\(\)/)
   })
 })

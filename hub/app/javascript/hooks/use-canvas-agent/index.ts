@@ -12,7 +12,7 @@ import { agentCopy } from "./en"
 
 type Props = {
   token: string
-  prototypeUrl: string
+  prototypeUrl: string | null
   previewUrl?: string
   frameRef: RefObject<HTMLIFrameElement | null>
   addressRef: RefObject<HTMLInputElement | null>
@@ -34,6 +34,8 @@ export function useCanvasAgent(props: Props) {
   })
 
   useEffect(() => {
+    if (!prototypeUrl) return
+    const connectedPrototypeUrl = prototypeUrl
     rendererId.current ??= crypto.randomUUID()
     const headers = { "X-Replica-Renderer-Id": rendererId.current }
     let busy = false
@@ -175,7 +177,7 @@ export function useCanvasAgent(props: Props) {
         throw new Error(agentCopy.bridgeUnavailable)
       const url = new URL(result.url)
       if (url.origin !== origin) throw new Error(agentCopy.routeChanged)
-      const original = new URL(prototypeUrl)
+      const original = new URL(connectedPrototypeUrl)
       url.protocol = original.protocol
       url.host = original.host
       const panel = await waitForControlsPanel(deadline)
@@ -241,7 +243,7 @@ export function useCanvasAgent(props: Props) {
             }
           } | null
         }>("/api/agent/next", token, {
-          headers: { ...headers, "X-Replica-Prototype-Url": prototypeUrl },
+          headers: { ...headers, "X-Replica-Prototype-Url": connectedPrototypeUrl },
         })
         if (!stopped && connectedUrl && connectedUrl !== prototypeUrl) {
           window.location.reload()

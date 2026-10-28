@@ -18,6 +18,25 @@ const base = {
 }
 
 describe("createCanvasContext()", () => {
+  it("retains the verified checkout without requiring a running prototype", async () => {
+    await withContext(async (fixture) => {
+      const input = { ...base, ...paths(fixture), prototypeUrl: undefined, name: undefined }
+      const context = await createCanvasContext(input)
+      assert.equal(context.normalizedUrl, null)
+      assert.equal(context.name, "New prototype")
+      assert.equal(context.target.repository, "github/replica")
+      assert.equal(context.target.branch, "prototype")
+      assert.equal((await createCanvasContext(input)).stateId, context.stateId)
+      execFileSync("git", ["checkout", "-qb", "feature/new-prototype"], {
+        cwd: fixture.repositoryPath,
+      })
+      const current = await currentCanvasContext(context)
+      assert.equal(current.normalizedUrl, null)
+      assert.equal(current.target.branch, "feature/new-prototype")
+      assert.notEqual(current.stateId, context.stateId)
+    })
+  })
+
   it("normalizes the URL and retains explicit target metadata", async () => {
     await withContext(async (fixture) => {
       const input = { ...base, ...paths(fixture) }

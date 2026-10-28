@@ -150,10 +150,11 @@ export type HubStatus = {
 }
 
 export type CanvasConfig = {
-  prototypeUrl: string
+  prototypeUrl: string | null
   previewUrl?: string
   name: string
   token: string
+  monitorPrototype?: boolean
 }
 
 export type PublishPreparation = {

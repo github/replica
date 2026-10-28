@@ -549,7 +549,7 @@ export function PrototypeCanvasHubPanel({
   const sendBridge = useCallback(
     (type: string, payload: Record<string, unknown> = {}) => {
       const frame = frameRef.current
-      if (!frame?.contentWindow || !bridgeNonceRef.current) return false
+      if (!frame?.contentWindow || !bridgeNonceRef.current || !config.prototypeUrl) return false
       frame.contentWindow.postMessage(
         { type, nonce: bridgeNonceRef.current, ...payload },
         new URL(config.previewUrl ?? config.prototypeUrl).origin,
@@ -634,7 +634,7 @@ export function PrototypeCanvasHubPanel({
 
   useEffect(() => {
     const frame = frameRef.current
-    if (!frame) {
+    if (!frame || !config.prototypeUrl) {
       setMarkers(new Map())
       setBridgeReady(false)
       return

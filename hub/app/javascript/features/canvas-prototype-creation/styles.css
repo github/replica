@@ -1,0 +1,35 @@
+.canvas-prototype-creation {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: safe center;
+  gap: 1.5rem;
+  overflow-y: auto;
+  padding: clamp(2rem, 8vh, 6rem) 1.5rem 2rem;
+  background: var(--hub-canvas-default);
+}
+
+.canvas-prototype-creation__content,
+.canvas-prototype-creation > .canvas-server-connection {
+  width: min(100%, 43.75rem);
+}
+
+.canvas-prototype-creation__notice {
+  text-align: center;
+}
+
+.canvas-prototype-creation__notice .hub-alert {
+  text-align: left;
+}
+
+.canvas-prototype-creation__content > .hub-alert {
+  margin-top: 0.75rem;
+}
+
+.canvas-prototype-creation__content > p,
+.canvas-prototype-creation__notice > p {
+  color: var(--hub-fg-muted);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}

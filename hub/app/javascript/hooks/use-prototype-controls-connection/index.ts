@@ -5,7 +5,7 @@ import { urlControlsStorage } from "@utils/prototype-controls-url/storage"
 
 type Props = {
   frameRef: RefObject<HTMLIFrameElement | null>
-  prototypeUrl: string
+  prototypeUrl: string | null
   previewUrl?: string
   address: string
   replaceAddress: (address: string) => void
@@ -27,7 +27,7 @@ export function useControlsConnection({
   }, [address, replaceAddress])
 
   useEffect(() => {
-    if (!frameRef.current) return
+    if (!frameRef.current || !prototypeUrl) return
 
     const next = new ControlsConnection(
       frameRef.current,

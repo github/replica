@@ -72,6 +72,110 @@ async function register(
 }
 
 describe("registerPrototypeCanvas()", () => {
+  it("uses a saved Hub connection for creation without a local preview or new approval", async () => {
+    await withContext(async (context) => {
+      execFileSync("git", ["remote", "add", "origin", "https://github.com/github/replica.git"], {
+        cwd: context.repositoryPath,
+      })
+      const requests = []
+      let available = false
+      const hub = createServer((request, response) => {
+        requests.push({ method: request.method, path: request.url })
+        response.setHeader("X-Replica-Canvas-Version", "1")
+        response.setHeader("Content-Type", "application/json")
+        if (request.url === "/api/canvas/templates") {
+          assert.equal(request.headers.authorization, "Bearer test-credential")
+          response.writeHead(available ? 200 : 503)
+          response.end(
+            JSON.stringify(
+              available
+                ? {
+                    templates: [{ id: "default", name: "Default", route: "/" }],
+                    promptInstructions: "Build an interactive prototype.",
+                    templatePageInstructions: "Use %{route}.",
+                    templateLandingPageInstructions: "Set startPage to %{route}.",
+                    copy: { heading: "Create prototype" },
+                  }
+                : { error: "Templates temporarily unavailable." },
+            ),
+          )
+        } else {
+          response.writeHead(404)
+          response.end(JSON.stringify({ error: "Unexpected Hub request." }))
+        }
+      })
+      await new Promise((resolve) => hub.listen(0, "127.0.0.1", resolve))
+      const origin = `http://127.0.0.1:${hub.address().port}`
+      const directory = path.join(context.sessionWorkspacePath, "hub-credentials")
+      const key = createHash("sha256").update(`${origin}\ngithub/replica`).digest("hex")
+      await createPrivateStore(directory).write(`${key}.json`, {
+        origin,
+        repository: "github/replica",
+        token: "test-credential",
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        connectionId: 1,
+      })
+      await createHubOriginStore({ directory }).save("github/replica", origin)
+      const prompts = []
+      const canvas = await register(context, prompts, undefined, {
+        hubOptions: {
+          directory,
+          runCommand: async () => ({
+            ok: false,
+            error: "Offline discovery fixture",
+          }),
+        },
+      })
+      const ctx = {
+        instanceId: "create-without-preview",
+        sessionId: "test-session",
+        session: { workingDirectory: context.repositoryPath },
+      }
+      try {
+        const opened = await canvas.open(ctx)
+        const document = await (await fetch(opened.url)).text()
+        const bootstrap = JSON.parse(document.match(/window\.__REPLICA_CANVAS__ = ([^;]+);/)[1])
+        assert.equal(bootstrap.prototypeUrl, null)
+        assert.match(document, /\/assets\/renderer\.js/)
+        const url = new URL("/api/prototypes/new", opened.url)
+        assert.equal((await fetch(url)).status, 403)
+        const headers = { "X-Replica-Canvas-Token": bootstrap.token }
+        assert.equal((await fetch(url, { headers })).status, 503)
+        available = true
+        const recovered = await fetch(url, { headers })
+        assert.equal(recovered.status, 200)
+        assert.deepEqual((await recovered.json()).templates, [
+          { id: "default", name: "Default", route: "/" },
+        ])
+        assert.equal(prompts.length, 0)
+        const submitted = await fetch(url, {
+          method: "POST",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            brief: "Simplify account settings.",
+            details: { change: "", audience: "", outcome: "" },
+            templateId: "default",
+          }),
+        })
+        assert.equal(submitted.status, 200)
+        assert.deepEqual(await submitted.json(), { requested: true })
+        assert.equal(prompts.length, 1)
+        assert.ok(prompts[0].includes("Simplify account settings."))
+        assert.equal(requests.length, 3)
+        assert.ok(
+          requests.every(
+            ({ method, path: route }) => method === "GET" && route === "/api/canvas/templates",
+          ),
+        )
+        assert.equal((await canvas.open(ctx)).url, opened.url)
+      } finally {
+        await canvas.onClose(ctx)
+        hub.closeAllConnections()
+        await new Promise((resolve) => hub.close(resolve))
+      }
+    })
+  })
+
   it("registers learning recall alongside Controls actions without ending panels with the session", async () => {
     await withContext(async (context) => {
       execFileSync("git", ["remote", "add", "origin", "https://github.com/github/replica.git"], {
@@ -389,8 +493,12 @@ describe("registerPrototypeCanvas()", () => {
         assert.equal(opened.title, "Preview")
         assert.equal(opened.status, "Ready to connect")
         const html = await (await fetch(opened.url)).text()
-        const headers = { "X-Replica-Canvas-Token": html.match(/<script nonce="([^"]+)">/)[1] }
-        const result = await (await fetch(new URL("/servers", opened.url), { headers })).json()
+        const { token, prototypeUrl } = JSON.parse(
+          html.match(/window\.__REPLICA_CANVAS__ = ([^;]+);/)[1],
+        )
+        assert.equal(prototypeUrl, null)
+        const headers = { "X-Replica-Canvas-Token": token }
+        const result = await (await fetch(new URL("/api/servers", opened.url), { headers })).json()
         assert.equal(result.servers.length, 1)
         assert.deepEqual(result.development, {
           scripts: [],
@@ -399,12 +507,13 @@ describe("registerPrototypeCanvas()", () => {
         })
         assert.equal(
           (
-            await fetch(new URL("/start?script=dev", opened.url), {
+            await fetch(new URL("/api/server/start", opened.url), {
               method: "POST",
-              headers,
+              headers: { ...headers, "Content-Type": "application/json" },
+              body: JSON.stringify({ script: "dev" }),
             })
-          ).status,
-          404,
+          ).ok,
+          false,
         )
         await canvas.onClose(ctx)
         await assert.rejects(fetch(opened.url))
@@ -1563,8 +1672,11 @@ esac
             ...(mode === "direct" ? { input: { prototypeUrl } } : {}),
           })
           if (mode === "discovery") {
-            await assert.rejects(refresh.handler(ctx), { code: "prototype_url_missing" })
-            await assert.rejects(update.handler(updateContext), { code: "prototype_url_missing" })
+            assert.equal((await refresh.handler(ctx)).hubStatus.state, "unconfigured")
+            await assert.rejects(update.handler(updateContext), {
+              code: "metadata_update_failed",
+              message: "Enter a Hub URL before connecting.",
+            })
             const connect = canvas.actions.find((action) => action.name === "connect_prototype")
             await connect.handler({ ...ctx, input: { prototypeUrl } })
           }
@@ -1591,6 +1703,9 @@ esac
 
   it("returns to setup when a server stops, rejects dead targets, and reconnects in the same panel", async () => {
     await withContext(async (context) => {
+      execFileSync("git", ["remote", "add", "origin", "https://github.com/github/replica.git"], {
+        cwd: context.repositoryPath,
+      })
       const preview = createServer((_request, response) => {
         response.writeHead(200, { "Content-Type": "text/html" })
         response.end("<!doctype html><title>Prototype</title>")
@@ -1613,37 +1728,56 @@ esac
         const setupToken = new URL(opened.url).searchParams.get("document")
         assert.match(setupToken, /^[A-Za-z0-9_-]{43}$/)
         assert.equal((await fetch(new URL("/", opened.url))).status, 403)
+        const stateUrl = new URL("/api/state", opened.url)
+        const setupState = await (await fetch(stateUrl)).json()
+        const stateContext = {
+          ...context,
+          stateId: setupState.stateId,
+          stateFile: path.join(context.stateDirectory, `${setupState.stateId}.json`),
+        }
+        await requestPublish(stateContext, { send: async () => "pending-publication" })
+        const requestedState = await (await fetch(stateUrl)).json()
+        assert.equal(requestedState.publishRequest.state, "requested")
         await connect.handler({ ...openContext, input: { prototypeUrl } })
-        const redirect = await fetch(opened.url, { redirect: "manual" })
-        assert.equal(redirect.status, 302)
-        assert.equal(redirect.headers.get("referrer-policy"), "no-referrer")
+        const connectedState = await (await fetch(stateUrl)).json()
+        assert.equal(connectedState.stateId, setupState.stateId)
+        assert.deepEqual(connectedState.publishRequest, requestedState.publishRequest)
         const response = await fetch(opened.url)
         assert.equal(response.status, 200)
         const rendererUrl = response.url
-        assert.equal(redirect.headers.get("location"), rendererUrl)
         const rendererToken = new URL(rendererUrl).searchParams.get("document")
         assert.match(rendererToken, /^[A-Za-z0-9_-]{43}$/)
-        assert.notEqual(rendererToken, setupToken)
+        assert.equal(rendererToken, setupToken)
         assert.equal((await fetch(new URL("/", rendererUrl))).status, 403)
-        assert.equal((await fetch(new URL("/", opened.url), { redirect: "manual" })).status, 403)
         assert.equal(response.headers.get("referrer-policy"), "no-referrer")
         const html = await response.text()
         const { token } = JSON.parse(html.match(/window\.__REPLICA_CANVAS__ = ([^;]+);/)[1])
         const headers = { "X-Replica-Canvas-Token": token }
         const statusUrl = new URL("/api/prototype/status", rendererUrl)
         assert.equal((await fetch(statusUrl)).status, 403)
-        assert.deepEqual(await (await fetch(statusUrl, { headers })).json(), { available: true })
-        assert.match(html, /checkPrototype\(\)/)
-        assert.ok(html.includes(opened.url), "Health checks must retain the setup document URL.")
+        assert.deepEqual(await (await fetch(statusUrl, { headers })).json(), {
+          available: true,
+        })
+        assert.equal(
+          JSON.parse(html.match(/window\.__REPLICA_CANVAS__ = ([^;]+);/)[1]).monitorPrototype,
+          true,
+        )
         assert.ok(!html.includes(rendererToken))
 
         await new Promise((resolve) => preview.close(resolve))
         const stopped = await (await fetch(statusUrl, { headers })).json()
         assert.equal(stopped.available, false)
         assert.match(stopped.message, /Prototype server unavailable/)
+        const stoppedState = await (await fetch(stateUrl)).json()
+        assert.equal(stoppedState.stateId, setupState.stateId)
+        assert.deepEqual(stoppedState.publishRequest, requestedState.publishRequest)
         const setup = await fetch(opened.url, { redirect: "manual" })
         assert.equal(setup.status, 200)
-        assert.match(await setup.text(), /Scan again/)
+        assert.equal(
+          JSON.parse((await setup.text()).match(/window\.__REPLICA_CANVAS__ = ([^;]+);/)[1])
+            .prototypeUrl,
+          null,
+        )
         const disconnected = await canvas.open(openContext)
         assert.equal(disconnected.title, "Preview")
         assert.equal(disconnected.status, "Ready to connect")
@@ -1657,7 +1791,14 @@ esac
         const saved = await restored.open({ ...openContext, instanceId: "saved-panel" })
         assert.equal(saved.title, "Preview")
         assert.equal(saved.status, "Ready to connect")
-        assert.match(await (await fetch(saved.url)).text(), /Scan again/)
+        assert.equal(
+          JSON.parse(
+            (await (await fetch(saved.url)).text()).match(
+              /window\.__REPLICA_CANVAS__ = ([^;]+);/,
+            )[1],
+          ).prototypeUrl,
+          null,
+        )
         assert.notEqual(new URL(saved.url).searchParams.get("document"), setupToken)
 
         await new Promise((resolve) => preview.listen(port, "127.0.0.1", resolve))
@@ -1666,6 +1807,9 @@ esac
         assert.equal(reopened.title, "Preview")
         assert.equal(reopened.status, "Prototype connected")
         assert.equal(reopened.url, opened.url)
+        const reconnectedState = await (await fetch(stateUrl)).json()
+        assert.equal(reconnectedState.stateId, setupState.stateId)
+        assert.deepEqual(reconnectedState.publishRequest, requestedState.publishRequest)
         const reconnected = await fetch(opened.url)
         assert.equal(reconnected.url, rendererUrl)
         assert.match(await reconnected.text(), /#\/actions/)
@@ -1699,8 +1843,11 @@ esac
         assert.equal(opened.status, "Ready to connect")
         assert.equal(prompts.length, 0)
         const html = await (await fetch(opened.url)).text()
-        const headers = { "X-Replica-Canvas-Token": html.match(/<script nonce="([^"]+)">/)[1] }
-        const discovered = await (await fetch(new URL("/servers", opened.url), { headers })).json()
+        const { token } = JSON.parse(html.match(/window\.__REPLICA_CANVAS__ = ([^;]+);/)[1])
+        const headers = { "X-Replica-Canvas-Token": token }
+        const discovered = await (
+          await fetch(new URL("/api/servers", opened.url), { headers })
+        ).json()
         assert.equal(discovered.servers.length, 1)
         assert.equal((await canvas.open(openContext)).url, opened.url)
         assert.equal(prompts.length, 0)
@@ -1708,11 +1855,14 @@ esac
           connect.handler({ ...openContext, input: { prototypeUrl: "file:///invalid" } }),
           /HTTP or HTTPS/,
         )
-        const input = { prototypeUrl: "http://localhost:5173/#/cli/cli/actions" }
-        const selected = await fetch(
-          new URL(`/connect?url=${encodeURIComponent(input.prototypeUrl)}`, opened.url),
-          { method: "POST", headers },
-        )
+        const input = {
+          prototypeUrl: "http://localhost:5173/#/cli/cli/actions",
+        }
+        const selected = await fetch(new URL("/api/server/connect", opened.url), {
+          method: "POST",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify({ url: input.prototypeUrl }),
+        })
         assert.equal(selected.status, 200)
         const connectedHtml = await (await fetch(opened.url)).text()
         assert.match(connectedHtml, /http:\/\/localhost:5173\/#\/cli\/cli\/actions/)

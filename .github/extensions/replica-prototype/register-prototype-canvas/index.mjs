@@ -722,7 +722,7 @@ export async function registerPrototypeCanvas(
               additionalProperties: false,
             },
             handler: async (ctx) => {
-              const entry = requireOpenPrototypeEntry(ctx.instanceId)
+              const entry = requireOpenEntry(ctx.instanceId)
 
               try {
                 const [state, hubStatus] = await Promise.all([
@@ -778,7 +778,7 @@ export async function registerPrototypeCanvas(
               },
             },
             handler: async (ctx) => {
-              const entry = requireOpenPrototypeEntry(ctx.instanceId)
+              const entry = requireOpenEntry(ctx.instanceId)
               const { target, outcome, reason } = ctx.input
               if (target.canvasInstanceId !== ctx.instanceId)
                 throw new CanvasError(
@@ -822,7 +822,7 @@ export async function registerPrototypeCanvas(
               },
             },
             handler: async (ctx) => {
-              const entry = requireOpenPrototypeEntry(ctx.instanceId)
+              const entry = requireOpenEntry(ctx.instanceId)
 
               try {
                 const response = await entry.prototype.updateMetadata(ctx.input)
@@ -883,6 +883,24 @@ export async function registerPrototypeCanvas(
             }
             entry.instanceId = ctx.instanceId
             servers.set(ctx.instanceId, entry)
+            try {
+              const initialContext = await createCanvasContext({
+                ...input,
+                ...contextOptions,
+              })
+              entry.context = { ...initialContext, normalizedUrl: null, urlHost: null }
+              entry.prototype = await startCanvasServer(entry.context, session, {
+                serverConnection: missing,
+                hubOptions: canvasOptions.hubOptions,
+                prototypeStatus: () => prototypeStatus(entry),
+                instanceId: entry.instanceId,
+                agentCommands: (entry.agentCommands ||= agentCommands()),
+              })
+            } catch (error) {
+              servers.delete(ctx.instanceId)
+              await closeEntry(entry)
+              throw error
+            }
           }
           try {
             if (input.prototypeUrl) await activatePrototype(entry, input, false)
@@ -950,7 +968,10 @@ export async function registerPrototypeCanvas(
     }
     entry.connecting = true
     try {
-      const context = await createCanvasContext({ ...input, ...entry.contextOptions })
+      const context = retainRepositoryState(
+        await createCanvasContext({ ...input, ...entry.contextOptions }),
+        entry.context,
+      )
       const status = await checkServer(context.normalizedUrl)
       if (entry.closed) throw new CanvasError("canvas_not_open", "The setup panel was closed.")
       if (!status.available) {
@@ -1006,6 +1027,16 @@ export async function registerPrototypeCanvas(
     if (!status.available) {
       entry.kind = "missing"
       entry.disconnect(status.message)
+      const disconnected = retainRepositoryState(
+        await createCanvasContext({
+          ...entry.input,
+          ...entry.contextOptions,
+          prototypeUrl: null,
+        }),
+        entry.context,
+      )
+      await entry.prototype.setContext(disconnected)
+      entry.context = disconnected
     }
     return status
   }
@@ -1014,7 +1045,7 @@ export async function registerPrototypeCanvas(
     return {
       title: "Preview",
       status: entry.kind === "prototype" ? "Prototype connected" : "Ready to connect",
-      url: entry.url,
+      url: entry.prototype?.url || entry.url,
     }
   }
 
@@ -1034,6 +1065,16 @@ export async function registerPrototypeCanvas(
     }
 
     return entry
+  }
+
+  function retainRepositoryState(next, previous) {
+    if (
+      previous?.target.repository !== next.target.repository ||
+      previous?.target.branch !== next.target.branch
+    )
+      return next
+    // Server availability must not discard a pending publication in this panel.
+    return { ...next, stateId: previous.stateId, stateFile: previous.stateFile }
   }
 
   function requireOpenEntry(instanceId) {

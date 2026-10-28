@@ -7,6 +7,9 @@ import { repliedReviewThread } from "@/storybook/fixtures/review/comments"
 import type { ShareLink } from "@hooks/use-canvas-share-links/types"
 import type { HubStatus, PrototypeState, PublishPreparation } from "@utils/prototype-canvas/types"
 import type { ReviewComment } from "@utils/review-comment/types"
+import createPageMeta from "@pages/new-prototype-page/stories"
+
+import { serverConnectionFixtureResponse } from "./server-connection/fixture-response"
 
 import "./stories.css"
 
@@ -15,11 +18,17 @@ function PublicationDemo({
   prototypeUrl,
   withShareLinks = false,
   withComments = false,
+  withoutPreview = false,
+  catalogState = "ready",
+  serverState = "empty",
 }: {
   scenario: string
   prototypeUrl: string
   withShareLinks?: boolean
   withComments?: boolean
+  withoutPreview?: boolean
+  catalogState?: "ready" | "default" | "loading" | "failed" | "submission-failed"
+  serverState?: string
 }) {
   const [ready, setReady] = useState(false)
   useEffect(() => {
@@ -89,7 +98,33 @@ function PublicationDemo({
       const path = typeof input === "string" ? input : input instanceof URL ? input.href : input.url
       if (!path.startsWith("/api/")) return originalFetch(input, init)
       let data: unknown
-      if (path === "/api/state" || path === "/api/refresh") data = state
+      if (withoutPreview && path === "/api/prototypes/new") {
+        if (init?.method === "POST") {
+          if (catalogState === "submission-failed")
+            return Response.json(
+              { error: "Copilot could not receive your brief. Try again." },
+              { status: 503 },
+            )
+          data = { requested: true }
+        } else {
+          if (catalogState === "loading") return new Promise<Response>(() => {})
+          if (catalogState === "failed")
+            return Response.json(
+              { error: "Hub could not load this repository's templates. Try again." },
+              { status: 503 },
+            )
+          const source = createPageMeta.args.data
+          data = {
+            ...source,
+            templates: (catalogState === "default"
+              ? source.templates.slice(0, 1)
+              : source.templates
+            ).map(({ id, name, route }) => ({ id, name, route })),
+          }
+        }
+      } else if (withoutPreview && (path === "/api/servers" || path.startsWith("/api/server/")))
+        return serverConnectionFixtureResponse(serverState, path)
+      else if (path === "/api/state" || path === "/api/refresh") data = state
       else if (path === "/api/hub/status") data = hub
       else if (path === "/api/hub/open" || path === "/api/hub/activity") data = hub
       else if (path === "/api/hub/discovery") data = hub
@@ -221,12 +256,18 @@ function PublicationDemo({
       window.clearTimeout(timer)
       window.fetch = originalFetch
     }
-  }, [scenario, withShareLinks, withComments])
+  }, [scenario, withShareLinks, withComments, withoutPreview, catalogState, serverState])
   return (
     <div className="publication-demo">
       <div className="publication-demo-canvas">
         {ready ? (
-          <App config={{ prototypeUrl, name: "Welcome prototype", token: "fixture-only" }} />
+          <App
+            config={{
+              prototypeUrl: withoutPreview ? null : prototypeUrl,
+              name: "Welcome prototype",
+              token: "fixture-only",
+            }}
+          />
         ) : null}
       </div>
     </div>
@@ -256,7 +297,7 @@ const meta = {
   argTypes: { scenario: { control: "select", options: Object.keys(publicationExamples) } },
   render: (args) => (
     <PublicationDemo
-      key={`${args.scenario}/${args.withShareLinks}/${args.withComments}`}
+      key={`${args.scenario}/${args.withShareLinks}/${args.withComments}/${args.withoutPreview}/${args.catalogState}/${args.serverState}`}
       {...args}
     />
   ),
@@ -272,6 +313,97 @@ export const Playground: Story = {
           "Use the Light appearance and Dark appearance buttons to switch the preview and lower canvas UI together. The URL bar retains the Copilot app theme, with a system-theme fallback outside Copilot. Button colors switch immediately without transitions or backdrop blur. Open Controls, Hub, or a dialog to review the selected preview appearance on those surfaces.",
       },
     },
+  },
+}
+export const NoPrototype: Story = { args: { withoutPreview: true } }
+export const NoPrototypeServerScanning: Story = {
+  args: { withoutPreview: true, serverState: "scanning" },
+}
+export const NoPrototypeSingleServer: Story = {
+  args: { withoutPreview: true, serverState: "single" },
+}
+export const NoPrototypeMultipleServers: Story = {
+  args: { withoutPreview: true, serverState: "multiple" },
+}
+export const NoPrototypeScriptSelection: Story = {
+  args: { withoutPreview: true, serverState: "scripts" },
+}
+export const NoPrototypeScriptMenuOpen: Story = {
+  ...NoPrototypeScriptSelection,
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Dev server script: npm run dev" }),
+    )
+  },
+}
+export const NoPrototypeServerScanFailed: Story = {
+  args: { withoutPreview: true, serverState: "scan-failed" },
+}
+export const NoPrototypeServerWarnings: Story = {
+  args: { withoutPreview: true, serverState: "warnings" },
+}
+export const NoPrototypeStartupUnavailable: Story = {
+  args: { withoutPreview: true, serverState: "startup-unavailable" },
+}
+export const NoPrototypeConnecting: Story = {
+  args: { withoutPreview: true, serverState: "connecting" },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(await canvas.findByRole("button", { name: "Connect" }))
+  },
+}
+export const NoPrototypeConnectFailed: Story = {
+  ...NoPrototypeConnecting,
+  args: { withoutPreview: true, serverState: "connect-failed" },
+}
+export const NoPrototypeStarting: Story = {
+  args: { withoutPreview: true, serverState: "starting" },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(await canvas.findByRole("button", { name: "Start dev server" }))
+    await canvas.findByLabelText("Dev server output")
+  },
+}
+export const NoPrototypeStartFailed: Story = {
+  args: { withoutPreview: true, serverState: "start-failed" },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(await canvas.findByRole("button", { name: "Start dev server" }))
+    await canvas.findByRole("alert")
+  },
+}
+export const NoPrototypeDefaultTemplate: Story = {
+  args: { withoutPreview: true, catalogState: "default" },
+}
+export const NoPrototypeDisconnected: Story = {
+  args: { withoutPreview: true, scenario: "Disconnected" },
+}
+export const NoPrototypeCatalogLoading: Story = {
+  args: { withoutPreview: true, catalogState: "loading" },
+}
+export const NoPrototypeCatalogFailed: Story = {
+  args: { withoutPreview: true, catalogState: "failed" },
+}
+export const NoPrototypeDetails: Story = {
+  args: { withoutPreview: true },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(await canvas.findByRole("button", { name: "Add details" }))
+    await canvas.findByRole("dialog", { name: "Add details (optional)" })
+  },
+}
+export const NoPrototypeTemplatePicker: Story = {
+  args: { withoutPreview: true },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(await canvas.findByRole("button", { name: "Template: Default" }))
+    await canvas.findByRole("listbox", { name: "Template" })
+  },
+}
+export const NoPrototypeSubmissionFailed: Story = {
+  args: { withoutPreview: true, catalogState: "submission-failed" },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.type(
+      await canvas.findByRole("textbox", { name: "What should we create?" }),
+      "Help people organize their saved notes.",
+    )
+    await userEvent.click(canvas.getByRole("button", { name: "Create prototype" }))
+    await canvas.findByRole("alert")
   },
 }
 export const Queued: Story = { args: { scenario: "Build queued" } }
