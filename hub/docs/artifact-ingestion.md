@@ -57,7 +57,7 @@ Publishing requests are rate-limited before JSON parsing. The version-upload rou
 
 `ArtifactStorage` separates ingestion from byte storage. The reference adapter writes content-addressed files under `HUB_ARTIFACT_STORAGE_PATH`, defaulting to `~/.replica/artifacts` outside the source checkout and Vite development root. Database rows store only the storage key and validated metadata, never the artifact bytes.
 
-The local adapter is suitable for one Hub process with a durable mounted filesystem. It rejects symbolic-link roots, shards, and artifact paths, resolves directories under the configured root, and opens artifact files without following a final symbolic link. Operators must keep the storage directory writable only by the Hub workload; the local adapter does not provide replication, remote durability, encryption-key management, hostile concurrent filesystem isolation, or multi-region consistency. A production object-store adapter must preserve the same content-addressed, immutable `put`, `read`, and `remove` boundary.
+The local adapter is suitable for one Hub process with a durable mounted filesystem. It rejects relative configured paths and symbolic-link roots, shards, and artifact paths, resolves directories under the configured root, opens artifact files without following a final symbolic link, and syncs file and directory entries before reporting a successful write. Operators must keep the storage directory writable only by the Hub workload; the local adapter does not provide replication, remote durability, encryption-key management, hostile concurrent filesystem isolation, or multi-region consistency. A production object-store adapter must preserve the same content-addressed, immutable `put`, `read`, and `remove` boundary.
 
 Storage happens before the database transaction. A failed transaction can therefore leave an unreferenced content-addressed file. Hub never deletes referenced bytes automatically. Operators may remove only files that have no matching `PrototypeVersion.storageKey`; retain unreferenced files long enough to exclude in-flight transactions and backups. Version metadata has no deletion API and must not be rewritten silently.
 
@@ -73,7 +73,7 @@ Publishing locks the prototype while it assigns the next sequence. Concurrent re
 
 ## Status, audits, and failures
 
-`GET /api/publishing/prototypes/:prototypeId/status` reads the publication associated with the caller's `Idempotency-Key`. It requires `read-status`.
+`GET /api/publishing/prototypes/:prototypeId/status` reads the publication associated with the caller's `Idempotency-Key`. It requires `read-status`. Publishing responses are private and non-cacheable because the idempotency key is carried in a request header rather than the URL.
 
 Version creation, idempotency ownership, optional promotion, and the `prototype.version.publish` security audit commit in one transaction. Promotion writes `prototype.channel.promote` in its transaction. Audit failure rolls back database state. Responses expose validated version metadata and stable error codes, not credentials, storage paths, or artifact contents. Publishing routes omit headers and request payloads from structured request logs.
 

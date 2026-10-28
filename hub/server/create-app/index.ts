@@ -4,6 +4,7 @@ import type { Logger } from "pino"
 import { maximumPublishingJsonBytes } from "../domains/artifact-publishing/create-service/constants.ts"
 import { createRateLimit } from "../integrations/express/create-rate-limit/index.ts"
 import { handleError } from "../integrations/express/handle-error/index.ts"
+import { preparePublishingRequest } from "../integrations/express/prepare-publishing-request/index.ts"
 import { respondNotFound } from "../integrations/express/respond-not-found/index.ts"
 import { createRequestLogger } from "../integrations/pino/create-request-logger/index.ts"
 import { omitRequestLogPayload } from "../integrations/pino/omit-request-log-payload/index.ts"
@@ -32,6 +33,7 @@ export function createApp({
     omitRequestLogPayload,
   )
   app.use("/api/github/webhooks", express.raw({ type: "application/json", limit: "1mb" }))
+  app.use("/api/publishing", preparePublishingRequest)
   app.use(
     "/api/publishing",
     createRateLimit({

@@ -33,6 +33,16 @@ function bytesInShard(shard: string) {
   }
 }
 
+function directoryChainLength(directory: string) {
+  let length = 1
+  let current = directory
+  while (path.dirname(current) !== current) {
+    length += 1
+    current = path.dirname(current)
+  }
+  return length
+}
+
 async function expectSymlinkRejected({
   root,
   key,
@@ -115,6 +125,72 @@ describe("createLocalArtifactStorage()", () => {
     expect(new Set(results.map(({ key }) => key))).toEqual(new Set([results[0].key]))
     expect(results.filter(({ created }) => created)).toHaveLength(1)
     expect(Buffer.from(await storage.read(results[0].key))).toEqual(bytes)
+  })
+
+  it("syncs the destination directory chain before new and deduplicated puts return", async () => {
+    const root = storageRoot()
+    const storage = createLocalArtifactStorage(root)
+    const bytes = Buffer.from("durable artifact")
+    const contentDigest = digest(bytes)
+    const location = artifactPath(root, contentDigest)
+    const expectedDirectorySyncs = directoryChainLength(location.shard)
+    const probePath = path.join(process.cwd(), `.artifact-sync-probe-${randomUUID()}`)
+    const probe = await open(probePath, "w")
+    onTestFinished(async () => {
+      await probe.close()
+      await rm(probePath, { force: true })
+    })
+    const fileHandlePrototype = Object.getPrototypeOf(probe) as typeof probe
+    let directorySyncs = 0
+    vi.spyOn(fileHandlePrototype, "sync").mockImplementation(async function (this: typeof probe) {
+      if ((await this.stat()).isDirectory()) directorySyncs += 1
+    })
+
+    await expect(storage.put(contentDigest, bytes)).resolves.toMatchObject({ created: true })
+    expect(directorySyncs).toBe(expectedDirectorySyncs)
+
+    await expect(storage.put(contentDigest, bytes)).resolves.toMatchObject({ created: false })
+    expect(directorySyncs).toBe(expectedDirectorySyncs * 2)
+  })
+
+  it("syncs the destination directory chain after a concurrent EEXIST dedupe", async () => {
+    const root = storageRoot()
+    const storage = createLocalArtifactStorage(root)
+    const bytes = Buffer.from("concurrent durable artifact")
+    const contentDigest = digest(bytes)
+    const expectedDirectorySyncs = directoryChainLength(artifactPath(root, contentDigest).shard)
+    const probePath = path.join(process.cwd(), `.artifact-sync-probe-${randomUUID()}`)
+    const probe = await open(probePath, "w")
+    onTestFinished(async () => {
+      await probe.close()
+      await rm(probePath, { force: true })
+    })
+    const fileHandlePrototype = Object.getPrototypeOf(probe) as typeof probe
+    let regularFileSyncs = 0
+    let directorySyncs = 0
+    let releaseRegularFileSyncs!: () => void
+    const bothTemporaryFilesSynced = new Promise<void>((resolve) => {
+      releaseRegularFileSyncs = resolve
+    })
+    vi.spyOn(fileHandlePrototype, "sync").mockImplementation(async function (this: typeof probe) {
+      const status = await this.stat()
+      if (status.isDirectory()) {
+        directorySyncs += 1
+      } else {
+        regularFileSyncs += 1
+        if (regularFileSyncs === 2) releaseRegularFileSyncs()
+        await bothTemporaryFilesSynced
+      }
+    })
+
+    const results = await Promise.all([
+      storage.put(contentDigest, bytes),
+      storage.put(contentDigest, bytes),
+    ])
+
+    expect(results.filter(({ created }) => created)).toHaveLength(1)
+    expect(results.filter(({ created }) => !created)).toHaveLength(1)
+    expect(directorySyncs).toBe(expectedDirectorySyncs * 2)
   })
 
   it.each(["writeFile", "sync"] as const)(

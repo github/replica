@@ -55,6 +55,11 @@ async function serve(authentication: AuthenticationRoutes, logger = createLogger
   return `http://127.0.0.1:${port}`
 }
 
+function expectPublishingPrivacyHeaders(response: Response) {
+  expect(response.headers.get("cache-control")).toBe("private, no-store")
+  expect(response.headers.get("referrer-policy")).toBe("no-referrer")
+}
+
 describe("publishing routes", () => {
   it("passes workload authorization and idempotency to publication without browser state", async () => {
     const publish = vi.fn().mockResolvedValue({
@@ -82,6 +87,7 @@ describe("publishing routes", () => {
     })
 
     expect(response.status).toBe(201)
+    expectPublishingPrivacyHeaders(response)
     expect(await response.json()).toEqual({
       version: { id: "version-id" },
       replayed: false,
@@ -226,6 +232,7 @@ describe("publishing routes", () => {
     })
 
     expect(response.status).toBe(413)
+    expectPublishingPrivacyHeaders(response)
     expect(await response.json()).toEqual({ error: "Invalid request" })
     expect(publish).not.toHaveBeenCalled()
     await vi.waitFor(() => expect(records).toHaveLength(1))
@@ -258,6 +265,7 @@ describe("publishing routes", () => {
     })
 
     expect(rejected.status).toBe(429)
+    expectPublishingPrivacyHeaders(rejected)
     expect(await rejected.json()).toEqual({
       error: "rate_limited",
       message: "Too many publishing requests.",

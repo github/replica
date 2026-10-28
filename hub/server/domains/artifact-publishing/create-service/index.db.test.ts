@@ -833,6 +833,127 @@ describe("createArtifactPublishingService() database behavior", () => {
     ).toBe(1)
   })
 
+  it("commits a promoted publication, version, channel, and audit together", async () => {
+    const context = await database()
+    const { prototype } = await createPrototype(context.prisma)
+    const credential = await createCredential(context.prisma, prototype.id)
+    const input = publicationInput(prototype.id, artifact("publish-and-promote"), {
+      promoteChannel: "preview",
+    })
+
+    const result = await context.service.publish(
+      credential.authorization,
+      prototype.id,
+      "publish-and-promote",
+      input,
+    )
+    const version = publishedVersion(result)
+
+    expect(result).toMatchObject({ replayed: false, promotedChannel: "preview" })
+    expect(
+      await context.prisma.prototypeVersion.findMany({
+        where: { prototypeId: prototype.id },
+        select: { id: true, workloadPublisherId: true },
+      }),
+    ).toEqual([{ id: version.id, workloadPublisherId: credential.publisher.id }])
+    expect(
+      await context.prisma.artifactPublication.findMany({
+        where: { prototypeId: prototype.id },
+        select: { prototypeVersionId: true, workloadPublisherId: true },
+      }),
+    ).toEqual([
+      {
+        prototypeVersionId: version.id,
+        workloadPublisherId: credential.publisher.id,
+      },
+    ])
+    expect(
+      await context.prisma.prototypeChannel.findMany({
+        where: { prototypeId: prototype.id },
+        select: { name: true, prototypeVersionId: true },
+      }),
+    ).toEqual([{ name: "preview", prototypeVersionId: version.id }])
+    expect(
+      await context.prisma.securityAudit.findMany({
+        where: { prototypeId: prototype.id, event: "prototype.version.publish" },
+        select: { prototypeVersionId: true, workloadPublisherId: true },
+      }),
+    ).toEqual([
+      {
+        prototypeVersionId: version.id,
+        workloadPublisherId: credential.publisher.id,
+      },
+    ])
+  })
+
+  it("does not move a later channel promotion when replaying an earlier publication", async () => {
+    const context = await database()
+    const { prototype } = await createPrototype(context.prisma)
+    const credential = await createCredential(context.prisma, prototype.id)
+    const firstInput = publicationInput(prototype.id, artifact("earlier-publication"), {
+      promoteChannel: "current",
+    })
+    const first = await context.service.publish(
+      credential.authorization,
+      prototype.id,
+      "earlier-publication",
+      firstInput,
+    )
+    const second = await context.service.publish(
+      credential.authorization,
+      prototype.id,
+      "later-publication",
+      publicationInput(prototype.id, artifact("later-publication"), {
+        promoteChannel: "current",
+      }),
+    )
+
+    await expect(
+      context.service.publish(
+        credential.authorization,
+        prototype.id,
+        "earlier-publication",
+        firstInput,
+      ),
+    ).resolves.toMatchObject({
+      replayed: true,
+      version: publishedVersion(first),
+      promotedChannel: "current",
+    })
+    expect(
+      await context.prisma.prototypeChannel.findUniqueOrThrow({
+        where: { prototypeId_name: { prototypeId: prototype.id, name: "current" } },
+        select: { prototypeVersionId: true },
+      }),
+    ).toEqual({ prototypeVersionId: publishedVersion(second).id })
+  })
+
+  it("isolates status reads for publishers that reuse the same idempotency key", async () => {
+    const context = await database()
+    const { prototype } = await createPrototype(context.prisma)
+    const firstPublisher = await createCredential(context.prisma, prototype.id)
+    const secondPublisher = await createCredential(context.prisma, prototype.id)
+    const first = await context.service.publish(
+      firstPublisher.authorization,
+      prototype.id,
+      "shared-request-key",
+      publicationInput(prototype.id, artifact("first publisher version")),
+    )
+    const second = await context.service.publish(
+      secondPublisher.authorization,
+      prototype.id,
+      "shared-request-key",
+      publicationInput(prototype.id, artifact("second publisher version")),
+    )
+
+    await expect(
+      context.service.getStatus(firstPublisher.authorization, prototype.id, "shared-request-key"),
+    ).resolves.toMatchObject({ version: publishedVersion(first) })
+    await expect(
+      context.service.getStatus(secondPublisher.authorization, prototype.id, "shared-request-key"),
+    ).resolves.toMatchObject({ version: publishedVersion(second) })
+  })
+
   it("rejects reuse of an idempotency key for a different publication", async () => {
     const context = await database()
     const { prototype } = await createPrototype(context.prisma)
@@ -1048,7 +1169,7 @@ describe("createArtifactPublishingService() database behavior", () => {
     ).toBe(0)
   })
 
-  it("rolls back a published version when its audit cannot be saved", async () => {
+  it("rolls back a promoted publication, version, channel, and audit together", async () => {
     const context = await database()
     const { prototype } = await createPrototype(context.prisma)
     const credential = await createCredential(context.prisma, prototype.id)
@@ -1074,7 +1195,9 @@ describe("createArtifactPublishingService() database behavior", () => {
           credential.authorization,
           prototype.id,
           "audit-failure",
-          publicationInput(prototype.id, artifact("audit-failure")),
+          publicationInput(prototype.id, artifact("audit-failure"), {
+            promoteChannel: "current",
+          }),
         ),
       ).rejects.toThrow("audit unavailable")
     } finally {
@@ -1089,6 +1212,9 @@ describe("createArtifactPublishingService() database behavior", () => {
     ).toBe(0)
     expect(
       await context.prisma.artifactPublication.count({ where: { prototypeId: prototype.id } }),
+    ).toBe(0)
+    expect(
+      await context.prisma.prototypeChannel.count({ where: { prototypeId: prototype.id } }),
     ).toBe(0)
     expect(
       await context.prisma.securityAudit.count({

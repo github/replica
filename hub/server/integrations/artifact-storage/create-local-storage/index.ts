@@ -130,6 +130,21 @@ async function verifyExisting(
   }
 }
 
+async function syncDirectoryChain(directory: string): Promise<void> {
+  let current = directory
+  while (true) {
+    const handle = await open(current, constants.O_RDONLY | constants.O_DIRECTORY)
+    try {
+      await handle.sync()
+    } finally {
+      await handle.close()
+    }
+    const parent = path.dirname(current)
+    if (parent === current) return
+    current = parent
+  }
+}
+
 export function createLocalArtifactStorage(root: string): ArtifactStorage {
   if (!path.isAbsolute(root)) {
     throw new Error("HUB_ARTIFACT_STORAGE_PATH must be an absolute path.")
@@ -143,6 +158,7 @@ export function createLocalArtifactStorage(root: string): ArtifactStorage {
       const { destination, resolvedRoot } = await resolveArtifactPath(root, key, true)
       try {
         await verifyExisting(resolvedRoot, destination, contentDigest)
+        await syncDirectoryChain(path.dirname(destination))
         return { key, created: false }
       } catch (error) {
         if (!isFileSystemError(error, "ENOENT")) throw error
@@ -167,10 +183,12 @@ export function createLocalArtifactStorage(root: string): ArtifactStorage {
             throw new Error("Artifact storage path changed during the write.")
           }
           await link(temporary, destination)
+          await syncDirectoryChain(path.dirname(destination))
           return { key, created: true }
         } catch (error) {
           if (!isFileSystemError(error, "EEXIST")) throw error
           await verifyExisting(resolvedRoot, destination, contentDigest)
+          await syncDirectoryChain(path.dirname(destination))
           return { key, created: false }
         }
       } finally {

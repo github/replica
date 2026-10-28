@@ -5,7 +5,9 @@ import { describe, expect, it, vi } from "vitest"
 
 const { createLocalArtifactStorage } = vi.hoisted(() => ({
   createLocalArtifactStorage: vi.fn((root: string) => {
-    void root
+    if (!path.isAbsolute(root)) {
+      throw new Error("HUB_ARTIFACT_STORAGE_PATH must be an absolute path.")
+    }
     return {
       put: vi.fn(),
       read: vi.fn(),
@@ -22,15 +24,28 @@ vi.mock("#server/integrations/prisma", () => ({ prisma: {} }))
 import { createAuthenticationRuntime } from "#server/domains/authentication/create-runtime"
 
 describe("createAuthenticationRuntime()", () => {
-  it("keeps default artifact storage outside the checkout", async () => {
-    await createAuthenticationRuntime({})
+  it.each([undefined, "", " \t "])(
+    "keeps unset artifact storage outside the checkout for %j",
+    async (configuredPath) => {
+      await createAuthenticationRuntime({
+        ...(configuredPath === undefined ? {} : { HUB_ARTIFACT_STORAGE_PATH: configuredPath }),
+      })
 
-    expect(createLocalArtifactStorage).toHaveBeenCalledWith(
-      path.join(os.homedir(), ".replica", "artifacts"),
-    )
-    const storagePath = createLocalArtifactStorage.mock.calls[0]?.[0]
-    expect(storagePath).toBeTypeOf("string")
-    if (!storagePath) throw new Error("Expected an artifact storage path")
-    expect(path.relative(process.cwd(), storagePath)).toMatch(/^\.\./)
+      expect(createLocalArtifactStorage).toHaveBeenCalledWith(
+        path.join(os.homedir(), ".replica", "artifacts"),
+      )
+      const storagePath = createLocalArtifactStorage.mock.calls[0]?.[0]
+      expect(storagePath).toBeTypeOf("string")
+      if (!storagePath) throw new Error("Expected an artifact storage path")
+      expect(path.relative(process.cwd(), storagePath)).toMatch(/^\.\./)
+    },
+  )
+
+  it("passes a configured relative storage path unchanged to the storage adapter", async () => {
+    await expect(
+      createAuthenticationRuntime({ HUB_ARTIFACT_STORAGE_PATH: "relative/artifacts" }),
+    ).rejects.toThrow("HUB_ARTIFACT_STORAGE_PATH must be an absolute path.")
+
+    expect(createLocalArtifactStorage).toHaveBeenCalledWith("relative/artifacts")
   })
 })
