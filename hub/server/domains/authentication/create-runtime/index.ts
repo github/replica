@@ -1,4 +1,5 @@
 import path from "node:path"
+import os from "node:os"
 
 import { createAdmissionPolicy } from "#server/domains/authentication/create-admission-policy"
 import { createArtifactPublishingService } from "#server/domains/artifact-publishing/create-service"
@@ -94,7 +95,7 @@ export async function createAuthenticationRuntime(environment: NodeJS.ProcessEnv
     trustedProxyHops,
   }
   const artifactStoragePath = path.resolve(
-    environment.HUB_ARTIFACT_STORAGE_PATH ?? path.join(process.cwd(), ".data", "artifacts"),
+    environment.HUB_ARTIFACT_STORAGE_PATH ?? path.join(os.homedir(), ".replica", "artifacts"),
   )
   return {
     administration: createAdministrationService({ store }),

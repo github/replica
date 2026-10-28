@@ -14,36 +14,44 @@ import type { ArtifactPublishingService, PrototypeChannelName, PublisherAction }
 import type { Prisma, PrismaClient } from "../../../generated/prisma/client.ts"
 
 const boundedIdentifier = z.string().trim().min(1).max(255)
+function isSafeProvenanceUrl(value: string): boolean {
+  try {
+    const url = new URL(value)
+    return (
+      ["http:", "https:"].includes(url.protocol) &&
+      url.username.length === 0 &&
+      url.password.length === 0 &&
+      url.search.length === 0 &&
+      url.hash.length === 0
+    )
+  } catch {
+    return false
+  }
+}
+
 const manifestSchema = z
   .object({
     schemaVersion: z.literal(1),
     prototypeId: z.uuid(),
-    artifact: z.object({
-      format: z.string().regex(/^[a-z][a-z0-9._-]{0,63}$/),
-      version: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,31}$/),
-      digest: z.string().regex(/^sha256:[a-f0-9]{64}$/),
-      sizeBytes: z.number().int().min(0).max(maximumArtifactBytes),
-      builtAt: z.iso.datetime({ offset: true }),
-    }),
-    provenance: z.object({
-      provider: z.string().regex(/^[a-z][a-z0-9._-]{0,63}$/),
-      sourceUrl: z
-        .url()
-        .max(2_048)
-        .refine((value) => {
-          const url = new URL(value)
-          return (
-            ["http:", "https:"].includes(url.protocol) &&
-            url.username.length === 0 &&
-            url.password.length === 0
-          )
-        })
-        .optional(),
-      revision: boundedIdentifier.optional(),
-      ref: boundedIdentifier.optional(),
-      pipeline: boundedIdentifier.optional(),
-      runId: boundedIdentifier.optional(),
-    }),
+    artifact: z
+      .object({
+        format: z.string().regex(/^[a-z][a-z0-9._-]{0,63}$/),
+        version: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,31}$/),
+        digest: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+        sizeBytes: z.number().int().min(0).max(maximumArtifactBytes),
+        builtAt: z.iso.datetime({ offset: true }),
+      })
+      .strict(),
+    provenance: z
+      .object({
+        provider: z.string().regex(/^[a-z][a-z0-9._-]{0,63}$/),
+        sourceUrl: z.string().max(2_048).refine(isSafeProvenanceUrl).optional(),
+        revision: boundedIdentifier.optional(),
+        ref: boundedIdentifier.optional(),
+        pipeline: boundedIdentifier.optional(),
+        runId: boundedIdentifier.optional(),
+      })
+      .strict(),
   })
   .strict()
 const publishSchema = z
@@ -61,7 +69,8 @@ const idempotencyKeySchema = z
   .min(1)
   .max(200)
   .regex(/^[\x21-\x7e]+$/)
-const authorizationSchema = /^Bearer (rpl_pub_([0-9a-f-]{36})\.([A-Za-z0-9_-]{43}))$/
+const authorizationSchema =
+  /^Bearer (rpl_pub_([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\.([A-Za-z0-9_-]{43}))$/i
 
 function error(status: number, code: string, message: string): never {
   throw new AuthenticationError(status, code, message)
@@ -82,14 +91,14 @@ function parseIdempotencyKey(value: string): string {
 }
 
 function parseArtifactBase64(value: string): Uint8Array {
-  if (
-    value.length % 4 !== 0 ||
-    !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)
-  ) {
+  if (value.length % 4 !== 0) {
     error(422, "invalid_artifact", "The artifact encoding is invalid.")
   }
   const bytes = Buffer.from(value, "base64")
-  if (bytes.length > maximumArtifactBytes || bytes.toString("base64") !== value) {
+  if (bytes.toString("base64") !== value) {
+    error(422, "invalid_artifact", "The artifact encoding is invalid.")
+  }
+  if (bytes.length > maximumArtifactBytes) {
     error(413, "artifact_too_large", "The artifact exceeds the maximum size.")
   }
   return bytes

@@ -1,8 +1,10 @@
 import { createHash, randomUUID } from "node:crypto"
+import { readFile } from "node:fs/promises"
 
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { createArtifactPublishingService } from "#server/domains/artifact-publishing/create-service"
+import { maximumArtifactBytes } from "#server/domains/artifact-publishing/create-service/constants"
 import type { ArtifactManifest } from "#server/domains/artifact-publishing/create-service/types"
 import { createIdentityStore } from "#server/domains/identity/create-store"
 import { createPrototypeAuthorizationService } from "#server/domains/prototype-authorization/create-service"
@@ -12,7 +14,10 @@ import { digestSecret } from "#server/utils/digest-secret"
 import type { PrismaClient } from "../../../generated/prisma/client.ts"
 
 function artifact(content: string) {
-  const bytes = Buffer.from(content)
+  return artifactBytes(Buffer.from(content))
+}
+
+function artifactBytes(bytes: Buffer) {
   return {
     bytes,
     base64: bytes.toString("base64"),
@@ -47,13 +52,13 @@ function manifest(
   }
 }
 
-async function database() {
+async function database(storageOverride?: ArtifactStorage) {
   vi.stubGlobal("prisma", undefined)
   const { prisma } = await import("../../../integrations/prisma")
   onTestFinished(() => prisma.$disconnect())
 
   const stored = new Map<string, Uint8Array>()
-  const storage: ArtifactStorage = {
+  const storage: ArtifactStorage = storageOverride ?? {
     put(digest, bytes) {
       const key = digest.replace(":", "/")
       const created = !stored.has(key)
@@ -291,6 +296,26 @@ describe("createArtifactPublishingService() database behavior", () => {
       }),
     },
     {
+      name: "unknown artifact field",
+      change: (valid: ReturnType<typeof publicationInput>) => ({
+        ...valid,
+        manifest: {
+          ...valid.manifest,
+          artifact: { ...valid.manifest.artifact, unrecognized: true },
+        },
+      }),
+    },
+    {
+      name: "unknown provenance field",
+      change: (valid: ReturnType<typeof publicationInput>) => ({
+        ...valid,
+        manifest: {
+          ...valid.manifest,
+          provenance: { ...valid.manifest.provenance, unrecognized: true },
+        },
+      }),
+    },
+    {
       name: "unsupported schema version",
       change: (valid: ReturnType<typeof publicationInput>) => ({
         ...valid,
@@ -304,6 +329,16 @@ describe("createArtifactPublishingService() database behavior", () => {
         manifest: {
           ...valid.manifest,
           provenance: { ...valid.manifest.provenance, sourceUrl: "file:///private/build" },
+        },
+      }),
+    },
+    {
+      name: "malformed provenance URL",
+      change: (valid: ReturnType<typeof publicationInput>) => ({
+        ...valid,
+        manifest: {
+          ...valid.manifest,
+          provenance: { ...valid.manifest.provenance, sourceUrl: "https://[invalid" },
         },
       }),
     },
@@ -334,6 +369,32 @@ describe("createArtifactPublishingService() database behavior", () => {
       }),
     },
     {
+      name: "provenance URL query",
+      change: (valid: ReturnType<typeof publicationInput>) => ({
+        ...valid,
+        manifest: {
+          ...valid.manifest,
+          provenance: {
+            ...valid.manifest.provenance,
+            sourceUrl: "https://ci.example/runs/123?token=private",
+          },
+        },
+      }),
+    },
+    {
+      name: "provenance URL fragment",
+      change: (valid: ReturnType<typeof publicationInput>) => ({
+        ...valid,
+        manifest: {
+          ...valid.manifest,
+          provenance: {
+            ...valid.manifest.provenance,
+            sourceUrl: "https://ci.example/runs/123#private",
+          },
+        },
+      }),
+    },
+    {
       name: "different prototype identifier",
       change: (valid: ReturnType<typeof publicationInput>) => ({
         ...valid,
@@ -358,6 +419,50 @@ describe("createArtifactPublishingService() database behavior", () => {
       code: "invalid_artifact_manifest",
     })
     expect(await context.prisma.prototypeVersion.count()).toBe(0)
+  })
+
+  it("publishes a valid artifact at the decoded size limit", async () => {
+    const context = await database()
+    const { prototype } = await createPrototype(context.prisma)
+    const credential = await createCredential(context.prisma, prototype.id)
+    const publishedArtifact = artifactBytes(Buffer.alloc(maximumArtifactBytes, 0x61))
+
+    await expect(
+      context.service.publish(
+        credential.authorization,
+        prototype.id,
+        "maximum-artifact",
+        publicationInput(prototype.id, publishedArtifact),
+      ),
+    ).resolves.toMatchObject({ replayed: false })
+  })
+
+  it("rejects noncanonical base64 as an invalid artifact instead of an oversized artifact", async () => {
+    const context = await database()
+    const { prototype } = await createPrototype(context.prisma)
+    const credential = await createCredential(context.prisma, prototype.id)
+    const input = publicationInput(prototype.id, artifact("base64"))
+    input.artifactBase64 = "AB=="
+
+    await expect(
+      context.service.publish(credential.authorization, prototype.id, "invalid-base64", input),
+    ).rejects.toMatchObject({ status: 422, code: "invalid_artifact" })
+  })
+
+  it("rejects malformed workload credential identifiers before querying the database", async () => {
+    const context = await database()
+    const { prototype } = await createPrototype(context.prisma)
+    const findCredential = vi.spyOn(context.prisma.workloadCredential, "findUnique")
+
+    await expect(
+      context.service.publish(
+        `Bearer rpl_pub_00000000-0000-0000-0000-00000000000-.${"t".repeat(43)}`,
+        prototype.id,
+        "malformed-credential",
+        publicationInput(prototype.id, artifact("malformed-credential")),
+      ),
+    ).rejects.toMatchObject({ status: 401, code: "publisher_authentication_required" })
+    expect(findCredential).not.toHaveBeenCalled()
   })
 
   it("rejects an artifact whose decoded size differs from the manifest", async () => {
@@ -772,18 +877,19 @@ describe("createArtifactPublishingService() database behavior", () => {
 
     expect(results.map(({ replayed }) => replayed)).toEqual([false, false])
     expect(versions.map(({ sequence }) => sequence)).toEqual([1, 2])
-    await context.prisma.$executeRawUnsafe(`
-      CREATE FUNCTION reject_test_prototype_version_mutation() RETURNS trigger AS $$
-      BEGIN
-        RAISE EXCEPTION 'prototype versions are immutable';
-      END;
-      $$ LANGUAGE plpgsql;
-    `)
-    await context.prisma.$executeRawUnsafe(`
-      CREATE TRIGGER test_prototype_versions_immutable
-      BEFORE UPDATE OR DELETE ON prototype_versions
-      FOR EACH ROW EXECUTE FUNCTION reject_test_prototype_version_mutation();
-    `)
+    const migration = await readFile(
+      new URL(
+        "../../../../schema/migrations/20261027230000_artifact_ingestion/migration.sql",
+        import.meta.url,
+      ),
+      "utf8",
+    )
+    const immutableVersionStart = migration.indexOf(
+      "CREATE FUNCTION reject_prototype_version_mutation()",
+    )
+    expect(immutableVersionStart).toBeGreaterThanOrEqual(0)
+    const immutableVersionSql = migration.slice(immutableVersionStart)
+    await context.prisma.$executeRawUnsafe(immutableVersionSql)
     try {
       await expect(
         context.prisma.prototypeVersion.update({
@@ -796,12 +902,56 @@ describe("createArtifactPublishingService() database behavior", () => {
       ).rejects.toThrow(/prototype versions are immutable/i)
     } finally {
       await context.prisma.$executeRawUnsafe(
-        "DROP TRIGGER test_prototype_versions_immutable ON prototype_versions",
+        "DROP TRIGGER prototype_versions_immutable ON prototype_versions",
       )
-      await context.prisma.$executeRawUnsafe(
-        "DROP FUNCTION reject_test_prototype_version_mutation()",
-      )
+      await context.prisma.$executeRawUnsafe("DROP FUNCTION reject_prototype_version_mutation()")
     }
+  })
+
+  it("rejects an already-started publication when archive acquires the prototype lock first", async () => {
+    const putStarted = deferred()
+    const releasePut = deferred()
+    const storage: ArtifactStorage = {
+      async put(digest) {
+        putStarted.resolve()
+        await releasePut.promise
+        return { key: digest.replace(":", "/"), created: true }
+      },
+      read: vi.fn(),
+      remove: vi.fn(),
+    }
+    const context = await database(storage)
+    const sessionToken = "archive-race-session"
+    const { authorization, prototype, workloadAuthorization } = await provisionPublisher(
+      context.prisma,
+      sessionToken,
+    )
+    const publication = context.service.publish(
+      workloadAuthorization,
+      prototype.id,
+      "archive-race",
+      publicationInput(prototype.id, artifact("archive-race")),
+    )
+    await putStarted.promise
+
+    await authorization.archivePrototype(sessionToken, prototype.id)
+    releasePut.resolve()
+
+    await expect(publication).rejects.toMatchObject({
+      status: 409,
+      code: "prototype_archived",
+    })
+    expect(
+      await context.prisma.prototypeVersion.count({ where: { prototypeId: prototype.id } }),
+    ).toBe(0)
+    expect(
+      await context.prisma.artifactPublication.count({ where: { prototypeId: prototype.id } }),
+    ).toBe(0)
+    expect(
+      await context.prisma.securityAudit.count({
+        where: { prototypeId: prototype.id, event: "prototype.version.publish" },
+      }),
+    ).toBe(0)
   })
 
   it("promotes and rolls back a channel by moving one atomic pointer", async () => {
