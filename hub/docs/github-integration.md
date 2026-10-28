@@ -4,7 +4,7 @@ GitHub-synchronized authorization uses repository permissions as an opt-in basel
 
 ## Source identity and credentials
 
-A linked source stores GitHub's immutable repository ID, the configured App and installation IDs, the current owner, name, default branch, active or removed state, admission switch, synchronization status, and timestamps. Rename changes mutable fields without replacing the source. Prototype source provenance is separate from build, artifact, manifest, and ingestion records.
+A linked source stores GitHub's immutable repository ID, the configured App and installation IDs, the current owner, name, default branch, active or removed state, admission switch, synchronization status, and timestamps. Admission resolves the current owner and name from that immutable ID before checking a user permission, so a renamed repository cannot be confused with a replacement at its old name. Rename changes mutable fields without replacing the source. Prototype source provenance is separate from build, artifact, manifest, and ingestion records.
 
 All permission checks use an installation token created from the configured GitHub source-integration credentials. GitHub user authorization proves identity only. Hub does not retain or reuse the user's transient token for synchronization.
 
@@ -25,19 +25,19 @@ Each prototype separately selects `hub-managed` or `github-synchronized`. The sy
 | `read` | Member | `viewer` |
 | `none` or missing | Denied | None |
 
-GitHub does not map to Hub installation administrator or prototype administrator. Explicit Hub deny wins first, followed by explicit prototype and workspace roles, then the synchronized baseline.
+GitHub does not map to Hub installation administrator or prototype administrator. GitHub's built-in `role_name` takes precedence over its legacy base `permission` field, so `role_name: triage` maps to commenter even when the base permission is `read`; unknown custom roles fall back to the base permission. Explicit Hub deny wins first, followed by explicit prototype and workspace roles, then the synchronized baseline.
 
 ## Reconciliation and webhooks
 
 `POST /api/administration/github/repositories/:repositorySourceId/reconcile` confirms repository metadata and every known GitHub identity's current collaborator permission. The API process also reconciles active sources every 15 minutes. Reconciliation repairs missed webhooks and permission changes for collaborators or teams because GitHub does not emit a complete permission-change stream.
 
-Each reconciliation claims a monotonically increasing source generation while holding the repository row lock. After GitHub replies, Hub locks and re-reads the source and applies results only when it is still active and the claimed generation is still current. Unlinking, removal webhooks, relinking, dirty webhooks, and newer reconciliation attempts invalidate older in-flight results, so stale replies cannot reactivate a source or replace newer permissions.
+Each reconciliation claims a monotonically increasing source generation while holding the repository row lock. Admission confirmations carry that same generation and cannot overwrite a newer reconciliation result. After GitHub replies, Hub locks and re-reads the source and applies results only when it is still active and the claimed generation is still current. Unlinking, removal webhooks, relinking, dirty webhooks, and newer reconciliation attempts invalidate older in-flight results, so stale replies cannot reactivate a source or replace newer permissions.
 
-`POST /api/github/webhooks` accepts only HMAC-SHA256 verified GitHub App payloads for the configured installation. Relevant installation, installation-repository, repository, member, membership, and team-add events mark affected sources dirty. Repository or installation removal marks synchronized records removed. Delivery IDs are unique, so replayed payloads are harmless. Webhooks do not grant access by themselves; reconciliation confirms it.
+`POST /api/github/webhooks` accepts only HMAC-SHA256 verified GitHub App payloads for the configured installation. Relevant installation, installation-repository, repository, member, membership, and team-add events mark affected sources dirty. Repository deletion or installation removal marks synchronized records removed immediately. Delivery IDs are unique, so replayed payloads are harmless. Webhooks do not grant access by themselves; reconciliation confirms it.
 
 ## Staleness and outages
 
-A successful confirmation records `lastConfirmedAt`. Failed provider calls record a bounded failure status and leave that time unchanged. Hub permits a last-known-good baseline for one day, then fails closed. Admission evaluates live and cached results per repository: a fresh denial for one source suppresses that source's old cache, while an outage may use only the still-fresh cache for the same source. Reconciliation also removes synchronized memberships and sessions when no fresh admission-eligible source remains.
+A successful confirmation records `lastConfirmedAt`. Credential and configuration failures record an explicit failed status without refreshing that time. Hub permits a last-known-good baseline for one day, then fails closed. Admission evaluates live and cached results per repository: a fresh denial or repository 404 suppresses that source's old cache, while an outage may use only the still-fresh cache for the same source. Reconciliation bounds concurrent GitHub permission requests, treats an immutable-identity mismatch as denial for only that identity, and serializes membership removal with sign-in and administrator changes.
 
 Manual Hub grants, denies, membership assignments, and suspensions are separate rows. Synchronization never deletes or rewrites them. Repository unlink, installation removal, and permission loss affect synchronized rows only.
 

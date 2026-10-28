@@ -65,6 +65,78 @@ async function createSession(
 }
 
 describe("createAuthenticationService() database behavior", () => {
+  it.each(["suspended", "removed"] as const)(
+    "does not reactivate a manually %s membership when synchronized admission succeeds",
+    async (status) => {
+      const { prisma, store } = await database()
+      const graph = await createAdministrator(store)
+      const now = new Date()
+      await store.lock(async (records) => {
+        await records.saveMembership({
+          userId: graph.user.id,
+          status,
+          role: "member",
+          source: "manual",
+          suspendedAt: status === "suspended" ? now : null,
+          removedAt: status === "removed" ? now : null,
+        })
+        await records.createAuthorizationAttempt({
+          authenticationProviderRevisionId: graph.provider.id,
+          originatingSessionId: null,
+          stateDigest: digestSecret("state"),
+          browserDigest: digestSecret("browser-token"),
+          pkceVerifier: "pkce-verifier",
+          nonce: null,
+          purpose: "sign-in",
+          expiresAt: new Date(now.getTime() + 60_000),
+        })
+      })
+      const saveBaseline = vi.fn()
+      const service = createAuthenticationService({
+        store,
+        github: {
+          authorizationUrl: vi.fn(),
+          identify: vi.fn().mockResolvedValue({
+            subject: graph.identity.subject,
+            username: "octocat",
+            displayName: "Synthetic administrator",
+            avatarUrl: null,
+          }),
+        },
+        configuration: {
+          clientId: "github-client",
+          clientSecret: "github-client-secret-fixture",
+          callbackUrl: "https://hub.example/api/auth/github/callback",
+          issuer: "https://github.com",
+        },
+        providerRevisionId: graph.provider.id,
+        admissionPolicy: {
+          name: "github-synchronized",
+          admit: vi.fn().mockResolvedValue({
+            repositorySourceId: "00000000-0000-0000-0000-000000000001",
+            sourceGeneration: 3,
+            rawPermission: "read",
+            admissionEligible: true,
+            prototypeRole: "viewer",
+            confirmedAt: now,
+          }),
+          saveBaseline,
+        },
+        now: () => now,
+      })
+
+      await expect(service.complete("code", "state", "browser-token")).rejects.toMatchObject({
+        status: 403,
+        code: "admission_denied",
+      })
+      expect(
+        await prisma.installationMembership.findUnique({ where: { userId: graph.user.id } }),
+      ).toMatchObject({ source: "manual", status })
+      expect(await prisma.session.count({ where: { userId: graph.user.id } })).toBe(0)
+      expect(saveBaseline).not.toHaveBeenCalled()
+    },
+  )
+
   it("rolls back generation, session deletion, and audit together when revocation fails", async () => {
     const { store } = await database()
     const graph = await createAdministrator(store)

@@ -15,6 +15,7 @@ export const installedRepositoriesSchema = z.object({
 export const collaboratorPermissionSchema = z.object({
   user: z.object({ id: z.number().int().positive() }),
   permission: z.enum(["admin", "maintain", "write", "triage", "read", "none"]),
+  role_name: z.string().min(1).max(255).nullable().optional(),
 })
 
 export const repositorySchema = z.object({

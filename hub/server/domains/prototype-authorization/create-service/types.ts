@@ -1,4 +1,5 @@
 import type { AccessDecision, AccessInput, PrototypeRole } from "../evaluate-access/types.ts"
+import type { Prisma, PrismaClient } from "../../../generated/prisma/client.ts"
 
 export interface Page<T> {
   items: T[]
@@ -52,5 +53,13 @@ export interface GrantInput {
 }
 
 export interface PrototypeBaselinePolicy {
-  baseline(userId: string, prototypeId: string): Promise<AccessInput["baseline"]>
+  baseline(
+    database: Prisma.TransactionClient | PrismaClient,
+    userId: string,
+    prototypeId: string,
+  ): Promise<AccessInput["baseline"]>
+  workspaceIds?(
+    database: Prisma.TransactionClient | PrismaClient,
+    userId: string,
+  ): Promise<string[]>
 }
