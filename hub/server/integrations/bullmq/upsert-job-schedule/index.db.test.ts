@@ -1,21 +1,14 @@
-import pino from "pino"
-import { describe, expect, it, onTestFinished } from "vitest"
+import { describe, expect, it } from "vitest"
 import { z } from "zod"
 
-import { createJobQueue } from "../create-job-queue"
+import { openQueue } from "../../../../test/jobs/open-queue"
 import type { JobDefinition, JobScheduleRepeat } from "../types"
 import { upsertJobSchedule } from "."
 
 describe("upsertJobSchedule()", () => {
   it("rejects the on-demand queue and malformed schedules without storing jobs", async () => {
-    const databaseUrl = process.env.DATABASE_URL
-    if (!databaseUrl) throw new Error("The database test harness must provide DATABASE_URL.")
-    const logger = pino({ level: "silent" })
-    const scheduled = createJobQueue({ name: "scheduled", databaseUrl, logger })
-    const onDemand = createJobQueue({ name: "on-demand", databaseUrl, logger })
-    onTestFinished(async () => {
-      await Promise.all([scheduled.close(), onDemand.close()])
-    })
+    const scheduled = openQueue("scheduled")
+    const onDemand = openQueue("on-demand")
     const definition: JobDefinition<unknown> = {
       name: "validated-schedule",
       schema: z.object({ count: z.number().int().positive() }),

@@ -2,28 +2,13 @@ import pino from "pino"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 import { z } from "zod"
 
+import { getDatabaseUrl } from "../../../../test/database/get-database-url"
+import { openQueue } from "../../../../test/jobs/open-queue"
 import { createJobProcessor } from "../create-job-processor"
-import { createJobQueue } from "../create-job-queue"
 import { enqueueJob } from "../enqueue-job"
 import type { JobDefinition, JobProcessor, JobQueueName } from "../types"
 import { upsertJobSchedule } from "../upsert-job-schedule"
 import { createJobWorker } from "."
-
-function getDatabaseUrl() {
-  const url = process.env.DATABASE_URL
-  if (!url) throw new Error("The database test harness must provide DATABASE_URL.")
-  return url
-}
-
-function openQueue(name: JobQueueName, databaseUrl = getDatabaseUrl()) {
-  const queue = createJobQueue({
-    name,
-    databaseUrl,
-    logger: pino({ level: "silent" }),
-  })
-  onTestFinished(() => queue.close())
-  return queue
-}
 
 async function openWorker(
   name: JobQueueName,

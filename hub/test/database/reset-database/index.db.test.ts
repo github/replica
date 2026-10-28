@@ -9,12 +9,12 @@ import { createJobWorker } from "../../../server/integrations/bullmq/create-job-
 import { enqueueJob } from "../../../server/integrations/bullmq/enqueue-job"
 import { migrateJobDatabase } from "../../../server/integrations/bullmq/migrate-job-database"
 import { upsertJobSchedule } from "../../../server/integrations/bullmq/upsert-job-schedule"
+import { getDatabaseUrl } from "../get-database-url"
 import { resetDatabase } from "."
 
 describe("resetDatabase() with job storage", () => {
   it("preserves migration ledgers across repeated resets while clearing jobs, schedules, and application rows", async () => {
-    const databaseUrl = process.env.DATABASE_URL
-    if (!databaseUrl) throw new Error("The database test harness must provide DATABASE_URL.")
+    const databaseUrl = getDatabaseUrl()
     const client = new pg.Client({ connectionString: databaseUrl })
     await client.connect()
     let createdLedger = false

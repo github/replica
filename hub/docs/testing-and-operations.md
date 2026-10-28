@@ -70,6 +70,8 @@ Hub CI runs database tests against PostgreSQL on every supported Node major. Onl
 
 Job tests use each worker's resolved `DATABASE_URL`, never `TEST_DATABASE_URL`. Close their consumers, queues, and owned connections before the next case's reset; clearing the module cache does not stop running jobs. See [Background jobs](background-jobs.md#tests) for job-specific lifecycle rules.
 
+Use `test/database/get-database-url` to read the worker URL and `test/jobs/open-queue` for a queue that closes at test completion. Tests that reset data mid-case must create and close their queues explicitly before resetting.
+
 ## Shared code
 
 The extension and build action still use Hub's Controls and canvas code. Keep their checks working:
