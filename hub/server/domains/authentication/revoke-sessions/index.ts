@@ -1,8 +1,7 @@
 import type { AuthenticationDependencies } from "#server/domains/authentication/create-service/types"
+import { administratorFreshAuthorizationLifetimeMilliseconds } from "#server/domains/authentication/fresh-authorization/constants"
 import { getCurrentSession } from "#server/domains/authentication/get-current-session"
 import { AuthenticationError } from "#server/utils/authentication-error"
-
-const freshAuthorizationMilliseconds = 10 * 60_000
 
 export async function revokeSessions(
   dependencies: AuthenticationDependencies,
@@ -14,9 +13,13 @@ export async function revokeSessions(
     if (current.membership?.status !== "active" || current.membership.role !== "administrator") {
       throw new AuthenticationError(403, "administrator_required", "Administrator access required.")
     }
+    const freshAuthorizationAge = current.freshAuthorizedAt
+      ? now().getTime() - current.freshAuthorizedAt.getTime()
+      : null
     if (
-      !current.freshAuthorizedAt ||
-      now().getTime() - current.freshAuthorizedAt.getTime() > freshAuthorizationMilliseconds
+      freshAuthorizationAge === null ||
+      freshAuthorizationAge < 0 ||
+      freshAuthorizationAge >= administratorFreshAuthorizationLifetimeMilliseconds
     ) {
       throw new AuthenticationError(
         403,
