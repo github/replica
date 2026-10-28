@@ -1,9 +1,11 @@
 import { createAuthenticationProviderRevision } from "#server/repositories/authentication-providers/create-provider-revision"
 import { getCurrentAuthenticationProviderRevision } from "#server/repositories/authentication-providers/get-current-revision"
+import { getLatestAuthenticationProviderRevision } from "#server/repositories/authentication-providers/get-latest-revision"
 import { getAuthenticationProviderRevision } from "#server/repositories/authentication-providers/get-revision"
 import { consumeAuthorizationAttempt } from "#server/repositories/authorization-attempts/consume-attempt"
 import { createAuthorizationAttempt } from "#server/repositories/authorization-attempts/create-attempt"
 import { getExternalIdentity } from "#server/repositories/external-identities/get-external-identity"
+import { getExternalIdentityByDirectoryObjectId } from "#server/repositories/external-identities/get-external-identity-by-directory-object-id"
 import { saveExternalIdentity } from "#server/repositories/external-identities/save-external-identity"
 import { advanceGitHubIntegrationGeneration } from "#server/repositories/github-integration-state/advance-generation"
 import { getGitHubIntegrationState } from "#server/repositories/github-integration-state/get-state"
@@ -54,6 +56,10 @@ export function createIdentityRecords(database: Prisma.TransactionClient): Ident
     createUser: createUser.bind(null, database),
     updateUser: updateUser.bind(null, database),
     externalIdentity: getExternalIdentity.bind(null, database),
+    externalIdentityByDirectoryObjectId: getExternalIdentityByDirectoryObjectId.bind(
+      null,
+      database,
+    ),
     saveExternalIdentity: saveExternalIdentity.bind(null, database),
     membership: getInstallationMembership.bind(null, database),
     membershipById: getInstallationMembershipById.bind(null, database),
@@ -69,6 +75,10 @@ export function createIdentityRecords(database: Prisma.TransactionClient): Ident
     revokeExpiredInvitations: revokeExpiredMembershipInvitations.bind(null, database),
     createAuthenticationProviderRevision: createAuthenticationProviderRevision.bind(null, database),
     currentAuthenticationProviderRevision: getCurrentAuthenticationProviderRevision.bind(
+      null,
+      database,
+    ),
+    latestAuthenticationProviderRevision: getLatestAuthenticationProviderRevision.bind(
       null,
       database,
     ),

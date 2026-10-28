@@ -23,7 +23,7 @@ import { createAuthenticationRuntime } from "#server/domains/authentication/crea
 
 describe("createAuthenticationRuntime()", () => {
   it("keeps default artifact storage outside the checkout", async () => {
-    await createAuthenticationRuntime({})
+    await createAuthenticationRuntime({ HUB_AUTH_PROVIDER: "github" })
 
     expect(createLocalArtifactStorage).toHaveBeenCalledWith(
       path.join(os.homedir(), ".replica", "artifacts"),

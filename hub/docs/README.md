@@ -9,6 +9,7 @@ Hub is being rebuilt. The [Hub overview](../README.md) describes what the baseli
 - [Database](database.md): Prisma schema conventions, migrations, and the shared client.
 - [Identity](identity.md): GitHub user authentication, provider-neutral sessions, admission policy, and source-integration credentials.
 - [GitHub integration](github-integration.md): linked repository sources, reconciliation, webhooks, staleness, and permission mapping.
+- [Microsoft Entra OIDC](entra-oidc.md): one-time enterprise-app setup and production OIDC configuration.
 - [Membership and administration](membership-and-administration.md): Hub admission, invitations, roles, lifecycle, bootstrap, and recovery.
 - [Prototype authorization](prototype-authorization.md): workspaces, prototypes, immutable versions, Hub overrides, synchronized baselines, and policy precedence.
 - [Artifact ingestion](artifact-ingestion.md): workload publishers, the versioned manifest, storage, immutable publishing, idempotency, and promotion.

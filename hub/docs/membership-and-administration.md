@@ -2,6 +2,8 @@
 
 Hub owns installation admission after an authentication provider proves an identity. Repository access affects installation membership only through the explicit GitHub-synchronized policy; Hub remains the final evaluator.
 
+For OIDC, a configured member or administrator app role is required before Hub evaluates membership. Under `jit-assignment`, a first successful sign-in may create an `oidc-assignment` membership from that assignment. Under `invitation-required`, an Entra administrator creates the invitation with the tenant issuer and the user's directory Object ID (`oid`) from the Entra admin center or approved Graph tooling. Hub matches that signed tenant-scoped claim while retaining the application-specific OIDC `sub` as the external identity. Suspended membership remains suspended. Removed membership requires a new invitation and is never silently reactivated from a provider claim.
+
 ## Membership contract
 
 Each Hub user has at most one installation membership.
@@ -21,13 +23,13 @@ Suspension and removal also check Hub-managed product administration in the same
 
 ## Invitations
 
-An invitation targets an external identity assignment:
+An invitation targets an external provider assignment:
 
 ```text
-provider + issuer + immutable subject -> ExternalIdentity -> User -> InstallationMembership
+provider + issuer + immutable assignment identifier -> ExternalIdentity -> User -> InstallationMembership
 ```
 
-An administrator may invite a member or administrator. Hub never matches mutable login, display-name, or email fields. The invitation expires after seven days, can be revoked before activation, and can be consumed once. A matching authentication callback activates the membership and creates the session in one serialized operation.
+An administrator may invite a member or administrator. GitHub invitations use the immutable account subject. Entra invitations use the tenant directory Object ID (`oid`) so the value is available before the application-specific OIDC `sub` is first observed. Hub never matches mutable login, display-name, or email fields. The invitation expires after seven days, can be revoked before activation, and can be consumed once. A matching authentication callback activates the membership and creates the session in one serialized operation.
 
 Hub rejects invitations for active or suspended assignments. A removed assignment may receive a new invitation.
 
@@ -64,4 +66,4 @@ Membership operations write a structured security record with a bounded action, 
 
 ## Non-goals
 
-This boundary does not grant direct prototype, workspace, or artifact roles. The separate [prototype authorization](prototype-authorization.md) boundary defines product access and can consume a repository baseline below Hub overrides. Membership synchronization does not browse source, implement production OIDC, link accounts across providers, provision users through SCIM, or ingest artifacts.
+This boundary does not grant direct prototype, workspace, or artifact roles. The separate [prototype authorization](prototype-authorization.md) boundary defines product access and can consume a synchronized repository baseline below Hub overrides. Entra assignment controls Hub installation admission, not prototype authorization. Hub does not link accounts across providers, provision or deprovision users through SCIM, synchronize Graph groups after setup, or grant artifact publishing authority from a user-provider claim.

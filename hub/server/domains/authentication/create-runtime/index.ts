@@ -6,13 +6,18 @@ import { createArtifactPublishingService } from "#server/domains/artifact-publis
 import { createAdministrationService } from "#server/domains/administration/create-service"
 import { createAuthenticationService } from "#server/domains/authentication/create-service"
 import type { AuthenticationSettings } from "#server/domains/authentication/create-service/types"
+import { ensureProviderAdmissionPolicy } from "#server/domains/authentication/ensure-provider-admission-policy"
 import { ensureGitHubProviderRevision } from "#server/domains/authentication/ensure-provider-revision"
+import { ensureOidcProviderRevision } from "#server/domains/authentication/ensure-oidc-provider-revision"
+import { readAuthenticationProvider } from "#server/domains/authentication/read-authentication-provider"
+import { readOidcConfiguration } from "#server/domains/authentication/read-oidc-configuration"
 import { createIdentityStore } from "#server/domains/identity/create-store"
 import { createPrototypeAuthorizationService } from "#server/domains/prototype-authorization/create-service"
 import { createGitHubAuthorizationService } from "#server/domains/github-authorization/create-service"
 import { createGitHubUserAuthClient } from "#server/integrations/github/create-user-auth-client"
 import { createLocalArtifactStorage } from "#server/integrations/artifact-storage/create-local-storage"
 import type { GitHubUserAuthConfiguration } from "#server/integrations/github/create-user-auth-client/types"
+import { createOidcClient } from "#server/integrations/oidc/create-client"
 import { readTrustedProxyHops } from "#server/integrations/express/read-trusted-proxy-hops"
 import { prisma } from "#server/integrations/prisma"
 
@@ -70,7 +75,9 @@ function readHostSecret(environment: NodeJS.ProcessEnv, key: string): string | n
 
 export async function createAuthenticationRuntime(environment: NodeJS.ProcessEnv) {
   const origin = readOrigin(environment)
-  const configuration = readGitHubAuthentication(environment, origin)
+  const provider = readAuthenticationProvider(environment)
+  const configuration = provider === "github" ? readGitHubAuthentication(environment, origin) : null
+  const oidcConfiguration = provider === "oidc" ? readOidcConfiguration(environment, origin) : null
   const store = createIdentityStore(prisma)
   const githubAuthorization = createGitHubAuthorizationService({
     database: prisma,
@@ -80,6 +87,10 @@ export async function createAuthenticationRuntime(environment: NodeJS.ProcessEnv
   const providerRevision = configuration
     ? await ensureGitHubProviderRevision(store, configuration)
     : null
+  const oidcProviderRevision = oidcConfiguration
+    ? await ensureOidcProviderRevision(store, oidcConfiguration)
+    : null
+  ensureProviderAdmissionPolicy(provider, environment)
   const admissionPolicy = createAdmissionPolicy(environment, store, githubAuthorization)
   const bootstrapSecret = readHostSecret(environment, "HUB_BOOTSTRAP_SECRET")
   const recoverySecret = readHostSecret(environment, "HUB_ADMIN_RECOVERY_SECRET")
@@ -89,7 +100,9 @@ export async function createAuthenticationRuntime(environment: NodeJS.ProcessEnv
   const settings: AuthenticationSettings = {
     origin: origin.origin,
     secureCookies: origin.protocol === "https:",
-    configured: configuration !== null,
+    configured: provider === "oidc" ? oidcConfiguration?.enabled === true : configuration !== null,
+    provider: provider === "oidc" ? "oidc" : configuration ? "github" : null,
+    providerLabel: provider === "oidc" ? "Microsoft Entra ID" : configuration ? "GitHub" : null,
     admissionPolicy: admissionPolicy.name,
     trustedProxyHops: readTrustedProxyHops(environment),
   }
@@ -118,6 +131,10 @@ export async function createAuthenticationRuntime(environment: NodeJS.ProcessEnv
       github: configuration ? createGitHubUserAuthClient(configuration) : null,
       configuration,
       providerRevisionId: providerRevision?.id ?? null,
+      oidc: oidcConfiguration ? createOidcClient(oidcConfiguration) : null,
+      oidcConfiguration,
+      oidcProviderRevisionId: oidcProviderRevision?.id ?? null,
+      provider,
       admissionPolicy,
       bootstrapSecret,
       recoverySecret,

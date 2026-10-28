@@ -56,6 +56,11 @@ export interface IdentityRecords {
     issuer: string,
     subject: string,
   ): Promise<(HubExternalIdentity & { user: HubUser }) | null>
+  externalIdentityByDirectoryObjectId(
+    provider: string,
+    issuer: string,
+    directoryObjectId: string,
+  ): Promise<(HubExternalIdentity & { user: HubUser }) | null>
   saveExternalIdentity(
     input: ExternalIdentityInput,
   ): Promise<HubExternalIdentity & { user: HubUser }>
@@ -85,6 +90,9 @@ export interface IdentityRecords {
     input: AuthenticationProviderInput,
   ): Promise<AuthenticationProviderRevisionRecord>
   currentAuthenticationProviderRevision(
+    key: string,
+  ): Promise<AuthenticationProviderRevisionRecord | null>
+  latestAuthenticationProviderRevision(
     key: string,
   ): Promise<AuthenticationProviderRevisionRecord | null>
   authenticationProviderRevision(id: string): Promise<AuthenticationProviderRevisionRecord | null>

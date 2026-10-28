@@ -11,7 +11,9 @@ export function saveExternalIdentity(
     where: { provider_issuer_subject: { provider, issuer, subject } },
     create: identity,
     update: {
+      directoryObjectId: identity.directoryObjectId ?? null,
       username: identity.username,
+      email: identity.email ?? null,
       displayName: identity.displayName,
       avatarUrl: identity.avatarUrl,
     },

@@ -172,6 +172,71 @@ describe("createIdentityStore()", () => {
     expect(await store.read.user(firstUser.id)).not.toHaveProperty("administrator")
   })
 
+  it("persists directory object IDs as issuer-scoped unique assignment identifiers", async () => {
+    const { store } = await database()
+    const firstUser = await store.lock((records) =>
+      records.createUser({ displayName: "First user", avatarUrl: null }),
+    )
+    const secondUser = await store.lock((records) =>
+      records.createUser({ displayName: "Second user", avatarUrl: null }),
+    )
+    const directoryObjectId = "a0e1d2c3-b4a5-4678-9abc-def012345678"
+    const firstIdentity = await store.lock((records) =>
+      records.saveExternalIdentity({
+        userId: firstUser.id,
+        provider: "oidc",
+        issuer: "https://login.example.test/tenant",
+        subject: "first-subject",
+        directoryObjectId,
+        username: "first@example.test",
+        displayName: "First user",
+        avatarUrl: null,
+      }),
+    )
+
+    expect(firstIdentity.directoryObjectId).toBe(directoryObjectId)
+    await expect(
+      store.lock((records) =>
+        records.saveExternalIdentity({
+          userId: secondUser.id,
+          provider: "oidc",
+          issuer: "https://login.example.test/tenant",
+          subject: "second-subject",
+          directoryObjectId,
+          username: "second@example.test",
+          displayName: "Second user",
+          avatarUrl: null,
+        }),
+      ),
+    ).rejects.toThrow()
+    await expect(
+      store.read.externalIdentityByDirectoryObjectId(
+        "oidc",
+        "https://login.example.test/tenant",
+        directoryObjectId,
+      ),
+    ).resolves.toMatchObject({
+      id: firstIdentity.id,
+      subject: "first-subject",
+      directoryObjectId,
+    })
+
+    await expect(
+      store.lock((records) =>
+        records.saveExternalIdentity({
+          userId: secondUser.id,
+          provider: "oidc",
+          issuer: "https://login.example.test/other-tenant",
+          subject: "second-subject",
+          directoryObjectId,
+          username: "second@example.test",
+          displayName: "Second user",
+          avatarUrl: null,
+        }),
+      ),
+    ).resolves.toMatchObject({ userId: secondUser.id, directoryObjectId })
+  })
+
   it("persists installation status, role, and source independently from the user", async () => {
     const { store } = await database()
     const user = await store.lock((records) =>
