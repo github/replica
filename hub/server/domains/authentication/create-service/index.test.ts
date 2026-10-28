@@ -5,6 +5,7 @@ import { createAuthenticationService } from "#server/domains/authentication/crea
 import type { AuthenticationDependencies } from "#server/domains/authentication/create-service/types"
 import type { IdentityRecords, IdentityStore } from "#server/domains/identity/create-store/types"
 import type { GitHubUserAuthClient } from "#server/integrations/github/create-user-auth-client/types"
+import { AuthenticationError } from "#server/utils/authentication-error"
 import { digestSecret } from "#server/utils/digest-secret"
 
 const now = new Date("2026-10-27T18:00:00.000Z")
@@ -353,7 +354,7 @@ describe("createAuthenticationService()", () => {
     expect(saveBaseline).toHaveBeenCalledWith(expect.anything(), "user", expect.any(Object))
   })
 
-  it("uses an invitation before a qualifying synchronized baseline for a new identity", async () => {
+  it("uses an invitation for a new identity when synchronized admission is unavailable", async () => {
     const invitation = {
       id: "invitation",
       createdByUserId: "administrator",
@@ -398,14 +399,15 @@ describe("createAuthenticationService()", () => {
     const options = dependencies(identityRecords, {
       admissionPolicy: {
         name: "github-synchronized",
-        admit: vi.fn().mockResolvedValue({
-          repositorySourceId: "00000000-0000-0000-0000-000000000001",
-          sourceGeneration: 3,
-          rawPermission: "read",
-          admissionEligible: true,
-          prototypeRole: "viewer",
-          confirmedAt: now,
-        }),
+        admit: vi
+          .fn()
+          .mockRejectedValue(
+            new AuthenticationError(
+              503,
+              "source_integration_unavailable",
+              "GitHub source integration is unavailable.",
+            ),
+          ),
         saveBaseline,
       },
     })
@@ -433,7 +435,7 @@ describe("createAuthenticationService()", () => {
       "membership",
       now,
     )
-    expect(saveBaseline).toHaveBeenCalledWith(expect.anything(), "user", expect.any(Object))
+    expect(saveBaseline).not.toHaveBeenCalled()
   })
 
   it("admits an active Hub member without consulting legacy repository policy", async () => {

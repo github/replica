@@ -393,6 +393,7 @@ async function readAccessibleWorkspacePage({
   while (items.length <= limit) {
     const candidates = await database.workspace.findMany({
       where: {
+        ...(scanCursor ? { id: { gt: scanCursor } } : {}),
         OR: [
           { grants: { some: { userId } } },
           { prototypes: { some: { grants: { some: { userId } } } } },
@@ -401,7 +402,6 @@ async function readAccessibleWorkspacePage({
       },
       include: { grants: { where: { userId } } },
       orderBy: { id: "asc" },
-      ...(scanCursor ? { cursor: { id: scanCursor }, skip: 1 } : {}),
       take: 100,
     })
     if (candidates.length === 0) break

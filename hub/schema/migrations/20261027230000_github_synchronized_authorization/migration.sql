@@ -54,7 +54,9 @@ CREATE TABLE "github_repository_sources" (
     "updated_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "github_repository_sources_pkey" PRIMARY KEY ("id"),
-    CONSTRAINT "github_repository_sources_status" CHECK ("status" IN ('active', 'removed')),
+    CONSTRAINT "github_repository_sources_status" CHECK (
+      "status" IN ('active', 'removed', 'suspended')
+    ),
     CONSTRAINT "github_repository_sources_synchronization_generation" CHECK (
       "synchronization_generation" >= 0
     ),
