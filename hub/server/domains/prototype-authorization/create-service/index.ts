@@ -328,14 +328,28 @@ async function readAccessiblePrototypePage({
   cursor?: string
   limit: number
 }) {
+  if (!baseline) {
+    const accessWhere = workspaceGrant
+      ? { grants: { none: { userId, effect: "deny" as const } } }
+      : { grants: { some: { userId, effect: "allow" as const } } }
+    const items = await database.prototype.findMany({
+      where: {
+        workspaceId,
+        ...(cursor ? { id: { gt: cursor } } : {}),
+        ...accessWhere,
+      },
+      orderBy: { id: "asc" },
+      take: limit + 1,
+    })
+    return pageResult(items.map(prototypeDto), limit)
+  }
   const items = []
   let scanCursor = cursor
   while (items.length <= limit) {
     const candidates = await database.prototype.findMany({
-      where: { workspaceId },
+      where: { workspaceId, ...(scanCursor ? { id: { gt: scanCursor } } : {}) },
       include: { grants: { where: { userId } } },
       orderBy: { id: "asc" },
-      ...(scanCursor ? { cursor: { id: scanCursor }, skip: 1 } : {}),
       take: 100,
     })
     if (candidates.length === 0) break
@@ -365,13 +379,23 @@ async function hasAnyPrototypeAccess({
 }) {
   const workspaceDecision = evaluatePrototypeAccess({ workspaceGrant })
   if (workspaceDecision.source !== "none") return workspaceDecision.allowed
+  if (!baseline) {
+    return Boolean(
+      await database.prototype.findFirst({
+        where: {
+          workspaceId,
+          grants: { some: { userId, effect: "allow" } },
+        },
+        select: { id: true },
+      }),
+    )
+  }
   let cursor: string | undefined
   while (true) {
     const candidates = await database.prototype.findMany({
-      where: { workspaceId },
+      where: { workspaceId, ...(cursor ? { id: { gt: cursor } } : {}) },
       include: { grants: { where: { userId } } },
       orderBy: { id: "asc" },
-      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
       take: 100,
     })
     for (const candidate of candidates) {
@@ -415,13 +439,13 @@ export function createPrototypeAuthorizationService({
       const actor = await currentSession(store, sessionToken)
       const items = await database.workspace.findMany({
         where: {
+          ...(cursor ? { id: { gt: cursor } } : {}),
           grants: {
             some: { userId: actor.userId, effect: "allow" },
             none: { userId: actor.userId, effect: "deny" },
           },
         },
         orderBy: { id: "asc" },
-        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
         take: limit + 1,
         select: {
           id: true,

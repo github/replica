@@ -369,6 +369,77 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
     },
   )
 
+  it.each([
+    { scope: "workspace", targetStatus: "unknown" },
+    { scope: "workspace", targetStatus: "suspended" },
+    { scope: "workspace", targetStatus: "removed" },
+    { scope: "prototype", targetStatus: "unknown" },
+    { scope: "prototype", targetStatus: "suspended" },
+    { scope: "prototype", targetStatus: "removed" },
+  ] as const)(
+    "rejects a $targetStatus target for a $scope grant without writing access or audits",
+    async ({ scope, targetStatus }) => {
+      const { prisma, service, store } = await database()
+      const token = `inactive-${scope}-${targetStatus}-actor-token`
+      await createActor(store, {
+        subject: `inactive-${scope}-${targetStatus}-actor`,
+        token,
+        role: "administrator",
+      })
+      const workspace = (await service.createWorkspace(token, {
+        name: "Workspace",
+      })) as { id: string }
+      const prototype = (await service.createPrototype(token, workspace.id, {
+        name: "Prototype",
+      })) as { id: string }
+      const targetUserId =
+        targetStatus === "unknown"
+          ? "00000000-0000-4000-8000-000000000099"
+          : (
+              await createActor(store, {
+                subject: `inactive-${scope}-${targetStatus}-target`,
+                token: `inactive-${scope}-${targetStatus}-target-token`,
+              })
+            ).user.id
+      if (targetStatus !== "unknown") {
+        await prisma.installationMembership.update({
+          where: { userId: targetUserId },
+          data:
+            targetStatus === "suspended"
+              ? { status: "suspended", suspendedAt: new Date(), removedAt: null }
+              : { status: "removed", suspendedAt: null, removedAt: new Date() },
+        })
+      }
+
+      const operation =
+        scope === "workspace"
+          ? service.setWorkspaceAccess(token, workspace.id, targetUserId, {
+              effect: "allow",
+              role: "viewer",
+            })
+          : service.setPrototypeAccess(token, prototype.id, targetUserId, {
+              effect: "allow",
+              role: "viewer",
+            })
+
+      await expect(operation).rejects.toMatchObject({
+        status: 422,
+        code: "target_user_inactive",
+      })
+      expect(
+        await prisma.workspaceAccessGrant.count({
+          where: { workspaceId: workspace.id, userId: targetUserId },
+        }),
+      ).toBe(0)
+      expect(
+        await prisma.prototypeAccessGrant.count({
+          where: { prototypeId: prototype.id, userId: targetUserId },
+        }),
+      ).toBe(0)
+      expect(await prisma.securityAudit.count({ where: { targetUserId } })).toBe(0)
+    },
+  )
+
   it("isolates grants and immutable versions by prototype", async () => {
     const { prisma, service, store } = await database()
     const actor = await createActor(store, { subject: "isolated", token: "isolated-token" })
@@ -1083,6 +1154,55 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
       status: 422,
       code: "invalid_pagination",
     })
+  })
+
+  it("continues workspace pagination after access to the prior cursor is revoked", async () => {
+    const { prisma, service, store } = await database()
+    const actor = await createActor(store, {
+      subject: "workspace-revoked-cursor",
+      token: "workspace-revoked-cursor-token",
+    })
+    const workspaceIds = [
+      "00000000-0000-4000-8000-000000000011",
+      "00000000-0000-4000-8000-000000000012",
+      "00000000-0000-4000-8000-000000000013",
+    ]
+    for (const id of workspaceIds) {
+      await prisma.workspace.create({
+        data: {
+          id,
+          name: `Workspace ${id.at(-1)}`,
+          createdByUserId: actor.user.id,
+          grants: {
+            create: {
+              userId: actor.user.id,
+              effect: "allow",
+              role: "viewer",
+            },
+          },
+        },
+      })
+    }
+
+    const first = (await service.listWorkspaces("workspace-revoked-cursor-token", {
+      limit: 1,
+    })) as { items: { id: string }[]; nextCursor: string | null }
+    await prisma.workspaceAccessGrant.delete({
+      where: {
+        workspaceId_userId: {
+          workspaceId: workspaceIds[0]!,
+          userId: actor.user.id,
+        },
+      },
+    })
+    const second = (await service.listWorkspaces("workspace-revoked-cursor-token", {
+      limit: 1,
+      cursor: first.nextCursor,
+    })) as { items: { id: string }[]; nextCursor: string | null }
+
+    expect(first.items.map(({ id }) => id)).toEqual([workspaceIds[0]])
+    expect(second.items.map(({ id }) => id)).toEqual([workspaceIds[1]])
+    expect(second.nextCursor).toBe(workspaceIds[1])
   })
 
   it("returns scalar workspaces without inaccessible prototype or grant metadata", async () => {
