@@ -1,9 +1,8 @@
-import assert from "node:assert/strict"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import path from "node:path"
-import { describe, it } from "node:test"
 
 import pngjs from "pngjs"
+import { describe, expect, it } from "vitest"
 
 import { temporaryDirectory } from "../../test/temporary-directory/index.ts"
 
@@ -54,11 +53,11 @@ describe("captureScreenshots()", () => {
           const filename = path.join(directory, `${name}${suffix}.png`)
           const captured = await readFile(path.join(screenshots, filename))
           const packaged = await readFile(path.join(output, "screenshots", filename))
-          assert.deepEqual(packaged, captured)
+          expect(packaged).toStrictEqual(captured)
           const image = pngjs.PNG.sync.read(packaged)
-          assert.deepEqual([image.width, image.height], [width, height])
+          expect([image.width, image.height]).toStrictEqual([width, height])
           const expectedColor = directory ? (suffix ? [0, 0, 255] : [255, 0, 0]) : color
-          assert.deepEqual([...image.data.subarray(0, 3)], expectedColor)
+          expect([...image.data.subarray(0, 3)]).toStrictEqual(expectedColor)
         }
       }
     }
@@ -96,7 +95,7 @@ describe("captureScreenshots()", () => {
     for (const name of ["desktop", "narrow", "desktop-dark", "narrow-dark"]) {
       const image = pngjs.PNG.sync.read(await readFile(path.join(screenshots, `${name}.png`)))
       const bottom = (image.height - 1) * image.width * 4
-      assert.deepEqual([...image.data.subarray(bottom, bottom + 3)], [255, 0, 0])
+      expect([...image.data.subarray(bottom, bottom + 3)]).toStrictEqual([255, 0, 0])
     }
   })
   it("captures an app without Controls under a same-origin script policy", async () => {
@@ -112,8 +111,8 @@ describe("captureScreenshots()", () => {
 
     const desktop = await readFile(path.join(screenshots, "desktop.png"))
     const narrow = await readFile(path.join(screenshots, "narrow.png"))
-    assert.deepEqual([desktop.readUInt32BE(16), desktop.readUInt32BE(20)], [1440, 900])
-    assert.deepEqual([narrow.readUInt32BE(16), narrow.readUInt32BE(20)], [390, 844])
+    expect([desktop.readUInt32BE(16), desktop.readUInt32BE(20)]).toStrictEqual([1440, 900])
+    expect([narrow.readUInt32BE(16), narrow.readUInt32BE(20)]).toStrictEqual([390, 844])
   })
 
   it("navigates before capture when app boot reads a URL-bound default", async () => {
@@ -145,7 +144,7 @@ describe("captureScreenshots()", () => {
     for (const name of ["desktop", "narrow", "desktop-dark", "narrow-dark"]) {
       const image = pngjs.PNG.sync.read(await readFile(path.join(screenshots, `${name}.png`)))
       const bottom = (image.height - 1) * image.width * 4
-      assert.deepEqual([...image.data.subarray(bottom, bottom + 3)], [255, 0, 0])
+      expect([...image.data.subarray(bottom, bottom + 3)]).toStrictEqual([255, 0, 0])
     }
   })
 
@@ -178,7 +177,7 @@ describe("captureScreenshots()", () => {
     for (const name of ["desktop", "narrow", "desktop-dark", "narrow-dark"]) {
       const image = pngjs.PNG.sync.read(await readFile(path.join(screenshots, `${name}.png`)))
       const bottom = (image.height - 1) * image.width * 4
-      assert.deepEqual([...image.data.subarray(bottom, bottom + 3)], [255, 0, 0])
+      expect([...image.data.subarray(bottom, bottom + 3)]).toStrictEqual([255, 0, 0])
     }
   })
 
@@ -208,7 +207,7 @@ describe("captureScreenshots()", () => {
     await captureScreenshots(root, screenshots)
     for (const name of ["desktop", "narrow"]) {
       const image = pngjs.PNG.sync.read(await readFile(path.join(screenshots, `${name}.png`)))
-      assert.deepEqual([...image.data.subarray(0, 3)], [255, 0, 0])
+      expect([...image.data.subarray(0, 3)]).toStrictEqual([255, 0, 0])
     }
   })
 
@@ -233,11 +232,12 @@ describe("captureScreenshots()", () => {
         ],
       }),
     )
-    await assert.rejects(
-      captureScreenshots(root, screenshots),
+    await expect(captureScreenshots(root, screenshots)).rejects.toThrow(
       /Controls defaults could not be applied: page.title: The binding target is missing/,
     )
-    await assert.rejects(readFile(path.join(screenshots, "desktop.png")), { code: "ENOENT" })
+    await expect(readFile(path.join(screenshots, "desktop.png"))).rejects.toMatchObject({
+      code: "ENOENT",
+    })
   })
 
   it("captures the bottom of a tall, wide page at both widths and packages the results", async () => {
@@ -260,9 +260,9 @@ describe("captureScreenshots()", () => {
       const screenshot = pngjs.PNG.sync.read(
         await readFile(path.join(output, "screenshots", `${name}.png`)),
       )
-      assert.deepEqual([screenshot.width, screenshot.height], [width, 1900])
+      expect([screenshot.width, screenshot.height]).toStrictEqual([width, 1900])
       const bottom = (screenshot.height - 1) * screenshot.width * 4
-      assert.deepEqual([...screenshot.data.subarray(bottom, bottom + 3)], [255, 0, 0])
+      expect([...screenshot.data.subarray(bottom, bottom + 3)]).toStrictEqual([255, 0, 0])
     }
   })
 
@@ -275,14 +275,15 @@ describe("captureScreenshots()", () => {
       `<!doctype html><html><head><style>body{margin:0}main{height:1000px}@media(prefers-color-scheme:dark){main{height:${MAX_SCREENSHOT_HEIGHT + 1}px}}</style></head><body><main></main></body></html>`,
     )
 
-    await assert.rejects(
-      captureScreenshots(root, screenshots),
+    await expect(captureScreenshots(root, screenshots)).rejects.toThrow(
       new Error(
         `Screenshot desktop-dark.png exceeds the maximum height of ${MAX_SCREENSHOT_HEIGHT} pixels; found ${MAX_SCREENSHOT_HEIGHT + 1}.`,
       ),
     )
-    assert.equal((await readFile(path.join(screenshots, "desktop.png"))).readUInt32BE(20), 1000)
-    await assert.rejects(readFile(path.join(screenshots, "desktop-dark.png")), { code: "ENOENT" })
+    expect((await readFile(path.join(screenshots, "desktop.png"))).readUInt32BE(20)).toBe(1000)
+    await expect(readFile(path.join(screenshots, "desktop-dark.png"))).rejects.toMatchObject({
+      code: "ENOENT",
+    })
   })
 
   it("rejects a page taller than the package limit before capturing it", async () => {
@@ -294,13 +295,14 @@ describe("captureScreenshots()", () => {
       `<!doctype html><html lang="en"><head><title>Fixture</title><style>body{margin:0}main{height:${MAX_SCREENSHOT_HEIGHT + 1}px}</style></head><body><main>Too tall</main></body></html>`,
     )
 
-    await assert.rejects(
-      captureScreenshots(root, screenshots),
+    await expect(captureScreenshots(root, screenshots)).rejects.toThrow(
       new Error(
         `Screenshot desktop.png exceeds the maximum height of ${MAX_SCREENSHOT_HEIGHT} pixels; found ${MAX_SCREENSHOT_HEIGHT + 1}.`,
       ),
     )
-    await assert.rejects(readFile(path.join(screenshots, "desktop.png")), { code: "ENOENT" })
+    await expect(readFile(path.join(screenshots, "desktop.png"))).rejects.toMatchObject({
+      code: "ENOENT",
+    })
   })
 
   it("preserves the full height of a declared template at both widths through packaging", async () => {
@@ -340,15 +342,15 @@ describe("captureScreenshots()", () => {
       const packaged = await readFile(
         path.join(output, "screenshots/templates/journal", `${name}.png`),
       )
-      assert.deepEqual(packaged, captured)
+      expect(packaged).toStrictEqual(captured)
       const screenshot = pngjs.PNG.sync.read(packaged)
-      assert.deepEqual([screenshot.width, screenshot.height], [width, 1900])
+      expect([screenshot.width, screenshot.height]).toStrictEqual([width, 1900])
       const bottom = (screenshot.height - 1) * screenshot.width * 4
-      assert.deepEqual([...screenshot.data.subarray(bottom, bottom + 3)], [255, 0, 0])
+      expect([...screenshot.data.subarray(bottom, bottom + 3)]).toStrictEqual([255, 0, 0])
       const rootScreenshot = pngjs.PNG.sync.read(
         await readFile(path.join(output, "screenshots", `${name}.png`)),
       )
-      assert.deepEqual([rootScreenshot.width, rootScreenshot.height], [width, rootHeight])
+      expect([rootScreenshot.width, rootScreenshot.height]).toStrictEqual([width, rootHeight])
     }
   })
 
@@ -401,7 +403,7 @@ describe("captureScreenshots()", () => {
     await captureScreenshots(root, screenshots)
     await createPackage(root, screenshots, output)
 
-    assert.deepEqual(JSON.parse(await readFile(path.join(output, "templates.json"), "utf8")), {
+    expect(JSON.parse(await readFile(path.join(output, "templates.json"), "utf8"))).toStrictEqual({
       version: 1,
       templates,
     })
@@ -418,8 +420,8 @@ describe("captureScreenshots()", () => {
         const screenshot = pngjs.PNG.sync.read(
           await readFile(path.join(output, "screenshots/templates", id, `${name}.png`)),
         )
-        assert.deepEqual([screenshot.width, screenshot.height], [width, height])
-        assert.deepEqual([...screenshot.data.subarray(0, 3)], color)
+        expect([screenshot.width, screenshot.height]).toStrictEqual([width, height])
+        expect([...screenshot.data.subarray(0, 3)]).toStrictEqual(color)
       }
     }
   })
@@ -433,7 +435,9 @@ describe("captureScreenshots()", () => {
     await mkdir(path.join(configRoot, ".github"))
     await writeFile(path.join(configRoot, ".github/replica.json"), '{"version":1,"templates":[]}')
     await captureScreenshots(root, screenshots, configRoot)
-    assert.deepEqual(JSON.parse(await readFile(path.join(screenshots, "templates.json"), "utf8")), {
+    expect(
+      JSON.parse(await readFile(path.join(screenshots, "templates.json"), "utf8")),
+    ).toStrictEqual({
       version: 1,
       templates: [],
     })
