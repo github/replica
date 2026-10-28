@@ -6,6 +6,7 @@ import { createAuthorizationAttempt } from "#server/repositories/authorization-a
 import { getExternalIdentity } from "#server/repositories/external-identities/get-external-identity"
 import { saveExternalIdentity } from "#server/repositories/external-identities/save-external-identity"
 import { advanceGitHubIntegrationGeneration } from "#server/repositories/github-integration-state/advance-generation"
+import { hasFreshGitHubAdmission } from "#server/repositories/github-synchronized-access/has-fresh-admission"
 import { getGitHubIntegrationState } from "#server/repositories/github-integration-state/get-state"
 import { saveGitHubIntegrationCredentials } from "#server/repositories/github-integration-state/save-credentials"
 import { advanceSessionGeneration } from "#server/repositories/identity-store-state/advance-session-generation"
@@ -50,6 +51,7 @@ export function createIdentityRecords(database: Prisma.TransactionClient): Ident
     githubIntegrationState: getGitHubIntegrationState.bind(null, database),
     saveGitHubIntegrationCredentials: saveGitHubIntegrationCredentials.bind(null, database),
     advanceGitHubIntegrationGeneration: advanceGitHubIntegrationGeneration.bind(null, database),
+    hasFreshGitHubAdmission: hasFreshGitHubAdmission.bind(null, database),
     user: getUser.bind(null, database),
     createUser: createUser.bind(null, database),
     updateUser: updateUser.bind(null, database),

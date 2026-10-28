@@ -65,6 +65,73 @@ async function createSession(
 }
 
 describe("createAuthenticationService() database behavior", () => {
+  it("requires a fresh eligible baseline only for synchronized sessions", async () => {
+    const { prisma, store } = await database()
+    const graph = await createAdministrator(store)
+    await createSession(store, graph, "session-token")
+    await prisma.installationMembership.update({
+      where: { userId: graph.user.id },
+      data: { role: "member", source: "synchronized" },
+    })
+    const source = await prisma.gitHubRepositorySource.create({
+      data: {
+        githubRepositoryId: "100",
+        appId: "12345",
+        installationId: "7",
+        owner: "owner",
+        name: "repository",
+        defaultBranch: "main",
+        admissionEnabled: true,
+      },
+    })
+    const baseline = await prisma.gitHubSynchronizedAccess.create({
+      data: {
+        repositorySourceId: source.id,
+        userId: graph.user.id,
+        rawPermission: "read",
+        mappedPrototypeRole: "viewer",
+        admissionEligible: true,
+        lastConfirmedAt: new Date(),
+      },
+    })
+    const service = createAuthenticationService({
+      store,
+      github: null,
+      configuration: null,
+      providerRevisionId: null,
+      admissionPolicy: { name: "hub-managed", admit: () => Promise.resolve(null) },
+    })
+
+    await expect(service.current("session-token")).resolves.toMatchObject({
+      userId: graph.user.id,
+      membership: { source: "synchronized", status: "active" },
+    })
+
+    await prisma.gitHubSynchronizedAccess.update({
+      where: { id: baseline.id },
+      data: {
+        admissionEligible: false,
+        mappedPrototypeRole: null,
+        rawPermission: "none",
+        status: "removed",
+      },
+    })
+
+    await expect(service.current("session-token")).rejects.toMatchObject({
+      status: 401,
+      code: "membership_inactive",
+    })
+
+    await prisma.installationMembership.update({
+      where: { userId: graph.user.id },
+      data: { source: "manual" },
+    })
+    await expect(service.current("session-token")).resolves.toMatchObject({
+      userId: graph.user.id,
+      membership: { source: "manual", status: "active" },
+    })
+  })
+
   it.each(["suspended", "removed"] as const)(
     "does not reactivate a manually %s membership when synchronized admission succeeds",
     async (status) => {

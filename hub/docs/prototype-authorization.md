@@ -56,7 +56,7 @@ Workspace administrators cannot remove or replace the final active workspace adm
 
 Suspending or removing a membership fails with `product_administration_orphaned` when that user is the final active administrator for a workspace or prototype. An administrator must transfer product administration first. Changing an active installation administrator to a member does not remove an explicit product role, because installation and product authority remain separate.
 
-A workspace administrator can recover prototype access even when a prototype-specific administrator rule does not exist. Explicit prototype deny still blocks that administrator from the denied prototype until another workspace administrator changes the rule. Prototype lists omit prototypes that explicitly deny the requesting user. Workspace list responses contain only workspace fields and never embed prototype or access-rule metadata.
+A workspace administrator can recover prototype access even when a prototype-specific administrator rule does not exist. Explicit prototype deny still blocks that administrator from the denied prototype until another workspace administrator changes the rule. Prototype lists omit prototypes that explicitly deny the requesting user. A workspace reachable through a direct prototype rule or synchronized prototype baseline is also readable, unless an explicit workspace deny blocks it. Workspace list responses contain only workspace fields and never embed prototype or access-rule metadata.
 
 ## API and request boundaries
 

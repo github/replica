@@ -37,7 +37,9 @@ Each reconciliation claims a monotonically increasing source generation while ho
 
 ## Staleness and outages
 
-A successful confirmation records `lastConfirmedAt`. Credential and configuration failures record an explicit failed status without refreshing that time. Hub permits a last-known-good baseline for one day, then fails closed. Admission evaluates live and cached results per repository: a fresh denial or repository 404 suppresses that source's old cache, while an outage may use only the still-fresh cache for the same source. Reconciliation bounds concurrent GitHub permission requests, treats an immutable-identity mismatch as denial for only that identity, and serializes membership removal with sign-in and administrator changes.
+A successful confirmation records `lastConfirmedAt`, including a confirmed negative permission that invalidates an older positive cache. Credential and configuration failures record an explicit failed status without refreshing that time. Hub permits a last-known-good baseline for one day, then fails closed. Admission evaluates live and cached results per repository: a fresh denial or repository 404 suppresses that source's old cache, while a token-service outage may use only the still-fresh cache for a source whose configured App and installation IDs still match. Source credential failures never block an already active manual Hub member, but synchronized members remain fail-closed. Reconciliation bounds concurrent GitHub permission requests, treats an immutable-identity mismatch as denial for only that identity, and serializes membership removal with sign-in and administrator changes.
+
+Scheduled reconciliation has a single-flight guard. A slow periodic run completes before another scheduled run starts; manual reconciliation still uses source generations to supersede older results safely.
 
 Manual Hub grants, denies, membership assignments, and suspensions are separate rows. Synchronization never deletes or rewrites them. Repository unlink, installation removal, and permission loss affect synchronized rows only.
 
@@ -51,4 +53,4 @@ Manual Hub grants, denies, membership assignments, and suspensions are separate 
 - `PUT /api/prototypes/:prototypeId/authorization`
 - `GET /api/prototypes/:prototypeId/access/explanation`
 
-Administration mutations require an active installation administrator, fresh verification, the configured origin, and matching CSRF cookie and header. Product policy changes require a fresh effective prototype administrator. Request bodies are omitted from logs, responses are private and non-cacheable, and mutations write structured audits in the same transaction.
+Administration mutations require an active installation administrator, fresh verification, the configured origin, and matching CSRF cookie and header. Repository listing requires the active administrator role but not a fresh verification because it is read-only. Product policy changes require a fresh effective prototype administrator. Request bodies are omitted from logs, responses are private and non-cacheable, and mutations write structured audits in the same transaction.

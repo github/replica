@@ -614,7 +614,18 @@ export function createPrototypeAuthorizationService({
     async getWorkspace(sessionToken, workspaceId) {
       const actor = await currentSession(store, sessionToken)
       const { workspace, decision } = await workspaceDecision(database, actor.userId, workspaceId)
-      requireDecision(decision, "viewer")
+      if (
+        !decision.allowed &&
+        !(await hasAnyPrototypeAccess({
+          baseline,
+          database,
+          userId: actor.userId,
+          workspaceId,
+          workspaceGrant: workspace.grants[0] ?? null,
+        }))
+      ) {
+        requireDecision(decision, "viewer")
+      }
       return {
         id: workspace.id,
         createdByUserId: workspace.createdByUserId,

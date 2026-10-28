@@ -48,6 +48,7 @@ export interface IdentityRecords {
   githubIntegrationState(): Promise<GitHubIntegrationState>
   saveGitHubIntegrationCredentials(encryptedCredentials: string): Promise<void>
   advanceGitHubIntegrationGeneration(): Promise<void>
+  hasFreshGitHubAdmission(userId: string, now: Date): Promise<boolean>
   user(id: string): Promise<HubUser | null>
   createUser(input: UserInput): Promise<HubUser>
   updateUser(id: string, input: UserInput): Promise<HubUser>

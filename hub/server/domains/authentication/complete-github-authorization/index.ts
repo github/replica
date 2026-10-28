@@ -116,10 +116,7 @@ export async function completeGitHubAuthorization(
       (membership === null ||
         (membership.source === "synchronized" && membership.status === "removed"))
     const invitation =
-      purpose === "sign-in" &&
-      membership?.status !== "active" &&
-      membership?.status !== "suspended" &&
-      !admissionBaseline
+      purpose === "sign-in" && membership?.status !== "active" && membership?.status !== "suspended"
         ? await records.usableInvitation("github", configuration.issuer, profile.subject, now())
         : null
     if (

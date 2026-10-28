@@ -16,5 +16,11 @@ export async function getCurrentSession(
   if (!membership || membership.status !== "active") {
     throw new AuthenticationError(401, "membership_inactive", "Sign in to continue.")
   }
+  if (
+    membership.source === "synchronized" &&
+    !(await records.hasFreshGitHubAdmission(session.userId, dependencies.now()))
+  ) {
+    throw new AuthenticationError(401, "membership_inactive", "Sign in to continue.")
+  }
   return { ...session, membership }
 }
