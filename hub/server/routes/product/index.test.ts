@@ -39,6 +39,7 @@ function runtime(
       getPrototype: vi.fn(),
       archivePrototype: vi.fn(),
       createPublisherCredential: vi.fn(),
+      listPublishers: vi.fn(),
       setPublisherActive: vi.fn(),
       revokePublisherCredential: vi.fn(),
       explainPrototypeAccess: vi.fn(),
@@ -110,6 +111,11 @@ describe("product routes", () => {
       path: "/api/prototypes/prototype/publishers",
       call: "createPublisherCredential",
       body: { name: "Local publisher", actions: ["publish"] },
+    },
+    {
+      method: "GET",
+      path: "/api/prototypes/prototype/publishers",
+      call: "listPublishers",
     },
     {
       method: "PATCH",
@@ -235,6 +241,28 @@ describe("product routes", () => {
     expect(records[0]).not.toHaveProperty("query")
     expect(records[0]).not.toHaveProperty("body")
     expect(JSON.stringify(records)).not.toMatch(/private-query-value|private-body-value/)
+  })
+
+  it("forwards publisher pagination and returns the bounded metadata page", async () => {
+    const page = {
+      items: [{ id: "publisher-id", credentials: [{ id: "credential-id" }] }],
+      nextCursor: "publisher-id",
+    }
+    const listPublishers = vi.fn().mockResolvedValue(page)
+    const authentication = runtime({ listPublishers })
+    const baseUrl = await serve(authentication)
+
+    const response = await fetch(
+      `${baseUrl}/api/prototypes/prototype/publishers?limit=1&cursor=cursor-id`,
+      { headers: { cookie: `__Host-replica-session=${sessionToken}` } },
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual(page)
+    expect(listPublishers).toHaveBeenCalledWith(sessionToken, "prototype", {
+      limit: "1",
+      cursor: "cursor-id",
+    })
   })
 
   it("allows 120 product mutations per boundary and rejects the next one", async () => {

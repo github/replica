@@ -25,6 +25,7 @@ import {
   getPrototype,
   getVersion,
   getWorkspace,
+  listPublishers,
   listPrototypes,
   listVersions,
   listWorkspaces,
@@ -161,6 +162,7 @@ export function routes(app: Express, authentication?: AuthenticationRoutes): voi
     productMutationLimit,
     createPublisherCredential.bind(null, authentication),
   )
+  app.get("/api/prototypes/:prototypeId/publishers", listPublishers.bind(null, authentication))
   app.patch(
     "/api/prototypes/:prototypeId/publishers/:publisherId",
     productMutationLimit,
@@ -189,24 +191,16 @@ export function routes(app: Express, authentication?: AuthenticationRoutes): voi
   app.get("/api/prototypes/:prototypeId/versions/:versionId", getVersion.bind(null, authentication))
   app.use(["/api/workspaces", "/api/prototypes"], respondAdministrationError)
   if (authentication.artifactPublishing) {
-    const publishingLimit = createRateLimit({
-      limit: 60,
-      windowMilliseconds: 5 * 60_000,
-      message: "Too many publishing requests.",
-    })
     app.post(
       "/api/publishing/prototypes/:prototypeId/versions",
-      publishingLimit,
       publishArtifact.bind(null, authentication.artifactPublishing),
     )
     app.get(
       "/api/publishing/prototypes/:prototypeId/status",
-      publishingLimit,
       getPublicationStatus.bind(null, authentication.artifactPublishing),
     )
     app.put(
       "/api/publishing/prototypes/:prototypeId/channels/:channel",
-      publishingLimit,
       promoteVersion.bind(null, authentication.artifactPublishing),
     )
     app.use("/api/publishing", respondAdministrationError)

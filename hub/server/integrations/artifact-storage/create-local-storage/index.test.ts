@@ -1,8 +1,8 @@
 import { createHash, randomUUID } from "node:crypto"
-import { mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
+import { mkdir, open, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises"
 import path from "node:path"
 
-import { describe, expect, it, onTestFinished } from "vitest"
+import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { createLocalArtifactStorage } from "#server/integrations/artifact-storage/create-local-storage"
 
@@ -115,6 +115,62 @@ describe("createLocalArtifactStorage()", () => {
     expect(new Set(results.map(({ key }) => key))).toEqual(new Set([results[0].key]))
     expect(results.filter(({ created }) => created)).toHaveLength(1)
     expect(Buffer.from(await storage.read(results[0].key))).toEqual(bytes)
+  })
+
+  it.each(["writeFile", "sync"] as const)(
+    "removes its temporary file when %s fails",
+    async (operation) => {
+      const root = storageRoot()
+      const bytes = Buffer.from(`failed artifact ${operation}`)
+      const contentDigest = digest(bytes)
+      const location = artifactPath(root, contentDigest)
+      await mkdir(location.shard, { recursive: true })
+      const probe = await open(path.join(root, "probe"), "w")
+      await probe.close()
+      const failure = vi
+        .spyOn(Object.getPrototypeOf(probe) as typeof probe, operation)
+        .mockRejectedValue(new Error(`${operation} failed`))
+
+      await expect(createLocalArtifactStorage(root).put(contentDigest, bytes)).rejects.toThrow(
+        `${operation} failed`,
+      )
+
+      expect((await readdir(location.shard)).filter((name) => name.endsWith(".tmp"))).toEqual([])
+      failure.mockRestore()
+    },
+  )
+
+  it("waits for a failed read before closing the artifact file", async () => {
+    const root = storageRoot()
+    const storage = createLocalArtifactStorage(root)
+    const bytes = Buffer.from("failed artifact read")
+    const stored = await storage.put(digest(bytes), bytes)
+    const probe = await open(path.join(root, "probe"), "w")
+    const fileHandlePrototype = Object.getPrototypeOf(probe) as typeof probe
+    await probe.close()
+    let rejectRead!: (error: Error) => void
+    let artifactFile: typeof probe | undefined
+    function captureArtifactFile(file: typeof probe) {
+      artifactFile = file
+    }
+    const readFailure = new Promise<never>((_resolve, reject) => {
+      rejectRead = reject
+    })
+    const readFile = vi.spyOn(fileHandlePrototype, "readFile").mockImplementation(function (
+      this: typeof probe,
+    ) {
+      captureArtifactFile(this)
+      return readFailure
+    })
+
+    const read = storage.read(stored.key)
+    await vi.waitFor(() => expect(artifactFile).toBeDefined())
+    await expect(artifactFile!.stat()).resolves.toBeDefined()
+    rejectRead(new Error("read failed"))
+
+    await expect(read).rejects.toThrow("read failed")
+    await expect(artifactFile!.stat()).rejects.toMatchObject({ code: "EBADF" })
+    readFile.mockRestore()
   })
 
   it("rejects a symbolic-link storage root without reading, replaying, or removing outside content", async () => {

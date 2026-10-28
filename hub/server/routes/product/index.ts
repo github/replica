@@ -165,6 +165,19 @@ export async function createPublisherCredential(
   response.status(201).json(result)
 }
 
+export async function listPublishers(
+  authentication: AuthenticationRoutes,
+  request: Request,
+  response: Response,
+): Promise<void> {
+  const publishers = await authentication.prototypeAuthorization.listPublishers(
+    sessionToken(authentication, request),
+    parameter(request, "prototypeId"),
+    request.query,
+  )
+  response.json(publishers)
+}
+
 export async function setPublisherActive(
   authentication: AuthenticationRoutes,
   request: Request,

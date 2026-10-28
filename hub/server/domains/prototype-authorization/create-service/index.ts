@@ -29,7 +29,7 @@ const publisherSchema = z
       .array(z.enum(["publish", "read-status"]))
       .min(1)
       .max(2)
-      .refine((actions) => new Set(actions).size === actions.length),
+      .refine((actions) => new Set(actions).size === actions.length && actions.includes("publish")),
     expiresAt: z.iso.datetime({ offset: true }).nullable().optional(),
   })
   .strict()
@@ -873,6 +873,47 @@ export function createPrototypeAuthorizationService({
           },
           credential: { id: credentialId, token },
         }
+      })
+    },
+
+    async listPublishers(sessionToken, prototypeId, query) {
+      const { cursor, limit } = parsePage(query)
+      return store.lock(async (_records, transaction) => {
+        const actor = await currentSession(store, sessionToken, transaction)
+        requireFreshAuthorization(actor)
+        requireIdentifier(prototypeId, "prototype_not_found", "The prototype was not found.")
+        await lockPrototype(transaction, prototypeId)
+        const { decision } = await prototypeDecision(
+          transaction,
+          actor.userId,
+          prototypeId,
+          baseline,
+        )
+        requireDecision(decision, "administrator")
+        const items = await transaction.workloadPublisher.findMany({
+          where: { prototypeId },
+          orderBy: { id: "asc" },
+          ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+          take: limit + 1,
+          select: {
+            id: true,
+            name: true,
+            actions: true,
+            active: true,
+            createdAt: true,
+            updatedAt: true,
+            credentials: {
+              orderBy: { createdAt: "asc" },
+              select: {
+                id: true,
+                expiresAt: true,
+                revokedAt: true,
+                createdAt: true,
+              },
+            },
+          },
+        })
+        return pageResult(items, limit)
       })
     },
 

@@ -155,22 +155,24 @@ export function createLocalArtifactStorage(root: string): ArtifactStorage {
         0o600,
       )
       try {
-        await file.writeFile(bytes)
-        await file.sync()
-      } finally {
-        await file.close()
-      }
-      try {
-        const resolved = await resolveArtifactPath(root, key, false)
-        if (resolved.destination !== destination) {
-          throw new Error("Artifact storage path changed during the write.")
+        try {
+          await file.writeFile(bytes)
+          await file.sync()
+        } finally {
+          await file.close()
         }
-        await link(temporary, destination)
-        return { key, created: true }
-      } catch (error) {
-        if (!isFileSystemError(error, "EEXIST")) throw error
-        await verifyExisting(resolvedRoot, destination, contentDigest)
-        return { key, created: false }
+        try {
+          const resolved = await resolveArtifactPath(root, key, false)
+          if (resolved.destination !== destination) {
+            throw new Error("Artifact storage path changed during the write.")
+          }
+          await link(temporary, destination)
+          return { key, created: true }
+        } catch (error) {
+          if (!isFileSystemError(error, "EEXIST")) throw error
+          await verifyExisting(resolvedRoot, destination, contentDigest)
+          return { key, created: false }
+        }
       } finally {
         await rm(temporary, { force: true })
       }
@@ -180,7 +182,7 @@ export function createLocalArtifactStorage(root: string): ArtifactStorage {
       const { destination, resolvedRoot } = await resolveArtifactPath(root, key, false)
       const file = await openArtifact(resolvedRoot, destination)
       try {
-        return file.readFile()
+        return await file.readFile()
       } finally {
         await file.close()
       }

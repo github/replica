@@ -29,6 +29,7 @@ export interface PrototypeAuthorizationService {
     prototypeId: string,
     input: unknown,
   ): Promise<unknown>
+  listPublishers(sessionToken: string, prototypeId: string, query: unknown): Promise<Page<unknown>>
   setPublisherActive(
     sessionToken: string,
     prototypeId: string,

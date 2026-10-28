@@ -75,6 +75,7 @@ The product API uses:
 - `GET /api/prototypes/:prototypeId/versions`
 - `GET /api/prototypes/:prototypeId/versions/:versionId`
 - `POST /api/prototypes/:prototypeId/publishers`
+- `GET /api/prototypes/:prototypeId/publishers`
 - `PATCH /api/prototypes/:prototypeId/publishers/:publisherId`
 - `DELETE /api/prototypes/:prototypeId/publishers/:publisherId/credentials/:credentialId`
 

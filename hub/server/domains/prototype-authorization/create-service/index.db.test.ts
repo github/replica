@@ -597,6 +597,72 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
     ).toBe(4)
   })
 
+  it("requires publish permission when provisioning a publisher", async () => {
+    const { prisma, service, store } = await database()
+    const token = "publisher-action-token"
+    const { prototype } = await createAdministeredPrototype({
+      service,
+      store,
+      subject: "publisher-action",
+      token,
+    })
+
+    await expect(
+      service.createPublisherCredential(token, prototype.id, {
+        name: "Status-only publisher",
+        actions: ["read-status"],
+      }),
+    ).rejects.toMatchObject({ status: 422, code: "invalid_workload_publisher" })
+    expect(await prisma.workloadPublisher.count({ where: { prototypeId: prototype.id } })).toBe(0)
+  })
+
+  it("lists bounded publisher and credential metadata without reusable secrets", async () => {
+    const { prisma, service, store } = await database()
+    const token = "publisher-list-token"
+    const { prototype } = await createAdministeredPrototype({
+      service,
+      store,
+      subject: "publisher-list",
+      token,
+    })
+    const first = (await service.createPublisherCredential(token, prototype.id, {
+      name: "First publisher",
+      actions: ["publish"],
+    })) as { credential: { token: string } }
+    const second = (await service.createPublisherCredential(token, prototype.id, {
+      name: "Second publisher",
+      actions: ["publish", "read-status"],
+    })) as { credential: { token: string } }
+
+    const firstPage = (await service.listPublishers(token, prototype.id, {
+      limit: 1,
+    })) as {
+      items: { id: string; credentials: { id: string }[] }[]
+      nextCursor: string | null
+    }
+    const secondPage = (await service.listPublishers(token, prototype.id, {
+      limit: 1,
+      cursor: firstPage.nextCursor,
+    })) as {
+      items: { id: string; credentials: { id: string }[] }[]
+      nextCursor: string | null
+    }
+    const serialized = JSON.stringify([firstPage, secondPage])
+    const tokenDigests = await prisma.workloadCredential.findMany({
+      select: { tokenDigest: true },
+    })
+
+    expect(firstPage.items).toHaveLength(1)
+    expect(firstPage.nextCursor).toBe(firstPage.items[0]?.id)
+    expect(secondPage.items).toHaveLength(1)
+    expect(secondPage.nextCursor).toBeNull()
+    expect(new Set([...firstPage.items, ...secondPage.items].map(({ id }) => id)).size).toBe(2)
+    expect(serialized).not.toContain(first.credential.token)
+    expect(serialized).not.toContain(second.credential.token)
+    for (const { tokenDigest } of tokenDigests) expect(serialized).not.toContain(tokenDigest)
+    expect(serialized).not.toContain("tokenDigest")
+  })
+
   it("does not apply publisher or credential lifecycle operations across prototypes", async () => {
     const { prisma, service, store } = await database()
     const token = "publisher-scope-token"

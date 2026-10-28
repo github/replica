@@ -4,16 +4,16 @@ Hub accepts one provider-neutral artifact contract from workload producers. GitH
 
 ## Identity and access
 
-A prototype administrator creates a workload publisher with one or both actions:
+A prototype administrator creates a workload publisher with `publish` and may also grant `read-status`:
 
 | Action        | Authority                                                                    |
 | ------------- | ---------------------------------------------------------------------------- |
 | `publish`     | Publish an artifact and move the prototype's `current` or `preview` channel. |
-| `read-status` | Read the result associated with that publisher's idempotency key.            |
+| `read-status` | Read the result associated with that publisher's idempotency key. This action supplements `publish`; a status-only publisher would have no publication to read. |
 
 Hub returns a bearer credential once and stores only its SHA-256 digest. The credential is scoped to one prototype through its workload publisher. It cannot create a browser session, view a prototype through user APIs, administer access, or publish to another prototype. A producer's source URL, revision, ref, pipeline, and run ID describe where a build came from; they never grant access.
 
-Browser users provision credentials through `POST /api/prototypes/:prototypeId/publishers`. This requires a fresh prototype-administrator session and returns the raw token only in that response. The same administrator may temporarily disable or re-enable a publisher with `PATCH /api/prototypes/:prototypeId/publishers/:publisherId`, or permanently revoke one credential with `DELETE /api/prototypes/:prototypeId/publishers/:publisherId/credentials/:credentialId`. Hub audits each state change. Re-enabling a publisher does not restore a revoked credential.
+Browser users provision credentials through `POST /api/prototypes/:prototypeId/publishers`. This requires a fresh prototype-administrator session and returns the raw token only in that response. `GET /api/prototypes/:prototypeId/publishers` returns administrator-only publisher and credential metadata without token digests or raw tokens, so another administrator can discover and revoke existing access. An administrator may temporarily disable or re-enable a publisher with `PATCH /api/prototypes/:prototypeId/publishers/:publisherId`, or permanently revoke one credential with `DELETE /api/prototypes/:prototypeId/publishers/:publisherId/credentials/:credentialId`. Hub audits each state change. Re-enabling a publisher does not restore a revoked credential.
 
 Publication, promotion, publisher state changes, and credential revocation use the same prototype lock. Publication and promotion re-read credential expiry, revocation, scope, action, token digest, and publisher state after acquiring that lock. A revocation or disable that locks first prevents an already-started workload request from committing; a workload operation that locks first completes before the administrator mutation.
 
@@ -49,11 +49,13 @@ Archiving a prototype blocks new publishers, publication, publisher re-enablemen
 }
 ```
 
-The manifest is closed to unknown fields. Hub bounds every string, accepts only HTTP or HTTPS source URLs without embedded usernames or passwords, limits decoded artifacts to 8 MiB in this reference layer, verifies the decoded size, and recalculates the SHA-256 digest before storing bytes. The manifest prototype ID must match the route.
+The manifest and its nested objects are closed to unknown fields. Hub bounds every string, accepts only HTTP or HTTPS source URLs without embedded usernames, passwords, query strings, or fragments, limits decoded artifacts to 8 MiB in this reference layer, verifies canonical base64, checks the decoded size, and recalculates the SHA-256 digest before storing bytes. The manifest prototype ID must match the route.
+
+Publishing requests are rate-limited before JSON parsing. The version-upload route alone accepts the bounded upload-sized JSON body; status and promotion retain the API's default JSON limit.
 
 ## Storage boundary
 
-`ArtifactStorage` separates ingestion from byte storage. The reference adapter writes content-addressed files under `HUB_ARTIFACT_STORAGE_PATH`, defaulting to `hub/.data/artifacts` for local use. Database rows store only the storage key and validated metadata, never the artifact bytes.
+`ArtifactStorage` separates ingestion from byte storage. The reference adapter writes content-addressed files under `HUB_ARTIFACT_STORAGE_PATH`, defaulting to `~/.replica/artifacts` outside the source checkout and Vite development root. Database rows store only the storage key and validated metadata, never the artifact bytes.
 
 The local adapter is suitable for one Hub process with a durable mounted filesystem. It rejects symbolic-link roots, shards, and artifact paths, resolves directories under the configured root, and opens artifact files without following a final symbolic link. Operators must keep the storage directory writable only by the Hub workload; the local adapter does not provide replication, remote durability, encryption-key management, hostile concurrent filesystem isolation, or multi-region consistency. A production object-store adapter must preserve the same content-addressed, immutable `put`, `read`, and `remove` boundary.
 
