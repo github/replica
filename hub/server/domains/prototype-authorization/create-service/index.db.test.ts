@@ -13,13 +13,14 @@ async function database(baseline?: PrototypeBaselinePolicy) {
   vi.stubGlobal("prisma", undefined)
   const { prisma } = await import("../../../integrations/prisma")
   onTestFinished(() => prisma.$disconnect())
+  const store = createIdentityStore(prisma)
   return {
     prisma,
-    store: createIdentityStore(prisma),
+    store,
     service: createPrototypeAuthorizationService({
       baseline,
       database: prisma,
-      store: createIdentityStore(prisma),
+      store,
     }),
   }
 }
@@ -107,6 +108,20 @@ function deferred() {
     resolvePromise = resolve
   })
   return { promise, resolve: resolvePromise }
+}
+
+async function completesWithin(promise: Promise<unknown>, milliseconds: number) {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      promise.then(() => true),
+      new Promise<false>((resolve) => {
+        timer = setTimeout(() => resolve(false), milliseconds)
+      }),
+    ])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
 }
 
 async function holdWorkspaceLock(database: PrismaClient, workspaceId: string) {
@@ -982,6 +997,46 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
     expect(await prisma.workloadPublisher.count({ where: { prototypeId: prototype.id } })).toBe(0)
   })
 
+  it.each(["viewer", "editor"] as const)(
+    "rejects a fresh %s provisioning a publisher without writing publisher state or an audit",
+    async (role) => {
+      const { prisma, service, store } = await database()
+      const administratorToken = `publisher-${role}-administrator-token`
+      const { prototype } = await createAdministeredPrototype({
+        service,
+        store,
+        subject: `publisher-${role}-administrator`,
+        token: administratorToken,
+      })
+      const actor = await createActor(store, {
+        subject: `publisher-${role}`,
+        token: `publisher-${role}-token`,
+      })
+      await prisma.prototypeAccessGrant.create({
+        data: {
+          prototypeId: prototype.id,
+          userId: actor.user.id,
+          effect: "allow",
+          role,
+        },
+      })
+
+      await expect(
+        service.createPublisherCredential(`publisher-${role}-token`, prototype.id, {
+          name: `${role} publisher`,
+          actions: ["publish"],
+        }),
+      ).rejects.toMatchObject({ status: 403, code: "prototype_access_denied" })
+      expect(await prisma.workloadPublisher.count({ where: { prototypeId: prototype.id } })).toBe(0)
+      expect(await prisma.workloadCredential.count()).toBe(0)
+      expect(
+        await prisma.securityAudit.count({
+          where: { prototypeId: prototype.id, event: "prototype.publisher.create" },
+        }),
+      ).toBe(0)
+    },
+  )
+
   it("lists bounded publisher and credential metadata without reusable secrets", async () => {
     const { prisma, service, store } = await database()
     const token = "publisher-list-token"
@@ -1027,6 +1082,76 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
     expect(serialized).not.toContain(second.credential.token)
     for (const { tokenDigest } of tokenDigests) expect(serialized).not.toContain(tokenDigest)
     expect(serialized).not.toContain("tokenDigest")
+  })
+
+  it.each(["stale-administrator", "fresh-editor"] as const)(
+    "rejects publisher metadata listing for a %s",
+    async (access) => {
+      const { prisma, service, store } = await database()
+      const administratorToken = `publisher-list-${access}-administrator-token`
+      const { prototype } = await createAdministeredPrototype({
+        service,
+        store,
+        subject: `publisher-list-${access}-administrator`,
+        token: administratorToken,
+      })
+      const token =
+        access === "stale-administrator" ? administratorToken : `publisher-list-${access}-token`
+      if (access === "stale-administrator") {
+        await prisma.session.updateMany({
+          where: { tokenDigest: digestSecret(token) },
+          data: { freshAuthorizedAt: new Date(Date.now() - 5 * 60_000) },
+        })
+      } else {
+        const actor = await createActor(store, {
+          subject: `publisher-list-${access}`,
+          token,
+        })
+        await prisma.prototypeAccessGrant.create({
+          data: {
+            prototypeId: prototype.id,
+            userId: actor.user.id,
+            effect: "allow",
+            role: "editor",
+          },
+        })
+      }
+
+      await expect(service.listPublishers(token, prototype.id, {})).rejects.toMatchObject({
+        status: 403,
+        code:
+          access === "stale-administrator"
+            ? "fresh_authorization_required"
+            : "prototype_access_denied",
+      })
+    },
+  )
+
+  it("lists publisher metadata without the identity-store or prototype write locks", async () => {
+    const { prisma, service, store } = await database()
+    const token = "publisher-list-lock-free-token"
+    const { prototype } = await createAdministeredPrototype({
+      service,
+      store,
+      subject: "publisher-list-lock-free",
+      token,
+    })
+    const provisioned = (await service.createPublisherCredential(token, prototype.id, {
+      name: "Lock-free publisher",
+      actions: ["publish"],
+    })) as { publisher: { id: string } }
+    const identityStoreLock = vi.spyOn(store, "lock")
+    const prototypeLock = await holdPrototypeLock(prisma, prototype.id)
+    const listing = service.listPublishers(token, prototype.id, {})
+
+    const completedWhileLocked = await completesWithin(listing, 1_000)
+    prototypeLock.release()
+    await prototypeLock.holder
+    const page = (await listing) as { items: { id: string }[] }
+
+    expect(completedWhileLocked).toBe(true)
+    expect(page.items).toEqual([expect.objectContaining({ id: provisioned.publisher.id })])
+    expect(identityStoreLock).not.toHaveBeenCalled()
   })
 
   it("does not apply publisher or credential lifecycle operations across prototypes", async () => {

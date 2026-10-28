@@ -94,9 +94,9 @@ export async function createAuthenticationRuntime(environment: NodeJS.ProcessEnv
     admissionPolicy: admissionPolicy.name,
     trustedProxyHops,
   }
-  const artifactStoragePath = path.resolve(
-    environment.HUB_ARTIFACT_STORAGE_PATH ?? path.join(os.homedir(), ".replica", "artifacts"),
-  )
+  const configuredArtifactStoragePath = environment.HUB_ARTIFACT_STORAGE_PATH?.trim()
+  const artifactStoragePath =
+    configuredArtifactStoragePath || path.join(os.homedir(), ".replica", "artifacts")
   return {
     administration: createAdministrationService({ store }),
     artifactPublishing: createArtifactPublishingService({

@@ -1008,43 +1008,35 @@ export function createPrototypeAuthorizationService({
 
     async listPublishers(sessionToken, prototypeId, query) {
       const { cursor, limit } = parsePage(query)
-      return store.lock(async (_records, transaction) => {
-        const actor = await currentSession(store, sessionToken, transaction)
-        requireFreshAuthorization(actor)
-        requireIdentifier(prototypeId, "prototype_not_found", "The prototype was not found.")
-        await lockPrototype(transaction, prototypeId)
-        const { decision } = await prototypeDecision(
-          baseline,
-          transaction,
-          actor.userId,
-          prototypeId,
-        )
-        requireDecision(decision, "administrator")
-        const items = await transaction.workloadPublisher.findMany({
-          where: { prototypeId },
-          orderBy: { id: "asc" },
-          ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-          take: limit + 1,
-          select: {
-            id: true,
-            name: true,
-            actions: true,
-            active: true,
-            createdAt: true,
-            updatedAt: true,
-            credentials: {
-              orderBy: { createdAt: "asc" },
-              select: {
-                id: true,
-                expiresAt: true,
-                revokedAt: true,
-                createdAt: true,
-              },
+      const actor = await currentSession(store, sessionToken)
+      requireFreshAuthorization(actor)
+      requireIdentifier(prototypeId, "prototype_not_found", "The prototype was not found.")
+      const { decision } = await prototypeDecision(baseline, database, actor.userId, prototypeId)
+      requireDecision(decision, "administrator")
+      const items = await database.workloadPublisher.findMany({
+        where: { prototypeId },
+        orderBy: { id: "asc" },
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+        take: limit + 1,
+        select: {
+          id: true,
+          name: true,
+          actions: true,
+          active: true,
+          createdAt: true,
+          updatedAt: true,
+          credentials: {
+            orderBy: { createdAt: "asc" },
+            select: {
+              id: true,
+              expiresAt: true,
+              revokedAt: true,
+              createdAt: true,
             },
           },
-        })
-        return pageResult(items, limit)
+        },
       })
+      return pageResult(items, limit)
     },
 
     async setPublisherActive(sessionToken, prototypeId, publisherId, input) {
