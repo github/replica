@@ -10,7 +10,7 @@ export function createAdmissionPolicy(
 ): AdmissionPolicy {
   const selected = environment.HUB_ADMISSION_POLICY ?? "hub-managed"
   if (selected === "hub-managed") {
-    return { name: "hub-managed", admit: () => Promise.resolve(true) }
+    return { name: "hub-managed", admit: () => Promise.resolve(false) }
   }
   if (selected !== "legacy-repository") {
     throw new Error("HUB_ADMISSION_POLICY must be hub-managed or legacy-repository.")

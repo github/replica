@@ -6,6 +6,7 @@ model ExternalIdentity {
   // Relations
   user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   sessions Session[]
+  activatedInvitations MembershipInvitation[] @relation("ActivatedIdentity")
 
   // Attribute columns
   provider    String

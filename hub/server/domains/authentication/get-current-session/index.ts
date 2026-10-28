@@ -13,5 +13,8 @@ export async function getCurrentSession(
     throw new AuthenticationError(401, "sign_in_required", "Sign in to continue.")
   }
   const membership = await records.membership(session.userId)
+  if (!membership || membership.status !== "active") {
+    throw new AuthenticationError(401, "membership_inactive", "Sign in to continue.")
+  }
   return { ...session, membership }
 }

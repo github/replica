@@ -17,7 +17,7 @@ export function createApp({
   app.disable("x-powered-by")
   app.set("trust proxy", authentication?.settings.trustedProxyHops ?? 0)
   app.use(createRequestLogger(logger))
-  app.use(["/api/auth", "/api/session"], omitRequestLogPayload)
+  app.use(["/api/auth", "/api/session", "/api/administration"], omitRequestLogPayload)
   app.use(express.json())
 
   routes(app, authentication)

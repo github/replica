@@ -6,6 +6,7 @@ model User {
   externalIdentities ExternalIdentity[]
   memberships        InstallationMembership[]
   sessions           Session[]
+  createdInvitations MembershipInvitation[]   @relation("InvitationCreator")
 
   // Attribute columns
   displayName String? @map("display_name")

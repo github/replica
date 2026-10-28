@@ -20,7 +20,7 @@ cp .env.example .env
 npm ci --engine-strict
 ```
 
-The example URL connects to PostgreSQL on `127.0.0.1:5432`. To use another development database, set `DATABASE_URL` in `.env` instead. Do not commit credentials. Set `HUB_GITHUB_AUTH_CLIENT_ID` and `HUB_GITHUB_AUTH_CLIENT_SECRET` to exercise real GitHub sign-in; leave both unset to run Hub with sign-in disabled.
+The example URL connects to PostgreSQL on `127.0.0.1:5432`. To use another development database, set `DATABASE_URL` in `.env` instead. Do not commit credentials. Set `HUB_GITHUB_AUTH_CLIENT_ID` and `HUB_GITHUB_AUTH_CLIENT_SECRET` to exercise real GitHub sign-in; leave both unset to run Hub with sign-in disabled. Set separate `HUB_BOOTSTRAP_SECRET` and `HUB_ADMIN_RECOVERY_SECRET` values to exercise first-administrator enrollment and no-administrator recovery.
 
 ## Start the app
 

@@ -6,7 +6,7 @@ import type {
 } from "#server/integrations/github/create-user-auth-client/types"
 import type { InstallationMembershipRecord } from "#server/repositories/installation-memberships/types"
 
-export type AuthorizationPurpose = "sign-in" | "verify"
+export type AuthorizationPurpose = "sign-in" | "verify" | "bootstrap" | "recovery"
 
 export interface AdmissionPolicy {
   name: "hub-managed" | "legacy-repository"
@@ -22,13 +22,14 @@ export interface AuthenticationSettings {
 }
 
 export interface AuthenticationContext extends SessionContext {
-  membership: InstallationMembershipRecord | null
+  membership: InstallationMembershipRecord
 }
 
 export interface AuthenticationService {
   start(
     purpose: AuthorizationPurpose,
     sessionToken?: string,
+    enrollmentSecret?: string,
   ): Promise<{ authorizationUrl: string; browserToken: string }>
   complete(
     code: string,
@@ -46,5 +47,7 @@ export interface AuthenticationDependencies {
   configuration: GitHubUserAuthConfiguration | null
   providerRevisionId: string | null
   admissionPolicy: AdmissionPolicy
+  bootstrapSecret?: string | null
+  recoverySecret?: string | null
   now: () => Date
 }
