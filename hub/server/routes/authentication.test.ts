@@ -92,6 +92,43 @@ function opaqueOidcCode(length: number): string {
 }
 
 describe("authentication routes", () => {
+  it.each([
+    [
+      "github",
+      "/api/auth/github",
+      "/api/auth/github/callback",
+      "/api/auth/oidc",
+      "/api/auth/oidc/callback",
+    ],
+    [
+      "oidc",
+      "/api/auth/oidc",
+      "/api/auth/oidc/callback",
+      "/api/auth/github",
+      "/api/auth/github/callback",
+    ],
+  ] as const)(
+    "registers only the %s provider initiation and callback pair",
+    async (_providerName, selectedInitiation, selectedCallback, otherInitiation, otherCallback) => {
+      const runtime = authentication({}, true, 0, _providerName)
+      const baseUrl = await serve(runtime)
+
+      expect((await fetch(`${baseUrl}${selectedInitiation}`, { method: "POST" })).status).toBe(403)
+      expect((await fetch(`${baseUrl}${selectedCallback}`, { redirect: "manual" })).status).toBe(
+        303,
+      )
+      expect(
+        (
+          await fetch(`${baseUrl}${otherInitiation}`, {
+            method: "POST",
+            headers: csrfHeaders,
+          })
+        ).status,
+      ).toBe(404)
+      expect((await fetch(`${baseUrl}${otherCallback}`, { redirect: "manual" })).status).toBe(404)
+    },
+  )
+
   it("sets host-bound secure cookies and omits repository scope during GitHub initiation", async () => {
     const runtime = authentication({
       start: vi.fn().mockResolvedValue({

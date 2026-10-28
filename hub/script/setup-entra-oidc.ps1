@@ -80,7 +80,6 @@ function Get-AppRoles {
       Description = "Use Replica Hub"
       DisplayName = "Hub User"
       IsEnabled = $true
-      Origin = "Application"
       Value = "Hub.User"
     },
     @{
@@ -89,7 +88,6 @@ function Get-AppRoles {
       Description = "Administer Replica Hub"
       DisplayName = "Hub Administrator"
       IsEnabled = $true
-      Origin = "Application"
       Value = "Hub.Administrator"
     }
   )
@@ -216,6 +214,15 @@ function Get-ConvergedRoles {
   Assert-ManagedRoleIdsAvailable -Application $Application
   $otherRoles = @($Application.AppRoles).Where({
       $_.Value -notin @("Hub.User", "Hub.Administrator")
+    }).ForEach({
+      @{
+        Id = $_.Id
+        AllowedMemberTypes = @($_.AllowedMemberTypes)
+        Description = $_.Description
+        DisplayName = $_.DisplayName
+        IsEnabled = $_.IsEnabled
+        Value = $_.Value
+      }
     })
   return @($otherRoles) + @(Get-AppRoles)
 }
@@ -228,9 +235,12 @@ function Test-ApplicationDrift {
   )
 
   if ($Application.SignInAudience -ne "AzureADMyOrg") { return $true }
-  $actualRedirectUris = @($Application.Web.RedirectUris) | Sort-Object
-  $expectedRedirectUris = @($DesiredRedirectUris) | Sort-Object
-  if (Compare-Object $actualRedirectUris $expectedRedirectUris) { return $true }
+  $actualRedirectUris = @(@($Application.Web.RedirectUris) | Sort-Object -CaseSensitive)
+  $expectedRedirectUris = @(@($DesiredRedirectUris) | Sort-Object -CaseSensitive)
+  if ($actualRedirectUris.Count -ne $expectedRedirectUris.Count) { return $true }
+  for ($index = 0; $index -lt $actualRedirectUris.Count; $index += 1) {
+    if ($actualRedirectUris[$index] -cne $expectedRedirectUris[$index]) { return $true }
+  }
 
   foreach ($desired in Get-AppRoles) {
     $actual = @($Application.AppRoles).Where({ $_.Value -eq $desired.Value })
@@ -382,7 +392,13 @@ function Invoke-Plan {
       Get-AssignmentChanges -ServicePrincipal $servicePrincipal `
         -UserGroups $UserGroupId -AdministratorGroups $AdministratorGroupId
     }
-    else { [pscustomobject] @{ Missing = @(); Obsolete = @() } }
+    else {
+      [pscustomobject] @{
+        Missing = @(Get-DesiredAssignments -UserGroups $UserGroupId `
+            -AdministratorGroups $AdministratorGroupId)
+        Obsolete = @()
+      }
+    }
     foreach ($assignment in $changes.Missing) {
       $actions += "Assign group '$($assignment.GroupId)' to $($assignment.Role)."
     }

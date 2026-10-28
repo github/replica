@@ -70,18 +70,26 @@ export function routes(app: Express, authentication?: AuthenticationRoutes): voi
     limit: 60,
     windowMilliseconds: 5 * 60_000,
   })
-  app.post("/api/auth/github", initiationLimit, handleApiAuthGithubPost.bind(null, authentication))
-  app.get(
-    "/api/auth/github/callback",
-    callbackLimit,
-    handleApiAuthGithubCallbackGet.bind(null, authentication),
-  )
-  app.post("/api/auth/oidc", initiationLimit, handleApiAuthOidcPost.bind(null, authentication))
-  app.get(
-    "/api/auth/oidc/callback",
-    callbackLimit,
-    handleApiAuthOidcCallbackGet.bind(null, authentication),
-  )
+  if (authentication.settings.provider === "github") {
+    app.post(
+      "/api/auth/github",
+      initiationLimit,
+      handleApiAuthGithubPost.bind(null, authentication),
+    )
+    app.get(
+      "/api/auth/github/callback",
+      callbackLimit,
+      handleApiAuthGithubCallbackGet.bind(null, authentication),
+    )
+  }
+  if (authentication.settings.provider === "oidc") {
+    app.post("/api/auth/oidc", initiationLimit, handleApiAuthOidcPost.bind(null, authentication))
+    app.get(
+      "/api/auth/oidc/callback",
+      callbackLimit,
+      handleApiAuthOidcCallbackGet.bind(null, authentication),
+    )
+  }
   app.get("/api/session", handleApiSessionGet.bind(null, authentication))
   app.delete("/api/session", handleApiSessionDelete.bind(null, authentication))
   app.post(

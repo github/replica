@@ -3,7 +3,13 @@ export interface InstallationMembershipInput {
   status: "active" | "suspended" | "removed"
   role: "member" | "administrator"
   source:
-    "bootstrap" | "invitation" | "legacy-synchronized" | "manual" | "recovery" | "synchronized"
+    | "bootstrap"
+    | "invitation"
+    | "legacy-synchronized"
+    | "manual"
+    | "oidc-assignment"
+    | "recovery"
+    | "synchronized"
   suspendedAt?: Date | null
   removedAt?: Date | null
 }

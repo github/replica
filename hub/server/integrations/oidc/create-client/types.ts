@@ -14,6 +14,7 @@ export interface OidcConfiguration {
 
 export interface OidcProfile {
   subject: string
+  directoryObjectId?: string | null
   username: string | null
   email: string | null
   displayName: string | null

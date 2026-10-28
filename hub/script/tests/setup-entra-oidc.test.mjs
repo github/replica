@@ -62,12 +62,38 @@ describe("setup-entra-oidc.ps1", () => {
       /foreach \(\$assignment in \$changes\.Missing\)[\s\S]*New-MgGroupAppRoleAssignment/,
     )
     assert.match(drift, /AzureADMyOrg/)
-    assert.match(drift, /Compare-Object \$actualRedirectUris \$expectedRedirectUris/)
+    assert.match(drift, /Sort-Object -CaseSensitive/)
+    assert.match(drift, /\$actualRedirectUris\.Count -ne \$expectedRedirectUris\.Count/)
+    assert.match(drift, /\$actualRedirectUris\[\$index\] -cne \$expectedRedirectUris\[\$index\]/)
     assert.match(apply, /Assert-GroupsExist[\s\S]*Resolve-Application/)
     assert.match(
       apply,
       /Get-AssignmentChanges[\s\S]*foreach \(\$assignment in \$changes\.Missing\)/,
     )
+  })
+
+  it("keeps app roles writable and projects preserved roles to writable fields", () => {
+    const desiredRoles = functionBody("Get-AppRoles")
+    const convergedRoles = functionBody("Get-ConvergedRoles")
+
+    assert.doesNotMatch(desiredRoles, /\bOrigin\b/)
+    assert.match(convergedRoles, /Id = \$_.Id/)
+    assert.match(convergedRoles, /AllowedMemberTypes = @\(\$_.AllowedMemberTypes\)/)
+    assert.match(convergedRoles, /Description = \$_.Description/)
+    assert.match(convergedRoles, /DisplayName = \$_.DisplayName/)
+    assert.match(convergedRoles, /IsEnabled = \$_.IsEnabled/)
+    assert.match(convergedRoles, /Value = \$_.Value/)
+    assert.doesNotMatch(convergedRoles, /\bOrigin\s*=/)
+  })
+
+  it("treats empty and case-changed redirect URI lists as drift", () => {
+    const drift = functionBody("Test-ApplicationDrift")
+
+    assert.match(drift, /@\(@\(\$Application\.Web\.RedirectUris\) \| Sort-Object -CaseSensitive\)/)
+    assert.match(drift, /@\(@\(\$DesiredRedirectUris\) \| Sort-Object -CaseSensitive\)/)
+    assert.match(drift, /\$actualRedirectUris\.Count -ne \$expectedRedirectUris\.Count/)
+    assert.match(drift, /-cne/)
+    assert.doesNotMatch(drift, /\bCompare-Object\b/)
   })
 
   it("limits obsolete assignments to managed group roles and preserves unrelated assignments", () => {
@@ -93,6 +119,16 @@ describe("setup-entra-oidc.ps1", () => {
     )
     assert.match(plan, /if \(\$assignment\.AppRoleId -eq \$userRoleId\) \{ "Hub\.User" \}/)
     assert.match(plan, /else \{ "Hub\.Administrator" \}/)
+  })
+
+  it("reports every desired assignment when the application exists without a service principal", () => {
+    const plan = functionBody("Invoke-Plan")
+
+    assert.match(
+      plan,
+      /else \{\s*\[pscustomobject\] @\{\s*Missing = @\(Get-DesiredAssignments -UserGroups \$UserGroupId/,
+    )
+    assert.match(plan, /-AdministratorGroups \$AdministratorGroupId\)\s*Obsolete = @\(\)/)
   })
 
   it("removes obsolete managed group assignments during apply", () => {

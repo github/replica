@@ -159,6 +159,7 @@ describe("createOidcClient()", () => {
     const key = await signingKey()
     const token = await idToken(key, {
       roles: ["Hub.User", "Hub.Administrator", 42],
+      oid: "A0E1D2C3-B4A5-4678-9ABC-DEF012345678",
     })
     const request = providerFetch({ token, keys: [key.jwk] })
     const client = createOidcClient(configuration, { fetch: request })
@@ -167,6 +168,7 @@ describe("createOidcClient()", () => {
 
     expect(profile).toEqual({
       subject: "immutable-subject",
+      directoryObjectId: "a0e1d2c3-b4a5-4678-9abc-def012345678",
       username: "member@example.test",
       email: "member@example.test",
       displayName: "Member Name",
@@ -202,6 +204,7 @@ describe("createOidcClient()", () => {
     ["authorized party", { azp: "different-client" }],
     ["multi-audience authorized party", { aud: ["hub-client", "other-client"] }],
     ["issued-at", { iat: Math.floor(Date.now() / 1_000) + 60 }],
+    ["expiration", { exp: undefined }],
     [
       "lifetime",
       {
@@ -217,6 +220,18 @@ describe("createOidcClient()", () => {
     })
 
     await expect(client.identify("code", "verifier", "expected-nonce")).rejects.toThrow()
+  })
+
+  it("rejects a malformed directory object ID instead of treating it as an assignment identifier", async () => {
+    const key = await signingKey()
+    const token = await idToken(key, { oid: "not-a-directory-object-id" })
+    const client = createOidcClient(configuration, {
+      fetch: providerFetch({ token, keys: [key.jwk] }),
+    })
+
+    await expect(client.identify("code", "verifier", "expected-nonce")).rejects.toThrow(
+      "OIDC directory object ID is invalid.",
+    )
   })
 
   it("rejects an ID token signed by a key outside the provider JWKS", async () => {

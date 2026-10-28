@@ -3,6 +3,7 @@ export interface ExternalIdentityInput {
   provider: string
   issuer: string
   subject: string
+  directoryObjectId?: string | null
   username: string | null
   email?: string | null
   displayName: string | null
@@ -11,5 +12,6 @@ export interface ExternalIdentityInput {
 
 export interface HubExternalIdentity extends ExternalIdentityInput {
   id: string
+  directoryObjectId: string | null
   email: string | null
 }

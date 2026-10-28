@@ -85,6 +85,7 @@ export async function completeOidcAuthorization(
       const session = attempt.originatingSessionId
         ? await records.sessionById(attempt.originatingSessionId)
         : null
+      const membership = session ? await records.membership(session.userId) : null
       if (
         !session ||
         session.externalIdentity.provider !== "oidc" ||
@@ -92,6 +93,22 @@ export async function completeOidcAuthorization(
         session.externalIdentity.subject !== profile.subject
       ) {
         throw new AuthenticationError(403, "identity_mismatch", "Verify the same OIDC identity.")
+      }
+      if (!profile.role || membership?.status !== "active" || membership.role !== profile.role) {
+        await records.audit({
+          event: "session.verify",
+          outcome: "denied",
+          actorUserId: session.userId,
+          sessionId: session.id,
+          authenticationProviderRevisionId: oidcProviderRevisionId,
+          targetMembershipId: membership?.id ?? null,
+          context: { reason: "provider_role_changed" },
+        })
+        throw new AuthenticationError(
+          403,
+          "provider_role_changed",
+          "Your provider role changed. Sign in again.",
+        )
       }
       await records.verifySession(session.id, now())
       await records.audit({
@@ -117,9 +134,13 @@ export async function completeOidcAuthorization(
     }
     let identity = await records.externalIdentity("oidc", oidcConfiguration.issuer, profile.subject)
     let membership = identity ? await records.membership(identity.userId) : null
+    const invitationSubject = profile.directoryObjectId
     const invitation =
-      purpose === "sign-in" && membership?.status !== "active" && membership?.status !== "suspended"
-        ? await records.usableInvitation("oidc", oidcConfiguration.issuer, profile.subject, now())
+      purpose === "sign-in" &&
+      invitationSubject &&
+      membership?.status !== "active" &&
+      membership?.status !== "suspended"
+        ? await records.usableInvitation("oidc", oidcConfiguration.issuer, invitationSubject, now())
         : null
     if (
       purpose === "sign-in" &&
@@ -136,15 +157,37 @@ export async function completeOidcAuthorization(
         sessionId: null,
         authenticationProviderRevisionId: oidcProviderRevisionId,
         targetMembershipId: membership?.id ?? null,
-        context: { reason: membership?.status ?? "invitation_required" },
+        context: {
+          reason:
+            membership?.status ??
+            (invitationSubject ? "invitation_required" : "directory_object_id_missing"),
+        },
       })
       return { denied: true as const }
     }
     if (purpose === "bootstrap") {
       const completed =
         (await records.activeAdministratorCount()) === 0 && (await records.completeBootstrap(now()))
-      if (!completed) return { denied: true as const }
+      if (!completed) {
+        await records.audit({
+          event: "membership.bootstrap",
+          outcome: "denied",
+          actorUserId: identity?.userId ?? null,
+          sessionId: null,
+          authenticationProviderRevisionId: oidcProviderRevisionId,
+          context: { reason: "unavailable" },
+        })
+        return { denied: true as const }
+      }
     } else if (purpose === "recovery" && (await records.activeAdministratorCount()) > 0) {
+      await records.audit({
+        event: "membership.recovery",
+        outcome: "denied",
+        actorUserId: identity?.userId ?? null,
+        sessionId: null,
+        authenticationProviderRevisionId: oidcProviderRevisionId,
+        context: { reason: "active_administrator_exists" },
+      })
       return { denied: true as const }
     }
     if (!identity) {
@@ -157,6 +200,7 @@ export async function completeOidcAuthorization(
         provider: "oidc",
         issuer: oidcConfiguration.issuer,
         subject: profile.subject,
+        directoryObjectId: profile.directoryObjectId,
         username: profile.username,
         email: profile.email,
         displayName: profile.displayName,
@@ -172,6 +216,7 @@ export async function completeOidcAuthorization(
         provider: "oidc",
         issuer: oidcConfiguration.issuer,
         subject: profile.subject,
+        directoryObjectId: profile.directoryObjectId,
         username: profile.username,
         email: profile.email,
         displayName: profile.displayName,
@@ -236,7 +281,7 @@ export async function completeOidcAuthorization(
         userId: identity.userId,
         status: "active",
         role: profile.role,
-        source: "synchronized",
+        source: "oidc-assignment",
         suspendedAt: null,
         removedAt: null,
       })
