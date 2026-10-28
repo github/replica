@@ -23,7 +23,7 @@ en:
       complete: The App and approved installation are connected. Enroll a Hub operator at /operator/enrollment, verify GitHub sign-in, and check a supported webhook delivery. Connection does not verify the OAuth client secret or webhook delivery.
       confirm: I approve this App and installation for this Hub. I have checked the installation's account and selected repositories, configured the webhook, and understand that App credentials and webhook settings affect every installation of this App.
       key_label: Private keys - PEM file
-      key_hint: In the App's General settings, choose Generate a private key. Upload the downloaded PEM file (at most 16 KiB). Credentials are never shown again; re-enter them after an error.
+      key_hint: In the App's settings, open Credentials (or General in older layouts), then Private keys and Generate a private key. Upload the downloaded PEM file (at most 16 KiB). Credentials are never shown again; re-enter them after an error.
       invalid_key: Upload a PEM private key of at most 16 KiB.
       failed: Hub could not connect the App. Check the credentials, App and installation IDs, active installation status, and GitHub connectivity. No configuration was saved. Re-enter the credentials and try again.
       settings:
@@ -50,19 +50,19 @@ en:
         - title: 4. Install App
           body: Choose Install App, select the intended account, and choose Only select repositories. Select the prototype repositories for this Hub. If approval is required, an authorized administrator must complete it. Copy the numeric installation ID from the resulting installation settings URL (the number after /installations/). Hub connects only this installation and will not automatically select a replacement.
         - title: 5. Credentials and confirmation
-          body: From the App's General settings, copy App ID and Client ID, choose Generate a new client secret, and generate a private key. Enter those values below, together with the webhook secret and installation ID. Hub verifies App and installation identity and reads the installation's repositories before saving. This verifies the private key, not the OAuth client secret, webhook delivery, or end-user sign-in; verify those separately after connection. Setup expires after 15 minutes.
+          body: In the App's settings, copy App ID and Client ID. Open Credentials (or General in older layouts) to generate a client secret and private key. Enter those values below, together with the webhook secret and installation ID. Hub verifies App and installation identity and reads the installation's repositories before saving. This verifies the private key, not the OAuth client secret, webhook delivery, or end-user sign-in; verify those separately after connection. Setup expires after 15 minutes.
       fields:
         - name: app_id
           label: App ID
-          hint: Copy App ID from the App's General settings, not its installation ID.
+          hint: Copy App ID from the App's settings, not its installation ID.
           secret: false
         - name: client_id
           label: Client ID
-          hint: Copy Client ID from the same App's General settings.
+          hint: Copy Client ID from the same App's settings.
           secret: false
         - name: client_secret
           label: Client secrets - generated secret
-          hint: Generate a client secret in General settings and copy it here (at most 4 KiB).
+          hint: In Credentials (or General in older layouts), generate a client secret and copy it here (at most 4 KiB).
           secret: true
         - name: webhook_secret
           label: Webhook secret

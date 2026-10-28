@@ -19,7 +19,7 @@ const meta = {
         "I approve this App and installation for this Hub. I have checked the installation's account and selected repositories, configured the webhook, and understand that App credentials and webhook settings affect every installation of this App.",
       keyLabel: "Private keys - PEM file",
       keyHint:
-        "In the App's General settings, choose Generate a private key. Upload the downloaded PEM file (at most 16 KiB). Credentials are never shown again; re-enter them after an error.",
+        "In the App's settings, open Credentials (or General in older layouts), then Private keys and Generate a private key. Upload the downloaded PEM file (at most 16 KiB). Credentials are never shown again; re-enter them after an error.",
       instructions: [
         {
           title: "1. General",
@@ -39,7 +39,7 @@ const meta = {
         },
         {
           title: "5. Credentials and confirmation",
-          body: "From the App's General settings, copy App ID and Client ID, choose Generate a new client secret, and generate a private key. Enter those values below, together with the webhook secret and installation ID. Hub verifies App and installation identity and reads the installation's repositories before saving. This verifies the private key, not the OAuth client secret, webhook delivery, or end-user sign-in; verify those separately after connection. Setup expires after 15 minutes.",
+          body: "In the App's settings, copy App ID and Client ID. Open Credentials (or General in older layouts) to generate a client secret and private key. Enter those values below, together with the webhook secret and installation ID. Hub verifies App and installation identity and reads the installation's repositories before saving. This verifies the private key, not the OAuth client secret, webhook delivery, or end-user sign-in; verify those separately after connection. Setup expires after 15 minutes.",
         },
       ],
       settings: [
@@ -59,19 +59,19 @@ const meta = {
         {
           name: "app_id",
           label: "App ID",
-          hint: "Copy App ID from the App's General settings, not its installation ID.",
+          hint: "Copy App ID from the App's settings, not its installation ID.",
           secret: false,
         },
         {
           name: "client_id",
           label: "Client ID",
-          hint: "Copy Client ID from the same App's General settings.",
+          hint: "Copy Client ID from the same App's settings.",
           secret: false,
         },
         {
           name: "client_secret",
           label: "Client secrets - generated secret",
-          hint: "Generate a client secret in General settings and copy it here (at most 4 KiB).",
+          hint: "In Credentials (or General in older layouts), generate a client secret and copy it here (at most 4 KiB).",
           secret: true,
         },
         {
