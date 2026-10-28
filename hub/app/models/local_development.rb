@@ -46,7 +46,8 @@ class LocalDevelopment
     directory = Dir.mktmpdir("replica-example-", root.to_s)
     begin
       checkout = Pathname(directory)
-      FileUtils.cp_r(Rails.root.join("../starter").children, checkout)
+      FileUtils.cp_r(Rails.root.join("../starters/shared").children, checkout)
+      FileUtils.cp_r(Rails.root.join("../starters/minimal").children, checkout)
       example_git!(checkout, "init", "-b", "main")
       seed_example_templates!(checkout)
       example_git!(checkout, "add", ".")

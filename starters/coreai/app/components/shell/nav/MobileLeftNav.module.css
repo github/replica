@@ -1,0 +1,37 @@
+/*
+ * Copyright (c) Microsoft Corporation.
+ * Licensed under the MIT license.
+ */
+
+.drawer {
+  /* stylelint-disable-next-line custom-property-pattern */
+  --fui-Drawer--size: 380px;
+}
+
+.body {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: var(--spacingXS);
+  padding: var(--spacingM);
+}
+
+.topNav {
+  display: flex;
+  flex-flow: row wrap;
+}
+
+.linkList {
+  padding: var(--spacingXL) 0 0 0;
+}
+
+.iconsAboveNav {
+  display: none;
+  flex-direction: row;
+}
+
+@container app (width <= 620px) {
+  .iconsAboveNav {
+    display: flex;
+  }
+}

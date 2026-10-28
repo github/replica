@@ -1,0 +1,11 @@
+/*
+ * Copyright (c) Microsoft Corporation.
+ * Licensed under the MIT license.
+ */
+
+.skeleton {
+  display: inline-block;
+  width: 80%;
+  height: 16px;
+  border-radius: var(--borderRadiusSmall);
+}

@@ -83,11 +83,11 @@ Set `REPLICA_CANVAS_SCREENSHOT=/tmp/pick-and-polish.png` when running that comma
 
 Neutral canvas toolbar toggles use Brand's secondary hover fill when selected or expanded. Hovering or pressing a selected button uses Brand's darker secondary active fill. Unselected and disabled styling stays with the original components. Numeric counters across the canvas use a transparent 10% fill of the theme's neutral foreground token: dark in light appearance and light in dark appearance. Counts inherit their surrounding text color, including on green actions, without tinting the counter background. Outside the canvas, counters retain their existing styling.
 
-When Controls has finished connecting with no active controls and no errors, its footer offers a left-aligned, green **Learn more** link with an external-link icon. The link is vertically centered in the footer and opens the starter's [Prototype controls README](../../starter/README.md#prototype-controls) in a new tab. Populated, loading and error states do not show it.
+When Controls has finished connecting with no active controls and no errors, its footer offers a left-aligned, green **Learn more** link with an external-link icon. The link is vertically centered in the footer and opens the shared [Prototype controls guide](../../starters/shared/REPLICA.md#prototype-controls) in a new tab. Populated, loading and error states do not show it.
 
 The source canvas lets prototype authors change ordinary app state without editing files. The sliders icon in the toolbar opens a slim, canvas-owned panel over the left of the preview, separate from Hub review UI. It supports boolean, number, select, radio, segmented, slider, checkboxGroup, text, textarea, color and button fields, plus one-level groups. Conditions are declarative JSON; neither schemas nor host messages select arbitrary components or executable URLs.
 
-Authors put version-1 definitions in `public/controls.replica.json`, served at `/controls.replica.json`. Each control includes a binding to native fields/buttons, styles, query/hash settings or optional app-owned APIs. The Copilot plugin and [Hub Build previews](preview-serving.md#prototype-controls) supply one shared injected adapter. Each Build retains its own definitions. The [authoring reference](../../starter/.agents/skills/prototype-controls/references/authoring.md) owns the JSON and binding contract.
+Authors put version-1 definitions in `public/controls.replica.json`, served at `/controls.replica.json`. Each control includes a binding to native fields/buttons, styles, query/hash settings or optional app-owned APIs. The Copilot plugin and [Hub Build previews](preview-serving.md#prototype-controls) supply one shared injected adapter. Each Build retains its own definitions. The [authoring reference](../../starters/shared/.agents/skills/prototype-controls/references/authoring.md) owns the JSON and binding contract.
 
 ### Connection and state
 
@@ -243,14 +243,14 @@ browser approval again; connecting never pushes a branch.
 ### Deterministic publication example
 
 The Storybook **Components / Prototype canvas / Publication example / Playground** reuses
-the existing `starter/` welcome prototype in an iframe and runs the real canvas renderer
+the existing `starters/minimal/` welcome prototype in an iframe and runs the real canvas renderer
 against story-only fixtures. It needs no GitHub credentials or Hub and makes no real
 publication, approval, or registration requests. Production detection has no demo mode.
 
 In the devcontainer, run the existing starter from the repository root:
 
 ```sh
-cd starter
+cd starters/minimal
 npm run dev -- --host 0.0.0.0 --port 38763
 ```
 
@@ -505,7 +505,7 @@ The proxy rejects requests marked cross-site by the browser, even without an `Or
 
 CSP, framing protections and HTTPS certificate verification are preserved. Policies that block framing or same-origin module scripts remain blockers; the extension does not copy script nonces or relax protections. HTML is limited to 8 MiB after decompression. Buffered HTML keeps the upstream's 30-second inactivity timeout; pass-through streaming responses do not. Unsupported encoding, delivery and upstream failures return explicit proxy errors. This is not a general or authenticated reverse proxy.
 
-The canvas periodically checks the exact proxy iframe source, origin, nonce, protocol version and route. Reloads reset readiness; missing or incompatible responses disable targeting, not existing conversations. **Fix with Copilot** requests scoped, read-only connection diagnosis first, with separate approval before repairs or repository commands. **Dismiss** keeps the preview usable, and recovery is detected automatically. See the starter's [connection troubleshooting](../../starter/SETUP.md#canvas-commenting).
+The canvas periodically checks the exact proxy iframe source, origin, nonce, protocol version and route. Reloads reset readiness; missing or incompatible responses disable targeting, not existing conversations. **Fix with Copilot** requests scoped, read-only connection diagnosis first, with separate approval before repairs or repository commands. **Dismiss** keeps the preview usable, and recovery is detected automatically. See the starter's [connection troubleshooting](../../starters/shared/SETUP.md#canvas-commenting).
 
 The full runtime remains in `hub/app/javascript/application/prototype-preview-bridge/`. Plain static servers now support local selection, markers, route reporting and agent clicks when opened through the proxy. Standalone pages and published Hub commenting are unchanged. Updating the installed extension and reopening the canvas selects its current runtime without prototype-file changes.
 
@@ -577,7 +577,7 @@ The Hub client exports its connection, request, status and recall contracts from
 
 Hub builds renderer files, Brand fonts and browser runtime into the plugin's `assets/`; commit them so installed users need no Node packages. Build configuration lives in `hub/vite.prototype-canvas.config.mjs` and `hub/script/`. Generated assets are excluded from formatting checks; do not edit them manually. There is no Vite/npm distribution or release preparation.
 
-The extension build also copies the `review-hub-feedback` skill directory, including its supporting references, from its canonical starter source into the plugin's skills. Edit `starter/.agents/skills/review-hub-feedback/`, rebuild, and commit the generated plugin copy together. Asset freshness checks cover the copied skill. The separate proposal skill is not bundled; its handoff remains unavailable unless that skill is installed independently.
+The extension build also copies the `review-hub-feedback` skill directory, including its supporting references, from its canonical starter source into the plugin's skills. Edit `starters/shared/.agents/skills/review-hub-feedback/`, rebuild, and commit the generated plugin copy together. Asset freshness checks cover the copied skill. The separate proposal skill is not bundled; its handoff remains unavailable unless that skill is installed independently.
 
 For example, a preview reload must cancel an unconfirmed click without losing a command already dequeued by the agent. Test each hook's public behavior beside its implementation, using fake timers for polling and timeouts. Keep cross-feature checks under `application/prototype-canvas/tests/`, including iframe preservation, focus restoration and explicit publication or sharing actions. Keep `index.test.tsx` beside the application component and test-only orchestration helpers under its `tests/`. Shared publication fixtures stay with the publication utility so lower-layer tests do not import application code. Create fresh fixtures inside each case without suite-level reset hooks. Shared jsdom setup supplies stateless browser shims and restores real timers; Vitest configuration resets mocks and stubbed globals before each case.
 

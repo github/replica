@@ -16,7 +16,7 @@ it("resolves the marketplace's relative source to the shipped plugin", async () 
   )
   const manifest = JSON.parse(await readFile(new URL(`${plugin.source}/plugin.json`, root)))
   assert.equal(manifest.name, plugin.name)
-  assert.equal(manifest.version, "1.5.2")
+  assert.equal(manifest.version, "1.5.3")
   const skill = await readFile(
     new URL(`${plugin.source}/skills/replica-publish-prototype/SKILL.md`, root),
     "utf8",
@@ -29,7 +29,10 @@ it("resolves the marketplace's relative source to the shipped plugin", async () 
   assert.equal(
     reviewSkill,
     (
-      await readFile(new URL("starter/.agents/skills/review-hub-feedback/SKILL.md", root), "utf8")
+      await readFile(
+        new URL("starters/shared/.agents/skills/review-hub-feedback/SKILL.md", root),
+        "utf8",
+      )
     ).replaceAll("\r\n", "\n"),
     "The shipped review skill matches its canonical starter source.",
   )
@@ -39,7 +42,7 @@ it("resolves the marketplace's relative source to the shipped plugin", async () 
       "utf8",
     ),
     await readFile(
-      new URL("starter/.agents/skills/review-hub-feedback/references/handoff.md", root),
+      new URL("starters/shared/.agents/skills/review-hub-feedback/references/handoff.md", root),
       "utf8",
     ),
     "The shipped review skill includes its private handoff contract.",

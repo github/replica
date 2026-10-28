@@ -1,0 +1,18 @@
+/*
+ * Copyright (c) Microsoft Corporation.
+ * Licensed under the MIT license.
+ */
+
+.menu {
+  min-width: 240px;
+  max-width: min(360px, calc(100vw - 16px));
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+}
+
+.footer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacingS);
+  padding: var(--spacingS);
+}

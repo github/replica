@@ -100,6 +100,10 @@ test("path selection keeps documentation and installer scripts out while coverin
     "scripts/create-prototype-repo.test.mjs",
     "scripts/install-starter.sh",
     "scripts/setup-replica-plugin.test.mjs",
+    "starters/catalog.tsv",
+    "scripts/starter-catalog.sh",
+    "scripts/check-starter.sh",
+    "scripts/starter-ci-matrix.sh",
   ]
   for (const path of excluded) {
     assert.deepEqual(selectCiSuites([path]), { hub: false, build_action: false }, path)
@@ -110,12 +114,17 @@ test("path selection keeps documentation and installer scripts out while coverin
     ".github/extensions/replica-prototype/extension.mjs",
     ".github/plugin/README.md",
     "packages/learning/src/index.mjs",
-    "starter/.agents/skills/prototype-controls/SKILL.md",
-    "starter/src/app/router.tsx",
-    "starter/package-lock.json",
-    "starter/.prototype",
-    "starter/.agents/skills/setup-skills/SKILL.md",
-    "starter/src/App.jsx",
+    "starters/minimal/.agents/skills/prototype-controls/SKILL.md",
+    "starters/minimal/src/app/router.tsx",
+    "starters/minimal/package-lock.json",
+    "starters/minimal/.prototype",
+    "starters/minimal/.agents/skills/setup-skills/SKILL.md",
+    "starters/minimal/src/App.jsx",
+    "starters/shared/.agents/skills/setup-skills/SKILL.md",
+    "starters/shared/scripts/setup-replica-plugin.mjs",
+    "starters/coreai/src/App.tsx",
+    "starters/coreai/package-lock.json",
+    "starters/future-team/src/App.tsx",
   ]) {
     assert.deepEqual(selectCiSuites([path]), { hub: true, build_action: false }, path)
   }
@@ -129,7 +138,7 @@ test("path selection keeps documentation and installer scripts out while coverin
 
 test("mixed changes union selections and unknown or CI configuration paths select both suites", () => {
   assert.deepEqual(
-    selectCiSuites(["docs/guide.md", "hub/app/models/prototype.rb", "starter/src/App.jsx"]),
+    selectCiSuites(["docs/guide.md", "hub/app/models/prototype.rb", "starters/minimal/src/App.jsx"]),
     { hub: true, build_action: false },
   )
   for (const path of [
@@ -151,9 +160,14 @@ test("pushes always select both suites while pull requests diff from their merge
   writeFile(repo, "hub/base-only.rb")
   const base = commit(repo, "change base")
   git(repo, "switch", "--quiet", "-c", "head", common)
-  writeFile(repo, "docs/release\nhub/not-a-path.rb")
+  // Keep the newline path in Git's index; Windows cannot create it on disk.
   writeFile(repo, "docs/guide.md")
-  const head = commit(repo, "change pull request")
+  git(repo, "add", "--all")
+  const blob = git(repo, "rev-parse", `${common}:README.md`)
+  git(repo, "config", "core.protectNTFS", "false")
+  git(repo, "update-index", "--add", "--cacheinfo", `100644,${blob},docs/release\nhub/not-a-path.rb`)
+  git(repo, "commit", "--quiet", "-m", "change pull request")
+  const head = git(repo, "rev-parse", "HEAD")
 
   assert.deepEqual(selectChangedFiles(repo, "pull_request", base, head), {
     hub: false,

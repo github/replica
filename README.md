@@ -2,40 +2,49 @@
   <img src=".github/assets/replica-readme-banner.png" alt="Replica" width="1200">
 </p>
 
-# Replica: An open-source prototyping tool
+# Replica: An open-source AI prototyping tool
 
-Replica helps your entire product team prototype with your design system. It's an open-source tool that uses AI to turn ideas into interactive prototypes, guided by your components, patterns, and documentation.
+Turn ideas into interactive prototypes using your own design system. Replica is an open-source, AI-powered prototyping tool created by GitHub Design for designers, product managers, and engineers.
 
-Designers create and approve the guidance. People across design, product, and engineering can then describe a change in the GitHub Copilot app, try the result, and refine it with their team and users.
+Designers define the guidance using your team's components, patterns, and documentation. Anyone on the product team can then use natural language in the GitHub Copilot app to create and refine prototypes that reflect how your product works. You can start locally without a server, domain, or Replica Hub.
 
-Use prototypes to test assumptions and work through questions together. Your team still decides what should ship and how to build it.
+## What can you do with Replica?
 
-Replica is MIT-licensed. You can prototype locally without a server or set up Replica Hub for hosting and commenting.
+- **Prototype with your design system:** Use your existing components, patterns, and approved guidance to shape AI-generated prototypes.
+- **Turn ideas into interactive experiences:** Describe what you want to explore, then see, test, and refine the result beside your Copilot conversation.
+- **Collaborate and gather feedback:** Publish prototypes to an optional Replica Hub hosted by your organization, where teammates can explore them and leave comments.
+- **Adapt Replica to your team:** Customize the open-source tooling and guidance to fit your product and workflows.
 
-## Try Replica
+## See Replica in action
 
-Explore Replica before setting anything up.
+https://github.com/user-attachments/assets/36547180-aca9-43cc-8931-b538f0883885
 
-[<img width="960" height="540" alt="Watch the Replica introduction on YouTube" src="https://github.com/user-attachments/assets/ca887541-e5b7-4634-a9e0-c6eec673b243" />](https://www.youtube.com/watch?v=J2Z28CwIfsA)
+<details>
+<summary>Demo video music credits</summary>
+
+*Music: [“Electrodoodle”](https://incompetech.com/music/royalty-free/index.html?isrc=USUAN1200079) by Kevin MacLeod ([incompetech.com](http://incompetech.com/)), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Excerpted, level-adjusted and faded for this video.*
+
+</details>
+
+[Watch the Replica introduction on YouTube](https://www.youtube.com/watch?v=J2Z28CwIfsA).
 
 ## Get started with Replica
 
-Replica has four parts:
+You don't need to set up everything at once. Start with the guide that matches your next step: trying Replica locally, setting up hosting, or joining your team's existing repository and Hub.
 
-| Part | What it does |
+| Your goal | Start here |
 | --- | --- |
-| **Starter** | Creates a local prototype project with agent skills and a working app you can adapt. |
-| **Copilot canvas extension** | Opens your local prototype alongside your Copilot conversation. |
-| **Replica Hub (optional)** | Hosts published prototypes so your team can try them and leave comments. |
-| **GitHub build action** | Builds prototypes for publishing to Hub. It is not needed for local prototyping. |
+| Start or continue prototyping locally | [Create your first local prototype](docs/local-prototyping.md). Use the starter or an existing prototype repository, add team guidance, and build something useful. No Hub required. |
+| Set up hosting and comments for your team | [Set up shared hosting and team feedback](docs/prototype-environment.md). Check hosting needs early, build with your team's design guidance, and connect Hub when it is ready. |
+| Join a team with a repository and Hub already in use | [Join your team's Replica environment](docs/getting-started.md). Use its existing setup to create, publish, and review a prototype. |
 
-**Ready to make prototypes?** Follow [Get started with Replica](docs/getting-started.md) to install the GitHub Copilot app, add your team's prototyping repository, install the canvas, and create your first prototype. It also covers connecting to Hub, publishing, sharing and commenting, and adding controls.
+If hosting is blocked, you can work locally and connect the same repository later.
 
-**Creating a prototyping repository?** Point your agent at [prototype repository setup](docs/prototype-repository-setup.md). It covers new and existing repositories, getting the starter running locally, and continuing with product guidance or a shared team baseline. Local prototyping needs no Hub.
+### What you need
 
-**Setting up Replica for your organization?** Follow [environment setup](docs/prototype-environment.md) to add shared guidance and starting pages, deploy Hub, and connect publishing and team feedback. Your organization deploys and runs Hub on its own infrastructure. GitHub doesn't host it.
+**Local prototyping** uses the [GitHub Copilot app](https://github.com/features/ai/github-app), Git, and Node.js with npm on macOS or Linux. Each walkthrough covers installation and the repository's requirements.
 
-**How did setup go?** [Share your feedback](https://survey.alchemer.com/s3/9055055/Replica-feedback). It helps us make Replica easier to start.
+**Hosted publishing and comments** also need a Linux server, a dedicated domain with wildcard DNS and HTTPS, network access, and GitHub permissions and approvals. The hosting guide starts with these checks.
 
 ### Copilot requirements
 
@@ -43,6 +52,22 @@ Replica has four parts:
 - **Model access:** use GitHub-hosted models with a Copilot plan, or [connect your own model provider](https://docs.github.com/en/copilot/how-tos/github-copilot-app/use-byok-models) without a Copilot plan.
 - **Your own provider:** this option is in public preview and subject to change. The provider's costs and terms apply.
 - **Viewing and review:** viewing a finished prototype or reviewing it in Hub does not require a Copilot subscription.
+
+## What's included
+
+| Part | What it does |
+| --- | --- |
+| **Starters** | Ready-made apps to build your prototype from, with shared skills for Copilot. |
+| **Replica plugin** | Adds the Replica canvas to Copilot, showing your running prototype beside your conversation. |
+| **Replica Hub (optional)** | Hosts published prototypes so your team can try them and leave comments. |
+| **GitHub build action** | Builds prototypes for publishing to Hub. It is not needed for local prototyping. |
+
+For a new repository, choose a starter:
+
+- **Minimal:** A small example app to adapt to your own design system.
+- **CoreAI Sandbox:** An app with an existing navigation layout and prebuilt interface elements, such as buttons and menus, from Microsoft's CoreAI design system.
+
+Agents creating or adapting repositories should follow [prototype repository setup](docs/prototype-repository-setup.md).
 
 ## Data and privacy
 
