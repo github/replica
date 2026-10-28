@@ -6,6 +6,7 @@ import { createArtifactPublishingService } from "#server/domains/artifact-publis
 import { createAdministrationService } from "#server/domains/administration/create-service"
 import { createAuthenticationService } from "#server/domains/authentication/create-service"
 import type { AuthenticationSettings } from "#server/domains/authentication/create-service/types"
+import { ensureProviderAdmissionPolicy } from "#server/domains/authentication/ensure-provider-admission-policy"
 import { ensureGitHubProviderRevision } from "#server/domains/authentication/ensure-provider-revision"
 import { ensureOidcProviderRevision } from "#server/domains/authentication/ensure-oidc-provider-revision"
 import { readAuthenticationProvider } from "#server/domains/authentication/read-authentication-provider"
@@ -89,6 +90,7 @@ export async function createAuthenticationRuntime(environment: NodeJS.ProcessEnv
   const oidcProviderRevision = oidcConfiguration
     ? await ensureOidcProviderRevision(store, oidcConfiguration)
     : null
+  ensureProviderAdmissionPolicy(provider, environment)
   const admissionPolicy = createAdmissionPolicy(environment, store, githubAuthorization)
   const bootstrapSecret = readHostSecret(environment, "HUB_BOOTSTRAP_SECRET")
   const recoverySecret = readHostSecret(environment, "HUB_ADMIN_RECOVERY_SECRET")

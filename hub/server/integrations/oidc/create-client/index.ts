@@ -62,6 +62,13 @@ function optionalString(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null
 }
 
+function optionalUuid(value: unknown): string | null {
+  if (value === undefined) return null
+  const parsed = z.uuid().safeParse(value)
+  if (!parsed.success) throw new Error("OIDC directory object ID is invalid.")
+  return parsed.data.toLowerCase()
+}
+
 export function createOidcClient(
   configuration: OidcConfiguration,
   options: OidcClientOptions = {},
@@ -165,8 +172,8 @@ export function createOidcClient(
         maxTokenAge: "10m",
       })
       const claims = verified.payload
-      if (!claims.sub || claims.nonce !== nonce) {
-        throw new Error("OIDC token subject or nonce is invalid.")
+      if (!claims.sub || typeof claims.exp !== "number" || claims.nonce !== nonce) {
+        throw new Error("OIDC token subject, expiration, or nonce is invalid.")
       }
       if (
         (claims.azp !== undefined && claims.azp !== configuration.clientId) ||
@@ -186,6 +193,7 @@ export function createOidcClient(
           : null
       return {
         subject: claims.sub,
+        directoryObjectId: optionalUuid(claims.oid),
         username:
           optionalString(claims.preferred_username) ??
           optionalString(claims.email) ??

@@ -51,6 +51,7 @@ function records(overrides: Partial<MockIdentityRecords> = {}) {
       createAuthorizationAttempt: vi.fn().mockResolvedValue(undefined),
       consumeAuthorizationAttempt: vi.fn().mockResolvedValue(null),
       externalIdentity: vi.fn().mockResolvedValue(null),
+      externalIdentityByDirectoryObjectId: vi.fn().mockResolvedValue(null),
       createUser: vi.fn().mockResolvedValue({
         id: "user",
         displayName: "Member Name",
@@ -121,6 +122,7 @@ function store(testRecords: TestRecords): IdentityStore {
 function profile(overrides: Partial<OidcProfile> = {}): OidcProfile {
   return {
     subject: "immutable-subject",
+    directoryObjectId: "a0e1d2c3-b4a5-4678-9abc-def012345678",
     username: "member@example.test",
     email: "member@example.test",
     displayName: "Member Name",
@@ -191,7 +193,7 @@ function activeMembership(role: "member" | "administrator" = "member") {
     userId: "user",
     status: "active" as const,
     role,
-    source: "synchronized" as const,
+    source: "oidc-assignment" as const,
     suspendedAt: null,
     removedAt: null,
   }
@@ -204,6 +206,7 @@ function existingIdentity() {
     provider: "oidc",
     issuer,
     subject: "immutable-subject",
+    directoryObjectId: "a0e1d2c3-b4a5-4678-9abc-def012345678",
     username: "old-name@example.test",
     email: "old-email@example.test",
     displayName: "Old Name",
@@ -238,6 +241,29 @@ describe("createAuthenticationService() OIDC", () => {
       purpose: "sign-in",
       sessionGeneration: 7,
       expiresAt: new Date(now.getTime() + 10 * 60_000),
+    })
+  })
+
+  it("consumes the saved attempt and audits a provider failure when initiation discovery fails", async () => {
+    const identityRecords = records()
+    const client = oidc({
+      authorizationUrl: vi.fn().mockRejectedValue(new Error("discovery unavailable")),
+    })
+    const { authentication } = service(identityRecords, client)
+
+    await expect(authentication.start("sign-in")).rejects.toMatchObject({
+      status: 503,
+      code: "authentication_provider_failed",
+    })
+
+    const [{ stateDigest }] = identityRecords.createAuthorizationAttempt.mock.calls[0]!
+    expect(identityRecords.consumeAuthorizationAttempt).toHaveBeenCalledWith(stateDigest)
+    expect(identityRecords.audit).toHaveBeenCalledWith({
+      event: "authentication.provider_failed",
+      outcome: "failed",
+      actorUserId: null,
+      sessionId: null,
+      authenticationProviderRevisionId: providerRevision.id,
     })
   })
 
@@ -376,7 +402,7 @@ describe("createAuthenticationService() OIDC", () => {
   })
 
   it.each(["member", "administrator"] as const)(
-    "maps a new %s claim to an active synchronized membership",
+    "maps a new %s claim to an active OIDC-assignment membership",
     async (role) => {
       const identityRecords = records({
         consumeAuthorizationAttempt: vi.fn().mockResolvedValue(attempt()),
@@ -392,7 +418,7 @@ describe("createAuthenticationService() OIDC", () => {
         userId: "user",
         status: "active",
         role,
-        source: "synchronized",
+        source: "oidc-assignment",
         suspendedAt: null,
         removedAt: null,
       })
@@ -429,11 +455,84 @@ describe("createAuthenticationService() OIDC", () => {
       provider: "oidc",
       issuer,
       subject: "immutable-subject",
+      directoryObjectId: "a0e1d2c3-b4a5-4678-9abc-def012345678",
       username: "renamed@example.test",
       email: "new-email@example.test",
       displayName: "New Name",
       avatarUrl: null,
     })
+  })
+
+  it("refreshes authorization only when the active membership still matches the signed provider role", async () => {
+    const session = {
+      id: "session",
+      userId: "user",
+      externalIdentityId: "identity",
+      authenticationProviderRevisionId: providerRevision.id,
+      tokenDigest: "digest",
+      signedInAt: now,
+      freshAuthorizedAt: null,
+      user: { id: "user", displayName: "Member Name", avatarUrl: null },
+      externalIdentity: existingIdentity(),
+      authenticationProviderRevision: providerRevision,
+    }
+    const identityRecords = records({
+      consumeAuthorizationAttempt: vi
+        .fn()
+        .mockResolvedValue(attempt({ purpose: "verify", originatingSessionId: session.id })),
+      sessionById: vi.fn().mockResolvedValue(session),
+      membership: vi.fn().mockResolvedValue(activeMembership("administrator")),
+    })
+    const client = oidc({ identify: vi.fn().mockResolvedValue(profile({ role: "member" })) })
+    const { authentication } = service(identityRecords, client)
+
+    await expect(authentication.complete("code", "state", "browser-token")).rejects.toMatchObject({
+      status: 403,
+      code: "provider_role_changed",
+    })
+    expect(identityRecords.verifySession).not.toHaveBeenCalled()
+    expect(identityRecords.audit).toHaveBeenCalledWith({
+      event: "session.verify",
+      outcome: "denied",
+      actorUserId: "user",
+      sessionId: "session",
+      authenticationProviderRevisionId: providerRevision.id,
+      targetMembershipId: "membership",
+      context: { reason: "provider_role_changed" },
+    })
+
+    identityRecords.consumeAuthorizationAttempt.mockResolvedValueOnce(
+      attempt({ purpose: "verify", originatingSessionId: session.id }),
+    )
+    client.identify.mockResolvedValueOnce(profile({ role: null }))
+    identityRecords.membership.mockResolvedValueOnce(activeMembership("member"))
+    await expect(authentication.complete("code", "state", "browser-token")).rejects.toMatchObject({
+      status: 403,
+      code: "provider_role_changed",
+    })
+
+    identityRecords.consumeAuthorizationAttempt.mockResolvedValueOnce(
+      attempt({ purpose: "verify", originatingSessionId: session.id }),
+    )
+    client.identify.mockResolvedValueOnce(profile({ role: "member" }))
+    identityRecords.membership.mockResolvedValueOnce({
+      ...activeMembership("member"),
+      status: "suspended",
+      suspendedAt: now,
+    })
+    await expect(authentication.complete("code", "state", "browser-token")).rejects.toMatchObject({
+      status: 403,
+      code: "provider_role_changed",
+    })
+
+    identityRecords.consumeAuthorizationAttempt.mockResolvedValueOnce(
+      attempt({ purpose: "verify", originatingSessionId: session.id }),
+    )
+    identityRecords.membership.mockResolvedValueOnce(activeMembership("member"))
+    await expect(authentication.complete("code", "state", "browser-token")).resolves.toEqual({
+      purpose: "verify",
+    })
+    expect(identityRecords.verifySession).toHaveBeenCalledWith(session.id, now)
   })
 
   it("refuses a role refresh that would remove the final active administrator", async () => {
@@ -500,7 +599,7 @@ describe("createAuthenticationService() OIDC", () => {
       activatedMembershipId: null,
       provider: "oidc",
       issuer,
-      subject: "immutable-subject",
+      subject: "a0e1d2c3-b4a5-4678-9abc-def012345678",
       role: "member" as const,
       expiresAt: new Date(now.getTime() + 60_000),
       consumedAt: null,
@@ -520,6 +619,12 @@ describe("createAuthenticationService() OIDC", () => {
       "browser-token",
     )
     expect(invitedResult.sessionToken).toEqual(expect.any(String))
+    expect(invitedRecords.usableInvitation).toHaveBeenCalledWith(
+      "oidc",
+      issuer,
+      "a0e1d2c3-b4a5-4678-9abc-def012345678",
+      now,
+    )
     expect(invitedRecords.saveMembership).toHaveBeenCalledWith({
       userId: "user",
       status: "active",
@@ -535,6 +640,80 @@ describe("createAuthenticationService() OIDC", () => {
       now,
     )
   })
+
+  it("activates a pre-sign-in invitation by directory object ID while retaining the OIDC subject", async () => {
+    const invitation = {
+      id: "invitation",
+      createdByUserId: "administrator",
+      activatedIdentityId: null,
+      activatedMembershipId: null,
+      provider: "oidc",
+      issuer,
+      subject: "a0e1d2c3-b4a5-4678-9abc-def012345678",
+      role: "member" as const,
+      expiresAt: new Date(now.getTime() + 60_000),
+      consumedAt: null,
+      revokedAt: null,
+      createdAt: now,
+    }
+    const identityRecords = records({
+      consumeAuthorizationAttempt: vi.fn().mockResolvedValue(attempt()),
+      usableInvitation: vi.fn().mockResolvedValue(invitation),
+    })
+
+    await service(identityRecords, oidc(), {
+      membershipPolicy: "invitation-required",
+    }).authentication.complete("code", "state", "browser-token")
+
+    expect(identityRecords.usableInvitation).toHaveBeenCalledWith(
+      "oidc",
+      issuer,
+      "a0e1d2c3-b4a5-4678-9abc-def012345678",
+      now,
+    )
+    expect(identityRecords.saveExternalIdentity).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "oidc",
+        issuer,
+        subject: "immutable-subject",
+        directoryObjectId: "a0e1d2c3-b4a5-4678-9abc-def012345678",
+      }),
+    )
+  })
+
+  it.each([
+    ["bootstrap", "membership.bootstrap", "unavailable"],
+    ["recovery", "membership.recovery", "active_administrator_exists"],
+  ] as const)(
+    "audits a %s denial when enrollment becomes unavailable after initiation",
+    async (purpose, event, reason) => {
+      const identityRecords = records({
+        consumeAuthorizationAttempt: vi.fn().mockResolvedValue(attempt({ purpose })),
+        completeBootstrap: vi.fn().mockResolvedValue(purpose !== "bootstrap"),
+        activeAdministratorCount: vi.fn().mockResolvedValue(purpose === "recovery" ? 1 : 0),
+      })
+      const { authentication } = service(
+        identityRecords,
+        oidc({ identify: vi.fn().mockResolvedValue(profile({ role: "administrator" })) }),
+      )
+
+      await expect(authentication.complete("code", "state", "browser-token")).rejects.toMatchObject(
+        {
+          status: 403,
+          code: "admission_denied",
+        },
+      )
+      expect(identityRecords.audit).toHaveBeenCalledWith({
+        event,
+        outcome: "denied",
+        actorUserId: null,
+        sessionId: null,
+        authenticationProviderRevisionId: providerRevision.id,
+        context: { reason },
+      })
+      expect(identityRecords.createSession).not.toHaveBeenCalled()
+    },
+  )
 
   it("keeps invitation-required admission distinct from just-in-time assignment", async () => {
     const invitationRecords = records({
@@ -558,7 +737,7 @@ describe("createAuthenticationService() OIDC", () => {
     )
     expect(jitResult.sessionToken).toEqual(expect.any(String))
     expect(jitRecords.saveMembership).toHaveBeenCalledWith(
-      expect.objectContaining({ source: "synchronized" }),
+      expect.objectContaining({ source: "oidc-assignment" }),
     )
   })
 

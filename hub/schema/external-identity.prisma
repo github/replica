@@ -12,6 +12,7 @@ model ExternalIdentity {
   provider    String
   issuer      String
   subject     String
+  directoryObjectId String? @map("directory_object_id")
   username    String?
   email       String?
   displayName String? @map("display_name")
@@ -22,6 +23,7 @@ model ExternalIdentity {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@unique([provider, issuer, subject])
+  @@unique([provider, issuer, directoryObjectId])
   @@index([userId])
   @@map("external_identities")
 }

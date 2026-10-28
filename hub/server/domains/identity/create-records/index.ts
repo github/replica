@@ -5,6 +5,7 @@ import { getAuthenticationProviderRevision } from "#server/repositories/authenti
 import { consumeAuthorizationAttempt } from "#server/repositories/authorization-attempts/consume-attempt"
 import { createAuthorizationAttempt } from "#server/repositories/authorization-attempts/create-attempt"
 import { getExternalIdentity } from "#server/repositories/external-identities/get-external-identity"
+import { getExternalIdentityByDirectoryObjectId } from "#server/repositories/external-identities/get-external-identity-by-directory-object-id"
 import { saveExternalIdentity } from "#server/repositories/external-identities/save-external-identity"
 import { advanceGitHubIntegrationGeneration } from "#server/repositories/github-integration-state/advance-generation"
 import { hasFreshGitHubAdmission } from "#server/repositories/github-synchronized-access/has-fresh-admission"
@@ -57,6 +58,10 @@ export function createIdentityRecords(database: Prisma.TransactionClient): Ident
     createUser: createUser.bind(null, database),
     updateUser: updateUser.bind(null, database),
     externalIdentity: getExternalIdentity.bind(null, database),
+    externalIdentityByDirectoryObjectId: getExternalIdentityByDirectoryObjectId.bind(
+      null,
+      database,
+    ),
     saveExternalIdentity: saveExternalIdentity.bind(null, database),
     membership: getInstallationMembership.bind(null, database),
     membershipById: getInstallationMembershipById.bind(null, database),

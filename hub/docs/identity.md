@@ -8,7 +8,7 @@ Hub supports standards-based OIDC authorization code flow as a sibling of GitHub
 
 OIDC discovery must return the exact configured issuer. Hub binds state to the initiating browser, uses PKCE and nonce, consumes attempts once, exchanges the code with a bounded timeout, verifies the ID-token signature through cached rotating JWKS, and validates issuer, audience, authorized party, token lifetime, and nonce. The configured issuer is host configuration, never request input. Hub rejects non-public or cross-origin discovery endpoints. OIDC callbacks accept one query-string authorization code up to 8,192 characters and one exact 43-character base64url state. GitHub keeps its 1,000-character code limit. Duplicate, missing, or oversized values fail before exchange, with only a stable nonsecret failure reason returned to the browser. Hub requests `response_mode=query`; `form_post` is not enabled.
 
-Hub maps `oidc + issuer/tenant + subject` to `ExternalIdentity`. Login, email, name, and picture are mutable display attributes. They never admit a user or select an existing identity. The authorization response and provider tokens are discarded after identity and app-role extraction.
+Hub maps `oidc + issuer/tenant + subject` to `ExternalIdentity`. For Entra, Hub also stores the signed tenant directory object ID (`oid`) as a separate assignment identifier so an administrator can create an invitation before the user's first sign-in. Login, email, name, and picture are mutable display attributes. They never admit a user or select an existing identity. The authorization response and provider tokens are discarded after identity and app-role extraction.
 
 ## GitHub user authentication
 
@@ -35,7 +35,7 @@ Sign-out revokes the current database session. Provider logout is optional and i
 - `User` is the Hub-owned account. It does not contain a provider identifier or administrator flag.
 - `ExternalIdentity` links a provider, issuer, and subject to one Hub user. One user may link several identities. The issuer is part of uniqueness so separate OIDC tenants may reuse subjects safely.
 - `InstallationMembership` stores a user's `member` or `administrator` role and `active`, `suspended`, or terminal `removed` status for this Hub installation.
-- `MembershipInvitation` targets an `ExternalIdentity` assignment by provider, issuer, and immutable subject. Activation consumes the invitation once and creates or reactivates the linked user's membership.
+- `MembershipInvitation` targets a provider assignment by provider, issuer, and immutable assignment identifier. GitHub uses its account subject; Entra uses the tenant directory object ID (`oid`) so administrators can create an invitation before first sign-in. Activation consumes the invitation once and creates or reactivates the linked user's membership.
 - `AuthenticationProvider` and its versioned revisions store provider-neutral authentication configuration. An OIDC-only configuration does not require GitHub source-integration credentials.
 - `Session` records the Hub user, external identity, and authentication-provider revision that established it. GitHub source-integration credential rotation does not change session identity context.
 - `AuthorizationAttempt` stores digested state and browser bindings, a PKCE verifier, an optional OIDC nonce, provider revision, purpose, optional originating session, and expiry. Consumption deletes the record in the same transaction so concurrent callbacks cannot reuse it.
@@ -47,7 +47,7 @@ Store operations can share one database transaction and lock a fixed store-state
 
 Set separate host-held `HUB_BOOTSTRAP_SECRET` and `HUB_ADMIN_RECOVERY_SECRET` values. Bootstrap can enroll the first administrator once. Its durable completion marker remains after expired authorization attempts are cleaned up. Recovery is available only when no active administrator remains and never resets bootstrap.
 
-Administrators invite an identity by provider, issuer, and immutable subject. Mutable usernames, display names, and email addresses do not activate invitations. Invitations expire after seven days, can be revoked before use, and are consumed by one matching authentication callback. Removed memberships require a new invitation. Suspended memberships must be restored by an administrator.
+Administrators invite an identity by provider, issuer, and immutable assignment identifier. Mutable usernames, display names, and email addresses do not activate invitations. Invitations expire after seven days, can be revoked before use, and are consumed by one matching authentication callback. Removed memberships require a new invitation. Suspended memberships must be restored by an administrator.
 
 Administrator mutations require an active administrator session verified less than five minutes ago. Hub prevents concurrent demotion, suspension, or removal from eliminating the final active administrator. See [Installation membership and administration](membership-and-administration.md).
 

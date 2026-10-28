@@ -8,12 +8,26 @@ import { getCurrentSession } from "#server/domains/authentication/get-current-se
 import { ensureProductAdministrationContinuity } from "#server/domains/prototype-authorization/ensure-administration-continuity"
 import { AuthenticationError } from "#server/utils/authentication-error"
 
-const invitationSchema = z.object({
-  provider: z.string().regex(/^[a-z][a-z0-9-]{0,63}$/),
-  issuer: z.url().max(500),
-  subject: z.string().trim().min(1).max(500),
-  role: z.enum(["member", "administrator"]),
-})
+const invitationSchema = z
+  .object({
+    provider: z.string().regex(/^[a-z][a-z0-9-]{0,63}$/),
+    issuer: z.url().max(500),
+    subject: z.string().trim().min(1).max(500),
+    role: z.enum(["member", "administrator"]),
+  })
+  .superRefine(({ provider, subject }, context) => {
+    if (provider === "oidc" && !z.uuid().safeParse(subject).success) {
+      context.addIssue({
+        code: "custom",
+        path: ["subject"],
+        message: "OIDC invitations require a directory object ID.",
+      })
+    }
+  })
+  .transform((input) => ({
+    ...input,
+    subject: input.provider === "oidc" ? input.subject.toLowerCase() : input.subject,
+  }))
 
 const membershipChangeSchema = z
   .object({
@@ -101,11 +115,18 @@ export function createAdministrationService(
           )
         }
         await records.revokeExpiredInvitations(dependencies.now())
-        const identity = await records.externalIdentity(
-          parsed.data.provider,
-          parsed.data.issuer,
-          parsed.data.subject,
-        )
+        const identity =
+          parsed.data.provider === "oidc"
+            ? await records.externalIdentityByDirectoryObjectId(
+                parsed.data.provider,
+                parsed.data.issuer,
+                parsed.data.subject.toLowerCase(),
+              )
+            : await records.externalIdentity(
+                parsed.data.provider,
+                parsed.data.issuer,
+                parsed.data.subject,
+              )
         const membership = identity ? await records.membership(identity.userId) : null
         if (membership && membership.status !== "removed") {
           throw new AuthenticationError(

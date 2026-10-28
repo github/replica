@@ -68,6 +68,51 @@ async function createAdministrator(
 }
 
 describe("createAdministrationService() database behavior", () => {
+  it("detects an existing OIDC assignment by its normalized directory object ID", async () => {
+    const { store } = await database()
+    await createAdministrator(store, "actor", "actor-token")
+    const directoryObjectId = "a0e1d2c3-b4a5-4678-9abc-def012345678"
+    await store.lock(async (records) => {
+      const user = await records.createUser({
+        displayName: "OIDC member",
+        avatarUrl: null,
+      })
+      await records.saveExternalIdentity({
+        userId: user.id,
+        provider: "oidc",
+        issuer: "https://login.example.test/tenant",
+        subject: "provider-subject",
+        directoryObjectId,
+        username: "member@example.test",
+        displayName: "OIDC member",
+        avatarUrl: null,
+      })
+      await records.saveMembership({
+        userId: user.id,
+        status: "active",
+        role: "member",
+        source: "oidc-assignment",
+      })
+    })
+    const service = createAdministrationService({
+      store,
+      now: () => new Date("2026-10-27T18:01:00.000Z"),
+    })
+
+    await expect(
+      service.invite("actor-token", {
+        provider: "oidc",
+        issuer: "https://login.example.test/tenant",
+        subject: directoryObjectId.toUpperCase(),
+        role: "member",
+      }),
+    ).rejects.toMatchObject({
+      status: 409,
+      code: "identity_already_assigned",
+    })
+    expect(await store.read.invitations()).toEqual([])
+  })
+
   it("serializes overlapping suspensions so one active administrator and its session remain", async () => {
     const { store } = await database()
     const first = await createAdministrator(store, "41", "first-token")

@@ -107,8 +107,28 @@ export async function startOidcAuthorization(
     return null
   })
   if (denial) throw denial
+  let authorizationUrl: string
+  try {
+    authorizationUrl = await oidc.authorizationUrl(state, pkceVerifier, nonce)
+  } catch {
+    await store.lock(async (records) => {
+      await records.consumeAuthorizationAttempt(digestSecret(state))
+      await records.audit({
+        event: "authentication.provider_failed",
+        outcome: "failed",
+        actorUserId: null,
+        sessionId: null,
+        authenticationProviderRevisionId: oidcProviderRevisionId,
+      })
+    })
+    throw new AuthenticationError(
+      503,
+      "authentication_provider_failed",
+      "The authentication provider failed.",
+    )
+  }
   return {
-    authorizationUrl: await oidc.authorizationUrl(state, pkceVerifier, nonce),
+    authorizationUrl,
     browserToken,
   }
 }
