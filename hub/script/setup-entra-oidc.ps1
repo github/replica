@@ -280,9 +280,8 @@ function Assert-GroupsExist {
   }
 }
 
-function Get-MissingAssignments {
+function Get-DesiredAssignments {
   param(
-    $ServicePrincipal,
     [string[]] $UserGroups,
     [string[]] $AdministratorGroups
   )
@@ -295,16 +294,40 @@ function Get-MissingAssignments {
     $desired += [pscustomobject] @{ GroupId = $groupId; RoleId = $administratorRoleId; Role = "Hub.Administrator" }
   }
 
-  $missing = @()
-  foreach ($assignment in $desired) {
-    $existing = @(Get-MgGroupAppRoleAssignment -GroupId $assignment.GroupId -All).Where({
-        $_.ResourceId -eq $ServicePrincipal.Id -and $_.AppRoleId -eq $assignment.RoleId
-      })
-    if ($existing.Count -eq 0) {
-      $missing += $assignment
-    }
+  return $desired
+}
+
+function Get-AssignmentChanges {
+  param(
+    $ServicePrincipal,
+    [string[]] $UserGroups,
+    [string[]] $AdministratorGroups
+  )
+
+  $desired = @(Get-DesiredAssignments -UserGroups $UserGroups `
+      -AdministratorGroups $AdministratorGroups)
+  $existing = @(Get-MgServicePrincipalAppRoleAssignedTo `
+      -ServicePrincipalId $ServicePrincipal.Id -All)
+  $managed = @($existing).Where({
+      $_.PrincipalType -eq "Group" -and
+      $_.AppRoleId -in @($userRoleId, $administratorRoleId)
+    })
+  $missing = @($desired).Where({
+      $candidate = $_
+      @($managed).Where({
+          $_.PrincipalId -eq $candidate.GroupId -and $_.AppRoleId -eq $candidate.RoleId
+        }).Count -eq 0
+    })
+  $obsolete = @($managed).Where({
+      $candidate = $_
+      @($desired).Where({
+          $_.GroupId -eq $candidate.PrincipalId -and $_.RoleId -eq $candidate.AppRoleId
+        }).Count -eq 0
+    })
+  return [pscustomobject] @{
+    Missing = $missing
+    Obsolete = $obsolete
   }
-  return $missing
 }
 
 function Invoke-Preflight {
@@ -353,13 +376,18 @@ function Invoke-Plan {
     elseif (-not $servicePrincipal.AppRoleAssignmentRequired) {
       $actions += "Require assignment on the service principal."
     }
-    $missing = if ($servicePrincipal) {
-      Get-MissingAssignments -ServicePrincipal $servicePrincipal `
+    $changes = if ($servicePrincipal) {
+      Get-AssignmentChanges -ServicePrincipal $servicePrincipal `
         -UserGroups $UserGroupId -AdministratorGroups $AdministratorGroupId
     }
-    else { @() }
-    foreach ($assignment in $missing) {
+    else { [pscustomobject] @{ Missing = @(); Obsolete = @() } }
+    foreach ($assignment in $changes.Missing) {
       $actions += "Assign group '$($assignment.GroupId)' to $($assignment.Role)."
+    }
+    foreach ($assignment in $changes.Obsolete) {
+      $role = if ($assignment.AppRoleId -eq $userRoleId) { "Hub.User" } `
+        else { "Hub.Administrator" }
+      $actions += "Remove group '$($assignment.PrincipalId)' from $role."
     }
   }
 
@@ -420,13 +448,17 @@ function Invoke-Apply {
     $servicePrincipal.AppRoleAssignmentRequired = $true
   }
 
-  $missing = Get-MissingAssignments -ServicePrincipal $servicePrincipal `
+  $changes = Get-AssignmentChanges -ServicePrincipal $servicePrincipal `
     -UserGroups $UserGroupId -AdministratorGroups $AdministratorGroupId
-  foreach ($assignment in $missing) {
+  foreach ($assignment in $changes.Missing) {
     New-MgGroupAppRoleAssignment -GroupId $assignment.GroupId `
       -PrincipalId $assignment.GroupId `
       -ResourceId $servicePrincipal.Id `
       -AppRoleId $assignment.RoleId | Out-Null
+  }
+  foreach ($assignment in $changes.Obsolete) {
+    Remove-MgGroupAppRoleAssignment -GroupId $assignment.PrincipalId `
+      -AppRoleAssignmentId $assignment.Id | Out-Null
   }
 
   return Get-HubConfiguration -ResolvedTenantId $context.TenantId `

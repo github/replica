@@ -1,8 +1,26 @@
 import type { IdentityStore } from "#server/domains/identity/create-store/types"
 import type { OidcConfiguration } from "#server/integrations/oidc/create-client/types"
 import { digestSecret } from "#server/utils/digest-secret"
+import { z } from "zod"
 
 import type { Prisma } from "../../../generated/prisma/client.ts"
+
+const storedConfigurationSchema = z
+  .object({
+    clientId: z.string(),
+    callbackUrl: z.string(),
+    clientCredentialReference: z.string(),
+    credentialFingerprint: z.string(),
+    scopes: z.array(z.string()),
+    memberRole: z.string(),
+    administratorRole: z.string(),
+    membershipPolicy: z.enum(["jit-assignment", "invitation-required"]),
+  })
+  .strict()
+
+function canonicalScopes(scopes: string[]): string[] {
+  return [...new Set(scopes)].sort()
+}
 
 function storedConfiguration(configuration: OidcConfiguration): Prisma.InputJsonObject {
   return {
@@ -10,7 +28,7 @@ function storedConfiguration(configuration: OidcConfiguration): Prisma.InputJson
     callbackUrl: configuration.callbackUrl,
     clientCredentialReference: configuration.clientCredentialReference,
     credentialFingerprint: digestSecret(configuration.clientSecret),
-    scopes: configuration.scopes,
+    scopes: canonicalScopes(configuration.scopes),
     memberRole: configuration.memberRole,
     administratorRole: configuration.administratorRole,
     membershipPolicy: configuration.membershipPolicy,
@@ -18,7 +36,20 @@ function storedConfiguration(configuration: OidcConfiguration): Prisma.InputJson
 }
 
 function matches(value: unknown, expected: Prisma.InputJsonObject): boolean {
-  return JSON.stringify(value) === JSON.stringify(expected)
+  const parsedValue = storedConfigurationSchema.safeParse(value)
+  const parsedExpected = storedConfigurationSchema.safeParse(expected)
+  if (!parsedValue.success || !parsedExpected.success) return false
+  return (
+    parsedValue.data.clientId === parsedExpected.data.clientId &&
+    parsedValue.data.callbackUrl === parsedExpected.data.callbackUrl &&
+    parsedValue.data.clientCredentialReference === parsedExpected.data.clientCredentialReference &&
+    parsedValue.data.credentialFingerprint === parsedExpected.data.credentialFingerprint &&
+    parsedValue.data.memberRole === parsedExpected.data.memberRole &&
+    parsedValue.data.administratorRole === parsedExpected.data.administratorRole &&
+    parsedValue.data.membershipPolicy === parsedExpected.data.membershipPolicy &&
+    canonicalScopes(parsedValue.data.scopes).join("\0") ===
+      canonicalScopes(parsedExpected.data.scopes).join("\0")
+  )
 }
 
 export function ensureOidcProviderRevision(store: IdentityStore, configuration: OidcConfiguration) {

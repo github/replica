@@ -25,7 +25,7 @@ function storedConfiguration(overrides: Record<string, unknown> = {}) {
     callbackUrl: configuration.callbackUrl,
     clientCredentialReference: configuration.clientCredentialReference,
     credentialFingerprint: digestSecret(configuration.clientSecret),
-    scopes: configuration.scopes,
+    scopes: [...configuration.scopes].sort(),
     memberRole: configuration.memberRole,
     administratorRole: configuration.administratorRole,
     membershipPolicy: configuration.membershipPolicy,
@@ -73,6 +73,27 @@ function store(latest: ReturnType<typeof revision> | null) {
 describe("ensureOidcProviderRevision()", () => {
   it("reuses the same revision when issuer, enabled status, and nonsecret configuration match", async () => {
     const existing = revision()
+    const fixture = store(existing)
+
+    await expect(ensureOidcProviderRevision(fixture.identityStore, configuration)).resolves.toBe(
+      existing,
+    )
+    expect(fixture.createRevision).not.toHaveBeenCalled()
+  })
+
+  it("reuses the same revision when stored JSON keys and scopes have a different order", async () => {
+    const existing = revision({
+      configuration: {
+        membershipPolicy: configuration.membershipPolicy,
+        administratorRole: configuration.administratorRole,
+        memberRole: configuration.memberRole,
+        scopes: ["profile", "email", "openid"],
+        credentialFingerprint: digestSecret(configuration.clientSecret),
+        clientCredentialReference: configuration.clientCredentialReference,
+        callbackUrl: configuration.callbackUrl,
+        clientId: configuration.clientId,
+      },
+    })
     const fixture = store(existing)
 
     await expect(ensureOidcProviderRevision(fixture.identityStore, configuration)).resolves.toBe(

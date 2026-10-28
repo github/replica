@@ -8,6 +8,7 @@ import { createAuthenticationService } from "#server/domains/authentication/crea
 import type { AuthenticationSettings } from "#server/domains/authentication/create-service/types"
 import { ensureGitHubProviderRevision } from "#server/domains/authentication/ensure-provider-revision"
 import { ensureOidcProviderRevision } from "#server/domains/authentication/ensure-oidc-provider-revision"
+import { readAuthenticationProvider } from "#server/domains/authentication/read-authentication-provider"
 import { readOidcConfiguration } from "#server/domains/authentication/read-oidc-configuration"
 import { createIdentityStore } from "#server/domains/identity/create-store"
 import { createPrototypeAuthorizationService } from "#server/domains/prototype-authorization/create-service"
@@ -73,11 +74,7 @@ function readHostSecret(environment: NodeJS.ProcessEnv, key: string): string | n
 
 export async function createAuthenticationRuntime(environment: NodeJS.ProcessEnv) {
   const origin = readOrigin(environment)
-  const selectedProvider = environment.HUB_AUTH_PROVIDER
-  if (selectedProvider && !["github", "oidc"].includes(selectedProvider)) {
-    throw new Error("HUB_AUTH_PROVIDER must be github or oidc.")
-  }
-  const provider = selectedProvider === "oidc" ? "oidc" : "github"
+  const provider = readAuthenticationProvider(environment)
   const configuration = provider === "github" ? readGitHubAuthentication(environment, origin) : null
   const oidcConfiguration = provider === "oidc" ? readOidcConfiguration(environment, origin) : null
   const store = createIdentityStore(prisma)
