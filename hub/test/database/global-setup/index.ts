@@ -7,6 +7,7 @@ import { promisify } from "node:util"
 import pg from "pg"
 import type { TestProject } from "vitest/node"
 
+import { migrateJobDatabase } from "../../../server/integrations/bullmq/migrate-job-database/index.ts"
 import { getWorkerDatabase } from "../get-worker-database/index.ts"
 
 export default async function setup(project: TestProject) {
@@ -65,6 +66,7 @@ export default async function setup(project: TestProject) {
         timeout: 60_000,
       },
     )
+    await migrateJobDatabase(templateUrl.toString())
 
     for (let worker = 1; worker <= database.workers; worker++) {
       const name = `${database.prefix}_${worker}`
