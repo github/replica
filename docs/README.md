@@ -22,7 +22,7 @@ Commits and pull requests follow the [contribution conventions](../CONTRIBUTING.
 
 ## Project guidance
 
-- [Hub documentation](../hub/docs/README.md) covers the Rails application, deployment, previews, and review collaboration.
+- [Hub documentation](../hub/docs/README.md) covers the Rails application, deployment, previews, and review collaboration. Its [operator walkthroughs](../hub/docs/deployment.md#manual-operator-walkthroughs) cover VM installation, Azure DNS/HTTPS, GitHub App connection, updates, source builds, patches, and recovery.
 - [Starter development](starter-development.md) owns the catalog, shared bundle, assembly contract and checks. [Minimal instructions](../starters/minimal/AGENTS.md) and [CoreAI instructions](../starters/coreai/AGENTS.md) own their apps. The copied [Replica instructions](../starters/shared/REPLICA-AGENTS.md), [workflow guide](../starters/shared/REPLICA.md) and [troubleshooting guide](../starters/shared/SETUP.md) use paths in the assembled repository.
 - [Build action setup](../CONTRIBUTING.md#replica-build-action) covers the shared action.
 - [Controls documentation](../hub/docs/prototype-controls.md) covers the shared engine and definition schema owned by Hub.

@@ -219,7 +219,7 @@ Try the interactions and confirm that the prototype uses your team's components.
 
 If Hub is already running, reuse it and continue at step 6. You do not need to deploy another Hub.
 
-Deployment can happen alongside steps 2 through 4. Follow the [Hub deployment guide](../hub/docs/deployment.md) on the Hub server, or share it with the person handling deployment.
+Deployment can happen alongside steps 2 through 4. Follow the [Hub deployment guide](../hub/docs/deployment.md) on the Hub server, or share it with the person handling deployment. For an ordered walkthrough, use [manual VM installation](../hub/docs/manual-vm-installation.md), with [Azure DNS/HTTPS](../hub/docs/azure-vm-deployment.md) when applicable.
 
 **Keep the deployment settings safe:**
 

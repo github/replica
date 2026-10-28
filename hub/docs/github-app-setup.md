@@ -12,17 +12,17 @@ team opens /setup on its self-hosted Hub
 
 ## Configuration
 
-Set these values before opening `/setup`:
+For a Compose installation, `./replica init` creates the required settings and prints the bootstrap secret as the **setup code**. Do not generate another configuration for an existing database. For other platforms, supply equivalent environment settings before opening `/setup`:
 
 ```text
-REPLICA_HUB_ORIGIN=https://replica.example.com
+REPLICA_HUB_ORIGIN=https://hub.example.com
 REPLICA_BOOTSTRAP_SECRET=<long random secret>
 REPLICA_DATABASE_ENCRYPTION_PRIMARY_KEY=<random secret>
 REPLICA_DATABASE_ENCRYPTION_DETERMINISTIC_KEY=<random secret>
 REPLICA_DATABASE_ENCRYPTION_KEY_DERIVATION_SALT=<random secret>
 ```
 
-Generate the three database encryption values inside the devcontainer:
+For contributor environments that need encryption values, generate them inside the devcontainer:
 
 ```sh
 bin/devcontainer exec bin/rails db:encryption:init
@@ -52,13 +52,15 @@ Create the App under your GitHub organization so your team can sign in. A privat
 
 With a private organization App, connecting a public repository lets every organization member read its Hub reviews, not just its contributors. Keep the App private. See [App ownership and repository visibility](authentication-and-repository-authorization.md#app-ownership-and-repository-visibility) before choosing repositories or changing visibility.
 
-1. Start Hub with the bootstrap secret.
-2. Open `/setup`.
-3. Choose the GitHub organization that owns the prototype repositories, or your personal account for a single-person Hub.
-4. Create the App and install it on the repositories Hub should use.
-5. Hub confirms that the installation belongs to the selected owner before saving it.
+1. Start Hub with its original bootstrap secret and verify its public HTTPS address.
+2. Open `/setup`, enter the setup code and target organization's exact login, then choose **Continue**. Leave the organization blank only for a personal, single-person Hub.
+3. On the next page, choose **Create the App on GitHub**.
+4. Review the App registration in GitHub and install it only on approved prototype repositories.
+5. Complete the returns to Hub in the same browser. Hub confirms that the installation belongs to the selected owner before saving it.
 
 The setup request expires after 15 minutes and can be used once.
+
+If a GitHub administrator must register or approve the App, have that person start a fresh `/setup` flow in their own browser. Provide the Hub origin, target organization, approved repositories, and requested permissions for advance review. Share the bootstrap secret only through an approved secret channel: it also protects operator enrollment. Do not forward an in-progress callback URL, registration URL, or browser cookie, or send `.env` and encryption keys. Manifest registration sends generated credentials directly back to Hub; the administrator should not email them.
 
 After setup, enroll the person administering Hub at `/operator/enrollment` using the bootstrap secret and a fresh GitHub sign-in. App creation does not automatically designate its owner or the first signed-in person as a Hub operator. Existing configured deployments use the same route without resetting their App. See [Security audit](security-audit.md#enroll-an-operator).
 
@@ -82,16 +84,90 @@ Use this flow when manifest registration is unavailable or you already administe
 
 On an existing deployment, back up its database and retain its `.env`, storage, and encryption secrets before upgrading. The migration preserves configured manifest connections and their ownership-transfer behavior. Manual connection is initial setup only: it does not overwrite an existing Hub App configuration. Do not edit database owner fields or run a separate bootstrap script.
 
-1. Open `/setup`, enter the bootstrap secret, and choose **Create manually or connect an existing App**. The organization field is used only for manifest creation; manual import verifies the actual owner with GitHub. The manual page provides this deployment's exact URLs, GitHub form labels, permissions, and credential fields. Authorization expires after 15 minutes; keep this page open while configuring GitHub in another tab.
-2. On the configured GitHub host, open the intended account's **Settings**, **Developer settings**, **GitHub Apps**, then **New GitHub App**, or open an existing App. Under **General**, choose a unique **GitHub App name**, enter Hub's origin as **Homepage URL**, and enter `<hub-origin>/auth/github/callback` as **Callback URL**. Leave **Setup URL** blank and leave **Request user authorization (OAuth) during installation** and **Redirect on update** unchecked. Keep user authorization token expiration enabled.
-3. Under **Webhook**, select **Active**, set **Webhook URL** to `<hub-origin>/github/webhooks`, and create a long random **Webhook secret** through your approved secret-management tool. Keep SSL verification enabled. Retain the secret for Hub's connection form. GitHub must be able to reach this HTTPS endpoint.
-4. Under **Permissions & events**, grant **Administration: Read-only**, **Actions: Read-only**, **Contents: Read and write**, **Pull requests: Read and write**, and **Workflows: Read and write** under repository permissions. Under **Subscribe to events**, select **Push** and **Workflow run**, then save. GitHub also delivers installation lifecycle and installation-repository changes. An existing installation's account administrator must approve increased permissions separately.
-5. Check **Where can this GitHub App be installed?** and who may authorize the App. A private personal App does not support team sign-in. Cross-account installation may require public visibility. A public App does not publish private repositories, but it broadens who can authorize it: anyone who can read a connected public repository could read its Hub reviews. Choose repositories with that audience in mind; see [App visibility](authentication-and-repository-authorization.md#public-apps).
-6. Choose **Install App** and select the intended account, or use the existing installation. Choose **Only select repositories** and select the prototype repositories for this Hub. If GitHub requires approval, an authorized account administrator must finish that step. Copy the numeric **Installation ID** from the resulting installation settings URL, after `/installations/`. It is not the App ID and is not a credential. Use the actual deployment's ID; no ID is built into Hub.
-7. In the App's **General** settings, copy **App ID** and **Client ID**. Under **Client secrets**, choose **Generate a new client secret**. Under **Private keys**, choose **Generate a private key** and download the PEM file. Enter these values, the **Webhook secret**, and **Installation ID** in Hub. The client and webhook secrets are limited to 4 KiB each; the PEM is limited to 16 KiB. Never put secrets in links, Git, chat, or command-line arguments.
-8. Confirm the account and repository selection in GitHub, read Hub's approval statement, and choose **Verify and connect this installation**. Hub authenticates the App, verifies its App/client identity and actual owner, verifies that the specified active installation belongs to it, and reads its repositories before saving the connection atomically. If verification fails, nothing is saved and credentials must be re-entered. Hub does not automatically change GitHub settings.
-9. Enroll a Hub operator at `/operator/enrollment`, then verify ordinary GitHub sign-in with an intended reviewer. Private-key verification does not validate the OAuth client secret or prove user authorization eligibility. Check that only repositories selected in the installation are discoverable, that read-only users cannot perform write operations, and that a user without repository access is denied.
-10. In the App's **Advanced** settings, inspect a recent supported webhook delivery after pushing a test branch. Confirm GitHub can deliver to Hub and Hub discovers the Build. A successful import does not verify the webhook secret or network path. Use `replica:github:diagnose` for App/installation reachability and `replica:github:poll` to synchronize immediately; diagnosis does not prove end-user sign-in or webhook delivery.
+Use an image that includes the manual flow and the owner-identity behavior your App needs. Instructions in a source branch do not establish that an older published release contains it; use [manual updates](manual-updates.md) or a [reviewed source build](source-image-builds.md) when necessary.
+
+### Prepare the App in GitHub
+
+Replace `https://hub.example.com` with your Hub's public origin everywhere. Open the intended account's **Settings -> Developer settings -> GitHub Apps**, then create an App or select the existing one. An organization administrator may need to register or approve it.
+
+| GitHub field | Value |
+| --- | --- |
+| GitHub App name | A unique name chosen by your administrator |
+| Homepage URL | `https://hub.example.com` |
+| Callback URL / OAuth Redirect URI | `https://hub.example.com/auth/github/callback` |
+| Setup URL | Blank; `/setup/install` belongs to the manifest flow |
+| Webhook URL | `https://hub.example.com/github/webhooks` |
+| Webhook Active | Enabled |
+| Webhook SSL verification | Enabled |
+| Request user authorization during installation | Unchecked |
+| Redirect on update, Device Flow, callback wildcard matching | Leave disabled unless separately required and reviewed |
+| User authorization token expiration | Enabled |
+
+Under **Permissions & events**, grant the repository permissions in the [permission table](#manifest-setup). Subscribe to **Push** and **Workflow run**, then save. GitHub also delivers installation lifecycle and installation-repository changes. Existing installation owners must approve increased permissions separately.
+
+Check **Where can this GitHub App be installed?** and who may authorize it. A private personal App does not support team sign-in. Cross-account installation may require public visibility. A public App does not publish private repositories, but broadens who can authorize it: anyone who can read a connected public repository could read its Hub reviews. See [App visibility](authentication-and-repository-authorization.md#public-apps).
+
+Choose **Install App**, select the intended account, and use **Only select repositories** for the approved prototype repositories, or inspect the existing installation. Complete any GitHub-required approval. Do not uninstall/reinstall just to locate its ID; that changes the installation identity.
+
+### Collect the correct credentials
+
+GitHub layouts differ: client secrets and private keys may be on **Credentials** rather than **General**. If those controls are missing, confirm you administer the App itself, not just its installation.
+
+| Value | Where it comes from |
+| --- | --- |
+| Setup code / bootstrap secret | Original VM initialization or the deployment secret manager; used at `/setup`, not as an App credential |
+| App ID | Numeric **App ID** in the App's settings |
+| Client ID | **Client ID** in those same App settings; not the App ID |
+| Client secret | GitHub's **Client secrets -> Generate a new client secret**, or a securely retained existing secret |
+| PEM private key | **Private keys -> Generate a private key**; upload the downloaded file |
+| Webhook secret | A separate long random secret generated through your approved secret-management tool and set identically in GitHub and Hub |
+| Installation ID | Numeric part of the selected installation settings URL after `/installations/`; not the App ID |
+
+Configure the webhook secret in GitHub before importing. GitHub does not reveal an existing webhook secret for copying. If it is unknown, coordinate an intentional replacement with every affected integration; do not use the setup code as a substitute.
+
+Keep the client/webhook secrets and PEM in approved secret storage. Client and webhook secrets are limited to 4 KiB each; the PEM is limited to 16 KiB. Never put them in Git, chat, links, screenshots, or command-line arguments.
+
+### Connect from Hub
+
+Have the prepared credentials ready before authorizing; setup authorization lasts 15 minutes.
+
+1. Open `/setup`, enter the original setup code, and choose **Continue**.
+2. On the next page, choose the plain-text **Create manually or connect an existing App** link beneath **Create the App on GitHub**. The organization field is for manifest creation, not manual import. `/setup/manual` also works in the same authorized browser session.
+3. Enter the App ID, Client ID, client secret, matching webhook secret, and installation ID. Upload the PEM file.
+4. Confirm the account and repository selection in GitHub, read Hub's approval statement, and choose **Verify and connect this installation**.
+
+Hub authenticates the App, checks its App/client identity and actual owner, checks the exact active installation, and reads its repositories before saving atomically. A valid managed-user registration owner can have underscores in its login. The registration owner need not be the organization receiving the installation. Failure saves no configuration and requires credentials to be re-entered. Hub does not change GitHub settings automatically.
+
+### Verify the connection
+
+Enroll a Hub operator at `/operator/enrollment`, then verify an intended user's ordinary GitHub sign-in. Private-key verification does **not** validate the OAuth client secret or user authorization eligibility. Check that only selected repositories are discoverable, read-only users cannot perform write operations, and a user without repository access is denied.
+
+In the App's **Advanced** settings, inspect a supported webhook delivery after an authorized test-branch push. Confirm successful delivery and a real Build with its screenshot and embedded preview. Successful import does not verify webhook-secret agreement or reachability. Keep public sharing disabled unless deliberately approved.
+
+For a Compose deployment, run diagnosis on the VM:
+
+```sh
+cd "$HOME/replica-hub" &&
+env -u REPLICA_IMAGE docker compose exec -T hub bin/rails replica:github:diagnose
+```
+
+Use `replica:github:poll` in place of `replica:github:diagnose` to synchronize immediately. Diagnosis checks App/installation reachability, not end-user sign-in or webhook delivery.
+
+### Troubleshoot manual connection
+
+| Symptom | Next check |
+| --- | --- |
+| No manual link on the setup-code screen | Enter the code and choose Continue first; inspect the next page |
+| `/setup/manual` returns 404 | Reauthorize at `/setup` in the same browser; check whether setup is already complete and whether the image includes the route |
+| Form returns 422 | Read the message at the top of the long form before retrying |
+| Generic credential/installation failure | Check actual IDs, PEM, active installation, permission approval, deployed revision, and GitHub API reachability |
+| Upload appears as `(binary)` in browser network tools | Expected multipart file upload; do not convert the PEM |
+| Import succeeds but sign-in fails | Check callback URL, client secret, and who GitHub permits to authorize the App |
+| Import succeeds but webhooks fail | Check Active, URL, TLS, matching webhook secret, subscriptions, and GitHub delivery result |
+
+Do not export a HAR or share the raw form payload; it contains the secrets and key. Hub-to-GitHub calls are not visible in the browser's form trace. An HTTP 200 from GitHub's API root proves network/TLS reachability, not App authentication. Do not reset a configured App or replace encryption keys to diagnose these failures.
+
+### Installation and credential lifecycle
 
 Webhook URL, secret, permissions, and credentials belong to the App, not an installation. Do not reuse an App whose webhook already serves another integration unless you have separately arranged compatible delivery. Hub's normal webhook rotation changes the App-wide webhook configuration and affects every installation; connecting an existing App does not isolate those settings.
 
