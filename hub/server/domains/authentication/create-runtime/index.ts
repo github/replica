@@ -1,4 +1,8 @@
+import path from "node:path"
+import os from "node:os"
+
 import { createAdmissionPolicy } from "#server/domains/authentication/create-admission-policy"
+import { createArtifactPublishingService } from "#server/domains/artifact-publishing/create-service"
 import { createAdministrationService } from "#server/domains/administration/create-service"
 import { createAuthenticationService } from "#server/domains/authentication/create-service"
 import type { AuthenticationSettings } from "#server/domains/authentication/create-service/types"
@@ -7,6 +11,7 @@ import { createIdentityStore } from "#server/domains/identity/create-store"
 import { createPrototypeAuthorizationService } from "#server/domains/prototype-authorization/create-service"
 import { createGitHubAuthorizationService } from "#server/domains/github-authorization/create-service"
 import { createGitHubUserAuthClient } from "#server/integrations/github/create-user-auth-client"
+import { createLocalArtifactStorage } from "#server/integrations/artifact-storage/create-local-storage"
 import type { GitHubUserAuthConfiguration } from "#server/integrations/github/create-user-auth-client/types"
 import { readTrustedProxyHops } from "#server/integrations/express/read-trusted-proxy-hops"
 import { prisma } from "#server/integrations/prisma"
@@ -88,8 +93,15 @@ export async function createAuthenticationRuntime(environment: NodeJS.ProcessEnv
     admissionPolicy: admissionPolicy.name,
     trustedProxyHops: readTrustedProxyHops(environment),
   }
+  const artifactStoragePath = path.resolve(
+    environment.HUB_ARTIFACT_STORAGE_PATH ?? path.join(os.homedir(), ".replica", "artifacts"),
+  )
   return {
     administration: createAdministrationService({ store }),
+    artifactPublishing: createArtifactPublishingService({
+      database: prisma,
+      storage: createLocalArtifactStorage(artifactStoragePath),
+    }),
     githubAuthorization,
     prototypeAuthorization: createPrototypeAuthorizationService({
       baseline: {

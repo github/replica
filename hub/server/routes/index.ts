@@ -19,17 +19,20 @@ import { post as handleApiSessionVerifyPost } from "#server/routes/api/session/v
 import {
   archivePrototype,
   createPrototype,
-  createVersion,
+  createPublisherCredential,
   createWorkspace,
   explainPrototypeAccess,
   getPrototype,
   getVersion,
   getWorkspace,
+  listPublishers,
   listPrototypes,
   listVersions,
   listWorkspaces,
   removePrototypeAccess,
   removeWorkspaceAccess,
+  revokePublisherCredential,
+  setPublisherActive,
   setPrototypeAccess,
   setPrototypeAuthorization,
   setWorkspaceAccess,
@@ -42,6 +45,7 @@ import {
   unlinkRepository,
   updateRepository,
 } from "#server/routes/github-authorization"
+import { getPublicationStatus, promoteVersion, publishArtifact } from "#server/routes/publishing"
 import type { AuthenticationRoutes } from "#server/routes/types"
 
 /** Keep endpoint registration separate from the app's shared middleware. */
@@ -153,6 +157,22 @@ export function routes(app: Express, authentication?: AuthenticationRoutes): voi
     productMutationLimit,
     setPrototypeAuthorization.bind(null, authentication),
   )
+  app.post(
+    "/api/prototypes/:prototypeId/publishers",
+    productMutationLimit,
+    createPublisherCredential.bind(null, authentication),
+  )
+  app.get("/api/prototypes/:prototypeId/publishers", listPublishers.bind(null, authentication))
+  app.patch(
+    "/api/prototypes/:prototypeId/publishers/:publisherId",
+    productMutationLimit,
+    setPublisherActive.bind(null, authentication),
+  )
+  app.delete(
+    "/api/prototypes/:prototypeId/publishers/:publisherId/credentials/:credentialId",
+    productMutationLimit,
+    revokePublisherCredential.bind(null, authentication),
+  )
   app.get(
     "/api/prototypes/:prototypeId/access/explanation",
     explainPrototypeAccess.bind(null, authentication),
@@ -168,12 +188,22 @@ export function routes(app: Express, authentication?: AuthenticationRoutes): voi
     removePrototypeAccess.bind(null, authentication),
   )
   app.get("/api/prototypes/:prototypeId/versions", listVersions.bind(null, authentication))
-  app.post(
-    "/api/prototypes/:prototypeId/versions",
-    productMutationLimit,
-    createVersion.bind(null, authentication),
-  )
   app.get("/api/prototypes/:prototypeId/versions/:versionId", getVersion.bind(null, authentication))
   app.use(["/api/workspaces", "/api/prototypes"], respondAdministrationError)
+  if (authentication.artifactPublishing) {
+    app.post(
+      "/api/publishing/prototypes/:prototypeId/versions",
+      publishArtifact.bind(null, authentication.artifactPublishing),
+    )
+    app.get(
+      "/api/publishing/prototypes/:prototypeId/status",
+      getPublicationStatus.bind(null, authentication.artifactPublishing),
+    )
+    app.put(
+      "/api/publishing/prototypes/:prototypeId/channels/:channel",
+      promoteVersion.bind(null, authentication.artifactPublishing),
+    )
+    app.use("/api/publishing", respondAdministrationError)
+  }
   app.use(respondAuthenticationError)
 }

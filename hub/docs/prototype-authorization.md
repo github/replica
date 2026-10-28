@@ -8,20 +8,21 @@ A workspace owns prototypes. A prototype owns an ordered history of immutable ve
 
 - An active installation administrator may create a workspace. Creation also writes an explicit workspace `administrator` grant for that user in the same transaction.
 - A workspace `editor` or `administrator` may create a prototype.
-- A prototype `editor` or `administrator` may create its next version.
-- A version cannot move to another prototype or be changed after creation.
-- Archiving a prototype keeps its versions readable but prevents new versions. Archive and version creation lock and re-read the prototype so overlapping requests cannot add a version after archival.
+- A prototype administrator may provision a prototype-scoped workload publisher.
+- An authenticated workload publisher with `publish` creates the next version through the [artifact ingestion contract](artifact-ingestion.md).
+- A version cannot move to another prototype or be changed or deleted after creation.
+- Archiving a prototype keeps its versions readable but prevents new versions. Archive and artifact publication lock and re-read the prototype so overlapping requests cannot add a version after archival.
 
-Artifact payloads are not part of this layer. A version identifies immutable prototype history without storing a build, manifest, or upload.
+Artifact payload validation and storage are owned by the separate [artifact ingestion layer](artifact-ingestion.md). User authorization controls who can provision the workload boundary and read versions; source provenance does not affect either decision.
 
 ## Roles
 
-| Role | Product authority |
-| --- | --- |
-| `viewer` | Read the authorized workspace, prototype, and versions. |
-| `commenter` | Includes viewer authority and reserves the role for future review comments. |
-| `editor` | Includes commenter authority, creates prototypes within an authorized workspace, creates versions, and archives prototypes. |
-| `administrator` | Includes editor authority and changes direct access rules. |
+| Role            | Product authority                                                                                                           |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `viewer`        | Read the authorized workspace, prototype, and versions.                                                                     |
+| `commenter`     | Includes viewer authority and reserves the role for future review comments.                                                 |
+| `editor`        | Includes commenter authority, creates prototypes within an authorized workspace, and archives prototypes. |
+| `administrator` | Includes editor authority and changes direct access rules.                                                                  |
 
 Installation membership and installation administrator status do not grant access to existing workspaces or prototypes. The workspace-creation rule is the only installation-administrator product rule in this layer. After creation, the user's explicit workspace grant supplies authority.
 
@@ -71,8 +72,12 @@ The product API uses:
 - `PUT /api/prototypes/:prototypeId/authorization`
 - `GET /api/prototypes/:prototypeId/access/explanation`
 - `PUT` and `DELETE /api/prototypes/:prototypeId/access/:userId`
-- `GET` and `POST /api/prototypes/:prototypeId/versions`
+- `GET /api/prototypes/:prototypeId/versions`
 - `GET /api/prototypes/:prototypeId/versions/:versionId`
+- `POST /api/prototypes/:prototypeId/publishers`
+- `GET /api/prototypes/:prototypeId/publishers`
+- `PATCH /api/prototypes/:prototypeId/publishers/:publisherId`
+- `DELETE /api/prototypes/:prototypeId/publishers/:publisherId/credentials/:credentialId`
 
 List routes use an opaque UUID cursor and a limit from 1 through 100. Invalid pagination returns an explicit error. State-changing requests require the configured origin and matching CSRF cookie and header. Product responses are private and non-cacheable, request payloads are omitted from logs, and mutation routes use a bounded rate limit.
 
@@ -80,7 +85,7 @@ Every product route restores the current session and active installation members
 
 ## Audits
 
-Workspace creation, prototype creation and archival, version creation, role grants, explicit denies, and rule removal write structured security audits in the same transaction as the product change. A failed audit rolls back the product change.
+Workspace creation, prototype creation and archival, workload publisher provisioning, role grants, explicit denies, and rule removal write structured security audits in the same transaction as the product change. Artifact publication writes its workload audit in the publication transaction. A failed audit rolls back the product change.
 
 Records identify the actor, session, authentication-provider revision, affected product records, target user when applicable, outcome, and a bounded reason. They do not include cookies, provider tokens, host secrets, request bodies, prototype artifacts, or mutable identity labels.
 
@@ -90,4 +95,4 @@ The [GitHub integration](github-integration.md) confirms permissions with instal
 
 Repository rename changes mutable owner, name, and default-branch fields without changing the immutable source identity. Repository removal, installation removal, and permission loss update synchronized baselines only. Direct Hub overrides remain intact.
 
-Source mutation, public links, artifact ingestion, promotion, retention, and rollback remain separate product boundaries.
+Source mutation and public links remain separate product boundaries. Artifact ingestion, promotion, retention, and rollback follow the provider-neutral contract without changing user access rules.

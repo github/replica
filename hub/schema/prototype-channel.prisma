@@ -1,0 +1,21 @@
+model PrototypeChannel {
+  // ID columns
+  id                 String @id @default(uuid()) @db.Uuid
+  prototypeId        String @map("prototype_id") @db.Uuid
+  prototypeVersionId String @map("prototype_version_id") @db.Uuid
+
+  // Relations
+  prototype        Prototype        @relation(fields: [prototypeId], references: [id], onDelete: Restrict)
+  prototypeVersion PrototypeVersion @relation(fields: [prototypeVersionId], references: [id], onDelete: Restrict)
+
+  // Attribute columns
+  name String
+
+  // Timestamp columns
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([prototypeId, name])
+  @@index([prototypeVersionId])
+  @@map("prototype_channels")
+}

@@ -137,6 +137,58 @@ async function holdPrototypeLock(database: PrismaClient, prototypeId: string) {
   return { holder, release: released.resolve }
 }
 
+async function createAdministeredPrototype({
+  service,
+  store,
+  subject,
+  token,
+}: {
+  service: ReturnType<typeof createPrototypeAuthorizationService>
+  store: IdentityStore
+  subject: string
+  token: string
+}) {
+  const actor = await createActor(store, { subject, token, role: "administrator" })
+  const workspace = (await service.createWorkspace(token, {
+    name: `${subject} workspace`,
+  })) as { id: string }
+  const prototype = (await service.createPrototype(token, workspace.id, {
+    name: `${subject} prototype`,
+  })) as { id: string }
+  return { actor, prototype, workspace }
+}
+
+async function rejectAudit(
+  database: PrismaClient,
+  event:
+    | "prototype.publisher.create"
+    | "prototype.publisher.disable"
+    | "prototype.publisher.credential.revoke",
+  action: () => Promise<unknown>,
+) {
+  await database.$executeRawUnsafe(`
+    CREATE FUNCTION reject_test_publisher_audit() RETURNS trigger AS $$
+    BEGIN
+      IF NEW.event = '${event}' THEN
+        RAISE EXCEPTION 'audit unavailable';
+      END IF;
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql;
+  `)
+  await database.$executeRawUnsafe(`
+    CREATE TRIGGER reject_test_publisher_audit
+    BEFORE INSERT ON security_audits
+    FOR EACH ROW EXECUTE FUNCTION reject_test_publisher_audit();
+  `)
+  try {
+    await expect(action()).rejects.toThrow("audit unavailable")
+  } finally {
+    await database.$executeRawUnsafe("DROP TRIGGER reject_test_publisher_audit ON security_audits")
+    await database.$executeRawUnsafe("DROP FUNCTION reject_test_publisher_audit()")
+  }
+}
+
 describe("createPrototypeAuthorizationService() database behavior", () => {
   it("separates installation authority from prototype access and explicitly grants a creator", async () => {
     const { prisma, service, store } = await database()
@@ -427,6 +479,302 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
       status: 404,
       code: "version_not_found",
     })
+  })
+
+  it("audits publisher disable, re-enable, and credential revocation with their state changes", async () => {
+    const { prisma, service, store } = await database()
+    const token = "publisher-lifecycle-token"
+    const { actor, prototype } = await createAdministeredPrototype({
+      service,
+      store,
+      subject: "publisher-lifecycle",
+      token,
+    })
+
+    await rejectAudit(prisma, "prototype.publisher.create", () =>
+      service.createPublisherCredential(token, prototype.id, {
+        name: "Rejected publisher",
+        actions: ["publish"],
+      }),
+    )
+    expect(await prisma.workloadPublisher.count({ where: { prototypeId: prototype.id } })).toBe(0)
+
+    const provisioned = (await service.createPublisherCredential(token, prototype.id, {
+      name: "CI publisher",
+      actions: ["publish", "read-status"],
+    })) as {
+      publisher: { id: string }
+      credential: { id: string }
+    }
+
+    await rejectAudit(prisma, "prototype.publisher.disable", () =>
+      service.setPublisherActive(token, prototype.id, provisioned.publisher.id, {
+        active: false,
+      }),
+    )
+    expect(
+      await prisma.workloadPublisher.findUniqueOrThrow({
+        where: { id: provisioned.publisher.id },
+        select: { active: true },
+      }),
+    ).toEqual({ active: true })
+
+    await service.setPublisherActive(token, prototype.id, provisioned.publisher.id, {
+      active: false,
+    })
+    await service.setPublisherActive(token, prototype.id, provisioned.publisher.id, {
+      active: true,
+    })
+    await rejectAudit(prisma, "prototype.publisher.credential.revoke", () =>
+      service.revokePublisherCredential(
+        token,
+        prototype.id,
+        provisioned.publisher.id,
+        provisioned.credential.id,
+      ),
+    )
+    expect(
+      await prisma.workloadCredential.findUniqueOrThrow({
+        where: { id: provisioned.credential.id },
+        select: { revokedAt: true },
+      }),
+    ).toEqual({ revokedAt: null })
+
+    await service.revokePublisherCredential(
+      token,
+      prototype.id,
+      provisioned.publisher.id,
+      provisioned.credential.id,
+    )
+
+    const revokedCredential = await prisma.workloadCredential.findUniqueOrThrow({
+      where: { id: provisioned.credential.id },
+      select: { revokedAt: true },
+    })
+    expect(revokedCredential.revokedAt).toBeInstanceOf(Date)
+    expect(
+      await prisma.securityAudit.findMany({
+        where: { prototypeId: prototype.id, workloadPublisherId: provisioned.publisher.id },
+        select: {
+          actorUserId: true,
+          event: true,
+          workloadCredentialId: true,
+          workloadPublisherId: true,
+        },
+      }),
+    ).toEqual(
+      expect.arrayContaining([
+        {
+          actorUserId: actor.user.id,
+          event: "prototype.publisher.create",
+          workloadCredentialId: null,
+          workloadPublisherId: provisioned.publisher.id,
+        },
+        {
+          actorUserId: actor.user.id,
+          event: "prototype.publisher.disable",
+          workloadCredentialId: null,
+          workloadPublisherId: provisioned.publisher.id,
+        },
+        {
+          actorUserId: actor.user.id,
+          event: "prototype.publisher.enable",
+          workloadCredentialId: null,
+          workloadPublisherId: provisioned.publisher.id,
+        },
+        {
+          actorUserId: actor.user.id,
+          event: "prototype.publisher.credential.revoke",
+          workloadCredentialId: provisioned.credential.id,
+          workloadPublisherId: provisioned.publisher.id,
+        },
+      ]),
+    )
+    expect(
+      await prisma.securityAudit.count({
+        where: { prototypeId: prototype.id, workloadPublisherId: provisioned.publisher.id },
+      }),
+    ).toBe(4)
+  })
+
+  it("requires publish permission when provisioning a publisher", async () => {
+    const { prisma, service, store } = await database()
+    const token = "publisher-action-token"
+    const { prototype } = await createAdministeredPrototype({
+      service,
+      store,
+      subject: "publisher-action",
+      token,
+    })
+
+    await expect(
+      service.createPublisherCredential(token, prototype.id, {
+        name: "Status-only publisher",
+        actions: ["read-status"],
+      }),
+    ).rejects.toMatchObject({ status: 422, code: "invalid_workload_publisher" })
+    expect(await prisma.workloadPublisher.count({ where: { prototypeId: prototype.id } })).toBe(0)
+  })
+
+  it("lists bounded publisher and credential metadata without reusable secrets", async () => {
+    const { prisma, service, store } = await database()
+    const token = "publisher-list-token"
+    const { prototype } = await createAdministeredPrototype({
+      service,
+      store,
+      subject: "publisher-list",
+      token,
+    })
+    const first = (await service.createPublisherCredential(token, prototype.id, {
+      name: "First publisher",
+      actions: ["publish"],
+    })) as { credential: { token: string } }
+    const second = (await service.createPublisherCredential(token, prototype.id, {
+      name: "Second publisher",
+      actions: ["publish", "read-status"],
+    })) as { credential: { token: string } }
+
+    const firstPage = (await service.listPublishers(token, prototype.id, {
+      limit: 1,
+    })) as {
+      items: { id: string; credentials: { id: string }[] }[]
+      nextCursor: string | null
+    }
+    const secondPage = (await service.listPublishers(token, prototype.id, {
+      limit: 1,
+      cursor: firstPage.nextCursor,
+    })) as {
+      items: { id: string; credentials: { id: string }[] }[]
+      nextCursor: string | null
+    }
+    const serialized = JSON.stringify([firstPage, secondPage])
+    const tokenDigests = await prisma.workloadCredential.findMany({
+      select: { tokenDigest: true },
+    })
+
+    expect(firstPage.items).toHaveLength(1)
+    expect(firstPage.nextCursor).toBe(firstPage.items[0]?.id)
+    expect(secondPage.items).toHaveLength(1)
+    expect(secondPage.nextCursor).toBeNull()
+    expect(new Set([...firstPage.items, ...secondPage.items].map(({ id }) => id)).size).toBe(2)
+    expect(serialized).not.toContain(first.credential.token)
+    expect(serialized).not.toContain(second.credential.token)
+    for (const { tokenDigest } of tokenDigests) expect(serialized).not.toContain(tokenDigest)
+    expect(serialized).not.toContain("tokenDigest")
+  })
+
+  it("does not apply publisher or credential lifecycle operations across prototypes", async () => {
+    const { prisma, service, store } = await database()
+    const token = "publisher-scope-token"
+    const { prototype, workspace } = await createAdministeredPrototype({
+      service,
+      store,
+      subject: "publisher-scope",
+      token,
+    })
+    const otherPrototype = (await service.createPrototype(token, workspace.id, {
+      name: "Other prototype",
+    })) as { id: string }
+    const provisioned = (await service.createPublisherCredential(token, prototype.id, {
+      name: "Scoped publisher",
+      actions: ["publish"],
+    })) as {
+      publisher: { id: string }
+      credential: { id: string }
+    }
+
+    await expect(
+      service.setPublisherActive(token, otherPrototype.id, provisioned.publisher.id, {
+        active: false,
+      }),
+    ).rejects.toMatchObject({ status: 404, code: "workload_publisher_not_found" })
+    await expect(
+      service.revokePublisherCredential(
+        token,
+        otherPrototype.id,
+        provisioned.publisher.id,
+        provisioned.credential.id,
+      ),
+    ).rejects.toMatchObject({ status: 404, code: "workload_credential_not_found" })
+
+    expect(
+      await prisma.workloadPublisher.findUniqueOrThrow({
+        where: { id: provisioned.publisher.id },
+        select: { active: true, credentials: { select: { revokedAt: true } } },
+      }),
+    ).toEqual({ active: true, credentials: [{ revokedAt: null }] })
+    expect(
+      await prisma.securityAudit.count({
+        where: {
+          prototypeId: otherPrototype.id,
+          event: { startsWith: "prototype.publisher." },
+        },
+      }),
+    ).toBe(0)
+  })
+
+  it("allows disable and credential revocation after archive but blocks creation and re-enable", async () => {
+    const { prisma, service, store } = await database()
+    const token = "archived-publisher-token"
+    const { prototype } = await createAdministeredPrototype({
+      service,
+      store,
+      subject: "archived-publisher",
+      token,
+    })
+    const provisioned = (await service.createPublisherCredential(token, prototype.id, {
+      name: "Archived publisher",
+      actions: ["publish"],
+    })) as {
+      publisher: { id: string }
+      credential: { id: string }
+    }
+    await service.archivePrototype(token, prototype.id)
+
+    await expect(
+      service.createPublisherCredential(token, prototype.id, {
+        name: "New archived publisher",
+        actions: ["publish"],
+      }),
+    ).rejects.toMatchObject({ status: 409, code: "prototype_archived" })
+    await service.setPublisherActive(token, prototype.id, provisioned.publisher.id, {
+      active: false,
+    })
+    await expect(
+      service.setPublisherActive(token, prototype.id, provisioned.publisher.id, {
+        active: true,
+      }),
+    ).rejects.toMatchObject({ status: 409, code: "prototype_archived" })
+    await service.revokePublisherCredential(
+      token,
+      prototype.id,
+      provisioned.publisher.id,
+      provisioned.credential.id,
+    )
+
+    const publisher = await prisma.workloadPublisher.findUniqueOrThrow({
+      where: { id: provisioned.publisher.id },
+      select: { active: true, credentials: { select: { revokedAt: true } } },
+    })
+    expect(publisher.active).toBe(false)
+    expect(publisher.credentials).toHaveLength(1)
+    expect(publisher.credentials[0]?.revokedAt).toBeInstanceOf(Date)
+    expect(
+      (
+        await prisma.securityAudit.findMany({
+          where: {
+            prototypeId: prototype.id,
+            event: {
+              in: ["prototype.publisher.disable", "prototype.publisher.credential.revoke"],
+            },
+          },
+          select: { event: true },
+        })
+      ).sort((left, right) => left.event.localeCompare(right.event)),
+    ).toEqual([
+      { event: "prototype.publisher.credential.revoke" },
+      { event: "prototype.publisher.disable" },
+    ])
   })
 
   it("rechecks membership in the mutation transaction instead of trusting a stale session", async () => {
@@ -924,59 +1272,6 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
     ).toEqual([{ event: "prototype.archive" }])
   })
 
-  it("does not commit a version queued behind archival", async () => {
-    const { prisma, service, store } = await database()
-    const actor = await createActor(store, {
-      subject: "archive-version-race",
-      token: "archive-version-race-token",
-    })
-    const workspace = await prisma.workspace.create({
-      data: {
-        name: "Workspace",
-        createdByUserId: actor.user.id,
-        grants: {
-          create: {
-            userId: actor.user.id,
-            effect: "allow",
-            role: "editor",
-          },
-        },
-      },
-    })
-    const prototype = await prisma.prototype.create({
-      data: {
-        name: "Prototype",
-        workspaceId: workspace.id,
-        createdByUserId: actor.user.id,
-      },
-    })
-    const lock = await holdPrototypeLock(prisma, prototype.id)
-
-    const archive = service.archivePrototype("archive-version-race-token", prototype.id)
-    await waitForBlockedRowLock(prisma, "prototypes")
-    const version = service.createVersion("archive-version-race-token", prototype.id, {
-      label: "Must not commit",
-    })
-    lock.release()
-    await lock.holder
-
-    const archived = (await archive) as { id: string; archivedAt: Date | null }
-    expect(archived.id).toBe(prototype.id)
-    expect(archived.archivedAt).toBeInstanceOf(Date)
-    await expect(version).rejects.toMatchObject({
-      status: 409,
-      code: "prototype_archived",
-    })
-    expect(await prisma.prototypeVersion.count({ where: { prototypeId: prototype.id } })).toBe(0)
-    expect(
-      await prisma.securityAudit.findMany({
-        where: { prototypeId: prototype.id },
-        orderBy: { createdAt: "asc" },
-        select: { event: true },
-      }),
-    ).toEqual([{ event: "prototype.archive" }])
-  })
-
   it("rolls back an access change when its audit cannot be saved", async () => {
     const { prisma, service, store } = await database()
     await createActor(store, {
@@ -1283,10 +1578,11 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
       service.getVersion("baseline-single-prototype-token", prototype.id, firstVersion.id),
     ).resolves.toMatchObject({ id: firstVersion.id })
     await expect(
-      service.createVersion("baseline-single-prototype-token", prototype.id, {
-        label: "Second",
+      service.createPublisherCredential("baseline-single-prototype-token", prototype.id, {
+        name: "Baseline publisher",
+        actions: ["publish"],
       }),
-    ).resolves.toMatchObject({ sequence: 2 })
+    ).resolves.toMatchObject({ publisher: { prototypeId: prototype.id } })
     await expect(
       service.setPrototypeAccess("baseline-single-prototype-token", prototype.id, target.user.id, {
         effect: "allow",
@@ -1563,7 +1859,7 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
 
   it("passes the mutation transaction to a synchronized prototype baseline", async () => {
     const baselineAccess = vi.fn<PrototypeBaselinePolicy["baseline"]>().mockResolvedValue({
-      role: "editor",
+      role: "administrator",
       repositorySourceId: "repository-source",
       githubRepositoryId: "100",
       rawPermission: "write",
@@ -1587,10 +1883,11 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
     })
 
     await expect(
-      service.createVersion("transaction-baseline-token", prototype.id, {
-        label: "Baseline version",
+      service.createPublisherCredential("transaction-baseline-token", prototype.id, {
+        name: "Baseline publisher",
+        actions: ["publish"],
       }),
-    ).resolves.toMatchObject({ prototypeId: prototype.id, sequence: 1 })
+    ).resolves.toMatchObject({ publisher: { prototypeId: prototype.id } })
 
     expect(baselineAccess).toHaveBeenCalledOnce()
     expect(baselineAccess.mock.calls[0]?.slice(1)).toEqual([actor.user.id, prototype.id])
@@ -1715,7 +2012,6 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
     expect(second.nextCursor).toBeNull()
     expect(new Set([...first.items, ...second.items].map(({ id }) => id)).size).toBe(4)
   })
-
   it("lists immutable versions by sequence and paginates in that order", async () => {
     const { prisma, service, store } = await database()
     const actor = await createActor(store, {
@@ -1790,67 +2086,5 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
       { sequence: 3, label: "Third immutable version" },
     ])
     expect(second.nextCursor).toBeNull()
-  })
-
-  it("creates sequential immutable versions and rejects additions after archival", async () => {
-    const { prisma, service, store } = await database()
-    await createActor(store, {
-      subject: "versions",
-      token: "versions-token",
-      role: "administrator",
-    })
-    const workspace = (await service.createWorkspace("versions-token", {
-      name: "Workspace",
-    })) as { id: string }
-    const prototype = (await service.createPrototype("versions-token", workspace.id, {
-      name: "Prototype",
-    })) as { id: string }
-
-    const created = await Promise.all([
-      service.createVersion("versions-token", prototype.id, { label: "First request" }),
-      service.createVersion("versions-token", prototype.id, { label: "Second request" }),
-    ])
-
-    expect(
-      created
-        .map((version) => (version as { sequence: number }).sequence)
-        .sort((left, right) => left - right),
-    ).toEqual([1, 2])
-    expect(
-      await prisma.prototypeVersion.findMany({
-        where: { prototypeId: prototype.id },
-        orderBy: { sequence: "asc" },
-        select: { sequence: true },
-      }),
-    ).toEqual([{ sequence: 1 }, { sequence: 2 }])
-
-    await service.archivePrototype("versions-token", prototype.id)
-    await expect(
-      service.createVersion("versions-token", prototype.id, { label: "Too late" }),
-    ).rejects.toMatchObject({
-      status: 409,
-      code: "prototype_archived",
-    })
-    expect(await prisma.prototypeVersion.count({ where: { prototypeId: prototype.id } })).toBe(2)
-    const audits = await prisma.securityAudit.findMany({
-      where: { prototypeId: prototype.id },
-      orderBy: { createdAt: "asc" },
-      select: {
-        event: true,
-        context: true,
-        prototypeVersionId: true,
-      },
-    })
-    expect(audits.map(({ event }) => event)).toEqual([
-      "prototype.create",
-      "prototype.version.create",
-      "prototype.version.create",
-      "prototype.archive",
-    ])
-    expect(audits.every(({ context }) => JSON.stringify(context) === "{}")).toBe(true)
-    expect(audits[0]?.prototypeVersionId).toBeNull()
-    expect(audits[1]?.prototypeVersionId).toEqual(expect.any(String))
-    expect(audits[2]?.prototypeVersionId).toEqual(expect.any(String))
-    expect(audits[3]?.prototypeVersionId).toBeNull()
   })
 })
