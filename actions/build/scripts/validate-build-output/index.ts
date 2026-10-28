@@ -2,10 +2,10 @@ import { lstat, readFile } from "node:fs/promises"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { collectBuildFiles } from "../collect-build-files/index.mjs"
-import { MAX_ENTRIES, MAX_FILE_BYTES, MAX_PATH_DEPTH, MAX_TOTAL_BYTES } from "../constants.mjs"
-import { requireIndexFile } from "../require-index-file/index.mjs"
-import { requiredPathArgument } from "../required-path-argument/index.mjs"
+import { collectBuildFiles, type BuildFileState } from "../collect-build-files/index.ts"
+import { MAX_ENTRIES, MAX_FILE_BYTES, MAX_PATH_DEPTH, MAX_TOTAL_BYTES } from "../constants.ts"
+import { requireIndexFile } from "../require-index-file/index.ts"
+import { requiredPathArgument } from "../required-path-argument/index.ts"
 import { validateControlsDocument } from "../../../../hub/app/javascript/utils/prototype-controls/controls.mjs"
 
 const DEFAULT_LIMITS = {
@@ -16,7 +16,10 @@ const DEFAULT_LIMITS = {
 }
 
 /** Checks dist paths and sizes, then returns the files that can be packaged. */
-export async function validateBuildOutput(root, limits = {}) {
+export async function validateBuildOutput(
+  root: string,
+  limits: Partial<BuildFileState["limits"]> = {},
+) {
   const appliedLimits = { ...DEFAULT_LIMITS, ...limits }
   const dist = path.join(root, "dist")
   let distDetails
@@ -24,7 +27,11 @@ export async function validateBuildOutput(root, limits = {}) {
   try {
     distDetails = await lstat(dist)
   } catch (error) {
-    if (error.code === "ENOENT" || error.code === "ENOTDIR") {
+    if (
+      error instanceof Error &&
+      "code" in error &&
+      (error.code === "ENOENT" || error.code === "ENOTDIR")
+    ) {
       throw new Error("Build must contain a dist/ directory.", { cause: error })
     }
 
@@ -37,7 +44,7 @@ export async function validateBuildOutput(root, limits = {}) {
 
   await requireIndexFile(dist)
 
-  const state = {
+  const state: BuildFileState = {
     entries: 0,
     files: [],
     limits: appliedLimits,
@@ -53,7 +60,12 @@ export async function validateBuildOutput(root, limits = {}) {
     try {
       validateControlsDocument(JSON.parse(source))
     } catch (error) {
-      throw new Error(`Build Controls are invalid: ${error.message}`, { cause: error })
+      throw new Error(
+        `Build Controls are invalid: ${error instanceof Error ? error.message : String(error)}`,
+        {
+          cause: error,
+        },
+      )
     }
   }
   state.files.sort((left, right) => {

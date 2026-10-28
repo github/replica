@@ -5,7 +5,7 @@ import path from "node:path"
 import { describe, it, type TestContext } from "node:test"
 import { fileURLToPath } from "node:url"
 
-import { temporaryDirectory } from "../../test/temporary-directory/index.mjs"
+import { temporaryDirectory } from "../../test/temporary-directory/index.ts"
 
 import { validateCheckout } from "./index.ts"
 

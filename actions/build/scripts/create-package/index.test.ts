@@ -3,12 +3,12 @@ import { mkdir, readFile, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { describe, it } from "node:test"
 
-import { temporaryDirectory } from "../../test/temporary-directory/index.mjs"
-import { writePng } from "../../test/write-png/index.mjs"
+import { temporaryDirectory } from "../../test/temporary-directory/index.ts"
+import { writePng } from "../../test/write-png/index.ts"
 
-import { MAX_SCREENSHOT_BYTES, MAX_SCREENSHOT_HEIGHT } from "../constants.mjs"
+import { MAX_SCREENSHOT_BYTES, MAX_SCREENSHOT_HEIGHT } from "../constants.ts"
 
-import { createPackage } from "./index.mjs"
+import { createPackage } from "./index.ts"
 
 describe("createPackage()", () => {
   it("rejects incomplete dark captures instead of publishing a partial set", async () => {

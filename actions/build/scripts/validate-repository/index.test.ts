@@ -3,9 +3,9 @@ import { mkdir, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { describe, it } from "node:test"
 
-import { temporaryDirectory } from "../../test/temporary-directory/index.mjs"
+import { temporaryDirectory } from "../../test/temporary-directory/index.ts"
 
-import { validateRepository } from "./index.mjs"
+import { validateRepository } from "./index.ts"
 
 describe("validateRepository()", () => {
   it("accepts the required root npm files and build command", async () => {

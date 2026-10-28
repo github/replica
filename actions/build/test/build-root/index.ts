@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises"
 import path from "node:path"
 
-import { temporaryDirectory } from "../temporary-directory/index.mjs"
+import { temporaryDirectory } from "../temporary-directory/index.ts"
 
 /** Creates a temporary dist/ directory with the required index.html file. */
 export async function buildRoot() {

@@ -1,5 +1,5 @@
 /** Returns true when a path segment uses an unsupported character or reserved name. */
-export function unsupportedPathSegment(segment) {
+export function unsupportedPathSegment(segment: string) {
   const windowsName = segment.split(".", 1)[0].toUpperCase()
 
   return (

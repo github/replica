@@ -3,10 +3,10 @@ import { readdir, symlink, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { describe, it } from "node:test"
 
-import { buildRoot } from "../../test/build-root/index.mjs"
-import { temporaryDirectory } from "../../test/temporary-directory/index.mjs"
+import { buildRoot } from "../../test/build-root/index.ts"
+import { temporaryDirectory } from "../../test/temporary-directory/index.ts"
 
-import { validateBuildOutput } from "./index.mjs"
+import { validateBuildOutput } from "./index.ts"
 
 describe("validateBuildOutput()", () => {
   it("validates the retained Controls asset without trusting source definitions", async () => {

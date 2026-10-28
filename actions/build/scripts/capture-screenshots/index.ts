@@ -2,18 +2,24 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { chromium } from "playwright"
+import { chromium, type Browser } from "playwright"
 
-import { closeServer } from "../close-server/index.mjs"
-import { MAX_SCREENSHOT_HEIGHT, START_ROUTE, VIEWPORTS } from "../constants.mjs"
-import { createStaticServer } from "../create-static-server/index.mjs"
-import { listenOnLoopback } from "../listen-on-loopback/index.mjs"
-import { readTemplates } from "../read-templates/index.mjs"
-import { requiredPathArgument } from "../required-path-argument/index.mjs"
-import { validateBuildOutput } from "../validate-build-output/index.mjs"
+import { closeServer } from "../close-server/index.ts"
+import { MAX_SCREENSHOT_HEIGHT, START_ROUTE, VIEWPORTS } from "../constants.ts"
+import { createStaticServer } from "../create-static-server/index.ts"
+import { listenOnLoopback } from "../listen-on-loopback/index.ts"
+import { readTemplates } from "../read-templates/index.ts"
+import { requiredPathArgument } from "../required-path-argument/index.ts"
+import { validateBuildOutput } from "../validate-build-output/index.ts"
+
+declare global {
+  var ReplicaControls: {
+    ready: Promise<{ takeNavigation(): string | undefined } | undefined>
+  }
+}
 
 /** Captures the root and declared templates in both color schemes at each width. */
-export async function captureScreenshots(root, screenshots, configRoot = root) {
+export async function captureScreenshots(root: string, screenshots: string, configRoot = root) {
   await validateBuildOutput(root)
   const manifest = await readTemplates(configRoot)
   const controlsAdapter = await readFile(
@@ -28,7 +34,7 @@ export async function captureScreenshots(root, screenshots, configRoot = root) {
     manifest?.templates.map((template) => template.path),
   )
   const port = await listenOnLoopback(server)
-  let browser
+  let browser: Browser | undefined
 
   try {
     browser = await chromium.launch({
@@ -48,7 +54,7 @@ export async function captureScreenshots(root, screenshots, configRoot = root) {
     for (const destination of destinations) {
       await mkdir(path.join(screenshots, destination.directory), { recursive: true })
       for (const viewport of VIEWPORTS) {
-        for (const colorScheme of ["light", "dark"]) {
+        for (const colorScheme of ["light", "dark"] as const) {
           const context = await browser.newContext({ viewport, colorScheme })
           const page = await context.newPage()
           await context.route("**/*", async (route) => {
