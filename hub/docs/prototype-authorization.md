@@ -37,7 +37,7 @@ The evaluator applies this order:
 4. A future optional synchronized baseline may apply.
 5. Otherwise Hub denies access.
 
-Every decision reports whether access is allowed, the effective role, the source, and a stable reason. Routes use this evaluator instead of reimplementing precedence. Prototype listing accepts the same optional baseline policy source and checks workspace access independently of the current page, so an authorized user receives an empty terminal page instead of an authorization error. This release does not supply a synchronized baseline. Future GitHub synchronization must remain below explicit Hub deny and explicit Hub role rules.
+Every decision reports whether access is allowed, the effective role, the source, and a stable reason. Routes use this evaluator instead of reimplementing precedence. Hub consults an optional baseline only when explicit Hub rules produce no decision, so an unavailable lower-precedence source cannot block an explicit deny or role. Prototype listing accepts that baseline policy source and checks workspace access independently of the current page, so an authorized user receives an empty terminal page instead of an authorization error. This release does not supply a synchronized baseline. Future GitHub synchronization must remain below explicit Hub deny and explicit Hub role rules.
 
 Workspace administrators cannot remove or replace the final active workspace administrator. A prototype access change must also leave at least one active effective prototype administrator. Hub locks the owning records before checking these invariants, so overlapping changes cannot each remove a different final administrator. Suspended and removed users do not satisfy either invariant.
 
