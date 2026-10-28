@@ -2098,10 +2098,11 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
       service.getVersion("baseline-single-prototype-token", prototype.id, firstVersion.id),
     ).resolves.toMatchObject({ id: firstVersion.id })
     await expect(
-      service.createVersion("baseline-single-prototype-token", prototype.id, {
-        label: "Second",
+      service.createPublisherCredential("baseline-single-prototype-token", prototype.id, {
+        name: "Baseline publisher",
+        actions: ["publish"],
       }),
-    ).resolves.toMatchObject({ sequence: 2 })
+    ).resolves.toMatchObject({ publisher: { prototypeId: prototype.id } })
     await expect(
       service.setPrototypeAccess("baseline-single-prototype-token", prototype.id, target.user.id, {
         effect: "allow",
