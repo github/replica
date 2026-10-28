@@ -87,6 +87,10 @@ const csrfHeaders = {
   "x-csrf-token": csrfToken,
 }
 
+function opaqueOidcCode(length: number): string {
+  return `oidc.${"Ab9_-".repeat(Math.ceil(length / 5))}`.slice(0, length)
+}
+
 describe("authentication routes", () => {
   it("sets host-bound secure cookies and omits repository scope during GitHub initiation", async () => {
     const runtime = authentication({
@@ -169,6 +173,217 @@ describe("authentication routes", () => {
       "provider-code",
       "s".repeat(43),
       browserToken,
+    )
+  })
+
+  it("completes an OIDC callback with a realistic long opaque code without exposing it", async () => {
+    const records: Record<string, unknown>[] = []
+    const logger = createLogger({
+      destination: {
+        write: (line) => records.push(JSON.parse(line) as Record<string, unknown>),
+      },
+    })
+    const code = opaqueOidcCode(2_048)
+    const state = "S_-09azAZ".repeat(5).slice(0, 43)
+    const runtime = authentication(
+      {
+        complete: vi.fn().mockResolvedValue({
+          purpose: "sign-in",
+          sessionToken,
+        }),
+      },
+      true,
+      0,
+      "oidc",
+    )
+    const baseUrl = await serve(runtime, logger)
+
+    const response = await fetch(
+      `${baseUrl}/api/auth/oidc/callback?${new URLSearchParams({ code, state })}`,
+      {
+        headers: { cookie: `__Host-replica-authorization=${browserToken}` },
+        redirect: "manual",
+      },
+    )
+
+    expect(response.status).toBe(303)
+    expect(response.headers.get("location")).toBe("https://hub.example/?authentication=complete")
+    expect(response.headers.get("set-cookie")).toContain(`__Host-replica-session=${sessionToken}`)
+    expect(runtime.service.complete).toHaveBeenCalledWith(code, state, browserToken)
+    await vi.waitFor(() => expect(records).toHaveLength(1))
+    expect(JSON.stringify([...response.headers])).not.toContain(code)
+    expect(JSON.stringify(records)).not.toContain(code)
+  })
+
+  it("keeps GitHub authorization codes at the 1000-character boundary", async () => {
+    const runtime = authentication()
+    const baseUrl = await serve(runtime)
+    const state = "s".repeat(43)
+    const acceptedCode = "g".repeat(1_000)
+    const rejectedCode = "g".repeat(1_001)
+
+    const accepted = await fetch(
+      `${baseUrl}/api/auth/github/callback?${new URLSearchParams({
+        code: acceptedCode,
+        state,
+      })}`,
+      {
+        headers: { cookie: `__Host-replica-authorization=${browserToken}` },
+        redirect: "manual",
+      },
+    )
+    const rejected = await fetch(
+      `${baseUrl}/api/auth/github/callback?${new URLSearchParams({
+        code: rejectedCode,
+        state,
+      })}`,
+      {
+        headers: { cookie: `__Host-replica-authorization=${browserToken}` },
+        redirect: "manual",
+      },
+    )
+
+    expect(accepted.headers.get("location")).toBe("https://hub.example/?authentication=complete")
+    expect(rejected.headers.get("location")).toBe(
+      "https://hub.example/?authentication=failed&reason=invalid_callback",
+    )
+    expect(runtime.service.complete).toHaveBeenCalledOnce()
+    expect(runtime.service.complete).toHaveBeenCalledWith(acceptedCode, state, browserToken)
+  })
+
+  it("accepts an 8192-character OIDC code and rejects the next character", async () => {
+    const runtime = authentication({}, true, 0, "oidc")
+    const baseUrl = await serve(runtime)
+    const state = "s".repeat(43)
+    const acceptedCode = opaqueOidcCode(8_192)
+    const rejectedCode = opaqueOidcCode(8_193)
+
+    const accepted = await fetch(
+      `${baseUrl}/api/auth/oidc/callback?${new URLSearchParams({
+        code: acceptedCode,
+        state,
+      })}`,
+      {
+        headers: { cookie: `__Host-replica-authorization=${browserToken}` },
+        redirect: "manual",
+      },
+    )
+    const rejected = await fetch(
+      `${baseUrl}/api/auth/oidc/callback?${new URLSearchParams({
+        code: rejectedCode,
+        state,
+      })}`,
+      {
+        headers: { cookie: `__Host-replica-authorization=${browserToken}` },
+        redirect: "manual",
+      },
+    )
+
+    expect(accepted.headers.get("location")).toBe("https://hub.example/?authentication=complete")
+    expect(rejected.headers.get("location")).toBe(
+      "https://hub.example/?authentication=failed&reason=invalid_callback",
+    )
+    expect(runtime.service.complete).toHaveBeenCalledOnce()
+    expect(runtime.service.complete).toHaveBeenCalledWith(acceptedCode, state, browserToken)
+  })
+
+  it("accepts exactly one 43-character base64url state value", async () => {
+    const runtime = authentication({}, true, 0, "oidc")
+    const baseUrl = await serve(runtime)
+    const state = "Az09_-".repeat(8).slice(0, 43)
+
+    const response = await fetch(
+      `${baseUrl}/api/auth/oidc/callback?${new URLSearchParams({
+        code: "provider-code",
+        state,
+      })}`,
+      {
+        headers: { cookie: `__Host-replica-authorization=${browserToken}` },
+        redirect: "manual",
+      },
+    )
+
+    expect(response.headers.get("location")).toBe("https://hub.example/?authentication=complete")
+    expect(runtime.service.complete).toHaveBeenCalledWith("provider-code", state, browserToken)
+  })
+
+  it.each([
+    ["42 characters", "s".repeat(42)],
+    ["44 characters", "s".repeat(44)],
+    ["a non-base64url character", `${"s".repeat(42)}+`],
+  ])("rejects state with %s before completion", async (_name, state) => {
+    const runtime = authentication({}, true, 0, "oidc")
+    const baseUrl = await serve(runtime)
+
+    const response = await fetch(
+      `${baseUrl}/api/auth/oidc/callback?${new URLSearchParams({
+        code: "provider-code",
+        state,
+      })}`,
+      {
+        headers: { cookie: `__Host-replica-authorization=${browserToken}` },
+        redirect: "manual",
+      },
+    )
+
+    expect(response.headers.get("location")).toBe(
+      "https://hub.example/?authentication=failed&reason=invalid_callback",
+    )
+    expect(runtime.service.complete).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["duplicate code", `code=first&code=second&state=${"s".repeat(43)}`],
+    ["duplicate state", `code=provider-code&state=${"s".repeat(43)}&state=${"t".repeat(43)}`],
+    ["missing code", `state=${"s".repeat(43)}`],
+    ["missing state", "code=provider-code"],
+    ["empty code", `code=&state=${"s".repeat(43)}`],
+    ["empty state", "code=provider-code&state="],
+  ])("rejects a callback with %s before completion", async (_name, query) => {
+    const runtime = authentication({}, true, 0, "oidc")
+    const baseUrl = await serve(runtime)
+
+    const response = await fetch(`${baseUrl}/api/auth/oidc/callback?${query}`, {
+      headers: { cookie: `__Host-replica-authorization=${browserToken}` },
+      redirect: "manual",
+    })
+
+    expect(response.headers.get("location")).toBe(
+      "https://hub.example/?authentication=failed&reason=invalid_callback",
+    )
+    expect(runtime.service.complete).not.toHaveBeenCalled()
+  })
+
+  it("uses only a safe provider error reason and omits provider callback values from logs", async () => {
+    const records: Record<string, unknown>[] = []
+    const logger = createLogger({
+      destination: {
+        write: (line) => records.push(JSON.parse(line) as Record<string, unknown>),
+      },
+    })
+    const runtime = authentication({}, true, 0, "oidc")
+    const baseUrl = await serve(runtime, logger)
+    const errorDescription = "private provider explanation"
+    const code = opaqueOidcCode(1_024)
+    const state = "s".repeat(43)
+
+    const response = await fetch(
+      `${baseUrl}/api/auth/oidc/callback?${new URLSearchParams({
+        error: "access_denied",
+        error_description: errorDescription,
+        code,
+        state,
+      })}`,
+      { redirect: "manual" },
+    )
+
+    expect(response.headers.get("location")).toBe(
+      "https://hub.example/?authentication=failed&reason=provider_error",
+    )
+    expect(runtime.service.complete).not.toHaveBeenCalled()
+    await vi.waitFor(() => expect(records).toHaveLength(1))
+    expect(JSON.stringify(records)).not.toMatch(
+      new RegExp(`${errorDescription}|${code}|${state}|access_denied`),
     )
   })
 
