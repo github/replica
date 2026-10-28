@@ -28,6 +28,7 @@ describe("createAuthenticationRuntime()", () => {
     "keeps unset artifact storage outside the checkout for %j",
     async (configuredPath) => {
       await createAuthenticationRuntime({
+        HUB_AUTH_PROVIDER: "github",
         ...(configuredPath === undefined ? {} : { HUB_ARTIFACT_STORAGE_PATH: configuredPath }),
       })
 
@@ -43,7 +44,10 @@ describe("createAuthenticationRuntime()", () => {
 
   it("passes a configured relative storage path unchanged to the storage adapter", async () => {
     await expect(
-      createAuthenticationRuntime({ HUB_ARTIFACT_STORAGE_PATH: "relative/artifacts" }),
+      createAuthenticationRuntime({
+        HUB_AUTH_PROVIDER: "github",
+        HUB_ARTIFACT_STORAGE_PATH: "relative/artifacts",
+      }),
     ).rejects.toThrow("HUB_ARTIFACT_STORAGE_PATH must be an absolute path.")
 
     expect(createLocalArtifactStorage).toHaveBeenCalledWith("relative/artifacts")
