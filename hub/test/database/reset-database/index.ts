@@ -25,7 +25,7 @@ export async function resetDatabase(databaseUrl: string) {
       throw new Error("Connected database does not match the expected test worker database.")
     }
     const tables = await client.query<{ schemaname: string; tablename: string }>(
-      "SELECT schemaname, tablename FROM pg_tables WHERE schemaname <> 'information_schema' AND schemaname !~ '^pg_' AND tablename <> '_prisma_migrations'",
+      "SELECT schemaname, tablename FROM pg_tables WHERE schemaname <> 'information_schema' AND schemaname !~ '^pg_' AND NOT (schemaname = 'public' AND tablename = '_prisma_migrations') AND NOT (schemaname = 'bullmq' AND tablename = 'migration')",
     )
     if (tables.rows.length) {
       const names = tables.rows.map(

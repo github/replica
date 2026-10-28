@@ -4,7 +4,7 @@ Hub is being rebuilt on `build/hub/new` using TypeScript, Express, React, Vite, 
 
 The API has one route: `GET /api/health`. The frontend displays the existing Replica logo and supports light and dark themes. Existing components, features, and pages are kept in Storybook, but they are not connected to the new API.
 
-Contributors can use PostgreSQL and Prisma locally or in the devcontainer. The database has no product models yet. Sign-in, saved data, live updates, background jobs, and deployment are not implemented.
+Contributors can use PostgreSQL and Prisma locally or in the devcontainer. The [background-job foundation](docs/background-jobs.md) provides PostgreSQL-backed BullMQ queues and independent on-demand and scheduled workers, without product jobs yet. The database has no product models. Sign-in, saved product data, live updates, and deployment are not implemented.
 
 Use [Development](docs/development.md) to start the API and frontend. Review [Architecture](docs/architecture.md), [code architecture conventions](docs/backend-architecture.md), and [coding conventions](docs/coding-conventions.md) before adding behavior.
 

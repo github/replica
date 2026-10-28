@@ -8,7 +8,7 @@ The team has chosen TypeScript, Express for the API, React and Vite for the fron
 
 The API responds to a health check, and the frontend displays the logo with light and dark themes. Storybook keeps the existing components and pages available for reuse.
 
-Contributors can use PostgreSQL and Prisma locally or in the devcontainer. The database has no product models yet. Sign-in, deployment, background jobs, and product APIs have not been built. This app cannot yet find repositories, import Builds, host previews, save product data, or support reviews.
+Contributors can use PostgreSQL and Prisma locally or in the devcontainer. The database has no product models yet. Sign-in, deployment, and product APIs have not been built. This app cannot yet find repositories, import Builds, host previews, save product data, or support reviews.
 
 ## Backend
 
@@ -19,6 +19,8 @@ The only route is `GET /api/health`, which returns `{ "status": "ok" }`. Unknown
 The [database guide](database.md) defines the multi-file Prisma schema and shared client in integrations. The health route remains a process check, not a database readiness check.
 
 The [Pino integration](logging.md) writes structured application and HTTP logs to stdout. `createApp()` installs request logging and JSON parsing before routes, so new endpoints inherit completion records and server-generated request IDs without explicit logging calls.
+
+The [background-job foundation](background-jobs.md) uses BullMQ with PostgreSQL and separate on-demand and scheduled worker processes. Setup migrates BullMQ's own schema independently of Prisma. Product processors and schedules are not registered yet.
 
 ## Frontend
 
