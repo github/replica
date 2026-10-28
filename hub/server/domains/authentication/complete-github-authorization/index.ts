@@ -48,13 +48,10 @@ export async function completeGitHubAuthorization(
   const purpose: AuthorizationPurpose = attempt.purpose
   let profile: GitHubUserProfile
   let admissionBaseline: Awaited<ReturnType<typeof admissionPolicy.admit>> = null
+  let admissionFailure: AuthenticationError | null = null
   try {
     profile = await github.identify(code, attempt.pkceVerifier)
-    if (attempt.purpose === "sign-in") {
-      const admission = await admissionPolicy.admit(profile)
-      admissionBaseline = admission === true ? "legacy" : admission || null
-    }
-  } catch (error) {
+  } catch {
     await store.lock((records) =>
       records.audit({
         event: "authentication.provider_failed",
@@ -64,12 +61,27 @@ export async function completeGitHubAuthorization(
         authenticationProviderRevisionId: providerRevisionId,
       }),
     )
-    if (error instanceof AuthenticationError) throw error
     throw new AuthenticationError(
       503,
       "authentication_provider_failed",
       "The authentication provider failed.",
     )
+  }
+  if (attempt.purpose === "sign-in") {
+    try {
+      const admission = await admissionPolicy.admit(profile)
+      admissionBaseline = admission === true ? "legacy" : admission || null
+    } catch (error) {
+      if (error instanceof AuthenticationError) {
+        admissionFailure = error
+      } else {
+        admissionFailure = new AuthenticationError(
+          503,
+          "source_integration_unavailable",
+          "GitHub source integration is unavailable.",
+        )
+      }
+    }
   }
   const result = await store.lock(async (records, transaction) => {
     const [currentProvider, stateRecord] = await Promise.all([
@@ -119,6 +131,14 @@ export async function completeGitHubAuthorization(
       purpose === "sign-in" && membership?.status !== "active" && membership?.status !== "suspended"
         ? await records.usableInvitation("github", configuration.issuer, profile.subject, now())
         : null
+    if (
+      purpose === "sign-in" &&
+      admissionFailure &&
+      !(membership?.status === "active" && membership.source !== "synchronized") &&
+      !invitation
+    ) {
+      throw admissionFailure
+    }
     if (
       purpose === "sign-in" &&
       membership?.status === "active" &&
