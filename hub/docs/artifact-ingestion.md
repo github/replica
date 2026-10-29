@@ -49,7 +49,7 @@ Archiving a prototype blocks new publishers, publication, publisher re-enablemen
 }
 ```
 
-The manifest and its nested objects are closed to unknown fields. Hub bounds every string, accepts only HTTP or HTTPS source URLs without embedded usernames, passwords, query strings, or fragments, limits decoded artifacts to 8 MiB in this reference layer, verifies canonical base64, checks the decoded size, and recalculates the SHA-256 digest before storing bytes. The manifest prototype ID must match the route.
+The manifest and its nested objects are closed to unknown fields. Hub bounds every string, rejects NUL characters, accepts only HTTP or HTTPS source URLs without embedded usernames, passwords, query strings, or fragments, limits decoded artifacts to 8 MiB in this reference layer, verifies canonical base64, checks the decoded size, and recalculates the SHA-256 digest before storing bytes. Valid UUIDs are normalized before scope and idempotency checks, so hexadecimal casing does not change identity. The manifest prototype ID must match the route.
 
 Publishing requests are rate-limited before JSON parsing. The version-upload route alone accepts the bounded upload-sized JSON body; status and promotion retain the API's default JSON limit.
 
@@ -87,4 +87,4 @@ REPLICA_PUBLISH_TOKEN=... npm run publish:artifact -- \
   http://127.0.0.1:3001 PROTOTYPE_ID ./prototype.tar preview
 ```
 
-Optional `REPLICA_PROVENANCE_PROVIDER`, `REPLICA_SOURCE_URL`, `REPLICA_REVISION`, `REPLICA_REF`, `REPLICA_PIPELINE`, and `REPLICA_RUN_ID` values populate provenance without changing authorization.
+The CLI prints its generated or configured idempotency key before sending the request. If the response is lost, retry with that value in `REPLICA_IDEMPOTENCY_KEY` to recover the committed result. Optional `REPLICA_PROVENANCE_PROVIDER`, `REPLICA_SOURCE_URL`, `REPLICA_REVISION`, `REPLICA_REF`, `REPLICA_PIPELINE`, and `REPLICA_RUN_ID` values populate provenance without changing authorization.

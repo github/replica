@@ -24,6 +24,8 @@ if (
   const bytes = await readFile(artifactPath)
   const details = await stat(artifactPath)
   const digest = `sha256:${createHash("sha256").update(bytes).digest("hex")}`
+  const idempotencyKey = process.env.REPLICA_IDEMPOTENCY_KEY ?? randomUUID()
+  console.error(`Replica idempotency key: ${idempotencyKey}`)
   const response = await fetch(
     new URL(`/api/publishing/prototypes/${prototypeId}/versions`, hubUrl),
     {
@@ -31,7 +33,7 @@ if (
       headers: {
         authorization: `Bearer ${token}`,
         "content-type": "application/json",
-        "idempotency-key": process.env.REPLICA_IDEMPOTENCY_KEY ?? randomUUID(),
+        "idempotency-key": idempotencyKey,
       },
       body: JSON.stringify({
         manifest: {
