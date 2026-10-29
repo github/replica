@@ -4,14 +4,24 @@ model SecurityAudit {
   actorUserId                      String? @map("actor_user_id") @db.Uuid
   sessionId                        String? @map("session_id") @db.Uuid
   authenticationProviderRevisionId String? @map("authentication_provider_revision_id") @db.Uuid
+  targetMembershipId               String? @map("target_membership_id") @db.Uuid
+  invitationId                     String? @map("invitation_id") @db.Uuid
+
+  // Relations
+  targetMembership InstallationMembership? @relation("TargetMembership", fields: [targetMembershipId], references: [id], onDelete: SetNull)
+  invitation       MembershipInvitation?   @relation(fields: [invitationId], references: [id], onDelete: SetNull)
 
   // Attribute columns
-  event String
+  event   String
+  outcome String @default("succeeded")
+  context Json   @default("{}")
 
   // Timestamp columns
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@index([createdAt])
+  @@index([targetMembershipId])
+  @@index([invitationId])
   @@map("security_audits")
 }

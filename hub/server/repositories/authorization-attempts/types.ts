@@ -6,7 +6,7 @@ export interface AuthorizationAttempt {
   browserDigest: string
   pkceVerifier: string
   nonce: string | null
-  purpose: "sign-in" | "verify" | "link-identity"
+  purpose: "sign-in" | "verify" | "link-identity" | "bootstrap" | "recovery"
   sessionGeneration: number
   expiresAt: Date
 }

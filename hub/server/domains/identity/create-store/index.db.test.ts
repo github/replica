@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { createIdentityStore } from "#server/domains/identity/create-store"
@@ -66,11 +67,80 @@ describe("createIdentityStore()", () => {
       "externalIdentity",
       "githubIntegrationCredentials",
       "identityStoreState",
+      "invitations",
       "membership",
+      "memberships",
       "session",
       "sessionById",
       "user",
     ])
+  })
+
+  it("pages every active membership and pending invitation without truncation", async () => {
+    const { prisma, store } = await database()
+    const users = Array.from({ length: 101 }, (_, index) => ({
+      id: randomUUID(),
+      displayName: `Paged member ${index}`,
+      avatarUrl: null,
+    }))
+    await prisma.user.createMany({ data: users })
+    await prisma.installationMembership.createMany({
+      data: users.map((user) => ({
+        id: randomUUID(),
+        userId: user.id,
+        status: "active",
+        role: "member",
+        source: "manual",
+        suspendedAt: null,
+        removedAt: null,
+      })),
+    })
+    await prisma.membershipInvitation.createMany({
+      data: users.map((_, index) => ({
+        id: randomUUID(),
+        createdByUserId: null,
+        provider: "github",
+        issuer: "https://github.com",
+        subject: `paged-subject-${index}`,
+        role: "member",
+        expiresAt: new Date("2026-11-05T18:00:00.000Z"),
+      })),
+    })
+
+    const membershipFirstPage = await store.read.memberships()
+    const membershipSecondPage = await store.read.memberships(membershipFirstPage.nextCursor)
+    expect(membershipFirstPage.memberships).toHaveLength(100)
+    expect(membershipFirstPage.nextCursor).not.toBeNull()
+    expect(membershipSecondPage).toMatchObject({
+      memberships: [expect.objectContaining({ status: "active" })],
+      nextCursor: null,
+    })
+    expect(
+      new Set([
+        ...membershipFirstPage.memberships.map(({ id }) => id),
+        ...membershipSecondPage.memberships.map(({ id }) => id),
+      ]).size,
+    ).toBe(101)
+
+    const invitationFirstPage = await store.read.invitations()
+    const invitationSecondPage = await store.read.invitations(invitationFirstPage.nextCursor)
+    expect(invitationFirstPage.invitations).toHaveLength(100)
+    expect(invitationFirstPage.nextCursor).not.toBeNull()
+    expect(invitationSecondPage).toMatchObject({
+      invitations: [
+        expect.objectContaining({
+          consumedAt: null,
+          revokedAt: null,
+        }),
+      ],
+      nextCursor: null,
+    })
+    expect(
+      new Set([
+        ...invitationFirstPage.invitations.map(({ id }) => id),
+        ...invitationSecondPage.invitations.map(({ id }) => id),
+      ]).size,
+    ).toBe(101)
   })
 
   it("rolls back GitHub integration, session, and audit changes together", async () => {
@@ -226,14 +296,19 @@ describe("createIdentityStore()", () => {
         status: "active",
         role: "administrator",
         source: "bootstrap",
+        suspendedAt: null,
+        removedAt: null,
       }),
     )
+    const suspendedAt = new Date("2026-10-27T18:00:00.000Z")
     await store.lock((records) =>
       records.saveMembership({
         userId: user.id,
         status: "suspended",
         role: "member",
         source: "manual",
+        suspendedAt,
+        removedAt: null,
       }),
     )
 
@@ -242,6 +317,8 @@ describe("createIdentityStore()", () => {
       status: "suspended",
       role: "member",
       source: "manual",
+      suspendedAt,
+      removedAt: null,
     })
     expect(await store.read.user(user.id)).toEqual(user)
     expect(user).not.toHaveProperty("administrator")

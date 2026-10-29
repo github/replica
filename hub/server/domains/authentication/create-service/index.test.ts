@@ -49,6 +49,20 @@ function records(overrides: Partial<MockIdentityRecords> = {}) {
     session: vi.fn().mockResolvedValue(null),
     sessionById: vi.fn().mockResolvedValue(null),
     membership: vi.fn().mockResolvedValue(null),
+    usableInvitation: vi.fn().mockResolvedValue(null),
+    consumeInvitation: vi.fn().mockResolvedValue(true),
+    bootstrapCompletedAt: vi.fn().mockResolvedValue(null),
+    activeAdministratorCount: vi.fn().mockResolvedValue(0),
+    completeBootstrap: vi.fn().mockResolvedValue(true),
+    saveMembership: vi.fn().mockResolvedValue({
+      id: "membership",
+      userId: "user",
+      status: "active",
+      role: "member",
+      source: "synchronized",
+      suspendedAt: null,
+      removedAt: null,
+    }),
     audit: vi.fn(),
   }
   return Object.assign(fixture, overrides)
@@ -109,7 +123,12 @@ function attempt(overrides: Record<string, unknown> = {}) {
 describe("createAuthenticationService()", () => {
   it("starts a short-lived browser-bound authorization with state and an S256-ready verifier", async () => {
     const identityRecords = records()
-    const options = dependencies(identityRecords)
+    const options = dependencies(identityRecords, {
+      admissionPolicy: {
+        name: "hub-managed",
+        admit: vi.fn().mockResolvedValue(false),
+      },
+    })
     const service = createAuthenticationService(options)
 
     const result = await service.start("sign-in")
@@ -203,6 +222,7 @@ describe("createAuthenticationService()", () => {
         freshAuthorizedAt: now,
       }),
     })
+
     const options = dependencies(identityRecords)
     options.github.identify.mockResolvedValue({
       subject: "42",
@@ -228,6 +248,466 @@ describe("createAuthenticationService()", () => {
     expect(JSON.stringify(vi.mocked(identityRecords.createSession).mock.calls)).not.toContain(
       "one-use-code",
     )
+  })
+
+  it("activates only an exact provider identity invitation before issuing a session", async () => {
+    const existingIdentity = {
+      id: "identity",
+      userId: "user",
+      provider: "github",
+      issuer: configuration.issuer,
+      subject: "42",
+      username: "octocat",
+      displayName: "Octocat",
+      avatarUrl: null,
+      user: { id: "user", displayName: "Octocat", avatarUrl: null },
+    }
+    const invitation = {
+      id: "invitation",
+      createdByUserId: "administrator",
+      activatedIdentityId: null,
+      activatedMembershipId: null,
+      provider: "github",
+      issuer: configuration.issuer,
+      subject: "42",
+      role: "administrator" as const,
+      expiresAt: new Date(now.getTime() + 60_000),
+      consumedAt: null,
+      revokedAt: null,
+      createdAt: now,
+    }
+    const identityRecords = records({
+      consumeAuthorizationAttempt: vi.fn().mockResolvedValue(attempt()),
+      externalIdentity: vi.fn().mockResolvedValue(existingIdentity),
+      usableInvitation: vi.fn().mockResolvedValue(invitation),
+      updateUser: vi.fn().mockResolvedValue(existingIdentity.user),
+      saveExternalIdentity: vi.fn().mockResolvedValue(existingIdentity),
+      saveMembership: vi.fn().mockResolvedValue({
+        id: "membership",
+        userId: "user",
+        status: "active",
+        role: "administrator",
+        source: "invitation",
+        suspendedAt: null,
+        removedAt: null,
+      }),
+      createSession: vi.fn().mockResolvedValue({
+        id: "session",
+        userId: "user",
+        externalIdentityId: "identity",
+        authenticationProviderRevisionId: providerRevision.id,
+        tokenDigest: "stored-digest",
+        signedInAt: now,
+        freshAuthorizedAt: now,
+      }),
+    })
+    const options = dependencies(identityRecords, {
+      admissionPolicy: {
+        name: "hub-managed",
+        admit: vi.fn().mockResolvedValue(false),
+      },
+    })
+    options.github.identify.mockResolvedValue({
+      subject: "42",
+      username: "octocat",
+      displayName: "Octocat",
+      avatarUrl: null,
+    })
+
+    const result = await createAuthenticationService(options).complete(
+      "code",
+      "state",
+      "browser-token",
+    )
+    expect(result.purpose).toBe("sign-in")
+    expect(typeof result.sessionToken).toBe("string")
+
+    expect(identityRecords.usableInvitation).toHaveBeenCalledWith(
+      "github",
+      configuration.issuer,
+      "42",
+      now,
+    )
+    expect(identityRecords.consumeInvitation).toHaveBeenCalledWith(
+      "invitation",
+      "identity",
+      "membership",
+      now,
+    )
+  })
+
+  it("admits an active Hub member without consulting legacy repository policy", async () => {
+    const identity = {
+      id: "identity",
+      userId: "user",
+      provider: "github",
+      issuer: configuration.issuer,
+      subject: "42",
+      username: "octocat",
+      displayName: "Octocat",
+      avatarUrl: null,
+      user: { id: "user", displayName: "Octocat", avatarUrl: null },
+    }
+    const identityRecords = records({
+      consumeAuthorizationAttempt: vi.fn().mockResolvedValue(attempt()),
+      externalIdentity: vi.fn().mockResolvedValue(identity),
+      membership: vi.fn().mockResolvedValue({
+        id: "membership",
+        userId: "user",
+        status: "active",
+        role: "member",
+        source: "invitation",
+        suspendedAt: null,
+        removedAt: null,
+      }),
+      updateUser: vi.fn().mockResolvedValue(identity.user),
+      saveExternalIdentity: vi.fn().mockResolvedValue(identity),
+      createSession: vi.fn().mockResolvedValue({
+        id: "session",
+        userId: "user",
+        externalIdentityId: "identity",
+        authenticationProviderRevisionId: providerRevision.id,
+        tokenDigest: "stored-digest",
+        signedInAt: now,
+        freshAuthorizedAt: now,
+      }),
+    })
+    const admissionPolicy = {
+      name: "legacy-repository" as const,
+      admit: vi.fn().mockResolvedValue(false),
+    }
+    const options = dependencies(identityRecords, { admissionPolicy })
+    options.github.identify.mockResolvedValue({
+      subject: "42",
+      username: "octocat",
+      displayName: "Octocat",
+      avatarUrl: null,
+    })
+
+    const completed = await createAuthenticationService(options).complete(
+      "code",
+      "state",
+      "browser-token",
+    )
+    expect(completed.purpose).toBe("sign-in")
+    expect(typeof completed.sessionToken).toBe("string")
+    expect(admissionPolicy.admit).not.toHaveBeenCalled()
+  })
+
+  it("uses an administrator invitation before legacy repository admission", async () => {
+    const invitation = {
+      id: "invitation",
+      createdByUserId: "administrator",
+      activatedIdentityId: null,
+      activatedMembershipId: null,
+      provider: "github",
+      issuer: configuration.issuer,
+      subject: "42",
+      role: "administrator" as const,
+      expiresAt: new Date(now.getTime() + 60_000),
+      consumedAt: null,
+      revokedAt: null,
+      createdAt: now,
+    }
+    const identityRecords = records({
+      consumeAuthorizationAttempt: vi.fn().mockResolvedValue(attempt()),
+      usableInvitation: vi.fn().mockResolvedValue(invitation),
+      createUser: vi.fn().mockResolvedValue({
+        id: "user",
+        displayName: "Octocat",
+        avatarUrl: null,
+      }),
+      saveExternalIdentity: vi.fn().mockResolvedValue({
+        id: "identity",
+        userId: "user",
+        provider: "github",
+        issuer: configuration.issuer,
+        subject: "42",
+        username: "octocat",
+        displayName: "Octocat",
+        avatarUrl: null,
+      }),
+      saveMembership: vi.fn().mockResolvedValue({
+        id: "membership",
+        userId: "user",
+        status: "active",
+        role: "administrator",
+        source: "invitation",
+        suspendedAt: null,
+        removedAt: null,
+      }),
+      createSession: vi.fn().mockResolvedValue({
+        id: "session",
+        userId: "user",
+        externalIdentityId: "identity",
+        authenticationProviderRevisionId: providerRevision.id,
+        tokenDigest: "stored-digest",
+        signedInAt: now,
+        freshAuthorizedAt: now,
+      }),
+    })
+    const admissionPolicy = {
+      name: "legacy-repository" as const,
+      admit: vi.fn().mockResolvedValue(true),
+    }
+    const options = dependencies(identityRecords, { admissionPolicy })
+    options.github.identify.mockResolvedValue({
+      subject: "42",
+      username: "octocat",
+      displayName: "Octocat",
+      avatarUrl: null,
+    })
+
+    await createAuthenticationService(options).complete("code", "state", "browser-token")
+
+    expect(admissionPolicy.admit).not.toHaveBeenCalled()
+    expect(identityRecords.saveMembership).toHaveBeenCalledWith(
+      expect.objectContaining({ role: "administrator", source: "invitation" }),
+    )
+    expect(identityRecords.consumeInvitation).toHaveBeenCalledWith(
+      "invitation",
+      "identity",
+      "membership",
+      now,
+    )
+  })
+
+  it("uses a new invitation to readmit a removed member before legacy repository admission", async () => {
+    const identity = {
+      id: "identity",
+      userId: "user",
+      provider: "github",
+      issuer: configuration.issuer,
+      subject: "42",
+      username: "octocat",
+      displayName: "Octocat",
+      avatarUrl: null,
+      user: { id: "user", displayName: "Octocat", avatarUrl: null },
+    }
+    const invitation = {
+      id: "invitation",
+      createdByUserId: "administrator",
+      activatedIdentityId: null,
+      activatedMembershipId: null,
+      provider: "github",
+      issuer: configuration.issuer,
+      subject: "42",
+      role: "member" as const,
+      expiresAt: new Date(now.getTime() + 60_000),
+      consumedAt: null,
+      revokedAt: null,
+      createdAt: now,
+    }
+    const removedMembership = {
+      id: "membership",
+      userId: "user",
+      status: "removed" as const,
+      role: "member" as const,
+      source: "manual",
+      suspendedAt: null,
+      removedAt: new Date(now.getTime() - 60_000),
+    }
+    const identityRecords = records({
+      consumeAuthorizationAttempt: vi.fn().mockResolvedValue(attempt()),
+      externalIdentity: vi.fn().mockResolvedValue(identity),
+      membership: vi.fn().mockResolvedValue(removedMembership),
+      usableInvitation: vi.fn().mockResolvedValue(invitation),
+      updateUser: vi.fn().mockResolvedValue(identity.user),
+      saveExternalIdentity: vi.fn().mockResolvedValue(identity),
+      saveMembership: vi.fn().mockResolvedValue({
+        ...removedMembership,
+        status: "active",
+        source: "invitation",
+        removedAt: null,
+      }),
+      createSession: vi.fn().mockResolvedValue({
+        id: "session",
+        userId: "user",
+        externalIdentityId: "identity",
+        authenticationProviderRevisionId: providerRevision.id,
+        tokenDigest: "stored-digest",
+        signedInAt: now,
+        freshAuthorizedAt: now,
+      }),
+    })
+    const admissionPolicy = {
+      name: "legacy-repository" as const,
+      admit: vi.fn().mockResolvedValue(true),
+    }
+    const options = dependencies(identityRecords, { admissionPolicy })
+    options.github.identify.mockResolvedValue({
+      subject: "42",
+      username: "octocat",
+      displayName: "Octocat",
+      avatarUrl: null,
+    })
+
+    const completed = await createAuthenticationService(options).complete(
+      "code",
+      "state",
+      "browser-token",
+    )
+    expect(typeof completed.sessionToken).toBe("string")
+    expect(admissionPolicy.admit).not.toHaveBeenCalled()
+    expect(identityRecords.saveMembership).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: "user",
+        status: "active",
+        role: "member",
+        source: "invitation",
+        removedAt: null,
+      }),
+    )
+    expect(identityRecords.consumeInvitation).toHaveBeenCalledOnce()
+  })
+
+  it("audits a membership granted by legacy repository admission", async () => {
+    const identityRecords = records({
+      consumeAuthorizationAttempt: vi.fn().mockResolvedValue(attempt()),
+      createUser: vi.fn().mockResolvedValue({
+        id: "user",
+        displayName: "Octocat",
+        avatarUrl: null,
+      }),
+      saveExternalIdentity: vi.fn().mockResolvedValue({
+        id: "identity",
+        userId: "user",
+        provider: "github",
+        issuer: configuration.issuer,
+        subject: "42",
+        username: "octocat",
+        displayName: "Octocat",
+        avatarUrl: null,
+      }),
+      createSession: vi.fn().mockResolvedValue({
+        id: "session",
+        userId: "user",
+        externalIdentityId: "identity",
+        authenticationProviderRevisionId: providerRevision.id,
+        tokenDigest: "stored-digest",
+        signedInAt: now,
+        freshAuthorizedAt: now,
+      }),
+    })
+    const admissionPolicy = {
+      name: "legacy-repository" as const,
+      admit: vi.fn().mockResolvedValue(true),
+    }
+    const options = dependencies(identityRecords, { admissionPolicy })
+    options.github.identify.mockResolvedValue({
+      subject: "42",
+      username: "octocat",
+      displayName: "Octocat",
+      avatarUrl: null,
+    })
+
+    await createAuthenticationService(options).complete("code", "state", "browser-token")
+
+    expect(identityRecords.saveMembership).toHaveBeenCalledWith({
+      userId: "user",
+      status: "active",
+      role: "member",
+      source: "synchronized",
+      suspendedAt: null,
+      removedAt: null,
+    })
+    expect(identityRecords.audit).toHaveBeenCalledWith({
+      event: "membership.synchronize",
+      outcome: "succeeded",
+      actorUserId: "user",
+      sessionId: null,
+      authenticationProviderRevisionId: providerRevision.id,
+      targetMembershipId: "membership",
+      context: { source: "legacy_repository" },
+    })
+  })
+
+  it("binds bootstrap enrollment to the configured one-use secret", async () => {
+    const identityRecords = records()
+    const service = createAuthenticationService({
+      ...dependencies(identityRecords),
+      bootstrapSecret: "bootstrap-secret",
+    })
+
+    await expect(service.start("bootstrap", undefined, "wrong-secret")).rejects.toMatchObject({
+      status: 404,
+      code: "bootstrap_unavailable",
+    })
+    expect(identityRecords.audit).toHaveBeenCalledWith({
+      event: "membership.bootstrap",
+      outcome: "denied",
+      actorUserId: null,
+      sessionId: null,
+      authenticationProviderRevisionId: providerRevision.id,
+      context: { reason: "secret_mismatch" },
+    })
+    const result = await service.start("bootstrap", undefined, "bootstrap-secret")
+    expect(result.authorizationUrl).toContain("state=")
+    expect(typeof result.browserToken).toBe("string")
+    const [createdAttempt] = identityRecords.createAuthorizationAttempt.mock.calls[0]!
+    expect(createdAttempt.purpose).toBe("bootstrap")
+  })
+
+  it("keeps recovery separate and unavailable while an active administrator remains", async () => {
+    const identityRecords = records({
+      activeAdministratorCount: vi.fn().mockResolvedValue(1),
+    })
+    const service = createAuthenticationService({
+      ...dependencies(identityRecords),
+      recoverySecret: "recovery-secret",
+    })
+
+    await expect(service.start("recovery", undefined, "recovery-secret")).rejects.toMatchObject({
+      status: 404,
+      code: "recovery_unavailable",
+    })
+    expect(identityRecords.audit).toHaveBeenCalledWith({
+      event: "membership.recovery",
+      outcome: "denied",
+      actorUserId: null,
+      sessionId: null,
+      authenticationProviderRevisionId: providerRevision.id,
+      context: { reason: "active_administrator_exists" },
+    })
+    expect(identityRecords.createAuthorizationAttempt).not.toHaveBeenCalled()
+  })
+
+  it("audits missing recovery proof without recording the submitted request", async () => {
+    const identityRecords = records()
+    const service = createAuthenticationService({
+      ...dependencies(identityRecords),
+      recoverySecret: "recovery-secret",
+    })
+
+    await expect(service.start("recovery")).rejects.toMatchObject({
+      status: 404,
+      code: "recovery_unavailable",
+    })
+    expect(identityRecords.audit).toHaveBeenCalledWith({
+      event: "membership.recovery",
+      outcome: "denied",
+      actorUserId: null,
+      sessionId: null,
+      authenticationProviderRevisionId: providerRevision.id,
+      context: { reason: "secret_missing" },
+    })
+    expect(JSON.stringify(identityRecords.audit.mock.calls)).not.toContain("recovery-secret")
+    expect(identityRecords.createAuthorizationAttempt).not.toHaveBeenCalled()
+  })
+
+  it("does not turn a failed denied-audit write into a normal enrollment rejection", async () => {
+    const identityRecords = records({
+      audit: vi.fn().mockRejectedValue(new Error("audit failed")),
+    })
+    const service = createAuthenticationService({
+      ...dependencies(identityRecords),
+      bootstrapSecret: "bootstrap-secret",
+    })
+
+    await expect(service.start("bootstrap", undefined, "wrong-secret")).rejects.toThrow(
+      "audit failed",
+    )
+    expect(identityRecords.createAuthorizationAttempt).not.toHaveBeenCalled()
   })
 
   it("lets a compatibility admission policy deny sign-in before creating identity records", async () => {

@@ -36,6 +36,15 @@ function authentication(
     },
     overrides,
   )
+  const administration = {
+    list: vi.fn().mockResolvedValue({
+      memberships: { memberships: [], nextCursor: null },
+      invitations: { invitations: [], nextCursor: null },
+    }),
+    invite: vi.fn(),
+    revokeInvitation: vi.fn(),
+    changeMembership: vi.fn(),
+  }
   return {
     settings: {
       origin: "https://hub.example",
@@ -45,6 +54,7 @@ function authentication(
       trustedProxyHops,
     },
     service,
+    administration,
   }
 }
 
@@ -104,6 +114,69 @@ describe("authentication routes", () => {
     )
     expect(runtime.service.start).toHaveBeenCalledWith("sign-in")
   })
+
+  it.each(["bootstrap", "recovery"] as const)(
+    "rejects %s enrollment before start when origin or CSRF does not match",
+    async (purpose) => {
+      const runtime = authentication()
+      const baseUrl = await serve(runtime)
+      const body = JSON.stringify({ secret: `${purpose}-secret` })
+
+      const wrongOrigin = await fetch(`${baseUrl}/api/auth/${purpose}`, {
+        method: "POST",
+        headers: {
+          ...csrfHeaders,
+          origin: "https://attacker.example",
+          "content-type": "application/json",
+        },
+        body,
+      })
+      const wrongCsrf = await fetch(`${baseUrl}/api/auth/${purpose}`, {
+        method: "POST",
+        headers: {
+          ...csrfHeaders,
+          "content-type": "application/json",
+          "x-csrf-token": "wrong-token",
+        },
+        body,
+      })
+
+      expect(wrongOrigin.status).toBe(403)
+      expect(wrongCsrf.status).toBe(403)
+      expect(runtime.service.start).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each(["bootstrap", "recovery"] as const)(
+    "binds %s enrollment to its secret and a ten-minute browser cookie",
+    async (purpose) => {
+      const runtime = authentication({
+        start: vi.fn().mockResolvedValue({
+          authorizationUrl: `https://github.com/login/oauth/authorize?state=${purpose}`,
+          browserToken,
+        }),
+      })
+      const baseUrl = await serve(runtime)
+
+      const response = await fetch(`${baseUrl}/api/auth/${purpose}`, {
+        method: "POST",
+        headers: { ...csrfHeaders, "content-type": "application/json" },
+        body: JSON.stringify({ secret: `${purpose}-secret` }),
+      })
+
+      expect(response.status).toBe(200)
+      expect(await response.json()).toEqual({
+        authorizationUrl: `https://github.com/login/oauth/authorize?state=${purpose}`,
+      })
+      expect(runtime.service.start).toHaveBeenCalledWith(purpose, undefined, `${purpose}-secret`)
+      expect(response.headers.get("set-cookie")).toMatch(
+        new RegExp(
+          `__Host-replica-authorization=${browserToken}; Max-Age=600; Path=/; Expires=[^;]+; HttpOnly; Secure; SameSite=Lax`,
+          "i",
+        ),
+      )
+    },
+  )
 
   it("rejects state-changing requests unless both the origin and CSRF token match", async () => {
     const runtime = authentication()
@@ -369,7 +442,15 @@ describe("authentication routes", () => {
             enabled: true,
           },
         },
-        membership: null,
+        membership: {
+          id: "membership",
+          userId: "user",
+          status: "active",
+          role: "member",
+          source: "invitation",
+          suspendedAt: null,
+          removedAt: null,
+        },
       }),
     })
     const baseUrl = await serve(runtime)
