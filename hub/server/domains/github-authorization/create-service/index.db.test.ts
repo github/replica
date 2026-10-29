@@ -4492,6 +4492,7 @@ describe("createGitHubAuthorizationService() database behavior", () => {
   it("keeps the dirty retry guard through a bounded batch, retains new IDs, and logs failures", async () => {
     const { prisma, service } = await database()
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout")
     const initialSources = await Promise.all(
       ["100", "200", "300", "400"].map((githubRepositoryId) =>
         prisma.gitHubRepositorySource.create({
@@ -4507,15 +4508,33 @@ describe("createGitHubAuthorizationService() database behavior", () => {
         }),
       ),
     )
-    const initialRepositoryRequests: Array<{
+    type PendingRepositoryRequest = {
       githubRepositoryId: string
       response: ReturnType<typeof deferred<Response>>
-    }> = []
-    const initialBatchStarted = deferred<void>()
+    }
+    const firstRepositoryRequests: PendingRepositoryRequest[] = []
+    const secondRepositoryRequests: PendingRepositoryRequest[] = []
+    const thirdRepositoryRequests: string[] = []
+    const firstBatchStarted = deferred<void>()
+    const secondBatchStarted = deferred<void>()
+    const thirdBatchStarted = deferred<void>()
     const requestedRepositoryIds: string[] = []
-    let firstBatchPending = true
+    let pendingRepositoryRequests: PendingRepositoryRequest[] | null = firstRepositoryRequests
     let concurrentRepositoryRequests = 0
     let maximumConcurrentRepositoryRequests = 0
+    function successfulRepositoryResponse(githubRepositoryId: string) {
+      return new Response(
+        JSON.stringify({
+          id: Number(githubRepositoryId),
+          full_name: `owner/repository-${githubRepositoryId}`,
+          name: `repository-${githubRepositoryId}`,
+          owner: { login: "owner" },
+          default_branch: "main",
+          visibility: "private",
+        }),
+        { status: 200 },
+      )
+    }
     const request = vi.fn((input: string | URL | Request) => {
       const url = requestUrl(input)
       if (url.endsWith("/access_tokens")) {
@@ -4531,37 +4550,71 @@ describe("createGitHubAuthorizationService() database behavior", () => {
         maximumConcurrentRepositoryRequests,
         concurrentRepositoryRequests,
       )
-      if (firstBatchPending) {
+      if (pendingRepositoryRequests) {
         const response = deferred<Response>()
-        initialRepositoryRequests.push({ githubRepositoryId, response })
-        if (initialRepositoryRequests.length === 4) initialBatchStarted.resolve()
+        const batch = pendingRepositoryRequests
+        batch.push({ githubRepositoryId, response })
+        if (batch.length === 4) {
+          if (batch === firstRepositoryRequests) firstBatchStarted.resolve()
+          if (batch === secondRepositoryRequests) secondBatchStarted.resolve()
+        }
         return response.promise.finally(() => {
           concurrentRepositoryRequests -= 1
         })
       }
+      thirdRepositoryRequests.push(githubRepositoryId)
+      thirdBatchStarted.resolve()
       concurrentRepositoryRequests -= 1
-      return Promise.resolve(
-        new Response(
-          JSON.stringify({
-            id: Number(githubRepositoryId),
-            full_name: `owner/repository-${githubRepositoryId}`,
-            name: `repository-${githubRepositoryId}`,
-            owner: { login: "owner" },
-            default_branch: "main",
-            visibility: "private",
-          }),
-          { status: 200 },
-        ),
-      )
+      return Promise.resolve(successfulRepositoryResponse(githubRepositoryId))
     })
     vi.stubGlobal("fetch", request)
     const errorLog = vi.spyOn(logger, "error").mockImplementation(() => undefined)
+    async function waitForCurrentSources(githubRepositoryIds: string[]) {
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        const sources = await prisma.gitHubRepositorySource.findMany({
+          where: { githubRepositoryId: { in: githubRepositoryIds } },
+          select: { synchronizationStatus: true },
+        })
+        if (
+          sources.length === githubRepositoryIds.length &&
+          sources.every(({ synchronizationStatus }) => synchronizationStatus === "current")
+        ) {
+          return
+        }
+        await new Promise<void>((resolve) => setImmediate(resolve))
+      }
+      throw new Error(`Sources did not become current: ${githubRepositoryIds.join(", ")}`)
+    }
+    function scheduledDirtyRetryCount() {
+      return setTimeoutSpy.mock.calls.filter(([, timeout]) => timeout === 1_000).length
+    }
+    async function waitForScheduledBatch(
+      scheduledRetryCountWhileRunning: number,
+      startedRequests: readonly unknown[],
+    ) {
+      for (let attempt = 0; attempt < 1_000; attempt += 1) {
+        if (
+          scheduledDirtyRetryCount() > scheduledRetryCountWhileRunning ||
+          startedRequests.length > 0
+        ) {
+          return
+        }
+        await new Promise<void>((resolve) => setImmediate(resolve))
+      }
+      throw new Error("The next dirty retry batch was not scheduled.")
+    }
 
     await service.processWebhook(
       webhook({ action: "edited", installation: { id: 7 } }, "membership", "initial-dirty-batch"),
     )
     await vi.advanceTimersByTimeAsync(1_000)
-    await initialBatchStarted.promise
+    await firstBatchStarted.promise
+    const initialGithubRepositoryIds = initialSources.map(
+      ({ githubRepositoryId }) => githubRepositoryId,
+    )
+    expect(firstRepositoryRequests.map(({ githubRepositoryId }) => githubRepositoryId)).toEqual(
+      expect.arrayContaining(initialGithubRepositoryIds),
+    )
     const laterSource = await prisma.gitHubRepositorySource.create({
       data: {
         githubRepositoryId: "500",
@@ -4591,46 +4644,118 @@ describe("createGitHubAuthorizationService() database behavior", () => {
     )
 
     await vi.advanceTimersByTimeAsync(10_000)
-    expect(initialRepositoryRequests).toHaveLength(4)
+    expect(firstRepositoryRequests).toHaveLength(4)
+    expect(secondRepositoryRequests).toHaveLength(0)
+    expect(thirdRepositoryRequests).toHaveLength(0)
     expect(requestedRepositoryIds).not.toContain("500")
+    expect(maximumConcurrentRepositoryRequests).toBe(4)
 
-    firstBatchPending = false
-    initialRepositoryRequests.forEach(({ githubRepositoryId, response }, index) => {
+    const scheduledRetryCountDuringFirstBatch = scheduledDirtyRetryCount()
+    pendingRepositoryRequests = secondRepositoryRequests
+    firstRepositoryRequests.forEach(({ githubRepositoryId, response }, index) => {
       response.resolve(
         index === 0
           ? new Response(null, { status: 503 })
-          : new Response(
-              JSON.stringify({
-                id: Number(githubRepositoryId),
-                full_name: `owner/repository-${githubRepositoryId}`,
-                name: `repository-${githubRepositoryId}`,
-                owner: { login: "owner" },
-                default_branch: "main",
-                visibility: "private",
-              }),
-              { status: 200 },
-            ),
+          : successfulRepositoryResponse(githubRepositoryId),
       )
     })
-    await vi.waitFor(() =>
-      expect(errorLog).toHaveBeenCalledWith(
-        expect.objectContaining({ reason: "reconciliation_failed" }),
-        "GitHub authorization dirty retry failed",
+    const failedGithubRepositoryId = firstRepositoryRequests[0]!.githubRepositoryId
+    const failedSource = initialSources.find(
+      ({ githubRepositoryId }) => githubRepositoryId === failedGithubRepositoryId,
+    )
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const settledSources = await prisma.gitHubRepositorySource.findMany({
+        where: { id: { in: initialSources.map(({ id }) => id) } },
+        select: { id: true, synchronizationStatus: true },
+      })
+      if (
+        settledSources.length === initialSources.length &&
+        settledSources.every(({ id, synchronizationStatus }) =>
+          id === failedSource!.id
+            ? synchronizationStatus === "failed"
+            : synchronizationStatus === "current",
+        )
+      ) {
+        break
+      }
+      await new Promise<void>((resolve) => setImmediate(resolve))
+    }
+    for (let attempt = 0; attempt < 100 && errorLog.mock.calls.length === 0; attempt += 1) {
+      await new Promise<void>((resolve) => setImmediate(resolve))
+    }
+    expect(
+      errorLog.mock.calls.some(
+        ([fields, message]) =>
+          message === "GitHub authorization dirty retry failed" &&
+          typeof fields === "object" &&
+          fields !== null &&
+          Reflect.get(fields, "repositorySourceId") === failedSource!.id &&
+          Reflect.get(fields, "reason") === "reconciliation_failed",
       ),
-    )
-    await vi.advanceTimersByTimeAsync(1_000)
-    await vi.waitFor(() => expect(requestedRepositoryIds).toContain("500"))
+    ).toBe(true)
+    await waitForScheduledBatch(scheduledRetryCountDuringFirstBatch, secondRepositoryRequests)
+    expect(secondRepositoryRequests).toHaveLength(0)
+    expect(scheduledDirtyRetryCount()).toBe(scheduledRetryCountDuringFirstBatch + 1)
 
-    expect(maximumConcurrentRepositoryRequests).toBe(4)
-    expect(requestedRepositoryIds).toContain(laterSource.githubRepositoryId)
-    await vi.waitFor(async () =>
-      expect(
-        await prisma.gitHubRepositorySource.findUniqueOrThrow({
-          where: { id: laterSource.id },
-        }),
-      ).toMatchObject({ synchronizationStatus: "current" }),
+    await vi.advanceTimersByTimeAsync(999)
+    expect(secondRepositoryRequests).toHaveLength(0)
+    await vi.advanceTimersByTimeAsync(1)
+    await secondBatchStarted.promise
+
+    const queuedGithubRepositoryIds = [
+      ...initialGithubRepositoryIds,
+      laterSource.githubRepositoryId,
+    ]
+    const secondBatchIds = secondRepositoryRequests.map(
+      ({ githubRepositoryId }) => githubRepositoryId,
     )
-    expect(initialSources).toHaveLength(4)
+    expect(secondBatchIds).toHaveLength(4)
+    expect(new Set(secondBatchIds).size).toBe(4)
+    expect(secondBatchIds.every((sourceId) => queuedGithubRepositoryIds.includes(sourceId))).toBe(
+      true,
+    )
+    const runningSecondBatchSources = await prisma.gitHubRepositorySource.findMany({
+      where: { githubRepositoryId: { in: secondBatchIds } },
+      select: { synchronizationStatus: true },
+    })
+    expect(runningSecondBatchSources).toHaveLength(4)
+    expect(
+      runningSecondBatchSources.every(
+        ({ synchronizationStatus }) => synchronizationStatus === "dirty",
+      ),
+    ).toBe(true)
+    expect(thirdRepositoryRequests).toHaveLength(0)
+    expect(maximumConcurrentRepositoryRequests).toBe(4)
+
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(secondRepositoryRequests).toHaveLength(4)
+    expect(thirdRepositoryRequests).toHaveLength(0)
+
+    const scheduledRetryCountDuringSecondBatch = scheduledDirtyRetryCount()
+    pendingRepositoryRequests = null
+    secondRepositoryRequests.forEach(({ githubRepositoryId, response }) => {
+      response.resolve(successfulRepositoryResponse(githubRepositoryId))
+    })
+    await waitForCurrentSources(secondBatchIds)
+    await waitForScheduledBatch(scheduledRetryCountDuringSecondBatch, thirdRepositoryRequests)
+    expect(thirdRepositoryRequests).toHaveLength(0)
+    expect(scheduledDirtyRetryCount()).toBe(scheduledRetryCountDuringSecondBatch + 1)
+
+    const thirdBatchIds = queuedGithubRepositoryIds.filter(
+      (sourceId) => !secondBatchIds.includes(sourceId),
+    )
+    expect(thirdBatchIds).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(999)
+    expect(thirdRepositoryRequests).toHaveLength(0)
+    await vi.advanceTimersByTimeAsync(1)
+    await thirdBatchStarted.promise
+
+    expect(thirdRepositoryRequests).toEqual(thirdBatchIds)
+    expect(new Set([...secondBatchIds, ...thirdRepositoryRequests])).toEqual(
+      new Set(queuedGithubRepositoryIds),
+    )
+    expect(maximumConcurrentRepositoryRequests).toBe(4)
+    await waitForCurrentSources(queuedGithubRepositoryIds)
   })
 
   it("keeps the synchronized authorization migration constraints and compatibility backfill", () => {
