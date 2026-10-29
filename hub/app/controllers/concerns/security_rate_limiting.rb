@@ -4,6 +4,7 @@ module SecurityRateLimiting
   include TrustedRequestSource
 
   BUDGETS = {
+    github_app_setup: [ 5, 1.minute ],
     oauth_initiation: [ 60, 5.minutes ],
     oauth_callback: [ 60, 5.minutes ],
     comments: [ 60, 1.minute ],
