@@ -1,5 +1,7 @@
 import type { IncomingMessage, Server } from "node:http"
+import type { Duplex } from "node:stream"
 import type { Logger } from "pino"
+import type { WebSocket, WebSocketServer } from "ws"
 
 export type JsonValue =
   null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }
@@ -40,3 +42,36 @@ export interface RealtimeServer {
   broadcast: Broadcast
   close: () => Promise<void>
 }
+
+export interface AddressState {
+  connections: number
+  attempts: number
+  windowEndsAt: number
+}
+
+export interface Connection {
+  id: string
+  subscriptions: Set<string>
+  alive: boolean
+  busy: boolean
+  messages: number
+  windowEndsAt: number
+  check?: AbortController
+}
+
+export interface RealtimeState {
+  logger: Logger
+  limits: RealtimeLimits
+  wss: WebSocketServer
+  connections: Map<WebSocket, Connection>
+  channels: Map<string, Set<WebSocket>>
+  addresses: Map<string, AddressState>
+  pending: Map<Duplex, () => void>
+  rejectedUpgrades: Map<number, number>
+  reserved: number
+  accessChecks: number
+  closing: boolean
+  closePromise?: Promise<void>
+}
+
+export type UpgradeListener = (request: IncomingMessage, socket: Duplex, head: Buffer) => void

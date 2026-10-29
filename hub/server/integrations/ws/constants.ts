@@ -1,4 +1,17 @@
+import { z } from "zod"
+
 import type { RealtimeLimits } from "./types.ts"
+
+export const CHANNEL_SCHEMA = z
+  .string()
+  .min(1)
+  .max(200)
+  .regex(/^[a-zA-Z0-9][a-zA-Z0-9:._/-]*$/)
+export const MESSAGE_SCHEMA = z.strictObject({
+  type: z.enum(["subscribe", "unsubscribe"]),
+  channel: CHANNEL_SCHEMA,
+})
+export const EVENT_SCHEMA = z.strictObject({ type: z.string().min(1).max(100), payload: z.json() })
 
 export const DEFAULT_LIMITS: Readonly<RealtimeLimits> = {
   maxConnections: 1000,
