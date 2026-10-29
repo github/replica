@@ -6,6 +6,7 @@ model GitHubRepositorySource {
   // Relations
   prototypes           Prototype[]
   synchronizedAccess   GitHubSynchronizedAccess[]
+  admissionAttempts    GitHubAdmissionAttempt[]
   webhookDeliveries    GitHubWebhookDelivery[]
   auditTargets          SecurityAudit[]
 
@@ -15,6 +16,7 @@ model GitHubRepositorySource {
   owner                String
   name                 String
   defaultBranch        String @map("default_branch")
+  visibility           String @default("unknown")
   status               String @default("active")
   admissionEnabled     Boolean @default(false) @map("admission_enabled")
   synchronizationGeneration Int @default(0) @map("synchronization_generation")

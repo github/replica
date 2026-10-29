@@ -5,6 +5,9 @@ import type { GitHubRepositoryPermission, MappedGitHubPermission } from "../map-
 export interface GitHubAdmissionBaseline extends MappedGitHubPermission {
   repositorySourceId: string
   sourceGeneration: number
+  subject: string
+  admissionGeneration: number
+  persist: boolean
   rawPermission: GitHubRepositoryPermission
   confirmedAt: Date
 }

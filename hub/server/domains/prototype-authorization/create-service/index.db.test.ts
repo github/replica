@@ -226,6 +226,129 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
     expect(await prisma.securityAudit.count()).toBe(0)
   })
 
+  it("enforces fresh prototype administration and saves authorization mode changes with audits", async () => {
+    const { prisma, service, store } = await database()
+    const actor = await createActor(store, {
+      subject: "authorization-administrator",
+      token: "authorization-administrator-token",
+      role: "administrator",
+    })
+    const workspace = (await service.createWorkspace("authorization-administrator-token", {
+      name: "Workspace",
+    })) as { id: string }
+    const prototype = (await service.createPrototype(
+      "authorization-administrator-token",
+      workspace.id,
+      { name: "Prototype" },
+    )) as { id: string }
+    const source = await prisma.gitHubRepositorySource.create({
+      data: {
+        githubRepositoryId: "100",
+        appId: "12345",
+        installationId: "7",
+        owner: "owner",
+        name: "repository",
+        defaultBranch: "main",
+        status: "suspended",
+      },
+    })
+    await prisma.session.update({
+      where: { id: actor.session.id },
+      data: { freshAuthorizedAt: new Date(Date.now() - 5 * 60_000) },
+    })
+
+    await expect(
+      service.setPrototypeAuthorization("authorization-administrator-token", prototype.id, {
+        mode: "github-synchronized",
+        repositorySourceId: source.id,
+      }),
+    ).rejects.toMatchObject({
+      status: 403,
+      code: "fresh_authorization_required",
+    })
+    await prisma.session.update({
+      where: { id: actor.session.id },
+      data: { freshAuthorizedAt: new Date() },
+    })
+    await expect(
+      service.setPrototypeAuthorization("authorization-administrator-token", prototype.id, {
+        mode: "github-synchronized",
+        repositorySourceId: source.id,
+      }),
+    ).rejects.toMatchObject({
+      status: 422,
+      code: "repository_source_unavailable",
+    })
+    expect(await prisma.prototype.findUniqueOrThrow({ where: { id: prototype.id } })).toMatchObject(
+      {
+        authorizationMode: "hub-managed",
+        sourceRepositoryId: null,
+      },
+    )
+    expect(
+      await prisma.securityAudit.count({
+        where: { event: "prototype.authorization.policy", prototypeId: prototype.id },
+      }),
+    ).toBe(0)
+
+    await prisma.gitHubRepositorySource.update({
+      where: { id: source.id },
+      data: { status: "active", removedAt: null },
+    })
+    await expect(
+      service.setPrototypeAuthorization("authorization-administrator-token", prototype.id, {
+        mode: "github-synchronized",
+        repositorySourceId: source.id,
+      }),
+    ).resolves.toMatchObject({
+      authorizationMode: "github-synchronized",
+      sourceRepositoryId: source.id,
+    })
+    expect(await prisma.prototype.findUniqueOrThrow({ where: { id: prototype.id } })).toMatchObject(
+      {
+        authorizationMode: "github-synchronized",
+        sourceRepositoryId: source.id,
+      },
+    )
+
+    await expect(
+      service.setPrototypeAuthorization("authorization-administrator-token", prototype.id, {
+        mode: "hub-managed",
+      }),
+    ).resolves.toMatchObject({
+      authorizationMode: "hub-managed",
+      sourceRepositoryId: null,
+    })
+    expect(await prisma.prototype.findUniqueOrThrow({ where: { id: prototype.id } })).toMatchObject(
+      {
+        authorizationMode: "hub-managed",
+        sourceRepositoryId: null,
+      },
+    )
+    expect(
+      await prisma.securityAudit.findMany({
+        where: { event: "prototype.authorization.policy", prototypeId: prototype.id },
+        orderBy: { createdAt: "asc" },
+        select: {
+          actorUserId: true,
+          githubRepositorySourceId: true,
+          context: true,
+        },
+      }),
+    ).toEqual([
+      {
+        actorUserId: actor.user.id,
+        githubRepositorySourceId: source.id,
+        context: { reason: "github_synchronized" },
+      },
+      {
+        actorUserId: actor.user.id,
+        githubRepositorySourceId: null,
+        context: { reason: "hub_managed" },
+      },
+    ])
+  })
+
   it("rejects workspace creation by a member without writing product state", async () => {
     const { prisma, service, store } = await database()
     await createActor(store, {

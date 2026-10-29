@@ -123,8 +123,20 @@ async function permissionFor(
   username: string,
   subject: string,
   fullName: string,
+  visibility: string,
 ): Promise<GitHubRepositoryPermission> {
   try {
+    if (visibility !== "private") {
+      try {
+        await requestGitHubApi(
+          `/repos/${fullName}/collaborators/${encodeURIComponent(username)}`,
+          token,
+        )
+      } catch (error) {
+        if (error instanceof GitHubApiError && error.status === 404) return "none"
+        throw error
+      }
+    }
     const response = collaboratorPermissionSchema.parse(
       await requestGitHubApi(
         `/repos/${fullName}/collaborators/${encodeURIComponent(username)}/permission`,
@@ -175,7 +187,9 @@ async function saveBaseline(
   baseline: GitHubAdmissionBaseline,
   requireAdmissionEnabled = false,
   skipOlderConfirmation = false,
+  requireAdmissionAttempt = true,
 ): Promise<"saved" | "superseded"> {
+  if (!baseline.persist) return "saved"
   await lockRepository(database, baseline.repositorySourceId)
   const source = await database.gitHubRepositorySource.findUnique({
     where: { id: baseline.repositorySourceId },
@@ -196,6 +210,24 @@ async function saveBaseline(
       "github_authorization_changed",
       "GitHub authorization changed. Start again.",
     )
+  }
+  if (requireAdmissionAttempt) {
+    const attempt = await database.gitHubAdmissionAttempt.findUnique({
+      where: {
+        repositorySourceId_subject: {
+          repositorySourceId: baseline.repositorySourceId,
+          subject: baseline.subject,
+        },
+      },
+      select: { generation: true },
+    })
+    if (!attempt || attempt.generation !== baseline.admissionGeneration) {
+      throw new AuthenticationError(
+        409,
+        "github_authorization_changed",
+        "GitHub authorization changed. Start again.",
+      )
+    }
   }
   const existing = await database.gitHubSynchronizedAccess.findUnique({
     where: {
@@ -421,17 +453,19 @@ export function createGitHubAuthorizationService({
     return credentials(store, createGitHubIntegrationCredentialProvider(environment))
   }
 
-  async function claimAdmissionGeneration(repositorySourceId: string) {
+  async function claimAdmissionGeneration(repositorySourceId: string, subject: string) {
     return store.lock(async (_records, transaction) => {
       await lockRepository(transaction, repositorySourceId)
       const source = await transaction.gitHubRepositorySource.findUnique({
         where: { id: repositorySourceId },
       })
       if (!source || source.status !== "active" || !source.admissionEnabled) return null
-      return transaction.gitHubRepositorySource.update({
-        where: { id: repositorySourceId },
-        data: { synchronizationGeneration: { increment: 1 } },
+      const attempt = await transaction.gitHubAdmissionAttempt.upsert({
+        where: { repositorySourceId_subject: { repositorySourceId, subject } },
+        create: { repositorySourceId, subject, generation: 1 },
+        update: { generation: { increment: 1 } },
       })
+      return { source, admissionGeneration: attempt.generation }
     })
   }
 
@@ -497,9 +531,11 @@ export function createGitHubAuthorizationService({
           identity.username!,
           identity.subject,
           repository.full_name,
+          repository.visibility,
         )
         return {
           userId: identity.userId,
+          subject: identity.subject,
           rawPermission,
           ...mapGitHubPermission(rawPermission),
         }
@@ -525,6 +561,7 @@ export function createGitHubAuthorizationService({
             owner: repository.owner.login,
             name: repository.name,
             defaultBranch: repository.default_branch,
+            visibility: repository.visibility,
             status: "active",
             removedAt: null,
             synchronizationStatus: "current",
@@ -540,6 +577,9 @@ export function createGitHubAuthorizationService({
             {
               repositorySourceId: source.id,
               sourceGeneration: source.synchronizationGeneration,
+              subject: result.subject,
+              admissionGeneration: 0,
+              persist: true,
               rawPermission: result.rawPermission,
               admissionEligible: result.admissionEligible,
               prototypeRole: result.prototypeRole,
@@ -547,6 +587,7 @@ export function createGitHubAuthorizationService({
             },
             false,
             true,
+            false,
           )
         }
         await enforceSynchronizedMemberships(transaction, confirmedAt)
@@ -680,6 +721,9 @@ export function createGitHubAuthorizationService({
               return {
                 repositorySourceId: source.id,
                 sourceGeneration: source.synchronizationGeneration,
+                subject: profile.subject,
+                admissionGeneration: 0,
+                persist: false,
                 rawPermission: baseline.rawPermission as GitHubRepositoryPermission,
                 ...mapped,
                 confirmedAt: baseline.lastConfirmedAt,
@@ -728,19 +772,23 @@ export function createGitHubAuthorizationService({
             }
             throw error
           }
-          const claimedSource = await claimAdmissionGeneration(source.id)
-          if (!claimedSource) continue
+          const claim = await claimAdmissionGeneration(source.id, profile.subject)
+          if (!claim) continue
           const rawPermission = await permissionFor(
             token,
             profile.username,
             profile.subject,
             repository.full_name,
+            repository.visibility,
           )
           const mapped = mapGitHubPermission(rawPermission)
           if (mapped.admissionEligible) {
             return {
               repositorySourceId: source.id,
-              sourceGeneration: claimedSource.synchronizationGeneration,
+              sourceGeneration: claim.source.synchronizationGeneration,
+              subject: profile.subject,
+              admissionGeneration: claim.admissionGeneration,
+              persist: true,
               rawPermission,
               ...mapped,
               confirmedAt: new Date(),
@@ -750,7 +798,10 @@ export function createGitHubAuthorizationService({
             await store.lock((_records, transaction) =>
               saveBaseline(transaction, identity.userId, {
                 repositorySourceId: source.id,
-                sourceGeneration: claimedSource.synchronizationGeneration,
+                sourceGeneration: claim.source.synchronizationGeneration,
+                subject: profile.subject,
+                admissionGeneration: claim.admissionGeneration,
+                persist: true,
                 rawPermission,
                 ...mapped,
                 confirmedAt: new Date(),
@@ -766,6 +817,9 @@ export function createGitHubAuthorizationService({
             return {
               repositorySourceId: source.id,
               sourceGeneration: source.synchronizationGeneration,
+              subject: profile.subject,
+              admissionGeneration: 0,
+              persist: false,
               rawPermission: baseline.rawPermission as GitHubRepositoryPermission,
               ...mapped,
               confirmedAt: baseline.lastConfirmedAt,
@@ -906,6 +960,7 @@ export function createGitHubAuthorizationService({
             owner: repository.owner.login,
             name: repository.name,
             defaultBranch: repository.default_branch,
+            visibility: repository.visibility,
             admissionEnabled: parsed.data.admissionEnabled ?? false,
             dirtyAt: new Date(),
           },
@@ -915,6 +970,7 @@ export function createGitHubAuthorizationService({
             owner: repository.owner.login,
             name: repository.name,
             defaultBranch: repository.default_branch,
+            visibility: repository.visibility,
             status: "active",
             removedAt: null,
             ...(parsed.data.admissionEnabled === undefined
@@ -952,7 +1008,7 @@ export function createGitHubAuthorizationService({
         const source = await transaction.gitHubRepositorySource.findUnique({
           where: { id: repositorySourceId },
         })
-        if (!source || source.status !== "active") {
+        if (!source || !["active", "suspended"].includes(source.status)) {
           throw new AuthenticationError(
             404,
             "repository_source_not_found",
@@ -992,7 +1048,7 @@ export function createGitHubAuthorizationService({
         const source = await transaction.gitHubRepositorySource.findUnique({
           where: { id: repositorySourceId },
         })
-        if (!source || source.status !== "active") {
+        if (!source || !["active", "suspended"].includes(source.status)) {
           throw new AuthenticationError(
             404,
             "repository_source_not_found",

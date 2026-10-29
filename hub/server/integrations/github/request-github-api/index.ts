@@ -21,5 +21,6 @@ export async function requestGitHubApi(
     throw new GitHubApiError(0)
   }
   if (!response.ok) throw new GitHubApiError(response.status)
+  if (response.status === 204) return null
   return response.json()
 }
