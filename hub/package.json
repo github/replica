@@ -40,7 +40,7 @@
   "devDependencies": {
     "@github/copilot-sdk": "1.0.16",
     "@eslint/js": "10.0.1",
-    "@storybook/addon-a11y": "10.6.2",
+    "@storybook/addon-a11y": "10.6.3",
     "@storybook/addon-docs": "10.6.1",
     "@storybook/react-vite": "10.6.1",
     "@testing-library/jest-dom": "7.0.1",
@@ -61,7 +61,7 @@
     "jiti": "2.7.0",
     "jsdom": "30.1.3",
     "prettier": "3.9.10",
-    "storybook": "10.6.2",
+    "storybook": "10.6.3",
     "typescript": "npm:@typescript/typescript6@6.0.2",
     "typescript-eslint": "8.72.0",
     "vite": "8.3.4",
