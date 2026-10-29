@@ -105,38 +105,25 @@ FOREIGN KEY ("selected_revision_id") REFERENCES "authentication_provider_revisio
 ON DELETE RESTRICT ON UPDATE CASCADE
 DEFERRABLE INITIALLY DEFERRED;
 
-CREATE FUNCTION prevent_external_identity_reassignment()
+CREATE FUNCTION prevent_external_identity_changes()
 RETURNS trigger
 LANGUAGE plpgsql
 AS $$
 BEGIN
-    IF NEW."user_id" <> OLD."user_id"
-       OR NEW."provider" <> OLD."provider"
-       OR NEW."issuer" <> OLD."issuer"
-       OR NEW."subject" <> OLD."subject" THEN
-        RAISE EXCEPTION 'External identity mappings are immutable.';
-    END IF;
-    RETURN NEW;
+    RAISE EXCEPTION 'External identity records are immutable.';
 END;
 $$;
 
-CREATE TRIGGER "external_identities_immutable_mapping"
-BEFORE UPDATE ON "external_identities"
-FOR EACH ROW EXECUTE FUNCTION prevent_external_identity_reassignment();
+CREATE TRIGGER "external_identities_immutable"
+BEFORE UPDATE OR DELETE ON "external_identities"
+FOR EACH ROW EXECUTE FUNCTION prevent_external_identity_changes();
 
 CREATE FUNCTION prevent_authentication_provider_revision_changes()
 RETURNS trigger
 LANGUAGE plpgsql
 AS $$
 BEGIN
-    IF TG_OP = 'DELETE'
-       OR NEW."provider_id" <> OLD."provider_id"
-       OR NEW."revision" <> OLD."revision"
-       OR NEW."configuration_digest" <> OLD."configuration_digest"
-       OR NEW."settings" <> OLD."settings" THEN
-        RAISE EXCEPTION 'Authentication provider revisions are immutable.';
-    END IF;
-    RETURN NEW;
+    RAISE EXCEPTION 'Authentication provider revisions are immutable.';
 END;
 $$;
 

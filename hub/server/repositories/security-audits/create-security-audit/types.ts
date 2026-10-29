@@ -7,7 +7,13 @@ export interface CreateSecurityAuditDatabase {
   }
 }
 
-export type SecurityAuditContextValue = boolean | number | string | null
+export type SecurityAuditContextValue =
+  | boolean
+  | number
+  | string
+  | null
+  | SecurityAuditContextValue[]
+  | { [key: string]: SecurityAuditContextValue }
 export type SecurityAuditContext = Record<string, SecurityAuditContextValue>
 
 export interface CreateSecurityAuditInput {

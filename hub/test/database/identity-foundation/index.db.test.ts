@@ -32,10 +32,11 @@ describe("identity foundation migration", () => {
     ])
   })
 
-  it("keeps the identity tuple unique and prevents reassignment", async () => {
+  it("keeps the identity tuple unique and rejects every identity history change", async () => {
     const firstUserId = randomUUID()
     const secondUserId = randomUUID()
     const identityId = randomUUID()
+    const auditId = randomUUID()
     await createUser(prisma, { id: firstUserId })
     await createUser(prisma, { id: secondUserId })
     await createExternalIdentity(prisma, {
@@ -44,6 +45,16 @@ describe("identity foundation migration", () => {
       provider: "workforce",
       issuer: "https://id.example.test",
       subject: "person-123",
+    })
+    await prisma.securityAudit.create({
+      data: {
+        id: auditId,
+        action: "identity.external.created",
+        outcome: "SUCCESS",
+        targetType: "external_identity",
+        targetId: identityId,
+        context: { provider: "workforce" },
+      },
     })
 
     await expect(
@@ -62,7 +73,34 @@ describe("identity foundation migration", () => {
         where: { id: identityId },
         data: { userId: secondUserId },
       }),
-    ).rejects.toThrow("External identity mappings are immutable")
+    ).rejects.toThrow("External identity records are immutable")
+    await expect(
+      prisma.externalIdentity.update({
+        where: { id: identityId },
+        data: { id: randomUUID() },
+      }),
+    ).rejects.toThrow("External identity records are immutable")
+    await expect(
+      prisma.externalIdentity.update({
+        where: { id: identityId },
+        data: { createdAt: new Date("2000-01-01T00:00:00Z") },
+      }),
+    ).rejects.toThrow("External identity records are immutable")
+    await expect(
+      prisma.externalIdentity.update({
+        where: { id: identityId },
+        data: { updatedAt: new Date("2000-01-01T00:00:00Z") },
+      }),
+    ).rejects.toThrow("External identity records are immutable")
+    await expect(prisma.externalIdentity.delete({ where: { id: identityId } })).rejects.toThrow(
+      "External identity records are immutable",
+    )
+    await expect(
+      prisma.externalIdentity.findUnique({ where: { id: identityId } }),
+    ).resolves.toEqual(expect.objectContaining({ id: identityId, userId: firstUserId }))
+    await expect(prisma.securityAudit.findUnique({ where: { id: auditId } })).resolves.toEqual(
+      expect.objectContaining({ targetId: identityId }),
+    )
   })
 
   it("installs the indexes that protect tuple and revision concurrency", async () => {
@@ -85,7 +123,7 @@ describe("identity foundation migration", () => {
     ])
   })
 
-  it("keeps provider revisions and security audits immutable", async () => {
+  it("keeps provider revisions and security audit history immutable", async () => {
     const providerId = randomUUID()
     const revisionId = randomUUID()
     const auditId = randomUUID()
@@ -122,8 +160,110 @@ describe("identity foundation migration", () => {
         data: { settings: { issuer: "https://changed.example.test" } },
       }),
     ).rejects.toThrow("Authentication provider revisions are immutable")
+    await expect(
+      prisma.authenticationProviderRevision.update({
+        where: { id: revisionId },
+        data: { id: randomUUID() },
+      }),
+    ).rejects.toThrow("Authentication provider revisions are immutable")
+    await expect(
+      prisma.authenticationProviderRevision.update({
+        where: { id: revisionId },
+        data: { createdAt: new Date("2000-01-01T00:00:00Z") },
+      }),
+    ).rejects.toThrow("Authentication provider revisions are immutable")
+    await expect(
+      prisma.authenticationProviderRevision.update({
+        where: { id: revisionId },
+        data: { updatedAt: new Date("2000-01-01T00:00:00Z") },
+      }),
+    ).rejects.toThrow("Authentication provider revisions are immutable")
+    await expect(
+      prisma.authenticationProviderRevision.delete({ where: { id: revisionId } }),
+    ).rejects.toThrow("Authentication provider revisions are immutable")
+    await expect(
+      prisma.securityAudit.update({
+        where: { id: auditId },
+        data: {
+          id: randomUUID(),
+          createdAt: new Date("2000-01-01T00:00:00Z"),
+          updatedAt: new Date("2000-01-01T00:00:00Z"),
+        },
+      }),
+    ).rejects.toThrow("Security audit records are immutable")
     await expect(prisma.securityAudit.delete({ where: { id: auditId } })).rejects.toThrow(
       "Security audit records are immutable",
     )
+    const provider = await prisma.authenticationProvider.findUnique({
+      where: { id: providerId },
+      include: { selectedRevision: true },
+    })
+    expect(provider?.selectedRevisionId).toBe(revisionId)
+    expect(provider?.selectedRevision?.id).toBe(revisionId)
+  })
+
+  it("rejects foreign-key violations and selecting another provider's revision", async () => {
+    const firstProviderId = randomUUID()
+    const secondProviderId = randomUUID()
+    const secondRevisionId = randomUUID()
+    await prisma.authenticationProvider.createMany({
+      data: [
+        { id: firstProviderId, key: "first" },
+        { id: secondProviderId, key: "second" },
+      ],
+    })
+    await prisma.authenticationProviderRevision.create({
+      data: {
+        id: secondRevisionId,
+        providerId: secondProviderId,
+        revision: 1,
+        configurationDigest: "b".repeat(64),
+        settings: { issuer: "https://id.example.test" },
+      },
+    })
+
+    await expect(
+      prisma.externalIdentity.create({
+        data: {
+          id: randomUUID(),
+          userId: randomUUID(),
+          provider: "workforce",
+          issuer: "https://id.example.test",
+          subject: "missing-user",
+        },
+      }),
+    ).rejects.toMatchObject({ code: "P2003" })
+    await expect(
+      prisma.authenticationProviderRevision.create({
+        data: {
+          id: randomUUID(),
+          providerId: randomUUID(),
+          revision: 1,
+          configurationDigest: "c".repeat(64),
+          settings: {},
+        },
+      }),
+    ).rejects.toMatchObject({ code: "P2003" })
+    await expect(
+      prisma.authenticationProvider.update({
+        where: { id: firstProviderId },
+        data: { selectedRevisionId: secondRevisionId },
+      }),
+    ).rejects.toThrow("Selected revision must belong to its authentication provider")
+  })
+
+  it("rejects audit context that exceeds the migration byte bound", async () => {
+    await expect(
+      prisma.securityAudit.create({
+        data: {
+          id: randomUUID(),
+          action: "identity.external.create_failed",
+          outcome: "FAILURE",
+          targetType: "external_identity",
+          context: { detail: "x".repeat(5_000) },
+        },
+      }),
+    ).rejects.toThrow()
+    await expect(prisma.securityAudit.count()).resolves.toBe(0)
   })
 })
