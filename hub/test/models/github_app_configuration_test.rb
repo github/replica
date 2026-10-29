@@ -39,4 +39,45 @@ class GithubAppConfigurationTest < ActiveSupport::TestCase
     assert_not configuration.valid?
     assert_includes configuration.errors[:installation_id], "does not match installation state"
   end
+
+  test "does not allow changing a pinned installation ID" do
+    configuration = pinned_configuration
+
+    assert_not configuration.update(installation_id: 789)
+    assert_includes configuration.errors[:installation_id], "cannot replace a pinned connection"
+    assert_equal 456, configuration.reload.installation_id
+  end
+
+  test "does not allow changing a pinned installation account ID" do
+    configuration = pinned_configuration
+
+    assert_not configuration.update(installation_account_github_id: 987)
+    assert_includes configuration.errors[:installation_id], "cannot replace a pinned connection"
+    assert_equal 654, configuration.reload.installation_account_github_id
+  end
+
+  test "does not allow changing the policy of a pinned installation" do
+    configuration = pinned_configuration
+
+    assert_not configuration.update(installation_policy: "owner")
+    assert_includes configuration.errors[:installation_id], "cannot replace a pinned connection"
+    assert_equal "pinned", configuration.reload.installation_policy
+  end
+
+  test "allows updating a pinned installation account login and state" do
+    configuration = pinned_configuration
+
+    configuration.update!(installation_account_login: "new-customer", installation_state: "removed")
+
+    assert_equal "new-customer", configuration.reload.installation_account_login
+    assert_equal "removed", configuration.installation_state
+  end
+
+  private
+
+  def pinned_configuration
+    github_app_configurations.create_installed \
+      installation_policy: "pinned", installation_account_github_id: 654,
+      installation_account_login: "customer", installation_account_type: "Organization"
+  end
 end
