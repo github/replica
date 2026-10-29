@@ -44,9 +44,18 @@ Anyone on GitHub can read a public repository. Hub uses that permission for revi
 
 ### Public Apps
 
-Making the App public lets people outside the organization sign in through it. If a public repository is connected, any GitHub account could then sign in and read that repository's Hub reviews.
+Making the App public lets people outside the organization authorize it and sign in to Hub. It does not change repository visibility or grant access to private repositories.
 
-**Keep manifest-created Apps private.** A manually connected cross-account App may need public visibility for installation and team authorization. Before connecting it or changing visibility, check who can read each repository's reviews. Hub adds no organization-membership requirement: GitHub's App authorization policy and each user's repository permissions remain authoritative. See [manual connection](github-app-setup.md#manual-creation-and-connection).
+After sign-in, GitHub read access to a connected repository also grants access to its prototype comments and conversations in Hub. Hub has no separate reviewer list or additional organization-membership requirement. With a public App:
+
+| Connected repository | Who can read its review conversations after signing in to Hub |
+| --- | --- |
+| Private | Only people with GitHub read access to that repository, including outside collaborators |
+| Public | Any GitHub user, including people who are not organization members or repository contributors |
+
+Before connecting an App or changing App or repository visibility, decide whether everyone who can read the repository should also be able to read its Hub review conversations. **Do not connect a public repository through a public App if those conversations must stay within the team.**
+
+**Keep manifest-created Apps private.** A manually connected cross-account App may need public visibility for installation and team sign-in. See [manual connection](github-app-setup.md#manual-creation-and-connection).
 
 ## Hub operators
 

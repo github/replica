@@ -56,6 +56,14 @@ class GithubAppConfigurationTest < ActiveSupport::TestCase
     assert_equal 654, configuration.reload.installation_account_github_id
   end
 
+  test "does not allow changing a pinned installation owner type" do
+    configuration = pinned_configuration
+
+    assert_not configuration.update(installation_owner_type: "User")
+    assert_includes configuration.errors[:installation_id], "cannot replace a pinned connection"
+    assert_equal "Organization", configuration.reload.installation_owner_type
+  end
+
   test "does not allow changing the policy of a pinned installation" do
     configuration = pinned_configuration
 
@@ -78,6 +86,6 @@ class GithubAppConfigurationTest < ActiveSupport::TestCase
   def pinned_configuration
     github_app_configurations.create_installed \
       installation_policy: "pinned", installation_account_github_id: 654,
-      installation_account_login: "customer", installation_account_type: "Organization"
+      installation_account_login: "customer", installation_owner_type: "Organization"
   end
 end

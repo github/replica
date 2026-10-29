@@ -8,8 +8,8 @@
 #  client_secret                  :text             not null
 #  credential_revision            :bigint           default(1), not null
 #  installation_account_login     :string
-#  installation_account_type      :string
 #  installation_checked_at        :datetime
+#  installation_owner_type        :string
 #  installation_policy            :string           default("owner"), not null
 #  installation_state             :string           default("not_installed"), not null
 #  installed_at                   :datetime
@@ -44,7 +44,7 @@
 #  github_app_configurations_installation_policy       (installation_policy IN ('owner', 'pinned'))
 #  github_app_configurations_installation_state        (installation_state IN ('not_installed', 'active', 'suspended', 'removed'))
 #  github_app_configurations_owner_type                (owner_type IN ('Organization', 'User'))
-#  github_app_configurations_pinned_installation       (installation_policy <> 'pinned' OR (installation_id IS NOT NULL AND installation_account_github_id IS NOT NULL AND installation_account_type IN ('Organization', 'User') AND installation_account_type IS NOT NULL AND installation_account_login IS NOT NULL AND length(trim(installation_account_login)) > 0))
+#  github_app_configurations_pinned_installation       (installation_policy <> 'pinned' OR (installation_id IS NOT NULL AND installation_account_github_id IS NOT NULL AND installation_owner_type IN ('Organization', 'User') AND installation_owner_type IS NOT NULL AND installation_account_login IS NOT NULL AND length(trim(installation_account_login)) > 0))
 #  github_app_configurations_positive_app_id           (github_app_id > 0)
 #  github_app_configurations_positive_installation_id  (installation_id IS NULL OR installation_id > 0)
 #  github_app_configurations_positive_owner_id         (owner_github_id > 0)
@@ -73,7 +73,7 @@ class GithubAppConfiguration < ApplicationRecord
   validates :installation_account_github_id, numericality: { only_integer: true, greater_than: 0 }, allow_nil: true
   validates :installation_state, inclusion: { in: INSTALLATION_STATES }
   validates :installation_policy, inclusion: { in: INSTALLATION_POLICIES }
-  validates :installation_account_type, inclusion: { in: OWNER_TYPES }, allow_nil: true
+  validates :installation_owner_type, inclusion: { in: OWNER_TYPES }, allow_nil: true
   validates :owner_type, inclusion: { in: OWNER_TYPES }
   validates :singleton_key, inclusion: { in: [ 1 ] }, uniqueness: true
   validate :installation_identity_matches_state
@@ -142,7 +142,7 @@ class GithubAppConfiguration < ApplicationRecord
   def installation_snapshot
     credential_snapshot.merge \
       github_app_id:, owner_github_id:, owner_type:, installation_policy:, installation_id:,
-      installation_account_github_id:, installation_account_type:, installation_state:
+      installation_account_github_id:, installation_owner_type:, installation_state:
   end
 
   # Pinned connections never discover or adopt another account's installation.
@@ -211,12 +211,12 @@ class GithubAppConfiguration < ApplicationRecord
     return if !pinned_installation? && installation_policy_in_database != "pinned"
 
     if installation_id.blank? || installation_account_github_id.blank? ||
-        installation_account_login.blank? || !OWNER_TYPES.include?(installation_account_type)
+        installation_account_login.blank? || !OWNER_TYPES.include?(installation_owner_type)
       errors.add(:installation_id, "requires a verified installation account")
     end
     if persisted? && %w[
       installation_policy github_app_id client_id installation_id
-      installation_account_github_id installation_account_type
+      installation_account_github_id installation_owner_type
     ].any? { will_save_change_to_attribute?(_1) }
       errors.add(:installation_id, "cannot replace a pinned connection")
     end

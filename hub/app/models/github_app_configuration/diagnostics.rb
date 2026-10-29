@@ -52,7 +52,7 @@ class GithubAppConfiguration::Diagnostics < ActiveRecord::AssociatedObject
     account = payload.fetch("account")
     if record.pinned_installation?
       return "account mismatch" if account.fetch("id") != record.installation_account_github_id ||
-        account.fetch("type") != record.installation_account_type
+        account.fetch("type") != record.installation_owner_type
 
       return payload["suspended_at"].present? ? "suspended" : "reachable"
     end

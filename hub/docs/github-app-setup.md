@@ -136,7 +136,7 @@ Have the prepared credentials ready before authorizing; setup authorization last
 3. Enter the App ID, Client ID, client secret, matching webhook secret, and installation ID. Upload the PEM file.
 4. Confirm the account and repository selection in GitHub, read Hub's approval statement, and choose **Verify and connect this installation**.
 
-Hub authenticates the App, checks its App/client identity and actual owner, checks the exact active installation, and reads its repositories before saving atomically. A valid managed-user registration owner can have underscores in its login. The registration owner need not be the organization receiving the installation. Failure saves no configuration and requires credentials to be re-entered. Hub does not change GitHub settings automatically.
+Hub authenticates the App, checks its App/client identity and actual owner, checks the exact active installation, and reads its repositories before saving atomically. Hub accepts underscores in owner logins returned by GitHub. The registration owner need not be the organization receiving the installation. Failure saves no configuration and requires credentials to be re-entered. Hub does not change GitHub settings automatically.
 
 ### Verify the connection
 

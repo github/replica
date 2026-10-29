@@ -189,7 +189,7 @@ class GithubAppConfiguration::Installation < ActiveRecord::AssociatedObject
     matches = if record.pinned_installation?
       installation_id == record.installation_id &&
         account.fetch("id") == record.installation_account_github_id &&
-        account.fetch("type") == record.installation_account_type
+        account.fetch("type") == record.installation_owner_type
     else
       account.fetch("id").to_i == record.owner_github_id &&
         account.fetch("type") == record.owner_type

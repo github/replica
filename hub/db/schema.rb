@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_26_200000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_29_190000) do
   create_table "analytics_deliveries", force: :cascade do |t|
     t.integer "attempts", default: 0, null: false
     t.datetime "created_at", null: false
@@ -274,7 +274,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_26_200000) do
     t.bigint "installation_account_github_id"
     t.string "installation_policy", default: "owner", null: false
     t.string "installation_account_login"
-    t.string "installation_account_type"
+    t.string "installation_owner_type"
     t.index ["singleton_key"], name: "index_github_app_configurations_on_singleton_key", unique: true
     t.check_constraint "(installation_id IS NULL AND installation_account_github_id IS NULL) OR (installation_id IS NOT NULL AND installation_account_github_id IS NOT NULL AND installation_account_github_id > 0)", name: "github_app_configurations_installation_account"
     t.check_constraint "(installation_state = 'not_installed' AND installation_id IS NULL) OR (installation_state <> 'not_installed' AND installation_id IS NOT NULL)", name: "github_app_configurations_installation_identity"
@@ -283,7 +283,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_26_200000) do
     t.check_constraint "credential_revision > 0 AND lock_version >= 0", name: "github_app_configurations_revision"
     t.check_constraint "github_app_id > 0", name: "github_app_configurations_positive_app_id"
     t.check_constraint "installation_id IS NULL OR installation_id > 0", name: "github_app_configurations_positive_installation_id"
-    t.check_constraint "installation_policy <> 'pinned' OR (installation_id IS NOT NULL AND installation_account_github_id IS NOT NULL AND installation_account_type IN ('Organization', 'User') AND installation_account_type IS NOT NULL AND installation_account_login IS NOT NULL AND length(trim(installation_account_login)) > 0)", name: "github_app_configurations_pinned_installation"
+    t.check_constraint "installation_policy <> 'pinned' OR (installation_id IS NOT NULL AND installation_account_github_id IS NOT NULL AND installation_owner_type IN ('Organization', 'User') AND installation_owner_type IS NOT NULL AND installation_account_login IS NOT NULL AND length(trim(installation_account_login)) > 0)", name: "github_app_configurations_pinned_installation"
     t.check_constraint "installation_policy IN ('owner', 'pinned')", name: "github_app_configurations_installation_policy"
     t.check_constraint "installation_state IN ('not_installed', 'active', 'suspended', 'removed')", name: "github_app_configurations_installation_state"
     t.check_constraint "owner_github_id > 0", name: "github_app_configurations_positive_owner_id"

@@ -39,14 +39,9 @@ class GithubAppConfiguration::Ownership < ActiveRecord::AssociatedObject
       owner_type: owner.fetch("type"),
       app_slug: app.fetch("slug")
     }
-    login_pattern = if attributes[:owner_type] == "User"
-      /\A[A-Za-z0-9][A-Za-z0-9_-]*\z/
-    else
-      /\A[A-Za-z0-9][A-Za-z0-9-]*\z/
-    end
     valid = attributes[:owner_github_id].is_a?(Integer) && attributes[:owner_github_id].positive? &&
       GithubAppConfiguration::OWNER_TYPES.include?(attributes[:owner_type]) &&
-      attributes[:owner_login].is_a?(String) && attributes[:owner_login].match?(login_pattern) &&
+      attributes[:owner_login].is_a?(String) && attributes[:owner_login].match?(/\A[A-Za-z0-9][A-Za-z0-9_-]*\z/) &&
       attributes[:app_slug].is_a?(String) && attributes[:app_slug].match?(/\A[A-Za-z0-9][A-Za-z0-9-]*\z/)
     raise KeyError if !valid
 

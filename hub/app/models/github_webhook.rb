@@ -53,7 +53,7 @@ class GithubWebhook
     if configuration.pinned_installation? && event.in?(%w[installation installation_repositories])
       account = installation.fetch("account")
       return if account["id"] != installation_snapshot.fetch(:installation_account_github_id) ||
-        account["type"] != installation_snapshot.fetch(:installation_account_type)
+        account["type"] != installation_snapshot.fetch(:installation_owner_type)
     end
 
     delivery = find_delivery!

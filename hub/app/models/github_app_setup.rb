@@ -1,6 +1,7 @@
 # Creates or explicitly imports this Hub's verified GitHub App connection.
 class GithubAppSetup
   MAXIMUM_AGE = 15.minutes
+  MAX_SIGNED_BIGINT = 9_223_372_036_854_775_807
 
   class Error < StandardError; end
   class ImportError < Error
@@ -89,7 +90,7 @@ class GithubAppSetup
 
     limits = GithubAppConfiguration::Administration
     valid = [ app_id, installation_id ].all? do |value|
-      value.to_s.match?(/\A[0-9]{1,19}\z/) && value.to_i.between?(1, 9_223_372_036_854_775_807)
+      value.to_s.match?(/\A[0-9]{1,19}\z/) && value.to_i.between?(1, MAX_SIGNED_BIGINT)
     end
     valid &&= \
       client_id.is_a?(String) && client_id.present? && client_id.bytesize <= 255 &&
@@ -121,7 +122,7 @@ class GithubAppSetup
     candidate.assign_attributes \
       installation_account_github_id: account.fetch("id"),
       installation_account_login: account.fetch("login"),
-      installation_account_type: account.fetch("type"),
+      installation_owner_type: account.fetch("type"),
       installation_state: "active", installed_at: clock.call, installation_checked_at: clock.call
     token = candidate.tokens.for_installation(candidate.installation_id)
     repositories = candidate.repositories.snapshot(token:)

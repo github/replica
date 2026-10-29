@@ -229,7 +229,7 @@ class GithubAppPinnedInstallationTest < ActiveSupport::TestCase
   def pinned_configuration
     github_app_configurations.create_installed \
       installation_policy: "pinned", installation_account_github_id: 654,
-      installation_account_login: "customer", installation_account_type: "Organization"
+      installation_account_login: "customer", installation_owner_type: "Organization"
   end
 
   def stub_selected_installation(**overrides)

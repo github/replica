@@ -1,24 +1,26 @@
 require "test_helper"
 
 class GithubAppManualImportTest < ActiveSupport::TestCase
-  test "imports and polls an organization installation for a managed-user App owner" do
-    attributes = import_attributes
-    app = app_payload(attributes).merge(
-      "owner" => { "id" => 321, "login" => "operator_acme", "type" => "User" }
-    )
-    stub_import(attributes, app:)
+  %w[User Organization].each do |owner_type|
+    test "imports and polls an installation for a #{owner_type} App owner with an underscore in its login" do
+      attributes = import_attributes
+      app = app_payload(attributes).merge(
+        "owner" => { "id" => 321, "login" => "operator_acme", "type" => owner_type }
+      )
+      stub_import(attributes, app:)
 
-    configuration = authorized_setup.import!(**attributes)
-    configuration.synchronize_repositories!
+      configuration = authorized_setup.import!(**attributes)
+      configuration.synchronize_repositories!
 
-    assert_equal "operator_acme", configuration.reload.owner_login
-    assert_equal "User", configuration.owner_type
-    assert_equal 321, configuration.owner_github_id
-    assert_equal "pinned", configuration.installation_policy
-    assert_equal 8642, configuration.installation_id
-    assert_equal 654, configuration.installation_account_github_id
-    assert_equal "Organization", configuration.installation_account_type
-    assert_equal "active", configuration.installation_state
+      assert_equal "operator_acme", configuration.reload.owner_login
+      assert_equal owner_type, configuration.owner_type
+      assert_equal 321, configuration.owner_github_id
+      assert_equal "pinned", configuration.installation_policy
+      assert_equal 8642, configuration.installation_id
+      assert_equal 654, configuration.installation_account_github_id
+      assert_equal "Organization", configuration.installation_owner_type
+      assert_equal "active", configuration.installation_state
+    end
   end
 
   test "imports one explicitly approved cross-account installation and its selected repositories" do
@@ -36,7 +38,7 @@ class GithubAppManualImportTest < ActiveSupport::TestCase
     assert_equal 321, configuration.owner_github_id
     assert_equal 654, configuration.installation_account_github_id
     assert_equal "customer", configuration.installation_account_login
-    assert_equal "Organization", configuration.installation_account_type
+    assert_equal "Organization", configuration.installation_owner_type
     assert_equal "active", configuration.installation_state
     assert_equal [ 9081 ], Repository.active.pluck(:github_id)
     assert_equal "removed", unrelated.reload.installation_state
@@ -116,12 +118,31 @@ class GithubAppManualImportTest < ActiveSupport::TestCase
     assert_not_requested :get, "#{GITHUB_API_URL}/app"
   end
 
+  test "imports App and installation IDs at the signed bigint upper bound" do
+    attributes = import_attributes.merge(app_id: "9223372036854775807", installation_id: "9223372036854775807")
+    stub_import(attributes)
+
+    configuration = authorized_setup.import!(**attributes)
+
+    assert_equal 9_223_372_036_854_775_807, configuration.reload.github_app_id
+    assert_equal 9_223_372_036_854_775_807, configuration.installation_id
+  end
+
+  %i[app_id installation_id].each do |attribute|
+    test "rejects a submitted #{attribute} above the signed bigint range before contacting GitHub" do
+      assert_rejected_import(authorized_setup, **{ attribute => "9223372036854775808" })
+
+      assert_not_requested :any, %r{\A#{Regexp.escape(GITHUB_API_URL)}/}
+    end
+  end
+
   {
     "another App" => { "id" => 908 },
     "a malformed App owner" => { "owner" => { "id" => "321", "login" => "github", "type" => "Organization" } },
+    "an unsupported App owner type" => { "owner" => { "id" => 321, "login" => "github", "type" => "Enterprise" } },
     "an unsafe user login" => { "owner" => { "id" => 321, "login" => "operator/enterprise", "type" => "User" } },
-    "an underscore in an organization login" => {
-      "owner" => { "id" => 321, "login" => "invalid_org", "type" => "Organization" }
+    "a login without an alphanumeric first character" => {
+      "owner" => { "id" => 321, "login" => "_operator", "type" => "User" }
     },
     "an underscore in an App slug" => { "slug" => "invalid_app" }
   }.each do |description, changes|

@@ -70,7 +70,10 @@ describe("GithubAppSetupManualPage()", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("GitHub could not verify the connection.")
     for (const label of ["Client secret", "Webhook secret"]) {
       expect(screen.getByLabelText(new RegExp(label))).toHaveAttribute("type", "password")
-      expect(screen.getByLabelText(new RegExp(label))).toHaveAttribute("autocomplete", "new-password")
+      expect(screen.getByLabelText(new RegExp(label))).toHaveAttribute(
+        "autocomplete",
+        "new-password",
+      )
       expect(screen.getByLabelText(new RegExp(label))).toHaveValue("")
     }
     expect(screen.getByLabelText(/Private key/)).toHaveValue("")
