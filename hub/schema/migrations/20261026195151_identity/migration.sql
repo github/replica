@@ -33,18 +33,17 @@ CREATE TABLE "identity_store_states" (
 );
 
 -- CreateTable
-CREATE TABLE "github_integration_states" (
+CREATE TABLE "github_integration_credentials" (
     "id" UUID NOT NULL,
-    "generation" INTEGER NOT NULL DEFAULT 0,
     "encrypted_credentials" TEXT,
     "created_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-    CONSTRAINT "github_integration_states_pkey" PRIMARY KEY ("id")
+    CONSTRAINT "github_integration_credentials_pkey" PRIMARY KEY ("id")
 );
 
 -- SeedData
-INSERT INTO "github_integration_states" ("id") VALUES ('00000000-0000-4000-8000-000000000001');
+INSERT INTO "github_integration_credentials" ("id") VALUES ('00000000-0000-4000-8000-000000000001');
 
 -- CreateTable
 CREATE TABLE "users" (

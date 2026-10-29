@@ -53,7 +53,7 @@ Use `.test.ts` or `.test.tsx` for ordinary cases. Use `.db.test.ts` or `.db.test
 
 Start the PostgreSQL service as described in [Development](development.md) and set `TEST_DATABASE_URL` using `.env.example`. The devcontainer supplies this variable. Use a local database user with permission to create and drop databases, never a production connection.
 
-The database command uses `--passWithNoTests` so an empty selection exits successfully. It still fails when tests fail. Identity repository cases exercise external identity linking and uniqueness, installation membership, provider-aware one-use attempts, session context, GitHub integration credential independence, transaction rollback, and concurrent store locks. Job integration cases exercise real PostgreSQL queues, schedules, and database resets.
+The database command uses `--passWithNoTests` so an empty selection exits successfully. It still fails when tests fail. Identity repository cases exercise external identity linking and uniqueness, installation membership, provider-specific authorization attempts, session context, independent GitHub credentials, transaction rollback, and concurrent store locks. Job integration cases exercise real PostgreSQL queues, schedules, and database resets.
 
 Database-enabled jsdom tests use the browser setup and database hooks together. They can arrange records through server code, but frontend code must not import server modules. The setup does not start an API or connect frontend requests to one.
 
@@ -61,7 +61,7 @@ The database setup follows this lifecycle:
 
 1. Before workers start, setup creates a template database with a unique name for each project and run. It applies the current Prisma schema with `prisma db push` and BullMQ's migrations, closes those setup connections, then copies the template for every worker slot.
 2. Each worker receives its own `DATABASE_URL` before application modules load. Setup uses Vitest's [`VITEST_POOL_ID`](https://vitest.dev/guide/migration/jest#envs), which stays within the configured worker limit.
-3. Before every case, setup empties application and job tables across user schemas and resets generated identity counters. It preserves `public._prisma_migrations` and `bullmq.migration`. Each case creates its own records; there is no shared seed data.
+3. Before every case, setup empties application and job tables across user schemas. It preserves `public._prisma_migrations` and `bullmq.migration`. Each case creates its own records; there is no shared seed data.
 4. After the run, teardown drops only the databases it created, even if tests left connections open.
 
 Unique database names also isolate simultaneous runs. Before clearing tables, cleanup checks that the database name belongs to the test namespace and matches the connected database.

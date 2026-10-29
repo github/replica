@@ -8,7 +8,7 @@ The team has chosen TypeScript, Express for the API, React and Vite for the fron
 
 The API responds to a health check, and the frontend displays the logo with light and dark themes. Storybook keeps the existing components and pages available for reuse.
 
-Contributors can use PostgreSQL and Prisma locally or in the devcontainer. The [identity foundation](identity.md) separates Hub users, external identities, installation membership, authentication-provider configuration, sessions, authorization attempts, security records, and GitHub source-integration credentials. Sign-in routes, deployment, and product APIs have not been built. This app cannot yet authenticate users, evaluate prototype access, find repositories, import Builds, host previews, save product data, or support reviews.
+Contributors can use PostgreSQL and Prisma locally or in the devcontainer. The [identity foundation](identity.md) separates Hub users, external identities, installation membership, authentication provider configuration, sessions, authorization attempts, security records, and GitHub source credentials. Sign-in routes, deployment, and product APIs have not been built. This app cannot yet authenticate users, evaluate prototype access, find repositories, import Builds, host previews, save product data, or support reviews.
 
 ## Backend
 

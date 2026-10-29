@@ -58,6 +58,20 @@ async function createSession(store: IdentityStore, suffix: string) {
 }
 
 describe("createIdentityStore()", () => {
+  it("exposes queries without exposing mutations outside the store lock", async () => {
+    const { store } = await database()
+
+    expect(Object.keys(store.read).sort()).toEqual([
+      "audits",
+      "externalIdentity",
+      "githubIntegrationCredentials",
+      "membership",
+      "session",
+      "sessionById",
+      "user",
+    ])
+  })
+
   it("rolls back GitHub integration, session, and audit changes together", async () => {
     const { store } = await database()
     const { session } = await createSession(store, "rollback")
@@ -68,8 +82,8 @@ describe("createIdentityStore()", () => {
     await expect(
       store.lock(async (records) => {
         await records.saveGitHubIntegrationCredentials("replacement-encrypted-fixture")
-        await records.advanceGitHubIntegrationGeneration()
         await records.deleteSessions()
+        await expect(records.sessionById(session.id)).resolves.toBeNull()
         await records.audit({
           event: "session.revoke_all",
           actorUserId: null,
@@ -80,19 +94,19 @@ describe("createIdentityStore()", () => {
       }),
     ).rejects.toThrow("Transaction failed")
 
-    expect(await store.read.githubIntegrationState()).toMatchObject({
-      generation: 0,
+    expect(await store.read.githubIntegrationCredentials()).toMatchObject({
       encryptedCredentials: "initial-encrypted-fixture",
     })
     expect(await store.read.sessionById(session.id)).not.toBeNull()
     expect(await store.read.audits()).toEqual([])
   })
 
-  it("serializes locks so an overlapping mutation reads the committed generation", async () => {
-    const { store } = await database()
+  it("blocks an overlapping mutation until it can read the committed credentials", async () => {
+    const { prisma, store } = await database()
     await store.lock(() => Promise.resolve())
     let entered!: () => void
     let release!: () => void
+    let secondEntered = false
     const started = new Promise<void>((resolve) => {
       entered = resolve
     })
@@ -100,21 +114,48 @@ describe("createIdentityStore()", () => {
       release = resolve
     })
     const first = store.lock(async (records) => {
-      await records.advanceGitHubIntegrationGeneration()
+      await records.saveGitHubIntegrationCredentials("first-encrypted-fixture")
       entered()
       await gate
     })
     await started
     const second = store.lock(async (records) => {
-      const state = await records.githubIntegrationState()
-      await records.advanceGitHubIntegrationGeneration()
-      return state.generation
+      secondEntered = true
+      const credentials = await records.githubIntegrationCredentials()
+      await records.saveGitHubIntegrationCredentials("second-encrypted-fixture")
+      return credentials.encryptedCredentials
     })
-    release()
+    onTestFinished(() => {
+      release()
+    })
+
+    try {
+      await vi.waitFor(
+        async () => {
+          const [waiting] = await prisma.$queryRaw<{ waitEventType: string | null }[]>`
+            SELECT wait_event_type AS "waitEventType"
+            FROM pg_stat_activity
+            WHERE datname = current_database()
+              AND pid <> pg_backend_pid()
+              AND state = 'active'
+              AND query LIKE '%identity_store_states%'
+              AND wait_event_type = 'Lock'
+            LIMIT 1
+          `
+          expect(waiting?.waitEventType).toBe("Lock")
+        },
+        { interval: 20, timeout: 5_000 },
+      )
+      expect(secondEntered).toBe(false)
+    } finally {
+      release()
+    }
 
     await first
-    expect(await second).toBe(1)
-    expect((await store.read.githubIntegrationState()).generation).toBe(2)
+    expect(await second).toBe("first-encrypted-fixture")
+    expect(await store.read.githubIntegrationCredentials()).toMatchObject({
+      encryptedCredentials: "second-encrypted-fixture",
+    })
   })
 
   it("links multiple issuer-scoped external identities without allowing a relink", async () => {
@@ -234,8 +275,7 @@ describe("createIdentityStore()", () => {
         enabled: true,
       },
     })
-    expect(await store.read.githubIntegrationState()).toMatchObject({
-      generation: 0,
+    expect(await store.read.githubIntegrationCredentials()).toMatchObject({
       encryptedCredentials: null,
     })
 
@@ -270,10 +310,9 @@ describe("createIdentityStore()", () => {
       "credential-rotation",
     )
 
-    await store.lock(async (records) => {
-      await records.saveGitHubIntegrationCredentials("rotated-encrypted-credentials")
-      await records.advanceGitHubIntegrationGeneration()
-    })
+    await store.lock((records) =>
+      records.saveGitHubIntegrationCredentials("rotated-encrypted-credentials"),
+    )
 
     expect(await store.read.session(session.tokenDigest)).toMatchObject({
       id: session.id,

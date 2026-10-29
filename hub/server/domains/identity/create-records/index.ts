@@ -3,9 +3,8 @@ import { consumeAuthorizationAttempt } from "#server/repositories/authorization-
 import { createAuthorizationAttempt } from "#server/repositories/authorization-attempts/create-attempt"
 import { getExternalIdentity } from "#server/repositories/external-identities/get-external-identity"
 import { saveExternalIdentity } from "#server/repositories/external-identities/save-external-identity"
-import { advanceGitHubIntegrationGeneration } from "#server/repositories/github-integration-state/advance-generation"
-import { getGitHubIntegrationState } from "#server/repositories/github-integration-state/get-state"
-import { saveGitHubIntegrationCredentials } from "#server/repositories/github-integration-state/save-credentials"
+import { getGitHubIntegrationCredentials } from "#server/repositories/github-integration-credentials/get-credentials"
+import { saveGitHubIntegrationCredentials } from "#server/repositories/github-integration-credentials/save-credentials"
 import { getInstallationMembership } from "#server/repositories/installation-memberships/get-membership"
 import { saveInstallationMembership } from "#server/repositories/installation-memberships/save-membership"
 import { getSecurityAudits } from "#server/repositories/security-audits/get-audits"
@@ -25,9 +24,8 @@ import type { Prisma } from "../../../generated/prisma/client.ts"
 
 export function createIdentityRecords(database: Prisma.TransactionClient): IdentityRecords {
   return {
-    githubIntegrationState: getGitHubIntegrationState.bind(null, database),
+    githubIntegrationCredentials: getGitHubIntegrationCredentials.bind(null, database),
     saveGitHubIntegrationCredentials: saveGitHubIntegrationCredentials.bind(null, database),
-    advanceGitHubIntegrationGeneration: advanceGitHubIntegrationGeneration.bind(null, database),
     user: getUser.bind(null, database),
     createUser: createUser.bind(null, database),
     externalIdentity: getExternalIdentity.bind(null, database),

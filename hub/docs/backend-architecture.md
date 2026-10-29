@@ -47,6 +47,6 @@ The [shared Prisma client](database.md#shared-client) lives in `server/integrati
 
 Compose repository functions in domains. The identity store binds standalone queries to a database client or transaction there; a repository must not import its neighboring queries to build that store.
 
-`staticIdentityStoreRecordId` identifies the row used to serialize identity-store transactions. It is not a user, provider configuration, or GitHub installation. Keep it with the identity-store state repository.
+`staticIdentityStoreRecordId` identifies the row that serializes identity store transactions. It is not a user, provider configuration, or GitHub installation. Keep it with the identity store state repository.
 
-GitHub source-integration credentials use a separate fixed state row. Authentication-provider configuration must not read or write that credential state.
+GitHub source credentials use a separate fixed credentials row. Authentication provider configuration must not read or write those credentials.

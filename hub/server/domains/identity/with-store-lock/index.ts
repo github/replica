@@ -1,5 +1,5 @@
 import { createIdentityRecords } from "#server/domains/identity/create-records"
-import { ensureGitHubIntegrationState } from "#server/repositories/github-integration-state/ensure-state"
+import { ensureGitHubIntegrationCredentials } from "#server/repositories/github-integration-credentials/ensure-credentials"
 import { withIdentityStoreLock as withRepositoryLock } from "#server/repositories/identity-store-state/with-store-lock"
 import type { IdentityRecords } from "#server/domains/identity/create-store/types"
 
@@ -10,7 +10,7 @@ export function withIdentityStoreLock<T>(
   operation: (records: IdentityRecords) => Promise<T>,
 ): Promise<T> {
   return withRepositoryLock(client, async (database) => {
-    await ensureGitHubIntegrationState(database)
+    await ensureGitHubIntegrationCredentials(database)
     return operation(createIdentityRecords(database))
   })
 }

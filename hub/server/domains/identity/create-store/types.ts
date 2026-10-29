@@ -4,7 +4,7 @@ import type {
   ExternalIdentityInput,
   HubExternalIdentity,
 } from "#server/repositories/external-identities/types"
-import type { GitHubIntegrationState } from "#server/repositories/github-integration-state/types"
+import type { GitHubIntegrationCredentials } from "#server/repositories/github-integration-credentials/types"
 import type {
   InstallationMembershipInput,
   InstallationMembershipRecord,
@@ -34,9 +34,8 @@ export interface SessionContext extends HubSession {
 }
 
 export interface IdentityRecords {
-  githubIntegrationState(): Promise<GitHubIntegrationState>
+  githubIntegrationCredentials(): Promise<GitHubIntegrationCredentials>
   saveGitHubIntegrationCredentials(encryptedCredentials: string): Promise<void>
-  advanceGitHubIntegrationGeneration(): Promise<void>
   user(id: string): Promise<HubUser | null>
   createUser(input: UserInput): Promise<HubUser>
   externalIdentity(
@@ -65,7 +64,21 @@ export interface IdentityRecords {
   audits(): Promise<(AuditInput & { id: string; createdAt: Date })[]>
 }
 
+export interface IdentityQueries {
+  githubIntegrationCredentials(): Promise<GitHubIntegrationCredentials>
+  user(id: string): Promise<HubUser | null>
+  externalIdentity(
+    provider: string,
+    issuer: string,
+    subject: string,
+  ): Promise<(HubExternalIdentity & { user: HubUser }) | null>
+  membership(userId: string): Promise<InstallationMembershipRecord | null>
+  session(tokenDigest: string): Promise<SessionContext | null>
+  sessionById(id: string): Promise<SessionContext | null>
+  audits(): Promise<(AuditInput & { id: string; createdAt: Date })[]>
+}
+
 export interface IdentityStore {
-  read: IdentityRecords
+  read: IdentityQueries
   lock<T>(operation: (records: IdentityRecords) => Promise<T>): Promise<T>
 }

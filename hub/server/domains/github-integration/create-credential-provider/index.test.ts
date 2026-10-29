@@ -25,22 +25,20 @@ describe("createGitHubIntegrationCredentialProvider()", () => {
     const input = credentials()
 
     expect(provider.name).toBe("database")
-    expect(provider.read({ generation: 0, encryptedCredentials: null })).toBeNull()
+    expect(provider.read({ encryptedCredentials: null })).toBeNull()
     const encrypted = provider.encrypt!(input)
     expect(provider.encrypt!(input)).not.toBe(encrypted)
-    expect(provider.read({ generation: 0, encryptedCredentials: encrypted })).toEqual(input)
+    expect(provider.read({ encryptedCredentials: encrypted })).toEqual(input)
     expect(encrypted).not.toContain(input.clientSecret)
     expect(Buffer.from(encrypted, "base64").toString()).not.toContain(input.privateKey)
 
     const tampered = Buffer.from(encrypted, "base64")
     tampered[tampered.length - 1] = tampered[tampered.length - 1]! ^ 1
-    expect(() =>
-      provider.read({ generation: 0, encryptedCredentials: tampered.toString("base64") }),
-    ).toThrow()
+    expect(() => provider.read({ encryptedCredentials: tampered.toString("base64") })).toThrow()
     const otherKey = createGitHubIntegrationCredentialProvider({
       HUB_GITHUB_CREDENTIAL_KEY: "cd".repeat(32),
     })
-    expect(() => otherKey.read({ generation: 0, encryptedCredentials: encrypted })).toThrow()
+    expect(() => otherKey.read({ encryptedCredentials: encrypted })).toThrow()
   })
 
   it("requires a valid encryption key outside the database", () => {
@@ -64,9 +62,7 @@ describe("createGitHubIntegrationCredentialProvider()", () => {
 
     expect(provider.name).toBe("environment")
     expect(provider.encrypt).toBeUndefined()
-    expect(
-      provider.read({ generation: 9, encryptedCredentials: "not-database-credentials" }),
-    ).toEqual(input)
+    expect(provider.read({ encryptedCredentials: "not-database-credentials" })).toEqual(input)
   })
 
   it("rejects incomplete environment configuration and unknown providers instead of falling back", () => {
