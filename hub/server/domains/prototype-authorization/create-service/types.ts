@@ -62,4 +62,9 @@ export interface PrototypeBaselinePolicy {
     database: Prisma.TransactionClient | PrismaClient,
     userId: string,
   ): Promise<string[]>
+  prototypeIds?(
+    database: Prisma.TransactionClient | PrismaClient,
+    userId: string,
+    workspaceId: string,
+  ): Promise<string[]>
 }

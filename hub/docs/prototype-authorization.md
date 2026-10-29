@@ -50,7 +50,7 @@ The fixed mapping is:
 | `read` | `viewer` |
 | `none` or missing collaborator | No access |
 
-GitHub never supplies Hub `administrator` authority. Manual workspace and prototype grants and denies live in separate tables and synchronization does not update or delete them.
+GitHub never supplies Hub `administrator` authority. Manual workspace and prototype grants and denies live in separate tables and synchronization does not update or delete them. Converting a synchronized member to manual membership because a Hub administrator grants product administration writes a structured membership-preservation audit in the same transaction.
 
 Workspace administrators cannot remove or replace the final active workspace administrator. A prototype access change must also leave at least one active effective prototype administrator. Hub locks the owning records before checking these invariants, so overlapping changes cannot each remove a different final administrator. Suspended and removed users do not satisfy either invariant.
 

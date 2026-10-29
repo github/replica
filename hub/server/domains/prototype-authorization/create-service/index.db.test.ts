@@ -2054,6 +2054,29 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
         where: { userId: prototypeTarget.user.id },
       }),
     ).toMatchObject({ source: "manual", status: "active" })
+    expect(
+      await prisma.securityAudit.findMany({
+        where: { event: "membership.synchronized.preserve" },
+        orderBy: { createdAt: "asc" },
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        actorUserId: actor.user.id,
+        sessionId: actor.session.id,
+        authenticationProviderRevisionId: actor.session.authenticationProviderRevisionId,
+        targetMembershipId: workspaceTarget.membership.id,
+        targetUserId: workspaceTarget.user.id,
+        context: { reason: "product_administration" },
+      }),
+      expect.objectContaining({
+        actorUserId: actor.user.id,
+        sessionId: actor.session.id,
+        authenticationProviderRevisionId: actor.session.authenticationProviderRevisionId,
+        targetMembershipId: prototypeTarget.membership.id,
+        targetUserId: prototypeTarget.user.id,
+        context: { reason: "product_administration" },
+      }),
+    ])
   })
 
   it("passes the mutation transaction to a synchronized prototype baseline", async () => {
@@ -2151,6 +2174,96 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
     expect(baselineAccess.mock.calls).toEqual([
       [prisma, actor.user.id, accessibleWorkspace.prototypes[0]!.id],
     ])
+  })
+
+  it("uses batched baseline prototype IDs without per-prototype authorization queries", async () => {
+    const baselineAccess = vi.fn<PrototypeBaselinePolicy["baseline"]>().mockResolvedValue({
+      role: "viewer",
+      repositorySourceId: "repository-source",
+      githubRepositoryId: "100",
+      rawPermission: "read",
+      confirmedAt: new Date(),
+      synchronizationStatus: "current",
+    })
+    const baselinePrototypeIds = vi.fn<NonNullable<PrototypeBaselinePolicy["prototypeIds"]>>()
+    const { prisma, service, store } = await database({
+      baseline: baselineAccess,
+      prototypeIds: baselinePrototypeIds,
+    })
+    const actor = await createActor(store, {
+      subject: "prototype-baseline-batch",
+      token: "prototype-baseline-batch-token",
+    })
+    const workspace = await prisma.workspace.create({
+      data: {
+        name: "Workspace",
+        createdByUserId: actor.user.id,
+      },
+    })
+    const directId = "00000000-0000-4000-8000-000000000010"
+    const baselineId = "00000000-0000-4000-8000-000000000020"
+    await prisma.prototype.createMany({
+      data: [
+        {
+          id: directId,
+          name: "Direct",
+          workspaceId: workspace.id,
+          createdByUserId: actor.user.id,
+        },
+        {
+          id: baselineId,
+          name: "Synchronized",
+          workspaceId: workspace.id,
+          createdByUserId: actor.user.id,
+        },
+        ...Array.from({ length: 5 }, (_, index) => ({
+          id: `00000000-0000-4000-8000-00000000010${index}`,
+          name: `Unrelated ${index}`,
+          workspaceId: workspace.id,
+          createdByUserId: actor.user.id,
+        })),
+      ],
+    })
+    await prisma.prototypeAccessGrant.create({
+      data: {
+        prototypeId: directId,
+        userId: actor.user.id,
+        effect: "allow",
+        role: "viewer",
+      },
+    })
+    baselinePrototypeIds.mockResolvedValue([baselineId])
+    const prototypePageQueries = vi.spyOn(prisma.prototype, "findMany")
+    const anyPrototypeQueries = vi.spyOn(prisma.prototype, "findFirst")
+
+    await expect(
+      service.getWorkspace("prototype-baseline-batch-token", workspace.id),
+    ).resolves.toMatchObject({ id: workspace.id })
+    await expect(
+      service.listPrototypes("prototype-baseline-batch-token", workspace.id, {}),
+    ).resolves.toMatchObject({
+      items: [{ id: directId }, { id: baselineId }],
+      nextCursor: null,
+    })
+
+    expect(baselinePrototypeIds).toHaveBeenCalledTimes(3)
+    expect(
+      baselinePrototypeIds.mock.calls.every(
+        ([database, userId, workspaceId]) =>
+          database === prisma && userId === actor.user.id && workspaceId === workspace.id,
+      ),
+    ).toBe(true)
+    expect(baselineAccess).toHaveBeenCalledOnce()
+    expect(baselineAccess).toHaveBeenCalledWith(prisma, actor.user.id, baselineId)
+    const anyQuery = JSON.stringify(anyPrototypeQueries.mock.calls[0]?.[0])
+    expect(anyQuery).toContain(workspace.id)
+    expect(anyQuery).toContain(actor.user.id)
+    expect(anyQuery).toContain(baselineId)
+    expect(prototypePageQueries).toHaveBeenCalledOnce()
+    const pageQuery = JSON.stringify(prototypePageQueries.mock.calls[0]?.[0])
+    expect(pageQuery).toContain(workspace.id)
+    expect(pageQuery).toContain(actor.user.id)
+    expect(pageQuery).toContain(baselineId)
   })
 
   it("gets a workspace through prototype or baseline access while an explicit workspace deny wins", async () => {

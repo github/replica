@@ -39,6 +39,12 @@ export interface GitHubAuthorizationService {
     userId: string,
     now?: Date,
   ): Promise<string[]>
+  prototypeIds(
+    database: Prisma.TransactionClient | PrismaClient,
+    userId: string,
+    workspaceId: string,
+    now?: Date,
+  ): Promise<string[]>
   listRepositories(sessionToken: string): Promise<unknown[]>
   linkRepository(sessionToken: string, input: unknown): Promise<unknown>
   updateRepository(
