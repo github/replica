@@ -167,7 +167,7 @@ describe("createAdministrationService() database behavior", () => {
       invitations: [],
       nextCursor: null,
     })
-    expect(await store.read.activeAdministratorCount()).toBe(1)
+    expect(await store.lock((records) => records.activeAdministratorCount())).toBe(1)
     const audits = await store.read.audits()
     expect(audits.every(({ outcome }) => outcome === "denied")).toBe(true)
     expect(audits.map(({ context }) => context)).toEqual(
@@ -277,7 +277,7 @@ describe("createAdministrationService() database behavior", () => {
 
     expect(results.filter(({ status }) => status === "fulfilled")).toHaveLength(1)
     expect(results.filter(({ status }) => status === "rejected")).toHaveLength(1)
-    expect(await store.read.activeAdministratorCount()).toBe(1)
+    expect(await store.lock((records) => records.activeAdministratorCount())).toBe(1)
 
     const { memberships } = await store.read.memberships()
     const active = memberships.find(({ status }) => status === "active")
