@@ -9,6 +9,10 @@ runs:
       with:
         node-version: 24
 
+    - name: Check checkout credentials
+      run: node "$GITHUB_ACTION_PATH/scripts/validate-checkout/index.ts" --root "$GITHUB_WORKSPACE"
+      shell: bash
+
     - name: Check required npm files and build script
       run: node "$GITHUB_ACTION_PATH/scripts/validate-repository/index.mjs" --root "$GITHUB_WORKSPACE"
       shell: bash
