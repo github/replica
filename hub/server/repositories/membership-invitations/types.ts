@@ -15,3 +15,8 @@ export interface MembershipInvitationRecord extends MembershipInvitationInput {
   revokedAt: Date | null
   createdAt: Date
 }
+
+export interface MembershipInvitationPage {
+  invitations: MembershipInvitationRecord[]
+  nextCursor: string | null
+}

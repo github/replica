@@ -43,3 +43,7 @@
 .membership-administration-page__error {
   color: var(--hub-fg-danger);
 }
+
+.membership-administration-page__danger:not(:disabled) {
+  color: var(--hub-fg-danger);
+}

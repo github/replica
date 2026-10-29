@@ -32,7 +32,10 @@ function runtime(
   } as unknown as Mocked<AuthenticationService>
   const administration = Object.assign(
     {
-      list: vi.fn().mockResolvedValue({ memberships: [], invitations: [] }),
+      list: vi.fn().mockResolvedValue({
+        memberships: { memberships: [], nextCursor: null },
+        invitations: { invitations: [], nextCursor: null },
+      }),
       invite: vi.fn(),
       revokeInvitation: vi.fn(),
       changeMembership: vi.fn(),
@@ -90,9 +93,37 @@ describe("administration routes", () => {
       error: "administrator_required",
       message: "Administrator access is required.",
     })
-    expect(authentication.administration.list.mock.calls).toEqual([[sessionToken]])
+    expect(authentication.administration.list.mock.calls).toEqual([[sessionToken, {}]])
     expect(response.headers.get("cache-control")).toBe("private, no-store")
     expect(response.headers.get("referrer-policy")).toBe("no-referrer")
+  })
+
+  it("passes independent collection cursors and returns the paged administration response", async () => {
+    const page = {
+      memberships: { memberships: [], nextCursor: "next-membership" },
+      invitations: { invitations: [], nextCursor: "next-invitation" },
+    }
+    const authentication = runtime({
+      list: vi.fn().mockResolvedValue(page),
+    })
+    const baseUrl = await serve(authentication)
+
+    const response = await fetch(
+      `${baseUrl}/api/administration?membershipsCursor=membership-cursor&invitationsCursor=invitation-cursor`,
+      {
+        headers: { cookie: `__Host-replica-session=${sessionToken}` },
+      },
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual(page)
+    expect(authentication.administration.list.mock.calls).toContainEqual([
+      sessionToken,
+      {
+        memberships: "membership-cursor",
+        invitations: "invitation-cursor",
+      },
+    ])
   })
 
   it.each([

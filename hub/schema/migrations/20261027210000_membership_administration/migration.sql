@@ -79,6 +79,14 @@ ADD COLUMN "invitation_id" UUID,
 ADD COLUMN "outcome" TEXT NOT NULL DEFAULT 'succeeded',
 ADD COLUMN "context" JSONB NOT NULL DEFAULT '{}';
 
+UPDATE "security_audits"
+SET "outcome" = 'denied'
+WHERE "event" = 'authentication.admission_denied';
+
+UPDATE "security_audits"
+SET "outcome" = 'failed'
+WHERE "event" = 'authentication.provider_failed';
+
 -- AddCheckConstraint
 ALTER TABLE "security_audits" ADD CONSTRAINT "security_audits_outcome" CHECK ("outcome" IN ('succeeded', 'denied', 'failed'));
 

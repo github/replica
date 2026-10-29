@@ -11,6 +11,15 @@ export async function get(
 ): Promise<void> {
   const cookies = authenticationCookies(authentication.settings.secureCookies)
   response.json(
-    await authentication.administration.list(readCookie(request.headers.cookie, cookies.session)),
+    await authentication.administration.list(readCookie(request.headers.cookie, cookies.session), {
+      memberships:
+        typeof request.query.membershipsCursor === "string"
+          ? request.query.membershipsCursor
+          : undefined,
+      invitations:
+        typeof request.query.invitationsCursor === "string"
+          ? request.query.invitationsCursor
+          : undefined,
+    }),
   )
 }

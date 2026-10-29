@@ -2,6 +2,7 @@ import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { createAuthenticationService } from "#server/domains/authentication/create-service"
 import { createIdentityStore } from "#server/domains/identity/create-store"
+import type { GitHubUserAuthClient } from "#server/integrations/github/create-user-auth-client/types"
 import { digestSecret } from "#server/utils/digest-secret"
 
 type IdentityStore = ReturnType<typeof createIdentityStore>
@@ -41,6 +42,8 @@ async function createAdministrator(store: IdentityStore) {
       status: "active",
       role: "administrator",
       source: "manual",
+      suspendedAt: null,
+      removedAt: null,
     })
     return { identity, provider, user }
   })
@@ -65,6 +68,72 @@ async function createSession(
 }
 
 describe("createAuthenticationService() database behavior", () => {
+  it.each(["bootstrap", "recovery"] as const)(
+    "consumes a real %s attempt and completes administrator enrollment",
+    async (purpose) => {
+      const { store } = await database()
+      const provider = await store.lock((records) =>
+        records.createAuthenticationProviderRevision({
+          key: "github",
+          type: "github",
+          enabled: true,
+          revision: 1,
+          issuer: "https://github.com",
+          configuration: { clientId: "github-client" },
+        }),
+      )
+      const github: GitHubUserAuthClient = {
+        authorizationUrl: (state) => `https://github.example/authorize?state=${state}`,
+        identify: vi.fn().mockResolvedValue({
+          subject: `enrolled-${purpose}`,
+          username: `enrolled-${purpose}`,
+          displayName: `Enrolled ${purpose}`,
+          avatarUrl: null,
+        }),
+      }
+      const secret = `${purpose}-secret`
+      const now = new Date()
+      const service = createAuthenticationService({
+        store,
+        github,
+        configuration: {
+          clientId: "github-client",
+          clientSecret: "github-client-secret-fixture",
+          callbackUrl: "https://hub.example/api/auth/github/callback",
+          issuer: "https://github.com",
+        },
+        providerRevisionId: provider.id,
+        admissionPolicy: { name: "hub-managed", admit: () => Promise.resolve(false) },
+        bootstrapSecret: purpose === "bootstrap" ? secret : null,
+        recoverySecret: purpose === "recovery" ? secret : null,
+        now: () => now,
+      })
+
+      const started = await service.start(purpose, undefined, secret)
+      const state = new URL(started.authorizationUrl).searchParams.get("state")
+      expect(state).toBeTruthy()
+
+      const completed = await service.complete("one-use-code", state!, started.browserToken)
+
+      expect(completed.purpose).toBe(purpose)
+      expect(typeof completed.sessionToken).toBe("string")
+      const identity = await store.read.externalIdentity(
+        "github",
+        "https://github.com",
+        `enrolled-${purpose}`,
+      )
+      expect(identity).not.toBeNull()
+      expect(await store.read.membership(identity!.userId)).toMatchObject({
+        status: "active",
+        role: "administrator",
+        source: purpose,
+      })
+      expect(await store.read.session(digestSecret(completed.sessionToken!))).toMatchObject({
+        userId: identity!.userId,
+      })
+    },
+  )
+
   it("rolls back generation, session deletion, and audit together when revocation fails", async () => {
     const { store } = await database()
     const graph = await createAdministrator(store)

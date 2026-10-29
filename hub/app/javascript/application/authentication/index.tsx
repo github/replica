@@ -21,14 +21,39 @@ interface SessionResponse {
 }
 
 interface AdministrationResponse {
-  memberships: MembershipRecord[]
-  invitations: InvitationRecord[]
+  memberships: {
+    memberships: MembershipRecord[]
+    nextCursor: string | null
+  }
+  invitations: {
+    invitations: InvitationRecord[]
+    nextCursor: string | null
+  }
+}
+
+interface AdministrationErrorResponse {
+  error?: string
+  message?: string
 }
 
 async function fetchSession(): Promise<SessionResponse> {
   const response = await fetch("/api/session", { credentials: "same-origin" })
   if (!response.ok) throw new Error("Session request failed")
   return (await response.json()) as SessionResponse
+}
+
+async function fetchAdministration(cursors?: {
+  memberships?: string | null
+  invitations?: string | null
+}): Promise<AdministrationResponse> {
+  const query = new URLSearchParams()
+  if (cursors?.memberships) query.set("membershipsCursor", cursors.memberships)
+  if (cursors?.invitations) query.set("invitationsCursor", cursors.invitations)
+  const response = await fetch(`/api/administration${query.size ? `?${query}` : ""}`, {
+    credentials: "same-origin",
+  })
+  if (!response.ok) throw new Error("Administration request failed")
+  return (await response.json()) as AdministrationResponse
 }
 
 export function AuthenticationApplication() {
@@ -51,9 +76,7 @@ export function AuthenticationApplication() {
       .then(async (value) => {
         setSession(value)
         if (value.membership?.role === "administrator") {
-          const response = await fetch("/api/administration", { credentials: "same-origin" })
-          if (!response.ok) throw new Error("Administration request failed")
-          setAdministration((await response.json()) as AdministrationResponse)
+          setAdministration(await fetchAdministration())
         }
       })
       .catch(() => setError("Hub could not load your sign-in status."))
@@ -142,15 +165,30 @@ export function AuthenticationApplication() {
         body: body === undefined ? undefined : JSON.stringify(body),
       })
       if (!response.ok) {
-        const data = (await response.json()) as { error?: string }
-        throw new Error(data.error ?? "Administration request failed")
+        const data = (await response.json()) as AdministrationErrorResponse
+        if (data.error === "fresh_authorization_required") {
+          const verification = await fetch("/api/session/verify", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "X-CSRF-Token": session.csrfToken },
+          })
+          if (!verification.ok) {
+            throw new Error("Hub could not start identity verification.")
+          }
+          const verificationData = (await verification.json()) as { authorizationUrl: string }
+          window.location.assign(verificationData.authorizationUrl)
+          return
+        }
+        if (response.status === 401 || data.error === "administrator_required") {
+          setAdministration(null)
+          setSession(await fetchSession())
+        }
+        throw new Error(data.message ?? "Administration request failed")
       }
       const current = await fetchSession()
       setSession(current)
       if (current.membership?.role === "administrator") {
-        const refreshed = await fetch("/api/administration", { credentials: "same-origin" })
-        if (!refreshed.ok) throw new Error("Administration request failed")
-        setAdministration((await refreshed.json()) as AdministrationResponse)
+        setAdministration(await fetchAdministration())
       } else {
         setAdministration(null)
       }
@@ -163,11 +201,50 @@ export function AuthenticationApplication() {
     }
   }
 
+  async function loadMoreAdministration(collection: "memberships" | "invitations") {
+    if (!administration) return
+    const cursor =
+      collection === "memberships"
+        ? administration.memberships.nextCursor
+        : administration.invitations.nextCursor
+    if (!cursor) return
+    setLoading(true)
+    setError(null)
+    try {
+      const page = await fetchAdministration({ [collection]: cursor })
+      setAdministration((current) => {
+        if (!current) return current
+        if (collection === "memberships") {
+          return {
+            ...current,
+            memberships: {
+              memberships: [...current.memberships.memberships, ...page.memberships.memberships],
+              nextCursor: page.memberships.nextCursor,
+            },
+          }
+        }
+        return {
+          ...current,
+          invitations: {
+            invitations: [...current.invitations.invitations, ...page.invitations.invitations],
+            nextCursor: page.invitations.nextCursor,
+          },
+        }
+      })
+    } catch {
+      setError("Hub could not load more administration records.")
+    } finally {
+      setLoading(false)
+    }
+  }
+
   if (session?.authenticated && session.membership?.role === "administrator" && administration) {
     return (
       <MembershipAdministrationPage
-        memberships={administration.memberships}
-        invitations={administration.invitations}
+        memberships={administration.memberships.memberships}
+        invitations={administration.invitations.invitations}
+        hasMoreMemberships={administration.memberships.nextCursor !== null}
+        hasMoreInvitations={administration.invitations.nextCursor !== null}
         loading={loading}
         error={error}
         onInvite={(input) =>
@@ -183,6 +260,8 @@ export function AuthenticationApplication() {
         onRevokeInvitation={(invitationId) =>
           void updateAdministration(`/api/administration/invitations/${invitationId}`, "DELETE")
         }
+        onLoadMoreMemberships={() => void loadMoreAdministration("memberships")}
+        onLoadMoreInvitations={() => void loadMoreAdministration("invitations")}
         onSignOut={() => void signOut()}
       />
     )

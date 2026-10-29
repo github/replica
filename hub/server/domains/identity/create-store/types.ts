@@ -8,10 +8,12 @@ import type { GitHubIntegrationCredentials } from "#server/repositories/github-i
 import type {
   InstallationMembershipDetails,
   InstallationMembershipInput,
+  InstallationMembershipPage,
   InstallationMembershipRecord,
 } from "#server/repositories/installation-memberships/types"
 import type {
   MembershipInvitationInput,
+  MembershipInvitationPage,
   MembershipInvitationRecord,
 } from "#server/repositories/membership-invitations/types"
 import type { AuditInput, SecurityAuditRecord } from "#server/repositories/security-audits/types"
@@ -59,12 +61,12 @@ export interface IdentityRecords {
   ): Promise<HubExternalIdentity & { user: HubUser }>
   membership(userId: string): Promise<InstallationMembershipRecord | null>
   membershipById(id: string): Promise<InstallationMembershipDetails | null>
-  memberships(): Promise<InstallationMembershipDetails[]>
+  memberships(cursor?: string | null): Promise<InstallationMembershipPage>
   activeAdministratorCount(): Promise<number>
   saveMembership(input: InstallationMembershipInput): Promise<InstallationMembershipRecord>
   createInvitation(input: MembershipInvitationInput): Promise<MembershipInvitationRecord>
   invitation(id: string): Promise<MembershipInvitationRecord | null>
-  invitations(): Promise<MembershipInvitationRecord[]>
+  invitations(cursor?: string | null): Promise<MembershipInvitationPage>
   usableInvitation(
     provider: string,
     issuer: string,
@@ -117,8 +119,8 @@ export interface IdentityQueries {
     subject: string,
   ): Promise<(HubExternalIdentity & { user: HubUser }) | null>
   membership(userId: string): Promise<InstallationMembershipRecord | null>
-  memberships(): Promise<InstallationMembershipDetails[]>
-  invitations(): Promise<MembershipInvitationRecord[]>
+  memberships(cursor?: string | null): Promise<InstallationMembershipPage>
+  invitations(cursor?: string | null): Promise<MembershipInvitationPage>
   session(tokenDigest: string): Promise<SessionContext | null>
   sessionById(id: string): Promise<SessionContext | null>
   audits(): Promise<SecurityAuditRecord[]>

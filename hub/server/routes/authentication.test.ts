@@ -37,7 +37,10 @@ function authentication(
     overrides,
   )
   const administration = {
-    list: vi.fn().mockResolvedValue({ memberships: [], invitations: [] }),
+    list: vi.fn().mockResolvedValue({
+      memberships: { memberships: [], nextCursor: null },
+      invitations: { invitations: [], nextCursor: null },
+    }),
     invite: vi.fn(),
     revokeInvitation: vi.fn(),
     changeMembership: vi.fn(),

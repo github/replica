@@ -45,21 +45,16 @@ export async function completeGitHubAuthorization(
       "The authorization request is invalid.",
     )
   }
+  const authorizationAttempt = attempt
   const purpose: AuthorizationPurpose = attempt.purpose
-  let profile: GitHubUserProfile
   let policyAdmitted = false
-  try {
-    profile = await github.identify(code, attempt.pkceVerifier)
-    if (attempt.purpose === "sign-in") {
-      policyAdmitted = await admissionPolicy.admit(profile)
-    }
-  } catch (error) {
+  async function reportProviderFailure(error: unknown): Promise<never> {
     await store.lock((records) =>
       records.audit({
         event: "authentication.provider_failed",
         outcome: "failed",
         actorUserId: null,
-        sessionId: attempt.originatingSessionId,
+        sessionId: authorizationAttempt.originatingSessionId,
         authenticationProviderRevisionId: providerRevisionId,
       }),
     )
@@ -69,6 +64,31 @@ export async function completeGitHubAuthorization(
       "authentication_provider_failed",
       "The authentication provider failed.",
     )
+  }
+  const profile: GitHubUserProfile = await github
+    .identify(code, authorizationAttempt.pkceVerifier)
+    .catch(reportProviderFailure)
+  if (authorizationAttempt.purpose === "sign-in") {
+    const policyNeeded = await store.lock(async (records) => {
+      const identity = await records.externalIdentity(
+        "github",
+        configuration.issuer,
+        profile.subject,
+      )
+      const membership = identity ? await records.membership(identity.userId) : null
+      const invitation =
+        !membership || membership.status === "removed"
+          ? await records.usableInvitation("github", configuration.issuer, profile.subject, now())
+          : null
+      return !membership && !invitation
+    })
+    if (policyNeeded) {
+      try {
+        policyAdmitted = await admissionPolicy.admit(profile)
+      } catch (error) {
+        await reportProviderFailure(error)
+      }
+    }
   }
   const result = await store.lock(async (records) => {
     const [currentProvider, stateRecord] = await Promise.all([
@@ -110,10 +130,7 @@ export async function completeGitHubAuthorization(
     let identity = await records.externalIdentity("github", configuration.issuer, profile.subject)
     let membership = identity ? await records.membership(identity.userId) : null
     const invitation =
-      purpose === "sign-in" &&
-      membership?.status !== "active" &&
-      membership?.status !== "suspended" &&
-      !policyAdmitted
+      purpose === "sign-in" && membership?.status !== "active" && membership?.status !== "suspended"
         ? await records.usableInvitation("github", configuration.issuer, profile.subject, now())
         : null
     if (

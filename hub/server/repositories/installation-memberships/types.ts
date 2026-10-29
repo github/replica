@@ -20,5 +20,10 @@ export interface InstallationMembershipRecord {
 export interface InstallationMembershipDetails extends InstallationMembershipRecord {
   user: HubUser & { externalIdentities: HubExternalIdentity[] }
 }
+
+export interface InstallationMembershipPage {
+  memberships: InstallationMembershipDetails[]
+  nextCursor: string | null
+}
 import type { HubExternalIdentity } from "#server/repositories/external-identities/types"
 import type { HubUser } from "#server/repositories/users/types"

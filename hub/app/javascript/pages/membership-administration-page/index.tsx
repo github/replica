@@ -8,17 +8,21 @@ import "./styles.css"
 export function MembershipAdministrationPage({
   memberships,
   invitations,
+  hasMoreMemberships,
+  hasMoreInvitations,
   loading,
   error,
   onInvite,
   onChange,
   onRevokeInvitation,
+  onLoadMoreMemberships,
+  onLoadMoreInvitations,
   onSignOut,
 }: MembershipAdministrationPageProps) {
   const [provider, setProvider] = useState("github")
   const [issuer, setIssuer] = useState("https://github.com")
   const [subject, setSubject] = useState("")
-  const [role, setRole] = useState<"member" | "administrator">("administrator")
+  const [role, setRole] = useState<"member" | "administrator">("member")
 
   return (
     <main className="membership-administration-page">
@@ -153,7 +157,8 @@ export function MembershipAdministrationPage({
                       </Button>
                       <Button
                         type="button"
-                        variant="danger"
+                        variant="secondary"
+                        className="membership-administration-page__danger"
                         disabled={loading}
                         onClick={() => {
                           if (window.confirm("Remove this membership and revoke its sessions?")) {
@@ -170,6 +175,16 @@ export function MembershipAdministrationPage({
             )
           })}
         </ul>
+        {hasMoreMemberships ? (
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={loading}
+            onClick={onLoadMoreMemberships}
+          >
+            Load more memberships
+          </Button>
+        ) : null}
       </section>
 
       <section>
@@ -198,6 +213,16 @@ export function MembershipAdministrationPage({
             </li>
           ))}
         </ul>
+        {hasMoreInvitations ? (
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={loading}
+            onClick={onLoadMoreInvitations}
+          >
+            Load more invitations
+          </Button>
+        ) : null}
       </section>
     </main>
   )

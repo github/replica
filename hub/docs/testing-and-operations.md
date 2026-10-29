@@ -59,7 +59,7 @@ Database-enabled jsdom tests use the browser setup and database hooks together. 
 
 The database setup follows this lifecycle:
 
-1. Before workers start, setup creates a template database with a unique name for each project and run. It applies the current Prisma schema with `prisma db push` and BullMQ's migrations, closes those setup connections, then copies the template for every worker slot.
+1. Before workers start, setup creates a template database with a unique name for each project and run. It applies committed Prisma migrations with `prisma migrate deploy` and BullMQ's migrations, closes those setup connections, then copies the template for every worker slot.
 2. Each worker receives its own `DATABASE_URL` before application modules load. Setup uses Vitest's [`VITEST_POOL_ID`](https://vitest.dev/guide/migration/jest#envs), which stays within the configured worker limit.
 3. Before every case, setup empties application and job tables across user schemas. It preserves `public._prisma_migrations` and `bullmq.migration`. Each case creates its own records; there is no shared seed data.
 4. After the run, teardown drops only the databases it created, even if tests left connections open.

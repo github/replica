@@ -31,6 +31,8 @@ export interface InvitationRecord {
 export interface MembershipAdministrationPageProps {
   memberships: MembershipRecord[]
   invitations: InvitationRecord[]
+  hasMoreMemberships: boolean
+  hasMoreInvitations: boolean
   loading: boolean
   error: string | null
   onInvite: (input: {
@@ -44,5 +46,7 @@ export interface MembershipAdministrationPageProps {
     input: { role?: "member" | "administrator"; status?: "active" | "suspended" | "removed" },
   ) => void
   onRevokeInvitation: (invitationId: string) => void
+  onLoadMoreMemberships: () => void
+  onLoadMoreInvitations: () => void
   onSignOut: () => void
 }

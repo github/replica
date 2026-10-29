@@ -59,9 +59,13 @@ const meta = {
         revokedAt: null,
       },
     ],
+    hasMoreMemberships: false,
+    hasMoreInvitations: false,
     onInvite: () => undefined,
     onChange: () => undefined,
     onRevokeInvitation: () => undefined,
+    onLoadMoreMemberships: () => undefined,
+    onLoadMoreInvitations: () => undefined,
     onSignOut: () => undefined,
   },
 } satisfies Meta<typeof MembershipAdministrationPage>
@@ -70,3 +74,9 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Default: Story = {}
+export const MoreRecordsAvailable: Story = {
+  args: {
+    hasMoreMemberships: true,
+    hasMoreInvitations: true,
+  },
+}

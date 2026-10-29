@@ -49,11 +49,13 @@ The minimal administration surface uses:
 - `POST /api/auth/bootstrap`
 - `POST /api/auth/recovery`
 
+The administration response returns membership and invitation pages with separate `nextCursor` values. Pass `membershipsCursor` or `invitationsCursor` to continue the corresponding collection without hiding older active records behind retained history.
+
 State-changing requests require the configured origin and matching CSRF cookie/header. Membership and invitation changes also require an active administrator session verified less than five minutes ago. Administration errors return stable codes such as `administrator_required`, `last_administrator`, and `invitation_changed`.
 
 ## Security records
 
-Membership operations write a structured security record with a bounded action, outcome, actor, session, target membership or invitation, and fixed reason context. Success records commit with their state changes. Records never include host secrets, provider tokens, request payloads, mutable identity labels, or exception text.
+Membership operations write a structured security record with a bounded action, outcome, actor, session, target membership or invitation, and fixed reason context. Success records commit with their state changes. Denied administrator mutations roll back partial changes before Hub saves the denial reason in a separate transaction. Records never include host secrets, provider tokens, request payloads, mutable identity labels, or exception text.
 
 ## Non-goals
 

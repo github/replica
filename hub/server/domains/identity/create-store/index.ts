@@ -13,8 +13,8 @@ export function createIdentityStore(client: PrismaClient): IdentityStore {
     externalIdentity: (provider, issuer, subject) =>
       records.externalIdentity(provider, issuer, subject),
     membership: (userId) => records.membership(userId),
-    memberships: () => records.memberships(),
-    invitations: () => records.invitations(),
+    memberships: (cursor) => records.memberships(cursor),
+    invitations: (cursor) => records.invitations(cursor),
     session: (tokenDigest) => records.session(tokenDigest),
     sessionById: (id) => records.sessionById(id),
     audits: () => records.audits(),
