@@ -49,6 +49,8 @@ class GithubAppSetupController < SuperglueController
       confirmed: params[:confirmed]
     session[:github_app_manual_completed_at] = Time.current.to_i
     redirect_to install_setup_path, status: :see_other
+  rescue GithubAppSetup::ImportError => error
+    manual_error(t("github_app_setup.manual.errors.#{error.reason}", default: t("github_app_setup.manual.failed")))
   rescue GithubAppSetup::Error, GithubClient::Error,
     GithubAppConfiguration::Installation::OwnerMismatch
     manual_error(t("github_app_setup.manual.failed"))

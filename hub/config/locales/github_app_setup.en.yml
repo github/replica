@@ -26,6 +26,13 @@ en:
       key_hint: In the App's settings, open Credentials (or General in older layouts), then Private keys and Generate a private key. Upload the downloaded PEM file (at most 16 KiB). Credentials are never shown again; re-enter them after an error.
       invalid_key: Upload a PEM private key of at most 16 KiB.
       failed: Hub could not connect the App. Check the credentials, App and installation IDs, active installation status, and GitHub connectivity. No configuration was saved. Re-enter the credentials and try again.
+      errors:
+        invalid_credentials: Check that the App ID, Client ID, client secret, webhook secret, and installation ID are valid and within the stated limits.
+        invalid_private_key: Upload a PEM private key generated for this GitHub App.
+        app_mismatch: The App ID and Client ID must belong to the same GitHub App. Copy both from that App's settings.
+        github_authentication_failed: GitHub rejected the App authentication. Check the App ID, Client ID, and private key from the same App.
+        github_failed: Hub could not verify the App and installation with GitHub. Check the installation ID, active installation status, selected repositories, and GitHub connectivity.
+        save_failed: Hub verified the App and installation but could not save the connection. Check Hub's database and try again.
       settings:
         name: GitHub App name (choose a unique name)
         homepage: Homepage URL

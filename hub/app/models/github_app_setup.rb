@@ -3,6 +3,15 @@ class GithubAppSetup
   MAXIMUM_AGE = 15.minutes
 
   class Error < StandardError; end
+  class ImportError < Error
+    attr_reader :reason
+
+    def initialize(reason)
+      @reason = reason
+      super(reason.to_s)
+    end
+  end
+
   class InvalidState < Error; end
   class ExchangeFailed < Error; end
 
@@ -87,17 +96,22 @@ class GithubAppSetup
         secret.is_a?(String) && secret.present? && secret.bytesize <= limits::CLIENT_SECRET_LIMIT
       end
     valid &&= private_key.is_a?(String) && private_key.present? && private_key.bytesize <= limits::PRIVATE_KEY_LIMIT
-    raise Error, "Invalid GitHub App credentials" if !valid
+    raise ImportError, :invalid_credentials if !valid
 
     key = OpenSSL::PKey::RSA.new(private_key)
-    raise Error, "The GitHub App private key must contain a private RSA key" if !key.private?
+    raise ImportError, :invalid_private_key if !key.private?
 
     candidate = GithubAppConfiguration.new \
       github_app_id: app_id.to_i, client_id:, client_secret:, private_key:, webhook_secret:,
       installation_policy: "pinned", installation_id: installation_id.to_i
-    app = candidate.github_client.apps.get(token: candidate.tokens.app)
+    app = begin
+      candidate.github_client.apps.get(token: candidate.tokens.app)
+    rescue GithubClient::Error => error
+      reason = error.is_a?(GithubClient::Forbidden) ? :github_authentication_failed : :github_failed
+      raise ImportError, reason
+    end
     owner = candidate.ownership.attributes_for(app)
-    raise Error, "The GitHub App ID or client ID does not match the supplied credentials" if app["client_id"] != client_id
+    raise ImportError, :app_mismatch if app["client_id"] != client_id
 
     candidate.assign_attributes(owner)
     payload = candidate.github_client.installations.get(candidate.installation_id, token: candidate.tokens.app)
@@ -123,18 +137,14 @@ class GithubAppSetup
     session.delete(:github_app_setup_organization)
     session.delete(:github_app_install_authorized)
     configuration
-  rescue OpenSSL::PKey::RSAError, ArgumentError, TypeError
-    raise Error, "Invalid GitHub App credentials"
-  rescue GithubClient::Error => error
-    message = if error.status.is_a?(Integer)
-      "GitHub rejected the App connection (HTTP #{error.status}); check the credentials and installation"
-    else
-      "GitHub could not verify the App credentials and active installation"
-    end
-
-    raise Error, message
+  rescue OpenSSL::PKey::RSAError
+    raise ImportError, :invalid_private_key
+  rescue ArgumentError, TypeError
+    raise ImportError, :invalid_credentials
+  rescue GithubClient::Error, GithubAppConfiguration::Installation::OwnerMismatch
+    raise ImportError, :github_failed
   rescue ActiveRecord::RecordInvalid, ActiveRecord::RecordNotUnique
-    raise Error, "The GitHub App connection could not be saved; check setup and try again"
+    raise ImportError, :save_failed
   end
 
   # Reports whether the browser may finish installing the new App.

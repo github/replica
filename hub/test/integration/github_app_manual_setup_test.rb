@@ -91,6 +91,7 @@ class GithubAppManualSetupTest < ActionDispatch::IntegrationTest
 
       assert_response :unprocessable_entity
       assert_includes response.body, "github_app_setup/manual"
+      assert_includes response.body, I18n.t("github_app_setup.manual.errors.github_authentication_failed")
       assert_not GithubAppConfiguration.configured?
       assert_no_secrets(response.body)
       assert_no_secrets(flash.to_hash.to_s)
@@ -121,6 +122,39 @@ class GithubAppManualSetupTest < ActionDispatch::IntegrationTest
 
       assert_response :redirect
       assert GithubAppConfiguration.configured?
+    end
+  end
+
+  test "invalid private key returns a specific safe error" do
+    with_bootstrap_secret do
+      post setup_path, params: { bootstrap_secret: github_app_configurations.bootstrap_secret }
+      upload = Rack::Test::UploadedFile.new \
+        StringIO.new("invalid-private-key-material"),
+        "application/x-pem-file",
+        original_filename: "github-app.pem"
+
+      post manual_setup_path, params: manual_parameters.merge(private_key: upload)
+
+      assert_response :unprocessable_entity
+      assert_includes response.body, I18n.t("github_app_setup.manual.errors.invalid_private_key")
+      assert_not GithubAppConfiguration.configured?
+      assert_no_secrets(response.body)
+    end
+  end
+
+  test "App and client ID mismatch returns a specific safe error" do
+    with_bootstrap_secret do
+      post setup_path, params: { bootstrap_secret: github_app_configurations.bootstrap_secret }
+      app = github_app_configurations.manifest_credentials.merge("id" => 907, "client_id" => "Iv1.other")
+      stub_request(:get, "#{GITHUB_API_URL}/app")
+        .to_return(status: 200, body: JSON.generate(app), headers: { "Content-Type" => "application/json" })
+
+      post manual_setup_path, params: manual_parameters
+
+      assert_response :unprocessable_entity
+      assert_includes response.body, I18n.t("github_app_setup.manual.errors.app_mismatch")
+      assert_not GithubAppConfiguration.configured?
+      assert_no_secrets(response.body)
     end
   end
 
