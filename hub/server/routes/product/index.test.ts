@@ -77,6 +77,130 @@ async function serve(authentication: AuthenticationRoutes, logger = createLogger
 
 describe("product routes", () => {
   it.each([
+    {
+      method: "GET",
+      path: "/api/workspaces?cursor=workspace-cursor&limit=11",
+      call: "listWorkspaces",
+      expectedArguments: [sessionToken, { cursor: "workspace-cursor", limit: "11" }],
+    },
+    {
+      method: "POST",
+      path: "/api/workspaces",
+      call: "createWorkspace",
+      body: { name: "Mapped workspace" },
+      expectedArguments: [sessionToken, { name: "Mapped workspace" }],
+    },
+    {
+      method: "GET",
+      path: "/api/workspaces/workspace-123",
+      call: "getWorkspace",
+      expectedArguments: [sessionToken, "workspace-123"],
+    },
+    {
+      method: "PUT",
+      path: "/api/workspaces/workspace-123/access/user-789",
+      call: "setWorkspaceAccess",
+      body: { effect: "allow", role: "commenter" },
+      expectedArguments: [
+        sessionToken,
+        "workspace-123",
+        "user-789",
+        { effect: "allow", role: "commenter" },
+      ],
+    },
+    {
+      method: "DELETE",
+      path: "/api/workspaces/workspace-123/access/user-789",
+      call: "removeWorkspaceAccess",
+      expectedArguments: [sessionToken, "workspace-123", "user-789"],
+    },
+    {
+      method: "GET",
+      path: "/api/workspaces/workspace-123/prototypes?cursor=prototype-cursor&limit=22",
+      call: "listPrototypes",
+      expectedArguments: [
+        sessionToken,
+        "workspace-123",
+        { cursor: "prototype-cursor", limit: "22" },
+      ],
+    },
+    {
+      method: "POST",
+      path: "/api/workspaces/workspace-123/prototypes",
+      call: "createPrototype",
+      body: { name: "Mapped prototype" },
+      expectedArguments: [sessionToken, "workspace-123", { name: "Mapped prototype" }],
+    },
+    {
+      method: "GET",
+      path: "/api/prototypes/prototype-456",
+      call: "getPrototype",
+      expectedArguments: [sessionToken, "prototype-456"],
+    },
+    {
+      method: "POST",
+      path: "/api/prototypes/prototype-456/archive",
+      call: "archivePrototype",
+      expectedArguments: [sessionToken, "prototype-456"],
+    },
+    {
+      method: "GET",
+      path: "/api/prototypes/prototype-456/access/explanation",
+      call: "explainPrototypeAccess",
+      expectedArguments: [sessionToken, "prototype-456"],
+    },
+    {
+      method: "PUT",
+      path: "/api/prototypes/prototype-456/access/user-789",
+      call: "setPrototypeAccess",
+      body: { effect: "deny" },
+      expectedArguments: [sessionToken, "prototype-456", "user-789", { effect: "deny" }],
+    },
+    {
+      method: "DELETE",
+      path: "/api/prototypes/prototype-456/access/user-789",
+      call: "removePrototypeAccess",
+      expectedArguments: [sessionToken, "prototype-456", "user-789"],
+    },
+    {
+      method: "GET",
+      path: "/api/prototypes/prototype-456/versions?cursor=version-cursor&limit=33",
+      call: "listVersions",
+      expectedArguments: [sessionToken, "prototype-456", { cursor: "version-cursor", limit: "33" }],
+    },
+    {
+      method: "POST",
+      path: "/api/prototypes/prototype-456/versions",
+      call: "createVersion",
+      body: { label: "Mapped version" },
+      expectedArguments: [sessionToken, "prototype-456", { label: "Mapped version" }],
+    },
+    {
+      method: "GET",
+      path: "/api/prototypes/prototype-456/versions/version-012",
+      call: "getVersion",
+      expectedArguments: [sessionToken, "prototype-456", "version-012"],
+    },
+  ] as const)(
+    "maps $method $path to $call with the exact request values",
+    async ({ method, path, call, body, expectedArguments }) => {
+      const authentication = runtime({
+        [call]: vi.fn().mockResolvedValue({}),
+      })
+      const baseUrl = await serve(authentication)
+      const mutation = method !== "GET"
+
+      await fetch(`${baseUrl}${path}`, {
+        method,
+        headers: mutation ? protectedHeaders : { cookie: `__Host-replica-session=${sessionToken}` },
+        ...(body ? { body: JSON.stringify(body) } : {}),
+      })
+
+      expect(authentication.prototypeAuthorization[call].mock.calls).toEqual([expectedArguments])
+    },
+  )
+
+  it.each([
     { method: "GET", path: "/api/workspaces", call: "listWorkspaces" },
     { method: "POST", path: "/api/workspaces", call: "createWorkspace", body: { name: "W" } },
     { method: "GET", path: "/api/workspaces/workspace", call: "getWorkspace" },
