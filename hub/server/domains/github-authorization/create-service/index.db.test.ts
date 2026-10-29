@@ -5,8 +5,14 @@ import { describe, expect, it, onTestFinished, vi } from "vitest"
 import { createAdministrationService } from "#server/domains/administration/create-service"
 import { createAuthenticationService } from "#server/domains/authentication/create-service"
 import { createGitHubAuthorizationService } from "#server/domains/github-authorization/create-service"
+import type {
+  GitHubAdmissionBaseline,
+  GitHubAuthorizationService,
+} from "#server/domains/github-authorization/create-service/types"
 import { createIdentityStore } from "#server/domains/identity/create-store"
 import { digestSecret } from "#server/utils/digest-secret"
+
+import type { PrismaClient } from "../../../generated/prisma/client.ts"
 
 type IdentityStore = ReturnType<typeof createIdentityStore>
 
@@ -126,6 +132,31 @@ function requestUrl(input: string | URL | Request): string {
   return typeof input === "string" ? input : input instanceof URL ? input.href : input.url
 }
 
+async function saveAdmissionFixture(
+  prisma: PrismaClient,
+  service: GitHubAuthorizationService,
+  userId: string,
+  subject: string,
+  baseline: Omit<GitHubAdmissionBaseline, "subject" | "admissionGeneration" | "persist">,
+) {
+  const attempt = await prisma.gitHubAdmissionAttempt.upsert({
+    where: {
+      repositorySourceId_subject: {
+        repositorySourceId: baseline.repositorySourceId,
+        subject,
+      },
+    },
+    create: { repositorySourceId: baseline.repositorySourceId, subject, generation: 1 },
+    update: { generation: { increment: 1 } },
+  })
+  await service.saveAdmissionBaseline(prisma, userId, {
+    ...baseline,
+    subject,
+    admissionGeneration: attempt.generation,
+    persist: true,
+  })
+}
+
 describe("createGitHubAuthorizationService() database behavior", () => {
   it("uses only a fresh baseline for the linked repository and keeps repositories isolated", async () => {
     const { prisma, service, store } = await database()
@@ -193,7 +224,7 @@ describe("createGitHubAuthorizationService() database behavior", () => {
       }),
     ])
     const confirmedAt = new Date("2026-10-27T20:00:00.000Z")
-    await service.saveAdmissionBaseline(prisma, actor.user.id, {
+    await saveAdmissionFixture(prisma, service, actor.user.id, actor.identity.subject, {
       repositorySourceId: source.id,
       sourceGeneration: source.synchronizationGeneration,
       rawPermission: "write",
@@ -267,7 +298,7 @@ describe("createGitHubAuthorizationService() database behavior", () => {
         },
       },
     })
-    await service.saveAdmissionBaseline(prisma, actor.user.id, {
+    await saveAdmissionFixture(prisma, service, actor.user.id, actor.identity.subject, {
       repositorySourceId: source.id,
       sourceGeneration: source.synchronizationGeneration,
       rawPermission: "read",
@@ -355,6 +386,7 @@ describe("createGitHubAuthorizationService() database behavior", () => {
         name: "new-name",
         owner: { login: "new-owner" },
         default_branch: "trunk",
+        visibility: "private",
       },
       { user: { id: 42 }, permission: "none" },
     ]
@@ -425,7 +457,7 @@ describe("createGitHubAuthorizationService() database behavior", () => {
         },
       },
     })
-    await service.saveAdmissionBaseline(prisma, actor.user.id, {
+    await saveAdmissionFixture(prisma, service, actor.user.id, actor.identity.subject, {
       repositorySourceId: source.id,
       sourceGeneration: source.synchronizationGeneration,
       rawPermission: "read",
@@ -477,6 +509,7 @@ describe("createGitHubAuthorizationService() database behavior", () => {
           name: "resurrected-name",
           owner: { login: "resurrected-owner" },
           default_branch: "trunk",
+          visibility: "private",
         }),
         { status: 200 },
       ),
@@ -560,6 +593,7 @@ describe("createGitHubAuthorizationService() database behavior", () => {
           name: "repository",
           owner: { login: "owner" },
           default_branch: "main",
+          visibility: "private",
         }),
         { status: 200 },
       ),
@@ -606,7 +640,7 @@ describe("createGitHubAuthorizationService() database behavior", () => {
         },
       }),
     ])
-    await service.saveAdmissionBaseline(prisma, actor.user.id, {
+    await saveAdmissionFixture(prisma, service, actor.user.id, actor.identity.subject, {
       repositorySourceId: sourceA.id,
       sourceGeneration: sourceA.synchronizationGeneration,
       rawPermission: "write",
@@ -632,6 +666,7 @@ describe("createGitHubAuthorizationService() database behavior", () => {
                 name: "repository-a",
                 owner: { login: "owner" },
                 default_branch: "main",
+                visibility: "private",
               }),
               { status: 200 },
             ),
@@ -709,7 +744,7 @@ describe("createGitHubAuthorizationService() database behavior", () => {
     })
   })
 
-  it("uses a fresh cached grant only when that same repository's live check fails", async () => {
+  it("uses a fresh cached grant after metadata succeeds without persisting the fallback", async () => {
     const { prisma, service, store } = await database()
     const actor = await createUser(store, { subject: "42" })
     const source = await prisma.gitHubRepositorySource.create({
@@ -724,7 +759,7 @@ describe("createGitHubAuthorizationService() database behavior", () => {
       },
     })
     const confirmedAt = new Date()
-    await service.saveAdmissionBaseline(prisma, actor.user.id, {
+    await saveAdmissionFixture(prisma, service, actor.user.id, actor.identity.subject, {
       repositorySourceId: source.id,
       sourceGeneration: source.synchronizationGeneration,
       rawPermission: "read",
@@ -734,30 +769,66 @@ describe("createGitHubAuthorizationService() database behavior", () => {
     })
     vi.stubGlobal(
       "fetch",
-      vi.fn((input: string | URL | Request) =>
-        Promise.resolve(
-          requestUrl(input).endsWith("/access_tokens")
-            ? new Response(JSON.stringify({ token: "installation-token" }), { status: 200 })
-            : new Response(null, { status: 503 }),
-        ),
-      ),
+      vi.fn((input: string | URL | Request) => {
+        const url = requestUrl(input)
+        if (url.endsWith("/access_tokens")) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ token: "installation-token" }), { status: 200 }),
+          )
+        }
+        if (url.endsWith("/repositories/100")) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                id: 100,
+                full_name: "owner/repository",
+                name: "repository",
+                owner: { login: "owner" },
+                default_branch: "main",
+                visibility: "private",
+              }),
+              { status: 200 },
+            ),
+          )
+        }
+        return Promise.resolve(new Response(null, { status: 503 }))
+      }),
     )
 
-    await expect(
-      service.evaluateAdmission({
-        subject: actor.identity.subject,
-        username: actor.identity.username!,
-        displayName: actor.user.displayName,
-        avatarUrl: null,
-      }),
-    ).resolves.toEqual({
+    const admission = await service.evaluateAdmission({
+      subject: actor.identity.subject,
+      username: actor.identity.username!,
+      displayName: actor.user.displayName,
+      avatarUrl: null,
+    })
+    expect(admission).toEqual({
       repositorySourceId: source.id,
       sourceGeneration: source.synchronizationGeneration,
+      subject: actor.identity.subject,
+      admissionGeneration: 0,
+      persist: false,
       rawPermission: "read",
       admissionEligible: true,
       prototypeRole: "viewer",
       confirmedAt,
     })
+    await service.saveAdmissionBaseline(prisma, actor.user.id, admission!)
+    expect(
+      await prisma.gitHubSynchronizedAccess.findUniqueOrThrow({
+        where: {
+          repositorySourceId_userId: {
+            repositorySourceId: source.id,
+            userId: actor.user.id,
+          },
+        },
+      }),
+    ).toMatchObject({
+      rawPermission: "read",
+      lastConfirmedAt: confirmedAt,
+    })
+    expect(
+      await prisma.gitHubRepositorySource.findUniqueOrThrow({ where: { id: source.id } }),
+    ).toMatchObject({ synchronizationGeneration: source.synchronizationGeneration })
   })
 
   it.each([
@@ -782,7 +853,7 @@ describe("createGitHubAuthorizationService() database behavior", () => {
           admissionEnabled: true,
         },
       })
-      await service.saveAdmissionBaseline(prisma, actor.user.id, {
+      await saveAdmissionFixture(prisma, service, actor.user.id, actor.identity.subject, {
         repositorySourceId: source.id,
         sourceGeneration: source.synchronizationGeneration,
         rawPermission: "read",
@@ -864,7 +935,7 @@ describe("createGitHubAuthorizationService() database behavior", () => {
       },
     })
     const confirmedAt = new Date("2026-10-28T18:00:00.000Z")
-    await service.saveAdmissionBaseline(prisma, actor.user.id, {
+    await saveAdmissionFixture(prisma, service, actor.user.id, actor.identity.subject, {
       repositorySourceId: source.id,
       sourceGeneration: source.synchronizationGeneration,
       rawPermission: "write",
@@ -881,6 +952,9 @@ describe("createGitHubAuthorizationService() database behavior", () => {
       service.saveAdmissionBaseline(prisma, actor.user.id, {
         repositorySourceId: source.id,
         sourceGeneration: source.synchronizationGeneration,
+        subject: actor.identity.subject,
+        admissionGeneration: 1,
+        persist: true,
         rawPermission: "read",
         prototypeRole: "viewer",
         admissionEligible: true,
@@ -894,6 +968,9 @@ describe("createGitHubAuthorizationService() database behavior", () => {
       service.saveAdmissionBaseline(prisma, actor.user.id, {
         repositorySourceId: source.id,
         sourceGeneration: currentSource.synchronizationGeneration,
+        subject: actor.identity.subject,
+        admissionGeneration: 1,
+        persist: true,
         rawPermission: "read",
         prototypeRole: "viewer",
         admissionEligible: true,
@@ -964,6 +1041,7 @@ describe("createGitHubAuthorizationService() database behavior", () => {
                 name: "renamed-repository",
                 owner: { login: "renamed-owner" },
                 default_branch: "trunk",
+                visibility: "private",
               }),
               { status: 200 },
             ),
@@ -996,7 +1074,10 @@ describe("createGitHubAuthorizationService() database behavior", () => {
         }),
       ).resolves.toMatchObject({
         repositorySourceId: source.id,
-        sourceGeneration: source.synchronizationGeneration + 1,
+        sourceGeneration: source.synchronizationGeneration,
+        subject: "42",
+        admissionGeneration: 1,
+        persist: true,
         rawPermission,
         prototypeRole,
         admissionEligible: true,
@@ -1005,6 +1086,95 @@ describe("createGitHubAuthorizationService() database behavior", () => {
         "https://api.github.com/app/installations/7/access_tokens",
         "https://api.github.com/repositories/100",
         "https://api.github.com/repos/renamed-owner/renamed-repository/collaborators/octocat/permission",
+      ])
+    },
+  )
+
+  it.each([
+    { visibility: "public", collaboratorStatus: 204, admitted: true },
+    { visibility: "public", collaboratorStatus: 404, admitted: false },
+    { visibility: "internal", collaboratorStatus: 204, admitted: true },
+    { visibility: "internal", collaboratorStatus: 404, admitted: false },
+  ] as const)(
+    "$visibility repository admission is $admitted when collaborator membership returns $collaboratorStatus",
+    async ({ visibility, collaboratorStatus, admitted }) => {
+      const { prisma, service, store } = await database()
+      await store.lock(() => Promise.resolve())
+      const source = await prisma.gitHubRepositorySource.create({
+        data: {
+          githubRepositoryId: "100",
+          appId: "12345",
+          installationId: "7",
+          owner: "owner",
+          name: "repository",
+          defaultBranch: "main",
+          visibility,
+          admissionEnabled: true,
+        },
+      })
+      const request = vi.fn((input: string | URL | Request): Promise<Response> => {
+        const url = requestUrl(input)
+        if (url.endsWith("/access_tokens")) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ token: "installation-token" }), { status: 200 }),
+          )
+        }
+        if (url.endsWith("/repositories/100")) {
+          return Promise.resolve(
+            new Response(
+              JSON.stringify({
+                id: 100,
+                full_name: "owner/repository",
+                name: "repository",
+                owner: { login: "owner" },
+                default_branch: "main",
+                visibility,
+              }),
+              { status: 200 },
+            ),
+          )
+        }
+        if (url.endsWith("/repos/owner/repository/collaborators/octocat")) {
+          return Promise.resolve(new Response(null, { status: collaboratorStatus }))
+        }
+        if (url.endsWith("/repos/owner/repository/collaborators/octocat/permission")) {
+          return Promise.resolve(
+            new Response(JSON.stringify({ user: { id: 42 }, permission: "read" }), {
+              status: 200,
+            }),
+          )
+        }
+        throw new Error(`Unexpected request: ${url}`)
+      })
+      vi.stubGlobal("fetch", request)
+
+      const admission = await service.evaluateAdmission({
+        subject: "42",
+        username: "octocat",
+        displayName: "Octocat",
+        avatarUrl: null,
+      })
+
+      if (admitted) {
+        expect(admission).toMatchObject({
+          repositorySourceId: source.id,
+          subject: "42",
+          admissionGeneration: 1,
+          persist: true,
+          rawPermission: "read",
+          prototypeRole: "viewer",
+          admissionEligible: true,
+        })
+      } else {
+        expect(admission).toBeNull()
+      }
+      expect(request.mock.calls.map(([input]) => requestUrl(input))).toEqual([
+        "https://api.github.com/app/installations/7/access_tokens",
+        "https://api.github.com/repositories/100",
+        "https://api.github.com/repos/owner/repository/collaborators/octocat",
+        ...(admitted
+          ? ["https://api.github.com/repos/owner/repository/collaborators/octocat/permission"]
+          : []),
       ])
     },
   )
@@ -1032,7 +1202,7 @@ describe("createGitHubAuthorizationService() database behavior", () => {
         admissionEnabled: true,
       },
     })
-    await service.saveAdmissionBaseline(prisma, actor.user.id, {
+    await saveAdmissionFixture(prisma, service, actor.user.id, actor.identity.subject, {
       repositorySourceId: source.id,
       sourceGeneration: source.synchronizationGeneration,
       rawPermission: "write",
@@ -1093,6 +1263,7 @@ describe("createGitHubAuthorizationService() database behavior", () => {
               name: "repository",
               owner: { login: "owner" },
               default_branch: "main",
+              visibility: "private",
             }),
             { status: 200 },
           ),
@@ -1245,6 +1416,7 @@ describe("createGitHubAuthorizationService() database behavior", () => {
               name: "new-name",
               owner: { login: "new-owner" },
               default_branch: "trunk",
+              visibility: "private",
             }),
             { status: 200 },
           ),
@@ -1323,14 +1495,20 @@ describe("createGitHubAuthorizationService() database behavior", () => {
         admissionEnabled: true,
       },
     })
-    await service.saveAdmissionBaseline(prisma, synchronized.user.id, {
-      repositorySourceId: source.id,
-      sourceGeneration: source.synchronizationGeneration,
-      rawPermission: "read",
-      prototypeRole: "viewer",
-      admissionEligible: true,
-      confirmedAt: new Date(),
-    })
+    await saveAdmissionFixture(
+      prisma,
+      service,
+      synchronized.user.id,
+      synchronized.identity.subject,
+      {
+        repositorySourceId: source.id,
+        sourceGeneration: source.synchronizationGeneration,
+        rawPermission: "read",
+        prototypeRole: "viewer",
+        admissionEligible: true,
+        confirmedAt: new Date(),
+      },
+    )
 
     await expect(
       service.processWebhook(
@@ -1343,6 +1521,7 @@ describe("createGitHubAuthorizationService() database behavior", () => {
               name: "repository",
               owner: { login: "owner" },
               default_branch: "main",
+              visibility: "private",
             },
           },
           "repository",
@@ -1406,6 +1585,7 @@ describe("createGitHubAuthorizationService() database behavior", () => {
                 name: "repository",
                 owner: { login: "owner" },
                 default_branch: "main",
+                visibility: "private",
               }),
               { status: 200 },
             ),
@@ -1531,6 +1711,7 @@ describe("createGitHubAuthorizationService() database behavior", () => {
                 name: "repository",
                 owner: { login: "owner" },
                 default_branch: "main",
+                visibility: "private",
               }),
               { status: 200 },
             ),
@@ -1629,7 +1810,7 @@ describe("createGitHubAuthorizationService() database behavior", () => {
         admissionEnabled: true,
       },
     })
-    await service.saveAdmissionBaseline(prisma, target.user.id, {
+    await saveAdmissionFixture(prisma, service, target.user.id, target.identity.subject, {
       repositorySourceId: source.id,
       sourceGeneration: source.synchronizationGeneration,
       rawPermission: "read",
@@ -1657,6 +1838,7 @@ describe("createGitHubAuthorizationService() database behavior", () => {
                 name: "repository",
                 owner: { login: "owner" },
                 default_branch: "main",
+                visibility: "private",
               }),
               { status: 200 },
             ),
@@ -1714,7 +1896,7 @@ describe("createGitHubAuthorizationService() database behavior", () => {
         admissionEnabled: true,
       },
     })
-    await service.saveAdmissionBaseline(prisma, lost.user.id, {
+    await saveAdmissionFixture(prisma, service, lost.user.id, lost.identity.subject, {
       repositorySourceId: source.id,
       sourceGeneration: source.synchronizationGeneration,
       rawPermission: "read",
@@ -1724,6 +1906,7 @@ describe("createGitHubAuthorizationService() database behavior", () => {
     })
     const targetPermission = deferred<Response>()
     const targetPermissionRequested = deferred<void>()
+    let targetPermissionRequests = 0
     vi.stubGlobal(
       "fetch",
       vi.fn((input: string | URL | Request) => {
@@ -1742,14 +1925,23 @@ describe("createGitHubAuthorizationService() database behavior", () => {
                 name: "repository",
                 owner: { login: "owner" },
                 default_branch: "main",
+                visibility: "private",
               }),
               { status: 200 },
             ),
           )
         }
         if (url.includes("user-42")) {
-          targetPermissionRequested.resolve()
-          return targetPermission.promise
+          targetPermissionRequests += 1
+          if (targetPermissionRequests === 1) {
+            targetPermissionRequested.resolve()
+            return targetPermission.promise
+          }
+          return Promise.resolve(
+            new Response(JSON.stringify({ user: { id: 42 }, permission: "write" }), {
+              status: 200,
+            }),
+          )
         }
         return Promise.resolve(
           new Response(JSON.stringify({ user: { id: 43 }, permission: "none" }), { status: 200 }),
@@ -1759,9 +1951,6 @@ describe("createGitHubAuthorizationService() database behavior", () => {
 
     const reconciliation = service.reconcileDue()
     await targetPermissionRequested.promise
-    const currentSource = await prisma.gitHubRepositorySource.findUniqueOrThrow({
-      where: { id: source.id },
-    })
     const now = new Date()
     const provider = await store.read.currentAuthenticationProviderRevision("github")
     await store.lock((records) =>
@@ -1776,14 +1965,6 @@ describe("createGitHubAuthorizationService() database behavior", () => {
         expiresAt: new Date(now.getTime() + 60_000),
       }),
     )
-    const freshBaseline = {
-      repositorySourceId: source.id,
-      sourceGeneration: currentSource.synchronizationGeneration,
-      rawPermission: "write" as const,
-      prototypeRole: "editor" as const,
-      admissionEligible: true,
-      confirmedAt: new Date(now.getTime() + 60_000),
-    }
     const authentication = createAuthenticationService({
       store,
       github: {
@@ -1804,11 +1985,10 @@ describe("createGitHubAuthorizationService() database behavior", () => {
       providerRevisionId: provider!.id,
       admissionPolicy: {
         name: "github-synchronized",
-        admit: vi.fn().mockResolvedValue(freshBaseline),
+        admit: (profile) => service.evaluateAdmission(profile),
         saveBaseline: (database, userId, baseline) =>
           service.saveAdmissionBaseline(database, userId, baseline),
       },
-      now: () => now,
     })
 
     await expect(authentication.complete("code", "state", "browser-token")).resolves.toMatchObject({
@@ -1819,6 +1999,12 @@ describe("createGitHubAuthorizationService() database behavior", () => {
     )
     await reconciliation
 
+    expect(
+      await prisma.gitHubRepositorySource.findUniqueOrThrow({ where: { id: source.id } }),
+    ).toMatchObject({
+      synchronizationGeneration: source.synchronizationGeneration + 1,
+      synchronizationStatus: "current",
+    })
     expect(
       await prisma.installationMembership.findUnique({ where: { id: target.membership.id } }),
     ).toMatchObject({ source: "synchronized", status: "active" })
@@ -1834,7 +2020,7 @@ describe("createGitHubAuthorizationService() database behavior", () => {
     ).toMatchObject({
       rawPermission: "write",
       admissionEligible: true,
-      lastConfirmedAt: freshBaseline.confirmedAt,
+      status: "active",
     })
     expect(await prisma.session.count({ where: { userId: target.user.id } })).toBe(1)
     expect(
@@ -1903,7 +2089,7 @@ describe("createGitHubAuthorizationService() database behavior", () => {
         synchronizationStatus: "current",
       },
     })
-    await service.saveAdmissionBaseline(prisma, actor.user.id, {
+    await saveAdmissionFixture(prisma, service, actor.user.id, actor.identity.subject, {
       repositorySourceId: source.id,
       sourceGeneration: source.synchronizationGeneration,
       rawPermission: "read",
@@ -1979,6 +2165,76 @@ describe("createGitHubAuthorizationService() database behavior", () => {
     expect(await prisma.session.count({ where: { userId: actor.user.id } })).toBe(0)
   })
 
+  it("unlinks a suspended source and clears its admission policy and baselines", async () => {
+    const { prisma, service, store } = await database()
+    const administrator = await createUser(store, {
+      subject: "41",
+      role: "administrator",
+      token: "administrator-token",
+    })
+    const actor = await createUser(store, {
+      subject: "42",
+      membershipSource: "synchronized",
+    })
+    const source = await prisma.gitHubRepositorySource.create({
+      data: {
+        githubRepositoryId: "100",
+        appId: "12345",
+        installationId: "7",
+        owner: "owner",
+        name: "repository",
+        defaultBranch: "main",
+        admissionEnabled: true,
+        synchronizationStatus: "current",
+      },
+    })
+    await saveAdmissionFixture(prisma, service, actor.user.id, actor.identity.subject, {
+      repositorySourceId: source.id,
+      sourceGeneration: source.synchronizationGeneration,
+      rawPermission: "read",
+      prototypeRole: "viewer",
+      admissionEligible: true,
+      confirmedAt: new Date(),
+    })
+    await service.processWebhook(
+      webhook(
+        { action: "suspend", installation: { id: 7 } },
+        "installation",
+        "installation-suspend-before-unlink",
+      ),
+    )
+
+    await expect(
+      service.unlinkRepository("administrator-token", source.id),
+    ).resolves.toBeUndefined()
+
+    expect(
+      await prisma.gitHubRepositorySource.findUniqueOrThrow({ where: { id: source.id } }),
+    ).toMatchObject({
+      status: "removed",
+      admissionEnabled: false,
+      synchronizationStatus: "removed",
+    })
+    expect(
+      await prisma.gitHubSynchronizedAccess.findUniqueOrThrow({
+        where: {
+          repositorySourceId_userId: {
+            repositorySourceId: source.id,
+            userId: actor.user.id,
+          },
+        },
+      }),
+    ).toMatchObject({
+      status: "removed",
+      synchronizationStatus: "removed",
+    })
+    expect(
+      await prisma.securityAudit.findFirst({
+        where: { event: "github.repository.unlink", githubRepositorySourceId: source.id },
+      }),
+    ).toMatchObject({ actorUserId: administrator.user.id })
+  })
+
   it("keeps the synchronized authorization migration constraints and compatibility backfill", () => {
     const migration = readFileSync(
       new URL(
@@ -2015,7 +2271,7 @@ describe("createGitHubAuthorizationService() database behavior", () => {
         admissionEnabled: true,
       },
     })
-    await service.saveAdmissionBaseline(prisma, actor.user.id, {
+    await saveAdmissionFixture(prisma, service, actor.user.id, actor.identity.subject, {
       repositorySourceId: source.id,
       sourceGeneration: source.synchronizationGeneration,
       rawPermission: "read",

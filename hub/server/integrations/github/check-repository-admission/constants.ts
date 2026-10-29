@@ -29,4 +29,5 @@ export const repositorySchema = z.object({
   name: z.string().min(1),
   owner: z.object({ login: z.string().min(1) }),
   default_branch: z.string().min(1),
+  visibility: z.enum(["internal", "private", "public"]),
 })

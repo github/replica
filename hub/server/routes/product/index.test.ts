@@ -38,6 +38,7 @@ function runtime(
       createPrototype: vi.fn(),
       getPrototype: vi.fn(),
       archivePrototype: vi.fn(),
+      setPrototypeAuthorization: vi.fn(),
       explainPrototypeAccess: vi.fn(),
       setPrototypeAccess: vi.fn(),
       removePrototypeAccess: vi.fn(),
@@ -233,6 +234,15 @@ describe("product routes", () => {
       call: "archivePrototype",
     },
     {
+      method: "PUT",
+      path: "/api/prototypes/prototype/authorization",
+      call: "setPrototypeAuthorization",
+      body: {
+        mode: "github-synchronized",
+        repositorySourceId: "00000000-0000-0000-0000-000000000001",
+      },
+    },
+    {
       method: "GET",
       path: "/api/prototypes/prototype/access/explanation",
       call: "explainPrototypeAccess",
@@ -293,6 +303,34 @@ describe("product routes", () => {
       expect(response.headers.get("referrer-policy")).toBe("no-referrer")
     },
   )
+
+  it("forwards prototype authorization changes through the protected HTTP route", async () => {
+    const saved = {
+      id: "prototype",
+      authorizationMode: "github-synchronized",
+      sourceRepositoryId: "00000000-0000-0000-0000-000000000001",
+    }
+    const authentication = runtime({
+      setPrototypeAuthorization: vi.fn().mockResolvedValue(saved),
+    })
+    const baseUrl = await serve(authentication)
+    const body = {
+      mode: "github-synchronized",
+      repositorySourceId: saved.sourceRepositoryId,
+    }
+
+    const response = await fetch(`${baseUrl}/api/prototypes/prototype/authorization`, {
+      method: "PUT",
+      headers: protectedHeaders,
+      body: JSON.stringify(body),
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ prototype: saved })
+    expect(
+      authentication.prototypeAuthorization.setPrototypeAuthorization.mock.calls,
+    ).toContainEqual([sessionToken, "prototype", body])
+  })
 
   it.each([
     {

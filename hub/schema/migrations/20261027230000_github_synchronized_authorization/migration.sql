@@ -41,6 +41,7 @@ CREATE TABLE "github_repository_sources" (
     "owner" TEXT NOT NULL,
     "name" TEXT NOT NULL,
     "default_branch" TEXT NOT NULL,
+    "visibility" TEXT NOT NULL DEFAULT 'unknown',
     "status" TEXT NOT NULL DEFAULT 'active',
     "admission_enabled" BOOLEAN NOT NULL DEFAULT false,
     "synchronization_generation" INTEGER NOT NULL DEFAULT 0,
@@ -62,7 +63,23 @@ CREATE TABLE "github_repository_sources" (
     ),
     CONSTRAINT "github_repository_sources_synchronization_status" CHECK (
       "synchronization_status" IN ('dirty', 'current', 'failed', 'removed')
+    ),
+    CONSTRAINT "github_repository_sources_visibility" CHECK (
+      "visibility" IN ('internal', 'private', 'public', 'unknown')
     )
+);
+
+-- CreateTable
+CREATE TABLE "github_admission_attempts" (
+    "id" UUID NOT NULL,
+    "repository_source_id" UUID NOT NULL,
+    "subject" TEXT NOT NULL,
+    "generation" INTEGER NOT NULL DEFAULT 0,
+    "created_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "github_admission_attempts_pkey" PRIMARY KEY ("id"),
+    CONSTRAINT "github_admission_attempts_generation" CHECK ("generation" >= 0)
 );
 
 -- CreateTable
@@ -118,6 +135,7 @@ ADD COLUMN "github_repository_source_id" UUID;
 
 -- CreateIndex
 CREATE UNIQUE INDEX "github_repository_sources_github_repository_id_key" ON "github_repository_sources"("github_repository_id");
+CREATE UNIQUE INDEX "github_admission_attempts_repository_source_id_subject_key" ON "github_admission_attempts"("repository_source_id", "subject");
 CREATE INDEX "github_repository_sources_installation_id_status_idx" ON "github_repository_sources"("installation_id", "status");
 CREATE UNIQUE INDEX "github_synchronized_access_repository_source_id_user_id_key" ON "github_synchronized_access"("repository_source_id", "user_id");
 CREATE INDEX "github_synchronized_access_user_id_status_idx" ON "github_synchronized_access"("user_id", "status");
@@ -128,6 +146,7 @@ CREATE INDEX "security_audits_github_repository_source_id_idx" ON "security_audi
 
 -- AddForeignKey
 ALTER TABLE "github_synchronized_access" ADD CONSTRAINT "github_synchronized_access_repository_source_id_fkey" FOREIGN KEY ("repository_source_id") REFERENCES "github_repository_sources"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "github_admission_attempts" ADD CONSTRAINT "github_admission_attempts_repository_source_id_fkey" FOREIGN KEY ("repository_source_id") REFERENCES "github_repository_sources"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "github_synchronized_access" ADD CONSTRAINT "github_synchronized_access_user_id_fkey" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE "github_webhook_deliveries" ADD CONSTRAINT "github_webhook_deliveries_repository_source_id_fkey" FOREIGN KEY ("repository_source_id") REFERENCES "github_repository_sources"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 ALTER TABLE "prototypes" ADD CONSTRAINT "prototypes_source_repository_id_fkey" FOREIGN KEY ("source_repository_id") REFERENCES "github_repository_sources"("id") ON DELETE SET NULL ON UPDATE CASCADE;
