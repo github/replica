@@ -5,6 +5,7 @@ import type {
   AdministrationService,
 } from "#server/domains/administration/create-service/types"
 import { getCurrentSession } from "#server/domains/authentication/get-current-session"
+import type { IdentityRecords } from "#server/domains/identity/create-store/types"
 import { AuthenticationError } from "#server/utils/authentication-error"
 
 const invitationSchema = z.object({
@@ -77,17 +78,38 @@ function requireAdministrator(
   }
 }
 
+async function getLockedAdministrator(
+  dependencies: AdministrationDependencies,
+  sessionToken: string,
+  records: IdentityRecords,
+) {
+  const current = await getCurrentSession(
+    {
+      store: dependencies.store,
+      github: null,
+      configuration: null,
+      providerRevisionId: null,
+      admissionPolicy: { name: "hub-managed", admit: () => Promise.resolve(false) },
+      now: dependencies.now,
+    },
+    sessionToken,
+    records,
+  )
+  requireAdministrator(dependencies, current)
+  return current
+}
+
 async function runAuditedMutation<T>(
   dependencies: AdministrationDependencies,
   sessionToken: string,
   audit: DenialAudit,
-  operation: (current: CurrentSession) => Promise<T>,
+  operation: () => Promise<T>,
 ): Promise<T> {
   let current: CurrentSession | null = null
   try {
     current = await getAdministrationSession(dependencies, sessionToken)
     requireAdministrator(dependencies, current)
-    return await operation(current)
+    return await operation()
   } catch (error) {
     if (current && error instanceof AuthenticationError) {
       const deniedBy = current
@@ -138,26 +160,15 @@ export function createAdministrationService(
         dependencies,
         sessionToken,
         { event: "membership.invitation.create" },
-        async (current) => {
+        async () => {
           const parsed = invitationSchema.safeParse(input)
           if (!parsed.success) {
             throw new AuthenticationError(422, "invalid_invitation", "The invitation is invalid.")
           }
           return dependencies.store.lock(async (records) => {
-            const actor = await records.sessionById(current.id)
-            const actorMembership = actor ? await records.membership(actor.userId) : null
-            if (
-              !actor ||
-              actorMembership?.status !== "active" ||
-              actorMembership.role !== "administrator"
-            ) {
-              throw new AuthenticationError(
-                403,
-                "administrator_required",
-                "Administrator access is required.",
-              )
-            }
-            await records.revokeExpiredInvitations(dependencies.now())
+            const actor = await getLockedAdministrator(dependencies, sessionToken, records)
+            const now = dependencies.now()
+            await records.revokeExpiredInvitations(now)
             const identity = await records.externalIdentity(
               parsed.data.provider,
               parsed.data.issuer,
@@ -175,7 +186,7 @@ export function createAdministrationService(
               parsed.data.provider,
               parsed.data.issuer,
               parsed.data.subject,
-              dependencies.now(),
+              now,
             )
             if (existing) {
               throw new AuthenticationError(
@@ -187,7 +198,7 @@ export function createAdministrationService(
             const invitation = await records.createInvitation({
               ...parsed.data,
               createdByUserId: actor.userId,
-              expiresAt: new Date(dependencies.now().getTime() + 7 * 24 * 60 * 60_000),
+              expiresAt: new Date(now.getTime() + 7 * 24 * 60 * 60_000),
             })
             await records.audit({
               event: "membership.invitation.create",
@@ -209,7 +220,7 @@ export function createAdministrationService(
         dependencies,
         sessionToken,
         { event: "membership.invitation.revoke" },
-        async (current) => {
+        async () => {
           if (!parsedId.success) {
             throw new AuthenticationError(
               409,
@@ -218,19 +229,7 @@ export function createAdministrationService(
             )
           }
           await dependencies.store.lock(async (records) => {
-            const actor = await records.sessionById(current.id)
-            const actorMembership = actor ? await records.membership(actor.userId) : null
-            if (
-              !actor ||
-              actorMembership?.status !== "active" ||
-              actorMembership.role !== "administrator"
-            ) {
-              throw new AuthenticationError(
-                403,
-                "administrator_required",
-                "Administrator access is required.",
-              )
-            }
+            const actor = await getLockedAdministrator(dependencies, sessionToken, records)
             if (!(await records.revokeInvitation(parsedId.data, dependencies.now()))) {
               throw new AuthenticationError(
                 409,
@@ -257,7 +256,7 @@ export function createAdministrationService(
         dependencies,
         sessionToken,
         { event: "membership.change" },
-        async (current) => {
+        async () => {
           const parsed = membershipChangeSchema.safeParse(input)
           if (!parsed.success) {
             throw new AuthenticationError(
@@ -274,19 +273,7 @@ export function createAdministrationService(
             )
           }
           return dependencies.store.lock(async (records) => {
-            const actor = await records.sessionById(current.id)
-            const actorMembership = actor ? await records.membership(actor.userId) : null
-            if (
-              !actor ||
-              actorMembership?.status !== "active" ||
-              actorMembership.role !== "administrator"
-            ) {
-              throw new AuthenticationError(
-                403,
-                "administrator_required",
-                "Administrator access is required.",
-              )
-            }
+            const actor = await getLockedAdministrator(dependencies, sessionToken, records)
             const target = await records.membershipById(parsedId.data)
             if (!target) {
               throw new AuthenticationError(
@@ -322,6 +309,7 @@ export function createAdministrationService(
                 "The final active administrator cannot be changed.",
               )
             }
+            const now = dependencies.now()
             const changed = await records.saveMembership({
               userId: target.userId,
               role: nextRole,
@@ -331,9 +319,9 @@ export function createAdministrationService(
                 nextStatus === "suspended"
                   ? target.status === "suspended"
                     ? target.suspendedAt
-                    : dependencies.now()
+                    : now
                   : null,
-              removedAt: nextStatus === "removed" ? dependencies.now() : null,
+              removedAt: nextStatus === "removed" ? now : null,
             })
             if (nextStatus !== "active") {
               await records.deleteUserSessions(target.userId)

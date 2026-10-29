@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 
 import { Button, FormControl, Heading, Select, Stack, Text, TextInput } from "@primer/react-brand"
 
@@ -23,6 +23,16 @@ export function MembershipAdministrationPage({
   const [issuer, setIssuer] = useState("https://github.com")
   const [subject, setSubject] = useState("")
   const [role, setRole] = useState<"member" | "administrator">("member")
+  const [currentTime, setCurrentTime] = useState<number | null>(null)
+
+  useEffect(() => {
+    function updateCurrentTime() {
+      setCurrentTime(Date.now())
+    }
+    updateCurrentTime()
+    const timer = window.setInterval(updateCurrentTime, 60_000)
+    return () => window.clearInterval(timer)
+  }, [])
 
   return (
     <main className="membership-administration-page">
@@ -192,26 +202,40 @@ export function MembershipAdministrationPage({
           Invitations
         </Heading>
         <ul className="membership-administration-page__list">
-          {invitations.map((invitation) => (
-            <li key={invitation.id}>
-              <strong>{invitation.subject}</strong>
-              <Text as="p" size="100">
-                {invitation.provider} · {invitation.issuer} · {invitation.role}
-              </Text>
-              {!invitation.consumedAt && !invitation.revokedAt ? (
-                <Button
-                  type="button"
-                  variant="secondary"
-                  disabled={loading}
-                  onClick={() => onRevokeInvitation(invitation.id)}
-                >
-                  Revoke invitation
-                </Button>
-              ) : (
-                <Text as="p">{invitation.consumedAt ? "Activated" : "Revoked"}</Text>
-              )}
-            </li>
-          ))}
+          {invitations.map((invitation) => {
+            const expiresAt = Date.parse(invitation.expiresAt)
+            const revokedAt = invitation.revokedAt ? Date.parse(invitation.revokedAt) : null
+            const expired = currentTime !== null && expiresAt <= currentTime
+            const manuallyRevoked = revokedAt !== null && revokedAt < expiresAt
+            const usable = !invitation.consumedAt && !invitation.revokedAt && !expired
+            const state = invitation.consumedAt
+              ? "Activated"
+              : manuallyRevoked
+                ? "Revoked"
+                : expired || invitation.revokedAt
+                  ? "Expired"
+                  : null
+            return (
+              <li key={invitation.id}>
+                <strong>{invitation.subject}</strong>
+                <Text as="p" size="100">
+                  {invitation.provider} · {invitation.issuer} · {invitation.role}
+                </Text>
+                {usable ? (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={loading}
+                    onClick={() => onRevokeInvitation(invitation.id)}
+                  >
+                    Revoke invitation
+                  </Button>
+                ) : (
+                  <Text as="p">{state}</Text>
+                )}
+              </li>
+            )
+          })}
         </ul>
         {hasMoreInvitations ? (
           <Button

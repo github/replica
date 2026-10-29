@@ -218,6 +218,57 @@ describe("AuthenticationApplication()", () => {
     ).not.toBeInTheDocument()
   })
 
+  it.each([
+    {
+      name: "an expired session",
+      status: 401,
+      error: "sign_in_required",
+      message: "Sign in to continue.",
+    },
+    {
+      name: "lost administrator access",
+      status: 403,
+      error: "administrator_required",
+      message: "Administrator access is required.",
+    },
+  ])("removes stale controls when loading more detects $name", async (failure) => {
+    const firstPage = {
+      memberships: {
+        memberships: [],
+        nextCursor: "membership-cursor",
+      },
+      invitations: {
+        invitations: [],
+        nextCursor: null,
+      },
+    }
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json(administratorSession))
+      .mockResolvedValueOnce(Response.json(firstPage))
+      .mockResolvedValueOnce(
+        Response.json(
+          { error: failure.error, message: failure.message },
+          { status: failure.status },
+        ),
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          authenticated: false,
+          configured: true,
+          csrfToken: "replacement-csrf-token",
+        }),
+      )
+    renderApplication(fetch)
+
+    fireEvent.click(await screen.findByRole("button", { name: "Load more memberships" }))
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(failure.message)
+    expect(screen.queryByRole("heading", { name: "Hub membership" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Load more memberships" })).not.toBeInTheDocument()
+    expect(fetch).toHaveBeenCalledWith("/api/session", { credentials: "same-origin" })
+  })
+
   it("starts same-identity verification when an administration mutation needs fresh authorization", async () => {
     const fetch = vi
       .fn()

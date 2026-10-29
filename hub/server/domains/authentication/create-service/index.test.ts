@@ -561,6 +561,67 @@ describe("createAuthenticationService()", () => {
     expect(identityRecords.consumeInvitation).toHaveBeenCalledOnce()
   })
 
+  it("audits a membership granted by legacy repository admission", async () => {
+    const identityRecords = records({
+      consumeAuthorizationAttempt: vi.fn().mockResolvedValue(attempt()),
+      createUser: vi.fn().mockResolvedValue({
+        id: "user",
+        displayName: "Octocat",
+        avatarUrl: null,
+      }),
+      saveExternalIdentity: vi.fn().mockResolvedValue({
+        id: "identity",
+        userId: "user",
+        provider: "github",
+        issuer: configuration.issuer,
+        subject: "42",
+        username: "octocat",
+        displayName: "Octocat",
+        avatarUrl: null,
+      }),
+      createSession: vi.fn().mockResolvedValue({
+        id: "session",
+        userId: "user",
+        externalIdentityId: "identity",
+        authenticationProviderRevisionId: providerRevision.id,
+        tokenDigest: "stored-digest",
+        signedInAt: now,
+        freshAuthorizedAt: now,
+      }),
+    })
+    const admissionPolicy = {
+      name: "legacy-repository" as const,
+      admit: vi.fn().mockResolvedValue(true),
+    }
+    const options = dependencies(identityRecords, { admissionPolicy })
+    options.github.identify.mockResolvedValue({
+      subject: "42",
+      username: "octocat",
+      displayName: "Octocat",
+      avatarUrl: null,
+    })
+
+    await createAuthenticationService(options).complete("code", "state", "browser-token")
+
+    expect(identityRecords.saveMembership).toHaveBeenCalledWith({
+      userId: "user",
+      status: "active",
+      role: "member",
+      source: "synchronized",
+      suspendedAt: null,
+      removedAt: null,
+    })
+    expect(identityRecords.audit).toHaveBeenCalledWith({
+      event: "membership.synchronize",
+      outcome: "succeeded",
+      actorUserId: "user",
+      sessionId: null,
+      authenticationProviderRevisionId: providerRevision.id,
+      targetMembershipId: "membership",
+      context: { source: "legacy_repository" },
+    })
+  })
+
   it("binds bootstrap enrollment to the configured one-use secret", async () => {
     const identityRecords = records()
     const service = createAuthenticationService({

@@ -36,6 +36,16 @@ interface AdministrationErrorResponse {
   message?: string
 }
 
+class AdministrationRequestError extends Error {
+  constructor(
+    readonly status: number,
+    readonly code: string | undefined,
+    message: string,
+  ) {
+    super(message)
+  }
+}
+
 async function fetchSession(): Promise<SessionResponse> {
   const response = await fetch("/api/session", { credentials: "same-origin" })
   if (!response.ok) throw new Error("Session request failed")
@@ -52,7 +62,14 @@ async function fetchAdministration(cursors?: {
   const response = await fetch(`/api/administration${query.size ? `?${query}` : ""}`, {
     credentials: "same-origin",
   })
-  if (!response.ok) throw new Error("Administration request failed")
+  if (!response.ok) {
+    const data = (await response.json()) as AdministrationErrorResponse
+    throw new AdministrationRequestError(
+      response.status,
+      data.error,
+      data.message ?? "Administration request failed",
+    )
+  }
   return (await response.json()) as AdministrationResponse
 }
 
@@ -231,8 +248,21 @@ export function AuthenticationApplication() {
           },
         }
       })
-    } catch {
-      setError("Hub could not load more administration records.")
+    } catch (requestError) {
+      if (
+        requestError instanceof AdministrationRequestError &&
+        (requestError.status === 401 || requestError.code === "administrator_required")
+      ) {
+        setAdministration(null)
+        try {
+          setSession(await fetchSession())
+        } catch {
+          setSession(null)
+        }
+        setError(requestError.message)
+      } else {
+        setError("Hub could not load more administration records.")
+      }
     } finally {
       setLoading(false)
     }

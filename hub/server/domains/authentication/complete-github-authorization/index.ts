@@ -272,13 +272,22 @@ export async function completeGitHubAuthorization(
           invitationId: invitation.id,
         })
       } else if (policyAdmitted && !membership) {
-        await records.saveMembership({
+        membership = await records.saveMembership({
           userId: identity.userId,
           status: "active",
           role: "member",
           source: "synchronized",
           suspendedAt: null,
           removedAt: null,
+        })
+        await records.audit({
+          event: "membership.synchronize",
+          outcome: "succeeded",
+          actorUserId: identity.userId,
+          sessionId: null,
+          authenticationProviderRevisionId: providerRevisionId,
+          targetMembershipId: membership.id,
+          context: { source: "legacy_repository" },
         })
       }
     }

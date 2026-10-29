@@ -88,4 +88,85 @@ describe("MembershipAdministrationPage()", () => {
     const removed = screen.getByText("Removed administrator").closest("li")!
     expect(within(removed).queryByRole("button")).not.toBeInTheDocument()
   })
+
+  it("distinguishes usable, expired, and revoked invitation history", () => {
+    const onRevokeInvitation = vi.fn()
+    render(
+      <ThemeProvider>
+        <MembershipAdministrationPage
+          memberships={[]}
+          invitations={[
+            {
+              id: "usable",
+              provider: "github",
+              issuer: "https://github.com",
+              subject: "usable-subject",
+              role: "member",
+              expiresAt: "2099-01-01T00:00:00.000Z",
+              consumedAt: null,
+              revokedAt: null,
+            },
+            {
+              id: "expired",
+              provider: "github",
+              issuer: "https://github.com",
+              subject: "expired-subject",
+              role: "member",
+              expiresAt: "2000-01-01T00:00:00.000Z",
+              consumedAt: null,
+              revokedAt: null,
+            },
+            {
+              id: "cleanup-expired",
+              provider: "github",
+              issuer: "https://github.com",
+              subject: "cleanup-expired-subject",
+              role: "member",
+              expiresAt: "2000-01-01T00:00:00.000Z",
+              consumedAt: null,
+              revokedAt: "2000-01-02T00:00:00.000Z",
+            },
+            {
+              id: "revoked",
+              provider: "github",
+              issuer: "https://github.com",
+              subject: "revoked-subject",
+              role: "member",
+              expiresAt: "2099-01-01T00:00:00.000Z",
+              consumedAt: null,
+              revokedAt: "2026-10-29T12:00:00.000Z",
+            },
+          ]}
+          hasMoreMemberships={false}
+          hasMoreInvitations={false}
+          loading={false}
+          error={null}
+          onInvite={vi.fn()}
+          onChange={vi.fn()}
+          onRevokeInvitation={onRevokeInvitation}
+          onLoadMoreMemberships={vi.fn()}
+          onLoadMoreInvitations={vi.fn()}
+          onSignOut={vi.fn()}
+        />
+      </ThemeProvider>,
+    )
+
+    const usable = screen.getByText("usable-subject").closest("li")!
+    fireEvent.click(within(usable).getByRole("button", { name: "Revoke invitation" }))
+    expect(onRevokeInvitation).toHaveBeenCalledWith("usable")
+
+    for (const subject of ["expired-subject", "cleanup-expired-subject"]) {
+      const invitation = screen.getByText(subject).closest("li")!
+      expect(within(invitation).getByText("Expired")).toBeInTheDocument()
+      expect(
+        within(invitation).queryByRole("button", { name: "Revoke invitation" }),
+      ).not.toBeInTheDocument()
+    }
+
+    const revoked = screen.getByText("revoked-subject").closest("li")!
+    expect(within(revoked).getByText("Revoked")).toBeInTheDocument()
+    expect(
+      within(revoked).queryByRole("button", { name: "Revoke invitation" }),
+    ).not.toBeInTheDocument()
+  })
 })

@@ -70,6 +70,140 @@ async function createAdministrator(
 }
 
 describe("createAdministrationService() database behavior", () => {
+  it("rechecks freshness after entering the locked invitation mutation", async () => {
+    const { store } = await database()
+    await createAdministrator(store, "39", "administrator-token")
+    let currentTime = new Date("2026-10-27T18:04:59.999Z")
+    let lockCount = 0
+    const delayedStore: IdentityStore = {
+      read: store.read,
+      lock(operation) {
+        lockCount += 1
+        if (lockCount === 2) currentTime = new Date("2026-10-27T18:05:00.000Z")
+        return store.lock(operation)
+      },
+    }
+    const service = createAdministrationService({
+      store: delayedStore,
+      now: () => currentTime,
+    })
+
+    await expect(
+      service.invite("administrator-token", {
+        provider: "github",
+        issuer: "https://github.com",
+        subject: "waiting-request",
+        role: "member",
+      }),
+    ).rejects.toMatchObject({ code: "fresh_authorization_required" })
+
+    expect(await store.read.invitations()).toEqual({
+      invitations: [],
+      nextCursor: null,
+    })
+  })
+
+  it("creates a seven-day invitation audit and rejects an immediate duplicate", async () => {
+    const { store } = await database()
+    const administrator = await createAdministrator(store, "38", "administrator-token")
+    const now = new Date("2026-10-27T18:01:00.000Z")
+    const service = createAdministrationService({ store, now: () => now })
+    const input = {
+      provider: "github",
+      issuer: "https://github.com",
+      subject: "invited-subject",
+      role: "member" as const,
+    }
+
+    const invitation = await service.invite("administrator-token", input)
+
+    expect(invitation).toMatchObject({
+      ...input,
+      createdByUserId: administrator.user.id,
+      expiresAt: new Date("2026-11-03T18:01:00.000Z"),
+      consumedAt: null,
+      revokedAt: null,
+    })
+    expect(await store.read.audits()).toEqual([
+      expect.objectContaining({
+        event: "membership.invitation.create",
+        outcome: "succeeded",
+        actorUserId: administrator.user.id,
+        invitationId: invitation.id,
+      }),
+    ])
+    await expect(service.invite("administrator-token", input)).rejects.toMatchObject({
+      code: "invitation_exists",
+    })
+    expect((await store.read.invitations()).invitations).toHaveLength(1)
+  })
+
+  it.each(["active", "suspended"] as const)(
+    "rejects an invitation for an identity with a %s membership",
+    async (status) => {
+      const { store } = await database()
+      await createAdministrator(store, "37", "administrator-token")
+      const target = await createAdministrator(
+        store,
+        `target-${status}`,
+        `target-${status}-token`,
+        {
+          role: "member",
+        },
+      )
+      if (status === "suspended") {
+        await store.lock((records) =>
+          records.saveMembership({
+            userId: target.user.id,
+            status,
+            role: "member",
+            source: "manual",
+            suspendedAt: new Date("2026-10-27T17:00:00.000Z"),
+            removedAt: null,
+          }),
+        )
+      }
+      const service = createAdministrationService({
+        store,
+        now: () => new Date("2026-10-27T18:01:00.000Z"),
+      })
+
+      await expect(
+        service.invite("administrator-token", {
+          provider: "github",
+          issuer: "https://github.com",
+          subject: `target-${status}`,
+          role: "member",
+        }),
+      ).rejects.toMatchObject({ code: "identity_already_assigned" })
+      expect((await store.read.invitations()).invitations).toEqual([])
+    },
+  )
+
+  it("revokes an expired invitation before creating its replacement", async () => {
+    const { store } = await database()
+    const administrator = await createAdministrator(store, "36", "administrator-token")
+    let now = new Date("2026-10-27T18:01:00.000Z")
+    const service = createAdministrationService({ store, now: () => now })
+    const input = {
+      provider: "github",
+      issuer: "https://github.com",
+      subject: "returning-subject",
+      role: "member" as const,
+    }
+    const expired = await service.invite("administrator-token", input)
+    now = new Date("2026-11-03T18:01:00.000Z")
+    await store.lock((records) => records.verifySession(administrator.session.id, now))
+
+    const replacement = await service.invite("administrator-token", input)
+
+    expect(replacement.id).not.toBe(expired.id)
+    const invitations = (await store.read.invitations()).invitations
+    expect(invitations).toHaveLength(2)
+    expect(invitations.find(({ id }) => id === expired.id)?.revokedAt).toEqual(now)
+    expect(invitations.find(({ id }) => id === replacement.id)?.revokedAt).toBeNull()
+  })
+
   it("audits a member's denied invitation without creating it", async () => {
     const { store } = await database()
     await createAdministrator(store, "40", "member-token", { role: "member" })
@@ -255,6 +389,35 @@ describe("createAdministrationService() database behavior", () => {
       expect.arrayContaining([{ reason: "status_active" }, { reason: "role_administrator" }]),
     )
     expect(audits).toHaveLength(2)
+  })
+
+  it("removes a membership with its sessions and refuses restoration through PATCH", async () => {
+    const { store } = await database()
+    await createAdministrator(store, "45", "administrator-token")
+    const target = await createAdministrator(store, "46", "member-token", { role: "member" })
+    const removedAt = new Date("2026-10-27T18:01:00.000Z")
+    const service = createAdministrationService({ store, now: () => removedAt })
+
+    await service.changeMembership("administrator-token", target.membership.id, {
+      status: "removed",
+    })
+
+    expect(await store.read.membership(target.user.id)).toMatchObject({
+      status: "removed",
+      suspendedAt: null,
+      removedAt,
+    })
+    expect(await store.read.session(digestSecret("member-token"))).toBeNull()
+
+    await expect(
+      service.changeMembership("administrator-token", target.membership.id, {
+        status: "active",
+      }),
+    ).rejects.toMatchObject({ code: "membership_removed" })
+    expect(await store.read.membership(target.user.id)).toMatchObject({
+      status: "removed",
+      removedAt,
+    })
   })
 
   it("serializes overlapping suspensions so one active administrator and its session remain", async () => {

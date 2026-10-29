@@ -80,3 +80,40 @@ export const MoreRecordsAvailable: Story = {
     hasMoreInvitations: true,
   },
 }
+
+export const InvitationHistory: Story = {
+  args: {
+    invitations: [
+      {
+        id: "invitation-activated",
+        provider: "github",
+        issuer: "https://github.com",
+        subject: "42",
+        role: "member",
+        expiresAt: "2026-11-03T20:00:00.000Z",
+        consumedAt: "2026-10-28T20:00:00.000Z",
+        revokedAt: null,
+      },
+      {
+        id: "invitation-revoked",
+        provider: "github",
+        issuer: "https://github.com",
+        subject: "84",
+        role: "administrator",
+        expiresAt: "2026-11-03T20:00:00.000Z",
+        consumedAt: null,
+        revokedAt: "2026-10-28T20:00:00.000Z",
+      },
+      {
+        id: "invitation-expired",
+        provider: "github",
+        issuer: "https://github.com",
+        subject: "126",
+        role: "member",
+        expiresAt: "2026-10-27T20:00:00.000Z",
+        consumedAt: null,
+        revokedAt: "2026-10-28T20:00:00.000Z",
+      },
+    ],
+  },
+}
