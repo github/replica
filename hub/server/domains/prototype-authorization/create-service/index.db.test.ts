@@ -1985,9 +1985,13 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
       },
     })
     const prototypes = await Promise.all(
-      ["First", "Second"].map((name) =>
+      [
+        { id: "00000000-0000-4000-8000-000000000031", name: "First" },
+        { id: "00000000-0000-4000-8000-000000000032", name: "Second" },
+      ].map(({ id, name }) =>
         prisma.prototype.create({
           data: {
+            id,
             name,
             workspaceId: workspace.id,
             createdByUserId: actor.user.id,
