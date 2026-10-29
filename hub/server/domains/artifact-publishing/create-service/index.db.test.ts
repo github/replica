@@ -440,6 +440,41 @@ describe("createArtifactPublishingService() database behavior", () => {
     expect(await context.prisma.prototypeVersion.count()).toBe(0)
   })
 
+  it.each(["provider", "sourceUrl", "revision", "ref", "pipeline", "runId"] as const)(
+    "rejects a NUL in provenance $field before storage or state changes",
+    async (field) => {
+      const put = vi.fn(() => Promise.resolve({ key: "unused", created: true }))
+      const storage: ArtifactStorage = {
+        put,
+        read: () => Promise.reject(new Error("Artifact not found")),
+        remove: () => Promise.resolve(),
+      }
+      const context = await database(storage)
+      const { prototype } = await createPrototype(context.prisma)
+      const credential = await createCredential(context.prisma, prototype.id)
+      const input = publicationInput(prototype.id, artifact(`nul-${field}`))
+      input.manifest.provenance = {
+        ...input.manifest.provenance,
+        [field]: field === "sourceUrl" ? "https://ci.example/runs/\0hidden" : "visible\0hidden",
+      }
+
+      await expect(
+        context.service.publish(credential.authorization, prototype.id, `nul-${field}`, input),
+      ).rejects.toMatchObject({
+        status: 422,
+        code: "invalid_artifact_manifest",
+      })
+      expect(put).not.toHaveBeenCalled()
+      await expect(
+        Promise.all([
+          context.prisma.prototypeVersion.count(),
+          context.prisma.artifactPublication.count(),
+          context.prisma.securityAudit.count(),
+        ]),
+      ).resolves.toEqual([0, 0, 0])
+    },
+  )
+
   it("publishes a valid artifact at the decoded size limit", async () => {
     const context = await database()
     const { prototype } = await createPrototype(context.prisma)
@@ -1060,6 +1095,62 @@ describe("createArtifactPublishingService() database behavior", () => {
         where: { workloadPublisherId: credential.publisher.id },
       }),
     ).toBe(1)
+  })
+
+  it("normalizes uppercase prototype identifiers across publishing operations", async () => {
+    const context = await database()
+    const { prototype } = await createPrototype(context.prisma)
+    const other = await createPrototype(context.prisma)
+    const credential = await createCredential(context.prisma, prototype.id)
+    const uppercasePrototypeId = prototype.id.toUpperCase()
+    const uppercaseInput = publicationInput(
+      uppercasePrototypeId,
+      artifact("uppercase-prototype-id"),
+    )
+
+    const first = await context.service.publish(
+      credential.authorization,
+      uppercasePrototypeId,
+      "uppercase-request",
+      uppercaseInput,
+    )
+    const replay = await context.service.publish(
+      credential.authorization,
+      prototype.id,
+      "uppercase-request",
+      publicationInput(prototype.id, artifact("uppercase-prototype-id")),
+    )
+    const status = await context.service.getStatus(
+      credential.authorization,
+      uppercasePrototypeId,
+      "uppercase-request",
+    )
+    await context.service.promote(credential.authorization, uppercasePrototypeId, "current", {
+      versionId: publishedVersion(first).id,
+    })
+
+    expect(first).toMatchObject({ replayed: false })
+    expect(replay).toMatchObject({ replayed: true, version: publishedVersion(first) })
+    expect(status).toMatchObject({ version: publishedVersion(first) })
+    await expect(
+      context.prisma.prototypeChannel.findUniqueOrThrow({
+        where: { prototypeId_name: { prototypeId: prototype.id, name: "current" } },
+        select: { prototypeVersionId: true },
+      }),
+    ).resolves.toEqual({ prototypeVersionId: publishedVersion(first).id })
+    await expect(
+      context.service.publish(
+        credential.authorization,
+        other.prototype.id.toUpperCase(),
+        "uppercase-cross-prototype",
+        publicationInput(other.prototype.id.toUpperCase(), artifact("isolated-uppercase")),
+      ),
+    ).rejects.toMatchObject({ status: 403, code: "publisher_access_denied" })
+    expect(
+      await context.prisma.prototypeVersion.count({
+        where: { prototypeId: other.prototype.id },
+      }),
+    ).toBe(0)
   })
 
   it("commits a promoted publication, version, channel, and audit together", async () => {

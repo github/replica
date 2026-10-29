@@ -13,8 +13,14 @@ import type { ArtifactPublishingService, PrototypeChannelName, PublisherAction }
 
 import type { Prisma, PrismaClient } from "../../../generated/prisma/client.ts"
 
-const boundedIdentifier = z.string().trim().min(1).max(255)
+const boundedIdentifier = z
+  .string()
+  .trim()
+  .min(1)
+  .max(255)
+  .refine((value) => !value.includes("\0"))
 function isSafeProvenanceUrl(value: string): boolean {
+  if (value.includes("\0")) return false
   try {
     const url = new URL(value)
     return (
@@ -76,10 +82,12 @@ function error(status: number, code: string, message: string): never {
   throw new AuthenticationError(status, code, message)
 }
 
-function parsePrototypeId(prototypeId: string): void {
-  if (!prototypeIdSchema.safeParse(prototypeId).success) {
+function parsePrototypeId(prototypeId: string): string {
+  const parsed = prototypeIdSchema.safeParse(prototypeId)
+  if (!parsed.success) {
     error(404, "prototype_not_found", "The prototype was not found.")
   }
+  return parsed.data.toLowerCase()
 }
 
 function parseIdempotencyKey(value: string): string {
@@ -167,6 +175,7 @@ export function createArtifactPublishingService({
   type PublisherAuthentication = {
     credentialId: string
     publisherId: string
+    prototypeId: string
     tokenDigest: string
   }
 
@@ -182,7 +191,7 @@ export function createArtifactPublishingService({
   }
 
   async function authenticate(authorization: string, prototypeId: string, action: PublisherAction) {
-    parsePrototypeId(prototypeId)
+    const normalizedPrototypeId = parsePrototypeId(prototypeId)
     const match = authorizationSchema.exec(authorization)
     if (!match?.[1] || !match[2]) {
       error(401, "publisher_authentication_required", "Publisher authentication failed.")
@@ -198,7 +207,7 @@ export function createArtifactPublishingService({
       credential.revokedAt ||
       (credential.expiresAt && credential.expiresAt <= new Date()) ||
       !credential.workloadPublisher.active ||
-      credential.workloadPublisher.prototypeId !== prototypeId ||
+      credential.workloadPublisher.prototypeId !== normalizedPrototypeId ||
       !credential.workloadPublisher.actions.includes(action) ||
       !secretsMatch(credential.tokenDigest, tokenDigest)
     ) {
@@ -207,6 +216,7 @@ export function createArtifactPublishingService({
     return {
       credentialId: credential.id,
       publisherId: credential.workloadPublisher.id,
+      prototypeId: normalizedPrototypeId,
       tokenDigest,
     }
   }
@@ -227,7 +237,7 @@ export function createArtifactPublishingService({
       (credential.expiresAt && credential.expiresAt <= new Date()) ||
       !credential.workloadPublisher.active ||
       credential.workloadPublisher.id !== authentication.publisherId ||
-      credential.workloadPublisher.prototypeId !== prototypeId ||
+      credential.workloadPublisher.prototypeId !== authentication.prototypeId ||
       !credential.workloadPublisher.actions.includes(action) ||
       !secretsMatch(credential.tokenDigest, authentication.tokenDigest)
     ) {
@@ -239,9 +249,13 @@ export function createArtifactPublishingService({
   return {
     async publish(authorization, prototypeId, idempotencyKey, input) {
       const authentication = await authenticate(authorization, prototypeId, "publish")
-      await requireUnarchivedPrototype(prototypeId)
+      const normalizedPrototypeId = authentication.prototypeId
+      await requireUnarchivedPrototype(normalizedPrototypeId)
       const parsed = publishSchema.safeParse(input)
-      if (!parsed.success || parsed.data.manifest.prototypeId !== prototypeId) {
+      if (
+        !parsed.success ||
+        parsed.data.manifest.prototypeId.toLowerCase() !== normalizedPrototypeId
+      ) {
         error(422, "invalid_artifact_manifest", "The artifact manifest is invalid.")
       }
       if (
@@ -260,21 +274,23 @@ export function createArtifactPublishingService({
       }
       const requestDigest = digestSecret(
         JSON.stringify({
-          manifest: parsed.data.manifest,
+          manifest: { ...parsed.data.manifest, prototypeId: normalizedPrototypeId },
           promoteChannel: parsed.data.promoteChannel ?? null,
         }),
       )
       const stored = await storage.put(parsed.data.manifest.artifact.digest, bytes)
 
       return database.$transaction(async (transaction) => {
-        await lockPrototype(transaction, prototypeId)
+        await lockPrototype(transaction, normalizedPrototypeId)
         const publisher = await requireCurrentPublisherAuthorization(
           transaction,
           authentication,
-          prototypeId,
+          normalizedPrototypeId,
           "publish",
         )
-        const prototype = await transaction.prototype.findUnique({ where: { id: prototypeId } })
+        const prototype = await transaction.prototype.findUnique({
+          where: { id: normalizedPrototypeId },
+        })
         if (!prototype) error(404, "prototype_not_found", "The prototype was not found.")
         if (prototype.archivedAt) {
           error(409, "prototype_archived", "Archived prototypes cannot receive versions.")
@@ -304,7 +320,7 @@ export function createArtifactPublishingService({
         }
         const duplicate = await transaction.prototypeVersion.findFirst({
           where: {
-            prototypeId,
+            prototypeId: normalizedPrototypeId,
             contentDigest: parsed.data.manifest.artifact.digest,
           },
         })
@@ -312,13 +328,13 @@ export function createArtifactPublishingService({
           error(409, "artifact_already_published", "This artifact was already published.")
         }
         const latest = await transaction.prototypeVersion.findFirst({
-          where: { prototypeId },
+          where: { prototypeId: normalizedPrototypeId },
           orderBy: { sequence: "desc" },
         })
         const manifest = parsed.data.manifest
         const version = await transaction.prototypeVersion.create({
           data: {
-            prototypeId,
+            prototypeId: normalizedPrototypeId,
             workloadPublisherId: publisher.id,
             sequence: (latest?.sequence ?? 0) + 1,
             artifactFormat: manifest.artifact.format,
@@ -337,7 +353,7 @@ export function createArtifactPublishingService({
         })
         await transaction.artifactPublication.create({
           data: {
-            prototypeId,
+            prototypeId: normalizedPrototypeId,
             workloadPublisherId: publisher.id,
             prototypeVersionId: version.id,
             idempotencyKeyDigest: keyDigest,
@@ -347,10 +363,13 @@ export function createArtifactPublishingService({
         if (parsed.data.promoteChannel) {
           await transaction.prototypeChannel.upsert({
             where: {
-              prototypeId_name: { prototypeId, name: parsed.data.promoteChannel },
+              prototypeId_name: {
+                prototypeId: normalizedPrototypeId,
+                name: parsed.data.promoteChannel,
+              },
             },
             create: {
-              prototypeId,
+              prototypeId: normalizedPrototypeId,
               prototypeVersionId: version.id,
               name: parsed.data.promoteChannel,
             },
@@ -363,7 +382,7 @@ export function createArtifactPublishingService({
           sessionId: null,
           authenticationProviderRevisionId: null,
           workspaceId: prototype.workspaceId,
-          prototypeId,
+          prototypeId: normalizedPrototypeId,
           prototypeVersionId: version.id,
           workloadPublisherId: publisher.id,
           context: {
@@ -392,7 +411,7 @@ export function createArtifactPublishingService({
         },
         include: { prototypeVersion: true },
       })
-      if (!publication || publication.prototypeId !== prototypeId) {
+      if (!publication || publication.prototypeId !== authentication.prototypeId) {
         error(404, "publication_not_found", "The publication was not found.")
       }
       return {
@@ -403,37 +422,40 @@ export function createArtifactPublishingService({
 
     async promote(authorization, prototypeId, channel, input) {
       const authentication = await authenticate(authorization, prototypeId, "publish")
+      const normalizedPrototypeId = authentication.prototypeId
       const parsedChannel = channelSchema.safeParse(channel)
       const parsed = promotionSchema.safeParse(input)
       if (!parsedChannel.success || !parsed.success) {
         error(422, "invalid_promotion", "The promotion is invalid.")
       }
       return database.$transaction(async (transaction) => {
-        await lockPrototype(transaction, prototypeId)
+        await lockPrototype(transaction, normalizedPrototypeId)
         const publisher = await requireCurrentPublisherAuthorization(
           transaction,
           authentication,
-          prototypeId,
+          normalizedPrototypeId,
           "publish",
         )
-        const prototype = await transaction.prototype.findUnique({ where: { id: prototypeId } })
+        const prototype = await transaction.prototype.findUnique({
+          where: { id: normalizedPrototypeId },
+        })
         if (!prototype) error(404, "prototype_not_found", "The prototype was not found.")
         if (prototype.archivedAt) {
           error(409, "prototype_archived", "Archived prototypes cannot be promoted.")
         }
         const version = await transaction.prototypeVersion.findFirst({
-          where: { id: parsed.data.versionId, prototypeId },
+          where: { id: parsed.data.versionId, prototypeId: normalizedPrototypeId },
         })
         if (!version) error(404, "version_not_found", "The version was not found.")
         const pointer = await transaction.prototypeChannel.upsert({
           where: {
             prototypeId_name: {
-              prototypeId,
+              prototypeId: normalizedPrototypeId,
               name: parsedChannel.data satisfies PrototypeChannelName,
             },
           },
           create: {
-            prototypeId,
+            prototypeId: normalizedPrototypeId,
             prototypeVersionId: version.id,
             name: parsedChannel.data,
           },
@@ -445,7 +467,7 @@ export function createArtifactPublishingService({
           sessionId: null,
           authenticationProviderRevisionId: null,
           workspaceId: prototype.workspaceId,
-          prototypeId,
+          prototypeId: normalizedPrototypeId,
           prototypeVersionId: version.id,
           workloadPublisherId: publisher.id,
           context: {
