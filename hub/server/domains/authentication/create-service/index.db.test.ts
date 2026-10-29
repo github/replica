@@ -1,5 +1,6 @@
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
+import { createAdministrationService } from "#server/domains/administration/create-service"
 import { createAuthenticationService } from "#server/domains/authentication/create-service"
 import { createIdentityStore } from "#server/domains/identity/create-store"
 import type { OidcConfiguration } from "#server/integrations/oidc/create-client/types"
@@ -512,6 +513,67 @@ describe("createAuthenticationService() database behavior", () => {
         context: { reason: "provider_role_changed" },
       }),
     ])
+  })
+
+  it("keeps a new OIDC administrator session non-fresh until verification permits a mutation", async () => {
+    const { prisma, store } = await database()
+    const graph = await createOidcMember(store, "administrator")
+    await store.lock((records) =>
+      records.createAuthorizationAttempt({
+        authenticationProviderRevisionId: graph.provider.id,
+        originatingSessionId: null,
+        stateDigest: digestSecret("sign-in-state"),
+        browserDigest: digestSecret("browser-token"),
+        pkceVerifier: "pkce-verifier",
+        nonce: "sign-in-nonce",
+        purpose: "sign-in",
+        expiresAt: new Date(Date.now() + 60_000),
+      }),
+    )
+    const authentication = oidcService(store, graph.provider.id, "administrator")
+    const signedIn = await authentication.complete(
+      "provider-code",
+      "sign-in-state",
+      "browser-token",
+    )
+    const session = await prisma.session.findUniqueOrThrow({
+      where: { tokenDigest: digestSecret(signedIn.sessionToken!) },
+    })
+    const administration = createAdministrationService({ store })
+    const invitation = {
+      provider: "oidc",
+      issuer: oidcIssuer,
+      subject: "b1e2d3c4-a5b6-4789-abcd-ef0123456789",
+      role: "member" as const,
+    }
+
+    expect(session.freshAuthorizedAt).toBeNull()
+    await expect(administration.invite(signedIn.sessionToken!, invitation)).rejects.toMatchObject({
+      status: 403,
+      code: "fresh_authorization_required",
+    })
+
+    await store.lock((records) =>
+      records.createAuthorizationAttempt({
+        authenticationProviderRevisionId: graph.provider.id,
+        originatingSessionId: session.id,
+        stateDigest: digestSecret("verify-state"),
+        browserDigest: digestSecret("browser-token"),
+        pkceVerifier: "pkce-verifier",
+        nonce: "verify-nonce",
+        purpose: "verify",
+        expiresAt: new Date(Date.now() + 60_000),
+      }),
+    )
+    await expect(
+      authentication.complete("provider-code", "verify-state", "browser-token"),
+    ).resolves.toEqual({ purpose: "verify" })
+
+    const verifiedSession = await prisma.session.findUniqueOrThrow({ where: { id: session.id } })
+    expect(verifiedSession.freshAuthorizedAt).toBeInstanceOf(Date)
+    await expect(administration.invite(signedIn.sessionToken!, invitation)).resolves.toMatchObject(
+      invitation,
+    )
   })
 
   it("migrates a changed provider subject without duplicating the existing identity graph", async () => {

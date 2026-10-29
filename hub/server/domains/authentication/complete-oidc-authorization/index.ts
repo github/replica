@@ -377,7 +377,7 @@ export async function completeOidcAuthorization(
       authenticationProviderRevisionId: oidcProviderRevisionId,
       tokenDigest: digestSecret(sessionToken),
       signedInAt: now(),
-      freshAuthorizedAt: now(),
+      freshAuthorizedAt: null,
     })
     await records.audit({
       event: "session.sign_in",

@@ -82,7 +82,7 @@ function records(overrides: Partial<MockIdentityRecords> = {}) {
         authenticationProviderRevisionId: providerRevision.id,
         tokenDigest: "stored-digest",
         signedInAt: now,
-        freshAuthorizedAt: now,
+        freshAuthorizedAt: null,
       }),
       verifySession: vi.fn(),
       deleteSession: vi.fn(),
@@ -1034,6 +1034,8 @@ describe("createAuthenticationService() OIDC", () => {
       expect.objectContaining({
         tokenDigest: digestSecret(result.sessionToken!),
         authenticationProviderRevisionId: providerRevision.id,
+        signedInAt: now,
+        freshAuthorizedAt: null,
       }),
     )
     const persistence = JSON.stringify([

@@ -49,7 +49,6 @@ cd starter
 npm ci
 npm run typecheck
 npm test
-npm run test:entra-setup
 npm run build
 ```
 
@@ -104,6 +103,7 @@ npm run lint
 npm run db:validate
 npm run typecheck
 npm test
+npm run test:entra-setup
 npm run build
 npm run storybook:build
 ```
