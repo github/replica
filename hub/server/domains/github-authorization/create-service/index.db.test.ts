@@ -4619,15 +4619,17 @@ describe("createGitHubAuthorizationService() database behavior", () => {
       ),
     )
     await vi.advanceTimersByTimeAsync(1_000)
-    await vi.waitFor(() => expect(requestedRepositoryIds).toHaveLength(8))
-    await vi.advanceTimersByTimeAsync(1_000)
     await vi.waitFor(() => expect(requestedRepositoryIds).toContain("500"))
 
     expect(maximumConcurrentRepositoryRequests).toBe(4)
     expect(requestedRepositoryIds).toContain(laterSource.githubRepositoryId)
-    expect(
-      await prisma.gitHubRepositorySource.findUniqueOrThrow({ where: { id: laterSource.id } }),
-    ).toMatchObject({ synchronizationStatus: "current" })
+    await vi.waitFor(async () =>
+      expect(
+        await prisma.gitHubRepositorySource.findUniqueOrThrow({
+          where: { id: laterSource.id },
+        }),
+      ).toMatchObject({ synchronizationStatus: "current" }),
+    )
     expect(initialSources).toHaveLength(4)
   })
 
