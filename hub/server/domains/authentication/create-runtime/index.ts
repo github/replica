@@ -85,12 +85,6 @@ export async function createAuthenticationRuntime(environment: NodeJS.ProcessEnv
     environment,
     store,
   })
-  const providerRevision = configuration
-    ? await ensureGitHubProviderRevision(store, configuration)
-    : null
-  const oidcProviderRevision = oidcConfiguration
-    ? await ensureOidcProviderRevision(store, oidcConfiguration)
-    : null
   const admissionPolicy = createAdmissionPolicy(environment, store, githubAuthorization)
   const bootstrapSecret = readHostSecret(environment, "HUB_BOOTSTRAP_SECRET")
   const recoverySecret = readHostSecret(environment, "HUB_ADMIN_RECOVERY_SECRET")
@@ -109,31 +103,42 @@ export async function createAuthenticationRuntime(environment: NodeJS.ProcessEnv
   const configuredArtifactStoragePath = environment.HUB_ARTIFACT_STORAGE_PATH?.trim()
   const artifactStoragePath =
     configuredArtifactStoragePath || path.join(os.homedir(), ".replica", "artifacts")
+  const administration = createAdministrationService({ store })
+  const artifactPublishing = createArtifactPublishingService({
+    database: prisma,
+    storage: createLocalArtifactStorage(artifactStoragePath),
+  })
+  const prototypeAuthorization = createPrototypeAuthorizationService({
+    baseline: {
+      baseline: (database, userId, prototypeId) =>
+        githubAuthorization.prototypeBaseline(database, userId, prototypeId),
+      workspaceIds: (database, userId) =>
+        githubAuthorization.prototypeWorkspaceIds(database, userId),
+      prototypeIds: (database, userId, workspaceId) =>
+        githubAuthorization.prototypeIds(database, userId, workspaceId),
+    },
+    database: prisma,
+    store,
+  })
+  const github = configuration ? createGitHubUserAuthClient(configuration) : null
+  const oidc = oidcConfiguration ? createOidcClient(oidcConfiguration) : null
+  const providerRevision = configuration
+    ? await ensureGitHubProviderRevision(store, configuration)
+    : null
+  const oidcProviderRevision = oidcConfiguration
+    ? await ensureOidcProviderRevision(store, oidcConfiguration)
+    : null
   return {
-    administration: createAdministrationService({ store }),
-    artifactPublishing: createArtifactPublishingService({
-      database: prisma,
-      storage: createLocalArtifactStorage(artifactStoragePath),
-    }),
+    administration,
+    artifactPublishing,
     githubAuthorization,
-    prototypeAuthorization: createPrototypeAuthorizationService({
-      baseline: {
-        baseline: (database, userId, prototypeId) =>
-          githubAuthorization.prototypeBaseline(database, userId, prototypeId),
-        workspaceIds: (database, userId) =>
-          githubAuthorization.prototypeWorkspaceIds(database, userId),
-        prototypeIds: (database, userId, workspaceId) =>
-          githubAuthorization.prototypeIds(database, userId, workspaceId),
-      },
-      database: prisma,
-      store,
-    }),
+    prototypeAuthorization,
     service: createAuthenticationService({
       store,
-      github: configuration ? createGitHubUserAuthClient(configuration) : null,
+      github,
       configuration,
       providerRevisionId: providerRevision?.id ?? null,
-      oidc: oidcConfiguration ? createOidcClient(oidcConfiguration) : null,
+      oidc,
       oidcConfiguration,
       oidcProviderRevisionId: oidcProviderRevision?.id ?? null,
       provider,
