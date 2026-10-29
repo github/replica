@@ -68,8 +68,10 @@ export function GithubAppSetupManualPage({ data }: { data: GithubAppSetupManualP
             required
             aria-describedby="setup-key-hint"
           />
-          <span id="setup-key-hint">{data.keyHint}</span>
         </label>
+        <Text as="p" id="setup-key-hint">
+          {data.keyHint}
+        </Text>
         <label className="setup-manual__confirmation">
           <input type="checkbox" name="confirmed" value="1" required />
           <span>{data.confirmLabel}</span>
