@@ -44,5 +44,6 @@ export interface MembershipAdministrationPageProps {
     input: { role?: "member" | "administrator"; status?: "active" | "suspended" | "removed" },
   ) => void
   onRevokeInvitation: (invitationId: string) => void
+  onSignIn: () => void
   onSignOut: () => void
 }

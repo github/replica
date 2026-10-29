@@ -35,7 +35,11 @@ async function fetchSession(): Promise<SessionResponse> {
 
 export function AuthenticationApplication() {
   const [session, setSession] = useState<SessionResponse | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(() =>
+    new URLSearchParams(window.location.search).get("reason") === "provider_role_changed"
+      ? "Your provider role changed. Sign in again to update your Hub access."
+      : null,
+  )
   const [loading, setLoading] = useState(true)
   const [administration, setAdministration] = useState<AdministrationResponse | null>(null)
 
@@ -188,6 +192,7 @@ export function AuthenticationApplication() {
         onRevokeInvitation={(invitationId) =>
           void updateAdministration(`/api/administration/invitations/${invitationId}`, "DELETE")
         }
+        onSignIn={() => void signIn()}
         onSignOut={() => void signOut()}
       />
     )

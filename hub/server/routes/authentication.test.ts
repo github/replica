@@ -570,6 +570,54 @@ describe("authentication routes", () => {
     )
   })
 
+  it("preserves the provider role recovery reason without exposing callback secrets", async () => {
+    const records: Record<string, unknown>[] = []
+    const logger = createLogger({
+      destination: {
+        write: (line) => records.push(JSON.parse(line) as Record<string, unknown>),
+      },
+    })
+    const runtime = authentication(
+      {
+        complete: vi
+          .fn()
+          .mockRejectedValue(
+            new AuthenticationError(
+              403,
+              "provider_role_changed",
+              "private provider role reconciliation failure",
+            ),
+          ),
+      },
+      true,
+      0,
+      "oidc",
+    )
+    const baseUrl = await serve(runtime, logger)
+    const code = "private-provider-code"
+    const state = "s".repeat(43)
+
+    const response = await fetch(
+      `${baseUrl}/api/auth/oidc/callback?${new URLSearchParams({ code, state })}`,
+      {
+        headers: { cookie: `__Host-replica-authorization=${browserToken}` },
+        redirect: "manual",
+      },
+    )
+
+    expect(response.status).toBe(303)
+    expect(response.headers.get("location")).toBe(
+      "https://hub.example/?authentication=failed&reason=provider_role_changed",
+    )
+    await vi.waitFor(() => expect(records).toHaveLength(1))
+    expect(JSON.stringify([...response.headers])).not.toMatch(
+      /private-provider-code|sssssssssssssssssssssssssssssssssssssssssss/,
+    )
+    expect(JSON.stringify(records)).not.toMatch(
+      /private-provider-code|sssssssssssssssssssssssssssssssssssssssssss|role reconciliation/,
+    )
+  })
+
   it("allows the initiation limit and rejects the next request without calling the service", async () => {
     const runtime = authentication()
     const baseUrl = await serve(runtime)

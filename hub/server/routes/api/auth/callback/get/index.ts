@@ -14,7 +14,10 @@ function isSingleString(value: unknown): value is string {
   return typeof value === "string"
 }
 
-function failureUrl(origin: string, reason: "invalid_callback" | "provider_error"): string {
+function failureUrl(
+  origin: string,
+  reason: "invalid_callback" | "provider_error" | "provider_role_changed",
+): string {
   const url = new URL(origin)
   url.searchParams.set("authentication", "failed")
   url.searchParams.set("reason", reason)
@@ -57,7 +60,12 @@ export async function get(
     response.redirect(303, `${authentication.settings.origin}/?authentication=complete`)
   } catch (error) {
     if (error instanceof AuthenticationError) {
-      response.redirect(303, `${authentication.settings.origin}/?authentication=failed`)
+      response.redirect(
+        303,
+        error.code === "provider_role_changed"
+          ? failureUrl(authentication.settings.origin, "provider_role_changed")
+          : `${authentication.settings.origin}/?authentication=failed`,
+      )
       return
     }
     throw error

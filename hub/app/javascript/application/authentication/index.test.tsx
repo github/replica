@@ -5,6 +5,51 @@ import { describe, expect, it, vi } from "vitest"
 import { AuthenticationApplication } from "."
 
 describe("AuthenticationApplication()", () => {
+  it("offers provider-role recovery through the configured sign-in flow", async () => {
+    window.history.replaceState({}, "", "/?authentication=failed&reason=provider_role_changed")
+    const authorizationUrl = "#provider-role-recovery"
+    const session = {
+      authenticated: true,
+      configured: true,
+      provider: "oidc",
+      providerLabel: "Company SSO",
+      csrfToken: "session-csrf-token",
+      user: { id: "administrator", displayName: "Hub administrator" },
+      membership: { id: "administrator-membership", role: "administrator", status: "active" },
+    }
+    const administration = { memberships: [], invitations: [] }
+    const fetch = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      if (input === "/api/session" && init?.method === undefined) {
+        return Promise.resolve(Response.json(session))
+      }
+      if (input === "/api/administration" && init?.method === undefined) {
+        return Promise.resolve(Response.json(administration))
+      }
+      if (input === "/api/auth/oidc") {
+        return Promise.resolve(Response.json({ authorizationUrl }))
+      }
+      return Promise.reject(new Error("Unexpected request"))
+    })
+    vi.stubGlobal("fetch", fetch)
+    render(
+      <ThemeProvider>
+        <AuthenticationApplication />
+      </ThemeProvider>,
+    )
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Your provider role changed. Sign in again to update your Hub access.",
+    )
+    fireEvent.click(screen.getByRole("button", { name: "Sign in again" }))
+
+    await waitFor(() => expect(window.location.hash).toBe(authorizationUrl))
+    expect(fetch).toHaveBeenCalledWith("/api/auth/oidc", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "X-CSRF-Token": "session-csrf-token" },
+    })
+  })
+
   it("starts fresh verification instead of presenting a failed administration mutation as success", async () => {
     const authorizationUrl = "#provider-authorization"
     const session = {

@@ -13,6 +13,7 @@ export function MembershipAdministrationPage({
   onInvite,
   onChange,
   onRevokeInvitation,
+  onSignIn,
   onSignOut,
 }: MembershipAdministrationPageProps) {
   const [provider, setProvider] = useState("github")
@@ -31,9 +32,14 @@ export function MembershipAdministrationPage({
             Hub admission and installation roles are independent of repository access.
           </Text>
         </div>
-        <Button type="button" variant="subtle" disabled={loading} onClick={onSignOut}>
-          Sign out
-        </Button>
+        <div className="membership-administration-page__actions">
+          <Button type="button" variant="secondary" disabled={loading} onClick={onSignIn}>
+            Sign in again
+          </Button>
+          <Button type="button" variant="subtle" disabled={loading} onClick={onSignOut}>
+            Sign out
+          </Button>
+        </div>
       </header>
 
       {error ? (

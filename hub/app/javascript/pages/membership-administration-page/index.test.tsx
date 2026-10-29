@@ -5,6 +5,29 @@ import { describe, expect, it, vi } from "vitest"
 import { MembershipAdministrationPage } from "."
 
 describe("MembershipAdministrationPage()", () => {
+  it("lets an administrator sign in again", () => {
+    const onSignIn = vi.fn()
+    render(
+      <ThemeProvider>
+        <MembershipAdministrationPage
+          memberships={[]}
+          invitations={[]}
+          loading={false}
+          error={null}
+          onInvite={vi.fn()}
+          onChange={vi.fn()}
+          onRevokeInvitation={vi.fn()}
+          onSignIn={onSignIn}
+          onSignOut={vi.fn()}
+        />
+      </ThemeProvider>,
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Sign in again" }))
+
+    expect(onSignIn).toHaveBeenCalledOnce()
+  })
+
   it("offers restoration for suspension but no lifecycle actions after removal", () => {
     const onChange = vi.fn()
     render(
@@ -38,6 +61,7 @@ describe("MembershipAdministrationPage()", () => {
           onInvite={vi.fn()}
           onChange={onChange}
           onRevokeInvitation={vi.fn()}
+          onSignIn={vi.fn()}
           onSignOut={vi.fn()}
         />
       </ThemeProvider>,

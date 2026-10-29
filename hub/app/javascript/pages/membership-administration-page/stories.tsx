@@ -62,6 +62,7 @@ const meta = {
     onInvite: () => undefined,
     onChange: () => undefined,
     onRevokeInvitation: () => undefined,
+    onSignIn: () => undefined,
     onSignOut: () => undefined,
   },
 } satisfies Meta<typeof MembershipAdministrationPage>
