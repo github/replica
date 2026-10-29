@@ -1382,6 +1382,32 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
     })
   })
 
+  it.each([
+    {
+      resource: "malformed workspace",
+      operation: (service: ReturnType<typeof createPrototypeAuthorizationService>, token: string) =>
+        service.listPrototypes(token, "not-a-workspace-id", {}),
+      code: "workspace_not_found",
+    },
+    {
+      resource: "missing prototype",
+      operation: (service: ReturnType<typeof createPrototypeAuthorizationService>, token: string) =>
+        service.listVersions(token, "00000000-0000-4000-8000-000000000099", {}),
+      code: "prototype_not_found",
+    },
+  ])("returns a resource 404 for a $resource path ID", async ({ operation, code }) => {
+    const { service, store } = await database()
+    await createActor(store, {
+      subject: `path-${code}`,
+      token: `path-${code}-token`,
+    })
+
+    await expect(operation(service, `path-${code}-token`)).rejects.toMatchObject({
+      status: 404,
+      code,
+    })
+  })
+
   it("continues workspace pagination after access to the prior cursor is revoked", async () => {
     const { prisma, service, store } = await database()
     const actor = await createActor(store, {
@@ -1878,6 +1904,67 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
     expect(new Set([...first.items, ...second.items].map(({ id }) => id)).size).toBe(4)
   })
 
+  it("rejects a prototype cursor from another workspace", async () => {
+    const { prisma, service, store } = await database()
+    const actor = await createActor(store, {
+      subject: "cross-workspace-cursor",
+      token: "cross-workspace-cursor-token",
+    })
+    const workspaces = await Promise.all(
+      ["First workspace", "Second workspace"].map((name) =>
+        prisma.workspace.create({
+          data: {
+            name,
+            createdByUserId: actor.user.id,
+            grants: {
+              create: {
+                userId: actor.user.id,
+                effect: "allow",
+                role: "viewer",
+              },
+            },
+          },
+        }),
+      ),
+    )
+    const firstWorkspacePrototypeIds = [
+      "00000000-0000-4000-8000-000000000011",
+      "00000000-0000-4000-8000-000000000013",
+    ]
+    await prisma.prototype.createMany({
+      data: [
+        ...firstWorkspacePrototypeIds.map((id) => ({
+          id,
+          name: `First workspace prototype ${id.at(-1)}`,
+          workspaceId: workspaces[0]!.id,
+          createdByUserId: actor.user.id,
+        })),
+        {
+          id: "00000000-0000-4000-8000-000000000012",
+          name: "Foreign cursor prototype",
+          workspaceId: workspaces[1]!.id,
+          createdByUserId: actor.user.id,
+        },
+      ],
+    })
+
+    await expect(
+      service.listPrototypes("cross-workspace-cursor-token", workspaces[0]!.id, {
+        cursor: "00000000-0000-4000-8000-000000000012",
+        limit: 1,
+      }),
+    ).rejects.toMatchObject({
+      status: 422,
+      code: "invalid_pagination",
+    })
+    const page = (await service.listPrototypes(
+      "cross-workspace-cursor-token",
+      workspaces[0]!.id,
+      {},
+    )) as { items: { id: string }[] }
+    expect(page.items.map(({ id }) => id)).toEqual(firstWorkspacePrototypeIds)
+  })
+
   it("lists immutable versions by sequence and paginates in that order", async () => {
     const { prisma, service, store } = await database()
     const actor = await createActor(store, {
@@ -1952,6 +2039,84 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
       { sequence: 3, label: "Third immutable version" },
     ])
     expect(second.nextCursor).toBeNull()
+  })
+
+  it("rejects a version cursor from another prototype", async () => {
+    const { prisma, service, store } = await database()
+    const actor = await createActor(store, {
+      subject: "cross-prototype-cursor",
+      token: "cross-prototype-cursor-token",
+    })
+    const workspace = await prisma.workspace.create({
+      data: {
+        name: "Workspace",
+        createdByUserId: actor.user.id,
+        grants: {
+          create: {
+            userId: actor.user.id,
+            effect: "allow",
+            role: "viewer",
+          },
+        },
+      },
+    })
+    const prototypes = await Promise.all(
+      ["First prototype", "Second prototype"].map((name) =>
+        prisma.prototype.create({
+          data: {
+            name,
+            workspaceId: workspace.id,
+            createdByUserId: actor.user.id,
+          },
+        }),
+      ),
+    )
+    const firstPrototypeVersionIds = [
+      "00000000-0000-4000-8000-000000000021",
+      "00000000-0000-4000-8000-000000000022",
+    ]
+    await prisma.prototypeVersion.createMany({
+      data: [
+        {
+          id: firstPrototypeVersionIds[0],
+          prototypeId: prototypes[0]!.id,
+          createdByUserId: actor.user.id,
+          sequence: 1,
+          label: "First version",
+        },
+        {
+          id: firstPrototypeVersionIds[1],
+          prototypeId: prototypes[0]!.id,
+          createdByUserId: actor.user.id,
+          sequence: 2,
+          label: "Second version",
+        },
+      ],
+    })
+    const foreignVersion = await prisma.prototypeVersion.create({
+      data: {
+        prototypeId: prototypes[1]!.id,
+        createdByUserId: actor.user.id,
+        sequence: 1,
+        label: "Foreign cursor version",
+      },
+    })
+
+    await expect(
+      service.listVersions("cross-prototype-cursor-token", prototypes[0]!.id, {
+        cursor: foreignVersion.id,
+        limit: 1,
+      }),
+    ).rejects.toMatchObject({
+      status: 422,
+      code: "invalid_pagination",
+    })
+    const page = (await service.listVersions(
+      "cross-prototype-cursor-token",
+      prototypes[0]!.id,
+      {},
+    )) as { items: { id: string }[] }
+    expect(page.items.map(({ id }) => id)).toEqual(firstPrototypeVersionIds)
   })
 
   it("creates sequential immutable versions and rejects additions after archival", async () => {
