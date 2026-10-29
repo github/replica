@@ -130,7 +130,7 @@ async function verifyExisting(
   }
 }
 
-async function syncDirectoryChain(directory: string): Promise<void> {
+async function syncDirectoryChain(directory: string, root: string): Promise<void> {
   let current = directory
   while (true) {
     const handle = await open(current, constants.O_RDONLY | constants.O_DIRECTORY)
@@ -139,8 +139,9 @@ async function syncDirectoryChain(directory: string): Promise<void> {
     } finally {
       await handle.close()
     }
+    if (current === root) return
     const parent = path.dirname(current)
-    if (parent === current) return
+    if (!isWithinRoot(root, parent)) return
     current = parent
   }
 }
@@ -149,16 +150,17 @@ export function createLocalArtifactStorage(root: string): ArtifactStorage {
   if (!path.isAbsolute(root)) {
     throw new Error("HUB_ARTIFACT_STORAGE_PATH must be an absolute path.")
   }
+  const normalizedRoot = path.resolve(root)
   return {
     async put(contentDigest: string, bytes: Uint8Array): Promise<StoredArtifact> {
       const key = artifactKey(contentDigest)
       if (calculateContentDigest(bytes) !== contentDigest) {
         throw new Error("Artifact bytes do not match the content digest.")
       }
-      const { destination, resolvedRoot } = await resolveArtifactPath(root, key, true)
+      const { destination, resolvedRoot } = await resolveArtifactPath(normalizedRoot, key, true)
       try {
         await verifyExisting(resolvedRoot, destination, contentDigest)
-        await syncDirectoryChain(path.dirname(destination))
+        await syncDirectoryChain(path.dirname(destination), resolvedRoot)
         return { key, created: false }
       } catch (error) {
         if (!isFileSystemError(error, "ENOENT")) throw error
@@ -178,17 +180,17 @@ export function createLocalArtifactStorage(root: string): ArtifactStorage {
           await file.close()
         }
         try {
-          const resolved = await resolveArtifactPath(root, key, false)
+          const resolved = await resolveArtifactPath(normalizedRoot, key, false)
           if (resolved.destination !== destination) {
             throw new Error("Artifact storage path changed during the write.")
           }
           await link(temporary, destination)
-          await syncDirectoryChain(path.dirname(destination))
+          await syncDirectoryChain(path.dirname(destination), resolvedRoot)
           return { key, created: true }
         } catch (error) {
           if (!isFileSystemError(error, "EEXIST")) throw error
           await verifyExisting(resolvedRoot, destination, contentDigest)
-          await syncDirectoryChain(path.dirname(destination))
+          await syncDirectoryChain(path.dirname(destination), resolvedRoot)
           return { key, created: false }
         }
       } finally {
@@ -197,7 +199,7 @@ export function createLocalArtifactStorage(root: string): ArtifactStorage {
     },
 
     async read(key: string): Promise<Uint8Array> {
-      const { destination, resolvedRoot } = await resolveArtifactPath(root, key, false)
+      const { destination, resolvedRoot } = await resolveArtifactPath(normalizedRoot, key, false)
       const file = await openArtifact(resolvedRoot, destination)
       try {
         return await file.readFile()
@@ -208,7 +210,7 @@ export function createLocalArtifactStorage(root: string): ArtifactStorage {
 
     async remove(key: string): Promise<void> {
       try {
-        const { destination, resolvedRoot } = await resolveArtifactPath(root, key, false)
+        const { destination, resolvedRoot } = await resolveArtifactPath(normalizedRoot, key, false)
         await validateArtifactPath(resolvedRoot, destination)
         await unlink(destination)
       } catch (error) {

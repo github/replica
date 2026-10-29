@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto"
-import { mkdir, open, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises"
+import { mkdir, open, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises"
 import path from "node:path"
 
 import { describe, expect, it, onTestFinished, vi } from "vitest"
@@ -33,14 +33,9 @@ function bytesInShard(shard: string) {
   }
 }
 
-function directoryChainLength(directory: string) {
-  let length = 1
-  let current = directory
-  while (path.dirname(current) !== current) {
-    length += 1
-    current = path.dirname(current)
-  }
-  return length
+async function directoryIdentity(directory: string) {
+  const status = await stat(directory)
+  return `${status.dev}:${status.ino}`
 }
 
 async function expectSymlinkRejected({
@@ -133,7 +128,6 @@ describe("createLocalArtifactStorage()", () => {
     const bytes = Buffer.from("durable artifact")
     const contentDigest = digest(bytes)
     const location = artifactPath(root, contentDigest)
-    const expectedDirectorySyncs = directoryChainLength(location.shard)
     const probePath = path.join(process.cwd(), `.artifact-sync-probe-${randomUUID()}`)
     const probe = await open(probePath, "w")
     onTestFinished(async () => {
@@ -141,16 +135,25 @@ describe("createLocalArtifactStorage()", () => {
       await rm(probePath, { force: true })
     })
     const fileHandlePrototype = Object.getPrototypeOf(probe) as typeof probe
-    let directorySyncs = 0
+    const syncedDirectories: string[] = []
     vi.spyOn(fileHandlePrototype, "sync").mockImplementation(async function (this: typeof probe) {
-      if ((await this.stat()).isDirectory()) directorySyncs += 1
+      const status = await this.stat()
+      if (status.isDirectory()) syncedDirectories.push(`${status.dev}:${status.ino}`)
     })
 
     await expect(storage.put(contentDigest, bytes)).resolves.toMatchObject({ created: true })
-    expect(directorySyncs).toBe(expectedDirectorySyncs)
+    const expectedDirectories = await Promise.all([
+      directoryIdentity(location.shard),
+      directoryIdentity(location.algorithm),
+      directoryIdentity(root),
+    ])
+    const outsideRoot = await directoryIdentity(path.dirname(root))
+    expect(syncedDirectories).toEqual(expectedDirectories)
+    expect(syncedDirectories).not.toContain(outsideRoot)
 
     await expect(storage.put(contentDigest, bytes)).resolves.toMatchObject({ created: false })
-    expect(directorySyncs).toBe(expectedDirectorySyncs * 2)
+    expect(syncedDirectories).toEqual([...expectedDirectories, ...expectedDirectories])
+    expect(syncedDirectories).not.toContain(outsideRoot)
   })
 
   it("syncs the destination directory chain after a concurrent EEXIST dedupe", async () => {
@@ -158,7 +161,7 @@ describe("createLocalArtifactStorage()", () => {
     const storage = createLocalArtifactStorage(root)
     const bytes = Buffer.from("concurrent durable artifact")
     const contentDigest = digest(bytes)
-    const expectedDirectorySyncs = directoryChainLength(artifactPath(root, contentDigest).shard)
+    const location = artifactPath(root, contentDigest)
     const probePath = path.join(process.cwd(), `.artifact-sync-probe-${randomUUID()}`)
     const probe = await open(probePath, "w")
     onTestFinished(async () => {
@@ -167,7 +170,7 @@ describe("createLocalArtifactStorage()", () => {
     })
     const fileHandlePrototype = Object.getPrototypeOf(probe) as typeof probe
     let regularFileSyncs = 0
-    let directorySyncs = 0
+    const syncedDirectories: string[] = []
     let releaseRegularFileSyncs!: () => void
     const bothTemporaryFilesSynced = new Promise<void>((resolve) => {
       releaseRegularFileSyncs = resolve
@@ -175,7 +178,7 @@ describe("createLocalArtifactStorage()", () => {
     vi.spyOn(fileHandlePrototype, "sync").mockImplementation(async function (this: typeof probe) {
       const status = await this.stat()
       if (status.isDirectory()) {
-        directorySyncs += 1
+        syncedDirectories.push(`${status.dev}:${status.ino}`)
       } else {
         regularFileSyncs += 1
         if (regularFileSyncs === 2) releaseRegularFileSyncs()
@@ -190,7 +193,15 @@ describe("createLocalArtifactStorage()", () => {
 
     expect(results.filter(({ created }) => created)).toHaveLength(1)
     expect(results.filter(({ created }) => !created)).toHaveLength(1)
-    expect(directorySyncs).toBe(expectedDirectorySyncs * 2)
+    const expectedDirectories = await Promise.all([
+      directoryIdentity(location.shard),
+      directoryIdentity(location.algorithm),
+      directoryIdentity(root),
+    ])
+    expect(syncedDirectories.toSorted()).toEqual(
+      [...expectedDirectories, ...expectedDirectories].toSorted(),
+    )
+    expect(syncedDirectories).not.toContain(await directoryIdentity(path.dirname(root)))
   })
 
   it.each(["writeFile", "sync"] as const)(
@@ -249,29 +260,36 @@ describe("createLocalArtifactStorage()", () => {
     readFile.mockRestore()
   })
 
-  it("rejects a symbolic-link storage root without reading, replaying, or removing outside content", async () => {
-    const root = storageRoot()
-    const outside = storageRoot()
-    const bytes = Buffer.from("outside root sentinel")
-    const contentDigest = digest(bytes)
-    const location = artifactPath(outside, contentDigest)
-    await mkdir(location.shard, { recursive: true })
-    await writeFile(location.artifact, bytes)
-    await symlink(outside, root, "dir")
-    const writeBytes = Buffer.from("outside write probe")
+  it.each([
+    { name: "directly", suffix: "" },
+    { name: "with a trailing separator", suffix: path.sep },
+    { name: "with a trailing current-directory segment", suffix: `${path.sep}.` },
+  ])(
+    "rejects a symbolic-link storage root $name without accessing outside content",
+    async ({ suffix }) => {
+      const root = storageRoot()
+      const outside = storageRoot()
+      const bytes = Buffer.from("outside root sentinel")
+      const contentDigest = digest(bytes)
+      const location = artifactPath(outside, contentDigest)
+      await mkdir(location.shard, { recursive: true })
+      await writeFile(location.artifact, bytes)
+      await symlink(outside, root, "dir")
+      const writeBytes = Buffer.from("outside write probe")
 
-    await expectSymlinkRejected({
-      root,
-      key: location.key,
-      contentDigest,
-      bytes,
-      sentinel: location.artifact,
-      writeProbe: {
-        bytes: writeBytes,
-        outsidePath: artifactPath(outside, digest(writeBytes)).artifact,
-      },
-    })
-  })
+      await expectSymlinkRejected({
+        root: `${root}${suffix}`,
+        key: location.key,
+        contentDigest,
+        bytes,
+        sentinel: location.artifact,
+        writeProbe: {
+          bytes: writeBytes,
+          outsidePath: artifactPath(outside, digest(writeBytes)).artifact,
+        },
+      })
+    },
+  )
 
   it.each(["sha256", "shard"] as const)(
     "rejects a symbolic-link %s directory without reading, replaying, or removing outside content",
