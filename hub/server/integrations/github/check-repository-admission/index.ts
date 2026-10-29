@@ -3,6 +3,9 @@ import { createInstallationToken } from "#server/integrations/github/create-inst
 import {
   collaboratorPermissionSchema,
   installedRepositoriesSchema,
+  repositoryAdmissionBatchSize,
+  repositoryAdmissionLimit,
+  repositoryAdmissionTimeoutMs,
 } from "#server/integrations/github/check-repository-admission/constants"
 import { GitHubApiError } from "#server/integrations/github/github-api-error"
 import { requestGitHubApi } from "#server/integrations/github/request-github-api"
@@ -13,12 +16,15 @@ async function hasPermission(
   token: string,
   profile: GitHubUserProfile,
   repository: string,
+  signal: AbortSignal,
 ): Promise<boolean> {
   let response: unknown
   try {
     response = await requestGitHubApi(
       `/repos/${repository}/collaborators/${encodeURIComponent(profile.username)}/permission`,
       token,
+      "GET",
+      signal,
     )
   } catch (error) {
     if (error instanceof GitHubApiError && error.status === 404) return false
@@ -40,18 +46,32 @@ export async function checkRepositoryAdmission(
   profile: GitHubUserProfile,
 ): Promise<boolean> {
   const token = await createInstallationToken(credentials)
-  for (let page = 1; page <= 100; page++) {
-    const response = installedRepositoriesSchema.parse(
-      await requestGitHubApi(`/installation/repositories?per_page=100&page=${page}`, token),
-    )
-    for (const repository of response.repositories) {
-      if (await hasPermission(token, profile, repository.full_name)) return true
+  const signal = AbortSignal.timeout(repositoryAdmissionTimeoutMs)
+  const response = installedRepositoriesSchema.parse(
+    await requestGitHubApi(
+      `/installation/repositories?per_page=${repositoryAdmissionLimit}&page=1`,
+      token,
+      "GET",
+      signal,
+    ),
+  )
+  const repositories = response.repositories.filter((repository) => repository.private)
+  for (let offset = 0; offset < repositories.length; offset += repositoryAdmissionBatchSize) {
+    const batch = repositories.slice(offset, offset + repositoryAdmissionBatchSize)
+    if (
+      (
+        await Promise.all(
+          batch.map((repository) => hasPermission(token, profile, repository.full_name, signal)),
+        )
+      ).some(Boolean)
+    ) {
+      return true
     }
-    if (response.repositories.length < 100) return false
   }
+  if (response.repositories.length < repositoryAdmissionLimit) return false
   throw new AuthenticationError(
     503,
     "repository_limit",
-    "Repository admission exceeded the supported page limit.",
+    "Repository admission exceeded the supported repository limit.",
   )
 }

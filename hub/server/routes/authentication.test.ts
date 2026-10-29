@@ -251,6 +251,35 @@ describe("authentication routes", () => {
     )
   })
 
+  it("sets protected session state and redirects after a successful callback", async () => {
+    const runtime = authentication()
+    const baseUrl = await serve(runtime)
+    const state = "s".repeat(43)
+
+    const response = await fetch(
+      `${baseUrl}/api/auth/github/callback?code=authorization-code&state=${state}`,
+      {
+        headers: { cookie: `__Host-replica-authorization=${browserToken}` },
+        redirect: "manual",
+      },
+    )
+
+    expect(response.status).toBe(303)
+    expect(response.headers.get("location")).toBe("https://hub.example/?authentication=complete")
+    const cookies = response.headers.get("set-cookie") ?? ""
+    expect(cookies).toMatch(
+      new RegExp(
+        `__Host-replica-session=session-token; Path=/; HttpOnly; Secure; SameSite=Lax`,
+        "i",
+      ),
+    )
+    expect(cookies).toMatch(
+      /__Host-replica-authorization=; Path=\/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Lax/i,
+    )
+    expect(cookies).toMatch(/__Host-replica-csrf=[\w-]{43}; Path=\/; Secure; SameSite=Lax/i)
+    expect(runtime.service.complete).toHaveBeenCalledWith("authorization-code", state, browserToken)
+  })
+
   it("allows the initiation limit and rejects the next request without calling the service", async () => {
     const runtime = authentication()
     const baseUrl = await serve(runtime)

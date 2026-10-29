@@ -4,6 +4,7 @@ export async function requestGitHubApi(
   path: string,
   token: string,
   method = "GET",
+  signal?: AbortSignal,
 ): Promise<unknown> {
   let response: Response
   try {
@@ -14,7 +15,9 @@ export async function requestGitHubApi(
         Accept: "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
       },
-      signal: AbortSignal.timeout(10_000),
+      signal: signal
+        ? AbortSignal.any([signal, AbortSignal.timeout(10_000)])
+        : AbortSignal.timeout(10_000),
       redirect: "error",
     })
   } catch {

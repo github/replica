@@ -32,3 +32,6 @@ export const SignedIn: Story = {
 export const Unconfigured: Story = {
   args: { configured: false },
 }
+export const AuthorizationFailed: Story = {
+  args: { error: "GitHub could not authorize this Hub session." },
+}

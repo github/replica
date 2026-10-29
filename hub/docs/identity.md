@@ -12,7 +12,7 @@ The callback consumes an attempt once, checks the same-browser binding and curre
 
 Hub sessions use a random opaque cookie and store only its digest. Authentication and session cookies are `HttpOnly`, `SameSite=Lax`, path-scoped, and `Secure` on HTTPS. State-changing routes require the configured origin and a matching CSRF cookie and header. Authentication routes omit request payloads from logs.
 
-`HUB_ADMISSION_POLICY=hub-managed` is the default. GitHub proves identity, and no repository permission check gates sign-in. `legacy-repository` is an explicit compatibility policy that uses the separate GitHub source integration to require access to at least one installed repository. The GitHub authentication adapter never reads installation credentials or performs repository authorization.
+`HUB_ADMISSION_POLICY=hub-managed` is the default. GitHub proves identity, and no repository permission check gates sign-in. `legacy-repository` is an explicit compatibility policy that uses the separate GitHub source integration to require explicit collaboration on one of the first 100 private installed repositories. Each check has a ten-second total deadline. Installations that exceed that bound must use Hub-managed admission or a later synchronized authorization policy. The GitHub authentication adapter never reads installation credentials or performs repository authorization.
 
 Sign-out revokes the current database session. Fresh verification reuses GitHub authorization and must return the same external identity. An active Hub administrator membership with verification less than five minutes old may revoke all sessions; revocation also supersedes callbacks that started earlier.
 
@@ -47,4 +47,4 @@ Database credentials use AES-256-GCM with contextual additional authenticated da
 
 This layer adds GitHub sign-in, session restoration, sign-out, fresh verification, global session revocation, and the minimal frontend needed to use them. It does not add invitations or membership administration, prototype authorization, GitHub permission synchronization, artifact ingestion, OIDC, account linking, SCIM, or product APIs.
 
-Apply the rewritten initial migration with `npm run db:deploy`. See [Database](database.md) for setup and schema rules.
+Apply migrations with `npm run db:deploy`. See [Database](database.md) for setup and schema rules.

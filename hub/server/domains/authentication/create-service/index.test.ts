@@ -33,6 +33,7 @@ type MockIdentityRecords = Mocked<IdentityRecords>
 function records(overrides: Partial<MockIdentityRecords> = {}) {
   const fixture = {
     currentAuthenticationProviderRevision: vi.fn().mockResolvedValue(providerRevision),
+    latestAuthenticationProviderRevision: vi.fn().mockResolvedValue(providerRevision),
     identityStoreState: vi.fn().mockResolvedValue({ sessionGeneration: 3 }),
     createAuthorizationAttempt: vi.fn().mockResolvedValue(undefined),
     consumeAuthorizationAttempt: vi.fn().mockResolvedValue(null),

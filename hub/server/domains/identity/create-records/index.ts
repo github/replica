@@ -1,5 +1,6 @@
 import { createAuthenticationProviderRevision } from "#server/repositories/authentication-providers/create-provider-revision"
 import { getCurrentAuthenticationProviderRevision } from "#server/repositories/authentication-providers/get-current-revision"
+import { getLatestAuthenticationProviderRevision } from "#server/repositories/authentication-providers/get-latest-revision"
 import { getAuthenticationProviderRevision } from "#server/repositories/authentication-providers/get-revision"
 import { consumeAuthorizationAttempt } from "#server/repositories/authorization-attempts/consume-attempt"
 import { createAuthorizationAttempt } from "#server/repositories/authorization-attempts/create-attempt"
@@ -42,6 +43,10 @@ export function createIdentityRecords(database: Prisma.TransactionClient): Ident
     saveMembership: saveInstallationMembership.bind(null, database),
     createAuthenticationProviderRevision: createAuthenticationProviderRevision.bind(null, database),
     currentAuthenticationProviderRevision: getCurrentAuthenticationProviderRevision.bind(
+      null,
+      database,
+    ),
+    latestAuthenticationProviderRevision: getLatestAuthenticationProviderRevision.bind(
       null,
       database,
     ),

@@ -1,5 +1,8 @@
 export class GitHubApiError extends Error {
-  constructor(readonly status: number) {
+  readonly status: number
+
+  constructor(status: number) {
     super("GitHub API request failed.")
+    this.status = status
   }
 }

@@ -29,20 +29,21 @@ export function ensureGitHubProviderRevision(
   configuration: GitHubUserAuthConfiguration,
 ) {
   return store.lock(async (records) => {
-    const current = await records.currentAuthenticationProviderRevision("github")
+    const latest = await records.latestAuthenticationProviderRevision("github")
     const stored = storedConfiguration(configuration)
     if (
-      current?.authenticationProvider.type === "github" &&
-      current.issuer === configuration.issuer &&
-      matches(current.configuration, stored)
+      latest?.authenticationProvider.enabled &&
+      latest.authenticationProvider.type === "github" &&
+      latest.issuer === configuration.issuer &&
+      matches(latest.configuration, stored)
     ) {
-      return current
+      return latest
     }
     return records.createAuthenticationProviderRevision({
       key: "github",
       type: "github",
       enabled: true,
-      revision: (current?.revision ?? 0) + 1,
+      revision: (latest?.revision ?? 0) + 1,
       issuer: configuration.issuer,
       configuration: stored,
     })

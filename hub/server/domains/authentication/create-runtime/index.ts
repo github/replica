@@ -55,16 +55,17 @@ export async function createAuthenticationRuntime(environment: NodeJS.ProcessEnv
   const origin = readOrigin(environment)
   const configuration = readGitHubAuthentication(environment, origin)
   const store = createIdentityStore(prisma)
+  const admissionPolicy = createAdmissionPolicy(environment, store)
+  const trustedProxyHops = readTrustedProxyHops(environment)
   const providerRevision = configuration
     ? await ensureGitHubProviderRevision(store, configuration)
     : null
-  const admissionPolicy = createAdmissionPolicy(environment, store)
   const settings: AuthenticationSettings = {
     origin: origin.origin,
     secureCookies: origin.protocol === "https:",
     configured: configuration !== null,
     admissionPolicy: admissionPolicy.name,
-    trustedProxyHops: readTrustedProxyHops(environment),
+    trustedProxyHops,
   }
   return {
     service: createAuthenticationService({
