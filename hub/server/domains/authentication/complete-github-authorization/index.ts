@@ -137,7 +137,16 @@ export async function completeGitHubAuthorization(
       !(membership?.status === "active" && membership.source !== "synchronized") &&
       !invitation
     ) {
-      throw admissionFailure
+      await records.audit({
+        event: "authentication.admission_failed",
+        outcome: "failed",
+        actorUserId: identity?.userId ?? null,
+        sessionId: null,
+        authenticationProviderRevisionId: providerRevisionId,
+        targetMembershipId: membership?.id ?? null,
+        context: { reason: admissionFailure.code },
+      })
+      return { failure: admissionFailure, purpose }
     }
     if (
       purpose === "sign-in" &&
@@ -339,6 +348,10 @@ export async function completeGitHubAuthorization(
   })
   if ("denied" in result && result.denied) {
     throw new AuthenticationError(403, "admission_denied", "This identity is not admitted.")
+  }
+  if ("failure" in result) {
+    if (result.failure instanceof Error) throw result.failure
+    throw new AuthenticationError(503, "admission_failed", "Admission failed.")
   }
   return result
 }

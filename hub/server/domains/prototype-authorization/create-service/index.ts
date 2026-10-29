@@ -353,6 +353,8 @@ function prototypeDto(prototype: {
   workspaceId: string
   createdByUserId: string
   name: string
+  authorizationMode: string
+  sourceRepositoryId: string | null
   archivedAt: Date | null
   createdAt: Date
   updatedAt: Date
@@ -362,6 +364,8 @@ function prototypeDto(prototype: {
     workspaceId: prototype.workspaceId,
     createdByUserId: prototype.createdByUserId,
     name: prototype.name,
+    authorizationMode: prototype.authorizationMode,
+    sourceRepositoryId: prototype.sourceRepositoryId,
     archivedAt: prototype.archivedAt,
     createdAt: prototype.createdAt,
     updatedAt: prototype.updatedAt,
@@ -864,6 +868,8 @@ export function createPrototypeAuthorizationService({
         workspaceId: prototype.workspaceId,
         createdByUserId: prototype.createdByUserId,
         name: prototype.name,
+        authorizationMode: prototype.authorizationMode,
+        sourceRepositoryId: prototype.sourceRepositoryId,
         archivedAt: prototype.archivedAt,
         createdAt: prototype.createdAt,
         updatedAt: prototype.updatedAt,

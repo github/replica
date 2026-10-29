@@ -41,6 +41,8 @@ The evaluator applies this order:
 
 Every decision reports whether access is allowed, the effective role, the source, and a stable reason. GitHub baseline decisions also report the repository source, immutable GitHub repository ID, raw permission, last confirmation time, and synchronization status. Routes use this evaluator instead of reimplementing precedence. Hub consults the synchronized baseline only when explicit Hub rules produce no decision, so an unavailable lower-precedence source cannot block an explicit deny or role. Prototype listing checks workspace access independently of the current page, so an authorized user receives an empty terminal page instead of an authorization error.
 
+Prototype read and list responses include `authorizationMode` and `sourceRepositoryId`. The authorization-policy mutation returns that same prototype shape, so administrators can inspect the effective configuration even when an explicit Hub role wins the access decision.
+
 The fixed mapping is:
 
 | GitHub permission | Hub prototype baseline |
