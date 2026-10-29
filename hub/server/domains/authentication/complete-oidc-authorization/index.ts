@@ -185,6 +185,23 @@ export async function completeOidcAuthorization(
       })
       return { denied: true as const }
     }
+    if (
+      purpose === "sign-in" &&
+      invitation?.role === "administrator" &&
+      profile.role !== "administrator"
+    ) {
+      await records.audit({
+        event: "authentication.admission_denied",
+        outcome: "denied",
+        actorUserId: identity?.userId ?? null,
+        sessionId: null,
+        authenticationProviderRevisionId: oidcProviderRevisionId,
+        targetMembershipId: membership?.id ?? null,
+        invitationId: invitation.id,
+        context: { reason: "administrator_role_required" },
+      })
+      return { denied: true as const }
+    }
     if (purpose === "bootstrap") {
       const completed =
         (await records.activeAdministratorCount()) === 0 && (await records.completeBootstrap(now()))
@@ -262,14 +279,10 @@ export async function completeOidcAuthorization(
         targetMembershipId: membership.id,
       })
     } else if (invitation && membership?.status !== "suspended") {
-      const invitedRole =
-        invitation.role === "administrator" && profile.role === "administrator"
-          ? "administrator"
-          : "member"
       membership = await records.saveMembership({
         userId: identity.userId,
         status: "active",
-        role: invitedRole,
+        role: invitation.role,
         source: "invitation",
         suspendedAt: null,
         removedAt: null,
