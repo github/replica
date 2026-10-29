@@ -222,6 +222,7 @@ async function saveBaseline(
       select: { generation: true },
     })
     if (!attempt || attempt.generation !== baseline.admissionGeneration) {
+      if (skipOlderConfirmation) return "superseded"
       throw new AuthenticationError(
         409,
         "github_authorization_changed",
@@ -366,6 +367,7 @@ async function removeRepositorySource(
   database: Prisma.TransactionClient,
   repositorySourceId: string,
   removedAt: Date,
+  enforceMemberships = true,
 ): Promise<void> {
   await lockRepository(database, repositorySourceId)
   await database.gitHubRepositorySource.update({
@@ -382,7 +384,7 @@ async function removeRepositorySource(
     where: { repositorySourceId },
     data: { status: "removed", synchronizationStatus: "removed", removedAt },
   })
-  await enforceSynchronizedMemberships(database, removedAt)
+  if (enforceMemberships) await enforceSynchronizedMemberships(database, removedAt)
 }
 
 async function suspendInstallationSources(
@@ -453,13 +455,25 @@ export function createGitHubAuthorizationService({
     return credentials(store, createGitHubIntegrationCredentialProvider(environment))
   }
 
-  async function claimAdmissionGeneration(repositorySourceId: string, subject: string) {
+  async function claimAdmissionGeneration(
+    repositorySourceId: string,
+    subject: string,
+    observedSourceGeneration: number,
+    requireAdmissionEnabled: boolean,
+  ) {
     return store.lock(async (_records, transaction) => {
       await lockRepository(transaction, repositorySourceId)
       const source = await transaction.gitHubRepositorySource.findUnique({
         where: { id: repositorySourceId },
       })
-      if (!source || source.status !== "active" || !source.admissionEnabled) return null
+      if (
+        !source ||
+        source.status !== "active" ||
+        source.synchronizationGeneration !== observedSourceGeneration ||
+        (requireAdmissionEnabled && !source.admissionEnabled)
+      ) {
+        return null
+      }
       const attempt = await transaction.gitHubAdmissionAttempt.upsert({
         where: { repositorySourceId_subject: { repositorySourceId, subject } },
         create: { repositorySourceId, subject, generation: 1 },
@@ -494,6 +508,7 @@ export function createGitHubAuthorizationService({
         },
       })
     })
+    let phase: "credentials" | "token" | "repository" | "permissions" | "apply" = "credentials"
     try {
       const integration = await sourceCredentials()
       if (
@@ -506,10 +521,13 @@ export function createGitHubAuthorizationService({
           "The GitHub source integration configuration changed. Relink the repository.",
         )
       }
+      phase = "token"
       const token = await createInstallationToken(integration)
+      phase = "repository"
       const repository = repositorySchema.parse(
         await requestGitHubApi(`/repositories/${source.githubRepositoryId}`, token),
       )
+      phase = "permissions"
       const identities = []
       let identityCursor: string | undefined
       while (true) {
@@ -526,6 +544,13 @@ export function createGitHubAuthorizationService({
       }
       const confirmedAt = new Date()
       const results = await mapWithConcurrency(identities, 10, async (identity) => {
+        const claim = await claimAdmissionGeneration(
+          source.id,
+          identity.subject,
+          source.synchronizationGeneration,
+          false,
+        )
+        if (!claim) return null
         const rawPermission = await permissionFor(
           token,
           identity.username!,
@@ -536,10 +561,12 @@ export function createGitHubAuthorizationService({
         return {
           userId: identity.userId,
           subject: identity.subject,
+          admissionGeneration: claim.admissionGeneration,
           rawPermission,
           ...mapGitHubPermission(rawPermission),
         }
       })
+      phase = "apply"
       const applied = await store.lock(async (_records, transaction) => {
         await lockRepository(transaction, source.id)
         const current = await transaction.gitHubRepositorySource.findUnique({
@@ -553,7 +580,7 @@ export function createGitHubAuthorizationService({
           return false
         }
         const actor = actorSessionToken
-          ? await currentAdministrator(store, actorSessionToken, transaction)
+          ? await currentAdministrator(store, actorSessionToken, transaction, false)
           : null
         await transaction.gitHubRepositorySource.update({
           where: { id: source.id },
@@ -571,6 +598,7 @@ export function createGitHubAuthorizationService({
           },
         })
         for (const result of results) {
+          if (!result) continue
           await saveBaseline(
             transaction,
             result.userId,
@@ -578,7 +606,7 @@ export function createGitHubAuthorizationService({
               repositorySourceId: source.id,
               sourceGeneration: source.synchronizationGeneration,
               subject: result.subject,
-              admissionGeneration: 0,
+              admissionGeneration: result.admissionGeneration,
               persist: true,
               rawPermission: result.rawPermission,
               admissionEligible: result.admissionEligible,
@@ -587,7 +615,7 @@ export function createGitHubAuthorizationService({
             },
             false,
             true,
-            false,
+            true,
           )
         }
         await enforceSynchronizedMemberships(transaction, confirmedAt)
@@ -638,25 +666,36 @@ export function createGitHubAuthorizationService({
         }
         return database.gitHubRepositorySource.findUnique({ where: { id: source.id } })
       }
-      const failed = await database.gitHubRepositorySource.updateMany({
-        where: {
-          id: source.id,
-          status: "active",
-          synchronizationGeneration: source.synchronizationGeneration,
-        },
-        data: {
-          synchronizationStatus: "failed",
-          synchronizationError:
-            error instanceof GitHubApiError
-              ? `github_${error.status}`
-              : error instanceof AuthenticationError
-                ? error.code
-                : "provider_unavailable",
-        },
-      })
+      const synchronizationError =
+        phase === "apply"
+          ? "apply_failed"
+          : error instanceof GitHubApiError
+            ? `github_${error.status}`
+            : error instanceof AuthenticationError
+              ? error.code
+              : ["token", "repository", "permissions"].includes(phase)
+                ? "provider_response_invalid"
+                : "provider_unavailable"
+      let failed
+      try {
+        failed = await database.gitHubRepositorySource.updateMany({
+          where: {
+            id: source.id,
+            status: "active",
+            synchronizationGeneration: source.synchronizationGeneration,
+          },
+          data: {
+            synchronizationStatus: "failed",
+            synchronizationError,
+          },
+        })
+      } catch {
+        throw error
+      }
       if (failed.count === 0) {
         return database.gitHubRepositorySource.findUnique({ where: { id: source.id } })
       }
+      if (phase === "apply") throw error
       if (error instanceof AuthenticationError) throw error
       throw new AuthenticationError(
         503,
@@ -749,6 +788,13 @@ export function createGitHubAuthorizationService({
           continue
         }
         try {
+          const claim = await claimAdmissionGeneration(
+            source.id,
+            profile.subject,
+            source.synchronizationGeneration,
+            true,
+          )
+          if (!claim) continue
           let repository: z.infer<typeof repositorySchema>
           try {
             repository = repositorySchema.parse(
@@ -772,8 +818,6 @@ export function createGitHubAuthorizationService({
             }
             throw error
           }
-          const claim = await claimAdmissionGeneration(source.id, profile.subject)
-          if (!claim) continue
           const rawPermission = await permissionFor(
             token,
             profile.username,
@@ -909,6 +953,30 @@ export function createGitHubAuthorizationService({
         select: { workspaceId: true },
       })
       return [...new Set(prototypes.map(({ workspaceId }) => workspaceId))]
+    },
+
+    async prototypeIds(transaction, userId, workspaceId, now = new Date()) {
+      const cutoff = new Date(now.getTime() - (await lastKnownGoodSeconds(transaction)) * 1_000)
+      const prototypes = await transaction.prototype.findMany({
+        where: {
+          workspaceId,
+          authorizationMode: "github-synchronized",
+          grants: { none: { userId, effect: "deny" } },
+          sourceRepository: {
+            status: "active",
+            synchronizedAccess: {
+              some: {
+                userId,
+                status: "active",
+                mappedPrototypeRole: { not: null },
+                lastConfirmedAt: { gte: cutoff },
+              },
+            },
+          },
+        },
+        select: { id: true },
+      })
+      return prototypes.map(({ id }) => id)
     },
 
     async listRepositories(sessionToken) {
@@ -1179,12 +1247,16 @@ export function createGitHubAuthorizationService({
           const now = new Date()
           if (event === "installation" && payload.data.action === "deleted") {
             const sources = await transaction.gitHubRepositorySource.findMany({
-              where: { installationId: integration.installationId, status: "active" },
+              where: {
+                installationId: integration.installationId,
+                status: { in: ["active", "suspended"] },
+              },
               select: { id: true },
             })
             for (const source of sources) {
-              await removeRepositorySource(transaction, source.id, now)
+              await removeRepositorySource(transaction, source.id, now, false)
             }
+            await enforceSynchronizedMemberships(transaction, now)
           } else if (event === "installation" && payload.data.action === "suspend") {
             await suspendInstallationSources(transaction, integration.installationId, now)
           } else if (event === "installation" && payload.data.action === "unsuspend") {
@@ -1202,12 +1274,16 @@ export function createGitHubAuthorizationService({
             if (repositoryId) dirtyIds.add(String(repositoryId))
             if (removedIds.size > 0) {
               const removedSources = await transaction.gitHubRepositorySource.findMany({
-                where: { githubRepositoryId: { in: [...removedIds] }, status: "active" },
+                where: {
+                  githubRepositoryId: { in: [...removedIds] },
+                  status: { in: ["active", "suspended"] },
+                },
                 select: { id: true },
               })
               for (const source of removedSources) {
-                await removeRepositorySource(transaction, source.id, now)
+                await removeRepositorySource(transaction, source.id, now, false)
               }
+              await enforceSynchronizedMemberships(transaction, now)
             }
             if (dirtyIds.size > 0) {
               await transaction.gitHubRepositorySource.updateMany({

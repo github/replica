@@ -158,13 +158,29 @@ async function requireActiveTarget(database: Prisma.TransactionClient, userId: s
 
 async function preserveManualAdministration(
   database: Prisma.TransactionClient,
+  actor: Awaited<ReturnType<typeof currentSession>>,
   userId: string,
   change: GrantInput,
 ): Promise<void> {
   if (change.effect !== "allow" || change.role !== "administrator") return
-  await database.installationMembership.updateMany({
-    where: { userId, source: "synchronized", status: "active" },
+  const membership = await database.installationMembership.findUnique({
+    where: { userId },
+    select: { id: true, source: true, status: true },
+  })
+  if (membership?.source !== "synchronized" || membership.status !== "active") return
+  const changed = await database.installationMembership.updateMany({
+    where: { id: membership.id, source: "synchronized", status: "active" },
     data: { source: "manual" },
+  })
+  if (changed.count === 0) return
+  await saveSecurityAudit(database, {
+    event: "membership.synchronized.preserve",
+    actorUserId: actor.userId,
+    sessionId: actor.id,
+    authenticationProviderRevisionId: actor.authenticationProviderRevisionId,
+    targetMembershipId: membership.id,
+    targetUserId: userId,
+    context: { reason: "product_administration" },
   })
 }
 
@@ -450,10 +466,11 @@ async function readAccessiblePrototypePage({
   cursor?: string
   limit: number
 }) {
-  if (!baseline) {
-    const accessWhere = workspaceGrant
-      ? { grants: { none: { userId, effect: "deny" as const } } }
-      : { grants: { some: { userId, effect: "allow" as const } } }
+  if (workspaceGrant?.effect === "allow" || !baseline) {
+    const accessWhere =
+      workspaceGrant?.effect === "allow"
+        ? { grants: { none: { userId, effect: "deny" as const } } }
+        : { grants: { some: { userId, effect: "allow" as const } } }
     const items = await database.prototype.findMany({
       where: {
         workspaceId,
@@ -465,11 +482,46 @@ async function readAccessiblePrototypePage({
     })
     return pageResult(items.map(prototypeDto), limit)
   }
+  const baselinePrototypeIds = baseline.prototypeIds
+    ? await baseline.prototypeIds(database, userId, workspaceId)
+    : []
+  if (!baseline.prototypeIds) {
+    const items = []
+    let scanCursor = cursor
+    while (items.length <= limit) {
+      const candidates = await database.prototype.findMany({
+        where: { workspaceId, ...(scanCursor ? { id: { gt: scanCursor } } : {}) },
+        include: { grants: { where: { userId } } },
+        orderBy: { id: "asc" },
+        take: 100,
+      })
+      if (candidates.length === 0) break
+      for (const candidate of candidates) {
+        scanCursor = candidate.id
+        if (
+          (await prototypeAccessDecision(baseline, database, userId, workspaceGrant, candidate))
+            .allowed
+        ) {
+          items.push(prototypeDto(candidate))
+        }
+        if (items.length > limit) break
+      }
+      if (candidates.length < 100) break
+    }
+    return pageResult(items, limit)
+  }
   const items = []
   let scanCursor = cursor
   while (items.length <= limit) {
     const candidates = await database.prototype.findMany({
-      where: { workspaceId, ...(scanCursor ? { id: { gt: scanCursor } } : {}) },
+      where: {
+        workspaceId,
+        ...(scanCursor ? { id: { gt: scanCursor } } : {}),
+        OR: [
+          { grants: { some: { userId, effect: "allow" } } },
+          ...(baselinePrototypeIds.length > 0 ? [{ id: { in: baselinePrototypeIds } }] : []),
+        ],
+      },
       include: { grants: { where: { userId } } },
       orderBy: { id: "asc" },
       take: 100,
@@ -507,36 +559,42 @@ async function hasAnyPrototypeAccess({
 }) {
   const workspaceDecision = evaluatePrototypeAccess({ workspaceGrant })
   if (workspaceDecision.source !== "none") return workspaceDecision.allowed
-  if (!baseline) {
-    return Boolean(
-      await database.prototype.findFirst({
-        where: {
-          workspaceId,
-          grants: { some: { userId, effect: "allow" } },
-        },
-        select: { id: true },
-      }),
-    )
-  }
-  let cursor: string | undefined
-  while (true) {
-    const candidates = await database.prototype.findMany({
-      where: { workspaceId, ...(cursor ? { id: { gt: cursor } } : {}) },
-      include: { grants: { where: { userId } } },
-      orderBy: { id: "asc" },
-      take: 100,
-    })
-    for (const candidate of candidates) {
-      if (
-        (await prototypeAccessDecision(baseline, database, userId, workspaceGrant, candidate))
-          .allowed
-      ) {
-        return true
+  const baselinePrototypeIds = baseline?.prototypeIds
+    ? await baseline.prototypeIds(database, userId, workspaceId)
+    : []
+  if (baseline && !baseline.prototypeIds) {
+    let cursor: string | undefined
+    while (true) {
+      const candidates = await database.prototype.findMany({
+        where: { workspaceId, ...(cursor ? { id: { gt: cursor } } : {}) },
+        include: { grants: { where: { userId } } },
+        orderBy: { id: "asc" },
+        take: 100,
+      })
+      for (const candidate of candidates) {
+        if (
+          (await prototypeAccessDecision(baseline, database, userId, workspaceGrant, candidate))
+            .allowed
+        ) {
+          return true
+        }
       }
+      if (candidates.length < 100) return false
+      cursor = candidates.at(-1)?.id
     }
-    if (candidates.length < 100) return false
-    cursor = candidates.at(-1)?.id
   }
+  return Boolean(
+    await database.prototype.findFirst({
+      where: {
+        workspaceId,
+        OR: [
+          { grants: { some: { userId, effect: "allow" } } },
+          ...(baselinePrototypeIds.length > 0 ? [{ id: { in: baselinePrototypeIds } }] : []),
+        ],
+      },
+      select: { id: true },
+    }),
+  )
 }
 
 async function audit(
@@ -680,7 +738,7 @@ export function createPrototypeAuthorizationService({
           create: { workspaceId, userId: targetId, ...change },
           update: change,
         })
-        await preserveManualAdministration(transaction, targetUserId, change)
+        await preserveManualAdministration(transaction, actor, targetId, change)
         await audit(transaction, actor, {
           event: change.effect === "deny" ? "workspace.access.deny" : "workspace.access.grant",
           workspaceId,
@@ -940,7 +998,7 @@ export function createPrototypeAuthorizationService({
           create: { prototypeId, userId: targetId, ...change },
           update: change,
         })
-        await preserveManualAdministration(transaction, targetId, change)
+        await preserveManualAdministration(transaction, actor, targetId, change)
         await audit(transaction, actor, {
           event: change.effect === "deny" ? "prototype.access.deny" : "prototype.access.grant",
           workspaceId: prototype.workspaceId,

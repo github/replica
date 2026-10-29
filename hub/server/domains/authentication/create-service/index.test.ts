@@ -308,6 +308,9 @@ describe("createAuthenticationService()", () => {
         admit: vi.fn().mockResolvedValue({
           repositorySourceId: "00000000-0000-0000-0000-000000000001",
           sourceGeneration: 3,
+          subject: "42",
+          admissionGeneration: 4,
+          persist: true,
           rawPermission: "write",
           admissionEligible: true,
           prototypeRole: "editor",
@@ -435,6 +438,148 @@ describe("createAuthenticationService()", () => {
       now,
     )
     expect(saveBaseline).not.toHaveBeenCalled()
+  })
+
+  it.each(["manual", "invitation"] as const)(
+    "keeps an active %s member signed in when only the baseline save was superseded",
+    async (source) => {
+      const existingIdentity = {
+        id: "identity",
+        userId: "user",
+        provider: "github",
+        issuer: configuration.issuer,
+        subject: "42",
+        username: "octocat",
+        displayName: "Octocat",
+        avatarUrl: null,
+        user: { id: "user", displayName: "Octocat", avatarUrl: null },
+      }
+      const membership = {
+        id: "membership",
+        userId: "user",
+        status: "active" as const,
+        role: "member" as const,
+        source,
+        suspendedAt: null,
+        removedAt: null,
+      }
+      const identityRecords = records({
+        consumeAuthorizationAttempt: vi.fn().mockResolvedValue(attempt()),
+        externalIdentity: vi.fn().mockResolvedValue(existingIdentity),
+        membership: vi.fn().mockResolvedValue(membership),
+        updateUser: vi.fn().mockResolvedValue(existingIdentity.user),
+        saveExternalIdentity: vi.fn().mockResolvedValue(existingIdentity),
+        createSession: vi.fn().mockResolvedValue({
+          id: "session",
+          userId: "user",
+          externalIdentityId: "identity",
+          authenticationProviderRevisionId: providerRevision.id,
+          tokenDigest: "stored-digest",
+          signedInAt: now,
+          freshAuthorizedAt: now,
+        }),
+      })
+      const saveBaseline = vi
+        .fn()
+        .mockRejectedValue(
+          new AuthenticationError(
+            409,
+            "github_authorization_changed",
+            "GitHub authorization changed.",
+          ),
+        )
+      const options = dependencies(identityRecords, {
+        admissionPolicy: {
+          name: "github-synchronized",
+          admit: vi.fn().mockResolvedValue({
+            repositorySourceId: "00000000-0000-0000-0000-000000000001",
+            sourceGeneration: 3,
+            subject: "42",
+            admissionGeneration: 4,
+            persist: true,
+            rawPermission: "write",
+            admissionEligible: true,
+            prototypeRole: "editor",
+            confirmedAt: now,
+          }),
+          saveBaseline,
+        },
+      })
+      options.github.identify.mockResolvedValue({
+        subject: "42",
+        username: "octocat",
+        displayName: "Octocat",
+        avatarUrl: null,
+      })
+
+      await expect(
+        createAuthenticationService(options).complete("code", "state", "browser-token"),
+      ).resolves.toMatchObject({ purpose: "sign-in" })
+
+      expect(saveBaseline).toHaveBeenCalledOnce()
+      expect(identityRecords.createSession).toHaveBeenCalledOnce()
+    },
+  )
+
+  it("propagates a baseline save failure other than a superseded authorization", async () => {
+    const existingIdentity = {
+      id: "identity",
+      userId: "user",
+      provider: "github",
+      issuer: configuration.issuer,
+      subject: "42",
+      username: "octocat",
+      displayName: "Octocat",
+      avatarUrl: null,
+      user: { id: "user", displayName: "Octocat", avatarUrl: null },
+    }
+    const identityRecords = records({
+      consumeAuthorizationAttempt: vi.fn().mockResolvedValue(attempt()),
+      externalIdentity: vi.fn().mockResolvedValue(existingIdentity),
+      membership: vi.fn().mockResolvedValue({
+        id: "membership",
+        userId: "user",
+        status: "active",
+        role: "member",
+        source: "manual",
+        suspendedAt: null,
+        removedAt: null,
+      }),
+      updateUser: vi.fn().mockResolvedValue(existingIdentity.user),
+      saveExternalIdentity: vi.fn().mockResolvedValue(existingIdentity),
+    })
+    const options = dependencies(identityRecords, {
+      admissionPolicy: {
+        name: "github-synchronized",
+        admit: vi.fn().mockResolvedValue({
+          repositorySourceId: "00000000-0000-0000-0000-000000000001",
+          sourceGeneration: 3,
+          subject: "42",
+          admissionGeneration: 4,
+          persist: true,
+          rawPermission: "write",
+          admissionEligible: true,
+          prototypeRole: "editor",
+          confirmedAt: now,
+        }),
+        saveBaseline: vi
+          .fn()
+          .mockRejectedValue(
+            new AuthenticationError(500, "apply_failed", "The baseline could not be saved."),
+          ),
+      },
+    })
+    options.github.identify.mockResolvedValue({
+      subject: "42",
+      username: "octocat",
+      displayName: "Octocat",
+      avatarUrl: null,
+    })
+
+    await expect(
+      createAuthenticationService(options).complete("code", "state", "browser-token"),
+    ).rejects.toMatchObject({ status: 500, code: "apply_failed" })
+    expect(identityRecords.createSession).not.toHaveBeenCalled()
   })
 
   it("binds bootstrap enrollment to the configured one-use secret", async () => {

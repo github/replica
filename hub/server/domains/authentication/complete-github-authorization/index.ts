@@ -307,7 +307,17 @@ export async function completeGitHubAuthorization(
       }
     }
     if (admissionBaseline && admissionBaseline !== "legacy") {
-      await admissionPolicy.saveBaseline?.(transaction, identity.userId, admissionBaseline)
+      try {
+        await admissionPolicy.saveBaseline?.(transaction, identity.userId, admissionBaseline)
+      } catch (error) {
+        if (!(
+          error instanceof AuthenticationError &&
+          error.code === "github_authorization_changed" &&
+          membership?.source !== "synchronized"
+        )) {
+          throw error
+        }
+      }
     }
     const sessionToken = randomBytes(32).toString("base64url")
     const session = await records.createSession({

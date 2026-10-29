@@ -182,6 +182,9 @@ describe("createAuthenticationService() database behavior", () => {
           admit: vi.fn().mockResolvedValue({
             repositorySourceId: "00000000-0000-0000-0000-000000000001",
             sourceGeneration: 3,
+            subject: graph.identity.subject,
+            admissionGeneration: 4,
+            persist: true,
             rawPermission: "read",
             admissionEligible: true,
             prototypeRole: "viewer",
