@@ -2992,7 +2992,7 @@ describe("createGitHubAuthorizationService() database behavior", () => {
       })
       expect(
         fetchMock.mock.calls.some(([input]) =>
-          requestUrl(input).endsWith(`/repositories/${relinked.githubRepositoryId}`),
+          String(input).endsWith(`/repositories/${relinked.githubRepositoryId}`),
         ),
       ).toBe(false)
     },
@@ -3055,9 +3055,7 @@ describe("createGitHubAuthorizationService() database behavior", () => {
       await vi.advanceTimersByTimeAsync(1_000)
       await vi.waitFor(() =>
         expect(
-          request.mock.calls.filter(([input]) =>
-            requestUrl(input).endsWith("/repositories/100"),
-          ),
+          request.mock.calls.filter(([input]) => requestUrl(input).endsWith("/repositories/100")),
         ).toHaveLength(1),
       )
     },
@@ -3140,9 +3138,7 @@ describe("createGitHubAuthorizationService() database behavior", () => {
       await vi.advanceTimersByTimeAsync(1_000)
       await vi.waitFor(() =>
         expect(
-          request.mock.calls.filter(([input]) =>
-            requestUrl(input).endsWith("/repositories/100"),
-          ),
+          request.mock.calls.filter(([input]) => requestUrl(input).endsWith("/repositories/100")),
         ).toHaveLength(1),
       )
     },
@@ -4307,9 +4303,7 @@ describe("createGitHubAuthorizationService() database behavior", () => {
       await prisma.$executeRawUnsafe(
         "DROP TRIGGER IF EXISTS reject_reconciliation_batch_audit ON security_audits",
       )
-      await prisma.$executeRawUnsafe(
-        "DROP FUNCTION IF EXISTS reject_reconciliation_batch_audit()",
-      )
+      await prisma.$executeRawUnsafe("DROP FUNCTION IF EXISTS reject_reconciliation_batch_audit()")
     })
     vi.stubGlobal(
       "fetch",

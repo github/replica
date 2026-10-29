@@ -6,8 +6,10 @@ import { digestSecret } from "#server/utils/digest-secret"
 export async function getCurrentSession(
   dependencies: AuthenticationDependencies,
   sessionToken: string,
-  records: Pick<IdentityRecords, "hasFreshGitHubAdmission" | "membership" | "session"> =
-    dependencies.store.read,
+  records: Pick<
+    IdentityRecords,
+    "hasFreshGitHubAdmission" | "membership" | "session"
+  > = dependencies.store.read,
 ) {
   const session = sessionToken ? await records.session(digestSecret(sessionToken)) : null
   if (!session) {

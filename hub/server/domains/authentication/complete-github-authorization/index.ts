@@ -68,18 +68,36 @@ export async function completeGitHubAuthorization(
     )
   }
   if (attempt.purpose === "sign-in") {
-    try {
-      const admission = await admissionPolicy.admit(profile)
-      admissionBaseline = admission === true ? "legacy" : admission || null
-    } catch (error) {
-      if (error instanceof AuthenticationError) {
-        admissionFailure = error
-      } else {
-        admissionFailure = new AuthenticationError(
-          503,
-          "source_integration_unavailable",
-          "GitHub source integration is unavailable.",
-        )
+    const policyNeeded = await store.lock(async (records) => {
+      const identity = await records.externalIdentity(
+        "github",
+        configuration.issuer,
+        profile.subject,
+      )
+      const membership = identity ? await records.membership(identity.userId) : null
+      const invitation =
+        membership?.status !== "active" && membership?.status !== "suspended"
+          ? await records.usableInvitation("github", configuration.issuer, profile.subject, now())
+          : null
+      if (admissionPolicy.name === "github-synchronized") {
+        return !membership || membership.source === "synchronized" || invitation !== null
+      }
+      return !membership && invitation === null
+    })
+    if (policyNeeded) {
+      try {
+        const admission = await admissionPolicy.admit(profile)
+        admissionBaseline = admission === true ? "legacy" : admission || null
+      } catch (error) {
+        if (error instanceof AuthenticationError) {
+          admissionFailure = error
+        } else {
+          admissionFailure = new AuthenticationError(
+            503,
+            "source_integration_unavailable",
+            "GitHub source integration is unavailable.",
+          )
+        }
       }
     }
   }
@@ -313,6 +331,17 @@ export async function completeGitHubAuthorization(
           suspendedAt: null,
           removedAt: null,
         })
+        if (admissionBaseline === "legacy") {
+          await records.audit({
+            event: "membership.synchronize",
+            outcome: "succeeded",
+            actorUserId: identity.userId,
+            sessionId: null,
+            authenticationProviderRevisionId: providerRevisionId,
+            targetMembershipId: membership.id,
+            context: { source: "legacy_repository" },
+          })
+        }
       }
     }
     if (admissionBaseline && admissionBaseline !== "legacy") {

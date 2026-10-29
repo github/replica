@@ -524,17 +524,19 @@ export function createGitHubAuthorizationService({
       dirtyRetryTimer = null
       dirtyRetryRunning = true
       void (async () => {
-        const sourceIds = [...dirtyRetrySources].slice(0, 4)
-        for (const sourceId of sourceIds) dirtyRetrySources.delete(sourceId)
-        const results = await Promise.allSettled(sourceIds.map((sourceId) => reconcile(sourceId)))
-        results.forEach((result, index) => {
-          if (result.status === "rejected") {
-            log("error", "GitHub authorization dirty retry failed", {
-              repositorySourceId: sourceIds[index],
-              reason: "reconciliation_failed",
-            })
-          }
-        })
+        while (dirtyRetrySources.size > 0) {
+          const sourceIds = [...dirtyRetrySources].slice(0, 4)
+          for (const sourceId of sourceIds) dirtyRetrySources.delete(sourceId)
+          const results = await Promise.allSettled(sourceIds.map((sourceId) => reconcile(sourceId)))
+          results.forEach((result, index) => {
+            if (result.status === "rejected") {
+              log("error", "GitHub authorization dirty retry failed", {
+                repositorySourceId: sourceIds[index],
+                reason: "reconciliation_failed",
+              })
+            }
+          })
+        }
       })().finally(() => {
         dirtyRetryRunning = false
         if (dirtyRetrySources.size > 0) scheduleDirtyReconciliation([])

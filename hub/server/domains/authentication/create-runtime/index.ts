@@ -72,21 +72,22 @@ export async function createAuthenticationRuntime(environment: NodeJS.ProcessEnv
     environment,
     store,
   })
-  const providerRevision = configuration
-    ? await ensureGitHubProviderRevision(store, configuration)
-    : null
+  const trustedProxyHops = readTrustedProxyHops(environment)
   const admissionPolicy = createAdmissionPolicy(environment, store, githubAuthorization)
   const bootstrapSecret = readHostSecret(environment, "HUB_BOOTSTRAP_SECRET")
   const recoverySecret = readHostSecret(environment, "HUB_ADMIN_RECOVERY_SECRET")
   if (bootstrapSecret && recoverySecret && bootstrapSecret === recoverySecret) {
     throw new Error("HUB_BOOTSTRAP_SECRET and HUB_ADMIN_RECOVERY_SECRET must be different.")
   }
+  const providerRevision = configuration
+    ? await ensureGitHubProviderRevision(store, configuration)
+    : null
   const settings: AuthenticationSettings = {
     origin: origin.origin,
     secureCookies: origin.protocol === "https:",
     configured: configuration !== null,
     admissionPolicy: admissionPolicy.name,
-    trustedProxyHops: readTrustedProxyHops(environment),
+    trustedProxyHops,
   }
   return {
     administration: createAdministrationService({ store }),
