@@ -649,24 +649,24 @@ export function createPrototypeAuthorizationService({
       const { cursor, limit } = parsePage(query)
       const actor = await currentSession(store, sessionToken)
       const { workspace } = await workspaceDecision(database, actor.userId, workspaceId)
-      await requirePrototypeCursor(database, workspaceId, cursor)
       const workspaceGrant = workspace.grants[0] ?? null
       if (
         !(await hasAnyPrototypeAccess({
           baseline,
           database,
           userId: actor.userId,
-          workspaceId,
+          workspaceId: workspace.id,
           workspaceGrant,
         }))
       ) {
         throw new AuthenticationError(403, "prototype_access_denied", "Prototype access is denied.")
       }
+      await requirePrototypeCursor(database, workspace.id, cursor)
       return readAccessiblePrototypePage({
         baseline,
         database,
         userId: actor.userId,
-        workspaceId,
+        workspaceId: workspace.id,
         workspaceGrant,
         cursor,
         limit,
@@ -835,11 +835,16 @@ export function createPrototypeAuthorizationService({
     async listVersions(sessionToken, prototypeId, query) {
       const { cursor, limit } = parsePage(query)
       const actor = await currentSession(store, sessionToken)
-      const { decision } = await prototypeDecision(baseline, database, actor.userId, prototypeId)
+      const { prototype, decision } = await prototypeDecision(
+        baseline,
+        database,
+        actor.userId,
+        prototypeId,
+      )
       requireDecision(decision, "viewer")
-      await requireVersionCursor(database, prototypeId, cursor)
+      await requireVersionCursor(database, prototype.id, cursor)
       const items = await database.prototypeVersion.findMany({
-        where: { prototypeId },
+        where: { prototypeId: prototype.id },
         orderBy: { sequence: "asc" },
         ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
         take: limit + 1,

@@ -6,6 +6,7 @@ import type {
 } from "#server/domains/administration/create-service/types"
 import { getCurrentSession } from "#server/domains/authentication/get-current-session"
 import type { IdentityRecords } from "#server/domains/identity/create-store/types"
+import { ensureProductAdministrationContinuity } from "#server/domains/prototype-authorization/ensure-administration-continuity"
 import { AuthenticationError } from "#server/utils/authentication-error"
 
 const invitationSchema = z.object({

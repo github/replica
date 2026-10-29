@@ -18,6 +18,7 @@ import type {
 } from "#server/repositories/membership-invitations/types"
 import type { AuditInput, SecurityAuditRecord } from "#server/repositories/security-audits/types"
 import type { HubSession } from "#server/repositories/sessions/types"
+import type { Prisma } from "../../../generated/prisma/client.ts"
 import type { HubUser, UserInput } from "#server/repositories/users/types"
 import type { IdentityStoreState } from "#server/repositories/identity-store-state/types"
 

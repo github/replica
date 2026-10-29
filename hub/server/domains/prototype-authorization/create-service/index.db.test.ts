@@ -1965,6 +1965,82 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
     expect(page.items.map(({ id }) => id)).toEqual(firstWorkspacePrototypeIds)
   })
 
+  it("accepts a scoped prototype cursor with an uppercase workspace ID", async () => {
+    const { prisma, service, store } = await database()
+    const actor = await createActor(store, {
+      subject: "uppercase-workspace-cursor",
+      token: "uppercase-workspace-cursor-token",
+    })
+    const workspace = await prisma.workspace.create({
+      data: {
+        name: "Workspace",
+        createdByUserId: actor.user.id,
+        grants: {
+          create: {
+            userId: actor.user.id,
+            effect: "allow",
+            role: "viewer",
+          },
+        },
+      },
+    })
+    const prototypes = await Promise.all(
+      ["First", "Second"].map((name) =>
+        prisma.prototype.create({
+          data: {
+            name,
+            workspaceId: workspace.id,
+            createdByUserId: actor.user.id,
+          },
+        }),
+      ),
+    )
+
+    await expect(
+      service.listPrototypes("uppercase-workspace-cursor-token", workspace.id.toUpperCase(), {
+        cursor: prototypes[0]!.id,
+        limit: 1,
+      }),
+    ).resolves.toMatchObject({
+      items: [{ id: prototypes[1]!.id }],
+      nextCursor: null,
+    })
+  })
+
+  it("does not reveal prototype cursor ownership to an unauthorized member", async () => {
+    const { prisma, service, store } = await database()
+    const owner = await createActor(store, {
+      subject: "cursor-owner",
+      token: "cursor-owner-token",
+    })
+    await createActor(store, {
+      subject: "cursor-outsider",
+      token: "cursor-outsider-token",
+    })
+    const workspace = await prisma.workspace.create({
+      data: {
+        name: "Workspace",
+        createdByUserId: owner.user.id,
+      },
+    })
+    const prototype = await prisma.prototype.create({
+      data: {
+        name: "Prototype",
+        workspaceId: workspace.id,
+        createdByUserId: owner.user.id,
+      },
+    })
+
+    for (const cursor of [prototype.id, "00000000-0000-4000-8000-000000000099"]) {
+      await expect(
+        service.listPrototypes("cursor-outsider-token", workspace.id, { cursor }),
+      ).rejects.toMatchObject({
+        status: 403,
+        code: "prototype_access_denied",
+      })
+    }
+  })
+
   it("lists immutable versions by sequence and paginates in that order", async () => {
     const { prisma, service, store } = await database()
     const actor = await createActor(store, {
@@ -2117,6 +2193,55 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
       {},
     )) as { items: { id: string }[] }
     expect(page.items.map(({ id }) => id)).toEqual(firstPrototypeVersionIds)
+  })
+
+  it("accepts a scoped version cursor with an uppercase prototype ID", async () => {
+    const { prisma, service, store } = await database()
+    const actor = await createActor(store, {
+      subject: "uppercase-prototype-cursor",
+      token: "uppercase-prototype-cursor-token",
+    })
+    const workspace = await prisma.workspace.create({
+      data: {
+        name: "Workspace",
+        createdByUserId: actor.user.id,
+        grants: {
+          create: {
+            userId: actor.user.id,
+            effect: "allow",
+            role: "viewer",
+          },
+        },
+      },
+    })
+    const prototype = await prisma.prototype.create({
+      data: {
+        name: "Prototype",
+        workspaceId: workspace.id,
+        createdByUserId: actor.user.id,
+      },
+    })
+    const versions = await Promise.all(
+      [1, 2].map((sequence) =>
+        prisma.prototypeVersion.create({
+          data: {
+            prototypeId: prototype.id,
+            createdByUserId: actor.user.id,
+            sequence,
+          },
+        }),
+      ),
+    )
+
+    await expect(
+      service.listVersions("uppercase-prototype-cursor-token", prototype.id.toUpperCase(), {
+        cursor: versions[0]!.id,
+        limit: 1,
+      }),
+    ).resolves.toMatchObject({
+      items: [{ id: versions[1]!.id }],
+      nextCursor: null,
+    })
   })
 
   it("creates sequential immutable versions and rejects additions after archival", async () => {
