@@ -75,6 +75,12 @@ Reuse an existing compatible Node.js installation. If it is unavailable on macOS
 
 ### Replica build action
 
+`npm test` runs the complete build-action suite through Vitest in the Node environment. Browser capture tests keep their Playwright driver, and test files run serially.
+
+Use Vitest assertions and keep fixtures inside each case. The shared test setup removes directories created with `temporaryDirectory()` after each case and the Vitest configuration resets mocks and stubbed globals.
+
+Action scripts use TypeScript that Node executes directly, without a compilation step. Keep syntax compatible with native type stripping; `npm run lint` type-checks scripts, tests, and test helpers.
+
 The shared build action requires npm, Chromium, and a Node.js version matching `engines.node` in [actions/build/package.json](actions/build/package.json):
 
 ```sh

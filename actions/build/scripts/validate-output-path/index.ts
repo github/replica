@@ -1,7 +1,11 @@
-import { unsupportedPathSegment } from "../unsupported-path-segment/index.mjs"
+import { unsupportedPathSegment } from "../unsupported-path-segment/index.ts"
 
 /** Checks one dist path and records it for duplicate-name checks. */
-export function validateOutputPath(relativePath, seenPaths, maxPathDepth) {
+export function validateOutputPath(
+  relativePath: string,
+  seenPaths: Map<string, string>,
+  maxPathDepth: number,
+) {
   const parts = relativePath.split("/")
 
   if (relativePath.includes("\\")) {

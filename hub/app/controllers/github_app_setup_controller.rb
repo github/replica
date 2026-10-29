@@ -3,6 +3,7 @@ class GithubAppSetupController < SuperglueController
   allow_unauthenticated_access
   before_action :disable_for_local_mode
   before_action :resume_session
+  before_action -> { enforce_security_rate_limit(:github_app_setup, identity: trusted_request_ip) }, only: :create
 
   rescue_from GithubAppSetup::Error, with: :setup_not_found
   rescue_from GithubAppSetup::ImportError, with: :manual_import_failed

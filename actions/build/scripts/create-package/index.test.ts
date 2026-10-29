@@ -1,14 +1,14 @@
-import assert from "node:assert/strict"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import path from "node:path"
-import { describe, it } from "node:test"
 
-import { temporaryDirectory } from "../../test/temporary-directory/index.mjs"
-import { writePng } from "../../test/write-png/index.mjs"
+import { describe, expect, it } from "vitest"
 
-import { MAX_SCREENSHOT_BYTES, MAX_SCREENSHOT_HEIGHT } from "../constants.mjs"
+import { temporaryDirectory } from "../../test/temporary-directory/index.ts"
+import { writePng } from "../../test/write-png/index.ts"
 
-import { createPackage } from "./index.mjs"
+import { MAX_SCREENSHOT_BYTES, MAX_SCREENSHOT_HEIGHT } from "../constants.ts"
+
+import { createPackage } from "./index.ts"
 
 describe("createPackage()", () => {
   it("rejects incomplete dark captures instead of publishing a partial set", async () => {
@@ -21,8 +21,7 @@ describe("createPackage()", () => {
     await writePng(path.join(screenshots, "narrow.png"), 390, 844)
     await writePng(path.join(screenshots, "desktop-dark.png"), 1440, 900)
 
-    await assert.rejects(
-      createPackage(root, screenshots, output),
+    await expect(createPackage(root, screenshots, output)).rejects.toThrow(
       new Error("Package is missing dark screenshots: narrow-dark.png."),
     )
   })
@@ -38,8 +37,7 @@ describe("createPackage()", () => {
     await writePng(path.join(screenshots, "desktop-dark.png"), 1280, 900)
     await writePng(path.join(screenshots, "narrow-dark.png"), 390, 844)
 
-    await assert.rejects(
-      createPackage(root, screenshots, output),
+    await expect(createPackage(root, screenshots, output)).rejects.toThrow(
       /Screenshot desktop-dark.png must be 1440 pixels wide/,
     )
   })
@@ -56,15 +54,13 @@ describe("createPackage()", () => {
     await writePng(path.join(screenshots, "narrow.png"), 390, 2100)
     const files = await createPackage(root, screenshots, output)
 
-    assert.equal(files, 2)
-    assert.equal(await readFile(path.join(output, "dist", ".headers"), "utf8"), "headers")
-    assert.deepEqual(await readFile(path.join(output, "dist", "index.html")), html)
-    assert.deepEqual(
-      await readFile(path.join(output, "screenshots", "desktop.png")),
+    expect(files).toBe(2)
+    expect(await readFile(path.join(output, "dist", ".headers"), "utf8")).toBe("headers")
+    expect(await readFile(path.join(output, "dist", "index.html"))).toStrictEqual(html)
+    expect(await readFile(path.join(output, "screenshots", "desktop.png"))).toStrictEqual(
       await readFile(path.join(screenshots, "desktop.png")),
     )
-    assert.deepEqual(
-      await readFile(path.join(output, "screenshots", "narrow.png")),
+    expect(await readFile(path.join(output, "screenshots", "narrow.png"))).toStrictEqual(
       await readFile(path.join(screenshots, "narrow.png")),
     )
   })
@@ -78,8 +74,7 @@ describe("createPackage()", () => {
     await writeFile(path.join(screenshots, "desktop.png"), Buffer.alloc(24))
     await writePng(path.join(screenshots, "narrow.png"), 390, 844)
 
-    await assert.rejects(
-      createPackage(root, screenshots, output),
+    await expect(createPackage(root, screenshots, output)).rejects.toThrow(
       new Error("Screenshot desktop.png must be a complete PNG file."),
     )
   })
@@ -93,8 +88,7 @@ describe("createPackage()", () => {
     await writePng(path.join(screenshots, "desktop.png"), 1280, 720)
     await writePng(path.join(screenshots, "narrow.png"), 390, 844)
 
-    await assert.rejects(
-      createPackage(root, screenshots, output),
+    await expect(createPackage(root, screenshots, output)).rejects.toThrow(
       new Error(
         "Screenshot desktop.png must be 1440 pixels wide and at least 900 pixels high; found 1280 by 720.",
       ),
@@ -110,8 +104,7 @@ describe("createPackage()", () => {
     await writePng(path.join(screenshots, "desktop.png"), 1440, 900)
     await writePng(path.join(screenshots, "narrow.png"), 390, 843)
 
-    await assert.rejects(
-      createPackage(root, screenshots, output),
+    await expect(createPackage(root, screenshots, output)).rejects.toThrow(
       new Error(
         "Screenshot narrow.png must be 390 pixels wide and at least 844 pixels high; found 390 by 843.",
       ),
@@ -131,8 +124,7 @@ describe("createPackage()", () => {
     await writeFile(desktop, bytes)
     await writePng(path.join(screenshots, "narrow.png"), 390, 844)
 
-    await assert.rejects(
-      createPackage(root, screenshots, output),
+    await expect(createPackage(root, screenshots, output)).rejects.toThrow(
       new Error(`Screenshot desktop.png must be at most 1440 by ${MAX_SCREENSHOT_HEIGHT} pixels.`),
     )
   })
@@ -145,8 +137,7 @@ describe("createPackage()", () => {
     await writeFile(path.join(root, "dist", "index.html"), "<!doctype html>")
     await writeFile(path.join(screenshots, "desktop.png"), Buffer.alloc(MAX_SCREENSHOT_BYTES + 1))
 
-    await assert.rejects(
-      createPackage(root, screenshots, output),
+    await expect(createPackage(root, screenshots, output)).rejects.toThrow(
       new Error(
         `Screenshot desktop.png must be between 1 and ${MAX_SCREENSHOT_BYTES} bytes; found ${MAX_SCREENSHOT_BYTES + 1}.`,
       ),
@@ -178,7 +169,7 @@ describe("createPackage()", () => {
         ],
       }),
     )
-    await assert.rejects(createPackage(root, screenshots, output), { code: "ENOENT" })
+    await expect(createPackage(root, screenshots, output)).rejects.toMatchObject({ code: "ENOENT" })
   })
 
   it("checks template screenshot dimensions using the same rules as the root screenshot", async () => {
@@ -206,8 +197,7 @@ describe("createPackage()", () => {
         ],
       }),
     )
-    await assert.rejects(
-      createPackage(root, screenshots, output),
+    await expect(createPackage(root, screenshots, output)).rejects.toThrow(
       /Screenshot templates\/settings\/desktop.png must be 1440 pixels wide/,
     )
   })

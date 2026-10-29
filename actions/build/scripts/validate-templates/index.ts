@@ -1,11 +1,11 @@
-import { MAX_TEMPLATES } from "../constants.mjs"
+import { MAX_TEMPLATES } from "../constants.ts"
 
 const URI_PATH = /^(?:[a-z0-9._~!$&'()*+,;=:@/-]|%[0-9a-f]{2})*$/i
 const URI_FRAGMENT = /^(?:[a-z0-9._~!$&'()*+,;=:@/?-]|%[0-9a-f]{2})*$/i
 
 /** Returns template definitions with safe IDs and local preview destinations. */
-export function validateTemplates(value) {
-  function containsControls(text) {
+export function validateTemplates(value: unknown) {
+  function containsControls(text: string) {
     return [...text].some(
       (character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127,
     )
@@ -15,6 +15,7 @@ export function validateTemplates(value) {
     !value ||
     typeof value !== "object" ||
     Array.isArray(value) ||
+    !("version" in value) ||
     value.version !== 1 ||
     Object.keys(value).some((key) => !["version", "hub", "templates"].includes(key))
   ) {
@@ -23,16 +24,25 @@ export function validateTemplates(value) {
 
   if (!Object.hasOwn(value, "templates")) return null
 
-  if (!Array.isArray(value.templates) || value.templates.length > MAX_TEMPLATES) {
+  if (
+    !("templates" in value) ||
+    !Array.isArray(value.templates) ||
+    value.templates.length > MAX_TEMPLATES
+  ) {
     throw new Error(`Replica templates must be an array of at most ${MAX_TEMPLATES} entries.`)
   }
 
   const ids = new Set()
-  const templates = value.templates.map((template) => {
+  const templates = value.templates.map((template: unknown) => {
     if (
       !template ||
       typeof template !== "object" ||
       Array.isArray(template) ||
+      !("id" in template) ||
+      !("name" in template) ||
+      !("category" in template) ||
+      !("description" in template) ||
+      !("path" in template) ||
       Object.keys(template).sort().join(",") !== "category,description,id,name,path"
     ) {
       throw new Error(
@@ -52,11 +62,7 @@ export function validateTemplates(value) {
     }
     ids.add(id)
 
-    for (const [field, text, maximum] of [
-      ["name", name, 120],
-      ["category", category, 80],
-      ["description", description, 500],
-    ]) {
+    function requireText(field: string, text: unknown, maximum: number): asserts text is string {
       if (
         typeof text !== "string" ||
         !text.isWellFormed() ||
@@ -69,6 +75,10 @@ export function validateTemplates(value) {
         )
       }
     }
+
+    requireText("name", name, 120)
+    requireText("category", category, 80)
+    requireText("description", description, 500)
 
     if (
       typeof path !== "string" ||

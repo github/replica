@@ -1,11 +1,11 @@
-import assert from "node:assert/strict"
 import { mkdir, writeFile } from "node:fs/promises"
 import path from "node:path"
-import { describe, it } from "node:test"
 
-import { temporaryDirectory } from "../../test/temporary-directory/index.mjs"
+import { describe, expect, it } from "vitest"
 
-import { validateRepository } from "./index.mjs"
+import { temporaryDirectory } from "../../test/temporary-directory/index.ts"
+
+import { validateRepository } from "./index.ts"
 
 describe("validateRepository()", () => {
   it("accepts the required root npm files and build command", async () => {
@@ -16,7 +16,7 @@ describe("validateRepository()", () => {
     )
     await writeFile(path.join(root, "package-lock.json"), "{}")
 
-    await assert.doesNotReject(validateRepository(root))
+    await expect(validateRepository(root)).resolves.toBeUndefined()
   })
 
   it("requires both root files", async () => {
@@ -26,14 +26,12 @@ describe("validateRepository()", () => {
       JSON.stringify({ scripts: { build: "vite build" } }),
     )
 
-    await assert.rejects(
-      validateRepository(root),
+    await expect(validateRepository(root)).rejects.toThrow(
       new Error("Repository must contain package-lock.json at its root."),
     )
 
     await mkdir(path.join(root, "package-lock.json"))
-    await assert.rejects(
-      validateRepository(root),
+    await expect(validateRepository(root)).rejects.toThrow(
       new Error(
         "Repository package-lock.json must be a file. Symbolic links and directories are not allowed.",
       ),
@@ -45,8 +43,7 @@ describe("validateRepository()", () => {
     await writeFile(path.join(root, "package.json"), JSON.stringify({ scripts: { build: "  " } }))
     await writeFile(path.join(root, "package-lock.json"), "{}")
 
-    await assert.rejects(
-      validateRepository(root),
+    await expect(validateRepository(root)).rejects.toThrow(
       new Error("Repository package.json must contain a non-empty scripts.build command."),
     )
   })

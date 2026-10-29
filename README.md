@@ -32,13 +32,21 @@ https://github.com/user-attachments/assets/36547180-aca9-43cc-8931-b538f0883885
 
 You don't need to set up everything at once. Start with the guide that matches your next step: trying Replica locally, setting up hosting, or joining your team's existing repository and Hub.
 
-| Your goal | Start here |
-| --- | --- |
-| Start or continue prototyping locally | [Create your first local prototype](docs/local-prototyping.md). Use the starter or an existing prototype repository, add team guidance, and build something useful. No Hub required. |
-| Set up hosting and comments for your team | [Set up shared hosting and team feedback](docs/prototype-environment.md). Check hosting needs early, build with your team's design guidance, and connect Hub when it is ready. |
-| Join a team with a repository and Hub already in use | [Join your team's Replica environment](docs/getting-started.md). Use its existing setup to create, publish, and review a prototype. |
+**[Create your first local prototype](docs/local-prototyping.md).** Use the starter or an existing prototype repository, add team guidance, and build something useful. No Hub required, so it's a quick way to try Replica out.
+
+**[Set up shared hosting and team feedback](docs/prototype-environment.md).** Check hosting needs early, build with your team's design guidance, and connect Hub when it is ready.
+
+**[Join your team's Replica environment](docs/getting-started.md).** Use its existing setup to create, publish, and review a prototype.
 
 If hosting is blocked, you can work locally and connect the same repository later.
+
+### Have Copilot help you get started
+
+Paste this prompt into the GitHub Copilot app, and Copilot will guide you:
+
+```text
+Read the Replica README at https://github.com/github/replica. Ask which getting-started path fits my needs, then guide me through it step by step.
+```
 
 ### What you need
 

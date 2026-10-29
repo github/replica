@@ -1,37 +1,42 @@
-import assert from "node:assert/strict"
-import { describe, it } from "node:test"
+import { describe, expect, it } from "vitest"
 
-import { validateTemplates } from "./index.mjs"
-
-const template = {
-  id: "settings",
-  name: "Settings",
-  category: "Configuration",
-  description: "Edit account settings.",
-  path: "/templates/settings?tab=profile#details",
-}
+import { validateTemplates } from "./index.ts"
 
 describe("validateTemplates()", () => {
   it("preserves local paths, query strings and fragments but removes Hub metadata", () => {
-    assert.deepEqual(
+    const template = {
+      id: "settings",
+      name: "Settings",
+      category: "Configuration",
+      description: "Edit account settings.",
+      path: "/templates/settings?tab=profile#details",
+    }
+
+    expect(
       validateTemplates({
         version: 1,
         hub: { origin: "https://replica.example.com" },
         templates: [template],
       }),
-      { version: 1, templates: [template] },
-    )
-    assert.equal(
+    ).toStrictEqual({ version: 1, templates: [template] })
+    expect(
       validateTemplates({ version: 1, hub: { origin: "https://replica.example.com" } }),
-      null,
-    )
-    assert.deepEqual(validateTemplates({ version: 1, templates: [] }), {
+    ).toBeNull()
+    expect(validateTemplates({ version: 1, templates: [] })).toStrictEqual({
       version: 1,
       templates: [],
     })
   })
 
   it("rejects unsupported configuration, duplicate and reserved IDs, and more than twelve templates", () => {
+    const template = {
+      id: "settings",
+      name: "Settings",
+      category: "Configuration",
+      description: "Edit account settings.",
+      path: "/settings",
+    }
+
     for (const value of [
       null,
       [],
@@ -42,7 +47,7 @@ describe("validateTemplates()", () => {
       { version: 1, templates: [{ ...template, id: "default" }] },
       { version: 1, templates: Array(13).fill(template) },
     ]) {
-      assert.throws(() => validateTemplates(value))
+      expect(() => validateTemplates(value)).toThrow()
     }
     for (const id of [
       "UPPER",
@@ -52,11 +57,19 @@ describe("validateTemplates()", () => {
       "-leading",
       "double--dash",
     ]) {
-      assert.throws(() => validateTemplates({ version: 1, templates: [{ ...template, id }] }))
+      expect(() => validateTemplates({ version: 1, templates: [{ ...template, id }] })).toThrow()
     }
   })
 
   it("requires bounded text and the exact template fields", () => {
+    const template = {
+      id: "settings",
+      name: "Settings",
+      category: "Configuration",
+      description: "Edit account settings.",
+      path: "/settings",
+    }
+
     for (const change of [
       { name: "" },
       { name: " " },
@@ -67,54 +80,85 @@ describe("validateTemplates()", () => {
       { name: 42 },
       { extra: true },
     ]) {
-      assert.throws(() =>
+      expect(() =>
         validateTemplates({ version: 1, templates: [{ ...template, ...change }] }),
-      )
+      ).toThrow()
     }
-    assert.ok(
+    expect(
       validateTemplates({
         version: 1,
         templates: [{ ...template, name: "a".repeat(120), description: "a".repeat(500) }],
       }),
-    )
+    ).toBeTruthy()
   })
 
   it("accepts twelve unique templates and counts text limits by characters rather than UTF-16 units", () => {
+    const template = {
+      id: "settings",
+      name: "Settings",
+      category: "Configuration",
+      description: "Edit account settings.",
+      path: "/settings",
+    }
+
     const templates = Array.from({ length: 12 }, (_, index) => ({
       ...template,
       id: `template-${index}`,
       name: "\u{1f680}".repeat(120),
     }))
-    assert.equal(validateTemplates({ version: 1, templates }).templates.length, 12)
-    assert.throws(() =>
+    expect(validateTemplates({ version: 1, templates })?.templates).toHaveLength(12)
+    expect(() =>
       validateTemplates({
         version: 1,
         templates: [{ ...template, name: "\u{1f680}".repeat(121) }],
       }),
-    )
+    ).toThrow()
   })
 
   it("rejects unpaired UTF-16 surrogates in every text field", () => {
+    const template = {
+      id: "settings",
+      name: "Settings",
+      category: "Configuration",
+      description: "Edit account settings.",
+      path: "/settings",
+    }
+
     for (const field of ["name", "category", "description"]) {
       for (const text of ["\ud800", "\udfff", "a\ud800b", "a\udfffb", "\ud800\ud800"]) {
         const value = JSON.parse(
           JSON.stringify({ version: 1, templates: [{ ...template, [field]: text }] }),
         )
-        assert.throws(() => validateTemplates(value), /well-formed Unicode/, `${field}: ${text}`)
+        expect(() => validateTemplates(value), `${field}: ${text}`).toThrow(/well-formed Unicode/)
       }
     }
   })
 
   it("rejects unpaired UTF-16 surrogates in pathname, query, and fragment", () => {
+    const template = {
+      id: "settings",
+      name: "Settings",
+      category: "Configuration",
+      description: "Edit account settings.",
+      path: "/settings",
+    }
+
     for (const path of ["/\ud800", "/settings?q=\udfff", "/settings#\ud800"]) {
-      assert.throws(
-        () => validateTemplates({ version: 1, templates: [{ ...template, path }] }),
+      expect(() => validateTemplates({ version: 1, templates: [{ ...template, path }] })).toThrow(
         /local browser route/,
       )
     }
   })
 
   it("rejects external, reserved, encoded and traversing destinations", () => {
+    const template = {
+      id: "settings",
+      name: "Settings",
+      category: "Configuration",
+      description: "Edit account settings.",
+      path: "/settings",
+    }
+
     for (const path of [
       "https://example.com",
       "//example.com/path",
@@ -148,7 +192,7 @@ describe("validateTemplates()", () => {
       "/#a^b",
       "/#%invalid",
     ]) {
-      assert.throws(() => validateTemplates({ version: 1, templates: [{ ...template, path }] }))
+      expect(() => validateTemplates({ version: 1, templates: [{ ...template, path }] })).toThrow()
     }
     for (const path of [
       "/",
@@ -163,7 +207,7 @@ describe("validateTemplates()", () => {
       "/#/x%5B1%5D",
       "/a^b",
     ]) {
-      assert.ok(validateTemplates({ version: 1, templates: [{ ...template, path }] }))
+      expect(validateTemplates({ version: 1, templates: [{ ...template, path }] })).toBeTruthy()
     }
   })
 })

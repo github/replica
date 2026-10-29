@@ -1,10 +1,27 @@
 import { lstat, opendir } from "node:fs/promises"
 import path from "node:path"
 
-import { validateOutputPath } from "../validate-output-path/index.mjs"
+import { validateOutputPath } from "../validate-output-path/index.ts"
+
+export type BuildFileState = {
+  entries: number
+  files: { path: string; bytes: number }[]
+  limits: {
+    maxEntries: number
+    maxFileBytes: number
+    maxPathDepth: number
+    maxTotalBytes: number
+  }
+  seenPaths: Map<string, string>
+  totalBytes: number
+}
 
 /** Adds files from one directory to the list after checking count and size limits. */
-export async function collectBuildFiles(directory, state, parentPath = "") {
+export async function collectBuildFiles(
+  directory: string,
+  state: BuildFileState,
+  parentPath = "",
+): Promise<void> {
   const handle = await opendir(directory)
 
   for await (const entry of handle) {
