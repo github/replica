@@ -4,7 +4,9 @@ import type { Prisma } from "../../../generated/prisma/client.ts"
 
 export async function createAuthorizationAttempt(
   database: Prisma.TransactionClient,
-  data: Omit<AuthorizationAttempt, "id">,
+  data: Omit<AuthorizationAttempt, "id" | "sessionGeneration"> & {
+    sessionGeneration?: number
+  },
 ) {
   await database.authorizationAttempt.deleteMany({ where: { expiresAt: { lte: new Date() } } })
   await database.authorizationAttempt.create({ data })

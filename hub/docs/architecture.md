@@ -6,15 +6,15 @@ Hub contributors are rebuilding the app on `build/hub/new` before merging it int
 
 The team has chosen TypeScript, Express for the API, React and Vite for the frontend, and Vitest for tests. The old backend and the frontend code that connected to it have been removed rather than rewritten.
 
-The API responds to a health check, and the frontend displays the logo with light and dark themes. Storybook keeps the existing components and pages available for reuse.
+The API responds to a health check and provides GitHub authentication and Hub session routes. The frontend displays the sign-in state with light and dark themes. Storybook keeps the existing components and pages available for reuse.
 
-Contributors can use PostgreSQL and Prisma locally or in the devcontainer. The [identity foundation](identity.md) separates Hub users, external identities, installation membership, authentication provider configuration, sessions, authorization attempts, security records, and GitHub source credentials. Sign-in routes, deployment, and product APIs have not been built. This app cannot yet authenticate users, evaluate prototype access, find repositories, import Builds, host previews, save product data, or support reviews.
+Contributors can use PostgreSQL and Prisma locally or in the devcontainer. The [identity system](identity.md) separates Hub users, external identities, installation membership, authentication-provider configuration, sessions, authorization attempts, security records, and GitHub source-integration credentials. GitHub user authorization and provider-neutral Hub sessions work when user-auth credentials are configured. The [background-job foundation](background-jobs.md) provides PostgreSQL-backed queues and workers without product jobs. Deployment and product APIs have not been built. This app cannot yet evaluate prototype access, find repositories, import Builds, host previews, save product data, or support reviews.
 
 ## Backend
 
 API code lives under `server/`. As features are added, route handlers will read requests, call domains, and return responses. The [code conventions](backend-architecture.md) explain repositories, integrations, utilities, domains, and which layers may import others. Put these directories under `server/` when they are needed; do not add empty implementations.
 
-The only route is `GET /api/health`, which returns `{ "status": "ok" }`. Unknown paths return a JSON 404 response; invalid JSON is rejected before routing. `createApp()` builds the Express app without starting a server. `server/index.ts` starts it at a local address.
+`GET /api/health` returns `{ "status": "ok" }`. Authentication routes start and complete GitHub authorization, restore or revoke Hub sessions, and perform fresh verification. Unknown paths return a JSON 404 response; invalid JSON is rejected before routing. `createApp()` builds the Express app without starting a server. `server/index.ts` composes the authentication runtime and starts the API at a local address.
 
 The [database guide](database.md) defines the multi-file Prisma schema and shared client in integrations. The health route remains a process check, not a database readiness check.
 
@@ -37,7 +37,7 @@ Keep the existing `app/javascript/` layout. Application code starts React and wi
 
 Imports follow the arrows above. Shared components, hooks, and utilities must not import pages, features, or application code. Keep browser and server code separate. Agree on the API before adding types shared between them.
 
-The frontend displays the existing logo inside the theme provider. Existing pages and features use ordinary browser links. Their old destinations do not exist in the new API; keeping the interface does not make those features work.
+The frontend displays the GitHub sign-in and session state inside the theme provider. Existing pages and features use ordinary browser links. Their old destinations do not exist in the new API; keeping the interface does not make those features work.
 
 ## Other projects
 

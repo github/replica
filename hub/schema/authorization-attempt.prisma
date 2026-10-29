@@ -14,6 +14,7 @@ model AuthorizationAttempt {
   pkceVerifier  String   @map("pkce_verifier")
   nonce         String?
   purpose       String
+  sessionGeneration Int @default(0) @map("session_generation")
   expiresAt     DateTime @map("expires_at") @db.Timestamptz(3)
 
   // Timestamp columns

@@ -2,9 +2,9 @@
 
 Hub is being rebuilt on `build/hub/new` using TypeScript, Express, React, Vite, and Vitest. This branch lets contributors start the new app locally. It is not ready to replace the existing Hub.
 
-The API has one route: `GET /api/health`. The frontend displays the existing Replica logo and supports light and dark themes. Existing components, features, and pages are kept in Storybook, but they are not connected to the new API.
+The API exposes its health check and GitHub authentication and session routes. The frontend provides the minimal GitHub sign-in and sign-out surface with light and dark themes. Existing components, features, and pages remain in Storybook, but they are not connected to product APIs.
 
-Contributors can use PostgreSQL and Prisma locally or in the devcontainer. The [background-job foundation](docs/background-jobs.md) provides PostgreSQL-backed BullMQ queues and independent on-demand and scheduled workers, without product jobs yet. The database has no product models. Sign-in, saved product data, live updates, and deployment are not implemented.
+Contributors can use PostgreSQL and Prisma locally or in the devcontainer. The [background-job foundation](docs/background-jobs.md) provides PostgreSQL-backed BullMQ queues and independent on-demand and scheduled workers, without product jobs yet. GitHub sign-in works when its dedicated client credentials are configured. The database has no product models; invitations, membership administration, product authorization, saved product data, live updates, and deployment are not implemented.
 
 Use [Development](docs/development.md) to start the API and frontend. Review [Architecture](docs/architecture.md), [code architecture conventions](docs/backend-architecture.md), and [coding conventions](docs/coding-conventions.md) before adding behavior.
 

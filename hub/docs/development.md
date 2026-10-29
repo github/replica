@@ -1,6 +1,6 @@
 # Hub development
 
-Use the Hub devcontainer for Node.js and PostgreSQL, or run Node.js locally with the same database service. Sign-in and production deployment are not configured.
+Use the Hub devcontainer for Node.js and PostgreSQL, or run Node.js locally with the same database service. GitHub sign-in is optional in local development. Production deployment is not configured.
 
 ## Devcontainer
 
@@ -20,7 +20,7 @@ cp .env.example .env
 npm ci --engine-strict
 ```
 
-The example URL connects to PostgreSQL on `127.0.0.1:5432`. To use another development database, set `DATABASE_URL` in `.env` instead. Do not commit credentials. The existing health and frontend routes do not query the database.
+The example URL connects to PostgreSQL on `127.0.0.1:5432`. To use another development database, set `DATABASE_URL` in `.env` instead. Do not commit credentials. Set `HUB_GITHUB_AUTH_CLIENT_ID` and `HUB_GITHUB_AUTH_CLIENT_SECRET` to exercise real GitHub sign-in; leave both unset to run Hub with sign-in disabled.
 
 ## Start the app
 
@@ -36,9 +36,11 @@ In a second terminal, also from `hub/`, start Vite:
 npm run dev
 ```
 
-Open <http://127.0.0.1:5173>. Vite serves the frontend and forwards `/api` requests to Express at <http://127.0.0.1:3001>. `GET /api/health` returns JSON; other API routes have not been built. Both servers accept connections only from this machine. Stop each with Ctrl+C.
+Open <http://127.0.0.1:5173>. Vite serves the sign-in surface and forwards `/api` requests to Express at <http://127.0.0.1:3001>. `GET /api/health` returns JSON. `GET /api/session` reports the browser session and supplies the CSRF value used by the sign-in and sign-out controls. Both servers accept connections only from this machine. Stop each with Ctrl+C.
 
 The API reads an optional `PORT` environment variable, defaulting to 3001. If you change it, update the local Vite proxy target to match. The editor forwards ports 3001, 5173, and 6006 from the devcontainer. API startup reads `.env` when present; Compose's environment takes precedence.
+
+Hub ignores forwarded client-address headers by default and rate-limits the direct connection address. Keep `HUB_TRUSTED_PROXY_HOPS=0` for local development and any deployment where clients can reach the API directly. A deployment whose API is reachable only through a fixed proxy chain may set the exact number of trusted hops. Every trusted proxy must replace or append the client address correctly, and the network must prevent clients from bypassing the first trusted proxy. Never enable proxy trust only to accept arbitrary `Forwarded` or `X-Forwarded-For` headers.
 
 ## Background workers
 
