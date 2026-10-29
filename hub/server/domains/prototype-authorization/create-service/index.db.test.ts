@@ -3188,5 +3188,4 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
       nextCursor: null,
     })
   })
-
 })

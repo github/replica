@@ -1,5 +1,4 @@
 import { createHash, randomUUID } from "node:crypto"
-import { readFile } from "node:fs/promises"
 
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
@@ -1318,35 +1317,26 @@ describe("createArtifactPublishingService() database behavior", () => {
 
     expect(results.map(({ replayed }) => replayed)).toEqual([false, false])
     expect(versions.map(({ sequence }) => sequence)).toEqual([1, 2])
-    const migration = await readFile(
-      new URL(
-        "../../../../schema/migrations/20261027230000_artifact_ingestion/migration.sql",
-        import.meta.url,
-      ),
-      "utf8",
-    )
-    const immutableVersionStart = migration.indexOf(
-      "CREATE FUNCTION reject_prototype_version_mutation()",
-    )
-    expect(immutableVersionStart).toBeGreaterThanOrEqual(0)
-    const immutableVersionSql = migration.slice(immutableVersionStart)
-    await context.prisma.$executeRawUnsafe(immutableVersionSql)
-    try {
-      await expect(
-        context.prisma.prototypeVersion.update({
-          where: { id: versions[0]!.id },
-          data: { label: "rewritten" },
-        }),
-      ).rejects.toThrow(/prototype versions are immutable/i)
-      await expect(
-        context.prisma.prototypeVersion.delete({ where: { id: versions[1]!.id } }),
-      ).rejects.toThrow(/prototype versions are immutable/i)
-    } finally {
-      await context.prisma.$executeRawUnsafe(
-        "DROP TRIGGER prototype_versions_immutable ON prototype_versions",
-      )
-      await context.prisma.$executeRawUnsafe("DROP FUNCTION reject_prototype_version_mutation()")
-    }
+    expect(
+      await context.prisma.$queryRaw<{ exists: boolean }[]>`
+        SELECT EXISTS (
+          SELECT 1
+          FROM pg_trigger
+          WHERE tgname = 'prototype_versions_immutable'
+            AND tgrelid = 'prototype_versions'::regclass
+            AND NOT tgisinternal
+        ) AS exists
+      `,
+    ).toEqual([{ exists: true }])
+    await expect(
+      context.prisma.prototypeVersion.update({
+        where: { id: versions[0]!.id },
+        data: { label: "rewritten" },
+      }),
+    ).rejects.toThrow(/prototype versions are immutable/i)
+    await expect(
+      context.prisma.prototypeVersion.delete({ where: { id: versions[1]!.id } }),
+    ).rejects.toThrow(/prototype versions are immutable/i)
   })
 
   it("rejects an already-started publication when archive acquires the prototype lock first", async () => {
