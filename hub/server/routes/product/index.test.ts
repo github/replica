@@ -173,13 +173,6 @@ describe("product routes", () => {
       expectedArguments: [sessionToken, "prototype-456", { cursor: "version-cursor", limit: "33" }],
     },
     {
-      method: "POST",
-      path: "/api/prototypes/prototype-456/versions",
-      call: "createVersion",
-      body: { label: "Mapped version" },
-      expectedArguments: [sessionToken, "prototype-456", { label: "Mapped version" }],
-    },
-    {
       method: "GET",
       path: "/api/prototypes/prototype-456/versions/version-012",
       call: "getVersion",

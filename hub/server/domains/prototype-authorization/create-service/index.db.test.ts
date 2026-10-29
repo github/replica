@@ -588,7 +588,7 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
     },
   )
 
-  it.each([{ action: "archive" }, { action: "create a version" }] as const)(
+  it.each([{ action: "archive" }, { action: "create a publisher" }] as const)(
     "rejects a commenter attempting to $action without changing product state or audits",
     async ({ action }) => {
       const { prisma, service, store } = await database()
@@ -621,7 +621,10 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
       const operation =
         action === "archive"
           ? service.archivePrototype(token, prototype.id)
-          : service.createVersion(token, prototype.id, { label: "Rejected version" })
+          : service.createPublisherCredential(token, prototype.id, {
+              name: "Rejected publisher",
+              actions: ["publish"],
+            })
 
       await expect(operation).rejects.toMatchObject({
         status: 403,
