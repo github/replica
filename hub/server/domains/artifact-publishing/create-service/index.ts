@@ -38,7 +38,7 @@ const manifestSchema = z
         format: z.string().regex(/^[a-z][a-z0-9._-]{0,63}$/),
         version: z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,31}$/),
         digest: z.string().regex(/^sha256:[a-f0-9]{64}$/),
-        sizeBytes: z.number().int().min(0).max(maximumArtifactBytes),
+        sizeBytes: z.number().int().min(0),
         builtAt: z.iso.datetime({ offset: true }),
       })
       .strict(),
@@ -57,7 +57,7 @@ const manifestSchema = z
 const publishSchema = z
   .object({
     manifest: manifestSchema,
-    artifactBase64: z.string().max(Math.ceil((maximumArtifactBytes * 4) / 3) + 4),
+    artifactBase64: z.string(),
     promoteChannel: z.enum(["current", "preview"]).optional(),
   })
   .strict()
@@ -243,6 +243,12 @@ export function createArtifactPublishingService({
       const parsed = publishSchema.safeParse(input)
       if (!parsed.success || parsed.data.manifest.prototypeId !== prototypeId) {
         error(422, "invalid_artifact_manifest", "The artifact manifest is invalid.")
+      }
+      if (
+        parsed.data.manifest.artifact.sizeBytes > maximumArtifactBytes ||
+        parsed.data.artifactBase64.length > Math.ceil((maximumArtifactBytes * 4) / 3) + 4
+      ) {
+        error(413, "artifact_too_large", "The artifact exceeds the maximum size.")
       }
       const keyDigest = digestSecret(parseIdempotencyKey(idempotencyKey))
       const bytes = parseArtifactBase64(parsed.data.artifactBase64)

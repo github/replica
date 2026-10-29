@@ -134,6 +134,20 @@ async function holdPublisherAuthorizationRow(
   return { holder, release: released.resolve }
 }
 
+async function holdPrototypeRow(database: PrismaClient, prototypeId: string) {
+  const released = deferred()
+  const locked = deferred()
+  const holder = database.$transaction(async (transaction) => {
+    await transaction.$queryRaw`
+      SELECT "id" FROM "prototypes" WHERE "id" = ${prototypeId}::uuid FOR UPDATE
+    `
+    locked.resolve()
+    await released.promise
+  })
+  await locked.promise
+  return { holder, release: released.resolve }
+}
+
 async function createPrototype(prisma: PrismaClient) {
   const user = await prisma.user.create({ data: { displayName: "Publisher owner" } })
   const workspace = await prisma.workspace.create({
@@ -196,7 +210,7 @@ async function createAdministratorSession(prisma: PrismaClient, token: string) {
   return { actor, store }
 }
 
-async function provisionPublisher(prisma: PrismaClient, sessionToken: string) {
+async function createPublisherAdministrator(prisma: PrismaClient, sessionToken: string) {
   const { actor, store } = await createAdministratorSession(prisma, sessionToken)
   const workspace = await prisma.workspace.create({
     data: {
@@ -219,6 +233,11 @@ async function provisionPublisher(prisma: PrismaClient, sessionToken: string) {
     },
   })
   const authorization = createPrototypeAuthorizationService({ database: prisma, store })
+  return { authorization, prototype }
+}
+
+async function provisionPublisher(prisma: PrismaClient, sessionToken: string) {
+  const { authorization, prototype } = await createPublisherAdministrator(prisma, sessionToken)
   const provisioned = (await authorization.createPublisherCredential(sessionToken, prototype.id, {
     name: "CI publisher",
     actions: ["publish", "read-status"],
@@ -437,6 +456,23 @@ describe("createArtifactPublishingService() database behavior", () => {
     ).resolves.toMatchObject({ replayed: false })
   })
 
+  it("reports a correctly shaped artifact over the decoded size limit as too large", async () => {
+    const context = await database()
+    const { prototype } = await createPrototype(context.prisma)
+    const credential = await createCredential(context.prisma, prototype.id)
+    const publishedArtifact = artifactBytes(Buffer.alloc(maximumArtifactBytes + 1, 0x61))
+
+    await expect(
+      context.service.publish(
+        credential.authorization,
+        prototype.id,
+        "oversized-artifact",
+        publicationInput(prototype.id, publishedArtifact),
+      ),
+    ).rejects.toMatchObject({ status: 413, code: "artifact_too_large" })
+    expect(await context.prisma.prototypeVersion.count()).toBe(0)
+  })
+
   it("rejects noncanonical base64 as an invalid artifact instead of an oversized artifact", async () => {
     const context = await database()
     const { prototype } = await createPrototype(context.prisma)
@@ -552,6 +588,31 @@ describe("createArtifactPublishingService() database behavior", () => {
     expect(saved.tokenDigest).toBe(digestSecret(provisioned.credential.token))
     expect(saved.tokenDigest).not.toContain(provisioned.credential.token)
     expect(JSON.stringify(saved)).not.toContain(provisioned.credential.token)
+  })
+
+  it("rejects provisioning a workload credential that is already expired", async () => {
+    const context = await database()
+    const sessionToken = "expired-provisioning-session"
+    const { authorization, prototype } = await createPublisherAdministrator(
+      context.prisma,
+      sessionToken,
+    )
+
+    await expect(
+      authorization.createPublisherCredential(sessionToken, prototype.id, {
+        name: "Expired publisher",
+        actions: ["publish", "read-status"],
+        expiresAt: new Date(Date.now() - 1_000).toISOString(),
+      }),
+    ).rejects.toMatchObject({ status: 422, code: "invalid_workload_publisher" })
+    expect(
+      await context.prisma.workloadPublisher.count({ where: { prototypeId: prototype.id } }),
+    ).toBe(0)
+    expect(
+      await context.prisma.securityAudit.count({
+        where: { prototypeId: prototype.id, event: "prototype.publisher.create" },
+      }),
+    ).toBe(0)
   })
 
   it("accepts and persists an ordinary HTTPS provenance source URL", async () => {
@@ -754,6 +815,92 @@ describe("createArtifactPublishingService() database behavior", () => {
     },
   )
 
+  it.each(["publish", "promote"] as const)(
+    "rejects an already-started %s when its credential expires while waiting for the prototype lock",
+    async (operation) => {
+      const context = await database()
+      const sessionToken = `expiring-${operation}-session`
+      const { prototype, provisioned, workloadAuthorization } = await provisionPublisher(
+        context.prisma,
+        sessionToken,
+      )
+      const published =
+        operation === "promote"
+          ? await context.service.publish(
+              workloadAuthorization,
+              prototype.id,
+              "expiration-promotion-source",
+              publicationInput(prototype.id, artifact("expiration-promotion-source")),
+            )
+          : null
+      const expiresAt = new Date(Date.now() + 60_000)
+      await context.prisma.workloadCredential.update({
+        where: { id: provisioned.credential.id },
+        data: { expiresAt },
+      })
+      const before = {
+        publications: await context.prisma.artifactPublication.count({
+          where: { prototypeId: prototype.id },
+        }),
+        versions: await context.prisma.prototypeVersion.count({
+          where: { prototypeId: prototype.id },
+        }),
+        channels: await context.prisma.prototypeChannel.findMany({
+          where: { prototypeId: prototype.id },
+          select: { name: true, prototypeVersionId: true },
+        }),
+        workloadAudits: await context.prisma.securityAudit.count({
+          where: {
+            prototypeId: prototype.id,
+            event: { in: ["prototype.version.publish", "prototype.channel.promote"] },
+          },
+        }),
+      }
+      const prototypeLock = await holdPrototypeRow(context.prisma, prototype.id)
+      onTestFinished(prototypeLock.release)
+      const workloadResult =
+        operation === "publish"
+          ? context.service.publish(
+              workloadAuthorization,
+              prototype.id,
+              "expired-while-blocked",
+              publicationInput(prototype.id, artifact("expired-while-blocked")),
+            )
+          : context.service.promote(workloadAuthorization, prototype.id, "current", {
+              versionId: publishedVersion(published!).id,
+            })
+      await waitForBlockedDatabaseQuery(context.prisma, "%prototypes%FOR UPDATE%")
+
+      vi.useFakeTimers({ toFake: ["Date"] })
+      vi.setSystemTime(expiresAt.getTime() + 1)
+      prototypeLock.release()
+      await prototypeLock.holder
+
+      await expect(workloadResult).rejects.toMatchObject({
+        status: 403,
+        code: "publisher_access_denied",
+      })
+      expect({
+        publications: await context.prisma.artifactPublication.count({
+          where: { prototypeId: prototype.id },
+        }),
+        versions: await context.prisma.prototypeVersion.count({
+          where: { prototypeId: prototype.id },
+        }),
+        channels: await context.prisma.prototypeChannel.findMany({
+          where: { prototypeId: prototype.id },
+          select: { name: true, prototypeVersionId: true },
+        }),
+        workloadAudits: await context.prisma.securityAudit.count({
+          where: {
+            prototypeId: prototype.id,
+            event: { in: ["prototype.version.publish", "prototype.channel.promote"] },
+          },
+        }),
+      }).toEqual(before)
+    },
+  )
+
   it("enforces publish and read-status action scopes independently", async () => {
     const context = await database()
     const { prototype } = await createPrototype(context.prisma)
@@ -779,6 +926,88 @@ describe("createArtifactPublishingService() database behavior", () => {
         publicationInput(prototype.id, artifact("status-only")),
       ),
     ).rejects.toMatchObject({ status: 403, code: "publisher_access_denied" })
+  })
+
+  it("rejects status reads after the workload credential expires", async () => {
+    const context = await database()
+    const { prototype } = await createPrototype(context.prisma)
+    const credential = await createCredential(context.prisma, prototype.id)
+    await context.service.publish(
+      credential.authorization,
+      prototype.id,
+      "expired-status",
+      publicationInput(prototype.id, artifact("expired-status")),
+    )
+    await context.prisma.workloadCredential.update({
+      where: { id: credential.credentialId },
+      data: { expiresAt: new Date(Date.now() - 1_000) },
+    })
+
+    await expect(
+      context.service.getStatus(credential.authorization, prototype.id, "expired-status"),
+    ).rejects.toMatchObject({ status: 403, code: "publisher_access_denied" })
+  })
+
+  it("rejects a canonical wrong secret for an existing credential before storage or state changes", async () => {
+    const put = vi.fn((contentDigest: string) =>
+      Promise.resolve({
+        key: contentDigest.replace(":", "/"),
+        created: true,
+      }),
+    )
+    const storage: ArtifactStorage = {
+      put,
+      read: vi.fn(),
+      remove: vi.fn(),
+    }
+    const context = await database(storage)
+    const { prototype } = await createPrototype(context.prisma)
+    const credential = await createCredential(context.prisma, prototype.id)
+    await context.service.publish(
+      credential.authorization,
+      prototype.id,
+      "wrong-secret-status",
+      publicationInput(prototype.id, artifact("wrong-secret-status")),
+    )
+    put.mockClear()
+    const wrongToken = `${["rpl", "pub"].join("_")}_${credential.credentialId}.${"w".repeat(43)}`
+    const wrongAuthorization = `Bearer ${wrongToken}`
+    const before = {
+      publications: await context.prisma.artifactPublication.count({
+        where: { prototypeId: prototype.id },
+      }),
+      versions: await context.prisma.prototypeVersion.count({
+        where: { prototypeId: prototype.id },
+      }),
+      workloadAudits: await context.prisma.securityAudit.count({
+        where: { prototypeId: prototype.id, event: "prototype.version.publish" },
+      }),
+    }
+
+    await expect(
+      context.service.getStatus(wrongAuthorization, prototype.id, "wrong-secret-status"),
+    ).rejects.toMatchObject({ status: 403, code: "publisher_access_denied" })
+    await expect(
+      context.service.publish(
+        wrongAuthorization,
+        prototype.id,
+        "wrong-secret-publish",
+        publicationInput(prototype.id, artifact("wrong-secret-publish")),
+      ),
+    ).rejects.toMatchObject({ status: 403, code: "publisher_access_denied" })
+
+    expect(put).not.toHaveBeenCalled()
+    expect({
+      publications: await context.prisma.artifactPublication.count({
+        where: { prototypeId: prototype.id },
+      }),
+      versions: await context.prisma.prototypeVersion.count({
+        where: { prototypeId: prototype.id },
+      }),
+      workloadAudits: await context.prisma.securityAudit.count({
+        where: { prototypeId: prototype.id, event: "prototype.version.publish" },
+      }),
+    }).toEqual(before)
   })
 
   it("rejects a credential issued for a different prototype", async () => {
