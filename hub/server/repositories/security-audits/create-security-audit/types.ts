@@ -31,6 +31,12 @@ export interface ProviderRevisionSelectedAudit extends SecurityAuditEvent {
   revision: number
 }
 
+export interface ProviderRevisionValidationFailedAudit extends SecurityAuditEvent {
+  type: "provider_revision_validation_failed"
+  providerKey: string
+  revision: number
+}
+
 export interface ProviderRevisionDeniedAudit extends SecurityAuditEvent {
   type: "provider_revision_denied"
   providerKey: string
@@ -48,6 +54,7 @@ export interface ProviderRevisionPersistFailedAudit extends SecurityAuditEvent {
 export type CreateSecurityAuditEvent =
   | ExternalIdentityCreatedAudit
   | ExternalIdentityCreateFailedAudit
+  | ProviderRevisionValidationFailedAudit
   | ProviderRevisionSelectedAudit
   | ProviderRevisionDeniedAudit
   | ProviderRevisionPersistFailedAudit

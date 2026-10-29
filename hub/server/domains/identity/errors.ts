@@ -22,6 +22,13 @@ export class ProviderRevisionConflictError extends Error {
   }
 }
 
+export class ProviderConfigurationValidationError extends Error {
+  constructor(options?: ErrorOptions) {
+    super("The provider configuration did not pass provider validation.", options)
+    this.name = "ProviderConfigurationValidationError"
+  }
+}
+
 export class ProviderRevisionInvariantError extends Error {
   constructor(message: string) {
     super(message)

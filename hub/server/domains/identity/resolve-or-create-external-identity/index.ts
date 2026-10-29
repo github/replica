@@ -46,10 +46,7 @@ export async function resolveOrCreateExternalIdentity(
 
           return { status: "created", externalIdentityId, userId }
         }),
-      {
-        ...dependencies.retry,
-        shouldRetry: (error) => error instanceof IdentityTransactionConflictError,
-      },
+      (error) => error instanceof IdentityTransactionConflictError,
     )
   } catch (error) {
     const failure =

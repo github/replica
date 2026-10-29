@@ -11,6 +11,7 @@ import { selectAuthenticationProviderRevision } from "../../../repositories/auth
 import { createSecurityAudit } from "../../../repositories/security-audits/create-security-audit"
 import {
   IdentityTransactionConflictError,
+  ProviderConfigurationValidationError,
   ProviderRevisionDriftError,
   ProviderRevisionGapError,
   ProviderRevisionRollbackError,
@@ -42,12 +43,6 @@ function dependencies(
 ) {
   return {
     createId: randomUUID,
-    retry: {
-      baseDelayMs: 0,
-      maxAttempts: 3,
-      maxDelayMs: 0,
-      sleep: () => Promise.resolve(),
-    },
     runTransaction: <Result>(
       operation: (repositories: ProviderRevisionRepositories) => Promise<Result>,
     ) => runProviderRevisionTransaction(prisma, operation),
@@ -151,11 +146,15 @@ describe("validateAndPersistProviderRevision()", () => {
     expect(records[0]?.configurationDigest).toMatch(/^[0-9a-f]{64}$/)
   })
 
-  it("does not enter a transaction or write an audit when validation fails", async () => {
-    const validator = vi.fn(() => Promise.reject(new Error("provider validation failed")))
+  it("writes one safe terminal audit outside transactions when validation fails", async () => {
+    const rawErrorMarker = "raw-validator-error-marker"
+    const order: string[] = []
+    const validator = vi.fn(() => {
+      order.push("validate")
+      return Promise.reject(new Error(rawErrorMarker))
+    })
     const base = dependencies(validator)
     let transactionCalls = 0
-    let auditCalls = 0
     async function runTransaction<Result>(
       operation: (repositories: ProviderRevisionRepositories) => Promise<Result>,
     ) {
@@ -163,7 +162,7 @@ describe("validateAndPersistProviderRevision()", () => {
       return base.runTransaction(operation)
     }
     async function writeAudit(input: Parameters<typeof createSecurityAudit>[1]) {
-      auditCalls += 1
+      order.push("audit")
       return base.writeAudit(input)
     }
 
@@ -173,14 +172,47 @@ describe("validateAndPersistProviderRevision()", () => {
         runTransaction,
         writeAudit,
       }),
-    ).rejects.toThrow("provider validation failed")
+    ).rejects.toBeInstanceOf(ProviderConfigurationValidationError)
+    expect(order).toEqual(["validate", "audit"])
     expect(transactionCalls).toBe(0)
-    expect(auditCalls).toBe(0)
+    await expect(prisma.authenticationProvider.count()).resolves.toBe(0)
+    await expect(prisma.authenticationProviderRevision.count()).resolves.toBe(0)
+    const audits = await prisma.securityAudit.findMany()
+    expect(audits).toHaveLength(1)
+    expect(audits[0]?.action).toBe("identity.provider_revision.validation_failed")
+    expect(audits[0]?.outcome).toBe("FAILURE")
+    expect(audits[0]?.context).toEqual({
+      provider: "workforce",
+      reason: "validation_failed",
+      revision: 1,
+    })
+    expect(JSON.stringify(audits)).not.toContain(rawErrorMarker)
+  })
+
+  it("reports both validation and audit failures without entering a transaction", async () => {
+    const base = dependencies(() => Promise.reject(new Error("validation marker")))
+    let transactionCalls = 0
+    async function runTransaction<Result>(
+      operation: (repositories: ProviderRevisionRepositories) => Promise<Result>,
+    ) {
+      transactionCalls += 1
+      return base.runTransaction(operation)
+    }
+
+    await expect(
+      validateAndPersistProviderRevision(input(1), {
+        ...base,
+        runTransaction,
+        writeAudit: () => Promise.reject(new Error("audit marker")),
+      }),
+    ).rejects.toBeInstanceOf(AggregateError)
+    expect(transactionCalls).toBe(0)
+    await expect(prisma.authenticationProvider.count()).resolves.toBe(0)
     await expect(prisma.authenticationProviderRevision.count()).resolves.toBe(0)
     await expect(prisma.securityAudit.count()).resolves.toBe(0)
   })
 
-  it("rejects unknown configuration and caller-supplied digest fields before persistence", async () => {
+  it("audits rejected configuration but rejects caller-supplied digest before validation", async () => {
     const base = dependencies()
     const configurationWithUnknownField = {
       audience: "hub",
@@ -200,10 +232,15 @@ describe("validateAndPersistProviderRevision()", () => {
         dependencies((candidate) => validateConfiguration(candidate)),
       ),
     ).rejects.toThrow()
+    await expect(
+      prisma.securityAudit.count({
+        where: { action: "identity.provider_revision.validation_failed" },
+      }),
+    ).resolves.toBe(1)
     await expect(validateAndPersistProviderRevision(inputWithDigest, base)).rejects.toThrow()
     await expect(prisma.authenticationProvider.count()).resolves.toBe(0)
     await expect(prisma.authenticationProviderRevision.count()).resolves.toBe(0)
-    await expect(prisma.securityAudit.count()).resolves.toBe(0)
+    await expect(prisma.securityAudit.count()).resolves.toBe(1)
   })
 
   it("selects monotonic revisions and returns unchanged for the same validated configuration", async () => {
@@ -219,6 +256,11 @@ describe("validateAndPersistProviderRevision()", () => {
     })
     await expect(prisma.authenticationProviderRevision.count()).resolves.toBe(2)
     await expect(prisma.securityAudit.count({ where: { outcome: "SUCCESS" } })).resolves.toBe(2)
+    await expect(
+      prisma.securityAudit.count({
+        where: { action: "identity.provider_revision.validation_failed" },
+      }),
+    ).resolves.toBe(0)
   })
 
   it("retries the database operation without repeating external validation", async () => {

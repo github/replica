@@ -3,6 +3,7 @@ import { z } from "zod"
 
 import {
   IdentityTransactionConflictError,
+  ProviderConfigurationValidationError,
   ProviderRevisionConflictError,
   ProviderRevisionDriftError,
   ProviderRevisionGapError,
@@ -45,18 +46,39 @@ export async function validateAndPersistProviderRevision<Candidate>(
     throw new Error("Provider revision input must be a plain object.")
   }
   const parsed = providerRevisionSchema.parse(input)
-  const validated = await dependencies.validateConfiguration(input.configuration)
-  if (
-    typeof validated.canonicalPublicConfiguration !== "string" ||
-    !validated.canonicalPublicConfiguration.length ||
-    validated.canonicalPublicConfiguration.length > 16_384
-  ) {
-    throw new Error(
-      "Provider validation must return canonical public configuration between 1 and 16384 characters.",
-    )
+  let canonicalPublicConfiguration: string
+  try {
+    const validated = await dependencies.validateConfiguration(input.configuration)
+    if (
+      typeof validated.canonicalPublicConfiguration !== "string" ||
+      !validated.canonicalPublicConfiguration.length ||
+      validated.canonicalPublicConfiguration.length > 16_384
+    ) {
+      throw new Error(
+        "Provider validation must return canonical public configuration between 1 and 16384 characters.",
+      )
+    }
+    canonicalPublicConfiguration = validated.canonicalPublicConfiguration
+  } catch (error) {
+    const reportedError = new ProviderConfigurationValidationError({ cause: error })
+    try {
+      await dependencies.writeAudit({
+        id: dependencies.createId(),
+        type: "provider_revision_validation_failed",
+        providerKey: parsed.providerKey,
+        revision: parsed.revision,
+      })
+    } catch (auditError) {
+      throw new AggregateError(
+        [reportedError, auditError],
+        "The provider validation failure and its audit could not both be recorded.",
+        { cause: auditError },
+      )
+    }
+    throw reportedError
   }
   const configurationDigest = createHash("sha256")
-    .update(validated.canonicalPublicConfiguration)
+    .update(canonicalPublicConfiguration)
     .digest("hex")
 
   try {
@@ -108,10 +130,7 @@ export async function validateAndPersistProviderRevision<Candidate>(
 
           return { status: "selected", providerId, revisionId, revision: parsed.revision }
         }),
-      {
-        ...dependencies.retry,
-        shouldRetry: (error) => error instanceof IdentityTransactionConflictError,
-      },
+      (error) => error instanceof IdentityTransactionConflictError,
     )
   } catch (error) {
     const reason = denialReason(error)

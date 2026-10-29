@@ -26,6 +26,14 @@ const eventSchema = z.discriminatedUnion("type", [
   z
     .object({
       id: z.uuid(),
+      type: z.literal("provider_revision_validation_failed"),
+      providerKey: z.string().regex(/^[a-z0-9][a-z0-9._-]{0,99}$/),
+      revision: z.number().int().positive(),
+    })
+    .strict(),
+  z
+    .object({
+      id: z.uuid(),
       type: z.literal("provider_revision_selected"),
       providerId: z.uuid(),
       providerKey: z.string().regex(/^[a-z0-9][a-z0-9._-]{0,99}$/),
@@ -95,6 +103,18 @@ function dataForEvent(event: CreateSecurityAuditEvent): Prisma.SecurityAuditCrea
         targetType: "authentication_provider",
         targetId: event.providerId,
         context: context({ provider: event.providerKey, revision: event.revision }),
+      }
+    case "provider_revision_validation_failed":
+      return {
+        id: event.id,
+        action: "identity.provider_revision.validation_failed",
+        outcome: SecurityAuditOutcome.FAILURE,
+        targetType: "authentication_provider",
+        context: context({
+          provider: event.providerKey,
+          revision: event.revision,
+          reason: "validation_failed",
+        }),
       }
     case "provider_revision_denied":
       return {

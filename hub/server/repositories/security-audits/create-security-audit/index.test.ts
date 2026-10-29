@@ -26,6 +26,12 @@ describe("createSecurityAudit()", () => {
     })
     await createSecurityAudit(database, {
       id,
+      type: "provider_revision_validation_failed",
+      providerKey: "workforce",
+      revision: 1,
+    })
+    await createSecurityAudit(database, {
+      id,
       type: "provider_revision_selected",
       providerId: "df75faa4-ed4c-44ed-8db0-443cc3b426ed",
       providerKey: "workforce",
@@ -61,6 +67,11 @@ describe("createSecurityAudit()", () => {
           provider: "workforce",
           reason: "retry_exhausted",
         },
+      }),
+      expect.objectContaining({
+        action: "identity.provider_revision.validation_failed",
+        outcome: "FAILURE",
+        context: { provider: "workforce", reason: "validation_failed", revision: 1 },
       }),
       expect.objectContaining({
         action: "identity.provider_revision.selected",

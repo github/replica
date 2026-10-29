@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { Prisma } from "../../../generated/prisma/client"
 import { prisma } from "../../../integrations/prisma"
@@ -24,12 +24,6 @@ const tuple = {
 function dependencies(createId = randomUUID) {
   return {
     createId,
-    retry: {
-      baseDelayMs: 0,
-      maxAttempts: 3,
-      maxDelayMs: 0,
-      sleep: () => Promise.resolve(),
-    },
     runTransaction: <Result>(
       operation: (repositories: IdentityCreationRepositories) => Promise<Result>,
     ) => runIdentityCreationTransaction(prisma, operation),
@@ -139,14 +133,12 @@ describe("resolveOrCreateExternalIdentity()", () => {
   it("writes one failure audit only after the retry budget is exhausted", async () => {
     const collidedUserId = randomUUID()
     await createUser(prisma, { id: collidedUserId })
-    const configured = dependencies(() => collidedUserId)
+    const createId = vi.fn(() => collidedUserId)
 
     await expect(
-      resolveOrCreateExternalIdentity(tuple, {
-        ...configured,
-        retry: { ...configured.retry, maxAttempts: 2 },
-      }),
+      resolveOrCreateExternalIdentity(tuple, dependencies(createId)),
     ).rejects.toBeInstanceOf(ExternalIdentityCollisionError)
+    expect(createId).toHaveBeenCalledTimes(7)
     await expect(prisma.externalIdentity.count()).resolves.toBe(0)
     await expect(prisma.securityAudit.findMany()).resolves.toEqual([
       expect.objectContaining({
