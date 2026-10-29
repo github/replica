@@ -26,7 +26,9 @@ The [telemetry integration](telemetry.md) provides explicit server-side OpenTele
 
 The [WebSocket foundation](websockets.md) attaches to the API's HTTP server and broadcasts to local channel subscribers without persistence. The application rejects upgrades until access checks are supplied. Product channels, client recovery, and communication between processes are not implemented.
 
-The identity foundation stores Hub users, immutable external identity mappings, selected authentication provider revisions, and bounded security audits. Domain operations receive only the transaction-scoped repositories they need. A successful state change and its success audit commit together; a rejected transaction rolls back before its denial or failure audit is written. Provider and other external I/O must finish before a provider revision enters the database transaction.
+The identity foundation stores Hub users, immutable external identity mappings, selected authentication provider revision digests, and bounded security audits. It does not store provider configuration. A provider adapter must validate its typed public configuration before the kernel computes a digest and starts the database transaction.
+
+Domain operations receive only the transaction-scoped repositories they need. A successful state change and its success audit commit together. Expected serializable and aggregate-creation races retry the complete database operation against a fresh snapshot. A rejected operation rolls back before its final denial or failure audit is written. Audit callers select a typed kernel event; the repository builds the stored action and allowlisted context.
 
 This foundation does not prove a provider assertion, create a usable Hub session, assign membership, or authorize product access.
 

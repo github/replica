@@ -24,6 +24,12 @@ const tuple = {
 function dependencies(createId = randomUUID) {
   return {
     createId,
+    retry: {
+      baseDelayMs: 0,
+      maxAttempts: 3,
+      maxDelayMs: 0,
+      sleep: () => Promise.resolve(),
+    },
     runTransaction: <Result>(
       operation: (repositories: IdentityCreationRepositories) => Promise<Result>,
     ) => runIdentityCreationTransaction(prisma, operation),
@@ -106,18 +112,41 @@ describe("resolveOrCreateExternalIdentity()", () => {
     await expect(prisma.securityAudit.count()).resolves.toBe(1)
   })
 
-  it("rolls back a user collision before writing a bounded failure audit", async () => {
+  it("retries generated user ID collisions before creating the identity", async () => {
     const collidedUserId = randomUUID()
     await createUser(prisma, { id: collidedUserId })
-    const ids = [collidedUserId, randomUUID(), randomUUID(), randomUUID()][Symbol.iterator]()
+    const ids = [
+      collidedUserId,
+      randomUUID(),
+      randomUUID(),
+      randomUUID(),
+      randomUUID(),
+      randomUUID(),
+    ][Symbol.iterator]()
+
+    const result = await resolveOrCreateExternalIdentity(
+      tuple,
+      dependencies(() => ids.next().value!),
+    )
+
+    expect(result.status).toBe("created")
+    expect(result.userId).not.toBe(collidedUserId)
+    await expect(prisma.user.count()).resolves.toBe(2)
+    await expect(prisma.externalIdentity.count()).resolves.toBe(1)
+    await expect(prisma.securityAudit.count({ where: { outcome: "FAILURE" } })).resolves.toBe(0)
+  })
+
+  it("writes one failure audit only after the retry budget is exhausted", async () => {
+    const collidedUserId = randomUUID()
+    await createUser(prisma, { id: collidedUserId })
+    const configured = dependencies(() => collidedUserId)
 
     await expect(
-      resolveOrCreateExternalIdentity(
-        tuple,
-        dependencies(() => ids.next().value!),
-      ),
+      resolveOrCreateExternalIdentity(tuple, {
+        ...configured,
+        retry: { ...configured.retry, maxAttempts: 2 },
+      }),
     ).rejects.toBeInstanceOf(ExternalIdentityCollisionError)
-    await expect(prisma.user.count()).resolves.toBe(1)
     await expect(prisma.externalIdentity.count()).resolves.toBe(0)
     await expect(prisma.securityAudit.findMany()).resolves.toEqual([
       expect.objectContaining({
@@ -126,10 +155,35 @@ describe("resolveOrCreateExternalIdentity()", () => {
         context: {
           provider: tuple.provider,
           issuer: tuple.issuer,
-          reason: "collision",
+          reason: "retry_exhausted",
         },
       }),
     ])
+  })
+
+  it("rejects excess and non-plain input before attaching an identity to a victim", async () => {
+    const victimUserId = randomUUID()
+    await createUser(prisma, { id: victimUserId })
+    class IdentityInput {
+      provider = tuple.provider
+      issuer = tuple.issuer
+      subject = tuple.subject
+    }
+
+    for (const input of [
+      { ...tuple, id: randomUUID() },
+      { ...tuple, userId: victimUserId },
+      { ...tuple, provider: { value: tuple.provider } },
+      new IdentityInput(),
+    ]) {
+      await expect(resolveOrCreateExternalIdentity(input, dependencies())).rejects.toThrow()
+    }
+
+    await expect(prisma.user.findMany()).resolves.toEqual([
+      expect.objectContaining({ id: victimUserId }),
+    ])
+    await expect(prisma.externalIdentity.count()).resolves.toBe(0)
+    await expect(prisma.securityAudit.count()).resolves.toBe(0)
   })
 
   it("rolls back partial state before auditing an unexpected transaction failure", async () => {
@@ -176,24 +230,13 @@ describe("resolveOrCreateExternalIdentity()", () => {
       runTransaction,
     })
 
-    const results = await Promise.allSettled([first, second])
+    const results = await Promise.all([first, second])
 
-    expect(results.filter(({ status }) => status === "fulfilled")).toHaveLength(1)
-    expect(
-      results.filter(
-        (result) =>
-          result.status === "rejected" && result.reason instanceof ExternalIdentityCollisionError,
-      ),
-    ).toHaveLength(1)
+    expect(results.map(({ status }) => status).sort()).toEqual(["created", "found"])
+    expect(new Set(results.map(({ userId }) => userId)).size).toBe(1)
     await expect(prisma.user.count()).resolves.toBe(1)
     await expect(prisma.externalIdentity.count()).resolves.toBe(1)
-    await expect(
-      prisma.securityAudit.groupBy({ by: ["outcome"], _count: { _all: true } }),
-    ).resolves.toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ outcome: "SUCCESS", _count: { _all: 1 } }),
-        expect.objectContaining({ outcome: "FAILURE", _count: { _all: 1 } }),
-      ]),
-    )
+    await expect(prisma.securityAudit.count({ where: { outcome: "SUCCESS" } })).resolves.toBe(1)
+    await expect(prisma.securityAudit.count({ where: { outcome: "FAILURE" } })).resolves.toBe(0)
   })
 })

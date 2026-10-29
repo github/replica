@@ -39,7 +39,6 @@ CREATE TABLE "authentication_provider_revisions" (
     "provider_id" UUID NOT NULL,
     "revision" INTEGER NOT NULL,
     "configuration_digest" VARCHAR(64) NOT NULL,
-    "settings" JSONB NOT NULL,
     "created_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -47,9 +46,6 @@ CREATE TABLE "authentication_provider_revisions" (
     CONSTRAINT "authentication_provider_revisions_revision_positive" CHECK ("revision" > 0),
     CONSTRAINT "authentication_provider_revisions_digest_sha256" CHECK (
         "configuration_digest" ~ '^[0-9a-f]{64}$'
-    ),
-    CONSTRAINT "authentication_provider_revisions_settings_object" CHECK (
-        jsonb_typeof("settings") = 'object'
     )
 );
 
@@ -148,11 +144,22 @@ CREATE FUNCTION enforce_selected_revision_provider()
 RETURNS trigger
 LANGUAGE plpgsql
 AS $$
+DECLARE
+    selected_revision UUID;
 BEGIN
-    IF NEW."selected_revision_id" IS NOT NULL AND NOT EXISTS (
+    SELECT "selected_revision_id"
+    INTO selected_revision
+    FROM "authentication_providers"
+    WHERE "id" = NEW."id";
+
+    IF selected_revision IS NULL THEN
+        RAISE EXCEPTION 'Authentication provider must have a selected revision.';
+    END IF;
+
+    IF NOT EXISTS (
         SELECT 1
         FROM "authentication_provider_revisions"
-        WHERE "id" = NEW."selected_revision_id"
+        WHERE "id" = selected_revision
           AND "provider_id" = NEW."id"
     ) THEN
         RAISE EXCEPTION 'Selected revision must belong to its authentication provider.';

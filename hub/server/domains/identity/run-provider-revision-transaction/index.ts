@@ -28,7 +28,7 @@ export function runProviderRevisionTransaction<Result>(
     .catch((error: unknown) => {
       if (
         error instanceof Prisma.PrismaClientKnownRequestError &&
-        ["P2002", "P2003", "P2034"].includes(error.code)
+        ["P2002", "P2034"].includes(error.code)
       ) {
         throw new IdentityTransactionConflictError({ cause: error })
       }

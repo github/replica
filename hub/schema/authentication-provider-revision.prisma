@@ -10,7 +10,6 @@ model AuthenticationProviderRevision {
   // Attribute columns
   revision            Int
   configurationDigest String @map("configuration_digest") @db.VarChar(64)
-  settings            Json   @db.JsonB
 
   // Timestamp columns
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)

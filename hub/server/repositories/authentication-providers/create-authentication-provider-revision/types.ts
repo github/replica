@@ -10,5 +10,4 @@ export interface CreateAuthenticationProviderRevisionInput {
   providerId: string
   revision: number
   configurationDigest: string
-  settings: Prisma.InputJsonObject
 }

@@ -6,7 +6,7 @@ export interface NormalizedJsonObject {
   [key: string]: NormalizedJsonValue
 }
 
-export interface NormalizeSecretFreeJsonLimits {
+export interface NormalizeBoundedJsonLimits {
   maxArrayItems: number
   maxBytes: number
   maxDepth: number

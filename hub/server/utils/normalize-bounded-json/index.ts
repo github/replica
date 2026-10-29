@@ -1,7 +1,7 @@
 import type {
   NormalizedJsonObject,
   NormalizedJsonValue,
-  NormalizeSecretFreeJsonLimits,
+  NormalizeBoundedJsonLimits,
 } from "./types.ts"
 
 const sensitiveExactNames = new Set(["apikey", "authorization", "cookie"])
@@ -54,9 +54,9 @@ function assertSafeString(value: string, maximum: number) {
   }
 }
 
-export function normalizeSecretFreeJson(
+export function normalizeBoundedJson(
   value: unknown,
-  limits: NormalizeSecretFreeJsonLimits,
+  limits: NormalizeBoundedJsonLimits,
 ): NormalizedJsonObject {
   let entries = 0
 

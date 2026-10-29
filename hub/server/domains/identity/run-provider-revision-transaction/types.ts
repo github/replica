@@ -2,14 +2,13 @@ import type { PrismaClient } from "../../../generated/prisma/client.ts"
 import type { CreateAuthenticationProviderRevisionInput } from "../../../repositories/authentication-providers/create-authentication-provider-revision/types.ts"
 import type { CreateAuthenticationProviderInput } from "../../../repositories/authentication-providers/create-authentication-provider/types.ts"
 import type { SelectAuthenticationProviderRevisionInput } from "../../../repositories/authentication-providers/select-authentication-provider-revision/types.ts"
-import type { CreateSecurityAuditInput } from "../../../repositories/security-audits/create-security-audit/types.ts"
+import type { CreateSecurityAuditEvent } from "../../../repositories/security-audits/create-security-audit/types.ts"
 
 export interface SelectedProviderRevisionRecord {
   id: string
   providerId: string
   revision: number
   configurationDigest: string
-  settings: unknown
 }
 
 export interface AuthenticationProviderRecord {
@@ -23,7 +22,7 @@ export interface ProviderRevisionRepositories {
   createAuthenticationProviderRevision(
     input: CreateAuthenticationProviderRevisionInput,
   ): Promise<SelectedProviderRevisionRecord>
-  createSecurityAudit(input: CreateSecurityAuditInput): Promise<unknown>
+  createSecurityAudit(input: CreateSecurityAuditEvent): Promise<unknown>
   findAuthenticationProvider(key: string): Promise<AuthenticationProviderRecord | null>
   selectAuthenticationProviderRevision(
     input: SelectAuthenticationProviderRevisionInput,

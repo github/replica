@@ -38,7 +38,7 @@ export class ProviderRevisionRollbackError extends Error {
 
 export class ProviderRevisionDriftError extends Error {
   constructor() {
-    super("The provider revision reuses a revision number with different settings.")
+    super("The provider revision reuses a revision number with different validated configuration.")
     this.name = "ProviderRevisionDriftError"
   }
 }

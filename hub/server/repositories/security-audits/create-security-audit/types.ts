@@ -1,5 +1,4 @@
 import type { Prisma } from "../../../generated/prisma/client.ts"
-import type { SecurityAuditOutcome } from "../../../generated/prisma/enums.ts"
 
 export interface CreateSecurityAuditDatabase {
   securityAudit: {
@@ -7,20 +6,48 @@ export interface CreateSecurityAuditDatabase {
   }
 }
 
-export type SecurityAuditContextValue =
-  | boolean
-  | number
-  | string
-  | null
-  | SecurityAuditContextValue[]
-  | { [key: string]: SecurityAuditContextValue }
-export type SecurityAuditContext = Record<string, SecurityAuditContextValue>
-
-export interface CreateSecurityAuditInput {
+interface SecurityAuditEvent {
   id: string
-  action: string
-  outcome: SecurityAuditOutcome
-  targetType: string
-  targetId?: string
-  context: SecurityAuditContext
 }
+
+export interface ExternalIdentityCreatedAudit extends SecurityAuditEvent {
+  type: "external_identity_created"
+  externalIdentityId: string
+  issuer: string
+  provider: string
+}
+
+export interface ExternalIdentityCreateFailedAudit extends SecurityAuditEvent {
+  type: "external_identity_create_failed"
+  issuer: string
+  provider: string
+  reason: "retry_exhausted" | "transaction_error"
+}
+
+export interface ProviderRevisionSelectedAudit extends SecurityAuditEvent {
+  type: "provider_revision_selected"
+  providerId: string
+  providerKey: string
+  revision: number
+}
+
+export interface ProviderRevisionDeniedAudit extends SecurityAuditEvent {
+  type: "provider_revision_denied"
+  providerKey: string
+  reason: "invariant" | "revision_gap" | "rollback" | "same_revision_drift"
+  revision: number
+}
+
+export interface ProviderRevisionPersistFailedAudit extends SecurityAuditEvent {
+  type: "provider_revision_persist_failed"
+  providerKey: string
+  reason: "retry_exhausted" | "transaction_error"
+  revision: number
+}
+
+export type CreateSecurityAuditEvent =
+  | ExternalIdentityCreatedAudit
+  | ExternalIdentityCreateFailedAudit
+  | ProviderRevisionSelectedAudit
+  | ProviderRevisionDeniedAudit
+  | ProviderRevisionPersistFailedAudit

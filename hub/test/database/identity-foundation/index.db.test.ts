@@ -5,6 +5,29 @@ import { prisma } from "../../../server/integrations/prisma"
 import { createExternalIdentity } from "../../../server/repositories/external-identities/create-external-identity"
 import { createUser } from "../../../server/repositories/users/create-user"
 
+async function createProviderAggregate(key: string, digest = "a".repeat(64)) {
+  const providerId = randomUUID()
+  const revisionId = randomUUID()
+  await prisma.$transaction(async (transaction) => {
+    await transaction.authenticationProvider.create({
+      data: { id: providerId, key },
+    })
+    await transaction.authenticationProviderRevision.create({
+      data: {
+        id: revisionId,
+        providerId,
+        revision: 1,
+        configurationDigest: digest,
+      },
+    })
+    await transaction.authenticationProvider.update({
+      where: { id: providerId },
+      data: { selectedRevisionId: revisionId },
+    })
+  })
+  return { providerId, revisionId }
+}
+
 describe("identity foundation migration", () => {
   it("deploys the committed baseline with only C1 application tables", async () => {
     const migrations = await prisma.$queryRaw<Array<{ migration_name: string }>>`
@@ -29,6 +52,21 @@ describe("identity foundation migration", () => {
       { table_name: "external_identities" },
       { table_name: "security_audits" },
       { table_name: "users" },
+    ])
+    const revisionColumns = await prisma.$queryRaw<Array<{ column_name: string }>>`
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'authentication_provider_revisions'
+      ORDER BY ordinal_position
+    `
+    expect(revisionColumns.map(({ column_name }) => column_name)).toEqual([
+      "id",
+      "provider_id",
+      "revision",
+      "configuration_digest",
+      "created_at",
+      "updated_at",
     ])
   })
 
@@ -124,25 +162,8 @@ describe("identity foundation migration", () => {
   })
 
   it("keeps provider revisions and security audit history immutable", async () => {
-    const providerId = randomUUID()
-    const revisionId = randomUUID()
+    const { providerId, revisionId } = await createProviderAggregate("workforce")
     const auditId = randomUUID()
-    await prisma.authenticationProvider.create({
-      data: { id: providerId, key: "workforce" },
-    })
-    await prisma.authenticationProviderRevision.create({
-      data: {
-        id: revisionId,
-        providerId,
-        revision: 1,
-        configurationDigest: "a".repeat(64),
-        settings: { issuer: "https://id.example.test" },
-      },
-    })
-    await prisma.authenticationProvider.update({
-      where: { id: providerId },
-      data: { selectedRevisionId: revisionId },
-    })
     await prisma.securityAudit.create({
       data: {
         id: auditId,
@@ -157,7 +178,7 @@ describe("identity foundation migration", () => {
     await expect(
       prisma.authenticationProviderRevision.update({
         where: { id: revisionId },
-        data: { settings: { issuer: "https://changed.example.test" } },
+        data: { configurationDigest: "b".repeat(64) },
       }),
     ).rejects.toThrow("Authentication provider revisions are immutable")
     await expect(
@@ -202,23 +223,16 @@ describe("identity foundation migration", () => {
     expect(provider?.selectedRevision?.id).toBe(revisionId)
   })
 
-  it("rejects foreign-key violations and selecting another provider's revision", async () => {
-    const firstProviderId = randomUUID()
-    const secondProviderId = randomUUID()
-    const secondRevisionId = randomUUID()
-    await prisma.authenticationProvider.createMany({
-      data: [
-        { id: firstProviderId, key: "first" },
-        { id: secondProviderId, key: "second" },
-      ],
-    })
+  it("requires every committed provider to select its own existing revision", async () => {
+    const first = await createProviderAggregate("first")
+    const second = await createProviderAggregate("second", "b".repeat(64))
+    const unselectedSecondRevisionId = randomUUID()
     await prisma.authenticationProviderRevision.create({
       data: {
-        id: secondRevisionId,
-        providerId: secondProviderId,
-        revision: 1,
-        configurationDigest: "b".repeat(64),
-        settings: { issuer: "https://id.example.test" },
+        id: unselectedSecondRevisionId,
+        providerId: second.providerId,
+        revision: 2,
+        configurationDigest: "c".repeat(64),
       },
     })
 
@@ -240,16 +254,60 @@ describe("identity foundation migration", () => {
           providerId: randomUUID(),
           revision: 1,
           configurationDigest: "c".repeat(64),
-          settings: {},
         },
       }),
     ).rejects.toMatchObject({ code: "P2003" })
     await expect(
       prisma.authenticationProvider.update({
-        where: { id: firstProviderId },
-        data: { selectedRevisionId: secondRevisionId },
+        where: { id: first.providerId },
+        data: { selectedRevisionId: unselectedSecondRevisionId },
       }),
     ).rejects.toThrow("Selected revision must belong to its authentication provider")
+    await expect(
+      prisma.authenticationProvider.update({
+        where: { id: first.providerId },
+        data: { selectedRevisionId: randomUUID() },
+      }),
+    ).rejects.toMatchObject({ code: "P2003" })
+    await expect(
+      prisma.authenticationProviderRevision.delete({
+        where: { id: first.revisionId },
+      }),
+    ).rejects.toThrow("Authentication provider revisions are immutable")
+    await expect(
+      prisma.authenticationProvider.create({
+        data: { id: randomUUID(), key: "unselected" },
+      }),
+    ).rejects.toThrow("Authentication provider must have a selected revision")
+  })
+
+  it("allows atomic provider creation and selection of the next owned revision", async () => {
+    const first = await createProviderAggregate("workforce")
+    const nextRevisionId = randomUUID()
+
+    await prisma.$transaction(async (transaction) => {
+      await transaction.authenticationProviderRevision.create({
+        data: {
+          id: nextRevisionId,
+          providerId: first.providerId,
+          revision: 2,
+          configurationDigest: "b".repeat(64),
+        },
+      })
+      await transaction.authenticationProvider.update({
+        where: { id: first.providerId },
+        data: { selectedRevisionId: nextRevisionId },
+      })
+    })
+
+    await expect(
+      prisma.authenticationProvider.findUnique({
+        where: { id: first.providerId },
+        include: { selectedRevision: true },
+      }),
+    ).resolves.toMatchObject({
+      selectedRevision: { id: nextRevisionId, revision: 2 },
+    })
   })
 
   it("rejects audit context that exceeds the migration byte bound", async () => {

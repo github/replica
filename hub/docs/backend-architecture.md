@@ -45,4 +45,6 @@ The [shared Prisma client](database.md#shared-client) lives in `server/integrati
 
 The identity kernel keeps database access in focused repositories for users, external identities, authentication provider revisions, and security audits. Its domain operations accept transaction-scoped repository functions rather than a mutable store or a global lock.
 
-Keep network, provider, and filesystem work outside the transaction. A transaction may change one identity or authentication-provider aggregate and write its success audit. When work is denied or fails, roll back that transaction before writing the separate denial or failure audit.
+Keep network, provider, and filesystem work outside the transaction. Provider validation returns canonical public configuration, and the kernel computes and stores only its digest. A transaction may change one identity or authentication-provider aggregate and write its success audit.
+
+Retry expected serialization and aggregate-creation conflicts around the complete transaction so the next attempt rereads current state. Bound attempts and backoff. Do not retry invariant or foreign-key failures. Write a denial or failure audit only after the state transaction has rolled back and the operation has reached its terminal result.
