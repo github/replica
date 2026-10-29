@@ -78,6 +78,7 @@ export interface IdentityRecords {
 
 export interface IdentityQueries {
   githubIntegrationCredentials(): Promise<GitHubIntegrationCredentials>
+  identityStoreState(): Promise<IdentityStoreState>
   user(id: string): Promise<HubUser | null>
   externalIdentity(
     provider: string,

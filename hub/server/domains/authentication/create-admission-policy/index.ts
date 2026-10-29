@@ -20,7 +20,7 @@ export function createAdmissionPolicy(
     name: "legacy-repository",
     admit: async (profile) => {
       try {
-        const credentials = provider.read(await store.read.githubIntegrationState())
+        const credentials = provider.read(await store.read.githubIntegrationCredentials())
         if (!credentials) {
           throw new AuthenticationError(
             503,
