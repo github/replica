@@ -46,7 +46,7 @@ async function getAdministrationSession(
         github: null,
         configuration: null,
         providerRevisionId: null,
-        admissionPolicy: { name: "hub-managed", admit: () => Promise.resolve(false) },
+        admissionPolicy: { name: "hub-managed", admit: () => Promise.resolve(null) },
         now: dependencies.now,
       },
       sessionToken,
@@ -318,7 +318,7 @@ export function createAdministrationService(
               userId: target.userId,
               role: nextRole,
               status: nextStatus,
-              source: target.source,
+              source: "manual",
               suspendedAt:
                 nextStatus === "suspended"
                   ? target.status === "suspended"

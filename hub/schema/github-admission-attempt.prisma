@@ -1,0 +1,19 @@
+model GitHubAdmissionAttempt {
+  // ID columns
+  id                 String @id @default(uuid()) @db.Uuid
+  repositorySourceId String @map("repository_source_id") @db.Uuid
+
+  // Relations
+  repositorySource GitHubRepositorySource @relation(fields: [repositorySourceId], references: [id], onDelete: Cascade)
+
+  // Attribute columns
+  subject    String
+  generation Int @default(0)
+
+  // Timestamp columns
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([repositorySourceId, subject])
+  @@map("github_admission_attempts")
+}

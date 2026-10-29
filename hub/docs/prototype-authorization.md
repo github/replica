@@ -1,6 +1,6 @@
 # Prototype authorization
 
-Hub owns prototype access after authentication and installation admission. A user does not need repository access to use a Hub-managed prototype, and GitHub repository permissions do not grant Hub access.
+Hub owns prototype access after authentication and installation admission. A user does not need repository access to use a Hub-managed prototype. A prototype can explicitly select a linked GitHub repository as a synchronized baseline, but Hub remains the final evaluator.
 
 ## Product records
 
@@ -25,25 +25,40 @@ Artifact payloads are not part of this layer. A version identifies immutable pro
 
 Installation membership and installation administrator status do not grant access to existing workspaces or prototypes. The workspace-creation rule is the only installation-administrator product rule in this layer. After creation, the user's explicit workspace grant supplies authority.
 
-## Direct access and precedence
+## Hub overrides, synchronized baselines, and precedence
 
 Hub stores one direct workspace rule and one direct prototype rule per user and scope. A rule is either an explicit deny or an allowed role. Removing a rule restores evaluation from the remaining sources.
+
+Each prototype starts in `hub-managed` mode. An administrator may explicitly select `github-synchronized` mode and one active linked repository source. There is no implicit fallback from missing Hub access to GitHub.
 
 The evaluator applies this order:
 
 1. An explicit Hub deny at either the workspace or prototype scope denies access.
 2. An explicit prototype role applies, including a lower role that intentionally restricts a stronger workspace role.
 3. An explicit workspace role applies.
-4. A future optional synchronized baseline may apply.
+4. A fresh GitHub-synchronized baseline may apply.
 5. Otherwise Hub denies access.
 
-Every decision reports whether access is allowed, the effective role, the source, and a stable reason. Routes use this evaluator instead of reimplementing precedence. Hub consults an optional baseline only when explicit Hub rules produce no decision, so an unavailable lower-precedence source cannot block an explicit deny or role. Prototype listing accepts that baseline policy source and checks workspace access independently of the current page, so an authorized user receives an empty terminal page instead of an authorization error. This release does not supply a synchronized baseline. Future GitHub synchronization must remain below explicit Hub deny and explicit Hub role rules.
+Every decision reports whether access is allowed, the effective role, the source, and a stable reason. GitHub baseline decisions also report the repository source, immutable GitHub repository ID, raw permission, last confirmation time, and synchronization status. Routes use this evaluator instead of reimplementing precedence. Hub consults the synchronized baseline only when explicit Hub rules produce no decision, so an unavailable lower-precedence source cannot block an explicit deny or role. Prototype listing checks workspace access independently of the current page, so an authorized user receives an empty terminal page instead of an authorization error.
+
+Prototype read and list responses include `authorizationMode` and `sourceRepositoryId`. The authorization-policy mutation returns that same prototype shape, so administrators can inspect the effective configuration even when an explicit Hub role wins the access decision.
+
+The fixed mapping is:
+
+| GitHub permission | Hub prototype baseline |
+| --- | --- |
+| `admin`, `maintain`, `write` | `editor` |
+| `triage` | `commenter` |
+| `read` | `viewer` |
+| `none` or missing collaborator | No access |
+
+GitHub never supplies Hub `administrator` authority. Manual workspace and prototype grants and denies live in separate tables and synchronization does not update or delete them. Converting a synchronized member to manual membership because a Hub administrator grants product administration writes a structured membership-preservation audit in the same transaction.
 
 Workspace administrators cannot remove or replace the final active workspace administrator. A prototype access change must also leave at least one active effective prototype administrator. Hub locks the owning records before checking these invariants, so overlapping changes cannot each remove a different final administrator. Suspended and removed users do not satisfy either invariant.
 
 Suspending or removing a membership fails with `product_administration_orphaned` when that user is the final active administrator for a workspace or prototype. An administrator must transfer product administration first. Changing an active installation administrator to a member does not remove an explicit product role, because installation and product authority remain separate.
 
-A workspace administrator can recover prototype access even when a prototype-specific administrator rule does not exist. Explicit prototype deny still blocks that administrator from the denied prototype until another workspace administrator changes the rule. Prototype lists omit prototypes that explicitly deny the requesting user. Workspace list responses contain only workspace fields and never embed prototype or access-rule metadata.
+A workspace administrator can recover prototype access even when a prototype-specific administrator rule does not exist. Explicit prototype deny still blocks that administrator from the denied prototype until another workspace administrator changes the rule. Prototype lists omit prototypes that explicitly deny the requesting user. A workspace reachable through a direct prototype rule or synchronized prototype baseline is also readable, unless an explicit workspace deny blocks it. Workspace list responses contain only workspace fields and never embed prototype or access-rule metadata.
 
 ## API and request boundaries
 
@@ -55,6 +70,7 @@ The product API uses:
 - `GET` and `POST /api/workspaces/:workspaceId/prototypes`
 - `GET /api/prototypes/:prototypeId`
 - `POST /api/prototypes/:prototypeId/archive`
+- `PUT /api/prototypes/:prototypeId/authorization`
 - `GET /api/prototypes/:prototypeId/access/explanation`
 - `PUT` and `DELETE /api/prototypes/:prototypeId/access/:userId`
 - `GET` and `POST /api/prototypes/:prototypeId/versions`
@@ -70,6 +86,10 @@ Workspace creation, prototype creation and archival, version creation, role gran
 
 Records identify the actor, session, authentication-provider revision, affected product records, target user when applicable, outcome, and a bounded reason. They do not include cookies, provider tokens, host secrets, request bodies, prototype artifacts, or mutable identity labels.
 
-## Deferred policy sources
+## Synchronization lifecycle
 
-GitHub repository synchronization, webhooks, reconciliation, and repository-to-role mapping are not implemented. They may later produce an optional baseline role without changing Hub's direct-rule precedence. Source-provider mutations, public links, artifact ingestion, promotion, retention, and rollback remain separate product boundaries.
+The [GitHub integration](github-integration.md) confirms permissions with installation credentials. Webhooks only mark relevant sources dirty or removed; periodic or manual reconciliation repairs missed events and confirms current permissions. A failed provider call does not refresh confirmation. Baselines remain usable only inside the configured one-day last-known-good window and fail closed afterward.
+
+Repository rename changes mutable owner, name, and default-branch fields without changing the immutable source identity. Repository removal, installation removal, and permission loss update synchronized baselines only. Direct Hub overrides remain intact.
+
+Source mutation, public links, artifact ingestion, promotion, retention, and rollback remain separate product boundaries.

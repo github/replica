@@ -6,7 +6,10 @@ import { digestSecret } from "#server/utils/digest-secret"
 export async function getCurrentSession(
   dependencies: AuthenticationDependencies,
   sessionToken: string,
-  records: Pick<IdentityRecords, "membership" | "session"> = dependencies.store.read,
+  records: Pick<
+    IdentityRecords,
+    "hasFreshGitHubAdmission" | "membership" | "session"
+  > = dependencies.store.read,
 ) {
   const session = sessionToken ? await records.session(digestSecret(sessionToken)) : null
   if (!session) {
@@ -14,6 +17,12 @@ export async function getCurrentSession(
   }
   const membership = await records.membership(session.userId)
   if (!membership || membership.status !== "active") {
+    throw new AuthenticationError(401, "membership_inactive", "Sign in to continue.")
+  }
+  if (
+    membership.source === "synchronized" &&
+    !(await records.hasFreshGitHubAdmission(session.userId, dependencies.now()))
+  ) {
     throw new AuthenticationError(401, "membership_inactive", "Sign in to continue.")
   }
   return { ...session, membership }

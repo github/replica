@@ -9,6 +9,7 @@ export function createIdentityStore(client: PrismaClient): IdentityStore {
   const read: IdentityQueries = {
     githubIntegrationCredentials: () => records.githubIntegrationCredentials(),
     identityStoreState: () => records.identityStoreState(),
+    hasFreshGitHubAdmission: (userId, now) => records.hasFreshGitHubAdmission(userId, now),
     user: (id) => records.user(id),
     externalIdentity: (provider, issuer, subject) =>
       records.externalIdentity(provider, issuer, subject),

@@ -45,30 +45,29 @@ export async function completeGitHubAuthorization(
       "The authorization request is invalid.",
     )
   }
-  const authorizationAttempt = attempt
   const purpose: AuthorizationPurpose = attempt.purpose
-  let policyAdmitted = false
-  async function reportProviderFailure(error: unknown): Promise<never> {
+  let profile: GitHubUserProfile
+  let admissionBaseline: Awaited<ReturnType<typeof admissionPolicy.admit>> = null
+  let admissionFailure: AuthenticationError | null = null
+  try {
+    profile = await github.identify(code, attempt.pkceVerifier)
+  } catch {
     await store.lock((records) =>
       records.audit({
         event: "authentication.provider_failed",
         outcome: "failed",
         actorUserId: null,
-        sessionId: authorizationAttempt.originatingSessionId,
+        sessionId: attempt.originatingSessionId,
         authenticationProviderRevisionId: providerRevisionId,
       }),
     )
-    if (error instanceof AuthenticationError) throw error
     throw new AuthenticationError(
       503,
       "authentication_provider_failed",
       "The authentication provider failed.",
     )
   }
-  const profile: GitHubUserProfile = await github
-    .identify(code, authorizationAttempt.pkceVerifier)
-    .catch(reportProviderFailure)
-  if (authorizationAttempt.purpose === "sign-in") {
+  if (attempt.purpose === "sign-in") {
     const policyNeeded = await store.lock(async (records) => {
       const identity = await records.externalIdentity(
         "github",
@@ -77,20 +76,32 @@ export async function completeGitHubAuthorization(
       )
       const membership = identity ? await records.membership(identity.userId) : null
       const invitation =
-        !membership || membership.status === "removed"
+        membership?.status !== "active" && membership?.status !== "suspended"
           ? await records.usableInvitation("github", configuration.issuer, profile.subject, now())
           : null
-      return !membership && !invitation
+      if (admissionPolicy.name === "github-synchronized") {
+        return !membership || membership.source === "synchronized" || invitation !== null
+      }
+      return !membership && invitation === null
     })
     if (policyNeeded) {
       try {
-        policyAdmitted = await admissionPolicy.admit(profile)
+        const admission = await admissionPolicy.admit(profile)
+        admissionBaseline = admission === true ? "legacy" : admission || null
       } catch (error) {
-        await reportProviderFailure(error)
+        if (error instanceof AuthenticationError) {
+          admissionFailure = error
+        } else {
+          admissionFailure = new AuthenticationError(
+            503,
+            "source_integration_unavailable",
+            "GitHub source integration is unavailable.",
+          )
+        }
       }
     }
   }
-  const result = await store.lock(async (records) => {
+  const result = await store.lock(async (records, transaction) => {
     const [currentProvider, stateRecord] = await Promise.all([
       records.currentAuthenticationProviderRevision("github"),
       records.identityStoreState(),
@@ -129,15 +140,55 @@ export async function completeGitHubAuthorization(
     }
     let identity = await records.externalIdentity("github", configuration.issuer, profile.subject)
     let membership = identity ? await records.membership(identity.userId) : null
+    const synchronizableMembership =
+      admissionBaseline !== null &&
+      membership?.status !== "suspended" &&
+      (membership === null ||
+        (membership.source === "synchronized" && membership.status === "removed"))
     const invitation =
       purpose === "sign-in" && membership?.status !== "active" && membership?.status !== "suspended"
         ? await records.usableInvitation("github", configuration.issuer, profile.subject, now())
         : null
     if (
       purpose === "sign-in" &&
+      admissionFailure &&
+      !(membership?.status === "active" && membership.source !== "synchronized") &&
+      !invitation
+    ) {
+      await records.audit({
+        event: "authentication.admission_failed",
+        outcome: "failed",
+        actorUserId: identity?.userId ?? null,
+        sessionId: null,
+        authenticationProviderRevisionId: providerRevisionId,
+        targetMembershipId: membership?.id ?? null,
+        context: { reason: admissionFailure.code },
+      })
+      return { failure: admissionFailure, purpose }
+    }
+    if (
+      purpose === "sign-in" &&
+      membership?.status === "active" &&
+      membership.source === "synchronized" &&
+      admissionPolicy.name === "github-synchronized" &&
+      !admissionBaseline
+    ) {
+      await records.audit({
+        event: "authentication.admission_denied",
+        outcome: "denied",
+        actorUserId: identity?.userId ?? null,
+        sessionId: null,
+        authenticationProviderRevisionId: providerRevisionId,
+        targetMembershipId: membership.id,
+        context: { reason: "github_access_lost" },
+      })
+      return { denied: true as const }
+    }
+    if (
+      purpose === "sign-in" &&
       membership?.status !== "active" &&
       !invitation &&
-      !(policyAdmitted && !membership)
+      !synchronizableMembership
     ) {
       await records.audit({
         event: "authentication.admission_denied",
@@ -271,24 +322,39 @@ export async function completeGitHubAuthorization(
           targetMembershipId: membership.id,
           invitationId: invitation.id,
         })
-      } else if (policyAdmitted && !membership) {
+      } else if (synchronizableMembership) {
         membership = await records.saveMembership({
           userId: identity.userId,
           status: "active",
           role: "member",
-          source: "synchronized",
+          source: admissionBaseline === "legacy" ? "legacy-synchronized" : "synchronized",
           suspendedAt: null,
           removedAt: null,
         })
-        await records.audit({
-          event: "membership.synchronize",
-          outcome: "succeeded",
-          actorUserId: identity.userId,
-          sessionId: null,
-          authenticationProviderRevisionId: providerRevisionId,
-          targetMembershipId: membership.id,
-          context: { source: "legacy_repository" },
-        })
+        if (admissionBaseline === "legacy") {
+          await records.audit({
+            event: "membership.synchronize",
+            outcome: "succeeded",
+            actorUserId: identity.userId,
+            sessionId: null,
+            authenticationProviderRevisionId: providerRevisionId,
+            targetMembershipId: membership.id,
+            context: { source: "legacy_repository" },
+          })
+        }
+      }
+    }
+    if (admissionBaseline && admissionBaseline !== "legacy") {
+      try {
+        await admissionPolicy.saveBaseline?.(transaction, identity.userId, admissionBaseline)
+      } catch (error) {
+        if (!(
+          error instanceof AuthenticationError &&
+          error.code === "github_authorization_changed" &&
+          membership?.source !== "synchronized"
+        )) {
+          throw error
+        }
       }
     }
     const sessionToken = randomBytes(32).toString("base64url")
@@ -311,6 +377,10 @@ export async function completeGitHubAuthorization(
   })
   if ("denied" in result && result.denied) {
     throw new AuthenticationError(403, "admission_denied", "This identity is not admitted.")
+  }
+  if ("failure" in result) {
+    if (result.failure instanceof Error) throw result.failure
+    throw new AuthenticationError(503, "admission_failed", "Admission failed.")
   }
   return result
 }

@@ -1,0 +1,36 @@
+model GitHubRepositorySource {
+  // ID columns
+  id                   String @id @default(uuid()) @db.Uuid
+  githubRepositoryId   String @unique @map("github_repository_id")
+
+  // Relations
+  prototypes           Prototype[]
+  synchronizedAccess   GitHubSynchronizedAccess[]
+  admissionAttempts    GitHubAdmissionAttempt[]
+  webhookDeliveries    GitHubWebhookDelivery[]
+  auditTargets          SecurityAudit[]
+
+  // Attribute columns
+  appId                String @map("app_id")
+  installationId       String @map("installation_id")
+  owner                String
+  name                 String
+  defaultBranch        String @map("default_branch")
+  visibility           String @default("unknown")
+  status               String @default("active")
+  admissionEnabled     Boolean @default(false) @map("admission_enabled")
+  synchronizationGeneration Int @default(0) @map("synchronization_generation")
+  synchronizationStatus String @default("dirty") @map("synchronization_status")
+  synchronizationError String? @map("synchronization_error")
+  removedAt            DateTime? @map("removed_at") @db.Timestamptz(3)
+  dirtyAt              DateTime? @map("dirty_at") @db.Timestamptz(3)
+  lastAttemptedAt      DateTime? @map("last_attempted_at") @db.Timestamptz(3)
+  lastConfirmedAt      DateTime? @map("last_confirmed_at") @db.Timestamptz(3)
+
+  // Timestamp columns
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([installationId, status])
+  @@map("github_repository_sources")
+}

@@ -66,6 +66,7 @@ describe("createIdentityStore()", () => {
       "audits",
       "externalIdentity",
       "githubIntegrationCredentials",
+      "hasFreshGitHubAdmission",
       "identityStoreState",
       "invitations",
       "membership",
