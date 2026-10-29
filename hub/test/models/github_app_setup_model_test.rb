@@ -39,6 +39,19 @@ class GithubAppSetupModelTest < ActiveSupport::TestCase
     assert_not data.key?("hook_attributes")
   end
 
+  test "builds the registration manifest without replacing an open registration state" do
+    session = {}
+    setup = GithubAppSetup.new(session:, bootstrap_secret: github_app_configurations.bootstrap_secret)
+    setup.authorize!(github_app_configurations.bootstrap_secret)
+    setup.registration
+    state = session.fetch(:github_app_manifest_state)
+
+    manifest = JSON.parse(setup.registration_manifest)
+
+    assert_equal state, session.fetch(:github_app_manifest_state)
+    assert_equal "Replica Hub", manifest.fetch("name")
+  end
+
   test "includes webhooks for a public HTTPS origin" do
     original = Rails.configuration.x.hub_origin
     Rails.configuration.x.hub_origin = "https://replica.example.com"

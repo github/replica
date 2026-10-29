@@ -42,6 +42,8 @@ describe("GithubAppSetupManualPage()", () => {
     expect(container.querySelector("input[name=authenticity_token]")).toHaveValue("csrf-token")
     expect(screen.getByLabelText(/Private key/)).toHaveAttribute("type", "file")
     expect(screen.getByLabelText(/Private key/)).toBeRequired()
+    expect(screen.getByLabelText("Private key")).toHaveAccessibleName("Private key")
+    expect(screen.getByLabelText("Private key")).toHaveAccessibleDescription("Upload the PEM file")
     expect(
       screen.getByRole("checkbox", { name: "Connect only this installation" }),
     ).not.toBeChecked()
@@ -68,6 +70,7 @@ describe("GithubAppSetupManualPage()", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("GitHub could not verify the connection.")
     for (const label of ["Client secret", "Webhook secret"]) {
       expect(screen.getByLabelText(new RegExp(label))).toHaveAttribute("type", "password")
+      expect(screen.getByLabelText(new RegExp(label))).toHaveAttribute("autocomplete", "new-password")
       expect(screen.getByLabelText(new RegExp(label))).toHaveValue("")
     }
     expect(screen.getByLabelText(/Private key/)).toHaveValue("")

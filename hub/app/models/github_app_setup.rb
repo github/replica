@@ -6,6 +6,7 @@ class GithubAppSetup
   class ImportError < Error
     attr_reader :reason
 
+    # Exposes only fixed reasons without leaking credentials or GitHub responses.
     def initialize(reason)
       @reason = reason
       super(reason.to_s)

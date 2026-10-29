@@ -94,8 +94,20 @@ class GithubAppManualImportTest < ActiveSupport::TestCase
   test "invalid PEM is rejected without persisting or returning supplied secrets" do
     setup = authorized_setup
 
-    assert_rejected_import(setup, private_key: "invalid-private-key-material")
+    error = assert_rejected_import(setup, private_key: "invalid-private-key-material")
+
+    assert_equal :invalid_private_key, error.reason
     assert_not_requested :get, "#{GITHUB_API_URL}/app"
+  end
+
+  test "an App and client ID mismatch reports a fixed failure reason" do
+    attributes = import_attributes
+    app = app_payload(attributes).merge("client_id" => "Iv1.other")
+    stub_import(attributes, app:)
+
+    error = assert_rejected_import(authorized_setup)
+
+    assert_equal :app_mismatch, error.reason
   end
 
   test "malformed submitted IDs cannot be coerced into an approved App or installation" do
@@ -106,7 +118,6 @@ class GithubAppManualImportTest < ActiveSupport::TestCase
 
   {
     "another App" => { "id" => 908 },
-    "another OAuth client" => { "client_id" => "Iv1.other" },
     "a malformed App owner" => { "owner" => { "id" => "321", "login" => "github", "type" => "Organization" } },
     "an unsafe user login" => { "owner" => { "id" => 321, "login" => "operator/enterprise", "type" => "User" } },
     "an underscore in an organization login" => {
@@ -143,7 +154,9 @@ class GithubAppManualImportTest < ActiveSupport::TestCase
     stub_request(:get, "#{GITHUB_API_URL}/app")
       .to_return(status: 401, body: JSON.generate(message: attributes.fetch(:client_secret)))
 
-    assert_rejected_import(authorized_setup)
+    error = assert_rejected_import(authorized_setup)
+
+    assert_equal :github_authentication_failed, error.reason
   end
 
   test "a late repository lookup failure leaves configuration repositories and success audit unchanged" do
@@ -209,6 +222,7 @@ class GithubAppManualImportTest < ActiveSupport::TestCase
       error = assert_raises(GithubAppSetup::Error) { setup.import!(**attributes) }
     end
     assert_no_secrets(error.message, attributes)
+    error
   end
 
   def assert_no_secrets(text, attributes)

@@ -5,6 +5,7 @@ class GithubAppSetupController < SuperglueController
   before_action :resume_session
 
   rescue_from GithubAppSetup::Error, with: :setup_not_found
+  rescue_from GithubAppSetup::ImportError, with: :manual_import_failed
   rescue_from GithubClient::Error, with: :setup_not_found
   rescue_from GithubAppConfiguration::Installation::OwnerMismatch, with: :setup_not_found
   rescue_from GithubAppConfiguration::Superseded, ActiveRecord::StaleObjectError, with: :setup_not_found
@@ -51,9 +52,12 @@ class GithubAppSetupController < SuperglueController
     redirect_to install_setup_path, status: :see_other
   rescue GithubAppSetup::ImportError => error
     manual_error(t("github_app_setup.manual.errors.#{error.reason}", default: t("github_app_setup.manual.failed")))
-  rescue GithubAppSetup::Error, GithubClient::Error,
-    GithubAppConfiguration::Installation::OwnerMismatch
+  rescue GithubAppSetup::InvalidState
     manual_error(t("github_app_setup.manual.failed"))
+  rescue GithubClient::Error
+    manual_error(t("github_app_setup.manual.errors.github_failed"))
+  rescue GithubAppConfiguration::Installation::OwnerMismatch
+    manual_error(t("github_app_setup.manual.errors.github_failed"))
   end
 
   # @route GET /setup/callback (callback_setup)
@@ -105,6 +109,10 @@ class GithubAppSetupController < SuperglueController
 
   def setup_not_found(_error = nil)
     head :not_found
+  end
+
+  def manual_import_failed(error)
+    manual_error(t("github_app_setup.manual.errors.#{error.reason}", default: t("github_app_setup.manual.failed")))
   end
 
   def manual_error(message)

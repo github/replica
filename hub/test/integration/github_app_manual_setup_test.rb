@@ -84,6 +84,9 @@ class GithubAppManualSetupTest < ActionDispatch::IntegrationTest
   test "failed manual import returns a safe editable form without saving credentials" do
     with_bootstrap_secret do
       post setup_path, params: { bootstrap_secret: github_app_configurations.bootstrap_secret }
+      assert_redirected_to setup_path
+      assert_not GithubAppConfiguration.configured?
+      assert GithubAppSetup.new(session:, bootstrap_secret: github_app_configurations.bootstrap_secret).authorized?
       stub_request(:get, "#{GITHUB_API_URL}/app")
         .to_return(status: 401, body: JSON.generate(message: "manual-client-secret manual-webhook-secret"))
 
@@ -101,6 +104,7 @@ class GithubAppManualSetupTest < ActionDispatch::IntegrationTest
   test "manual setup and failed import preserve an open manifest registration" do
     with_bootstrap_secret do
       post setup_path, params: { bootstrap_secret: github_app_configurations.bootstrap_secret }
+      assert_redirected_to setup_path
       get setup_path, as: :json
       registration = JSON.parse(response.body).fetch("data")
       state = Rack::Utils.parse_query(URI(registration.fetch("submitPath")).query).fetch("state")
@@ -112,6 +116,8 @@ class GithubAppManualSetupTest < ActionDispatch::IntegrationTest
         .to_return(status: 401, body: JSON.generate(message: "manual-client-secret manual-webhook-secret"))
       post manual_setup_path, params: manual_parameters
       assert_response :unprocessable_entity
+      assert_includes response.body, I18n.t("github_app_setup.manual.errors.github_authentication_failed")
+      assert_no_secrets(response.body)
 
       stub_request(:post, "#{GITHUB_API_URL}/app-manifests/temporary/conversions")
         .to_return \
