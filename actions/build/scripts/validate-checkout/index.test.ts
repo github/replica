@@ -1,9 +1,9 @@
-import assert from "node:assert/strict"
-import { spawnSync } from "node:child_process"
+import { execFileSync, spawnSync } from "node:child_process"
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
-import { describe, it, type TestContext } from "node:test"
 import { fileURLToPath } from "node:url"
+
+import { describe, expect, it } from "vitest"
 
 import { temporaryDirectory } from "../../test/temporary-directory/index.ts"
 
@@ -11,21 +11,11 @@ import { validateCheckout } from "./index.ts"
 
 const actionRoot = fileURLToPath(new URL("../../", import.meta.url))
 const script = fileURLToPath(new URL("./index.ts", import.meta.url))
-const secret = "dummy-checkout-credential-do-not-log"
-const authorization = `[http]\nextraHeader = AUTHORIZATION: basic ${secret}\n`
-
-async function checkout(t: TestContext) {
-  const root = await temporaryDirectory()
-  t.after(() => rm(root, { recursive: true, force: true }))
-  const result = spawnSync("git", ["init", "--quiet", root], { encoding: "utf8" })
-  assert.ifError(result.error)
-  assert.equal(result.status, 0, result.stderr)
-  return root
-}
 
 describe("validateCheckout()", () => {
-  it("accepts an ordinary checkout with a credential-free internal submodule", async (t) => {
-    const root = await checkout(t)
+  it("accepts an ordinary checkout with a credential-free internal submodule", async () => {
+    const root = await temporaryDirectory()
+    execFileSync("git", ["init", "--quiet", root])
     await writeFile(
       path.join(root, ".git", "config"),
       '[remote "origin"]\nurl = https://github.com/example/prototype.git\n' +
@@ -34,28 +24,24 @@ describe("validateCheckout()", () => {
     const metadata = path.join(root, ".git", "modules", "nested")
     const submodule = path.join(root, "packages", "nested")
     await mkdir(path.dirname(metadata), { recursive: true })
-    const result = spawnSync(
-      "git",
-      ["init", "--quiet", "--separate-git-dir", metadata, submodule],
-      { encoding: "utf8" },
-    )
-    assert.ifError(result.error)
-    assert.equal(result.status, 0, result.stderr)
+    execFileSync("git", ["init", "--quiet", "--separate-git-dir", metadata, submodule])
     await writeFile(path.join(submodule, ".git"), "gitdir: ../../.git/modules/nested\n")
 
-    await assert.doesNotReject(validateCheckout(root))
+    await expect(validateCheckout(root)).resolves.toBeUndefined()
   })
 
-  it("runs the action guard before npm lifecycle and build scripts without leaking authorization", async (t) => {
+  it("runs the action guard before npm lifecycle and build scripts without leaking authorization", async () => {
+    const secret = "dummy-checkout-credential-do-not-log"
+    const authorization = `[http]\nextraHeader = AUTHORIZATION: basic ${secret}\n`
     const action = await readFile(path.join(actionRoot, "action.yml"), "utf8")
-    const guard = action.match(/run: (node [^\n]+validate-checkout[^\n]+)/)
-    assert.ok(guard, "The action must run checkout validation")
-    assert.ok(typeof guard.index === "number")
+    const guard = /run: (node [^\n]+validate-checkout[^\n]+)/.exec(action)
+    if (!guard) throw new Error("The action must run checkout validation")
     const guardCommand = guard[1]
     const build = action.indexOf("npm ci && npm run build")
-    assert.ok(build > guard.index, "The guard must precede repository execution")
+    expect(build, "The guard must precede repository execution").toBeGreaterThan(guard.index)
 
-    const root = await checkout(t)
+    const root = await temporaryDirectory()
+    execFileSync("git", ["init", "--quiet", root])
     const name = "checkout-guard-fixture"
     const version = "1.0.0"
     await writeFile(
@@ -93,66 +79,80 @@ describe("validateCheckout()", () => {
           npm_config_cache: path.join(root, ".npm-cache"),
         },
       })
-      assert.ifError(result.error)
+      expect(result.error).toBeUndefined()
       return result
     }
 
     const clean = run()
-    assert.equal(clean.status, 0, clean.stderr)
+    expect(clean.status, clean.stderr).toBe(0)
     for (const marker of ["installed", "built"]) {
-      assert.equal(await readFile(path.join(root, marker), "utf8"), "executed")
+      expect(await readFile(path.join(root, marker), "utf8")).toBe("executed")
       await rm(path.join(root, marker))
     }
     await writeFile(path.join(root, ".git", "config"), authorization)
 
     const unsafe = run()
-    assert.equal(unsafe.status, 1)
-    assert.ok(!`${unsafe.stdout}${unsafe.stderr}`.includes(secret))
+    expect(unsafe.status).toBe(1)
+    expect(`${unsafe.stdout}${unsafe.stderr}`).not.toContain(secret)
     for (const marker of ["installed", "built"]) {
-      await assert.rejects(readFile(path.join(root, marker)), { code: "ENOENT" })
+      await expect(readFile(path.join(root, marker))).rejects.toMatchObject({ code: "ENOENT" })
     }
   })
 
-  it("rejects authentication embedded in a remote URL", async (t) => {
-    const root = await checkout(t)
+  it("rejects authentication embedded in a remote URL", async () => {
+    const secret = "dummy-checkout-credential-do-not-log"
+    const root = await temporaryDirectory()
+    execFileSync("git", ["init", "--quiet", root])
     await writeFile(
       path.join(root, ".git", "config"),
       `[remote "origin"]\nurl = https://user:${secret}@github.com/example/prototype.git\n`,
     )
 
-    await assert.rejects(validateCheckout(root))
+    await expect(validateCheckout(root)).rejects.toThrow()
   })
 
-  it("rejects authentication in recursive submodule metadata", async (t) => {
-    const root = await checkout(t)
+  it("rejects authentication in recursive submodule metadata", async () => {
+    const root = await temporaryDirectory()
+    execFileSync("git", ["init", "--quiet", root])
     const metadata = path.join(root, ".git", "modules", "parent", "modules", "child")
     await mkdir(metadata, { recursive: true })
-    await writeFile(path.join(metadata, "config"), authorization)
+    await writeFile(
+      path.join(metadata, "config"),
+      "[http]\nextraHeader = AUTHORIZATION: basic dummy\n",
+    )
 
-    await assert.rejects(validateCheckout(root))
+    await expect(validateCheckout(root)).rejects.toThrow()
   })
 
-  it("rejects authentication in worktree-specific config", async (t) => {
-    const root = await checkout(t)
+  it("rejects authentication in worktree-specific config", async () => {
+    const root = await temporaryDirectory()
+    execFileSync("git", ["init", "--quiet", root])
     await writeFile(
       path.join(root, ".git", "config"),
       "[core]\nrepositoryformatversion = 1\n[extensions]\nworktreeConfig = true\n",
     )
-    await writeFile(path.join(root, ".git", "config.worktree"), authorization)
+    await writeFile(
+      path.join(root, ".git", "config.worktree"),
+      "[http]\nextraHeader = AUTHORIZATION: basic dummy\n",
+    )
 
-    await assert.rejects(validateCheckout(root))
+    await expect(validateCheckout(root)).rejects.toThrow()
   })
 
-  it("fails closed when an include can hide additional configuration", async (t) => {
-    const root = await checkout(t)
+  it("fails closed when an include can hide additional configuration", async () => {
+    const root = await temporaryDirectory()
+    execFileSync("git", ["init", "--quiet", root])
     await writeFile(path.join(root, ".git", "config"), '[include]\npath = "../hidden-config"\n')
     await writeFile(path.join(root, "hidden-config"), "[core]\nbare = false\n")
 
-    await assert.rejects(validateCheckout(root))
+    await expect(validateCheckout(root)).rejects.toThrow()
   })
 
-  it("fails the CLI for malformed Git config without exposing its diagnostic input", async (t) => {
-    const root = await checkout(t)
+  it("fails the CLI for malformed Git config without exposing its diagnostic input", async () => {
+    const secret = "dummy-checkout-credential-do-not-log"
+    const authorization = `[http]\nextraHeader = AUTHORIZATION: basic ${secret}\n`
+    const root = await temporaryDirectory()
+    execFileSync("git", ["init", "--quiet", root])
     await writeFile(path.join(root, ".git", "config"), `${authorization}[broken\n`)
 
     const result = spawnSync(process.execPath, [script, "--root", root], {
@@ -160,9 +160,9 @@ describe("validateCheckout()", () => {
       cwd: root,
     })
 
-    assert.ifError(result.error)
-    assert.equal(result.status, 1)
-    assert.ok(`${result.stdout}${result.stderr}`.trim().length > 0)
-    assert.ok(!`${result.stdout}${result.stderr}`.includes(secret))
+    expect(result.error).toBeUndefined()
+    expect(result.status).toBe(1)
+    expect(`${result.stdout}${result.stderr}`.trim()).not.toBe("")
+    expect(`${result.stdout}${result.stderr}`).not.toContain(secret)
   })
 })

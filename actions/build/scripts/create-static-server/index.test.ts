@@ -1,7 +1,7 @@
-import assert from "node:assert/strict"
 import { mkdir, writeFile } from "node:fs/promises"
 import path from "node:path"
-import { describe, it } from "node:test"
+
+import { describe, expect, it, onTestFinished } from "vitest"
 
 import { temporaryDirectory } from "../../test/temporary-directory/index.ts"
 
@@ -15,22 +15,19 @@ describe("createStaticServer()", () => {
     const dist = await temporaryDirectory()
     await writeFile(path.join(dist, "index.html"), "<!doctype html><h1>App</h1>")
     const server = createStaticServer(dist)
+    onTestFinished(() => closeServer(server))
     const port = await listenOnLoopback(server)
     const origin = `http://127.0.0.1:${port}`
-    try {
-      const page = await fetch(`${origin}/issues?state=open`, {
-        headers: { Accept: "text/html" },
-      })
-      assert.equal(page.status, 200)
-      assert.equal(await page.text(), "<!doctype html><h1>App</h1>")
-      for (const url of ["/missing.js", "/missing.png", "/missing.json"]) {
-        const response = await fetch(`${origin}${url}`, { headers: { Accept: "text/html" } })
-        assert.equal(response.status, 404)
-      }
-      assert.equal((await fetch(`${origin}/issues`)).status, 404)
-    } finally {
-      await closeServer(server)
+    const page = await fetch(`${origin}/issues?state=open`, {
+      headers: { Accept: "text/html" },
+    })
+    expect(page.status).toBe(200)
+    expect(await page.text()).toBe("<!doctype html><h1>App</h1>")
+    for (const url of ["/missing.js", "/missing.png", "/missing.json"]) {
+      const response = await fetch(`${origin}${url}`, { headers: { Accept: "text/html" } })
+      expect(response.status).toBe(404)
     }
+    expect((await fetch(`${origin}/issues`)).status).toBe(404)
   })
 
   it("falls back for declared dotted and directory routes without hiding missing assets", async () => {
@@ -49,35 +46,32 @@ describe("createStaticServer()", () => {
       "/favicon.ico",
       longRoute,
     ])
+    onTestFinished(() => closeServer(server))
     const port = await listenOnLoopback(server)
     const origin = `http://127.0.0.1:${port}`
-    try {
-      for (const route of [
-        "/release/v2.0?tab=notes",
-        "/assets",
-        "/assets/",
-        "/caf%C3%A9/v2.0",
-        "/favicon.ico",
-        longRoute,
-      ]) {
-        const response = await fetch(`${origin}${route}`, { headers: { Accept: "text/html" } })
-        assert.equal(response.status, 200, route)
-        assert.equal(await response.text(), html, route)
-      }
-      for (const route of ["/release/v3.0", "/other", "/assets/missing.js", "/missing.png"]) {
-        const response = await fetch(`${origin}${route}`, { headers: { Accept: "text/html" } })
-        assert.equal(response.status, 404, route)
-      }
-      for (const route of ["/release/v2.0", "/assets"]) {
-        assert.equal((await fetch(`${origin}${route}`)).status, 404, route)
-      }
-      const asset = await fetch(`${origin}/assets/app.js`, {
-        headers: { Accept: "text/html" },
-      })
-      assert.equal(asset.status, 200)
-      assert.equal(await asset.text(), "console.log('App')")
-    } finally {
-      await closeServer(server)
+    for (const route of [
+      "/release/v2.0?tab=notes",
+      "/assets",
+      "/assets/",
+      "/caf%C3%A9/v2.0",
+      "/favicon.ico",
+      longRoute,
+    ]) {
+      const response = await fetch(`${origin}${route}`, { headers: { Accept: "text/html" } })
+      expect(response.status, route).toBe(200)
+      expect(await response.text(), route).toBe(html)
     }
+    for (const route of ["/release/v3.0", "/other", "/assets/missing.js", "/missing.png"]) {
+      const response = await fetch(`${origin}${route}`, { headers: { Accept: "text/html" } })
+      expect(response.status, route).toBe(404)
+    }
+    for (const route of ["/release/v2.0", "/assets"]) {
+      expect((await fetch(`${origin}${route}`)).status, route).toBe(404)
+    }
+    const asset = await fetch(`${origin}/assets/app.js`, {
+      headers: { Accept: "text/html" },
+    })
+    expect(asset.status).toBe(200)
+    expect(await asset.text()).toBe("console.log('App')")
   })
 })
