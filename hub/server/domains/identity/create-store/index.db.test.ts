@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises"
+import { readdir, readFile } from "node:fs/promises"
 
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
@@ -335,6 +335,29 @@ describe("createIdentityStore()", () => {
         DROP CONSTRAINT IF EXISTS "installation_memberships_source"
       `)
     }
+  })
+
+  it("introduces OIDC identity columns only in the final hardening migration", async () => {
+    const migrationsUrl = new URL("../../../../schema/migrations/", import.meta.url)
+    const migrationDirectories = (await readdir(migrationsUrl, { withFileTypes: true }))
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+    const migrationNames = []
+    const migrationsWithOidcIdentityColumns = []
+
+    for (const migrationName of migrationDirectories) {
+      const migrationUrl = new URL(`${migrationName}/`, migrationsUrl)
+      if (!(await readdir(migrationUrl)).includes("migration.sql")) continue
+      migrationNames.push(migrationName)
+      const sql = await readFile(new URL("migration.sql", migrationUrl), "utf8")
+      if (sql.includes('ADD COLUMN "email"') || sql.includes('ADD COLUMN "directory_object_id"')) {
+        migrationsWithOidcIdentityColumns.push(migrationName)
+      }
+    }
+    migrationNames.sort()
+
+    expect(migrationsWithOidcIdentityColumns).toEqual(["20261028210000_oidc_review_hardening"])
+    expect(migrationNames).not.toContain("20261027221500_oidc_identity_attributes")
   })
 
   it("stores OIDC provider revisions separately from GitHub integration credentials", async () => {

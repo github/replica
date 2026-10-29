@@ -23,8 +23,18 @@ export interface OidcProfile {
 }
 
 export interface OidcClient {
-  authorizationUrl(state: string, pkceVerifier: string, nonce: string): Promise<string>
-  identify(code: string, pkceVerifier: string, nonce: string): Promise<OidcProfile>
+  authorizationUrl(
+    state: string,
+    pkceVerifier: string,
+    nonce: string,
+    options?: { fresh?: boolean },
+  ): Promise<string>
+  identify(
+    code: string,
+    pkceVerifier: string,
+    nonce: string,
+    options?: { maximumAuthenticationAgeSeconds?: number },
+  ): Promise<OidcProfile>
 }
 
 export interface OidcClientOptions {

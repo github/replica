@@ -265,6 +265,43 @@ describe("createAuthenticationService() OIDC", () => {
     })
   })
 
+  it("forwards fresh-authentication options only for session verification", async () => {
+    const session = {
+      id: "session",
+      userId: "user",
+      externalIdentityId: "identity",
+      authenticationProviderRevisionId: providerRevision.id,
+      tokenDigest: digestSecret("session-token"),
+      signedInAt: now,
+      freshAuthorizedAt: null,
+      user: { id: "user", displayName: "Member Name", avatarUrl: null },
+      externalIdentity: existingIdentity(),
+      authenticationProviderRevision: providerRevision,
+    }
+    const identityRecords = records({
+      session: vi.fn().mockResolvedValue(session),
+      sessionById: vi.fn().mockResolvedValue(session),
+      membership: vi.fn().mockResolvedValue(activeMembership()),
+      consumeAuthorizationAttempt: vi
+        .fn()
+        .mockResolvedValue(attempt({ purpose: "verify", originatingSessionId: session.id })),
+    })
+    const { authentication, client } = service(identityRecords)
+
+    await authentication.start("verify", "session-token")
+    await authentication.complete("code", "state", "browser-token")
+
+    expect(client.authorizationUrl).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(String),
+      expect.any(String),
+      { fresh: true },
+    )
+    expect(client.identify).toHaveBeenCalledWith("code", "pkce-verifier", "one-use-nonce", {
+      maximumAuthenticationAgeSeconds: 0,
+    })
+  })
+
   it("consumes the saved attempt and audits a provider failure when initiation discovery fails", async () => {
     const identityRecords = records()
     const client = oidc({

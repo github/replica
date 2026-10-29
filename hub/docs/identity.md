@@ -28,7 +28,7 @@ Hub sessions use a random opaque cookie and store only its digest. Authenticatio
 
 Artifact publishing uses a separate workload identity boundary. Prototype administrators issue prototype-scoped credentials with `publish` and/or `read-status`; Hub returns the raw bearer token once and stores only its digest. Workload credentials never create browser sessions or inherit user, installation, repository, or source-provider access. See [Artifact ingestion](artifact-ingestion.md).
 
-Sign-out revokes the current database session. Provider logout is optional and is not assumed. Every restored session requires an active installation membership. Suspension and removal therefore deny retained cookies immediately, and their administration operations delete the affected user's sessions. Fresh verification reuses the configured provider and must return the same external identity. An active Hub administrator membership with fresh verification may revoke all sessions; revocation also supersedes callbacks that started earlier.
+Sign-out revokes the current database session. Provider logout is optional and is not assumed. Every restored session requires an active installation membership. Suspension and removal therefore deny retained cookies immediately, and their administration operations delete the affected user's sessions. Fresh OIDC verification requests `prompt=login` and `max_age=0`, requires a current `auth_time`, and must return the same external identity before administrator mutations. An active Hub administrator membership with fresh verification may revoke all sessions; revocation also supersedes callbacks that started earlier.
 
 ## Persisted boundaries
 

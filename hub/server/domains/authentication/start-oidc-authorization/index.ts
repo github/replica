@@ -109,7 +109,10 @@ export async function startOidcAuthorization(
   if (denial) throw denial
   let authorizationUrl: string
   try {
-    authorizationUrl = await oidc.authorizationUrl(state, pkceVerifier, nonce)
+    authorizationUrl =
+      purpose === "verify"
+        ? await oidc.authorizationUrl(state, pkceVerifier, nonce, { fresh: true })
+        : await oidc.authorizationUrl(state, pkceVerifier, nonce)
   } catch {
     await store.lock(async (records) => {
       await records.consumeAuthorizationAttempt(digestSecret(state))

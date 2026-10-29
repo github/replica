@@ -132,7 +132,7 @@ export function createOidcClient(
   }
 
   return {
-    async authorizationUrl(state, pkceVerifier, nonce) {
+    async authorizationUrl(state, pkceVerifier, nonce, options) {
       const metadata = await discovery()
       const url = new URL(metadata.authorizationEndpoint)
       url.search = new URLSearchParams({
@@ -146,9 +146,13 @@ export function createOidcClient(
         code_challenge: codeChallenge(pkceVerifier),
         code_challenge_method: "S256",
       }).toString()
+      if (options?.fresh) {
+        url.searchParams.set("prompt", "login")
+        url.searchParams.set("max_age", "0")
+      }
       return url.href
     },
-    async identify(code, pkceVerifier, nonce): Promise<OidcProfile> {
+    async identify(code, pkceVerifier, nonce, options): Promise<OidcProfile> {
       const metadata = await discovery()
       const token = tokenSchema.parse(
         await fetchJson(metadata.tokenEndpoint, {
@@ -182,6 +186,19 @@ export function createOidcClient(
           claims.azp !== configuration.clientId)
       ) {
         throw new Error("OIDC token authorized party is invalid.")
+      }
+      if (options?.maximumAuthenticationAgeSeconds !== undefined) {
+        const authenticationAge =
+          typeof claims.auth_time === "number"
+            ? Math.floor(Date.now() / 1_000) - claims.auth_time
+            : null
+        if (
+          authenticationAge === null ||
+          authenticationAge < -5 ||
+          authenticationAge > options.maximumAuthenticationAgeSeconds + 5
+        ) {
+          throw new Error("OIDC authentication is not fresh.")
+        }
       }
       const roles = Array.isArray(claims.roles)
         ? claims.roles.filter((role): role is string => typeof role === "string")

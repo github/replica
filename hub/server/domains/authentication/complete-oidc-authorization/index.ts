@@ -49,7 +49,12 @@ export async function completeOidcAuthorization(
   const purpose: AuthorizationPurpose = attempt.purpose
   let profile
   try {
-    profile = await oidc.identify(code, attempt.pkceVerifier, attempt.nonce)
+    profile =
+      purpose === "verify"
+        ? await oidc.identify(code, attempt.pkceVerifier, attempt.nonce, {
+            maximumAuthenticationAgeSeconds: 0,
+          })
+        : await oidc.identify(code, attempt.pkceVerifier, attempt.nonce)
   } catch {
     await store.lock((records) =>
       records.audit({

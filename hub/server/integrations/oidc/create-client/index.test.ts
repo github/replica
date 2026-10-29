@@ -155,6 +155,19 @@ describe("createOidcClient()", () => {
     })
   })
 
+  it("requests a new provider login for fresh authorization", async () => {
+    const client = createOidcClient(configuration, { fetch: providerFetch({}) })
+
+    const url = new URL(
+      await client.authorizationUrl("opaque-state", "pkce-verifier", "one-use-nonce", {
+        fresh: true,
+      }),
+    )
+
+    expect(url.searchParams.get("prompt")).toBe("login")
+    expect(url.searchParams.get("max_age")).toBe("0")
+  })
+
   it("exchanges the code with the verifier and maps administrator claims without returning tokens", async () => {
     const key = await signingKey()
     const token = await idToken(key, {
@@ -195,6 +208,44 @@ describe("createOidcClient()", () => {
       }).toString(),
     )
     expect(JSON.stringify(profile)).not.toContain(token)
+  })
+
+  it("accepts fresh identification at the authentication-time tolerance boundary", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(new Date("2026-10-29T10:00:00.000Z"))
+    const key = await signingKey()
+    const token = await idToken(key, {
+      auth_time: Math.floor(Date.now() / 1_000) - 5,
+    })
+    const client = createOidcClient(configuration, {
+      fetch: providerFetch({ token, keys: [key.jwk] }),
+    })
+
+    await expect(
+      client.identify("code", "verifier", "expected-nonce", {
+        maximumAuthenticationAgeSeconds: 0,
+      }),
+    ).resolves.toMatchObject({ subject: "immutable-subject" })
+  })
+
+  it.each([
+    ["missing", undefined],
+    ["stale", Math.floor(new Date("2026-10-29T10:00:00.000Z").getTime() / 1_000) - 6],
+    ["materially future", Math.floor(new Date("2026-10-29T10:00:00.000Z").getTime() / 1_000) + 6],
+  ])("rejects fresh identification with a %s authentication time", async (_name, authTime) => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(new Date("2026-10-29T10:00:00.000Z"))
+    const key = await signingKey()
+    const token = await idToken(key, { auth_time: authTime })
+    const client = createOidcClient(configuration, {
+      fetch: providerFetch({ token, keys: [key.jwk] }),
+    })
+
+    await expect(
+      client.identify("code", "verifier", "expected-nonce", {
+        maximumAuthenticationAgeSeconds: 0,
+      }),
+    ).rejects.toThrow("OIDC authentication is not fresh.")
   })
 
   it.each([
