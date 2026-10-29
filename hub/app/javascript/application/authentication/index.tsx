@@ -116,6 +116,18 @@ export function AuthenticationApplication() {
     }
   }
 
+  async function startVerification() {
+    if (!session) throw new Error("Session is unavailable.")
+    const response = await fetch("/api/session/verify", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "X-CSRF-Token": session.csrfToken },
+    })
+    if (!response.ok) throw new Error("Hub could not start verification.")
+    const data = (await response.json()) as { authorizationUrl: string }
+    window.location.assign(data.authorizationUrl)
+  }
+
   async function updateAdministration(path: string, method: string, body?: unknown) {
     if (!session) return
     setLoading(true)
@@ -131,8 +143,12 @@ export function AuthenticationApplication() {
         body: body === undefined ? undefined : JSON.stringify(body),
       })
       if (!response.ok) {
-        const data = (await response.json()) as { error?: string }
-        throw new Error(data.error ?? "Administration request failed")
+        const data = (await response.json()) as { error?: string; message?: string }
+        if (data.error === "fresh_authorization_required") {
+          await startVerification()
+          return
+        }
+        throw new Error(data.message ?? data.error ?? "Administration request failed")
       }
       const current = await fetchSession()
       setSession(current)
