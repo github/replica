@@ -55,6 +55,8 @@ Start the PostgreSQL service as described in [Development](development.md) and s
 
 The database command uses `--passWithNoTests` so an empty selection exits successfully. It still fails when tests fail. Identity repository cases exercise external identity linking and uniqueness, installation membership, provider-aware one-use attempts, session context, GitHub integration credential independence, transaction rollback, and concurrent store locks. Authentication and administration cases also cover PKCE, browser binding, provider revisions, invitation activation, one-use bootstrap and recovery boundaries, last-administrator races, targeted session revocation, admission-policy separation, secure cookies, CSRF and origin checks, log omission, and transient GitHub user tokens. Job integration cases exercise real PostgreSQL queues, schedules, and database resets.
 
+A dedicated migration case applies the foundation migration, seeds retained lifecycle and security records, then applies the next migration. This catches upgrade behavior that an empty final schema cannot prove, including audit-outcome backfills and lifecycle constraints.
+
 Database-enabled jsdom tests use the browser setup and database hooks together. They can arrange records through server code, but frontend code must not import server modules. The setup does not start an API or connect frontend requests to one.
 
 The database setup follows this lifecycle:
