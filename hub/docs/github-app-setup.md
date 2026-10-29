@@ -60,7 +60,7 @@ With a private organization App, connecting a public repository lets every organ
 
 The setup request expires after 15 minutes and can be used once.
 
-Setup authorization allows 10 attempts per minute per trusted source IP, including rejected secrets and attempts from different browser Sessions. Further attempts return HTTP 429 with retry guidance. See [Security rate limits](security-rate-limits.md) for shared storage and proxy requirements.
+Setup authorization allows 5 attempts per minute per trusted source IP, including rejected secrets and attempts from different browser Sessions. Further attempts return HTTP 429 with retry guidance. See [Security rate limits](security-rate-limits.md) for shared storage and proxy requirements.
 
 After setup, enroll the person administering Hub at `/operator/enrollment` using the bootstrap secret and a fresh GitHub sign-in. App creation does not automatically designate its owner or the first signed-in person as a Hub operator. Existing configured deployments use the same route without resetting their App. See [Security audit](security-audit.md#enroll-an-operator).
 

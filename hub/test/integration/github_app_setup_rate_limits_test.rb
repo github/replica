@@ -17,8 +17,8 @@ class GithubAppSetupRateLimitsTest < ActionDispatch::IntegrationTest
     travel_back
   end
 
-  test "ten rejected secrets exhaust the budget across browser session resets" do
-    10.times do
+  test "five rejected secrets exhaust the budget across browser session resets" do
+    5.times do
       reset!
       post setup_path, params: { bootstrap_secret: "wrong" }, as: :json
       assert_response :not_found
@@ -33,7 +33,7 @@ class GithubAppSetupRateLimitsTest < ActionDispatch::IntegrationTest
 
   test "an exhausted budget blocks the correct secret without authorizing or auditing until expiry" do
     started = Time.current
-    10.times do
+    5.times do
       post setup_path, params: { bootstrap_secret: "wrong" }, as: :json
       assert_response :not_found
     end
@@ -62,7 +62,7 @@ class GithubAppSetupRateLimitsTest < ActionDispatch::IntegrationTest
   end
 
   test "untrusted forwarded addresses cannot split a peer budget while another peer has its own" do
-    10.times do |index|
+    5.times do |index|
       post setup_path, params: { bootstrap_secret: "wrong" }, headers: {
         "REMOTE_ADDR" => "203.0.113.10", "X-Forwarded-For" => "198.51.100.#{index + 1}"
       }, as: :json
@@ -89,7 +89,7 @@ class GithubAppSetupRateLimitsTest < ActionDispatch::IntegrationTest
       assert_response :not_found
     end
 
-    10.times do
+    5.times do
       post setup_path, params: { bootstrap_secret: "wrong" }, as: :json
       assert_response :not_found
     end

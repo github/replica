@@ -6,7 +6,7 @@ These fixed budgets are product policy, not measured capacity or configurable de
 
 | Feature | Allowance | Counted identity |
 | --- | --- | --- |
-| GitHub App setup authorization, including rejected secrets | 10 per minute | Trusted source IP |
+| GitHub App setup authorization, including rejected secrets | 5 per minute | Trusted source IP |
 | GitHub OAuth initiation, including enrollment and fresh verification | 60 per 5 minutes | Trusted source IP |
 | GitHub OAuth callback | 60 per 5 minutes, separately from initiation | Trusted source IP |
 | Comment creation, replies, edits, deletion, reactions, and resolution | 60 per minute | Hub user |
