@@ -18,6 +18,28 @@ function parseRecord(line: string) {
 }
 
 describe("createApp()", () => {
+  it("accepts a broadcast dependency without changing HTTP routes", async () => {
+    const broadcast = vi.fn()
+    const server = createServer(createApp({ broadcast }))
+
+    try {
+      server.listen(0, "127.0.0.1")
+      await once(server, "listening")
+      const { port } = server.address() as AddressInfo
+      const health = await fetch(`http://127.0.0.1:${port}/api/health`)
+      const missing = await fetch(`http://127.0.0.1:${port}/api/realtime`)
+
+      expect(health.status).toBe(200)
+      expect(await health.json()).toEqual({ status: "ok" })
+      expect(missing.status).toBe(404)
+      expect(broadcast).not.toHaveBeenCalled()
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()))
+      })
+    }
+  })
+
   it("automatically logs health and not-found responses with the injected logger", async () => {
     const records: Record<string, unknown>[] = []
     const logger = createLogger({
