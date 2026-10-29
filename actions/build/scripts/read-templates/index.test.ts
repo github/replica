@@ -3,9 +3,9 @@ import { mkdir, symlink, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { describe, it } from "node:test"
 
-import { temporaryDirectory } from "../../test/temporary-directory/index.mjs"
+import { temporaryDirectory } from "../../test/temporary-directory/index.ts"
 
-import { readTemplates } from "./index.mjs"
+import { readTemplates } from "./index.ts"
 
 describe("readTemplates()", () => {
   it("keeps repositories without templates compatible", async () => {

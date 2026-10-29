@@ -1,18 +1,18 @@
 import { lstat, readFile } from "node:fs/promises"
 import path from "node:path"
 
-import { MAX_TEMPLATE_MANIFEST_BYTES } from "../constants.mjs"
-import { validateTemplates } from "../validate-templates/index.mjs"
+import { MAX_TEMPLATE_MANIFEST_BYTES } from "../constants.ts"
+import { validateTemplates } from "../validate-templates/index.ts"
 
 /** Reads optional template metadata without following a linked configuration file. */
-export async function readTemplates(root, filename = ".github/replica.json") {
+export async function readTemplates(root: string, filename = ".github/replica.json") {
   const segments = filename.split("/")
-  let details
   for (let index = 1; index <= segments.length; index++) {
+    let details
     try {
       details = await lstat(path.join(root, ...segments.slice(0, index)))
     } catch (error) {
-      if (error.code === "ENOENT") return null
+      if (error instanceof Error && "code" in error && error.code === "ENOENT") return null
 
       throw error
     }
@@ -20,10 +20,10 @@ export async function readTemplates(root, filename = ".github/replica.json") {
     if (index < segments.length ? !details.isDirectory() : !details.isFile()) {
       throw new Error(`${filename} must be a regular file without symbolic links.`)
     }
-  }
 
-  if (details.size > MAX_TEMPLATE_MANIFEST_BYTES) {
-    throw new Error(`${filename} must be at most ${MAX_TEMPLATE_MANIFEST_BYTES} bytes.`)
+    if (index === segments.length && details.size > MAX_TEMPLATE_MANIFEST_BYTES) {
+      throw new Error(`${filename} must be at most ${MAX_TEMPLATE_MANIFEST_BYTES} bytes.`)
+    }
   }
 
   const bytes = await readFile(path.join(root, filename))
@@ -31,7 +31,7 @@ export async function readTemplates(root, filename = ".github/replica.json") {
     throw new Error(`${filename} must be at most ${MAX_TEMPLATE_MANIFEST_BYTES} bytes.`)
   }
 
-  let value
+  let value: unknown
   try {
     value = JSON.parse(bytes.toString("utf8"))
   } catch (error) {

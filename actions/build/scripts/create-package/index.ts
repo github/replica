@@ -7,14 +7,14 @@ import {
   MAX_SCREENSHOT_BYTES,
   MAX_SCREENSHOT_HEIGHT,
   VIEWPORTS,
-} from "../constants.mjs"
-import { pngDimensions } from "../png-dimensions/index.mjs"
-import { readTemplates } from "../read-templates/index.mjs"
-import { requiredPathArgument } from "../required-path-argument/index.mjs"
-import { validateBuildOutput } from "../validate-build-output/index.mjs"
+} from "../constants.ts"
+import { pngDimensions } from "../png-dimensions/index.ts"
+import { readTemplates } from "../read-templates/index.ts"
+import { requiredPathArgument } from "../required-path-argument/index.ts"
+import { validateBuildOutput } from "../validate-build-output/index.ts"
 
 /** Copies checked dist files and screenshots into the upload directory. */
-export async function createPackage(root, screenshots, output) {
+export async function createPackage(root: string, screenshots: string, output: string) {
   const buildOutput = await validateBuildOutput(root)
   const manifest = await readTemplates(screenshots, "templates.json")
   let totalBytes = buildOutput.bytes
@@ -43,7 +43,7 @@ export async function createPackage(root, screenshots, output) {
         await access(path.join(screenshots, name))
         return true
       } catch (error) {
-        if (error.code === "ENOENT") return false
+        if (error instanceof Error && "code" in error && error.code === "ENOENT") return false
         throw error
       }
     }),

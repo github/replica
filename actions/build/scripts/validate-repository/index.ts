@@ -2,15 +2,15 @@ import { readFile } from "node:fs/promises"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { requireFile } from "../require-file/index.mjs"
-import { requiredPathArgument } from "../required-path-argument/index.mjs"
+import { requireFile } from "../require-file/index.ts"
+import { requiredPathArgument } from "../required-path-argument/index.ts"
 
 /** Checks package.json, package-lock.json, and the required npm build command. */
-export async function validateRepository(root) {
+export async function validateRepository(root: string) {
   await requireFile(root, "package.json")
   await requireFile(root, "package-lock.json")
 
-  let packageData
+  let packageData: unknown
 
   try {
     packageData = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"))
@@ -24,7 +24,16 @@ export async function validateRepository(root) {
     throw error
   }
 
-  if (typeof packageData?.scripts?.build !== "string" || packageData.scripts.build.trim() === "") {
+  if (
+    !packageData ||
+    typeof packageData !== "object" ||
+    !("scripts" in packageData) ||
+    !packageData.scripts ||
+    typeof packageData.scripts !== "object" ||
+    !("build" in packageData.scripts) ||
+    typeof packageData.scripts.build !== "string" ||
+    packageData.scripts.build.trim() === ""
+  ) {
     throw new Error("Repository package.json must contain a non-empty scripts.build command.")
   }
 }

@@ -3,7 +3,12 @@ import pngjs from "pngjs"
 const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])
 
 /** Checks that a screenshot is a complete PNG and returns its width and height. */
-export function pngDimensions(bytes, name, maximumWidth, maximumHeight) {
+export function pngDimensions(
+  bytes: Buffer,
+  name: string,
+  maximumWidth: number,
+  maximumHeight: number,
+) {
   if (
     bytes.length >= 24 &&
     bytes.subarray(0, 8).equals(PNG_SIGNATURE) &&

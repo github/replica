@@ -75,6 +75,8 @@ Reuse an existing compatible Node.js installation. If it is unavailable on macOS
 
 ### Replica build action
 
+Action scripts use TypeScript that Node executes directly, without a compilation step. Keep syntax compatible with native type stripping; `npm run lint` type-checks scripts, tests, and test helpers.
+
 The shared build action requires npm, Chromium, and a Node.js version matching `engines.node` in [actions/build/package.json](actions/build/package.json):
 
 ```sh

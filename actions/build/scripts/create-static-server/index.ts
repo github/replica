@@ -3,16 +3,21 @@ import { lstat } from "node:fs/promises"
 import { createServer } from "node:http"
 import path from "node:path"
 
-import { CONTENT_TYPES } from "../constants.mjs"
+import { CONTENT_TYPES } from "../constants.ts"
 
 /** Serves checked dist files and falls back to the app entry for browser routes. */
-export function createStaticServer(dist, templatePaths = []) {
+export function createStaticServer(dist: string, templatePaths: string[] = []) {
   const templatePathnames = new Set(
     templatePaths.map((route) => decodeURIComponent(new URL(route, "http://localhost").pathname)),
   )
 
   return createServer(async (request, response) => {
     try {
+      if (request.url === undefined) {
+        response.writeHead(400).end()
+        return
+      }
+
       const requestPath = decodeURIComponent(new URL(request.url, "http://localhost").pathname)
       const templateNavigation = templatePathnames.has(requestPath)
       const acceptsHtml = request.headers.accept?.includes("text/html")
@@ -34,7 +39,12 @@ export function createStaticServer(dist, templatePaths = []) {
       try {
         details = await lstat(filePath)
       } catch (error) {
-        if (!["ENOENT", "ENOTDIR", "ENAMETOOLONG"].includes(error.code)) {
+        if (
+          !(error instanceof Error) ||
+          !("code" in error) ||
+          typeof error.code !== "string" ||
+          !["ENOENT", "ENOTDIR", "ENAMETOOLONG"].includes(error.code)
+        ) {
           throw error
         }
       }
@@ -60,7 +70,12 @@ export function createStaticServer(dist, templatePaths = []) {
       })
       createReadStream(filePath).pipe(response)
     } catch (error) {
-      const status = error.code === "ENOENT" || error.code === "ENOTDIR" ? 404 : 500
+      const status =
+        error instanceof Error &&
+        "code" in error &&
+        (error.code === "ENOENT" || error.code === "ENOTDIR")
+          ? 404
+          : 500
       response.writeHead(status).end()
     }
   })

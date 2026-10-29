@@ -5,12 +5,12 @@ import { describe, it } from "node:test"
 
 import pngjs from "pngjs"
 
-import { temporaryDirectory } from "../../test/temporary-directory/index.mjs"
+import { temporaryDirectory } from "../../test/temporary-directory/index.ts"
 
-import { createPackage } from "../create-package/index.mjs"
-import { MAX_SCREENSHOT_HEIGHT } from "../constants.mjs"
+import { createPackage } from "../create-package/index.ts"
+import { MAX_SCREENSHOT_HEIGHT } from "../constants.ts"
 
-import { captureScreenshots } from "./index.mjs"
+import { captureScreenshots } from "./index.ts"
 
 describe("captureScreenshots()", () => {
   it("captures and packages both color schemes at both widths for the root and templates", async () => {
@@ -410,7 +410,7 @@ describe("captureScreenshots()", () => {
       ["issues", [0, 0, 255]],
       ["release", [255, 255, 0]],
       ["assets", [0, 128, 0]],
-    ]) {
+    ] as const) {
       for (const [name, width, height] of [
         ["desktop", 1440, 900],
         ["narrow", 390, 844],

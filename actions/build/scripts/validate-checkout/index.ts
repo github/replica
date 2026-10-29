@@ -4,7 +4,7 @@ import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 
-import { requiredPathArgument } from "../required-path-argument/index.mjs"
+import { requiredPathArgument } from "../required-path-argument/index.ts"
 
 const run = promisify(execFile)
 const unsafeCheckout =

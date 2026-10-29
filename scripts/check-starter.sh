@@ -8,7 +8,7 @@ fi
 source_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 bash "$source_root/scripts/create-prototype-repo.sh" --starter "$1" "$2"
 destination="$(cd "$2" && pwd -P)"
-node "$source_root/actions/build/scripts/validate-repository/index.mjs" --root "$destination"
+node "$source_root/actions/build/scripts/validate-repository/index.ts" --root "$destination"
 cd "$destination"
 node --input-type=module - <<'NODE'
 import { readFileSync } from "node:fs"
@@ -25,4 +25,4 @@ if (typeof manifest.engines?.node !== "string" || !manifest.engines.node.trim())
 NODE
 npm ci --engine-strict
 npm run check:starter
-node "$source_root/actions/build/scripts/validate-build-output/index.mjs" --root "$destination"
+node "$source_root/actions/build/scripts/validate-build-output/index.ts" --root "$destination"

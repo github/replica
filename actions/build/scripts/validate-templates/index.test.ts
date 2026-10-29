@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { describe, it } from "node:test"
 
-import { validateTemplates } from "./index.mjs"
+import { validateTemplates } from "./index.ts"
 
 const template = {
   id: "settings",
@@ -85,7 +85,7 @@ describe("validateTemplates()", () => {
       id: `template-${index}`,
       name: "\u{1f680}".repeat(120),
     }))
-    assert.equal(validateTemplates({ version: 1, templates }).templates.length, 12)
+    assert.equal(validateTemplates({ version: 1, templates })?.templates.length, 12)
     assert.throws(() =>
       validateTemplates({
         version: 1,

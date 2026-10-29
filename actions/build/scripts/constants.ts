@@ -1,5 +1,5 @@
 export const ARTIFACT_NAME = "replica-build-v1"
-export const CONTENT_TYPES = {
+export const CONTENT_TYPES: Record<string, string> = {
   ".css": "text/css; charset=utf-8",
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",

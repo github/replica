@@ -3,12 +3,12 @@ import { mkdir, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { describe, it } from "node:test"
 
-import { temporaryDirectory } from "../../test/temporary-directory/index.mjs"
+import { temporaryDirectory } from "../../test/temporary-directory/index.ts"
 
-import { closeServer } from "../close-server/index.mjs"
-import { listenOnLoopback } from "../listen-on-loopback/index.mjs"
+import { closeServer } from "../close-server/index.ts"
+import { listenOnLoopback } from "../listen-on-loopback/index.ts"
 
-import { createStaticServer } from "./index.mjs"
+import { createStaticServer } from "./index.ts"
 
 describe("createStaticServer()", () => {
   it("serves client-side browser routes but never replaces missing assets with HTML", async () => {
