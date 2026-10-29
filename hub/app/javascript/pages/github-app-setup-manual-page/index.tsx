@@ -52,7 +52,7 @@ export function GithubAppSetupManualPage({ data }: { data: GithubAppSetupManualP
             <TextInput
               name={field.name}
               type={field.secret ? "password" : "text"}
-              autoComplete="off"
+              autoComplete={field.secret ? "new-password" : "off"}
               maxLength={field.secret ? 4096 : 255}
               fullWidth
             />
