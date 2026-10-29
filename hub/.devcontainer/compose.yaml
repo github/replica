@@ -8,10 +8,13 @@ services:
     working_dir: /workspaces/replica/hub
     volumes:
       - ../..:/workspaces/replica:cached
+    env_file:
+      - path: default.env
+      - path: ../.env
+        required: false
     environment:
       DATABASE_URL: postgresql://replica:replica@db:5432/replica
       TEST_DATABASE_URL: postgresql://replica:replica@db:5432/postgres
-      HUB_AUTH_PROVIDER: github
     depends_on:
       db:
         condition: service_healthy

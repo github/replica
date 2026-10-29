@@ -1,6 +1,7 @@
 /log
 .local
 .npm
+.devcontainer/default.env
 .storybook/instances
 .storybook/settings.json
 node_modules

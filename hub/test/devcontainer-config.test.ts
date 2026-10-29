@@ -18,23 +18,21 @@ function mappingBlock(source: string, key: string, indentation: number) {
 }
 
 describe("Hub devcontainer", () => {
-  it("selects GitHub authentication explicitly for local startup", async () => {
+  it("defaults to GitHub while allowing hub/.env to select OIDC", async () => {
     const compose = await readFile(
       new URL("../.devcontainer/compose.yaml", import.meta.url),
       "utf8",
     )
-    const appService = mappingBlock(compose, "app", 2)
-    const environment = mappingBlock(appService, "environment", 4)
-    const values = new Map(
-      environment
-        .trim()
-        .split("\n")
-        .map((line): [string, string] => {
-          const [key = "", value = ""] = line.trim().split(/:\s+/, 2)
-          return [key, value]
-        }),
+    const defaults = await readFile(
+      new URL("../.devcontainer/default.env", import.meta.url),
+      "utf8",
     )
+    const appService = mappingBlock(compose, "app", 2)
+    const environmentFiles = mappingBlock(appService, "env_file", 4)
 
-    expect(values.get("HUB_AUTH_PROVIDER")).toBe("github")
+    expect(defaults.trim()).toBe("HUB_AUTH_PROVIDER=github")
+    expect(environmentFiles).toMatch(/- path: default\.env[\s\S]*- path: \.\.\/\.env/)
+    expect(environmentFiles).toMatch(/path: \.\.\/\.env[\s\S]*required: false/)
+    expect(mappingBlock(appService, "environment", 4)).not.toContain("HUB_AUTH_PROVIDER")
   })
 })
