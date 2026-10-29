@@ -27,7 +27,7 @@
     "typecheck": "tsc --noEmit && tsc --project ../.github/extensions/replica-prototype/tsconfig.json"
   },
   "dependencies": {
-    "@primer/octicons-react": "19.40.0",
+    "@primer/octicons-react": "19.41.0",
     "@primer/react-brand": "0.78.0",
     "@rails/actioncable": "8.1.400",
     "@reduxjs/toolkit": "2.13.0",
