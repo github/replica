@@ -8,7 +8,7 @@ The team has chosen TypeScript, Express for the API, React and Vite for the fron
 
 The API responds to a health check, and the frontend displays the logo with light and dark themes. Storybook keeps the existing components and pages available for reuse.
 
-Contributors can use PostgreSQL and Prisma locally or in the devcontainer. The database has no product models yet. Sign-in, deployment, and product APIs have not been built. This app cannot yet find repositories, import Builds, host previews, save product data, or support reviews.
+Contributors can use PostgreSQL and Prisma locally or in the devcontainer. The database has a provider-neutral identity transaction foundation, but it does not issue sessions or admit users to Hub. Sign-in, deployment, and product APIs have not been built. This app cannot yet find repositories, import Builds, host previews, save product data, or support reviews.
 
 ## Backend
 
@@ -25,6 +25,10 @@ The [background-job foundation](background-jobs.md) uses BullMQ with PostgreSQL 
 The [telemetry integration](telemetry.md) provides explicit server-side OpenTelemetry spans with optional operator-configured OTLP export. API and worker entrypoints own startup and flush telemetry after draining active work. Automatic instrumentation and product analytics are not implemented.
 
 The [WebSocket foundation](websockets.md) attaches to the API's HTTP server and broadcasts to local channel subscribers without persistence. The application rejects upgrades until access checks are supplied. Product channels, client recovery, and communication between processes are not implemented.
+
+The identity foundation stores Hub users, immutable external identity mappings, selected authentication provider revisions, and bounded security audits. Domain operations receive only the transaction-scoped repositories they need. A successful state change and its success audit commit together; a rejected transaction rolls back before its denial or failure audit is written. Provider and other external I/O must finish before a provider revision enters the database transaction.
+
+This foundation does not prove a provider assertion, create a usable Hub session, assign membership, or authorize product access.
 
 ## Frontend
 

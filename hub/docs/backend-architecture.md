@@ -40,3 +40,9 @@ Add directories when their functions are needed. Do not add empty implementation
 ## Database access
 
 The [shared Prisma client](database.md#shared-client) lives in `server/integrations/prisma/index.ts`. Domains may pass it to repositories for database queries without letting repositories import integrations. Keep model definitions, naming, and migrations consistent with the [database conventions](database.md#schema-conventions).
+
+## Identity transactions
+
+The identity kernel keeps database access in focused repositories for users, external identities, authentication provider revisions, and security audits. Its domain operations accept transaction-scoped repository functions rather than a mutable store or a global lock.
+
+Keep network, provider, and filesystem work outside the transaction. A transaction may change one identity or authentication-provider aggregate and write its success audit. When work is denied or fails, roll back that transaction before writing the separate denial or failure audit.

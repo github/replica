@@ -1,0 +1,5 @@
+enum SecurityAuditOutcome {
+  SUCCESS
+  DENIED
+  FAILURE
+}
