@@ -413,6 +413,73 @@ describe("createAuthenticationService() database behavior", () => {
     },
   )
 
+  it("commits an admission-policy failure audit before returning the provider error", async () => {
+    const { prisma, store } = await database()
+    const graph = await createAdministrator(store)
+    const now = new Date()
+    await prisma.installationMembership.update({
+      where: { userId: graph.user.id },
+      data: { role: "member", source: "synchronized" },
+    })
+    await store.lock((records) =>
+      records.createAuthorizationAttempt({
+        authenticationProviderRevisionId: graph.provider.id,
+        originatingSessionId: null,
+        stateDigest: digestSecret("state"),
+        browserDigest: digestSecret("browser-token"),
+        pkceVerifier: "pkce-verifier",
+        nonce: null,
+        purpose: "sign-in",
+        expiresAt: new Date(now.getTime() + 60_000),
+      }),
+    )
+    const service = createAuthenticationService({
+      store,
+      github: {
+        authorizationUrl: vi.fn(),
+        identify: vi.fn().mockResolvedValue({
+          subject: graph.identity.subject,
+          username: "octocat",
+          displayName: "Synthetic administrator",
+          avatarUrl: null,
+        }),
+      },
+      configuration: {
+        clientId: "github-client",
+        clientSecret: "github-client-secret-fixture",
+        callbackUrl: "https://hub.example/api/auth/github/callback",
+        issuer: "https://github.com",
+      },
+      providerRevisionId: graph.provider.id,
+      admissionPolicy: {
+        name: "github-synchronized",
+        admit: vi.fn().mockRejectedValue(
+          Object.assign(new Error("GitHub authorization changed."), {
+            status: 409,
+            code: "github_authorization_changed",
+          }),
+        ),
+      },
+      now: () => now,
+    })
+
+    await expect(service.complete("code", "state", "browser-token")).rejects.toMatchObject({
+      status: 503,
+      code: "source_integration_unavailable",
+    })
+    expect(
+      await prisma.securityAudit.findFirst({
+        where: { event: "authentication.admission_failed" },
+      }),
+    ).toMatchObject({
+      outcome: "failed",
+      actorUserId: graph.user.id,
+      authenticationProviderRevisionId: graph.provider.id,
+      context: { reason: "source_integration_unavailable" },
+    })
+    expect(await prisma.session.count({ where: { userId: graph.user.id } })).toBe(0)
+  })
+
   it("rolls back generation, session deletion, and audit together when revocation fails", async () => {
     const { store } = await database()
     const graph = await createAdministrator(store)

@@ -190,7 +190,6 @@ async function saveBaseline(
   skipOlderConfirmation = false,
   requireAdmissionAttempt = true,
 ): Promise<"saved" | "superseded"> {
-  if (!baseline.persist) return "saved"
   await lockRepository(database, baseline.repositorySourceId)
   const source = await database.gitHubRepositorySource.findUnique({
     where: { id: baseline.repositorySourceId },
@@ -211,6 +210,32 @@ async function saveBaseline(
       "github_authorization_changed",
       "GitHub authorization changed. Start again.",
     )
+  }
+  if (!baseline.persist) {
+    const cutoff = new Date(Date.now() - (await lastKnownGoodSeconds(database)) * 1_000)
+    const cached = await database.gitHubSynchronizedAccess.findUnique({
+      where: {
+        repositorySourceId_userId: {
+          repositorySourceId: baseline.repositorySourceId,
+          userId,
+        },
+      },
+    })
+    if (
+      !cached ||
+      cached.status !== "active" ||
+      !cached.admissionEligible ||
+      cached.rawPermission !== baseline.rawPermission ||
+      cached.lastConfirmedAt.getTime() !== baseline.confirmedAt.getTime() ||
+      cached.lastConfirmedAt < cutoff
+    ) {
+      throw new AuthenticationError(
+        409,
+        "github_authorization_changed",
+        "GitHub authorization changed. Start again.",
+      )
+    }
+    return "saved"
   }
   if (requireAdmissionAttempt) {
     const attempt = await database.gitHubAdmissionAttempt.findUnique({
@@ -449,9 +474,23 @@ export function createGitHubAuthorizationService({
     throw new Error("HUB_GITHUB_WEBHOOK_SECRET must contain between 20 and 1024 characters.")
   }
   let reconciliationDueRunning = false
+  const dirtyRetrySources = new Set<string>()
+  let dirtyRetryTimer: NodeJS.Timeout | null = null
 
   async function sourceCredentials() {
     return credentials(store, createGitHubIntegrationCredentialProvider(environment))
+  }
+
+  function scheduleDirtyReconciliation(sourceIds: string[]) {
+    for (const sourceId of sourceIds) dirtyRetrySources.add(sourceId)
+    if (dirtyRetryTimer || dirtyRetrySources.size === 0) return
+    dirtyRetryTimer = setTimeout(() => {
+      const sourceIds = [...dirtyRetrySources]
+      dirtyRetrySources.clear()
+      dirtyRetryTimer = null
+      void Promise.allSettled(sourceIds.map((sourceId) => reconcile(sourceId)))
+    }, 1_000)
+    dirtyRetryTimer.unref()
   }
 
   async function claimAdmissionGeneration(
@@ -492,6 +531,7 @@ export function createGitHubAuthorizationService({
           "The repository link was not found.",
         )
       }
+
       const attemptedAt = new Date()
       return transaction.gitHubRepositorySource.update({
         where: { id: current.id },
@@ -528,7 +568,12 @@ export function createGitHubAuthorizationService({
       let identityCursor: string | undefined
       while (true) {
         const page = await database.externalIdentity.findMany({
-          where: { provider: "github", issuer: "https://github.com", username: { not: null } },
+          where: {
+            provider: "github",
+            issuer: "https://github.com",
+            username: { not: null },
+            user: { memberships: { some: { status: "active" } } },
+          },
           select: { id: true, userId: true, subject: true, username: true },
           orderBy: { id: "asc" },
           ...(identityCursor ? { cursor: { id: identityCursor }, skip: 1 } : {}),
@@ -538,7 +583,6 @@ export function createGitHubAuthorizationService({
         if (page.length < 100) break
         identityCursor = page.at(-1)?.id
       }
-      const confirmedAt = new Date()
       const results = await mapWithConcurrency(identities, 10, async (identity) => {
         const claim = await claimAdmissionGeneration(
           source.id,
@@ -561,6 +605,7 @@ export function createGitHubAuthorizationService({
             subject: identity.subject,
             admissionGeneration: claim.admissionGeneration,
             rawPermission,
+            confirmedAt: new Date(),
             ...mapGitHubPermission(rawPermission),
           }
         } catch {
@@ -568,7 +613,58 @@ export function createGitHubAuthorizationService({
         }
       })
       const partialFailure = results.some((result) => result?.status === "failed")
+      const confirmedAt = results.reduce<Date | null>(
+        (latest, result) =>
+          result?.status === "confirmed" &&
+          (!latest || result.confirmedAt.getTime() > latest.getTime())
+            ? result.confirmedAt
+            : latest,
+        null,
+      )
       phase = "apply"
+      const actor = actorSessionToken
+        ? await currentAdministrator(store, actorSessionToken, undefined, false)
+        : null
+      const confirmedResults = results.filter(
+        (result): result is NonNullable<typeof result> & { status: "confirmed" } =>
+          result?.status === "confirmed",
+      )
+      for (let index = 0; index < confirmedResults.length; index += 50) {
+        const batch = confirmedResults.slice(index, index + 50)
+        await database.$transaction(async (transaction) => {
+          await lockRepository(transaction, source.id)
+          const current = await transaction.gitHubRepositorySource.findUnique({
+            where: { id: source.id },
+          })
+          if (
+            !current ||
+            current.status !== "active" ||
+            current.synchronizationGeneration !== source.synchronizationGeneration
+          ) {
+            return
+          }
+          for (const result of batch) {
+            await saveBaseline(
+              transaction,
+              result.userId,
+              {
+                repositorySourceId: source.id,
+                sourceGeneration: source.synchronizationGeneration,
+                subject: result.subject,
+                admissionGeneration: result.admissionGeneration,
+                persist: true,
+                rawPermission: result.rawPermission,
+                admissionEligible: result.admissionEligible,
+                prototypeRole: result.prototypeRole,
+                confirmedAt: result.confirmedAt,
+              },
+              false,
+              true,
+              true,
+            )
+          }
+        })
+      }
       const applied = await store.lock(async (_records, transaction) => {
         await lockRepository(transaction, source.id)
         const current = await transaction.gitHubRepositorySource.findUnique({
@@ -581,9 +677,9 @@ export function createGitHubAuthorizationService({
         ) {
           return false
         }
-        const actor = actorSessionToken
-          ? await currentAdministrator(store, actorSessionToken, transaction, false)
-          : null
+        if (actorSessionToken) {
+          await currentAdministrator(store, actorSessionToken, transaction, false)
+        }
         await transaction.gitHubRepositorySource.update({
           where: { id: source.id },
           data: {
@@ -596,31 +692,10 @@ export function createGitHubAuthorizationService({
             synchronizationStatus: partialFailure ? "failed" : "current",
             synchronizationError: partialFailure ? "permission_partial_failure" : null,
             dirtyAt: null,
-            ...(partialFailure ? {} : { lastConfirmedAt: confirmedAt }),
+            ...(!partialFailure && confirmedAt ? { lastConfirmedAt: confirmedAt } : {}),
           },
         })
-        for (const result of results) {
-          if (!result || result.status !== "confirmed") continue
-          await saveBaseline(
-            transaction,
-            result.userId,
-            {
-              repositorySourceId: source.id,
-              sourceGeneration: source.synchronizationGeneration,
-              subject: result.subject,
-              admissionGeneration: result.admissionGeneration,
-              persist: true,
-              rawPermission: result.rawPermission,
-              admissionEligible: result.admissionEligible,
-              prototypeRole: result.prototypeRole,
-              confirmedAt,
-            },
-            false,
-            true,
-            true,
-          )
-        }
-        await enforceSynchronizedMemberships(transaction, confirmedAt)
+        await enforceSynchronizedMemberships(transaction, confirmedAt ?? new Date())
         await saveSecurityAudit(transaction, {
           event: "github.repository.reconcile",
           actorUserId: actor?.userId ?? null,
@@ -741,12 +816,46 @@ export function createGitHubAuthorizationService({
       )
       const membership = identity?.user.memberships[0]
       let integration: GitHubCredentials
-      let token: string
       try {
         integration = await sourceCredentials()
+      } catch (error) {
+        if (membership?.status === "active" && membership.source !== "synchronized") {
+          return null
+        }
+        throw error instanceof AuthenticationError
+          ? error
+          : new AuthenticationError(
+              503,
+              "source_integration_unavailable",
+              "GitHub source integration is unavailable.",
+            )
+      }
+      let token: string
+      try {
         token = await createInstallationToken(integration)
       } catch (error) {
-        if (error instanceof GitHubApiError) {
+        if (error instanceof GitHubApiError && error.status === 404) {
+          await store.lock(async (_records, transaction) => {
+            for (const source of sources) {
+              if (
+                source.appId !== integration.appId ||
+                source.installationId !== integration.installationId
+              ) {
+                continue
+              }
+              const current = await transaction.gitHubRepositorySource.findUnique({
+                where: { id: source.id },
+              })
+              if (
+                current?.status === "active" &&
+                current.synchronizationGeneration === source.synchronizationGeneration
+              ) {
+                await removeRepositorySource(transaction, source.id, new Date(), false)
+              }
+            }
+            await enforceSynchronizedMemberships(transaction, new Date())
+          })
+        } else if (error instanceof GitHubApiError) {
           for (const source of sources) {
             if (
               source.appId !== integration!.appId ||
@@ -1166,7 +1275,13 @@ export function createGitHubAuthorizationService({
         })
         for (const source of sources) {
           try {
-            await reconcile(source.id)
+            const reconciled = await reconcile(source.id)
+            if (reconciled?.synchronizationStatus === "failed") {
+              log("error", "GitHub authorization reconciliation failed", {
+                repositorySourceId: source.id,
+                reason: reconciled.synchronizationError ?? "reconciliation_failed",
+              })
+            }
           } catch {
             const failed = await database.gitHubRepositorySource.findUnique({
               where: { id: source.id },
@@ -1241,10 +1356,16 @@ export function createGitHubAuthorizationService({
           "The GitHub webhook is invalid.",
         )
       }
-      const integration = await sourceCredentials()
-      if (String(payload.data.installation.id) !== integration.installationId) return "ignored"
+      const installationId = String(payload.data.installation.id)
       try {
-        return await store.lock(async (_records, transaction) => {
+        const processed = await store.lock(async (_records, transaction) => {
+          const linkedInstallation = await transaction.gitHubRepositorySource.findFirst({
+            where: { installationId },
+            select: { id: true },
+          })
+          if (!linkedInstallation) {
+            return { result: "ignored" as const, dirtySourceIds: [] }
+          }
           const repositoryId = payload.data.repository?.id
           const source = repositoryId
             ? await transaction.gitHubRepositorySource.findUnique({
@@ -1256,7 +1377,7 @@ export function createGitHubAuthorizationService({
               deliveryId,
               event,
               action: payload.data.action ?? null,
-              installationId: integration.installationId,
+              installationId,
               repositorySourceId: source?.id ?? null,
             },
           })
@@ -1264,7 +1385,7 @@ export function createGitHubAuthorizationService({
           if (event === "installation" && payload.data.action === "deleted") {
             const sources = await transaction.gitHubRepositorySource.findMany({
               where: {
-                installationId: integration.installationId,
+                installationId,
                 status: { in: ["active", "suspended"] },
               },
               select: { id: true },
@@ -1274,9 +1395,9 @@ export function createGitHubAuthorizationService({
             }
             await enforceSynchronizedMemberships(transaction, now)
           } else if (event === "installation" && payload.data.action === "suspend") {
-            await suspendInstallationSources(transaction, integration.installationId, now)
+            await suspendInstallationSources(transaction, installationId, now)
           } else if (event === "installation" && payload.data.action === "unsuspend") {
-            await resumeInstallationSources(transaction, integration.installationId, now)
+            await resumeInstallationSources(transaction, installationId, now)
           } else {
             const dirtyIds = new Set<string>()
             const removedIds = new Set<string>()
@@ -1312,7 +1433,7 @@ export function createGitHubAuthorizationService({
               })
             } else if (removedIds.size === 0) {
               await transaction.gitHubRepositorySource.updateMany({
-                where: { installationId: integration.installationId, status: "active" },
+                where: { installationId, status: "active" },
                 data: {
                   synchronizationGeneration: { increment: 1 },
                   synchronizationStatus: "dirty",
@@ -1329,8 +1450,21 @@ export function createGitHubAuthorizationService({
             githubRepositorySourceId: source?.id ?? null,
             context: { source: "github_webhook" },
           })
-          return "accepted" as const
+          const dirtySources = await transaction.gitHubRepositorySource.findMany({
+            where: {
+              installationId,
+              status: "active",
+              synchronizationStatus: "dirty",
+            },
+            select: { id: true },
+          })
+          return {
+            result: "accepted" as const,
+            dirtySourceIds: dirtySources.map(({ id }) => id),
+          }
         })
+        scheduleDirtyReconciliation(processed.dirtySourceIds)
+        return processed.result
       } catch (error) {
         if (
           error instanceof Error &&

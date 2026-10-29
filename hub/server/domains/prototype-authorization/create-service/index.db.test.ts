@@ -240,7 +240,15 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
       "authorization-administrator-token",
       workspace.id,
       { name: "Prototype" },
-    )) as { id: string }
+    )) as {
+      id: string
+      authorizationMode: string
+      sourceRepositoryId: string | null
+    }
+    expect(prototype).toMatchObject({
+      authorizationMode: "hub-managed",
+      sourceRepositoryId: null,
+    })
     const source = await prisma.gitHubRepositorySource.create({
       data: {
         githubRepositoryId: "100",
@@ -303,6 +311,23 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
     ).resolves.toMatchObject({
       authorizationMode: "github-synchronized",
       sourceRepositoryId: source.id,
+    })
+    await expect(
+      service.getPrototype("authorization-administrator-token", prototype.id),
+    ).resolves.toMatchObject({
+      authorizationMode: "github-synchronized",
+      sourceRepositoryId: source.id,
+    })
+    await expect(
+      service.listPrototypes("authorization-administrator-token", workspace.id, {}),
+    ).resolves.toMatchObject({
+      items: [
+        expect.objectContaining({
+          id: prototype.id,
+          authorizationMode: "github-synchronized",
+          sourceRepositoryId: source.id,
+        }),
+      ],
     })
     expect(await prisma.prototype.findUniqueOrThrow({ where: { id: prototype.id } })).toMatchObject(
       {
@@ -1975,10 +2000,12 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
     expect(Object.keys(page.items[0] ?? {}).sort()).toEqual(
       [
         "archivedAt",
+        "authorizationMode",
         "createdAt",
         "createdByUserId",
         "id",
         "name",
+        "sourceRepositoryId",
         "updatedAt",
         "workspaceId",
       ].sort(),
