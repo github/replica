@@ -22,6 +22,8 @@ export function GithubAppSetupRegisterPage({ data }: { data: GithubAppSetupRegis
           {data.submitLabel}
         </Button>
       </form>
+
+      <a href={data.manualPath}>{data.manualLabel}</a>
     </GithubAppSetupPage>
   )
 }

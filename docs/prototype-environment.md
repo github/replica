@@ -21,7 +21,7 @@ Before setting up Hub, confirm what is available, what needs approval, and who w
 
 - **A server for Hub.** Confirm that the server runs Linux, supports Docker and Docker Compose, keeps data between restarts, and has backups. It must be allowed to download Replica and connect to GitHub. See the [server requirements](../hub/docs/deployment.md#requirements) and [network requirements](../hub/docs/deployment.md#outbound-network-access).
 - **A dedicated domain.** Reserve an entire domain for Hub and its previews, with no unrelated apps using it. Confirm that you can configure DNS and HTTPS for Hub and its wildcard preview addresses. See [why a subdomain on a shared domain is not enough](../hub/docs/deployment.md#choose-an-isolated-domain).
-- **GitHub permissions.** Determine whether your organization can install Replica's private [GitHub App](../hub/docs/github-app-setup.md#setup) and run its [build workflow](../hub/docs/github-actions-builds.md). The App must be created under your organization. Check any restrictions on actions and downloads.
+- **GitHub permissions.** Determine whether your organization can install Replica's [GitHub App](../hub/docs/github-app-setup.md#manifest-setup) and run its [build workflow](../hub/docs/github-actions-builds.md). Prefer a private organization-owned App for team sign-in. For an independently registered App, review [manual connection and visibility](../hub/docs/github-app-setup.md#manual-creation-and-connection). Check any restrictions on actions and downloads.
 - **Approval and ongoing support.** Check whether your organization needs to approve Hub, Copilot, the Replica plugin, or the AI service your team uses. Agree who will look after Hub, its passwords and access keys, and its backups.
 
 Use sample data for prototypes. Do not include passwords or access keys from live systems, or real customer data.
@@ -219,7 +219,7 @@ Try the interactions and confirm that the prototype uses your team's components.
 
 If Hub is already running, reuse it and continue at step 6. You do not need to deploy another Hub.
 
-Deployment can happen alongside steps 2 through 4. Follow the [Hub deployment guide](../hub/docs/deployment.md) on the Hub server, or share it with the person handling deployment.
+Deployment can happen alongside steps 2 through 4. Follow the [Hub deployment guide](../hub/docs/deployment.md) on the Hub server, or share it with the person handling deployment. For an ordered walkthrough, use [manual VM installation](../hub/docs/manual-vm-installation.md), with [Azure DNS/HTTPS](../hub/docs/azure-vm-deployment.md) when applicable.
 
 **Keep the deployment settings safe:**
 
@@ -258,7 +258,7 @@ If the reviewed app and approved guidance are already on GitHub's default branch
 
 **Access rules:**
 
-- Keep the App private and organization-owned. An App created under a personal account would only let that person sign in.
+- Prefer a private organization-owned App for team sign-in. A private personal App allows only its owner to sign in. Independently registered Apps need the [manual flow's visibility and access review](../hub/docs/github-app-setup.md#manual-creation-and-connection).
 - Before connecting a public repository, review [who will be able to access its reviews](../hub/docs/authentication-and-repository-authorization.md#app-ownership-and-repository-visibility).
 - Creating the App does not automatically make anyone a Hub administrator.
 
@@ -267,7 +267,8 @@ If the reviewed app and approved guidance are already on GitHub's default branch
 
    | Hub setup | Action |
    | --- | --- |
-   | New Hub | Open `/setup` and enter the setup code from step 5. Follow the [GitHub App setup instructions](../hub/docs/github-app-setup.md#setup) to create a private App owned by your organization and install it on the prototype repository. |
+   | New Hub, new organization App | Open `/setup` and enter the setup code from step 5. Follow the [manifest setup instructions](../hub/docs/github-app-setup.md#manifest-setup) to create a private App owned by your organization and install it on the prototype repository. |
+   | New Hub, existing App or manual registration | Follow [manual creation and connection](../hub/docs/github-app-setup.md#manual-creation-and-connection) to approve one installation, even when its account differs from the App's registration owner. Repository access checks still apply to each person. |
    | Existing Hub | Reuse its GitHub App and include this repository in the App's installation on GitHub. If it is already included, no installation change is needed. Do not repeat initial setup. |
 
 3. If Hub does not have an administrator yet, have the person who will look after it [register as a Hub administrator](../hub/docs/security-audit.md#enroll-an-operator).

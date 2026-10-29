@@ -6,6 +6,7 @@ class GithubAppSetupController < SuperglueController
   before_action -> { enforce_security_rate_limit(:github_app_setup, identity: trusted_request_ip) }, only: :create
 
   rescue_from GithubAppSetup::Error, with: :setup_not_found
+  rescue_from GithubAppSetup::ImportError, with: :manual_import_failed
   rescue_from GithubClient::Error, with: :setup_not_found
   rescue_from GithubAppConfiguration::Installation::OwnerMismatch, with: :setup_not_found
   rescue_from GithubAppConfiguration::Superseded, ActiveRecord::StaleObjectError, with: :setup_not_found
@@ -24,6 +25,42 @@ class GithubAppSetupController < SuperglueController
     redirect_to setup_path
   end
 
+  # Shows the manual registration checklist only after bootstrap authorization.
+  # @route GET /setup/manual (manual_setup)
+  def manual
+    return setup_not_found if !setup.authorized? || GithubAppConfiguration.configured?
+
+    @registration = { manifest: setup.registration_manifest }
+  end
+
+  # Connects an independently registered App without changing its GitHub settings.
+  # @route POST /setup/manual (setup_manual)
+  def import
+    return setup_not_found if !setup.authorized? || GithubAppConfiguration.configured?
+
+    upload = params[:private_key]
+    limit = GithubAppConfiguration::Administration::PRIVATE_KEY_LIMIT
+    unless upload.is_a?(ActionDispatch::Http::UploadedFile) && upload.size <= limit
+      return manual_error(t("github_app_setup.manual.invalid_key"))
+    end
+
+    setup.import! \
+      app_id: params[:app_id], client_id: params[:client_id],
+      client_secret: params[:client_secret], private_key: upload.read(limit + 1),
+      webhook_secret: params[:webhook_secret], installation_id: params[:installation_id],
+      confirmed: params[:confirmed]
+    session[:github_app_manual_completed_at] = Time.current.to_i
+    redirect_to install_setup_path, status: :see_other
+  rescue GithubAppSetup::ImportError => error
+    manual_error(t("github_app_setup.manual.errors.#{error.reason}", default: t("github_app_setup.manual.failed")))
+  rescue GithubAppSetup::InvalidState
+    manual_error(t("github_app_setup.manual.failed"))
+  rescue GithubClient::Error
+    manual_error(t("github_app_setup.manual.errors.github_failed"))
+  rescue GithubAppConfiguration::Installation::OwnerMismatch
+    manual_error(t("github_app_setup.manual.errors.github_failed"))
+  end
+
   # @route GET /setup/callback (callback_setup)
   def callback
     configuration = setup.exchange!(code: params[:code], state: params[:state])
@@ -34,6 +71,13 @@ class GithubAppSetupController < SuperglueController
 
   # @route GET /setup/install (install_setup)
   def install
+    completed_at = session.delete(:github_app_manual_completed_at)
+    if completed_at && Time.current.to_i - completed_at.to_i <= GithubAppSetup::MAXIMUM_AGE &&
+        GithubAppConfiguration.configured?
+      @manual_connection = true
+      return render :install
+    end
+
     return setup_not_found if !setup.installation_authorized?
 
     configuration = GithubAppConfiguration.current
@@ -48,6 +92,7 @@ class GithubAppSetupController < SuperglueController
     {
       "create" => "github_app_setup.authorize",
       "callback" => "github_app_setup.exchange",
+      "import" => "github_app_setup.import",
       "install" => "github_app_setup.install"
     }[action_name]
   end
@@ -65,5 +110,15 @@ class GithubAppSetupController < SuperglueController
 
   def setup_not_found(_error = nil)
     head :not_found
+  end
+
+  def manual_import_failed(error)
+    manual_error(t("github_app_setup.manual.errors.#{error.reason}", default: t("github_app_setup.manual.failed")))
+  end
+
+  def manual_error(message)
+    @setup_error = message
+    @registration = { manifest: setup.registration_manifest }
+    render :manual, status: :unprocessable_entity
   end
 end

@@ -25,7 +25,11 @@ class WebhookRecoveryCheckpoint::Scan < ActiveRecord::AssociatedObject
       GithubAppConfiguration.with_credentials!(**configuration.credential_snapshot) do
         return if !record.renew!(token)
 
-        page.deliveries.each { WebhookRedelivery.record_remote!(configuration:, metadata: _1) }
+        page.deliveries.each do |metadata|
+          next if !configuration.accepts_installation?(metadata["installation_id"])
+
+          WebhookRedelivery.record_remote!(configuration:, metadata:)
+        end
       end
       pages = record.pages + 1
       done = page.cursor.nil? || previously_covered?(page)

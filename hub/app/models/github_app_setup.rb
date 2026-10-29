@@ -1,8 +1,19 @@
-# Creates this Hub's GitHub App and saves the credentials GitHub returns.
+# Creates or explicitly imports this Hub's verified GitHub App connection.
 class GithubAppSetup
   MAXIMUM_AGE = 15.minutes
+  MAX_SIGNED_BIGINT = 9_223_372_036_854_775_807
 
   class Error < StandardError; end
+  class ImportError < Error
+    attr_reader :reason
+
+    # Exposes only fixed reasons without leaking credentials or GitHub responses.
+    def initialize(reason)
+      @reason = reason
+      super(reason.to_s)
+    end
+  end
+
   class InvalidState < Error; end
   class ExchangeFailed < Error; end
 
@@ -39,16 +50,22 @@ class GithubAppSetup
     authorized_at.present? && clock.call.to_i - authorized_at.to_i <= MAXIMUM_AGE
   end
 
-  # Builds the GitHub App settings and one-time request state.
-  def registration
+  # Returns the settings shared by browser registration and manual setup.
+  def registration_manifest
     raise InvalidState, "Setup authorization expired" if !authorized?
 
     reject_if_configured!
+    manifest
+  end
+
+  # Builds the GitHub App settings and one-time request state.
+  def registration
+    manifest = registration_manifest
 
     state = SecureRandom.urlsafe_base64(32)
     session[:github_app_manifest_state] = state
     session[:github_app_manifest_state_created_at] = clock.call.to_i
-    { url: "#{registration_url}?state=#{CGI.escape(state)}", manifest: manifest }
+    { url: "#{registration_url}?state=#{CGI.escape(state)}", manifest: }
   end
 
   # Trades GitHub's one-time code for App credentials and saves them.
@@ -61,6 +78,75 @@ class GithubAppSetup
     session.delete(:github_app_setup_organization)
     session[:github_app_install_authorized] = clock.call.to_i
     configuration
+  end
+
+  # Imports only an authenticated App and one explicitly confirmed active installation.
+  def import!(app_id:, client_id:, client_secret:, private_key:, webhook_secret:, installation_id:, confirmed:)
+    raise InvalidState, "Setup is unavailable in local mode" if LocalDevelopment.enabled?
+    raise InvalidState, "Setup authorization expired" if !authorized?
+
+    reject_if_configured!
+    raise InvalidState, "Confirm the GitHub App connection" if confirmed != "1"
+
+    limits = GithubAppConfiguration::Administration
+    valid = [ app_id, installation_id ].all? do |value|
+      value.to_s.match?(/\A[0-9]{1,19}\z/) && value.to_i.between?(1, MAX_SIGNED_BIGINT)
+    end
+    valid &&= \
+      client_id.is_a?(String) && client_id.present? && client_id.bytesize <= 255 &&
+      [ client_secret, webhook_secret ].all? do |secret|
+        secret.is_a?(String) && secret.present? && secret.bytesize <= limits::CLIENT_SECRET_LIMIT
+      end
+    valid &&= private_key.is_a?(String) && private_key.present? && private_key.bytesize <= limits::PRIVATE_KEY_LIMIT
+    raise ImportError, :invalid_credentials if !valid
+
+    key = OpenSSL::PKey::RSA.new(private_key)
+    raise ImportError, :invalid_private_key if !key.private?
+
+    candidate = GithubAppConfiguration.new \
+      github_app_id: app_id.to_i, client_id:, client_secret:, private_key:, webhook_secret:,
+      installation_policy: "pinned", installation_id: installation_id.to_i
+    app = begin
+      candidate.github_client.apps.get(token: candidate.tokens.app)
+    rescue GithubClient::Error => error
+      reason = error.is_a?(GithubClient::Forbidden) ? :github_authentication_failed : :github_failed
+      raise ImportError, reason
+    end
+    owner = candidate.ownership.attributes_for(app)
+    raise ImportError, :app_mismatch if app["client_id"] != client_id
+
+    candidate.assign_attributes(owner)
+    payload = candidate.github_client.installations.get(candidate.installation_id, token: candidate.tokens.app)
+    candidate.installation.verify_import!(payload)
+    account = payload.fetch("account")
+    candidate.assign_attributes \
+      installation_account_github_id: account.fetch("id"),
+      installation_account_login: account.fetch("login"),
+      installation_owner_type: account.fetch("type"),
+      installation_state: "active", installed_at: clock.call, installation_checked_at: clock.call
+    token = candidate.tokens.for_installation(candidate.installation_id)
+    repositories = candidate.repositories.snapshot(token:)
+    configuration = GithubAppConfiguration.transaction do
+      raise InvalidState, "Setup authorization expired" if !authorized?
+
+      reject_if_configured!
+      saved = GithubAppConfiguration.install!(candidate.attributes.except("id", "created_at", "updated_at"))
+      saved.repositories.synchronize!(snapshot: repositories)
+      saved
+    end
+    clear_state!
+    session.delete(:github_app_setup_authorized)
+    session.delete(:github_app_setup_organization)
+    session.delete(:github_app_install_authorized)
+    configuration
+  rescue OpenSSL::PKey::RSAError
+    raise ImportError, :invalid_private_key
+  rescue ArgumentError, TypeError
+    raise ImportError, :invalid_credentials
+  rescue GithubClient::Error, GithubAppConfiguration::Installation::OwnerMismatch
+    raise ImportError, :github_failed
+  rescue ActiveRecord::RecordInvalid, ActiveRecord::RecordNotUnique
+    raise ImportError, :save_failed
   end
 
   # Reports whether the browser may finish installing the new App.

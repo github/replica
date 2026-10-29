@@ -9,9 +9,16 @@ identity = if @configuration
     owner_id: @configuration.owner_github_id
 end
 installation = if @configuration
-  t \
-    "github_app.installation", installation_id: @configuration.installation_id || "-",
-    state: @configuration.installation_state
+  if @configuration.pinned_installation?
+    t \
+      "github_app.pinned_installation", installation_id: @configuration.installation_id,
+      account: @configuration.installation_account_login,
+      state: @configuration.installation_state
+  else
+    t \
+      "github_app.installation", installation_id: @configuration.installation_id || "-",
+      state: @configuration.installation_state
+  end
 end
 json.identity identity
 json.installation installation

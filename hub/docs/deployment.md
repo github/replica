@@ -28,6 +28,19 @@ Downloads can redirect to additional storage hosts, so these names are not a com
 
 If a download is denied, resolve the network approval before retrying. These requirements do not authorize bypassing your organization's network controls.
 
+## Manual operator walkthroughs
+
+These walkthroughs use placeholders for your own hostnames, resources, releases, and credentials. This guide remains the deployment contract; the walkthroughs provide the ordered tasks.
+
+| Task | Guide |
+| --- | --- |
+| Install on a persistent Linux VM | [Manual VM installation](manual-vm-installation.md) |
+| Configure Azure resources, DNS delegation, and HTTPS | [Azure VM deployment](azure-vm-deployment.md) |
+| Create or connect the GitHub App | [GitHub App setup](github-app-setup.md) |
+| Replace an image while retaining data | [Manual updates](manual-updates.md) |
+| Build an unreleased commit or reviewed patch | [Source image builds](source-image-builds.md) |
+| Back up or recover a deployment | [Backups and restore](backups-and-restore.md) |
+
 ## Optional server-side tracing
 
 Hub can send server-side traces to an OpenTelemetry Protocol (OTLP) endpoint. Traces describe Rails requests, Active Job enqueueing and execution, instrumented Active Record operations, and outbound Net::HTTP calls. The published image includes OpenTelemetry instrumentation and its HTTP/protobuf exporter, not vendor-specific APM SDKs.
@@ -181,12 +194,12 @@ Set `REPLICA_WELCOME_VIDEO_POSTER_URL` to a direct HTTPS image URL to show a sti
 
 Choose an explicit `hub-v*` release from [Hub releases](https://github.com/github/replica/releases). Do not use `releases/latest`: Hub and canvas releases share this repository, and a canvas release may not contain a Hub bundle.
 
-The example selects `hub-v1.0.0`, the stable Hub release published on October 15, 2026. It contains both `replica-deploy.tar.gz` and `replica-deploy.tar.gz.sha256`. The Replica repository and its release assets are public, so these downloads do not require GitHub authentication.
+Replace `hub-vREPLACE_WITH_VERSION` with the selected release tag. Confirm it contains both `replica-deploy.tar.gz` and `replica-deploy.tar.gz.sha256`. The Replica repository and its release assets are public, so these downloads do not require GitHub authentication.
 
 Run these commands on a Linux server with `curl`, `tar`, and `sha256sum`:
 
 ```sh
-HUB_RELEASE=hub-v1.0.0
+HUB_RELEASE=hub-vREPLACE_WITH_VERSION
 HUB_RELEASE_URL="https://github.com/github/replica/releases/download/${HUB_RELEASE}"
 mkdir replica-hub &&
   cd replica-hub &&
@@ -202,7 +215,7 @@ The checksum file records the archive's SHA-256 digest, a value calculated from 
 
 The bundle contains `compose.yml` and the `replica` command. You do not need to clone the source repository.
 
-The `hub-v1.0.0` bundle defaults to the major-version image tag `ghcr.io/github/replica-hub:1`. See [Image versions](#image-versions) for the stable tags available when running the image without the bundle.
+The bundle's `compose.yml` selects its default image. See [Image versions](#image-versions) for tag behavior, or [manual VM installation](manual-vm-installation.md#pin-the-image-and-initialize-once) to pin the selected release by digest.
 
 ## Create the configuration
 
@@ -306,6 +319,8 @@ https://hub.example.com/setup
 
 Enter the setup code printed during initialization. Replica Hub then creates a private GitHub App and sends you to GitHub to install it on the prototype repositories Hub may use. See [GitHub App setup](github-app-setup.md) for the requested permissions and credential lifecycle.
 
+If manifest registration is unavailable or you already administer an installed App, choose **Create manually or connect an existing App** instead. Follow [manual creation and connection](github-app-setup.md#manual-creation-and-connection) to configure the GitHub form and approve one installation, even when its account differs from the App's registration owner.
+
 ## Prepare a prototype repository
 
 A compatible repository needs:
@@ -319,7 +334,7 @@ Replica Hub can open a pull request that installs the required GitHub Actions wo
 
 ## Operate the deployment
 
-Use the wrapper instead of calling Docker Compose directly:
+Use the wrapper for routine operations:
 
 | Goal                           | Command            |
 | ------------------------------ | ------------------ |
@@ -330,6 +345,8 @@ Use the wrapper instead of calling Docker Compose directly:
 | Install a compatible update    | `./replica update` |
 
 Updates are intentional. Replica Hub does not install new images automatically, and `./replica update` never moves the deployment to a new major version.
+
+Take a [consistent backup](backups-and-restore.md#take-a-consistent-compose-backup) before updating. An immutable digest keeps selecting the same image, and a locally built tag cannot be updated through a registry pull. Follow [manual updates](manual-updates.md) to select and verify a different release or source-built image; that walkthrough uses explicit Compose options to avoid an unintended pull or rebuild.
 
 ## Contain public sharing
 

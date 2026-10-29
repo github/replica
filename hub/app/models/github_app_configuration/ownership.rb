@@ -14,10 +14,10 @@ class GithubAppConfiguration::Ownership < ActiveRecord::AssociatedObject
         transferred = record.owner_github_id != attributes.fetch(:owner_github_id) ||
           record.owner_type != attributes.fetch(:owner_type)
         record.assign_attributes(attributes)
-        record.installation_state = "removed" if transferred && record.installation_id
+        record.installation_state = "removed" if transferred && record.installation_id && !record.pinned_installation?
         record.save! if record.changed?
         if transferred
-          record.repositories.remove_all!
+          record.repositories.remove_all! if !record.pinned_installation?
           SecurityAuditEvent.record! \
             action: "github_app.transfer", outcome: "succeeded", actor: nil,
             context: { source: "command", github_app_configuration_id: record.id }
@@ -25,8 +25,6 @@ class GithubAppConfiguration::Ownership < ActiveRecord::AssociatedObject
       end
     end
   end
-
-  private
 
   # Rejects incomplete identity before it can replace a saved owner.
   def attributes_for(app)
@@ -43,9 +41,8 @@ class GithubAppConfiguration::Ownership < ActiveRecord::AssociatedObject
     }
     valid = attributes[:owner_github_id].is_a?(Integer) && attributes[:owner_github_id].positive? &&
       GithubAppConfiguration::OWNER_TYPES.include?(attributes[:owner_type]) &&
-      attributes.values_at(:owner_login, :app_slug).all? do |value|
-        value.is_a?(String) && value.match?(/\A[A-Za-z0-9][A-Za-z0-9-]*\z/)
-      end
+      attributes[:owner_login].is_a?(String) && attributes[:owner_login].match?(/\A[A-Za-z0-9][A-Za-z0-9_-]*\z/) &&
+      attributes[:app_slug].is_a?(String) && attributes[:app_slug].match?(/\A[A-Za-z0-9][A-Za-z0-9-]*\z/)
     raise KeyError if !valid
 
     attributes

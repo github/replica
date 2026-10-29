@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Replica Hub is a self-hosted Rails application where teams review and discuss prototype branches. A GitHub-backed Hub connects to repositories owned by one GitHub organization or person. Development-only local mode reads multiple local Git repositories instead.
+Replica Hub is a self-hosted Rails application where teams review and discuss prototype branches. A GitHub-backed Hub connects one GitHub App installation to repositories owned by one GitHub organization or person. Manual setup may connect an installation in a different account from the App's registration owner. Development-only local mode reads multiple local Git repositories instead.
 
 ## System map
 

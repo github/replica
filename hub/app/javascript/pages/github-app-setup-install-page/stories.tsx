@@ -20,3 +20,13 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Default: Story = {}
+
+export const ManualConnection: Story = {
+  args: {
+    data: {
+      ...meta.args.data,
+      description:
+        "The App and approved installation are connected. Enroll a Hub operator at /operator/enrollment, verify GitHub sign-in, and check a supported webhook delivery. Connection does not verify the OAuth client secret or webhook delivery.",
+    },
+  },
+}

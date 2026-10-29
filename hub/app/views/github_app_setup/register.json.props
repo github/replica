@@ -6,3 +6,5 @@ json.access t("github_app_setup.register.access")
 json.submitLabel t("github_app_setup.register.submit")
 json.submitPath @registration.fetch(:url)
 json.manifest @registration.fetch(:manifest)
+json.manualLabel t("github_app_setup.register.manual")
+json.manualPath manual_setup_path

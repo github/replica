@@ -25,12 +25,12 @@ GitHub stores the source code and decides repository access. The private App let
 
 Replica Hub publishes a public container image at `ghcr.io/github/replica-hub`. The recommended deployment uses the release bundle to run that image with Docker Compose.
 
-The example below selects `hub-v1.0.0`, the stable Hub release published on October 15, 2026. Its public release assets do not require GitHub authentication. See [Deploy Replica Hub](docs/deployment.md#download-the-deployment-bundle) for the complete setup requirements.
+Select an explicit `hub-v*` release from [Hub releases](https://github.com/github/replica/releases) and replace `hub-vREPLACE_WITH_VERSION` below. Public release assets do not require GitHub authentication. See [Deploy Replica Hub](docs/deployment.md#download-the-deployment-bundle) for the requirements, or use the walkthroughs for [a Linux VM](docs/manual-vm-installation.md) and [Azure DNS/HTTPS](docs/azure-vm-deployment.md).
 
 On a Linux server with `curl`, `tar`, and `sha256sum`, download and verify the bundle before extracting it:
 
 ```sh
-HUB_RELEASE=hub-v1.0.0
+HUB_RELEASE=hub-vREPLACE_WITH_VERSION
 HUB_RELEASE_URL="https://github.com/github/replica/releases/download/${HUB_RELEASE}"
 mkdir replica-hub &&
   cd replica-hub &&

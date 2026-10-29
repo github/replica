@@ -1,4 +1,4 @@
-# Records installation status only for this Hub's configured owner.
+# Records status for the configured owner or explicitly pinned installation.
 class GithubAppConfiguration::Installation < ActiveRecord::AssociatedObject
   class OwnerMismatch < StandardError; end
 
@@ -6,6 +6,16 @@ class GithubAppConfiguration::Installation < ActiveRecord::AssociatedObject
   def synchronize!
     credentials = record.credential_snapshot
     version = record.lock_version
+    if record.pinned_installation?
+      payload = begin
+        remote_installation(record.installation_id)
+      rescue GithubClient::NotFound
+        nil
+      end
+      return payload ? record_status!(payload, credentials:, expected_version: version) :
+        record_missing!(credentials:, expected_version: version)
+    end
+
     payload = if record.installation_id && record.installation_state != "removed" &&
         record.installation_account_github_id == record.owner_github_id
       begin
@@ -25,6 +35,8 @@ class GithubAppConfiguration::Installation < ActiveRecord::AssociatedObject
 
   # Fetches the current installation from GitHub and saves its status.
   def reconcile!(installation_id)
+    raise OwnerMismatch, "Installation does not match the pinned connection" if !record.accepts_installation?(installation_id.to_i)
+
     snapshot = record.credential_snapshot
     version = record.lock_version
     GithubAppConfiguration.with_credentials!(**snapshot) { }
@@ -36,6 +48,8 @@ class GithubAppConfiguration::Installation < ActiveRecord::AssociatedObject
 
   # Commits browser setup and its audit only after all GitHub requests finish.
   def install!(installation_id)
+    raise OwnerMismatch, "Installation does not match the pinned connection" if !record.accepts_installation?(installation_id.to_i)
+
     credentials = record.credential_snapshot
     GithubAppConfiguration.with_credentials!(**credentials) { }
     payload = remote_installation(installation_id)
@@ -62,11 +76,22 @@ class GithubAppConfiguration::Installation < ActiveRecord::AssociatedObject
   def record_status!(payload, action: nil, credentials: record.credential_snapshot,
     expected_version: record.lock_version)
     verify_app!(payload)
+    verify_owner!(payload.fetch("account"), installation_id: payload.fetch("id")) if record.pinned_installation?
     return if stale_removal?(payload, action)
 
     state = state_for(payload, action)
     save_status!(payload, state:, credentials:, expected_version:, action:)
     state == "active" ? record.repositories.synchronize! : record.repositories.remove_all!
+  end
+
+  # Initial import requires a real, active installation, not just an authenticated App.
+  def verify_import!(payload)
+    verify_app!(payload)
+    account = payload.fetch("account")
+    valid = payload.fetch("id") == record.installation_id &&
+      account["login"].is_a?(String) && account["login"].match?(/\A[A-Za-z0-9][A-Za-z0-9-]*\z/) &&
+      GithubAppConfiguration::OWNER_TYPES.include?(account["type"]) && payload["suspended_at"].nil?
+    raise GithubClient::InvalidResponse, "GitHub returned an invalid or suspended installation" if !valid
   end
 
   private
@@ -126,7 +151,7 @@ class GithubAppConfiguration::Installation < ActiveRecord::AssociatedObject
             record.installation_account_github_id == account.fetch("id")
           raise OwnerMismatch, "Removal does not match the saved installation" if !matches
         else
-          verify_owner!(account)
+          verify_owner!(account, installation_id: payload.fetch("id"))
         end
         checked_at = Time.current
         record.assign_attributes \
@@ -135,6 +160,9 @@ class GithubAppConfiguration::Installation < ActiveRecord::AssociatedObject
           installation_state: state,
           installed_at: state == "active" ? record.installed_at || checked_at : record.installed_at,
           suspended_at: state == "suspended" ? record.suspended_at || checked_at : nil
+        if record.pinned_installation?
+          record.installation_account_login = account["login"] || record.installation_account_login
+        end
         if record.changed?
           record.installation_checked_at = checked_at
           record.save!
@@ -157,10 +185,16 @@ class GithubAppConfiguration::Installation < ActiveRecord::AssociatedObject
   end
 
   # Confirms the installation belongs to the configured GitHub owner.
-  def verify_owner!(account)
-    matches = account.fetch("id").to_i == record.owner_github_id &&
-      account.fetch("type") == record.owner_type
-    raise OwnerMismatch, "Installation owner does not match the configured GitHub App owner" if !matches
+  def verify_owner!(account, installation_id: record.installation_id)
+    matches = if record.pinned_installation?
+      installation_id == record.installation_id &&
+        account.fetch("id") == record.installation_account_github_id &&
+        account.fetch("type") == record.installation_owner_type
+    else
+      account.fetch("id").to_i == record.owner_github_id &&
+        account.fetch("type") == record.owner_type
+    end
+    raise OwnerMismatch, "Installation account does not match the configured GitHub App connection" if !matches
   end
 
   # Converts GitHub's installation details into a status Hub stores.
