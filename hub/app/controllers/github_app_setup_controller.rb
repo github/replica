@@ -28,7 +28,7 @@ class GithubAppSetupController < SuperglueController
   def manual
     return setup_not_found if !setup.authorized? || GithubAppConfiguration.configured?
 
-    @registration = setup.registration
+    @registration = { manifest: setup.registration_manifest }
   end
 
   # Connects an independently registered App without changing its GitHub settings.
@@ -107,7 +107,7 @@ class GithubAppSetupController < SuperglueController
 
   def manual_error(message)
     @setup_error = message
-    @registration = setup.registration
+    @registration = { manifest: setup.registration_manifest }
     render :manual, status: :unprocessable_entity
   end
 end

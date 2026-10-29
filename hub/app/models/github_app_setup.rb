@@ -39,16 +39,22 @@ class GithubAppSetup
     authorized_at.present? && clock.call.to_i - authorized_at.to_i <= MAXIMUM_AGE
   end
 
-  # Builds the GitHub App settings and one-time request state.
-  def registration
+  # Returns the settings shared by browser registration and manual setup.
+  def registration_manifest
     raise InvalidState, "Setup authorization expired" if !authorized?
 
     reject_if_configured!
+    manifest
+  end
+
+  # Builds the GitHub App settings and one-time request state.
+  def registration
+    manifest = registration_manifest
 
     state = SecureRandom.urlsafe_base64(32)
     session[:github_app_manifest_state] = state
     session[:github_app_manifest_state_created_at] = clock.call.to_i
-    { url: "#{registration_url}?state=#{CGI.escape(state)}", manifest: manifest }
+    { url: "#{registration_url}?state=#{CGI.escape(state)}", manifest: }
   end
 
   # Trades GitHub's one-time code for App credentials and saves them.

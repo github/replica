@@ -97,6 +97,33 @@ class GithubAppManualSetupTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "manual setup and failed import preserve an open manifest registration" do
+    with_bootstrap_secret do
+      post setup_path, params: { bootstrap_secret: github_app_configurations.bootstrap_secret }
+      get setup_path, as: :json
+      registration = JSON.parse(response.body).fetch("data")
+      state = Rack::Utils.parse_query(URI(registration.fetch("submitPath")).query).fetch("state")
+
+      get manual_setup_path, as: :json
+      assert_response :success
+
+      stub_request(:get, "#{GITHUB_API_URL}/app")
+        .to_return(status: 401, body: JSON.generate(message: "manual-client-secret manual-webhook-secret"))
+      post manual_setup_path, params: manual_parameters
+      assert_response :unprocessable_entity
+
+      stub_request(:post, "#{GITHUB_API_URL}/app-manifests/temporary/conversions")
+        .to_return \
+          status: 201,
+          body: JSON.generate(github_app_configurations.manifest_credentials),
+          headers: { "Content-Type" => "application/json" }
+      get callback_setup_path, params: { code: "temporary", state: }
+
+      assert_response :redirect
+      assert GithubAppConfiguration.configured?
+    end
+  end
+
   private
 
   def manual_parameters
