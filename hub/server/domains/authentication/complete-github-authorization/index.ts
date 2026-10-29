@@ -296,7 +296,7 @@ export async function completeGitHubAuthorization(
           invitationId: invitation.id,
         })
       } else if (synchronizableMembership) {
-        await records.saveMembership({
+        membership = await records.saveMembership({
           userId: identity.userId,
           status: "active",
           role: "member",
