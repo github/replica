@@ -53,6 +53,36 @@ function parsePage(query: unknown) {
   return parsed.data
 }
 
+async function requirePrototypeCursor(
+  database: PrismaClient,
+  workspaceId: string,
+  cursor?: string,
+): Promise<void> {
+  if (!cursor) return
+  const prototype = await database.prototype.findUnique({
+    where: { id: cursor },
+    select: { workspaceId: true },
+  })
+  if (prototype?.workspaceId !== workspaceId) {
+    throw new AuthenticationError(422, "invalid_pagination", "Pagination is invalid.")
+  }
+}
+
+async function requireVersionCursor(
+  database: PrismaClient,
+  prototypeId: string,
+  cursor?: string,
+): Promise<void> {
+  if (!cursor) return
+  const version = await database.prototypeVersion.findUnique({
+    where: { id: cursor },
+    select: { prototypeId: true },
+  })
+  if (version?.prototypeId !== prototypeId) {
+    throw new AuthenticationError(422, "invalid_pagination", "Pagination is invalid.")
+  }
+}
+
 function parseName(input: unknown, code: string, message: string) {
   const parsed = nameSchema.safeParse(input)
   if (!parsed.success) throw new AuthenticationError(422, code, message)
@@ -619,6 +649,7 @@ export function createPrototypeAuthorizationService({
       const { cursor, limit } = parsePage(query)
       const actor = await currentSession(store, sessionToken)
       const { workspace } = await workspaceDecision(database, actor.userId, workspaceId)
+      await requirePrototypeCursor(database, workspaceId, cursor)
       const workspaceGrant = workspace.grants[0] ?? null
       if (
         !(await hasAnyPrototypeAccess({
@@ -806,6 +837,7 @@ export function createPrototypeAuthorizationService({
       const actor = await currentSession(store, sessionToken)
       const { decision } = await prototypeDecision(baseline, database, actor.userId, prototypeId)
       requireDecision(decision, "viewer")
+      await requireVersionCursor(database, prototypeId, cursor)
       const items = await database.prototypeVersion.findMany({
         where: { prototypeId },
         orderBy: { sequence: "asc" },

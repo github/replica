@@ -60,7 +60,7 @@ The product API uses:
 - `GET` and `POST /api/prototypes/:prototypeId/versions`
 - `GET /api/prototypes/:prototypeId/versions/:versionId`
 
-List routes use an opaque UUID cursor and a limit from 1 through 100. Invalid pagination returns an explicit error. State-changing requests require the configured origin and matching CSRF cookie and header. Product responses are private and non-cacheable, request payloads are omitted from logs, and mutation routes use a bounded rate limit.
+List routes use an opaque UUID cursor and a limit from 1 through 100. Prototype and version cursors belong to their owning workspace or prototype; a cursor from another scope is invalid. Invalid pagination returns `422 invalid_pagination`, while malformed or missing path resources return their resource-specific `404` error. State-changing requests require the configured origin and matching CSRF cookie and header. Product responses are private and non-cacheable, request payloads are omitted from logs, and mutation routes use a bounded rate limit.
 
 Every product route restores the current session and active installation membership before evaluating product access. Workspace creation and direct access changes also require identity verification from the last five minutes. Mutations repeat the membership check inside their database transaction so a suspended or removed actor cannot complete a stale request.
 
