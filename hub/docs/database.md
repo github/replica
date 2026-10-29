@@ -1,6 +1,6 @@
 # Hub database
 
-Hub uses PostgreSQL and Prisma. The initial migration stores the provider-neutral [identity foundation](identity.md); product models have not been added.
+Hub uses PostgreSQL and Prisma. The schema stores the provider-neutral [identity foundation](identity.md) and the [prototype authorization](prototype-authorization.md) product core.
 
 [Background jobs](background-jobs.md) use the same database with BullMQ-owned tables and functions in the `bullmq` schema. Prisma does not own those objects. `npm run setup` applies Prisma migrations before BullMQ setup and schedule registration.
 
@@ -47,6 +47,8 @@ model Folder {
 ```
 
 `uuid()` generates UUIDs through Prisma. `@updatedAt` updates timestamps on Prisma writes, not through a database trigger. Raw SQL writers must supply UUIDs and maintain `updated_at` themselves. Use timezone-aware timestamps for stored instants.
+
+Workspace and prototype access use separate grant tables so each user has at most one rule per scope. The database requires an allowed rule to have a role and an explicit deny to have no role. Prototype versions have a unique sequence within their owning prototype and use restrictive deletion so history cannot be detached or silently removed.
 
 ## Shared client
 

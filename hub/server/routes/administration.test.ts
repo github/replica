@@ -6,6 +6,7 @@ import type { Mocked } from "vitest"
 
 import type { AdministrationService } from "#server/domains/administration/create-service/types"
 import type { AuthenticationService } from "#server/domains/authentication/create-service/types"
+import type { PrototypeAuthorizationService } from "#server/domains/prototype-authorization/create-service/types"
 import type { AuthenticationRoutes } from "#server/routes/types"
 import { AuthenticationError } from "#server/utils/authentication-error"
 
@@ -45,6 +46,7 @@ function runtime(
   return {
     service,
     administration,
+    prototypeAuthorization: {} as PrototypeAuthorizationService,
     settings: {
       origin: "https://hub.example",
       secureCookies: true,

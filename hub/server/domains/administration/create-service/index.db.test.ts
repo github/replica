@@ -464,4 +464,332 @@ describe("createAdministrationService() database behavior", () => {
       true,
     )
   })
+
+  it("allows installation role demotion but prevents workspace orphaning on suspension", async () => {
+    const { prisma, store } = await database()
+    const actor = await createAdministrator(store, "workspace-actor", "workspace-actor-token")
+    const target = await createAdministrator(store, "workspace-target", "workspace-target-token")
+    const workspace = await prisma.workspace.create({
+      data: {
+        name: "Workspace",
+        createdByUserId: target.user.id,
+        grants: {
+          create: {
+            userId: target.user.id,
+            effect: "allow",
+            role: "administrator",
+          },
+        },
+      },
+    })
+    const service = createAdministrationService({
+      store,
+      now: () => new Date("2026-10-27T18:01:00.000Z"),
+    })
+
+    await expect(
+      service.changeMembership("workspace-actor-token", target.membership.id, {
+        role: "member",
+      }),
+    ).resolves.toMatchObject({
+      userId: target.user.id,
+      role: "member",
+      status: "active",
+    })
+    expect(
+      await prisma.workspaceAccessGrant.findUnique({
+        where: {
+          workspaceId_userId: {
+            workspaceId: workspace.id,
+            userId: target.user.id,
+          },
+        },
+      }),
+    ).toMatchObject({ effect: "allow", role: "administrator" })
+
+    await expect(
+      service.changeMembership("workspace-actor-token", target.membership.id, {
+        status: "suspended",
+      }),
+    ).rejects.toMatchObject({
+      status: 409,
+      code: "product_administration_orphaned",
+      message: "Transfer workspace administration before changing this membership.",
+    })
+
+    await prisma.workspaceAccessGrant.create({
+      data: {
+        workspaceId: workspace.id,
+        userId: actor.user.id,
+        effect: "allow",
+        role: "administrator",
+      },
+    })
+    await expect(
+      service.changeMembership("workspace-actor-token", target.membership.id, {
+        status: "suspended",
+      }),
+    ).resolves.toMatchObject({
+      userId: target.user.id,
+      role: "member",
+      status: "suspended",
+    })
+    expect(await store.read.session(digestSecret("workspace-target-token"))).toBeNull()
+    const targetAudits = (await store.read.audits()).filter(({ targetMembershipId }) => {
+      return targetMembershipId === target.membership.id
+    })
+    expect(targetAudits.every(({ event }) => event === "membership.change")).toBe(true)
+    expect(
+      targetAudits.map(({ context }) => (context as { reason: string }).reason).sort(),
+    ).toEqual(["role_member", "status_suspended"])
+  })
+
+  it("prevents prototype orphaning on removal until an active replacement is assigned", async () => {
+    const { prisma, store } = await database()
+    const actor = await createAdministrator(store, "prototype-actor", "prototype-actor-token")
+    const target = await createAdministrator(store, "prototype-target", "prototype-target-token")
+    const workspace = await prisma.workspace.create({
+      data: {
+        name: "Workspace",
+        createdByUserId: target.user.id,
+        grants: {
+          create: [
+            {
+              userId: actor.user.id,
+              effect: "allow",
+              role: "administrator",
+            },
+            {
+              userId: target.user.id,
+              effect: "allow",
+              role: "viewer",
+            },
+          ],
+        },
+      },
+    })
+    const prototype = await prisma.prototype.create({
+      data: {
+        name: "Prototype",
+        workspaceId: workspace.id,
+        createdByUserId: target.user.id,
+        grants: {
+          create: [
+            {
+              userId: actor.user.id,
+              effect: "allow",
+              role: "viewer",
+            },
+            {
+              userId: target.user.id,
+              effect: "allow",
+              role: "administrator",
+            },
+          ],
+        },
+      },
+    })
+    const service = createAdministrationService({
+      store,
+      now: () => new Date("2026-10-27T18:01:00.000Z"),
+    })
+
+    await expect(
+      service.changeMembership("prototype-actor-token", target.membership.id, {
+        status: "removed",
+      }),
+    ).rejects.toMatchObject({
+      status: 409,
+      code: "product_administration_orphaned",
+      message: "Transfer prototype administration before changing this membership.",
+    })
+
+    await prisma.prototypeAccessGrant.update({
+      where: {
+        prototypeId_userId: {
+          prototypeId: prototype.id,
+          userId: actor.user.id,
+        },
+      },
+      data: { role: "administrator" },
+    })
+    await expect(
+      service.changeMembership("prototype-actor-token", target.membership.id, {
+        status: "removed",
+      }),
+    ).resolves.toMatchObject({
+      userId: target.user.id,
+      status: "removed",
+    })
+    expect(await store.read.session(digestSecret("prototype-target-token"))).toBeNull()
+    expect(
+      await prisma.securityAudit.findMany({
+        where: { targetMembershipId: target.membership.id },
+        select: { event: true, context: true },
+      }),
+    ).toEqual([
+      {
+        event: "membership.change",
+        context: { reason: "status_removed" },
+      },
+    ])
+  })
+
+  it("does not count a workspace administrator denied on the prototype as a replacement", async () => {
+    const { prisma, store } = await database()
+    const actor = await createAdministrator(store, "denied-actor", "denied-actor-token")
+    const target = await createAdministrator(store, "denied-target", "denied-target-token")
+    const workspace = await prisma.workspace.create({
+      data: {
+        name: "Workspace",
+        createdByUserId: target.user.id,
+        grants: {
+          create: {
+            userId: actor.user.id,
+            effect: "allow",
+            role: "administrator",
+          },
+        },
+      },
+    })
+    const prototype = await prisma.prototype.create({
+      data: {
+        name: "Prototype",
+        workspaceId: workspace.id,
+        createdByUserId: target.user.id,
+        grants: {
+          create: [
+            {
+              userId: actor.user.id,
+              effect: "deny",
+            },
+            {
+              userId: target.user.id,
+              effect: "allow",
+              role: "administrator",
+            },
+          ],
+        },
+      },
+    })
+    const service = createAdministrationService({
+      store,
+      now: () => new Date("2026-10-27T18:01:00.000Z"),
+    })
+
+    await expect(
+      service.changeMembership("denied-actor-token", target.membership.id, {
+        status: "suspended",
+      }),
+    ).rejects.toMatchObject({
+      status: 409,
+      code: "product_administration_orphaned",
+      message: "Transfer prototype administration before changing this membership.",
+    })
+
+    await prisma.prototypeAccessGrant.delete({
+      where: {
+        prototypeId_userId: {
+          prototypeId: prototype.id,
+          userId: actor.user.id,
+        },
+      },
+    })
+    await expect(
+      service.changeMembership("denied-actor-token", target.membership.id, {
+        status: "suspended",
+      }),
+    ).resolves.toMatchObject({
+      userId: target.user.id,
+      status: "suspended",
+    })
+  })
+
+  it("requires active replacements for every prototype a removed member administers", async () => {
+    const { prisma, store } = await database()
+    const actor = await createAdministrator(store, "multi-scope-actor", "multi-scope-actor-token")
+    const target = await createAdministrator(
+      store,
+      "multi-scope-target",
+      "multi-scope-target-token",
+    )
+    const workspace = await prisma.workspace.create({
+      data: {
+        name: "Workspace",
+        createdByUserId: target.user.id,
+        grants: {
+          create: [
+            {
+              userId: actor.user.id,
+              effect: "allow",
+              role: "viewer",
+            },
+            {
+              userId: target.user.id,
+              effect: "allow",
+              role: "viewer",
+            },
+          ],
+        },
+      },
+    })
+    const prototypes = await Promise.all(
+      ["First prototype", "Second prototype"].map((name, index) =>
+        prisma.prototype.create({
+          data: {
+            name,
+            workspaceId: workspace.id,
+            createdByUserId: target.user.id,
+            grants: {
+              create: [
+                {
+                  userId: actor.user.id,
+                  effect: "allow",
+                  role: index === 0 ? "administrator" : "viewer",
+                },
+                {
+                  userId: target.user.id,
+                  effect: "allow",
+                  role: "administrator",
+                },
+              ],
+            },
+          },
+        }),
+      ),
+    )
+    const service = createAdministrationService({
+      store,
+      now: () => new Date("2026-10-27T18:01:00.000Z"),
+    })
+
+    await expect(
+      service.changeMembership("multi-scope-actor-token", target.membership.id, {
+        status: "removed",
+      }),
+    ).rejects.toMatchObject({
+      status: 409,
+      code: "product_administration_orphaned",
+    })
+    expect(await store.read.session(digestSecret("multi-scope-target-token"))).toBeTruthy()
+
+    await prisma.prototypeAccessGrant.update({
+      where: {
+        prototypeId_userId: {
+          prototypeId: prototypes[1]!.id,
+          userId: actor.user.id,
+        },
+      },
+      data: { role: "administrator" },
+    })
+    await expect(
+      service.changeMembership("multi-scope-actor-token", target.membership.id, {
+        status: "removed",
+      }),
+    ).resolves.toMatchObject({
+      userId: target.user.id,
+      status: "removed",
+    })
+    expect(await store.read.session(digestSecret("multi-scope-target-token"))).toBeNull()
+  })
 })

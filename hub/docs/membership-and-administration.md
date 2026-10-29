@@ -9,11 +9,13 @@ Each Hub user has at most one installation membership.
 | State | Result |
 | --- | --- |
 | Active member | May create and restore a Hub session. Product access remains a separate future decision. |
-| Active administrator | Has member access and may use installation administration after fresh identity verification. |
+| Active administrator | Has member access and may use installation administration after fresh identity verification. Existing product access remains separate. |
 | Suspended | Cannot create or use a Hub session. An administrator may restore the membership. |
 | Removed | Cannot create or use a Hub session. The retained record preserves audit linkage, and return requires a new invitation. |
 
 Changing a membership to suspended or removed deletes that user's sessions in the same transaction. Every protected request also reloads membership, so a stale cookie cannot preserve access. Hub prevents overlapping administrator changes from removing the final active administrator.
+
+Suspension and removal also check Hub-managed product administration in the same transaction. The change fails with `product_administration_orphaned` until another active user can administer every affected workspace and prototype. A role change from installation administrator to member does not remove explicit workspace or prototype roles.
 
 ## Invitations
 
@@ -59,4 +61,4 @@ Membership operations write a structured security record with a bounded action, 
 
 ## Non-goals
 
-This boundary does not define prototype, repository, workspace, or artifact roles. It does not synchronize GitHub organization or repository permissions, implement production OIDC, link accounts across providers, provision users through SCIM, or ingest artifacts.
+This boundary does not grant prototype, repository, workspace, or artifact roles. The separate [prototype authorization](prototype-authorization.md) boundary defines Hub-managed product access. Membership does not synchronize GitHub organization or repository permissions, implement production OIDC, link accounts across providers, provision users through SCIM, or ingest artifacts.

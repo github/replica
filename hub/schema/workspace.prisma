@@ -1,0 +1,20 @@
+model Workspace {
+  // ID columns
+  id              String @id @default(uuid()) @db.Uuid
+  createdByUserId String @map("created_by_user_id") @db.Uuid
+
+  // Relations
+  createdBy  User                   @relation("WorkspaceCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  prototypes Prototype[]
+  grants     WorkspaceAccessGrant[]
+
+  // Attribute columns
+  name String
+
+  // Timestamp columns
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([createdByUserId])
+  @@map("workspaces")
+}

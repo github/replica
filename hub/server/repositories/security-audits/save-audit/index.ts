@@ -24,6 +24,10 @@ export async function saveSecurityAudit(database: Prisma.TransactionClient, data
       outcome: data.outcome ?? "succeeded",
       targetMembershipId: data.targetMembershipId ?? null,
       invitationId: data.invitationId ?? null,
+      workspaceId: data.workspaceId ?? null,
+      prototypeId: data.prototypeId ?? null,
+      prototypeVersionId: data.prototypeVersionId ?? null,
+      targetUserId: data.targetUserId ?? null,
       context,
     },
   })
