@@ -28,7 +28,7 @@
   },
   "dependencies": {
     "@primer/octicons-react": "19.41.0",
-    "@primer/react-brand": "0.78.0",
+    "@primer/react-brand": "0.80.0",
     "@rails/actioncable": "8.1.400",
     "@reduxjs/toolkit": "2.13.0",
     "@thoughtbot/superglue": "1.0.3",
