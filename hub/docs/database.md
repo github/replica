@@ -1,6 +1,6 @@
 # Hub database
 
-Hub uses PostgreSQL and Prisma. Product models and migrations have not been added.
+Hub uses PostgreSQL and Prisma. The initial migration stores the provider-neutral [identity foundation](identity.md); product models have not been added.
 
 [Background jobs](background-jobs.md) use the same database with BullMQ-owned tables and functions in the `bullmq` schema. Prisma does not own those objects. `npm run setup` applies Prisma migrations before BullMQ setup and schedule registration.
 

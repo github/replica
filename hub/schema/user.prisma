@@ -1,0 +1,19 @@
+model User {
+  // ID columns
+  id String @id @default(uuid()) @db.Uuid
+
+  // Relations
+  externalIdentities ExternalIdentity[]
+  memberships        InstallationMembership[]
+  sessions           Session[]
+
+  // Attribute columns
+  displayName String? @map("display_name")
+  avatarUrl   String? @map("avatar_url")
+
+  // Timestamp columns
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("users")
+}

@@ -5,6 +5,7 @@ import express from "express"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { createLogger } from "../create-logger"
+import { omitRequestLogPayload } from "../omit-request-log-payload"
 
 import { createRequestLogger } from "."
 
@@ -111,7 +112,7 @@ describe("createRequestLogger()", () => {
     expect(records[0]).toMatchObject({ level: 50, statusCode: 500, outcome: "completed" })
   })
 
-  it("lets an endpoint omit all payload fields without suppressing completion metadata", async () => {
+  it("redacts normalized OAuth callback fields without changing the request", async () => {
     const records: Record<string, unknown>[] = []
     const logger = createLogger({
       destination: { write: (line) => records.push(parseRecord(line)) },
@@ -119,23 +120,94 @@ describe("createRequestLogger()", () => {
     const app = express()
     app.use(createRequestLogger(logger))
     app.use(express.json())
-    app.post("/private/:id", (_req, res) => {
-      res.locals.omitLogPayload = true
-      res.json({ private: "response-secret" })
+    app.post("/callback", (req, res) => {
+      const body: unknown = req.body
+      res.json({ query: req.query, body })
     })
     const baseUrl = await listen(app)
+    const query = new URLSearchParams({
+      code: "query-code",
+      STATE: "query-state",
+      "no-nce": "query-nonce",
+      code_verifier: "query-verifier",
+      safe: "query-safe",
+    })
+    const body = {
+      Code: "body-code",
+      state: "body-state",
+      nonce: "body-nonce",
+      "code.verifier": "body-verifier",
+      safe: "body-safe",
+    }
 
-    const response = await fetch(`${baseUrl}/private/param-secret?search=query-secret`, {
+    const response = await fetch(`${baseUrl}/callback?${query}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ text: "body-secret" }),
+      body: JSON.stringify(body),
     })
+
+    expect(await response.json()).toEqual({
+      query: {
+        code: "query-code",
+        STATE: "query-state",
+        "no-nce": "query-nonce",
+        code_verifier: "query-verifier",
+        safe: "query-safe",
+      },
+      body,
+    })
+    await vi.waitFor(() => expect(records).toHaveLength(1))
+    expect(records[0]).toMatchObject({
+      query: {
+        code: "[REDACTED]",
+        STATE: "[REDACTED]",
+        "no-nce": "[REDACTED]",
+        code_verifier: "[REDACTED]",
+        safe: "query-safe",
+      },
+      body: {
+        Code: "[REDACTED]",
+        state: "[REDACTED]",
+        nonce: "[REDACTED]",
+        "code.verifier": "[REDACTED]",
+        safe: "body-safe",
+      },
+    })
+    expect(JSON.stringify(records)).not.toMatch(
+      /query-code|query-state|query-nonce|query-verifier|body-code|body-state|body-nonce|body-verifier/,
+    )
+  })
+
+  it("lets an authentication router omit payload fields without suppressing completion metadata", async () => {
+    const records: Record<string, unknown>[] = []
+    const logger = createLogger({
+      destination: { write: (line) => records.push(parseRecord(line)) },
+    })
+    const app = express()
+    app.use(createRequestLogger(logger))
+    app.use(express.json())
+    const authentication = express.Router()
+    authentication.use(omitRequestLogPayload)
+    authentication.post("/:provider/callback", (_req, res) => {
+      res.json({ private: "response-secret" })
+    })
+    app.use("/authentication", authentication)
+    const baseUrl = await listen(app)
+
+    const response = await fetch(
+      `${baseUrl}/authentication/provider-secret/callback?search=query-secret`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: "body-secret" }),
+      },
+    )
     await response.arrayBuffer()
 
     await vi.waitFor(() => expect(records).toHaveLength(1))
     expect(records[0]).toMatchObject({
       method: "POST",
-      route: "/private/:id",
+      route: "/:provider/callback",
       statusCode: 200,
       outcome: "completed",
     })
@@ -143,7 +215,7 @@ describe("createRequestLogger()", () => {
       expect(records[0]).not.toHaveProperty(field)
     }
     expect(JSON.stringify(records)).not.toMatch(
-      /param-secret|query-secret|body-secret|response-secret/,
+      /provider-secret|query-secret|body-secret|response-secret/,
     )
   })
 
