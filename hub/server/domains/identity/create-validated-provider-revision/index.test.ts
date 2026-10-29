@@ -87,4 +87,30 @@ describe("createValidatedProviderRevision()", () => {
       }),
     ).toThrow("cannot exceed 4 nested levels")
   })
+
+  it("applies provider setting string and serialized byte limits", () => {
+    expect(() =>
+      createValidatedProviderRevision({
+        providerKey: "workforce",
+        revision: 1,
+        settings: { metadata: "x".repeat(2_000) },
+      }),
+    ).not.toThrow()
+    expect(() =>
+      createValidatedProviderRevision({
+        providerKey: "workforce",
+        revision: 1,
+        settings: { metadata: "x".repeat(2_001) },
+      }),
+    ).toThrow("cannot exceed 2000 characters")
+    expect(() =>
+      createValidatedProviderRevision({
+        providerKey: "workforce",
+        revision: 1,
+        settings: {
+          metadata: Array.from({ length: 9 }, () => "x".repeat(1_900)),
+        },
+      }),
+    ).toThrow("cannot exceed 16384 bytes")
+  })
 })
