@@ -19,6 +19,11 @@ export const collaboratorPermissionSchema = z.object({
   role_name: z.string().min(1).max(255).nullable().optional(),
 })
 
+export const githubUserSchema = z.object({
+  id: z.number().int().positive(),
+  login: z.string().min(1),
+})
+
 export const repositoryAdmissionBatchSize = 10
 export const repositoryAdmissionLimit = 100
 export const repositoryAdmissionTimeoutMs = 10_000

@@ -709,7 +709,7 @@ describe("createAuthenticationService()", () => {
       userId: "user",
       status: "active",
       role: "member",
-      source: "synchronized",
+      source: "legacy-synchronized",
       suspendedAt: null,
       removedAt: null,
     })

@@ -114,6 +114,7 @@ export interface IdentityRecords {
 export interface IdentityQueries {
   githubIntegrationCredentials(): Promise<GitHubIntegrationCredentials>
   identityStoreState(): Promise<IdentityStoreState>
+  hasFreshGitHubAdmission(userId: string, now: Date): Promise<boolean>
   user(id: string): Promise<HubUser | null>
   externalIdentity(
     provider: string,

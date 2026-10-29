@@ -32,7 +32,16 @@ describe("checkRepositoryAdmission()", () => {
 
   it("does not treat public repository read access as collaboration", async () => {
     vi.mocked(requestGitHubApi).mockResolvedValue({
-      repositories: [{ full_name: "github/public", private: false }],
+      repositories: [
+        {
+          id: 1,
+          full_name: "github/public",
+          name: "public",
+          owner: { login: "github" },
+          default_branch: "main",
+          private: false,
+        },
+      ],
     })
 
     await expect(checkRepositoryAdmission(credentials, profile)).resolves.toBe(false)
@@ -42,7 +51,16 @@ describe("checkRepositoryAdmission()", () => {
   it("admits an explicit collaborator on a private installed repository", async () => {
     vi.mocked(requestGitHubApi)
       .mockResolvedValueOnce({
-        repositories: [{ full_name: "github/private", private: true }],
+        repositories: [
+          {
+            id: 1,
+            full_name: "github/private",
+            name: "private",
+            owner: { login: "github" },
+            default_branch: "main",
+            private: true,
+          },
+        ],
       })
       .mockResolvedValueOnce({
         user: { id: 42 },
@@ -56,7 +74,11 @@ describe("checkRepositoryAdmission()", () => {
     vi.mocked(requestGitHubApi)
       .mockResolvedValueOnce({
         repositories: Array.from({ length: 100 }, (_, index) => ({
+          id: index + 1,
           full_name: `github/private-${index}`,
+          name: `private-${index}`,
+          owner: { login: "github" },
+          default_branch: "main",
           private: true,
         })),
       })
