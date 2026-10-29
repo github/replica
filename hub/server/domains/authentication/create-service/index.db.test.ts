@@ -514,7 +514,7 @@ describe("createAuthenticationService() database behavior", () => {
     ])
   })
 
-  it("denies a changed provider subject without violating the directory object ID uniqueness", async () => {
+  it("migrates a changed provider subject without duplicating the existing identity graph", async () => {
     const { prisma, store } = await database()
     const graph = await createOidcMember(store, "member")
     await store.lock((records) =>
@@ -530,25 +530,47 @@ describe("createAuthenticationService() database behavior", () => {
       }),
     )
 
-    await expect(
-      oidcService(store, graph.provider.id, "member", "replacement-subject").complete(
-        "provider-code",
-        "changed-subject-state",
-        "browser-token",
-      ),
-    ).rejects.toMatchObject({ status: 403, code: "admission_denied" })
+    const result = await oidcService(
+      store,
+      graph.provider.id,
+      "member",
+      "replacement-subject",
+    ).complete("provider-code", "changed-subject-state", "browser-token")
 
-    expect(await prisma.externalIdentity.count({ where: { userId: graph.user.id } })).toBe(1)
-    expect(await prisma.session.count({ where: { userId: graph.user.id } })).toBe(0)
-    expect(await store.read.audits()).toEqual([
-      expect.objectContaining({
-        event: "authentication.admission_denied",
-        outcome: "denied",
-        actorUserId: graph.user.id,
-        targetMembershipId: graph.membership.id,
-        context: { reason: "provider_subject_changed" },
-      }),
-    ])
+    expect(result.purpose).toBe("sign-in")
+    expect(result.sessionToken).toEqual(expect.any(String))
+    expect(await prisma.user.count()).toBe(1)
+    expect(await prisma.externalIdentity.count()).toBe(1)
+    expect(await prisma.installationMembership.count()).toBe(1)
+    expect(
+      await prisma.externalIdentity.findUnique({ where: { id: graph.identity.id } }),
+    ).toMatchObject({
+      userId: graph.user.id,
+      subject: "replacement-subject",
+      directoryObjectId: graph.identity.directoryObjectId,
+    })
+    expect(
+      await prisma.installationMembership.findUnique({ where: { id: graph.membership.id } }),
+    ).toMatchObject({ userId: graph.user.id, status: "active", role: "member" })
+    expect(await prisma.session.findFirst({ where: { userId: graph.user.id } })).toMatchObject({
+      externalIdentityId: graph.identity.id,
+      authenticationProviderRevisionId: graph.provider.id,
+    })
+    expect(await store.read.audits()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: "external_identity.subject_migrate",
+          outcome: "succeeded",
+          actorUserId: graph.user.id,
+          context: { source: "directory_object_id" },
+        }),
+        expect.objectContaining({
+          event: "session.sign_in",
+          outcome: "succeeded",
+          actorUserId: graph.user.id,
+        }),
+      ]),
+    )
   })
 
   it("commits a provider role refresh and its supported audit context together", async () => {

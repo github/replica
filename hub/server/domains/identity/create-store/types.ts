@@ -65,6 +65,10 @@ export interface IdentityRecords {
   saveExternalIdentity(
     input: ExternalIdentityInput,
   ): Promise<HubExternalIdentity & { user: HubUser }>
+  updateExternalIdentitySubject(
+    id: string,
+    subject: string,
+  ): Promise<HubExternalIdentity & { user: HubUser }>
   membership(userId: string): Promise<InstallationMembershipRecord | null>
   membershipById(id: string): Promise<InstallationMembershipDetails | null>
   memberships(): Promise<InstallationMembershipDetails[]>

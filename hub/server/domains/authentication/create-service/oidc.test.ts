@@ -52,6 +52,7 @@ function records(overrides: Partial<MockIdentityRecords> = {}) {
       consumeAuthorizationAttempt: vi.fn().mockResolvedValue(null),
       externalIdentity: vi.fn().mockResolvedValue(null),
       externalIdentityByDirectoryObjectId: vi.fn().mockResolvedValue(null),
+      updateExternalIdentitySubject: vi.fn(),
       createUser: vi.fn().mockResolvedValue({
         id: "user",
         displayName: "Member Name",
@@ -492,12 +493,14 @@ describe("createAuthenticationService() OIDC", () => {
     })
   })
 
-  it("denies a changed provider subject that reuses an existing directory object ID", async () => {
+  it("migrates a changed subject through the signed directory object ID and retains the member", async () => {
     const identity = existingIdentity()
     const membership = activeMembership()
+    const migratedIdentity = { ...identity, subject: "replacement-subject" }
     const identityRecords = records({
       consumeAuthorizationAttempt: vi.fn().mockResolvedValue(attempt()),
       externalIdentityByDirectoryObjectId: vi.fn().mockResolvedValue(identity),
+      updateExternalIdentitySubject: vi.fn().mockResolvedValue(migratedIdentity),
       membership: vi.fn().mockResolvedValue(membership),
     })
     const client = oidc({
@@ -505,23 +508,31 @@ describe("createAuthenticationService() OIDC", () => {
     })
     const { authentication } = service(identityRecords, client)
 
-    await expect(authentication.complete("code", "state", "browser-token")).rejects.toMatchObject({
-      status: 403,
-      code: "admission_denied",
-    })
+    const result = await authentication.complete("code", "state", "browser-token")
 
+    expect(result.purpose).toBe("sign-in")
+    expect(result.sessionToken).toEqual(expect.any(String))
+    expect(identityRecords.updateExternalIdentitySubject).toHaveBeenCalledWith(
+      identity.id,
+      "replacement-subject",
+    )
     expect(identityRecords.audit).toHaveBeenCalledWith({
-      event: "authentication.admission_denied",
-      outcome: "denied",
+      event: "external_identity.subject_migrate",
+      outcome: "succeeded",
       actorUserId: "user",
       sessionId: null,
       authenticationProviderRevisionId: providerRevision.id,
-      targetMembershipId: membership.id,
-      context: { reason: "provider_subject_changed" },
+      context: { source: "directory_object_id" },
     })
     expect(identityRecords.createUser).not.toHaveBeenCalled()
-    expect(identityRecords.saveExternalIdentity).not.toHaveBeenCalled()
-    expect(identityRecords.createSession).not.toHaveBeenCalled()
+    expect(identityRecords.saveMembership).not.toHaveBeenCalled()
+    expect(identityRecords.createSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: identity.userId,
+        externalIdentityId: identity.id,
+        authenticationProviderRevisionId: providerRevision.id,
+      }),
+    )
   })
 
   it("refreshes authorization only when the active membership still matches the signed provider role", async () => {

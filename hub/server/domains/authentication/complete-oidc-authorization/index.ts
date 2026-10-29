@@ -141,17 +141,15 @@ export async function completeOidcAuthorization(
         )
       : null
     if (!identity && directoryIdentity) {
-      const directoryMembership = await records.membership(directoryIdentity.userId)
+      identity = await records.updateExternalIdentitySubject(directoryIdentity.id, profile.subject)
       await records.audit({
-        event: "authentication.admission_denied",
-        outcome: "denied",
+        event: "external_identity.subject_migrate",
+        outcome: "succeeded",
         actorUserId: directoryIdentity.userId,
         sessionId: null,
         authenticationProviderRevisionId: oidcProviderRevisionId,
-        targetMembershipId: directoryMembership?.id ?? null,
-        context: { reason: "provider_subject_changed" },
+        context: { source: "directory_object_id" },
       })
-      return { denied: true as const }
     }
     let membership = identity ? await records.membership(identity.userId) : null
     const invitationSubject = profile.directoryObjectId
