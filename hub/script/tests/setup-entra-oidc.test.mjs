@@ -86,6 +86,53 @@ describe("setup-entra-oidc.ps1", () => {
     assert.doesNotMatch(convergedRoles, /\bOrigin\s*=/)
   })
 
+  it("sends an essential auth_time ID-token claim when creating or updating the application", () => {
+    const apply = functionBody("Invoke-Apply")
+    const optionalClaims = functionBody("Get-ConvergedOptionalClaims")
+
+    assert.match(optionalClaims, /Name = "auth_time"/)
+    assert.match(optionalClaims, /Essential = \$true/)
+    assert.match(
+      apply,
+      /New-MgApplication[\s\S]*-OptionalClaims \(Get-ConvergedOptionalClaims -Application \$null\)/,
+    )
+    assert.match(
+      apply,
+      /\$optionalClaims = Get-ConvergedOptionalClaims -Application \$application[\s\S]*Update-MgApplication[\s\S]*-OptionalClaims \$optionalClaims/,
+    )
+  })
+
+  it("preserves unrelated ID, access, and SAML optional claims through writable projections", () => {
+    const projection = functionBody("ConvertTo-WritableOptionalClaim")
+    const optionalClaims = functionBody("Get-ConvergedOptionalClaims")
+
+    assert.match(projection, /Name = \$Claim\.Name/)
+    assert.match(projection, /Source = \$Claim\.Source/)
+    assert.match(projection, /Essential = \$Claim\.Essential/)
+    assert.match(projection, /AdditionalProperties = @\(\$Claim\.AdditionalProperties\)/)
+    assert.match(
+      optionalClaims,
+      /\$currentIdToken\.Where\(\{[\s\S]*\$_.Name -cne "auth_time"[\s\S]*\}\)\.ForEach\(\{ ConvertTo-WritableOptionalClaim -Claim \$_ \}\)/,
+    )
+    assert.match(optionalClaims, /IdToken = @\(\$idToken\)/)
+    assert.match(
+      optionalClaims,
+      /AccessToken = \$currentAccessToken\.ForEach\(\{[\s\S]*ConvertTo-WritableOptionalClaim -Claim \$_/,
+    )
+    assert.match(
+      optionalClaims,
+      /Saml2Token = \$currentSaml2Token\.ForEach\(\{[\s\S]*ConvertTo-WritableOptionalClaim -Claim \$_/,
+    )
+  })
+
+  it("treats missing, duplicate, or nonessential auth_time claims as application drift", () => {
+    const drift = functionBody("Test-ApplicationDrift")
+
+    assert.match(drift, /\$authTimeClaims = if \(\$Application\.OptionalClaims\)/)
+    assert.match(drift, /\$_.Name -ceq "auth_time"/)
+    assert.match(drift, /\$authTimeClaims\.Count -ne 1 -or -not \$authTimeClaims\[0\]\.Essential/)
+  })
+
   it("treats empty and case-changed redirect URI lists as drift", () => {
     const drift = functionBody("Test-ApplicationDrift")
 

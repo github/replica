@@ -33,7 +33,7 @@ export interface OidcClient {
     code: string,
     pkceVerifier: string,
     nonce: string,
-    options?: { maximumAuthenticationAgeSeconds?: number },
+    options?: { authenticatedAfter?: Date },
   ): Promise<OidcProfile>
 }
 

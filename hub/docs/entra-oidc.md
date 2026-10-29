@@ -22,7 +22,7 @@ Install the listed Microsoft Graph PowerShell modules, sign in with the required
   -AdministratorGroupId <administrator-group-object-id>
 ```
 
-Use `-Apply` with the same arguments to converge the application, service principal, assignment requirement, callback, `Hub.User` and `Hub.Administrator` app roles, and group assignments. Apply adds missing requested groups and removes obsolete group assignments for those two managed roles; unrelated app roles and their assignments are preserved. Use `-ExistingApplicationId <application-client-id>` to converge an existing application without claiming removal ownership. `-Remove` deletes only resources tagged as created by this script and refuses unowned resources.
+Use `-Apply` with the same arguments to converge the application, service principal, assignment requirement, callback, required `auth_time` ID-token claim, `Hub.User` and `Hub.Administrator` app roles, and group assignments. Apply adds missing requested groups and removes obsolete group assignments for those two managed roles; unrelated optional claims, app roles, and assignments are preserved. Use `-ExistingApplicationId <application-client-id>` to converge an existing application without claiming removal ownership. `-Remove` deletes only resources tagged as created by this script and refuses unowned resources.
 
 The script prints nonsecret Hub configuration. It does not create or print a client credential. Create the credential through the tenant's approved process, place it in the secret store exposed by `HUB_OIDC_CLIENT_CREDENTIAL_REFERENCE`, and protect it separately from the database.
 
@@ -58,5 +58,7 @@ OIDC proves the immutable tuple `provider + issuer/tenant + subject`. Preferred 
 JIT provisioning occurs only during a successful sign-in and creates or refreshes Hub membership under the configured admission policy. It is not SCIM: Hub does not synchronize users, groups, suspension, or removal in the background. Entra assignment and app roles control installation admission and administrator mapping; they do not grant future prototype, repository, workspace, artifact, or review permissions.
 
 Keep at least one group assigned to `Hub.Administrator`. Administrator recovery still requires both the host-held recovery secret and a signed `Hub.Administrator` app-role claim; it does not bypass a missing tenant assignment.
+
+Fresh administrator verification requires Entra's `auth_time` optional ID-token claim. The setup script configures it. For an application configured manually in the portal, add the `auth_time` optional claim to ID tokens before relying on administrator mutations.
 
 Hub sign-out revokes the opaque Hub session. It does not assume or initiate Entra single sign-out. Provider logout can be added later as a separately configured deployment behavior.

@@ -93,6 +93,44 @@ function Get-AppRoles {
   )
 }
 
+function ConvertTo-WritableOptionalClaim {
+  param($Claim)
+
+  return @{
+    Name = $Claim.Name
+    Source = $Claim.Source
+    Essential = $Claim.Essential
+    AdditionalProperties = @($Claim.AdditionalProperties)
+  }
+}
+
+function Get-ConvergedOptionalClaims {
+  param($Application)
+
+  $current = if ($Application) { $Application.OptionalClaims } else { $null }
+  $currentIdToken = if ($current) { @($current.IdToken) } else { @() }
+  $currentAccessToken = if ($current) { @($current.AccessToken) } else { @() }
+  $currentSaml2Token = if ($current) { @($current.Saml2Token) } else { @() }
+  $idToken = $currentIdToken.Where({
+      $_.Name -cne "auth_time"
+    }).ForEach({ ConvertTo-WritableOptionalClaim -Claim $_ })
+  $idToken += @{
+    Name = "auth_time"
+    Source = $null
+    Essential = $true
+    AdditionalProperties = @()
+  }
+  return @{
+    IdToken = @($idToken)
+    AccessToken = $currentAccessToken.ForEach({
+        ConvertTo-WritableOptionalClaim -Claim $_
+      })
+    Saml2Token = $currentSaml2Token.ForEach({
+        ConvertTo-WritableOptionalClaim -Claim $_
+      })
+  }
+}
+
 function Get-HubConfiguration {
   param(
     [string] $ResolvedTenantId,
@@ -236,6 +274,13 @@ function Test-ApplicationDrift {
   )
 
   if ($Application.SignInAudience -ne "AzureADMyOrg") { return $true }
+  $authTimeClaims = if ($Application.OptionalClaims) {
+    @($Application.OptionalClaims.IdToken).Where({
+        $_.Name -ceq "auth_time"
+      })
+  }
+  else { @() }
+  if ($authTimeClaims.Count -ne 1 -or -not $authTimeClaims[0].Essential) { return $true }
   $actualRedirectUris = @(@($Application.Web.RedirectUris) | Sort-Object -CaseSensitive)
   $expectedRedirectUris = @(@($DesiredRedirectUris) | Sort-Object -CaseSensitive)
   if ($actualRedirectUris.Count -ne $expectedRedirectUris.Count) { return $true }
@@ -441,17 +486,20 @@ function Invoke-Apply {
     $application = New-MgApplication -DisplayName $DisplayName `
       -SignInAudience "AzureADMyOrg" `
       -Web @{ RedirectUris = @($CallbackUrl) } `
+      -OptionalClaims (Get-ConvergedOptionalClaims -Application $null) `
       -AppRoles (Get-AppRoles) `
       -Tags @($scriptOwnerTag)
   }
   else {
     $roles = Get-ConvergedRoles -Application $application
+    $optionalClaims = Get-ConvergedOptionalClaims -Application $application
     $redirectUris = Get-ConvergedRedirectUris -Application $application -CallbackUrl $CallbackUrl
     if (Test-ApplicationDrift -Application $application `
         -DesiredRoles $roles -DesiredRedirectUris $redirectUris) {
       Update-MgApplication -ApplicationId $application.Id `
         -SignInAudience "AzureADMyOrg" `
         -Web @{ RedirectUris = $redirectUris } `
+        -OptionalClaims $optionalClaims `
         -AppRoles $roles | Out-Null
       $application = Get-ApplicationByAppId -ApplicationId $application.AppId
     }

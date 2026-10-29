@@ -52,7 +52,7 @@ export async function completeOidcAuthorization(
     profile =
       purpose === "verify"
         ? await oidc.identify(code, attempt.pkceVerifier, attempt.nonce, {
-            maximumAuthenticationAgeSeconds: 0,
+            authenticatedAfter: new Date(attempt.expiresAt.getTime() - 10 * 60_000),
           })
         : await oidc.identify(code, attempt.pkceVerifier, attempt.nonce)
   } catch {

@@ -187,15 +187,13 @@ export function createOidcClient(
       ) {
         throw new Error("OIDC token authorized party is invalid.")
       }
-      if (options?.maximumAuthenticationAgeSeconds !== undefined) {
-        const authenticationAge =
-          typeof claims.auth_time === "number"
-            ? Math.floor(Date.now() / 1_000) - claims.auth_time
-            : null
+      if (options?.authenticatedAfter) {
+        const authenticatedAt =
+          typeof claims.auth_time === "number" ? claims.auth_time * 1_000 : null
         if (
-          authenticationAge === null ||
-          authenticationAge < -5 ||
-          authenticationAge > options.maximumAuthenticationAgeSeconds + 5
+          authenticatedAt === null ||
+          authenticatedAt < options.authenticatedAfter.getTime() - 5_000 ||
+          authenticatedAt > Date.now() + 5_000
         ) {
           throw new Error("OIDC authentication is not fresh.")
         }

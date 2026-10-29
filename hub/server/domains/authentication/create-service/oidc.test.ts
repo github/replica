@@ -266,6 +266,11 @@ describe("createAuthenticationService() OIDC", () => {
   })
 
   it("forwards fresh-authentication options only for session verification", async () => {
+    const verificationAttempt = attempt({
+      purpose: "verify",
+      originatingSessionId: "session",
+      expiresAt: new Date(now.getTime() + 4 * 60_000),
+    })
     const session = {
       id: "session",
       userId: "user",
@@ -282,9 +287,7 @@ describe("createAuthenticationService() OIDC", () => {
       session: vi.fn().mockResolvedValue(session),
       sessionById: vi.fn().mockResolvedValue(session),
       membership: vi.fn().mockResolvedValue(activeMembership()),
-      consumeAuthorizationAttempt: vi
-        .fn()
-        .mockResolvedValue(attempt({ purpose: "verify", originatingSessionId: session.id })),
+      consumeAuthorizationAttempt: vi.fn().mockResolvedValue(verificationAttempt),
     })
     const { authentication, client } = service(identityRecords)
 
@@ -298,7 +301,7 @@ describe("createAuthenticationService() OIDC", () => {
       { fresh: true },
     )
     expect(client.identify).toHaveBeenCalledWith("code", "pkce-verifier", "one-use-nonce", {
-      maximumAuthenticationAgeSeconds: 0,
+      authenticatedAfter: new Date(verificationAttempt.expiresAt.getTime() - 10 * 60_000),
     })
   })
 
