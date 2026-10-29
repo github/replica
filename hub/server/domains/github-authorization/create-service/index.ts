@@ -528,10 +528,7 @@ export function createGitHubAuthorizationService({
         for (const sourceId of sourceIds) dirtyRetrySources.delete(sourceId)
         const results = await Promise.allSettled(sourceIds.map((sourceId) => reconcile(sourceId)))
         results.forEach((result, index) => {
-          if (
-            result.status === "rejected" ||
-            result.value?.synchronizationStatus === "failed"
-          ) {
+          if (result.status === "rejected" || result.value?.synchronizationStatus === "failed") {
             log("error", "GitHub authorization dirty retry failed", {
               repositorySourceId: sourceIds[index],
               reason:

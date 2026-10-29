@@ -4687,8 +4687,10 @@ describe("createGitHubAuthorizationService() database behavior", () => {
       errorLog.mock.calls.some(
         ([fields, message]) =>
           message === "GitHub authorization dirty retry failed" &&
-          fields.repositorySourceId === failedSource!.id &&
-          fields.reason === "reconciliation_failed",
+          typeof fields === "object" &&
+          fields !== null &&
+          Reflect.get(fields, "repositorySourceId") === failedSource!.id &&
+          Reflect.get(fields, "reason") === "reconciliation_failed",
       ),
     ).toBe(true)
     await waitForScheduledBatch(scheduledRetryCountDuringFirstBatch, secondRepositoryRequests)
