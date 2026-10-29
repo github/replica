@@ -280,6 +280,153 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
     { scope: "prototype", action: "change" },
     { scope: "prototype", action: "remove" },
   ] as const)(
+    "rejects an editor attempting to $action $scope access without changing grants or audits",
+    async ({ scope, action }) => {
+      const { prisma, service, store } = await database()
+      const actor = await createActor(store, {
+        subject: `editor-${scope}-${action}`,
+        token: `editor-${scope}-${action}-token`,
+      })
+      const target = await createActor(store, {
+        subject: `editor-${scope}-${action}-target`,
+        token: `editor-${scope}-${action}-target-token`,
+      })
+      const workspace = await prisma.workspace.create({
+        data: {
+          name: "Workspace",
+          createdByUserId: actor.user.id,
+          grants: {
+            create: [
+              { userId: actor.user.id, effect: "allow", role: "editor" },
+              { userId: target.user.id, effect: "allow", role: "viewer" },
+            ],
+          },
+        },
+      })
+      const prototype = await prisma.prototype.create({
+        data: {
+          name: "Prototype",
+          workspaceId: workspace.id,
+          createdByUserId: actor.user.id,
+          grants: {
+            create: {
+              userId: target.user.id,
+              effect: "allow",
+              role: "viewer",
+            },
+          },
+        },
+      })
+
+      const operation =
+        scope === "workspace"
+          ? action === "change"
+            ? service.setWorkspaceAccess(
+                `editor-${scope}-${action}-token`,
+                workspace.id,
+                target.user.id,
+                { effect: "allow", role: "commenter" },
+              )
+            : service.removeWorkspaceAccess(
+                `editor-${scope}-${action}-token`,
+                workspace.id,
+                target.user.id,
+              )
+          : action === "change"
+            ? service.setPrototypeAccess(
+                `editor-${scope}-${action}-token`,
+                prototype.id,
+                target.user.id,
+                { effect: "allow", role: "commenter" },
+              )
+            : service.removePrototypeAccess(
+                `editor-${scope}-${action}-token`,
+                prototype.id,
+                target.user.id,
+              )
+
+      await expect(operation).rejects.toMatchObject({
+        status: 403,
+        code: "prototype_access_denied",
+      })
+      expect(
+        await prisma.workspaceAccessGrant.findMany({
+          where: { workspaceId: workspace.id },
+          orderBy: { userId: "asc" },
+          select: { userId: true, effect: true, role: true },
+        }),
+      ).toEqual(
+        [
+          { userId: actor.user.id, effect: "allow", role: "editor" },
+          { userId: target.user.id, effect: "allow", role: "viewer" },
+        ].sort((left, right) => left.userId.localeCompare(right.userId)),
+      )
+      expect(
+        await prisma.prototypeAccessGrant.findMany({
+          where: { prototypeId: prototype.id },
+          select: { userId: true, effect: true, role: true },
+        }),
+      ).toEqual([{ userId: target.user.id, effect: "allow", role: "viewer" }])
+      expect(await prisma.securityAudit.count()).toBe(0)
+    },
+  )
+
+  it.each([{ action: "archive" }, { action: "create a version" }] as const)(
+    "rejects a commenter attempting to $action without changing product state or audits",
+    async ({ action }) => {
+      const { prisma, service, store } = await database()
+      const token = `commenter-${action.replaceAll(" ", "-")}-token`
+      const actor = await createActor(store, {
+        subject: `commenter-${action.replaceAll(" ", "-")}`,
+        token,
+      })
+      const workspace = await prisma.workspace.create({
+        data: {
+          name: "Workspace",
+          createdByUserId: actor.user.id,
+          grants: {
+            create: {
+              userId: actor.user.id,
+              effect: "allow",
+              role: "commenter",
+            },
+          },
+        },
+      })
+      const prototype = await prisma.prototype.create({
+        data: {
+          name: "Prototype",
+          workspaceId: workspace.id,
+          createdByUserId: actor.user.id,
+        },
+      })
+
+      const operation =
+        action === "archive"
+          ? service.archivePrototype(token, prototype.id)
+          : service.createVersion(token, prototype.id, { label: "Rejected version" })
+
+      await expect(operation).rejects.toMatchObject({
+        status: 403,
+        code: "prototype_access_denied",
+      })
+      expect(
+        await prisma.prototype.findUnique({
+          where: { id: prototype.id },
+          select: { archivedAt: true },
+        }),
+      ).toEqual({ archivedAt: null })
+      expect(await prisma.prototypeVersion.count({ where: { prototypeId: prototype.id } })).toBe(0)
+      expect(await prisma.securityAudit.count()).toBe(0)
+    },
+  )
+
+  it.each([
+    { scope: "workspace", action: "change" },
+    { scope: "workspace", action: "remove" },
+    { scope: "prototype", action: "change" },
+    { scope: "prototype", action: "remove" },
+  ] as const)(
     "rejects stale verification for a $scope access $action without changing access or audits",
     async ({ scope, action }) => {
       const { prisma, service, store } = await database()
@@ -613,6 +760,85 @@ describe("createPrototypeAuthorizationService() database behavior", () => {
       }),
     ).toEqual([{ event: "workspace.access.remove", targetUserId: first.user.id }])
   })
+
+  it.each([{ action: "downgrade" }, { action: "remove" }] as const)(
+    "rejects a workspace administrator $action that would orphan a child prototype",
+    async ({ action }) => {
+      const { prisma, service, store } = await database()
+      const actor = await createActor(store, {
+        subject: `child-guard-${action}-actor`,
+        token: `child-guard-${action}-actor-token`,
+      })
+      const target = await createActor(store, {
+        subject: `child-guard-${action}-target`,
+        token: `child-guard-${action}-target-token`,
+      })
+      const workspace = await prisma.workspace.create({
+        data: {
+          name: "Workspace",
+          createdByUserId: actor.user.id,
+          grants: {
+            create: [
+              { userId: actor.user.id, effect: "allow", role: "administrator" },
+              { userId: target.user.id, effect: "allow", role: "administrator" },
+            ],
+          },
+        },
+      })
+      const prototype = await prisma.prototype.create({
+        data: {
+          name: "Child prototype",
+          workspaceId: workspace.id,
+          createdByUserId: actor.user.id,
+          grants: {
+            create: {
+              userId: actor.user.id,
+              effect: "allow",
+              role: "viewer",
+            },
+          },
+        },
+      })
+
+      const operation =
+        action === "downgrade"
+          ? service.setWorkspaceAccess(
+              `child-guard-${action}-actor-token`,
+              workspace.id,
+              target.user.id,
+              { effect: "allow", role: "editor" },
+            )
+          : service.removeWorkspaceAccess(
+              `child-guard-${action}-actor-token`,
+              workspace.id,
+              target.user.id,
+            )
+
+      await expect(operation).rejects.toMatchObject({
+        status: 409,
+        code: "last_prototype_administrator",
+      })
+      expect(
+        await prisma.workspaceAccessGrant.findMany({
+          where: { workspaceId: workspace.id },
+          orderBy: { userId: "asc" },
+          select: { userId: true, effect: true, role: true },
+        }),
+      ).toEqual(
+        [
+          { userId: actor.user.id, effect: "allow", role: "administrator" },
+          { userId: target.user.id, effect: "allow", role: "administrator" },
+        ].sort((left, right) => left.userId.localeCompare(right.userId)),
+      )
+      expect(
+        await prisma.prototypeAccessGrant.findMany({
+          where: { prototypeId: prototype.id },
+          select: { userId: true, effect: true, role: true },
+        }),
+      ).toEqual([{ userId: actor.user.id, effect: "allow", role: "viewer" }])
+      expect(await prisma.securityAudit.count()).toBe(0)
+    },
+  )
 
   it("lets exactly one prototype-direct administrator relinquish authority", async () => {
     const { prisma, service, store } = await database()
