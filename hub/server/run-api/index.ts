@@ -22,8 +22,7 @@ export async function runApi({
   if (!Number.isInteger(shutdownTimeoutMs) || shutdownTimeoutMs < 1) {
     throw new Error("API shutdown timeout must be a positive integer.")
   }
-  const server = createServer()
-  const realtime = attachRealtimeServer({ server, path: "/api/realtime", logger })
+  const trustedProxyHops = readTrustedProxyHops(process.env.HUB_TRUSTED_PROXY_HOPS)
   const authenticationConfiguration = readGitHubAuthenticationConfiguration(process.env)
   const githubAuthentication = authenticationConfiguration
     ? await import("../domains/authentication/create-github-authentication-services/index.ts").then(
@@ -31,13 +30,15 @@ export async function runApi({
           createGitHubAuthenticationServices(authenticationConfiguration),
       )
     : undefined
+  const server = createServer()
+  const realtime = attachRealtimeServer({ server, path: "/api/realtime", logger })
   server.on(
     "request",
     createApp({
       logger,
       broadcast: realtime.broadcast,
       githubAuthentication,
-      trustedProxyHops: readTrustedProxyHops(process.env.HUB_TRUSTED_PROXY_HOPS),
+      trustedProxyHops,
     }),
   )
   let finishBinding!: () => void
