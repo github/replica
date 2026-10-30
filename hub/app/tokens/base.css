@@ -20,6 +20,7 @@
   --hub-border-default: var(--brand-color-border-default);
   --hub-border-muted: var(--brand-color-border-muted);
   --hub-focus: var(--brand-color-focus);
+  --hub-mock-outline: var(--base-color-scale-orange-3);
   --hub-primary-bg: var(--brand-button-primary-bgColor-rest);
   --hub-primary-bg-hover: var(--brand-button-primary-bgColor-hover);
   --hub-primary-bg-active: var(--brand-button-primary-bgColor-active);

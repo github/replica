@@ -7,6 +7,8 @@
   gap: 0.5rem;
   padding: 0.5rem 0.75rem;
   border-block-end: 0.0625rem solid var(--hub-border-default);
+  outline: 2px solid var(--hub-mock-outline);
+  outline-offset: -2px;
   background: var(--hub-canvas-default);
   color: var(--hub-fg-default);
   box-shadow: var(--hub-shadow-floating);

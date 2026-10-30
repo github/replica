@@ -20,7 +20,7 @@ If port 5173 is occupied, leave that server running and use `npm run dev:mock --
 
 The dataset uses `octocat`, `mona`, `github/prototype`, and `github/empty`. Every page reads the same in-memory records. A successful name or description edit is visible when navigating back to the repository; it changes metadata, not build contents. A full reload or **Reset mock data** creates a fresh store from the JSON fixture. Closing the tab discards its store. There is no browser-storage persistence, and reset never changes a real Hub.
 
-Mock controls occupy their own row on narrow screens so they do not cover page controls. On wider screens they float separately from the page.
+UI that exists only for mock data has a 2px orange outline. Ordinary product UI does not get this outline just because it displays mock records. Mock controls occupy their own row on narrow screens so they do not cover page controls. On wider screens they float separately from the page.
 
 Local preview HTML and representative SVG images are synthetic assets, not published builds or captured build evidence. They are served only by the mock development server.
 
