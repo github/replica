@@ -1,4 +1,5 @@
 import type { AuthenticationProviderAdapter, PublicIdentityAttributes } from "../types.ts"
+import type { CreateAuthenticationAdmissionHandoffResult } from "../create-admission-handoff/index.ts"
 import type { SelectedProviderRevision } from "../start-authentication-proof/types.ts"
 
 export interface ConsumedAuthorizationAttempt {
@@ -17,14 +18,16 @@ export interface CompleteAuthenticationProofDependencies {
   createHandoff(input: {
     browserBindingDigest: string
     displayAttributes: PublicIdentityAttributes
+    expectedRevocationGeneration: bigint
     expiresAt: Date
     externalIdentityId: string
     providerRevisionId: string
     tokenDigest: string
-  }): Promise<void>
+  }): Promise<CreateAuthenticationAdmissionHandoffResult>
   createOpaqueValue(): string
   decryptCodeVerifier(value: string): string
   getSelectedProviderRevision(): Promise<SelectedProviderRevision | null>
+  getRevocationGeneration(): Promise<bigint>
   now(): Date
   resolveOrCreateIdentity(input: {
     issuer: string

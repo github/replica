@@ -21,3 +21,23 @@ export interface AuthenticationProviderAdapter {
     codeVerifier: string
   }): Promise<ImmutableIdentityEvidence>
 }
+
+export interface GitHubAuthenticationServices {
+  appOrigin: string
+  callbackRateLimiter: {
+    take(key: string, now: Date): boolean
+  }
+  complete(input: { browserBinding: string; code: string; state: string }): Promise<{
+    attributes: PublicIdentityAttributes
+    expiresAt: Date
+    handoffToken: string
+    status: "authentication_proved"
+  }>
+  now(): Date
+  secureCookies: boolean
+  start(input: { requestIp: string }): Promise<{
+    authorizationUrl: string
+    browserBinding: string
+    expiresAt: Date
+  }>
+}

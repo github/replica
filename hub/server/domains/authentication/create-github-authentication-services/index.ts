@@ -8,8 +8,8 @@ import { countRecentAuthorizationAttempts } from "../../../repositories/authoriz
 import { deleteExpiredAuthorizationAttempts } from "../../../repositories/authorization-attempts/delete-expired-authorization-attempts/index.ts"
 import { deleteExpiredAdmissionHandoffs } from "../../../repositories/admission-handoffs/delete-expired-admission-handoffs/index.ts"
 import { findAuthenticationProvider } from "../../../repositories/authentication-providers/find-authentication-provider/index.ts"
+import { getAuthenticationRevocationGeneration } from "../../../repositories/authentication-revocation-generations/get-authentication-revocation-generation/index.ts"
 import { createSecurityAudit } from "../../../repositories/security-audits/create-security-audit/index.ts"
-import type { GitHubAuthenticationRoutesDependencies } from "../../../routes/api/auth/github/types.ts"
 import { createBoundedRateLimiter } from "../../../utils/authentication/create-bounded-rate-limiter/index.ts"
 import { createOpaqueValue } from "../../../utils/authentication/create-opaque-value/index.ts"
 import { decryptAuthenticationValue } from "../../../utils/authentication/decrypt-authentication-value/index.ts"
@@ -21,12 +21,14 @@ import { runProviderRevisionTransaction } from "../../identity/run-provider-revi
 import { validateAndPersistProviderRevision } from "../../identity/validate-and-persist-provider-revision/index.ts"
 import { completeAuthenticationProof } from "../complete-authentication-proof/index.ts"
 import { createAuthenticationAdmissionHandoff } from "../create-admission-handoff/index.ts"
+import { runAdmissionHandoffTransaction } from "../run-admission-handoff-transaction/index.ts"
 import { startAuthenticationProof } from "../start-authentication-proof/index.ts"
+import type { GitHubAuthenticationServices } from "../types.ts"
 import type { GitHubAuthenticationConfiguration } from "./types.ts"
 
 export async function createGitHubAuthenticationServices(
   configuration: GitHubAuthenticationConfiguration,
-): Promise<GitHubAuthenticationRoutesDependencies> {
+): Promise<GitHubAuthenticationServices> {
   const adapter = createGitHubUserAuthenticationAdapter({
     clientSecret: configuration.clientSecret,
     publicConfiguration: configuration.publicConfiguration,
@@ -100,14 +102,17 @@ export async function createGitHubAuthenticationServices(
         callbackUri: adapter.callbackUri,
         consumeAttempt: (attempt) => consumeAuthorizationAttempt(prisma, attempt),
         createHandoff: (handoff) =>
-          createAuthenticationAdmissionHandoff(prisma, {
-            ...handoff,
-            providerKey: adapter.providerKey,
-          }),
+          createAuthenticationAdmissionHandoff(
+            { ...handoff, providerKey: adapter.providerKey },
+            {
+              runTransaction: (operation) => runAdmissionHandoffTransaction(prisma, operation),
+            },
+          ),
         createOpaqueValue,
         decryptCodeVerifier: (value) =>
           decryptAuthenticationValue(value, configuration.encryptionKey),
         getSelectedProviderRevision: getRevision,
+        getRevocationGeneration: () => getAuthenticationRevocationGeneration(prisma),
         now,
         resolveOrCreateIdentity: (identity) =>
           resolveOrCreateExternalIdentity(identity, {
