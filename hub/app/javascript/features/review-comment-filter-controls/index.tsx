@@ -1,5 +1,5 @@
 import { FilterIcon, SearchIcon } from "@primer/octicons-react"
-import { ActionMenu } from "@primer/react-brand"
+import { ActionMenu } from "@primer/react-brand/esm"
 import { useState } from "react"
 import type { KeyboardEvent } from "react"
 

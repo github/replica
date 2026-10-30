@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import type { KeyboardEvent } from "react"
 
-import { ActionMenu, Button, TextInput } from "@primer/react-brand"
+import { ActionMenu, Button, TextInput } from "@primer/react-brand/esm"
 
 import { HubSpinner } from "@components/hub-spinner"
 import type { PrototypeAuthorResults, PrototypeListing } from "@utils/prototype-listing/types"

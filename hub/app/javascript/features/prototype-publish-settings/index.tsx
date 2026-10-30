@@ -1,4 +1,4 @@
-import { Button, Heading } from "@primer/react-brand"
+import { Button, Heading } from "@primer/react-brand/esm"
 import { useId } from "react"
 
 import { HubAlert } from "@components/hub-alert"

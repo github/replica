@@ -1,6 +1,6 @@
 import type { ReactNode } from "react"
 
-import { Button } from "@primer/react-brand"
+import { Button } from "@primer/react-brand/esm"
 
 import { HubAlert } from "@components/hub-alert"
 import { HubContentPageHeader } from "@components/hub-content-page-header"

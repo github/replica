@@ -60,7 +60,7 @@ components, hooks, and utilities
 ## Interface
 
 - For Hub and canvas work, preserve existing feedback patterns. Flag perceived missing messages or interaction states in chat and ask before adding them; new success messages, banners, or notifications require explicit agreement. Keep required failure reporting explicit.
-- Use Primer Brand components and Brand tokens first. Hub-owned styles use the semantic `--hub-*` mappings in `app/javascript/tokens/base.css`.
+- Use Primer Brand components and Brand tokens first. Import components from `@primer/react-brand/esm` so the build includes their styles. Hub-owned styles use the semantic `--hub-*` mappings in `app/javascript/tokens/base.css`.
 - When Brand lacks an app primitive, build a focused, accessible Hub-owned control instead of importing `@primer/react`.
 - Use Storybook as the primary workbench for presentation changes.
 - Keep page data and application hooks in Rails TSX page views so Pages accept typed presentation props.

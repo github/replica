@@ -73,7 +73,7 @@
 @container (max-width: 48rem) {
   .repository-navigation[data-collapsed="false"] {
     width: min(var(--hub-repository-sidebar-width), 100vw);
-    box-shadow: var(--brand-SubNav-shadow);
+    box-shadow: var(--hub-shadow-floating);
   }
 }
 

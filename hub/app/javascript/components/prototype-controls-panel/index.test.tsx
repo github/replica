@@ -1,4 +1,4 @@
-import { ThemeProvider } from "@primer/react-brand"
+import { ThemeProvider } from "@primer/react-brand/esm"
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { useState } from "react"
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest"

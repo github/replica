@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react"
-import { Button, Heading } from "@primer/react-brand"
+import { Button, Heading } from "@primer/react-brand/esm"
 
 import { ReviewThreadMessage } from "@features/review-thread-message"
 import type { ConversationActivity } from "@features/conversation-inbox/types"

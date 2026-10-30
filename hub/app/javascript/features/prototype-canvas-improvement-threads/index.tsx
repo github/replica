@@ -9,7 +9,7 @@ import {
   TrashIcon,
   XIcon,
 } from "@primer/octicons-react"
-import { ActionMenu, Button, Heading } from "@primer/react-brand"
+import { ActionMenu, Button, Heading } from "@primer/react-brand/esm"
 import {
   useCallback,
   useEffect,

@@ -1,5 +1,5 @@
 import { SmileyIcon } from "@primer/octicons-react"
-import { ActionMenu, Button, Tooltip } from "@primer/react-brand"
+import { ActionMenu, Button, Tooltip } from "@primer/react-brand/esm"
 import { useId, useRef, useState } from "react"
 import type { MouseEvent } from "react"
 

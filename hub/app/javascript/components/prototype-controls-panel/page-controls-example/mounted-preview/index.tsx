@@ -1,4 +1,4 @@
-import { Text } from "@primer/react-brand"
+import { Text } from "@primer/react-brand/esm"
 import { useEffect, useSyncExternalStore } from "react"
 
 import type { Controls, Declaration } from "@utils/prototype-controls/controls.mjs"

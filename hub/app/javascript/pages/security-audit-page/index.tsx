@@ -1,5 +1,5 @@
 import { CheckIcon } from "@primer/octicons-react"
-import { ActionMenu, Button, Text } from "@primer/react-brand"
+import { ActionMenu, Button, Text } from "@primer/react-brand/esm"
 
 import { HubAlert } from "@components/hub-alert"
 import { HubContentPageHeader } from "@components/hub-content-page-header"

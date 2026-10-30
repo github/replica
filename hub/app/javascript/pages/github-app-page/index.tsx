@@ -1,4 +1,4 @@
-import { Button, FormControl, Text, TextInput } from "@primer/react-brand"
+import { Button, FormControl, Text, TextInput } from "@primer/react-brand/esm"
 
 import { HubAlert } from "@components/hub-alert"
 import { HubAdministrationPage } from "@features/hub-administration-page"

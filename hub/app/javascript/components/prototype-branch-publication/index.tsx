@@ -1,5 +1,5 @@
 import { SyncIcon } from "@primer/octicons-react"
-import { Button, InlineLink } from "@primer/react-brand"
+import { Button, InlineLink } from "@primer/react-brand/esm"
 
 import { HubAlert } from "@components/hub-alert"
 

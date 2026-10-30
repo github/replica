@@ -1,6 +1,6 @@
 import type { InputHTMLAttributes } from "react"
 
-import { Checkbox } from "@primer/react-brand"
+import { Checkbox } from "@primer/react-brand/esm"
 
 import "./styles.css"
 

@@ -9,7 +9,7 @@ import {
   Select,
   Text,
   TextInput,
-} from "@primer/react-brand"
+} from "@primer/react-brand/esm"
 
 import { HubAlert } from "@components/hub-alert"
 import { RepositoryWorkspace } from "@features/repository-workspace"

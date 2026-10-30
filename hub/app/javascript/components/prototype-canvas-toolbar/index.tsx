@@ -7,7 +7,7 @@ import {
   SyncIcon,
   UploadIcon,
 } from "@primer/octicons-react"
-import { ActionMenu, Button, Tooltip } from "@primer/react-brand"
+import { ActionMenu, Button, Tooltip } from "@primer/react-brand/esm"
 import type { ComponentProps, Ref, RefObject } from "react"
 
 import { ControlsToggle } from "../prototype-controls-toggle"

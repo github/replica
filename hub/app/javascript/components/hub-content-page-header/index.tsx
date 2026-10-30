@@ -1,6 +1,6 @@
 import type { ReactNode, Ref } from "react"
 
-import { Heading, Text } from "@primer/react-brand"
+import { Heading, Text } from "@primer/react-brand/esm"
 
 import "./styles.css"
 

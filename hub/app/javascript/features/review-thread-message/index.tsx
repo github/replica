@@ -1,5 +1,5 @@
 import { DotFillIcon, KebabHorizontalIcon, PencilIcon, TrashIcon } from "@primer/octicons-react"
-import { ActionMenu, Button, Tooltip } from "@primer/react-brand"
+import { ActionMenu, Button, Tooltip } from "@primer/react-brand/esm"
 import { useEffect, useId, useRef, useState } from "react"
 
 import { HubVisuallyHidden } from "@components/hub-visually-hidden"

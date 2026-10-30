@@ -1,5 +1,5 @@
 import { CheckIcon, CopyIcon, GitBranchIcon } from "@primer/octicons-react"
-import { Button } from "@primer/react-brand"
+import { Button } from "@primer/react-brand/esm"
 import { useState, type RefObject } from "react"
 
 import { CanvasDialog } from "../prototype-canvas-dialog"

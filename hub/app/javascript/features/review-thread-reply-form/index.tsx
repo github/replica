@@ -1,5 +1,5 @@
 import { ArrowUpRightIcon } from "@primer/octicons-react"
-import { Tooltip } from "@primer/react-brand"
+import { Tooltip } from "@primer/react-brand/esm"
 import { useLayoutEffect, useRef } from "react"
 
 import { HubVisuallyHidden } from "@components/hub-visually-hidden"

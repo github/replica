@@ -1,4 +1,4 @@
-import { Avatar } from "@primer/react-brand"
+import { Avatar } from "@primer/react-brand/esm"
 
 import "./styles.css"
 

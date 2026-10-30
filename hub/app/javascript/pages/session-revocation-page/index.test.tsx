@@ -1,4 +1,4 @@
-import { ThemeProvider } from "@primer/react-brand"
+import { ThemeProvider } from "@primer/react-brand/esm"
 import { fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
 

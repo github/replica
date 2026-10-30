@@ -1,4 +1,4 @@
-import { Label } from "@primer/react-brand"
+import { Label } from "@primer/react-brand/esm"
 import { useId } from "react"
 
 import { HubUserAvatar } from "@components/hub-user-avatar"

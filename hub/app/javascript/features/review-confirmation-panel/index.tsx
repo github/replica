@@ -1,4 +1,4 @@
-import { Button } from "@primer/react-brand"
+import { Button } from "@primer/react-brand/esm"
 
 import { HubVisuallyHidden } from "@components/hub-visually-hidden"
 

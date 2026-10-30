@@ -1,5 +1,5 @@
 import { GitBranchIcon, SyncIcon } from "@primer/octicons-react"
-import { Button, Heading, Tooltip } from "@primer/react-brand"
+import { Button, Heading, Tooltip } from "@primer/react-brand/esm"
 import {
   useCallback,
   useEffect,

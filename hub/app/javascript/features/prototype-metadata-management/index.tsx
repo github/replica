@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState } from "react"
 import type { MouseEvent } from "react"
 
 import { XIcon } from "@primer/octicons-react"
-import { Button, FormControl, Heading, Pagination, Text, TextInput } from "@primer/react-brand"
+import { Button, FormControl, Heading, Pagination, Text, TextInput } from "@primer/react-brand/esm"
 
 import { HubAlert } from "@components/hub-alert"
 import { HubIconButton } from "@components/hub-icon-button"

@@ -39,17 +39,46 @@ Object.defineProperty(window, "matchMedia", {
   }),
 })
 
-// jsdom does not implement the popover and modal APIs used by canvas controls.
+// Keep Brand on the native-popover path instead of replacing these stubs with its polyfill.
+const openPopovers = new WeakSet<HTMLElement>()
 Object.defineProperties(HTMLElement.prototype, {
+  popover: {
+    configurable: true,
+    get(this: HTMLElement) {
+      return this.getAttribute("popover")
+    },
+    set(this: HTMLElement, value: string | null) {
+      if (value === null) this.removeAttribute("popover")
+      else this.setAttribute("popover", value)
+    },
+  },
+  matches: {
+    configurable: true,
+    writable: true,
+    value(this: HTMLElement, selector: string) {
+      return selector === ":popover-open"
+        ? openPopovers.has(this)
+        : Element.prototype.matches.call(this, selector)
+    },
+  },
   showPopover: {
     configurable: true,
     writable: true,
     value(this: HTMLElement) {
       if (!this.hasAttribute("popover"))
         throw new Error("Tooltip was focused before popover initialization.")
+      openPopovers.add(this)
+      this.dispatchEvent(new Event("toggle"))
     },
   },
-  hidePopover: { configurable: true, writable: true, value() {} },
+  hidePopover: {
+    configurable: true,
+    writable: true,
+    value(this: HTMLElement) {
+      openPopovers.delete(this)
+      this.dispatchEvent(new Event("toggle"))
+    },
+  },
 })
 
 Object.defineProperty(HTMLDialogElement.prototype, "showModal", {

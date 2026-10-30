@@ -1,5 +1,5 @@
 import { GlobeIcon } from "@primer/octicons-react"
-import { Stack } from "@primer/react-brand"
+import { Stack } from "@primer/react-brand/esm"
 import { useEffect, useRef, useState } from "react"
 import type { SubmitEvent } from "react"
 

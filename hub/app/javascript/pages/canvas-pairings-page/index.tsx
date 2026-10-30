@@ -1,5 +1,5 @@
 import { MarkGithubIcon } from "@primer/octicons-react"
-import { Button, Heading, InlineLink, Text } from "@primer/react-brand"
+import { Button, Heading, InlineLink, Text } from "@primer/react-brand/esm"
 
 import { HubAlert } from "@components/hub-alert"
 

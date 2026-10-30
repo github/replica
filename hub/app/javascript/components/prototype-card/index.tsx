@@ -1,5 +1,5 @@
 import { ArrowUpRightIcon, GitBranchIcon } from "@primer/octicons-react"
-import { Label } from "@primer/react-brand"
+import { Label } from "@primer/react-brand/esm"
 
 import { BuildStateLabel } from "@components/build-state-label"
 import { HubUserAvatar } from "@components/hub-user-avatar"

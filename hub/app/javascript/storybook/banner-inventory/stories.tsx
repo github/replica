@@ -1,6 +1,6 @@
 import { useState } from "react"
 
-import { Button, Heading, Stack, Text } from "@primer/react-brand"
+import { Button, Heading, Stack, Text } from "@primer/react-brand/esm"
 import type { Meta, StoryObj } from "@storybook/react-vite"
 
 import { HubAlert } from "@components/hub-alert"

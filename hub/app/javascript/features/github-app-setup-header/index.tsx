@@ -1,5 +1,5 @@
 import { MarkGithubIcon } from "@primer/octicons-react"
-import { Heading, Text } from "@primer/react-brand"
+import { Heading, Text } from "@primer/react-brand/esm"
 
 import type { GithubAppSetupHeaderData } from "./types"
 

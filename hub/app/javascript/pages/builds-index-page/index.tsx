@@ -1,5 +1,5 @@
 import { GitCommitIcon } from "@primer/octicons-react"
-import { InlineLink, Stack, Text } from "@primer/react-brand"
+import { InlineLink, Stack, Text } from "@primer/react-brand/esm"
 
 import { HubActivityTimeline } from "@components/hub-activity-timeline"
 import { HubContentPageHeader } from "@components/hub-content-page-header"

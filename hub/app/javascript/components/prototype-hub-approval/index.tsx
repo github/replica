@@ -1,5 +1,5 @@
 import { CheckIcon, CopyIcon } from "@primer/octicons-react"
-import { Button } from "@primer/react-brand"
+import { Button } from "@primer/react-brand/esm"
 import { useEffect, useRef, useState } from "react"
 
 import { HubIconButton } from "@components/hub-icon-button"

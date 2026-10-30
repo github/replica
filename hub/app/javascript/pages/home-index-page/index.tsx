@@ -1,5 +1,5 @@
 import { GitBranchIcon, MarkGithubIcon } from "@primer/octicons-react"
-import { Button, Hero, Text } from "@primer/react-brand"
+import { Button, Hero, Text } from "@primer/react-brand/esm"
 import { useEffect, useId, useState } from "react"
 
 import { HubAlert } from "@components/hub-alert"

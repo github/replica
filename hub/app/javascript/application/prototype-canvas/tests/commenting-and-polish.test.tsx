@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
-import { describe, expect, it, vi } from "vitest"
+import { beforeAll, describe, expect, it, vi } from "vitest"
 import { z } from "zod"
 
 import { octocatRootComment } from "@/storybook/fixtures/review/comments"
@@ -12,6 +12,11 @@ import { importedPrototype, publicationHub } from "@utils/resolve-prototype-publ
 
 import { App } from ".."
 import { sharingFixture } from "./sharing-fixture"
+
+// Keep cold loading of the real lazy feature outside the interaction test budget.
+beforeAll(async () => {
+  await import("@features/prototype-canvas-improvement-notes")
+})
 
 function reviewFixture() {
   const { fetch } = sharingFixture(undefined, {

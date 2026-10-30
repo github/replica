@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react"
 
-import { Button, Checkbox, FormControl, Heading, Text, TextInput } from "@primer/react-brand"
+import { Button, Checkbox, FormControl, Heading, Text, TextInput } from "@primer/react-brand/esm"
 
 import { HubAlert } from "@components/hub-alert"
 import { useScrollFade } from "@hooks/use-scroll-fade"

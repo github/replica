@@ -1,6 +1,6 @@
 import type { HTMLAttributes, ReactNode } from "react"
 
-import { Button, Heading, Text } from "@primer/react-brand"
+import { Button, Heading, Text } from "@primer/react-brand/esm"
 
 import "./styles.css"
 

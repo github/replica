@@ -1,6 +1,6 @@
 import type { HTMLAttributes, ReactNode } from "react"
 
-import { Timeline } from "@primer/react-brand"
+import { Timeline } from "@primer/react-brand/esm"
 
 export type HubActivityTimelineItem = {
   id: string

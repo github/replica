@@ -5,7 +5,7 @@ import {
   PlayIcon,
   WorkflowIcon,
 } from "@primer/octicons-react"
-import { Button, Heading, InlineLink, Stack, Text } from "@primer/react-brand"
+import { Button, Heading, InlineLink, Stack, Text } from "@primer/react-brand/esm"
 
 import { HubActivityTimeline } from "@components/hub-activity-timeline"
 import { HubAlert } from "@components/hub-alert"
