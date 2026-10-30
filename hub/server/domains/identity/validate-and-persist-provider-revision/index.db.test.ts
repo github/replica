@@ -114,7 +114,7 @@ describe("validateAndPersistProviderRevision()", () => {
   })
 
   it("uses the same opaque provider key for provider state and typed audits", async () => {
-    const providerKey = "GitHub.App/V2"
+    const providerKey = "secret:workforce"
 
     const result = await validateAndPersistProviderRevision(
       { ...input(1), providerKey },
@@ -122,8 +122,15 @@ describe("validateAndPersistProviderRevision()", () => {
     )
 
     await expect(
-      prisma.authenticationProvider.findUnique({ where: { id: result.providerId } }),
-    ).resolves.toMatchObject({ key: providerKey })
+      prisma.authenticationProvider.findUnique({
+        where: { id: result.providerId },
+        include: { selectedRevision: true },
+      }),
+    ).resolves.toMatchObject({
+      key: providerKey,
+      selectedRevision: { id: result.revisionId, revision: 1 },
+    })
+    await expect(prisma.authenticationProviderRevision.count()).resolves.toBe(1)
     await expect(
       prisma.securityAudit.findFirst({
         where: { action: "identity.provider_revision.selected" },
@@ -136,6 +143,7 @@ describe("validateAndPersistProviderRevision()", () => {
       ),
     ).rejects.toThrow()
     await expect(prisma.authenticationProvider.count()).resolves.toBe(1)
+    await expect(prisma.securityAudit.count()).resolves.toBe(1)
   })
 
   it("persists no validated configuration value beyond its digest", async () => {
@@ -332,7 +340,11 @@ describe("validateAndPersistProviderRevision()", () => {
   })
 
   it("rolls back revision selection when the final success audit insert fails", async () => {
-    const first = await validateAndPersistProviderRevision(input(1), dependencies())
+    const providerKey = "secret:workforce"
+    const first = await validateAndPersistProviderRevision(
+      { ...input(1), providerKey },
+      dependencies(),
+    )
     const rawErrorMarker = "raw-provider-success-audit-error-marker"
     const base = dependencies()
     async function runTransaction<Result>(
@@ -347,7 +359,7 @@ describe("validateAndPersistProviderRevision()", () => {
     }
 
     await expect(
-      validateAndPersistProviderRevision(input(2), { ...base, runTransaction }),
+      validateAndPersistProviderRevision({ ...input(2), providerKey }, { ...base, runTransaction }),
     ).rejects.toThrow(rawErrorMarker)
     await expect(prisma.authenticationProviderRevision.count()).resolves.toBe(1)
     await expect(
@@ -360,7 +372,7 @@ describe("validateAndPersistProviderRevision()", () => {
     expect(failureAudits).toHaveLength(1)
     expect(failureAudits[0]?.action).toBe("identity.provider_revision.persist_failed")
     expect(failureAudits[0]?.context).toEqual({
-      provider: "workforce",
+      provider: providerKey,
       reason: "transaction_error",
       revision: 2,
     })
