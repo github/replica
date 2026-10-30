@@ -78,6 +78,8 @@ The App requests:
 
 An upgraded Hub does not automatically grant these write permissions to an existing App installation. The App owner must open the App's **Permissions & events** settings, grant read and write access for Contents, Pull requests, and Workflows, then save the change. Each installation owner must approve the new permissions before Hub can open workflow installation pull requests. Existing repository discovery and review access continues with the previously approved permissions.
 
+[Organization billing](copilot.md#bill-your-organization) for Learnings also needs the **Copilot requests** organization permission, set to **Read-only**. Hub does not request it when it creates the App, so an App that does not bill Copilot cannot spend the organization's AI credits. Add it only when you turn on organization billing.
+
 Production usually receives GitHub notifications for pushes, workflows, and installation changes. Both environments also poll GitHub so Hub can recover missed changes; local development relies on polling because it has no public tunnel.
 
 ## Manual creation and connection

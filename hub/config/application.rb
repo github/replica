@@ -81,8 +81,11 @@ module ReplicaHub
     config.x.azure_storage_account = ENV["REPLICA_AZURE_STORAGE_ACCOUNT"]
     config.x.azure_storage_container = ENV["REPLICA_AZURE_STORAGE_CONTAINER"]
     config.x.azure_managed_identity_client_id = ENV["REPLICA_AZURE_MANAGED_IDENTITY_CLIENT_ID"]
+    # Who Copilot bills for Learnings: token_owner, the owner of REPLICA_COPILOT_TOKEN, or
+    # organization, the organization that installed Hub's GitHub App. See docs/copilot.md.
+    config.x.copilot_billing = ENV["REPLICA_COPILOT_BILLING"].presence || "token_owner"
     # A fine-grained personal access token whose only permission is Copilot requests. Hub passes it
-    # only to replica-learning and never stores it. See docs/copilot.md.
+    # only to replica-learning and never stores it. Organization billing ignores it.
     config.x.copilot_token = ENV["REPLICA_COPILOT_TOKEN"].presence
   end
 

@@ -131,6 +131,44 @@ class GithubAppConfiguration < ApplicationRecord
         yield
       end
     end
+
+    # Rechecks the exact organization installation that a Copilot billing decision used.
+    def with_copilot_installation!(snapshot)
+      transaction do
+        attributes = copilot_installation_attributes(snapshot)
+        valid = !LocalDevelopment.enabled? && attributes &&
+          uncached { where(attributes).exists? }
+        raise Superseded, "GitHub App installation changed; start again" if !valid
+
+        yield
+      end
+    end
+
+    private
+
+    # Converts one trusted in-process snapshot into the exact active organization installation query.
+    def copilot_installation_attributes(snapshot)
+      return if !snapshot.is_a?(Hash) || snapshot[:owner_type] != "Organization" ||
+        snapshot[:installation_state] != "active"
+
+      attributes = {
+        id: snapshot.fetch(:configuration_id),
+        credential_revision: snapshot.fetch(:credential_revision),
+        lock_version: snapshot.fetch(:lock_version),
+        github_app_id: snapshot.fetch(:github_app_id),
+        client_id: snapshot.fetch(:client_id),
+        installation_id: snapshot.fetch(:installation_id),
+        installation_account_github_id: snapshot.fetch(:installation_account_github_id),
+        installation_state: snapshot.fetch(:installation_state),
+        owner_github_id: snapshot.fetch(:owner_github_id),
+        owner_type: snapshot.fetch(:owner_type)
+      }
+      return if attributes.values.any?(&:nil?)
+
+      attributes
+    rescue KeyError
+      nil
+    end
   end
 
   # Carries only nonsecret configuration identity across GitHub network work.
@@ -153,6 +191,26 @@ class GithubAppConfiguration < ApplicationRecord
   # Filters installation metadata before receipts, quotas, or recovery work are recorded.
   def accepts_installation?(candidate_id)
     !pinned_installation? || (candidate_id.is_a?(Integer) && candidate_id == installation_id)
+  end
+
+  # Carries the exact nonsecret App and organization installation identity used for Copilot billing.
+  def copilot_snapshot
+    installation_snapshot.merge \
+      lock_version:,
+      github_app_id:,
+      client_id:
+  end
+
+  # Identifies one exact App credential revision and organization installation without storing a secret.
+  def copilot_credential
+    JSON.generate(copilot_snapshot.except(:lock_version))
+  end
+
+  # Whether the App has an active installation on an organization, the only kind of installation
+  # whose own tokens Copilot accepts and bills.
+  def organization_installation?
+    owner_type == "Organization" && installation_state == "active" &&
+      installation_account_github_id == owner_github_id
   end
 
   # Refreshes the installation and its repositories from GitHub.
