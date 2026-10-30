@@ -4,7 +4,9 @@ import { Prisma } from "../../../generated/prisma/client.ts"
 import { z } from "zod"
 
 import { findAuthenticationProvider } from "../../../repositories/authentication-providers/find-authentication-provider/index.ts"
+import { lockAuthenticationProviderSelection } from "../../../repositories/authentication-providers/lock-authentication-provider-selection/index.ts"
 import { getAuthenticationRevocationGeneration } from "../../../repositories/authentication-revocation-generations/get-authentication-revocation-generation/index.ts"
+import { lockAuthenticationRevocationGeneration } from "../../../repositories/authentication-revocation-generations/lock-authentication-revocation-generation/index.ts"
 import { createSecurityAudit } from "../../../repositories/security-audits/create-security-audit/index.ts"
 import { hashAuthenticationValue } from "../../../utils/authentication/hash-authentication-value/index.ts"
 import { IdentityTransactionConflictError } from "../../identity/errors.ts"
@@ -65,16 +67,19 @@ export async function consumeAuthenticationAdmissionHandoff(
             else if (handoff.expiresAt <= input.now) reason = "expired"
             else if (handoff.browserBindingDigest !== browserBindingDigest)
               reason = "browser_mismatch"
-            else if (
-              handoff.revocationGeneration !==
-              (await getAuthenticationRevocationGeneration(transaction))
-            ) {
-              reason = "revoked"
-            } else {
+            else {
+              await lockAuthenticationRevocationGeneration(transaction)
+              await lockAuthenticationProviderSelection(transaction, input.providerKey)
+              if (
+                handoff.revocationGeneration !==
+                (await getAuthenticationRevocationGeneration(transaction))
+              ) {
+                reason = "revoked"
+              }
               const selectedRevision = await getSelectedProviderRevision(input.providerKey, {
                 findAuthenticationProvider: (key) => findAuthenticationProvider(transaction, key),
               })
-              if (selectedRevision?.id !== handoff.providerRevisionId) {
+              if (!reason && selectedRevision?.id !== handoff.providerRevisionId) {
                 reason = "provider_revision_changed"
               }
             }
