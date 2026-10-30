@@ -20,6 +20,9 @@ CREATE TABLE "external_identities" (
     CONSTRAINT "external_identities_pkey" PRIMARY KEY ("id"),
     CONSTRAINT "external_identities_values_present" CHECK (
         length("provider") > 0 AND length("issuer") > 0 AND length("subject") > 0
+    ),
+    CONSTRAINT "external_identities_tuple_index_bytes" CHECK (
+        octet_length("provider") + octet_length("issuer") + octet_length("subject") + 2 <= 2000
     )
 );
 

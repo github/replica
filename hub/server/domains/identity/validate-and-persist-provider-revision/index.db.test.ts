@@ -7,7 +7,6 @@ import { prisma } from "../../../integrations/prisma"
 import { createAuthenticationProviderRevision } from "../../../repositories/authentication-providers/create-authentication-provider-revision"
 import { createAuthenticationProvider } from "../../../repositories/authentication-providers/create-authentication-provider"
 import { findAuthenticationProvider } from "../../../repositories/authentication-providers/find-authentication-provider"
-import { selectAuthenticationProviderRevision } from "../../../repositories/authentication-providers/select-authentication-provider-revision"
 import { createSecurityAudit } from "../../../repositories/security-audits/create-security-audit"
 import {
   IdentityTransactionConflictError,
@@ -67,40 +66,16 @@ function controlledConcurrentTransaction(): ProviderRevisionTransaction {
     release = resolve
   })
 
-  return async (operation) => {
-    try {
-      return await prisma.$transaction(
-        (transaction) =>
-          operation({
-            createAuthenticationProvider: (value) =>
-              createAuthenticationProvider(transaction, value),
-            createAuthenticationProviderRevision: (value) =>
-              createAuthenticationProviderRevision(transaction, value),
-            createSecurityAudit: (value) => createSecurityAudit(transaction, value),
-            findAuthenticationProvider: async (key) => {
-              const provider = await findAuthenticationProvider(transaction, key)
-              if (arrivals < 2) {
-                arrivals += 1
-                if (arrivals === 2) release?.()
-                await overlap
-              }
-              return provider
-            },
-            selectAuthenticationProviderRevision: (value) =>
-              selectAuthenticationProviderRevision(transaction, value),
-          }),
-        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
-      )
-    } catch (error) {
-      if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        ["P2002", "P2034"].includes(error.code)
-      ) {
-        throw new IdentityTransactionConflictError({ cause: error })
+  return (operation) =>
+    runProviderRevisionTransaction(prisma, operation, async (database, key) => {
+      const provider = await findAuthenticationProvider(database, key)
+      if (arrivals < 2) {
+        arrivals += 1
+        if (arrivals === 2) release?.()
+        await overlap
       }
-      throw error
-    }
-  }
+      return provider
+    })
 }
 
 describe("validateAndPersistProviderRevision()", () => {

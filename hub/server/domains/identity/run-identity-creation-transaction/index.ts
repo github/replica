@@ -4,11 +4,16 @@ import { findExternalIdentity } from "../../../repositories/external-identities/
 import { createSecurityAudit } from "../../../repositories/security-audits/create-security-audit/index.ts"
 import { createUser } from "../../../repositories/users/create-user/index.ts"
 import { IdentityTransactionConflictError } from "../errors.ts"
-import type { IdentityCreationRepositories, IdentityDatabaseClient } from "./types.ts"
+import type {
+  FindExternalIdentityForTransaction,
+  IdentityCreationRepositories,
+  IdentityDatabaseClient,
+} from "./types.ts"
 
 export function runIdentityCreationTransaction<Result>(
   database: IdentityDatabaseClient,
   operation: (repositories: IdentityCreationRepositories) => Promise<Result>,
+  findIdentity: FindExternalIdentityForTransaction = findExternalIdentity,
 ): Promise<Result> {
   return database
     .$transaction(
@@ -17,7 +22,7 @@ export function runIdentityCreationTransaction<Result>(
           createExternalIdentity: (input) => createExternalIdentity(transaction, input),
           createSecurityAudit: (input) => createSecurityAudit(transaction, input),
           createUser: (input) => createUser(transaction, input),
-          findExternalIdentity: (tuple) => findExternalIdentity(transaction, tuple),
+          findExternalIdentity: (tuple) => findIdentity(transaction, tuple),
         }),
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     )

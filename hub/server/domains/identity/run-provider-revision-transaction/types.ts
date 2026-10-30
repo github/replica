@@ -1,6 +1,7 @@
-import type { PrismaClient } from "../../../generated/prisma/client.ts"
+import type { Prisma } from "../../../generated/prisma/client.ts"
 import type { CreateAuthenticationProviderRevisionInput } from "../../../repositories/authentication-providers/create-authentication-provider-revision/types.ts"
 import type { CreateAuthenticationProviderInput } from "../../../repositories/authentication-providers/create-authentication-provider/types.ts"
+import type { FindAuthenticationProviderDatabase } from "../../../repositories/authentication-providers/find-authentication-provider/types.ts"
 import type { SelectAuthenticationProviderRevisionInput } from "../../../repositories/authentication-providers/select-authentication-provider-revision/types.ts"
 import type { CreateSecurityAuditEvent } from "../../../repositories/security-audits/create-security-audit/types.ts"
 
@@ -16,6 +17,11 @@ export interface AuthenticationProviderRecord {
   key: string
   selectedRevision: SelectedProviderRevisionRecord | null
 }
+
+export type FindAuthenticationProviderForTransaction = (
+  database: FindAuthenticationProviderDatabase,
+  key: string,
+) => Promise<AuthenticationProviderRecord | null>
 
 export interface ProviderRevisionRepositories {
   createAuthenticationProvider(input: CreateAuthenticationProviderInput): Promise<unknown>
@@ -33,4 +39,9 @@ export type ProviderRevisionTransaction = <Result>(
   operation: (repositories: ProviderRevisionRepositories) => Promise<Result>,
 ) => Promise<Result>
 
-export type ProviderRevisionDatabaseClient = Pick<PrismaClient, "$transaction">
+export interface ProviderRevisionDatabaseClient {
+  $transaction<Result>(
+    operation: (transaction: Prisma.TransactionClient) => Promise<Result>,
+    options: { isolationLevel: Prisma.TransactionIsolationLevel },
+  ): Promise<Result>
+}

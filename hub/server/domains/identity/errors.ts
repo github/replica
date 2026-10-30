@@ -15,6 +15,13 @@ export class ExternalIdentityCollisionError extends Error {
   }
 }
 
+export class ExternalIdentityTupleTooLargeError extends Error {
+  constructor() {
+    super("The external identity tuple exceeds the 2000-byte UTF-8 index limit.")
+    this.name = "ExternalIdentityTupleTooLargeError"
+  }
+}
+
 export class ProviderRevisionConflictError extends Error {
   constructor(options?: ErrorOptions) {
     super("The provider revision conflicted with another provider configuration change.", options)

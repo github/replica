@@ -5,11 +5,16 @@ import { findAuthenticationProvider } from "../../../repositories/authentication
 import { selectAuthenticationProviderRevision } from "../../../repositories/authentication-providers/select-authentication-provider-revision/index.ts"
 import { createSecurityAudit } from "../../../repositories/security-audits/create-security-audit/index.ts"
 import { IdentityTransactionConflictError } from "../errors.ts"
-import type { ProviderRevisionDatabaseClient, ProviderRevisionRepositories } from "./types.ts"
+import type {
+  FindAuthenticationProviderForTransaction,
+  ProviderRevisionDatabaseClient,
+  ProviderRevisionRepositories,
+} from "./types.ts"
 
 export function runProviderRevisionTransaction<Result>(
   database: ProviderRevisionDatabaseClient,
   operation: (repositories: ProviderRevisionRepositories) => Promise<Result>,
+  findProvider: FindAuthenticationProviderForTransaction = findAuthenticationProvider,
 ): Promise<Result> {
   return database
     .$transaction(
@@ -19,7 +24,7 @@ export function runProviderRevisionTransaction<Result>(
           createAuthenticationProviderRevision: (input) =>
             createAuthenticationProviderRevision(transaction, input),
           createSecurityAudit: (input) => createSecurityAudit(transaction, input),
-          findAuthenticationProvider: (key) => findAuthenticationProvider(transaction, key),
+          findAuthenticationProvider: (key) => findProvider(transaction, key),
           selectAuthenticationProviderRevision: (input) =>
             selectAuthenticationProviderRevision(transaction, input),
         }),

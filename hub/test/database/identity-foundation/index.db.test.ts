@@ -141,6 +141,38 @@ describe("identity foundation migration", () => {
     )
   })
 
+  it("enforces the combined UTF-8 tuple index byte limit", async () => {
+    const userId = randomUUID()
+    const provider = "p"
+    const issuer = "界".repeat(500)
+    const subjectAtLimit = `${"界".repeat(165)}aa`
+    await createUser(prisma, { id: userId })
+
+    await expect(
+      prisma.externalIdentity.create({
+        data: {
+          id: randomUUID(),
+          userId,
+          provider,
+          issuer,
+          subject: subjectAtLimit,
+        },
+      }),
+    ).resolves.toMatchObject({ provider, issuer, subject: subjectAtLimit })
+    await expect(
+      prisma.externalIdentity.create({
+        data: {
+          id: randomUUID(),
+          userId,
+          provider,
+          issuer,
+          subject: `${subjectAtLimit}a`,
+        },
+      }),
+    ).rejects.toThrow()
+    await expect(prisma.externalIdentity.count()).resolves.toBe(1)
+  })
+
   it("installs the indexes that protect tuple and revision concurrency", async () => {
     const indexes = await prisma.$queryRaw<Array<{ indexname: string }>>`
       SELECT indexname

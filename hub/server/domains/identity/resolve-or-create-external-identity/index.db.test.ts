@@ -3,11 +3,10 @@ import { describe, expect, it, vi } from "vitest"
 
 import { Prisma } from "../../../generated/prisma/client"
 import { prisma } from "../../../integrations/prisma"
-import { createExternalIdentity } from "../../../repositories/external-identities/create-external-identity"
 import { findExternalIdentity } from "../../../repositories/external-identities/find-external-identity"
 import { createSecurityAudit } from "../../../repositories/security-audits/create-security-audit"
 import { createUser } from "../../../repositories/users/create-user"
-import { ExternalIdentityCollisionError, IdentityTransactionConflictError } from "../errors"
+import { ExternalIdentityCollisionError } from "../errors"
 import { runIdentityCreationTransaction } from "../run-identity-creation-transaction"
 import type {
   IdentityCreationRepositories,
@@ -39,36 +38,16 @@ function controlledConcurrentTransaction(): IdentityCreationTransaction {
     release = resolve
   })
 
-  return async (operation) => {
-    try {
-      return await prisma.$transaction(
-        (transaction) =>
-          operation({
-            createExternalIdentity: (input) => createExternalIdentity(transaction, input),
-            createSecurityAudit: (input) => createSecurityAudit(transaction, input),
-            createUser: (input) => createUser(transaction, input),
-            findExternalIdentity: async (input) => {
-              const identity = await findExternalIdentity(transaction, input)
-              if (!identity) {
-                arrivals += 1
-                if (arrivals === 2) release?.()
-                await overlap
-              }
-              return identity
-            },
-          }),
-        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
-      )
-    } catch (error) {
-      if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        ["P2002", "P2003", "P2034"].includes(error.code)
-      ) {
-        throw new IdentityTransactionConflictError({ cause: error })
+  return (operation) =>
+    runIdentityCreationTransaction(prisma, operation, async (database, input) => {
+      const identity = await findExternalIdentity(database, input)
+      if (!identity) {
+        arrivals += 1
+        if (arrivals === 2) release?.()
+        await overlap
       }
-      throw error
-    }
-  }
+      return identity
+    })
 }
 
 describe("resolveOrCreateExternalIdentity()", () => {
