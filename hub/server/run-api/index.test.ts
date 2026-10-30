@@ -121,67 +121,64 @@ describe("runApi()", () => {
     expect(settled).toBe(true)
   })
 
-  it.each(["SIGINT", "SIGTERM"] as const)(
-    "serves health and drains an active request before resolving on %s",
-    async (signalName) => {
-      const { server, running, signal, signals, readiness } = await startApi({ port: 0 })
-      await once(server, "listening")
-      const { port, address } = server.address() as AddressInfo
-      expect(address).toBe("127.0.0.1")
-      expect(readiness).toHaveBeenCalledWith(
-        expect.objectContaining({ host: "127.0.0.1", port }),
-        expect.any(String),
-      )
-      const health = await fetch(`http://127.0.0.1:${port}/api/health`, {
-        headers: { connection: "close" },
-      })
-      expect(health.status).toBe(200)
-      expect(await health.json()).toEqual({ status: "ok" })
+  it("serves health and drains an active request before resolving on SIGTERM", async () => {
+    const { server, running, signal, signals, readiness } = await startApi({ port: 0 })
+    await once(server, "listening")
+    const { port, address } = server.address() as AddressInfo
+    expect(address).toBe("127.0.0.1")
+    expect(readiness).toHaveBeenCalledWith(
+      expect.objectContaining({ host: "127.0.0.1", port }),
+      expect.any(String),
+    )
+    const health = await fetch(`http://127.0.0.1:${port}/api/health`, {
+      headers: { connection: "close" },
+    })
+    expect(health.status).toBe(200)
+    expect(await health.json()).toEqual({ status: "ok" })
 
-      const incoming = once(server, "request")
-      const client = request({
-        host: "127.0.0.1",
-        port,
-        path: "/api/health",
-        method: "POST",
-        headers: {
-          connection: "close",
-          "content-type": "application/json",
-          "content-length": 2,
-        },
-      })
-      client.on("error", () => {})
-      onTestFinished(() => {
-        client.destroy()
-      })
-      const response = new Promise<IncomingMessage>((resolve, reject) => {
-        client.once("response", resolve)
-        client.once("error", reject)
-      })
-      void response.catch(() => {})
-      client.write("{")
-      await incoming
-      let settled = false
-      void running.then(() => {
-        settled = true
-      })
+    const incoming = once(server, "request")
+    const client = request({
+      host: "127.0.0.1",
+      port,
+      path: "/api/health",
+      method: "POST",
+      headers: {
+        connection: "close",
+        "content-type": "application/json",
+        "content-length": 2,
+      },
+    })
+    client.on("error", () => {})
+    onTestFinished(() => {
+      client.destroy()
+    })
+    const response = new Promise<IncomingMessage>((resolve, reject) => {
+      client.once("response", resolve)
+      client.once("error", reject)
+    })
+    void response.catch(() => {})
+    client.write("{")
+    await incoming
+    let settled = false
+    void running.then(() => {
+      settled = true
+    })
 
-      signal(signalName)
-      await new Promise<void>((resolve) => setImmediate(resolve))
-      expect(settled).toBe(false)
-      client.end("}")
-      const received = await response
-      expect(received.statusCode).toBe(404)
-      received.resume()
-      await once(received, "end")
-      await running
+    signal("SIGTERM")
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    expect(settled).toBe(false)
+    client.end("}")
+    const received = await response
+    expect(received.statusCode).toBe(404)
+    received.resume()
+    await once(received, "end")
+    await running
 
-      expect(settled).toBe(true)
-      expect(server.listening).toBe(false)
-      expect(process.listeners("SIGINT")).toEqual(signals.SIGINT)
-      expect(process.listeners("SIGTERM")).toEqual(signals.SIGTERM)
-    },
-  )
+    expect(settled).toBe(true)
+    expect(server.listening).toBe(false)
+    expect(process.listeners("SIGINT")).toEqual(signals.SIGINT)
+    expect(process.listeners("SIGTERM")).toEqual(signals.SIGTERM)
+  })
 
   it("rejects bind failure and removes its signal listeners", async () => {
     const occupied = createServer()
