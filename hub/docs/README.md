@@ -7,6 +7,7 @@ Hub is being rebuilt. The [Hub overview](../README.md) describes what the baseli
 - [Coding conventions](coding-conventions.md): frontend layers and interface rules.
 - [Development](development.md): local API and frontend setup.
 - [Database](database.md): Prisma schema conventions, migrations, and the shared client.
+- [Authentication proof](authentication.md): GitHub identity proof, one-use attempts, and the non-admitted handoff boundary.
 - [Logging](logging.md): application events, automatic request records, and payload safety.
 - [Telemetry](telemetry.md): explicit OpenTelemetry spans, safe attributes, and process lifetime.
 - [Background jobs](background-jobs.md): PostgreSQL queues, workers, schedules, setup, and test isolation.
