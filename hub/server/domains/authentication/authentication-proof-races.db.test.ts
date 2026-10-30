@@ -66,8 +66,10 @@ function barrierDatabase(model: "authenticationProvider" | "authenticationRevoca
       ) {
         return prisma.$transaction(async (transaction) => {
           const wrapped = new Proxy(transaction, {
-            get(target, property, receiver) {
-              if (property !== model) return Reflect.get(target, property, receiver)
+            get(target, property) {
+              if (property !== model) {
+                return target[property as keyof Prisma.TransactionClient]
+              }
               if (model === "authenticationProvider") {
                 const delegate = transaction.authenticationProvider
                 return {
