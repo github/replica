@@ -2,6 +2,7 @@ import type { RequestHandler } from "express"
 import { z } from "zod"
 
 import { AuthenticationProofError } from "../../../../../../domains/authentication/errors.ts"
+import { parseBrowserBinding } from "../../../../../../utils/authentication/parse-browser-binding/index.ts"
 import { readCookie } from "../../../../../../utils/http/read-cookie/index.ts"
 import type { GitHubAuthenticationRoutesDependencies } from "../../types.ts"
 
@@ -23,7 +24,9 @@ export function get(dependencies: GitHubAuthenticationRoutesDependencies): Reque
       return
     }
     const parsed = querySchema.safeParse(request.query)
-    const browserBinding = readCookie(request.get("cookie"), "hub_auth_browser")
+    const browserBinding = parseBrowserBinding(
+      readCookie(request.get("cookie"), "hub_auth_browser"),
+    )
     if (!parsed.success || !browserBinding) {
       response.status(400).json({ error: "The authentication callback is invalid." })
       return
