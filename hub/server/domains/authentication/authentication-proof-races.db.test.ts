@@ -136,7 +136,6 @@ describe("authentication handoff creation races", () => {
           {
             browserBinding: "browser",
             handoffToken: token,
-            now: new Date(Date.now() + 1_000),
             providerKey: "github",
           },
           { runTransaction: barrier.runTransaction },

@@ -5,7 +5,9 @@ import { prisma } from "../../integrations/prisma"
 import { createAdmissionHandoff } from "../../repositories/admission-handoffs/create-admission-handoff"
 import { createAuthorizationAttempt } from "../../repositories/authorization-attempts/create-authorization-attempt"
 import { consumeAuthorizationAttempt } from "../../repositories/authorization-attempts/consume-authorization-attempt"
+import { lockAuthenticationProviderSelection } from "../../repositories/authentication-providers/lock-authentication-provider-selection"
 import { incrementAuthenticationRevocationGeneration } from "../../repositories/authentication-revocation-generations/increment-authentication-revocation-generation"
+import { lockAuthenticationRevocationGeneration } from "../../repositories/authentication-revocation-generations/lock-authentication-revocation-generation"
 import { createSecurityAudit } from "../../repositories/security-audits/create-security-audit"
 import { hashAuthenticationValue } from "../../utils/authentication/hash-authentication-value"
 import { resolveOrCreateExternalIdentity } from "../identity/resolve-or-create-external-identity"
@@ -123,7 +125,6 @@ describe("authentication proof database boundaries", () => {
       handoffToken: "handoff-token",
       browserBinding: "browser-binding",
       providerKey: "github",
-      now: new Date(Date.now() + 1_000),
     }
     const results = await Promise.all([
       consumeAuthenticationAdmissionHandoff(input, {
@@ -142,6 +143,70 @@ describe("authentication proof database boundaries", () => {
         AND (table_name LIKE '%session%' OR table_name LIKE '%membership%')
     `
     expect(applicationTables).toEqual([])
+  })
+
+  it("uses database time for expired, boundary, and lock-wait consumption", async () => {
+    const provider = await createProvider()
+    const identity = await createIdentity()
+    async function insertHandoff(token: string, expiryExpression: string) {
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO "admission_handoffs" (
+          "id", "external_identity_id", "provider_revision_id", "token_digest",
+          "browser_binding_digest", "revocation_generation", "display_attributes",
+          "expires_at", "created_at", "updated_at"
+        ) VALUES (
+          $1::uuid, $2::uuid, $3::uuid, $4, $5, 1, '{"login":"octocat"}'::jsonb,
+          ${expiryExpression}, clock_timestamp() - interval '1 second', clock_timestamp()
+        )`,
+        randomUUID(),
+        identity.externalIdentityId,
+        provider.revisionId,
+        hashAuthenticationValue(token),
+        hashAuthenticationValue("browser"),
+      )
+    }
+    async function consume(token: string, runTransaction = runAdmissionHandoffTransaction) {
+      return consumeAuthenticationAdmissionHandoff(
+        { handoffToken: token, browserBinding: "browser", providerKey: "github" },
+        { runTransaction: (operation) => runTransaction(prisma, operation) },
+      )
+    }
+
+    await insertHandoff("already-expired", "clock_timestamp() - interval '1 millisecond'")
+    await expect(consume("already-expired")).resolves.toEqual({
+      status: "denied",
+      reason: "expired",
+    })
+
+    await insertHandoff("boundary", "clock_timestamp()")
+    await expect(consume("boundary")).resolves.toEqual({
+      status: "denied",
+      reason: "expired",
+    })
+
+    await insertHandoff("expires-during-wait", "clock_timestamp() + interval '5 milliseconds'")
+    let release!: () => void
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let arrived!: () => void
+    const arrival = new Promise<void>((resolve) => {
+      arrived = resolve
+    })
+    const consumption = consume("expires-during-wait", (database, operation) =>
+      runAdmissionHandoffTransaction(database, operation, {
+        lockProvider: async (transaction, providerKey) => {
+          await lockAuthenticationProviderSelection(transaction, providerKey)
+          arrived()
+          await waiting
+        },
+        lockRevocation: lockAuthenticationRevocationGeneration,
+      }),
+    )
+    await arrival
+    await prisma.$executeRaw`SELECT pg_sleep(0.02)`
+    release()
+    await expect(consumption).resolves.toEqual({ status: "denied", reason: "expired" })
   })
 
   it("denies handoffs after global revocation or provider revision drift", async () => {
@@ -174,7 +239,6 @@ describe("authentication proof database boundaries", () => {
           handoffToken: "revoked",
           browserBinding: "browser",
           providerKey: "github",
-          now,
         },
         { runTransaction: (operation) => runAdmissionHandoffTransaction(prisma, operation) },
       ),
@@ -188,7 +252,6 @@ describe("authentication proof database boundaries", () => {
           handoffToken: "drifted",
           browserBinding: "browser",
           providerKey: "github",
-          now,
         },
         { runTransaction: (operation) => runAdmissionHandoffTransaction(prisma, operation) },
       ),

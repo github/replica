@@ -49,10 +49,17 @@ describe("authentication proof migration", () => {
           { migration_name: "20261029203000_identity_foundation" },
           { migration_name: "20261030170000_authentication_proof" },
         ])
-        const handoff = await database.query<{ table_name: string }>(
-          "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'admission_handoffs'",
+        const c2Tables = await database.query<{ table_name: string }>(
+          `SELECT table_name
+           FROM information_schema.tables
+           WHERE table_schema = 'public'
+             AND table_name IN ('admission_handoffs', 'authentication_rate_limits')
+           ORDER BY table_name`,
         )
-        expect(handoff.rows).toEqual([{ table_name: "admission_handoffs" }])
+        expect(c2Tables.rows).toEqual([
+          { table_name: "admission_handoffs" },
+          { table_name: "authentication_rate_limits" },
+        ])
 
         const providerId = "00000000-0000-4000-8000-000000000010"
         const revisionId = "00000000-0000-4000-8000-000000000011"

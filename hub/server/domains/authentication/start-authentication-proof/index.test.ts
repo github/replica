@@ -13,7 +13,7 @@ describe("startAuthenticationProof()", () => {
     const opaqueValues = ["state-secret", "browser-secret", "verifier-secret"][Symbol.iterator]()
 
     const result = await startAuthenticationProof(
-      { requestIp: "192.0.2.10" },
+      { requestIpDigest: createHash("sha256").update("192.0.2.10").digest("hex") },
       {
         adapter: {
           providerKey: "github",
@@ -35,7 +35,6 @@ describe("startAuthenticationProof()", () => {
             configurationDigest: "a".repeat(64),
           }),
         now: () => new Date("2026-10-30T16:00:00Z"),
-        recentAttemptCount: () => Promise.resolve(0),
         writeDenialAudit: vi.fn(),
       },
     )
@@ -56,7 +55,7 @@ describe("startAuthenticationProof()", () => {
     )
   })
 
-  it("fails closed before creating an attempt when rate limited or revision drifted", async () => {
+  it("fails closed before creating an attempt when the provider revision drifted", async () => {
     const createAttempt = vi.fn()
     const dependencies = {
       adapter: {
@@ -79,17 +78,54 @@ describe("startAuthenticationProof()", () => {
           configurationDigest: "a".repeat(64),
         }),
       now: () => new Date("2026-10-30T16:00:00Z"),
-      recentAttemptCount: () => Promise.resolve(10),
       writeDenialAudit: vi.fn(),
     }
 
     await expect(
-      startAuthenticationProof({ requestIp: "192.0.2.10" }, dependencies),
-    ).rejects.toMatchObject({ code: "rate_limited" })
-    dependencies.recentAttemptCount = () => Promise.resolve(0)
-    await expect(
-      startAuthenticationProof({ requestIp: "192.0.2.10" }, dependencies),
+      startAuthenticationProof(
+        { requestIpDigest: createHash("sha256").update("192.0.2.10").digest("hex") },
+        dependencies,
+      ),
     ).rejects.toMatchObject({ code: "configuration_changed" })
+    expect(createAttempt).not.toHaveBeenCalled()
+  })
+
+  it("preserves revision denial and audit failure without creating state", async () => {
+    const createAttempt = vi.fn()
+    const auditFailure = new Error("audit unavailable")
+
+    const error = await startAuthenticationProof(
+      { requestIpDigest: "a".repeat(64) },
+      {
+        adapter: {
+          providerKey: "github",
+          createAuthorizationUrl: vi.fn(),
+          completeAuthenticationProof: vi.fn(),
+        },
+        callbackUri: "https://hub.test/callback",
+        configurationDigest: "a".repeat(64),
+        expectedRevision: 2,
+        createAttempt,
+        createId: vi.fn(),
+        createOpaqueValue: vi.fn(),
+        deleteExpiredArtifacts: vi.fn(),
+        encryptCodeVerifier: vi.fn(),
+        getSelectedProviderRevision: () =>
+          Promise.resolve({
+            id: "00000000-0000-4000-8000-000000000011",
+            revision: 1,
+            configurationDigest: "a".repeat(64),
+          }),
+        now: () => new Date(),
+        writeDenialAudit: () => Promise.reject(auditFailure),
+      },
+    ).catch((caught: unknown) => caught)
+
+    expect(error).toBeInstanceOf(AggregateError)
+    expect((error as AggregateError).errors).toEqual([
+      expect.objectContaining({ code: "configuration_changed" }),
+      auditFailure,
+    ])
     expect(createAttempt).not.toHaveBeenCalled()
   })
 })
