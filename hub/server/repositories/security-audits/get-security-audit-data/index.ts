@@ -7,6 +7,49 @@ export function getSecurityAuditData(
   event: CreateSecurityAuditEvent,
 ): Prisma.SecurityAuditCreateInput {
   switch (event.type) {
+    case "authentication_attempt_denied":
+      return {
+        id: event.id,
+        action: "authentication.attempt.denied",
+        outcome: SecurityAuditOutcome.DENIED,
+        targetType: "authorization_attempt",
+        context: createSecurityAuditContext({
+          provider: event.provider,
+          reason: event.reason,
+        }),
+      }
+    case "authentication_handoff_created":
+      return {
+        id: event.id,
+        action: "authentication.handoff.created",
+        outcome: SecurityAuditOutcome.SUCCESS,
+        targetType: "admission_handoff",
+        targetId: event.handoffId,
+        context: createSecurityAuditContext({
+          externalIdentityId: event.externalIdentityId,
+          providerRevisionId: event.providerRevisionId,
+        }),
+      }
+    case "authentication_handoff_consumed":
+      return {
+        id: event.id,
+        action: "authentication.handoff.consumed",
+        outcome: SecurityAuditOutcome.SUCCESS,
+        targetType: "admission_handoff",
+        targetId: event.handoffId,
+        context: createSecurityAuditContext({
+          externalIdentityId: event.externalIdentityId,
+        }),
+      }
+    case "authentication_handoff_denied":
+      return {
+        id: event.id,
+        action: "authentication.handoff.denied",
+        outcome: SecurityAuditOutcome.DENIED,
+        targetType: "admission_handoff",
+        targetId: event.handoffId,
+        context: createSecurityAuditContext({ reason: event.reason }),
+      }
     case "external_identity_created":
       return {
         id: event.id,

@@ -2,6 +2,8 @@ import { createServer } from "node:http"
 import type { Logger } from "pino"
 
 import { createApp } from "../create-app/index.ts"
+import { readGitHubAuthenticationConfiguration } from "../domains/authentication/read-github-authentication-configuration/index.ts"
+import { readTrustedProxyHops } from "../integrations/express/read-trusted-proxy-hops/index.ts"
 import { attachRealtimeServer } from "../integrations/ws/attach-realtime-server/index.ts"
 import { shutdownServer } from "../shutdown-server/index.ts"
 
@@ -20,9 +22,25 @@ export async function runApi({
   if (!Number.isInteger(shutdownTimeoutMs) || shutdownTimeoutMs < 1) {
     throw new Error("API shutdown timeout must be a positive integer.")
   }
+  const trustedProxyHops = readTrustedProxyHops(process.env.HUB_TRUSTED_PROXY_HOPS)
+  const authenticationConfiguration = readGitHubAuthenticationConfiguration(process.env)
+  const githubAuthentication = authenticationConfiguration
+    ? await import("../domains/authentication/create-github-authentication-services/index.ts").then(
+        ({ createGitHubAuthenticationServices }) =>
+          createGitHubAuthenticationServices(authenticationConfiguration),
+      )
+    : undefined
   const server = createServer()
   const realtime = attachRealtimeServer({ server, path: "/api/realtime", logger })
-  server.on("request", createApp({ logger, broadcast: realtime.broadcast }))
+  server.on(
+    "request",
+    createApp({
+      logger,
+      broadcast: realtime.broadcast,
+      githubAuthentication,
+      trustedProxyHops,
+    }),
+  )
   let finishBinding!: () => void
   const binding = new Promise<void>((resolve) => {
     finishBinding = resolve

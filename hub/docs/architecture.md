@@ -8,13 +8,13 @@ The team has chosen TypeScript, Express for the API, React and Vite for the fron
 
 The API responds to a health check, and the frontend displays the logo with light and dark themes. Storybook keeps the existing components and pages available for reuse.
 
-Contributors can use PostgreSQL and Prisma locally or in the devcontainer. The database has a provider-neutral identity transaction foundation, but it does not issue sessions or admit users to Hub. Sign-in, deployment, and product APIs have not been built. This app cannot yet find repositories, import Builds, host previews, save product data, or support reviews.
+Contributors can use PostgreSQL and Prisma locally or in the devcontainer. The database has a provider-neutral identity transaction foundation and a GitHub authentication proof flow. The proof produces a short-lived non-admitted handoff; it does not issue a usable session or admit users to Hub. Deployment and product APIs have not been built. This app cannot yet find repositories, import Builds, host previews, save product data, or support reviews.
 
 ## Backend
 
 API code lives under `server/`. As features are added, route handlers will read requests, call domains, and return responses. The [code conventions](backend-architecture.md) explain repositories, integrations, utilities, domains, and which layers may import others. Put these directories under `server/` when they are needed; do not add empty implementations.
 
-The only route is `GET /api/health`, which returns `{ "status": "ok" }`. Unknown paths return a JSON 404 response; invalid JSON is rejected before routing. `createApp()` builds the Express app without starting a server. `server/index.ts` starts it at a local address.
+`GET /api/health` returns `{ "status": "ok" }`. Explicit GitHub configuration enables `POST /api/auth/github/start` and `GET /api/auth/github/callback` for authentication proof only. Unknown paths return a JSON 404 response; invalid JSON is rejected before routing. `createApp()` builds the Express app without starting a server. `server/index.ts` starts it at a local address.
 
 The [database guide](database.md) defines the multi-file Prisma schema and shared client in integrations. The health route remains a process check, not a database readiness check.
 
@@ -30,7 +30,7 @@ The identity foundation stores Hub users, immutable external identity mappings, 
 
 Domain operations receive only the transaction-scoped repositories they need. A successful state change and its success audit commit together. The kernel applies one fixed bounded retry policy to expected serializable and aggregate-creation races so consumers cannot disable convergence. A rejected database operation rolls back before its final denial or failure audit is written. External provider-validation failures write one typed audit after validation returns and before the operation fails. Audit callers select a typed kernel event; the repository builds the stored action and allowlisted context.
 
-This foundation does not prove a provider assertion, create a usable Hub session, assign membership, or authorize product access.
+The [authentication proof layer](authentication.md) uses this foundation to validate explicit GitHub configuration, complete OAuth user authentication, resolve the immutable external identity, and create a browser-bound handoff. It performs provider network work outside identity transactions. It does not create a usable Hub session, assign membership, or authorize product access.
 
 ## Frontend
 
