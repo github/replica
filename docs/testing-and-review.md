@@ -18,6 +18,16 @@ Use the [test-writing skill](../.github/skills/write-tests/SKILL.md) when adding
 
 Start with the intended behavior and the regression a test should catch. Inspect existing coverage before adding cases. Each case should protect a distinct outcome, boundary, or failure mode through the smallest useful public interface. An existing case that already catches the regression usually needs an update rather than another test.
 
+Cover successful use and failures that could break access rules, lose data, prevent recovery, or cause other serious problems. A different possible failure does not always need another test. Keep coverage for serious security and data-loss risks even when they are rare.
+
+Do not add tests only to prove that:
+
+- A dependency's own input validation works.
+- A helper can be imported.
+- A function moved to another file.
+
+Test an extracted helper through its caller when that already covers its important behavior. Before finishing, look for missing important cases as well as unnecessary ones. When combining cases, keep coverage for each supported kind of input. Fewer tests alone do not mean better tests.
+
 Choose assertions that survive an equivalent implementation. Check outcomes such as saved state, returned data, navigation, access decisions, and usable controls. Exact protocol values, serialization, accessible names, meaningful state mappings, and safety restrictions can be contracts worth asserting. Ordinary copy, icon counts, internal markup, and whole configuration snapshots usually are not. A text query that identifies a control is different from a test whose only purpose is freezing its wording. For agent instructions, distinguish discoverable metadata and required safety guidance from incidental phrasing; phrase presence alone does not prove agent behavior.
 
 Use human review for visual appearance, supported by relevant screenshots or recordings in pull requests with meaningful UI changes. Do not freeze colors, spacing, typography, icon pixels, or cosmetic CSS structure in automated assertions. Test behavior and accessibility instead. Geometry that defines functional data, such as a captured selection's bounds, is different from checking rendered styling.
