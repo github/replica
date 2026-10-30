@@ -23,12 +23,10 @@ export async function completeAuthenticationProof(
   dependencies: CompleteAuthenticationProofDependencies,
 ): Promise<CompleteAuthenticationProofResult> {
   const parsed = inputSchema.parse(input)
-  const now = dependencies.now()
   const browserBindingDigest = hashAuthenticationValue(parsed.browserBinding)
   const attempt = await dependencies.consumeAttempt({
     stateDigest: hashAuthenticationValue(parsed.state),
     browserBindingDigest,
-    consumedAt: now,
   })
   if (!attempt) {
     const error = new AuthenticationProofError(
@@ -42,7 +40,12 @@ export async function completeAuthenticationProof(
   }
 
   const selectedBeforeProof = await dependencies.getSelectedProviderRevision()
-  if (!selectedBeforeProof || selectedBeforeProof.id !== attempt.providerRevisionId) {
+  if (
+    !selectedBeforeProof ||
+    selectedBeforeProof.id !== attempt.providerRevisionId ||
+    selectedBeforeProof.revision !== dependencies.localRevision ||
+    selectedBeforeProof.configurationDigest !== dependencies.localConfigurationDigest
+  ) {
     const error = new AuthenticationProofError(
       "configuration_changed",
       "The authentication provider configuration changed during this attempt.",
@@ -81,7 +84,12 @@ export async function completeAuthenticationProof(
   }
 
   const selectedAfterProof = await dependencies.getSelectedProviderRevision()
-  if (!selectedAfterProof || selectedAfterProof.id !== attempt.providerRevisionId) {
+  if (
+    !selectedAfterProof ||
+    selectedAfterProof.id !== attempt.providerRevisionId ||
+    selectedAfterProof.revision !== dependencies.localRevision ||
+    selectedAfterProof.configurationDigest !== dependencies.localConfigurationDigest
+  ) {
     const error = new AuthenticationProofError(
       "configuration_changed",
       "The authentication provider configuration changed during this attempt.",

@@ -5,7 +5,7 @@ import type { GitHubAuthenticationConfiguration } from "../create-github-authent
 const configurationSchema = z
   .object({
     appOrigin: z.url(),
-    authorizationEndpoint: z.url(),
+    authorizationEndpoint: z.literal("https://github.com/login/oauth/authorize"),
     callbackUri: z.url(),
     clientId: z.string().min(1).max(200),
     clientSecret: z.string().min(1).max(2_000),
@@ -13,8 +13,8 @@ const configurationSchema = z
     provider: z.literal("github"),
     revision: z.coerce.number().int().positive(),
     secureCookies: z.enum(["true", "false"]),
-    tokenEndpoint: z.url(),
-    userEndpoint: z.url(),
+    tokenEndpoint: z.literal("https://github.com/login/oauth/access_token"),
+    userEndpoint: z.literal("https://api.github.com/user"),
   })
   .strict()
 
@@ -39,8 +39,19 @@ export function readGitHubAuthenticationConfiguration(
   if (encryptionKey.length !== 32) {
     throw new Error("AUTHENTICATION_ENCRYPTION_KEY must decode to 32 bytes.")
   }
+  const appOrigin = new URL(parsed.appOrigin)
+  if (
+    appOrigin.username ||
+    appOrigin.password ||
+    appOrigin.pathname !== "/" ||
+    appOrigin.search ||
+    appOrigin.hash ||
+    parsed.appOrigin.endsWith("/")
+  ) {
+    throw new Error("HUB_APP_ORIGIN must be an exact origin without a trailing slash.")
+  }
   return {
-    appOrigin: parsed.appOrigin,
+    appOrigin: appOrigin.origin,
     clientSecret: parsed.clientSecret,
     encryptionKey,
     revision: parsed.revision,

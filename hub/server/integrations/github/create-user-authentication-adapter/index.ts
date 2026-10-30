@@ -32,14 +32,12 @@ export function createGitHubUserAuthenticationAdapter(
   input: CreateGitHubUserAuthenticationAdapterInput,
 ): GitHubUserAuthenticationAdapter {
   const configuration = publicConfigurationSchema.parse(input.publicConfiguration)
-  for (const [field, value] of [
-    ["authorization endpoint", configuration.authorizationEndpoint],
-    ["token endpoint", configuration.tokenEndpoint],
-    ["user endpoint", configuration.userEndpoint],
-  ] as const) {
-    if (new URL(value).protocol !== "https:") {
-      throw new Error(`GitHub ${field} must use HTTPS.`)
-    }
+  if (
+    configuration.authorizationEndpoint !== "https://github.com/login/oauth/authorize" ||
+    configuration.tokenEndpoint !== "https://github.com/login/oauth/access_token" ||
+    configuration.userEndpoint !== "https://api.github.com/user"
+  ) {
+    throw new Error("GitHub authentication endpoints must use the approved github.com instance.")
   }
   if (!input.clientSecret || input.clientSecret.length > 2_000) {
     throw new Error("GitHub client secret must be present and bounded.")

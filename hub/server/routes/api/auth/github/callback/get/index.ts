@@ -18,12 +18,15 @@ export function get(dependencies: GitHubAuthenticationRoutesDependencies): Reque
     response.set("Cache-Control", "no-store")
     response.locals.omitLogPayload = true
     const requestIp = request.ip ?? request.socket.remoteAddress ?? "unavailable"
-    if (!(await dependencies.reserveRateLimit({ operation: "callback", requestIp }))) {
+    const rateLimit = await dependencies.reserveRateLimit({ operation: "callback", requestIp })
+    if (!rateLimit.reserved) {
       const error = new AuthenticationProofError(
         "rate_limited",
         "Too many authentication callbacks were received.",
       )
-      await dependencies.recordRateLimitDenial("callback", error)
+      if (rateLimit.shouldAuditDenial) {
+        await dependencies.recordRateLimitDenial("callback", error)
+      }
       response.status(429).json({ error: error.message })
       return
     }
@@ -40,6 +43,13 @@ export function get(dependencies: GitHubAuthenticationRoutesDependencies): Reque
         browserBinding,
         code: parsed.data.code,
         state: parsed.data.state,
+      })
+      response.cookie("hub_auth_browser", browserBinding, {
+        httpOnly: true,
+        sameSite: "lax",
+        secure: dependencies.secureCookies,
+        path: "/api/auth",
+        expires: result.expiresAt,
       })
       response.status(200).json({
         status: result.status,

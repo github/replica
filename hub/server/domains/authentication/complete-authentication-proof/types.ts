@@ -12,7 +12,6 @@ export interface CompleteAuthenticationProofDependencies {
   callbackUri: string
   consumeAttempt(input: {
     browserBindingDigest: string
-    consumedAt: Date
     stateDigest: string
   }): Promise<ConsumedAuthorizationAttempt | null>
   createHandoff(input: {
@@ -26,6 +25,8 @@ export interface CompleteAuthenticationProofDependencies {
   }): Promise<CreateAuthenticationAdmissionHandoffResult>
   createOpaqueValue(): string
   decryptCodeVerifier(value: string): string
+  localConfigurationDigest: string
+  localRevision: number
   getSelectedProviderRevision(): Promise<SelectedProviderRevision | null>
   getRevocationGeneration(): Promise<bigint>
   now(): Date

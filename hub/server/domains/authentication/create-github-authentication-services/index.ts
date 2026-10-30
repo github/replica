@@ -92,9 +92,9 @@ export async function createGitHubAuthenticationServices(
         createAttempt: (attempt) => createAuthorizationAttempt(prisma, attempt),
         createId: randomUUID,
         createOpaqueValue,
-        deleteExpiredArtifacts: async (date) => {
-          await deleteExpiredAuthorizationAttempts(prisma, date)
-          await deleteExpiredAdmissionHandoffs(prisma, date)
+        deleteExpiredArtifacts: async () => {
+          await deleteExpiredAuthorizationAttempts(prisma)
+          await deleteExpiredAdmissionHandoffs(prisma)
         },
         encryptCodeVerifier: (value) =>
           encryptAuthenticationValue(value, configuration.encryptionKey),
@@ -125,6 +125,8 @@ export async function createGitHubAuthenticationServices(
           decryptAuthenticationValue(value, configuration.encryptionKey),
         getSelectedProviderRevision: getRevision,
         getRevocationGeneration: () => getAuthenticationRevocationGeneration(prisma),
+        localConfigurationDigest: configurationDigest,
+        localRevision: configuration.revision,
         now,
         resolveOrCreateIdentity: (identity) =>
           resolveOrCreateExternalIdentity(identity, {
