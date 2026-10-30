@@ -2,6 +2,7 @@ import { createRef, useState } from "react"
 import type { Meta, StoryObj } from "@storybook/react-vite"
 
 import { useHubTheme } from "@hooks/use-hub-theme"
+import { usePreviewBridge } from "@hooks/use-preview-bridge"
 import { authenticatedHeaderData } from "@/storybook/fixtures/authenticated-header"
 import { resolvedAnchor } from "@/storybook/fixtures/review/anchors"
 import {
@@ -14,7 +15,11 @@ import { githubEmpty, githubPrototype } from "@/storybook/fixtures/repositories"
 import { mona, octocat } from "@/storybook/fixtures/users"
 
 import { PrototypesShowPage } from "."
-import type { PrototypesShowPageData, PrototypesShowPageProps } from "./types"
+import type {
+  PrototypePreviewOnlyPageProps,
+  PrototypesShowPageData,
+  PrototypesShowPageProps,
+} from "./types"
 
 const previewUrl = new URL("prototype-preview/index.html", window.location.href).toString()
 
@@ -199,26 +204,29 @@ function reviewState(
   }
 }
 
-function ReviewStory({ data, iframeRef, review, ...pageProps }: PrototypesShowPageProps) {
+function ReviewStory(props: PrototypesShowPageProps | PrototypePreviewOnlyPageProps) {
   const { resolvedColorMode } = useHubTheme()
-  const [sidebarOpen, setSidebarOpen] = useState(review.sidebarOpen)
-  const [selectedThread, setSelectedThread] = useState(review.selectedThread)
+  const review = props.review
+  const [sidebarOpen, setSidebarOpen] = useState(review?.sidebarOpen ?? false)
+  const [selectedThread, setSelectedThread] = useState(review?.selectedThread ?? null)
 
   function toggleSidebar() {
-    if (review.conversationDraftActive) return
+    if (review?.conversationDraftActive) return
 
     if (sidebarOpen) setSelectedThread(null)
     setSidebarOpen(!sidebarOpen)
   }
 
+  if (!props.review) {
+    return <PrototypesShowPage {...props} previewTheme={resolvedColorMode} />
+  }
+
   return (
     <PrototypesShowPage
-      {...pageProps}
-      data={data}
-      iframeRef={iframeRef}
+      {...props}
       previewTheme={resolvedColorMode}
       review={{
-        ...review,
+        ...props.review,
         sidebarOpen,
         selectedThread,
         selectedThreadId: selectedThread?.root.id ?? null,
@@ -229,6 +237,27 @@ function ReviewStory({ data, iframeRef, review, ...pageProps }: PrototypesShowPa
           setSelectedThread(thread)
         },
       }}
+    />
+  )
+}
+
+function PreviewOnlyStory(props: PrototypesShowPageProps | PrototypePreviewOnlyPageProps) {
+  const { resolvedColorMode } = useHubTheme()
+  const bridge = usePreviewBridge({
+    iframeRef: props.iframeRef,
+    previewUrl: props.data.selectedBuild?.previewUrl,
+    previewTheme: resolvedColorMode,
+    anchors: [],
+    reviewEnabled: false,
+  })
+
+  return (
+    <PrototypesShowPage
+      {...props}
+      review={undefined}
+      previewBridge={bridge}
+      previewTheme={resolvedColorMode}
+      reviewUnavailableLabel="Preview only. Reviews are not connected in this local frontend."
     />
   )
 }
@@ -261,6 +290,19 @@ export const Introduction: Story = {
 }
 
 export const ReturningOwner: Story = {}
+
+export const PreviewOnly: Story = {
+  render: (args) => <PreviewOnlyStory {...args} />,
+  args: {
+    data: {
+      ...data,
+      branchSubmissionMode: "disabled",
+      detailsEditPath: undefined,
+      newPrototypePath: null,
+      shareLinksPath: undefined,
+    },
+  },
+}
 
 export const ReturningVisitor: Story = {
   args: {

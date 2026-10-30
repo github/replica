@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useState } from "react"
 import type { ComponentProps } from "react"
+import { fn } from "storybook/test"
 
 import reviewStory from "../stories"
 
@@ -46,5 +47,31 @@ export const Visitor: Story = {
       ...reviewStory.args.data,
       detailsEditPath: undefined,
     },
+  },
+}
+
+export const EditingDetails: Story = {
+  args: {
+    editing: true,
+    onSaveDetails: fn(),
+    savingDetails: false,
+    detailsError: null,
+    detailsSaved: false,
+  },
+}
+
+export const SavingDetails: Story = {
+  ...EditingDetails,
+  args: {
+    ...EditingDetails.args,
+    savingDetails: true,
+  },
+}
+
+export const SaveFailed: Story = {
+  ...EditingDetails,
+  args: {
+    ...EditingDetails.args,
+    detailsError: "Hub could not save the prototype details. Your changes are still here.",
   },
 }

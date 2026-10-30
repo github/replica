@@ -20,23 +20,31 @@ import { createPrototypeSubmission } from "@utils/create-prototype-submission"
 import { createPreviewPrototypePrompt } from "@utils/create-preview-prototype-prompt"
 
 import { PrototypeDescriptionDialog } from "./prototype-description-dialog"
-import type { PrototypesShowPageProps } from "./types"
+import type { PrototypePreviewOnlyPageProps, PrototypesShowPageProps } from "./types"
 
 import "./styles.css"
 
-export function PrototypesShowPage({
-  data,
-  iframeRef,
-  previewTheme,
-  review,
-  initialInfoOpen = data.showPrototypeInfo || Boolean(data.alert),
-  initialComposerExpanded = false,
-  onOpenApp,
-  viewerUrl,
-  minimized: controlledMinimized,
-  initialMinimized = false,
-  onMinimizedChange,
-}: PrototypesShowPageProps) {
+export function PrototypesShowPage(props: PrototypesShowPageProps | PrototypePreviewOnlyPageProps) {
+  const bridge = props.review ? props.review.bridge : props.previewBridge
+  const {
+    data,
+    iframeRef,
+    previewTheme,
+    review,
+    reviewUnavailableLabel,
+    initialInfoOpen = data.showPrototypeInfo || Boolean(data.alert),
+    initialComposerExpanded = false,
+    onOpenApp,
+    viewerUrl,
+    minimized: controlledMinimized,
+    initialMinimized = false,
+    onMinimizedChange,
+    onSaveDetails,
+    savingDetails = false,
+    detailsError = null,
+    detailsSaved = false,
+  } = props
+  const canEditDetails = Boolean(data.detailsEditPath || onSaveDetails)
   const [localMinimized, setLocalMinimized] = useState(initialMinimized)
   const [controlsToolbar, setControlsToolbar] = useState<HTMLSpanElement | null>(null)
   const [workspaceControlsToolbar, setWorkspaceControlsToolbar] = useState<HTMLSpanElement | null>(
@@ -44,7 +52,7 @@ export function PrototypesShowPage({
   )
   const minimized = controlledMinimized ?? localMinimized
   const [infoMode, setInfoMode] = useState<"view" | "edit" | null>(
-    initialInfoOpen ? (data.alert && data.detailsEditPath ? "edit" : "view") : null,
+    initialInfoOpen ? (data.alert && canEditDetails ? "edit" : "view") : null,
   )
   const infoOpen = infoMode !== null
   const [composerExpanded, setComposerExpanded] = useState(initialComposerExpanded)
@@ -53,26 +61,28 @@ export function PrototypesShowPage({
   const [submission, setSubmission] = useState<CopilotAppSubmission | null>(null)
   const canBranch = data.branchSubmissionMode === "copilot" && Boolean(data.newPrototypePath)
   const modalOpen = infoOpen || Boolean(submission)
-  const selectedThread = review.selectedThread
-  const reviewControls: NonNullable<PrototypeWorkspaceHeaderProps["reviewControls"]> = {
-    bridgeReady: review.bridge.ready && Boolean(data.selectedBuild),
-    selectionBlocked: review.bridge.selectedAnchor !== null || review.conversationDraftActive,
-    selecting: review.bridge.selecting,
-    onCancelSelection: review.bridge.cancelSelection,
-    onStartAreaSelection: review.startAreaSelection,
-    onStartElementSelection: review.startElementSelection,
-    commentCount: review.threads.length,
-    hasUnreadComments: review.threads.some((thread) => thread.unread),
-    sidebarToggleBlocked: review.bridge.selectedAnchor !== null || review.conversationDraftActive,
-    sidebarOpen: review.sidebarOpen,
-    onToggleSidebar: review.toggleSidebar,
-    copy: data.reviewComments.copy,
-  }
+  const selectedThread = review?.selectedThread
+  const reviewControls: PrototypeWorkspaceHeaderProps["reviewControls"] = review
+    ? {
+        bridgeReady: bridge.ready && Boolean(data.selectedBuild),
+        selectionBlocked: bridge.selectedAnchor !== null || review.conversationDraftActive,
+        selecting: bridge.selecting,
+        onCancelSelection: bridge.cancelSelection,
+        onStartAreaSelection: review.startAreaSelection,
+        onStartElementSelection: review.startElementSelection,
+        commentCount: review.threads.length,
+        hasUnreadComments: review.threads.some((thread) => thread.unread),
+        sidebarToggleBlocked: bridge.selectedAnchor !== null || review.conversationDraftActive,
+        sidebarOpen: review.sidebarOpen,
+        onToggleSidebar: review.toggleSidebar,
+        copy: data.reviewComments.copy,
+      }
+    : undefined
 
   function changeMinimized(value: boolean) {
     setLocalMinimized(value)
     onMinimizedChange?.(value)
-    if (!review.bridge.selectedAnchor && !review.conversationDraftActive) {
+    if (!bridge.selectedAnchor && !review?.conversationDraftActive) {
       iframeRef.current?.focus({ preventScroll: true })
     }
   }
@@ -83,11 +93,11 @@ export function PrototypesShowPage({
   }, [infoOpen, composerExpanded, submission, iframeRef])
 
   let address = data.selectedBuild?.previewUrl ?? ""
-  if (address && review.bridge.route) {
+  if (address && bridge.route) {
     const url = new URL(address)
-    url.pathname = review.bridge.route.pathname
-    url.search = review.bridge.route.search
-    url.hash = review.bridge.route.hash
+    url.pathname = bridge.route.pathname
+    url.search = bridge.route.search
+    url.hash = bridge.route.hash
     address = url.toString()
   }
   address = viewerUrl ?? address
@@ -107,7 +117,7 @@ export function PrototypesShowPage({
       branchInstructions: data.branchInstructions,
       branchPageInstructions: data.branchPageInstructions,
       previewUrl: data.selectedBuild?.previewUrl,
-      route: review.bridge.route,
+      route: bridge.route,
     })
     setSubmission(
       createPrototypeSubmission({
@@ -131,7 +141,7 @@ export function PrototypesShowPage({
           preview
           onShowInfo={() => setInfoMode("view")}
           editDetails={
-            data.detailsEditPath && data.editDetailsLabel
+            canEditDetails && data.editDetailsLabel
               ? { label: data.editDetailsLabel, onClick: () => setInfoMode("edit") }
               : undefined
           }
@@ -140,10 +150,14 @@ export function PrototypesShowPage({
           onControlsToolbarMount={data.controlsIdentity ? setWorkspaceControlsToolbar : undefined}
         >
           <div
-            className={`review-page${review.sidebarOpen ? " review-page--comments-open" : ""}${minimized ? " review-page--minimized" : ""}`}
+            className={`review-page${review?.sidebarOpen ? " review-page--comments-open" : ""}${minimized ? " review-page--minimized" : ""}`}
           >
             <Stack gap="none" className="review-shell" padding="none">
-              {review.comments.mutationError ? (
+              {reviewUnavailableLabel ? (
+                <HubAlert variant="info" title={reviewUnavailableLabel} layout="compact" />
+              ) : null}
+
+              {review?.comments.mutationError ? (
                 <HubAlert
                   variant="warning"
                   title={review.comments.mutationError}
@@ -163,11 +177,11 @@ export function PrototypesShowPage({
                   controlsIdentity={data.controlsIdentity}
                   controlsToolbar={workspaceControlsToolbar}
                   minimizedControlsToolbar={controlsToolbar}
-                  onLoad={review.bridge.handleFrameLoad}
+                  onLoad={bridge.handleFrameLoad}
                   minimized={minimized}
                   minimize={{ label: data.minimizeHubLabel, onClick: () => changeMinimized(true) }}
                 >
-                  {review.showPins ? (
+                  {review?.showPins ? (
                     <ReviewCommentMarkers
                       threads={review.visibleThreads}
                       resolutions={review.bridge.resolutions}
@@ -180,7 +194,7 @@ export function PrototypesShowPage({
                     />
                   ) : null}
 
-                  {selectedThread ? (
+                  {selectedThread && review ? (
                     <div className="review-thread-conversation-layer">
                       <ReviewThreadConversation
                         key={selectedThread.root.id}
@@ -227,14 +241,14 @@ export function PrototypesShowPage({
                     </div>
                   ) : null}
 
-                  {review.bridge.selectionFailure ? (
+                  {bridge.selectionFailure ? (
                     <div className="review-shell__notice">
                       <HubAlert
                         variant="critical"
                         title={
-                          review.bridge.selectionFailure === "area-too-small"
+                          bridge.selectionFailure === "area-too-small"
                             ? data.reviewComments.copy.areaTooSmallLabel
-                            : review.bridge.selectionFailure === "area-unavailable"
+                            : bridge.selectionFailure === "area-unavailable"
                               ? data.reviewComments.copy.areaUnavailableLabel
                               : data.reviewComments.copy.selectionFailedLabel
                         }
@@ -243,7 +257,7 @@ export function PrototypesShowPage({
                     </div>
                   ) : null}
 
-                  {review.bridge.selectedAnchor && review.selectedAnchorPoint ? (
+                  {review && bridge.selectedAnchor && review.selectedAnchorPoint ? (
                     <ReviewCommentComposer
                       anchorPoint={review.selectedAnchorPoint}
                       bodyMaximumBytes={data.reviewComments.bodyMaximumBytes}
@@ -285,7 +299,7 @@ export function PrototypesShowPage({
                 </form>
               </div>
             ) : null}
-            {data.selectedBuild ? (
+            {review && data.selectedBuild ? (
               <div
                 className="review-page__comments"
                 aria-hidden={!review.sidebarOpen}
@@ -331,10 +345,14 @@ export function PrototypesShowPage({
       {infoOpen ? (
         <PrototypeDescriptionDialog
           data={data}
-          editing={infoMode === "edit" && Boolean(data.detailsEditPath)}
+          editing={infoMode === "edit" && canEditDetails}
           onEditingChange={(editing) => setInfoMode(editing ? "edit" : "view")}
           onClose={() => setInfoMode(null)}
           onBranch={branchFromHere}
+          onSaveDetails={onSaveDetails}
+          savingDetails={savingDetails}
+          detailsError={detailsError}
+          detailsSaved={detailsSaved}
         />
       ) : null}
       {submission ? (

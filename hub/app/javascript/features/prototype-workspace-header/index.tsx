@@ -23,6 +23,7 @@ import { useHubTheme } from "@hooks/use-hub-theme"
 import { useControlQuery } from "@hooks/use-prototype-control-query"
 import { withControlQuery } from "@utils/prototype-controls-url/with-control-query"
 
+import { BuildMenuOption } from "./build-menu-option"
 import type { PrototypeWorkspaceHeaderProps } from "./types"
 
 export function PrototypeWorkspaceHeader({
@@ -209,22 +210,13 @@ export function PrototypeWorkspaceHeader({
               {data.buildOptions.map((build) => {
                 const path = controlPath(build.path)
                 return (
-                  <ActionMenu.Item
+                  <BuildMenuOption
                     key={build.number}
-                    as="a"
-                    href={path}
-                    value={String(build.number)}
-                    className="review-shell__build-option"
-                    aria-current={build.number === data.selectedBuild?.number ? "page" : undefined}
+                    build={build}
+                    path={path}
+                    selected={build.number === data.selectedBuild?.number}
                     onKeyDown={activateMenuLink}
-                  >
-                    <span className="review-shell__build-option-content">
-                      <span className="review-shell__build-option-label">{build.label}</span>
-                      {build.stateLabel ? (
-                        <span className="review-shell__build-status">{build.stateLabel}</span>
-                      ) : null}
-                    </span>
-                  </ActionMenu.Item>
+                  />
                 )
               })}
             </ActionMenu.Overlay>

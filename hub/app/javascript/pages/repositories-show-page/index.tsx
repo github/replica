@@ -24,12 +24,17 @@ export function RepositoriesShowPage({
   data,
   controls,
   managingPrototypes = false,
+  view: controlledView,
+  onViewChange,
 }: {
   data: RepositoriesShowPageData
   controls: PrototypeListingControls
   managingPrototypes?: boolean
+  view?: PrototypeViewMode
+  onViewChange?: (view: PrototypeViewMode) => void
 }) {
-  const [view, setView] = useState<PrototypeViewMode>("gallery")
+  const [localView, setLocalView] = useState<PrototypeViewMode>("gallery")
+  const view = controlledView ?? localView
   const filtered = Boolean(data.listing.query || data.listing.author)
   const visiblePrototypes = data.prototypes
   function pageHref(page: number) {
@@ -106,7 +111,10 @@ export function RepositoriesShowPage({
               ariaLabel={data.viewLabel}
               galleryLabel={data.galleryViewLabel}
               listLabel={data.listViewLabel}
-              onChange={setView}
+              onChange={(value) => {
+                setLocalView(value)
+                onViewChange?.(value)
+              }}
               value={view}
             />
           }

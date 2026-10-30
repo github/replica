@@ -3,6 +3,7 @@ import type { MentionSource } from "@hooks/use-mention-source/context"
 
 import type { CopilotAppContinuationCopy } from "@components/copilot-app-continuation/types"
 import type { PrototypeWorkspaceData } from "@features/prototype-workspace"
+import type { PreviewBridgeState } from "@hooks/use-preview-bridge/types"
 import type { usePrototypeReview } from "@hooks/use-prototype-review"
 import type { ReviewCommentsCopy } from "@utils/review-comment/types"
 
@@ -69,11 +70,25 @@ export interface PrototypesShowPageData extends PrototypeWorkspaceData {
   }
 }
 
-export interface PrototypesShowPageProps {
+export interface PrototypeDetailsInput {
+  name: string
+  description: string | null
+}
+
+export interface PrototypeDetailsControls {
+  onSaveDetails?: (details: PrototypeDetailsInput) => void
+  savingDetails?: boolean
+  detailsError?: string | null
+  detailsSaved?: boolean
+}
+
+export interface PrototypesShowPageProps extends PrototypeDetailsControls {
   data: PrototypesShowPageData
   iframeRef: RefObject<HTMLIFrameElement | null>
   previewTheme: "light" | "dark"
   review: ReturnType<typeof usePrototypeReview>
+  previewBridge?: never
+  reviewUnavailableLabel?: never
   initialInfoOpen?: boolean
   initialComposerExpanded?: boolean
   onOpenApp?: (url: string) => void
@@ -81,4 +96,13 @@ export interface PrototypesShowPageProps {
   minimized?: boolean
   initialMinimized?: boolean
   onMinimizedChange?: (minimized: boolean) => void
+}
+
+export interface PrototypePreviewOnlyPageProps extends Omit<
+  PrototypesShowPageProps,
+  "review" | "previewBridge" | "reviewUnavailableLabel"
+> {
+  review?: never
+  previewBridge: PreviewBridgeState
+  reviewUnavailableLabel: string
 }

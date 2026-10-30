@@ -1,4 +1,4 @@
-import { createEvent, fireEvent, render, screen } from "@testing-library/react"
+import { createEvent, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { HubThemeProvider } from "@hooks/use-hub-theme"
@@ -61,5 +61,51 @@ describe("PrototypeWorkspaceHeader()", () => {
     expect(space.defaultPrevented).toBe(true)
     expect(link).toHaveAttribute("href", path)
     expect(click).toHaveBeenCalledOnce()
+  })
+
+  it("dismisses Build choices for an ordinary link while preserving modified clicks and bubbling", async () => {
+    const path = "/repositories/2001/prototypes/1?build=2"
+    const delegatedClick = vi.fn<(prevented: boolean) => void>()
+    render(
+      <div
+        onClick={(event) => {
+          if (event.target instanceof Element && event.target.closest("a")) {
+            delegatedClick(event.defaultPrevented)
+            event.preventDefault()
+          }
+        }}
+      >
+        <HubThemeProvider>
+          <PrototypeWorkspaceHeader
+            {...story.args}
+            data={{
+              ...story.args.data,
+              buildOptions: [
+                ...story.args.data.buildOptions,
+                { number: 2, label: "v2", path, state: "successful" },
+              ],
+            }}
+          />
+        </HubThemeProvider>
+      </div>,
+    )
+    const trigger = screen.getByRole("button", { name: "Choose build, v1" })
+    fireEvent.click(trigger)
+    const link = screen.getByRole("menuitem", { name: "v2" }).querySelector("a")
+    if (!link) throw new Error("The Build option has no native link.")
+    expect(link).toHaveAttribute("href", path)
+
+    fireEvent.click(link, { ctrlKey: true })
+    expect(delegatedClick).toHaveBeenCalledExactlyOnceWith(false)
+    expect(trigger).toHaveAttribute("aria-expanded", "true")
+    fireEvent.click(link)
+
+    expect(delegatedClick).toHaveBeenCalledTimes(2)
+    expect(delegatedClick).toHaveBeenLastCalledWith(false)
+    await waitFor(() => {
+      expect(trigger).toHaveAttribute("aria-expanded", "false")
+      expect(trigger).toHaveFocus()
+    })
+    expect(screen.queryByRole("menu", { name: "Choose build" })).not.toBeInTheDocument()
   })
 })

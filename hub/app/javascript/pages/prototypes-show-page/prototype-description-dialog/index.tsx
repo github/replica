@@ -9,14 +9,14 @@ import {
   Textarea,
   TextInput,
 } from "@primer/react-brand"
-import { useEffect, useId, useRef } from "react"
-import type { KeyboardEvent } from "react"
+import { useEffect, useId, useRef, useState } from "react"
+import type { KeyboardEvent, SubmitEvent } from "react"
 
 import { HubAlert } from "@components/hub-alert"
 import { HubIconButton } from "@components/hub-icon-button"
 import { HubUserAvatar } from "@components/hub-user-avatar"
 
-import type { PrototypesShowPageData } from "../types"
+import type { PrototypeDetailsControls, PrototypesShowPageData } from "../types"
 
 import "./styles.css"
 
@@ -26,22 +26,32 @@ export function PrototypeDescriptionDialog({
   onClose,
   editing,
   onEditingChange,
-}: {
+  onSaveDetails,
+  savingDetails = false,
+  detailsError = null,
+  detailsSaved = false,
+}: PrototypeDetailsControls & {
   data: PrototypesShowPageData
   onBranch: () => void
   onClose: () => void
   editing: boolean
   onEditingChange: (editing: boolean) => void
 }) {
-  const headingId = useId()
   const descriptionId = useId()
   const dialog = useRef<HTMLDivElement>(null)
   const close = useRef<HTMLButtonElement>(null)
   const nameInput = useRef<HTMLInputElement>(null)
   const wasEditing = useRef(false)
+  const wasSaving = useRef(savingDetails)
+  const previouslySaved = useRef(detailsSaved)
+  const submissionPending = useRef(false)
+  const [submissionError, setSubmissionError] = useState<string | null>(null)
+  const canEditDetails = Boolean(data.detailsEditPath || onSaveDetails)
+  const alert = detailsError ?? submissionError ?? data.alert
+  const title = editing ? (data.editDetailsHeading ?? data.prototypeName) : data.prototypeName
   const hasDescription = Boolean(data.prototypeDescription?.trim())
   const editButton =
-    data.detailsEditPath && data.editDetailsLabel ? (
+    canEditDetails && data.editDetailsLabel ? (
       <HubIconButton
         icon={PencilIcon}
         size="small"
@@ -73,9 +83,50 @@ export function PrototypeDescriptionDialog({
     wasEditing.current = editing
   }, [editing])
 
+  useEffect(() => {
+    if (savingDetails) dialog.current?.focus()
+    else if (wasSaving.current) nameInput.current?.focus()
+
+    if (!savingDetails && (wasSaving.current || detailsError)) {
+      submissionPending.current = false
+    }
+    wasSaving.current = savingDetails
+  }, [savingDetails, detailsError])
+
+  useEffect(() => {
+    const saved = detailsSaved && !previouslySaved.current
+    previouslySaved.current = detailsSaved
+    if (saved && editing && onSaveDetails) onClose()
+  }, [detailsSaved, editing, onSaveDetails, onClose])
+
+  function submitDetails(event: SubmitEvent<HTMLFormElement>) {
+    if (!onSaveDetails) return
+
+    event.preventDefault()
+    if (savingDetails || submissionPending.current) return
+
+    const values = new FormData(event.currentTarget)
+    const name = values.get("prototype[name]")
+    const description = values.get("prototype[description]")
+    if (typeof name !== "string" || typeof description !== "string") {
+      setSubmissionError("Hub could not read the prototype details. Try again.")
+      return
+    }
+
+    submissionPending.current = true
+    setSubmissionError(null)
+    try {
+      onSaveDetails({ name, description: description.trim() ? description : null })
+    } catch {
+      submissionPending.current = false
+      setSubmissionError("Hub could not save the prototype details. Try again.")
+    }
+  }
+
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.key === "Escape") {
       event.preventDefault()
+      if (savingDetails) return
       if (editing) onEditingChange(false)
       else onClose()
     }
@@ -84,7 +135,11 @@ export function PrototypeDescriptionDialog({
     const controls = dialog.current?.querySelectorAll<HTMLElement>(
       "button:not([disabled]), a[href], input:not([disabled]), textarea:not([disabled])",
     )
-    if (!controls?.length) return
+    if (!controls?.length) {
+      event.preventDefault()
+      dialog.current?.focus()
+      return
+    }
     const first = controls[0]
     const last = controls[controls.length - 1]
     if (!first || !last) return
@@ -101,21 +156,22 @@ export function PrototypeDescriptionDialog({
     <div
       className="prototype-description-backdrop"
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose()
+        if (event.target === event.currentTarget && !savingDetails) onClose()
       }}
     >
       <div
         ref={dialog}
         role="dialog"
         aria-modal="true"
-        aria-labelledby={headingId}
+        tabIndex={-1}
+        aria-label={title}
         aria-describedby={!editing && hasDescription ? descriptionId : undefined}
         className="prototype-description-dialog"
         onKeyDown={handleKeyDown}
       >
         <header className="prototype-description-dialog__header">
-          <Heading as="h2" size="6" id={headingId} className="prototype-description-dialog__title">
-            {editing ? data.editDetailsHeading : data.prototypeName}
+          <Heading as="h2" size="6" className="prototype-description-dialog__title">
+            {title}
           </Heading>
           <Button
             ref={close}
@@ -125,23 +181,31 @@ export function PrototypeDescriptionDialog({
             aria-label={data.closeInfoLabel}
             leadingVisual={<XIcon />}
             onClick={onClose}
+            disabled={savingDetails}
           />
         </header>
 
-        {data.alert ? <HubAlert variant="critical" layout="compact" title={data.alert} /> : null}
+        {alert ? <HubAlert variant="critical" layout="compact" title={alert} /> : null}
 
-        {editing && data.detailsEditPath ? (
+        {editing && canEditDetails ? (
           <form
             id="prototype-description-edit"
-            action={data.detailsEditPath}
-            method="post"
+            action={onSaveDetails ? undefined : data.detailsEditPath}
+            method={onSaveDetails ? undefined : "post"}
             className="prototype-description-dialog__form"
+            aria-busy={savingDetails}
+            noValidate={Boolean(onSaveDetails)}
+            onSubmit={submitDetails}
           >
-            <input type="hidden" name="_method" value="patch" />
-            <input type="hidden" name="authenticity_token" value={data.authenticityToken} />
-            <input type="hidden" name="return_to" value="review" />
-            {data.buildPinned && data.selectedBuild ? (
-              <input type="hidden" name="build" value={data.selectedBuild.number} />
+            {!onSaveDetails ? (
+              <>
+                <input type="hidden" name="_method" value="patch" />
+                <input type="hidden" name="authenticity_token" value={data.authenticityToken} />
+                <input type="hidden" name="return_to" value="review" />
+                {data.buildPinned && data.selectedBuild ? (
+                  <input type="hidden" name="build" value={data.selectedBuild.number} />
+                ) : null}
+              </>
             ) : null}
 
             <FormControl id="prototype-description-name" fullWidth required>
@@ -153,6 +217,7 @@ export function PrototypeDescriptionDialog({
                 maxLength={data.nameMaximumLength}
                 required
                 fullWidth
+                disabled={savingDetails}
               />
             </FormControl>
 
@@ -165,19 +230,28 @@ export function PrototypeDescriptionDialog({
                 rows={4}
                 fullWidth
                 resize="vertical"
+                disabled={savingDetails}
               />
             </FormControl>
 
-            <FormControl id="prototype-description-start-page" fullWidth>
-              <FormControl.Label>{data.startPageLabel}</FormControl.Label>
-              <TextInput
-                name="prototype[start_page]"
-                defaultValue={data.startPage ?? ""}
-                placeholder="/"
-                fullWidth
-              />
-              <FormControl.Hint>{data.startPageHint}</FormControl.Hint>
-            </FormControl>
+            {!onSaveDetails ? (
+              <FormControl id="prototype-description-start-page" fullWidth>
+                <FormControl.Label>{data.startPageLabel}</FormControl.Label>
+                <TextInput
+                  name="prototype[start_page]"
+                  defaultValue={data.startPage ?? ""}
+                  placeholder="/"
+                  fullWidth
+                />
+                <FormControl.Hint>{data.startPageHint}</FormControl.Hint>
+              </FormControl>
+            ) : null}
+
+            {savingDetails ? (
+              <Text as="p" size="100" role="status">
+                Saving details…
+              </Text>
+            ) : null}
           </form>
         ) : (
           <>
@@ -215,10 +289,19 @@ export function PrototypeDescriptionDialog({
         <footer className="prototype-description-dialog__actions">
           {editing ? (
             <ButtonGroup>
-              <Button variant="secondary" onClick={() => onEditingChange(false)}>
+              <Button
+                variant="secondary"
+                onClick={() => onEditingChange(false)}
+                disabled={savingDetails}
+              >
                 {data.cancelEditLabel}
               </Button>
-              <Button variant="primary" type="submit" form="prototype-description-edit">
+              <Button
+                variant="primary"
+                type="submit"
+                form="prototype-description-edit"
+                disabled={savingDetails}
+              >
                 {data.saveDetailsLabel}
               </Button>
             </ButtonGroup>
