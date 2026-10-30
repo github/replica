@@ -154,7 +154,12 @@ export function PrototypesShowPage(props: PrototypesShowPageProps | PrototypePre
           >
             <Stack gap="none" className="review-shell" padding="none">
               {reviewUnavailableLabel ? (
-                <HubAlert variant="info" title={reviewUnavailableLabel} layout="compact" />
+                <HubAlert
+                  className="review-shell__integration-notice"
+                  variant="info"
+                  title={reviewUnavailableLabel}
+                  layout="compact"
+                />
               ) : null}
 
               {review?.comments.mutationError ? (

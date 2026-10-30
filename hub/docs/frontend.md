@@ -20,7 +20,7 @@ If port 5173 is occupied, leave that server running and use `npm run dev:mock --
 
 The dataset uses `octocat`, `mona`, `github/prototype`, and `github/empty`. Every page reads the same in-memory records. A successful name or description edit is visible when navigating back to the repository; it changes metadata, not build contents. A full reload or **Reset mock data** creates a fresh store from the JSON fixture. Closing the tab discards its store. There is no browser-storage persistence, and reset never changes a real Hub.
 
-UI that exists only for mock data has a 2px orange outline. Ordinary product UI does not get this outline just because it displays mock records. Mock controls occupy their own row on narrow screens so they do not cover page controls. On wider screens they float separately from the page.
+Mock-only UI and temporary integration notices, including the disconnected-reviews banner, have a 2px orange outline. Ordinary product UI does not get this outline just because it displays mock records. Mock controls occupy their own row on narrow screens so they do not cover page controls. On wider screens they float separately from the page.
 
 Local preview HTML and representative SVG images are synthetic assets, not published builds or captured build evidence. They are served only by the mock development server.
 
@@ -48,7 +48,7 @@ Other seeded page states:
 
 Application code adapts the retained pages' internal links to SPA navigation while preserving modified clicks, external links, downloads, and new tabs. Unconnected non-GET forms, including the retained sign-out form, display a warning rather than submitting to removed server actions.
 
-Prototype previews use the existing preview bridge with reviews disabled. The page explicitly says reviews are not connected; it does not fetch removed review APIs or pretend an empty review successfully loaded. Start-page editing, branching, publication, workflow installation, and other product mutations are outside this first journey.
+Prototype previews use the existing preview bridge with reviews disabled. The page explicitly says reviews are not connected; it does not fetch removed review APIs or pretend an empty review successfully loaded. This notice describes an unfinished frontend integration in either mode, not a failed mock request. Start-page editing, branching, publication, workflow installation, and other product mutations are outside this first journey.
 
 ## Request boundary
 

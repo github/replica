@@ -37,6 +37,11 @@
   transform: translateX(0);
 }
 
+.review-shell__integration-notice {
+  outline: 2px solid var(--hub-mock-outline);
+  outline-offset: -2px;
+}
+
 .review-shell__notice {
   width: min(calc(100% - var(--hub-space-16)), 32rem);
   position: absolute;
