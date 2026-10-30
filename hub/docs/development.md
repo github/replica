@@ -38,6 +38,8 @@ npm run dev
 
 Open <http://127.0.0.1:5173>. Vite serves the frontend and forwards `/api` requests to Express at <http://127.0.0.1:3001>. `GET /api/health` returns JSON; other API routes have not been built. Both servers accept connections only from this machine. Stop each with Ctrl+C.
 
+Vite also forwards WebSocket upgrades under `/api`. The `/api/realtime` endpoint rejects connections until application access checks are connected; see [WebSocket updates](websockets.md). Stopping the API closes its WebSocket connections as well.
+
 The API reads an optional `PORT` environment variable, defaulting to 3001. If you change it, update the local Vite proxy target to match. The editor forwards ports 3001, 5173, and 6006 from the devcontainer. API startup reads `.env` when present; Compose's environment takes precedence.
 
 On `SIGINT` or `SIGTERM`, the API stops accepting requests and allows active requests up to 30 seconds to finish, then flushes [optional telemetry](telemetry.md) within five seconds. No automatic request tracing is installed.

@@ -2,6 +2,8 @@ import { createServer } from "node:http"
 import type { Logger } from "pino"
 
 import { createApp } from "../create-app/index.ts"
+import { attachRealtimeServer } from "../integrations/ws/attach-realtime-server/index.ts"
+import { shutdownServer } from "../shutdown-server/index.ts"
 
 export async function runApi({
   port,
@@ -18,7 +20,9 @@ export async function runApi({
   if (!Number.isInteger(shutdownTimeoutMs) || shutdownTimeoutMs < 1) {
     throw new Error("API shutdown timeout must be a positive integer.")
   }
-  const server = createServer(createApp({ logger }))
+  const server = createServer()
+  const realtime = attachRealtimeServer({ server, path: "/api/realtime", logger })
+  server.on("request", createApp({ logger, broadcast: realtime.broadcast }))
   let finishBinding!: () => void
   const binding = new Promise<void>((resolve) => {
     finishBinding = resolve
@@ -48,10 +52,7 @@ export async function runApi({
     async function drain() {
       // A stop signal can arrive before listen() has opened its socket.
       await binding
-      if (!server.listening) return
-      await new Promise<void>((resolve, reject) => {
-        server.close((error) => (error ? reject(error) : resolve()))
-      })
+      await shutdownServer(server, realtime)
     }
     try {
       await Promise.race([

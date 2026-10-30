@@ -40,7 +40,7 @@ Hub sets its own resource, sampler, batching, and context policies rather than l
 
 The API and worker entrypoints already call it before accepting requests or starting consumers. Static imports are sufficient because this foundation does not patch dependencies. `createApp()` does not initialize global telemetry or install signal handlers.
 
-The returned `{ shutdown() }` belongs to the entrypoint, not to domains or request handlers. The entrypoint waits for API requests or active worker jobs to drain, then awaits shutdown in `finally`. API and worker drain limits are 30 seconds; telemetry shutdown adds at most five seconds. Operators must allow both windows before terminating a process. Startup failures and shutdown timeouts exit unsuccessfully.
+The returned `{ shutdown() }` belongs to the entrypoint, not to domains or request handlers. The entrypoint waits for API requests and WebSockets, or active worker jobs, to drain, then awaits shutdown in `finally`. API and worker drain limits are 30 seconds; telemetry shutdown adds at most five seconds. Operators must allow both windows before terminating a process. Startup failures and shutdown timeouts exit unsuccessfully.
 
 Shutdown flushes queued spans and closes the SDK. It is idempotent, including when telemetry is disabled. Normal batching holds at most 256 spans, exports at most 64 per batch, and attempts export at one-second intervals with a two-second export timeout. Queue saturation or failed delivery can lose spans. Export failures produce safe static logs, not errors in the feature being traced. Shutdown failure is reported separately and rejects the shutdown call.
 

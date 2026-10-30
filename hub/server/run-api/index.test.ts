@@ -4,8 +4,18 @@ import { createServer, request, Server } from "node:http"
 import type { IncomingMessage } from "node:http"
 import type { AddressInfo } from "node:net"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
+import WebSocket from "ws"
 
+import { deferred } from "../../test/ws/deferred"
+import { rejected } from "../../test/ws/rejected"
+import { createApp } from "../create-app"
 import { createLogger } from "../integrations/pino/create-logger"
+import { attachRealtimeServer } from "../integrations/ws/attach-realtime-server"
+import type * as RealtimeModule from "../integrations/ws/attach-realtime-server"
+import type { RealtimeServer } from "../integrations/ws/types"
+
+vi.mock("../create-app", { spy: true })
+vi.mock("../integrations/ws/attach-realtime-server", { spy: true })
 
 vi.mock("node:http", async (importOriginal) => {
   const actual = await importOriginal<typeof Http>()
@@ -44,6 +54,73 @@ async function startApi(options: { port: number; shutdownTimeoutMs?: number }) {
 }
 
 describe("runApi()", () => {
+  it("attaches realtime to the HTTP server, injects broadcast, and forbids upgrades without access policies", async () => {
+    const { server, running, signal } = await startApi({ port: 0 })
+    await once(server, "listening")
+    const { port } = server.address() as AddressInfo
+    const options = vi.mocked(attachRealtimeServer).mock.calls.at(-1)?.[0]
+    const realtime = vi.mocked(attachRealtimeServer).mock.results.at(-1)?.value as RealtimeServer
+    expect(options).toMatchObject({ server, path: "/api/realtime" })
+    expect(options?.authenticate).toBeUndefined()
+    expect(options?.authorizeSubscription).toBeUndefined()
+    expect(createApp).toHaveBeenCalledWith(
+      expect.objectContaining({ broadcast: realtime.broadcast }),
+    )
+    const socket = new WebSocket(`ws://127.0.0.1:${port}/api/realtime`)
+    socket.on("error", () => {})
+    onTestFinished(() => {
+      socket.terminate()
+    })
+
+    expect(await rejected(socket)).toBe(403)
+    signal("SIGTERM")
+    await running
+
+    expect(server.listenerCount("upgrade")).toBe(0)
+  })
+
+  it("stops upgrades and waits for realtime cleanup before resolving", async () => {
+    const finished = deferred<void>()
+    const { attachRealtimeServer: attach } = await vi.importActual<typeof RealtimeModule>(
+      "../integrations/ws/attach-realtime-server",
+    )
+    const close = vi.fn<RealtimeServer["close"]>()
+    vi.mocked(attachRealtimeServer).mockImplementationOnce((options) => {
+      const realtime = attach(options)
+      close.mockImplementation(async () => {
+        await realtime.close()
+        await finished.promise
+      })
+      return { broadcast: realtime.broadcast, close }
+    })
+    const { server, running, signal } = await startApi({ port: 0 })
+    await once(server, "listening")
+    let settled = false
+    void running.then(
+      () => {
+        settled = true
+      },
+      () => {
+        settled = true
+      },
+    )
+
+    try {
+      signal("SIGTERM")
+      await vi.waitFor(() => expect(close).toHaveBeenCalledTimes(1))
+      await new Promise<void>((resolve) => setImmediate(resolve))
+
+      expect(settled).toBe(false)
+      expect(server.listenerCount("upgrade")).toBe(0)
+      expect(server.listening).toBe(false)
+    } finally {
+      finished.resolve()
+      await running
+    }
+
+    expect(settled).toBe(true)
+  })
+
   it.each(["SIGINT", "SIGTERM"] as const)(
     "serves health and drains an active request before resolving on %s",
     async (signalName) => {
@@ -122,6 +199,7 @@ describe("runApi()", () => {
     await expect(running).rejects.toMatchObject({ code: "EADDRINUSE" })
 
     expect(server.listening).toBe(false)
+    expect(server.listenerCount("upgrade")).toBe(0)
     expect(process.listeners("SIGINT")).toEqual(signals.SIGINT)
     expect(process.listeners("SIGTERM")).toEqual(signals.SIGTERM)
   })
