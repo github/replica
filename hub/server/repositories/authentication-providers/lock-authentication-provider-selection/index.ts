@@ -1,13 +1,11 @@
 import type { Prisma } from "../../../generated/prisma/client.ts"
-import { z } from "zod"
-
-const providerKeySchema = z.string().regex(/^[a-z0-9][a-z0-9._-]{0,99}$/)
+import { parseProviderKey } from "../../../utils/parse-provider-key/index.ts"
 
 export async function lockAuthenticationProviderSelection(
   database: Pick<Prisma.TransactionClient, "$queryRaw">,
   providerKey: string,
 ): Promise<void> {
-  const key = providerKeySchema.parse(providerKey)
+  const key = parseProviderKey(providerKey)
   await database.$queryRaw`
     SELECT "id"
     FROM "authentication_providers"

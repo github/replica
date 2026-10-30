@@ -7,6 +7,7 @@ import { lockAuthenticationProviderSelection } from "../../../repositories/authe
 import { getAuthenticationRevocationGeneration } from "../../../repositories/authentication-revocation-generations/get-authentication-revocation-generation/index.ts"
 import { lockAuthenticationRevocationGeneration } from "../../../repositories/authentication-revocation-generations/lock-authentication-revocation-generation/index.ts"
 import { createSecurityAudit } from "../../../repositories/security-audits/create-security-audit/index.ts"
+import { classifyPrismaTransactionError } from "../../../utils/classify-prisma-transaction-error/index.ts"
 import { IdentityTransactionConflictError } from "../../identity/errors.ts"
 import type {
   AdmissionHandoffDatabase,
@@ -40,10 +41,10 @@ export function runAdmissionHandoffTransaction<Result>(
     )
     .catch((error: unknown) => {
       if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        (["P2002", "P2034"].includes(error.code) ||
-          (error.code === "P2010" &&
-            (String(error.meta?.code) === "40001" || error.message.includes("40001"))))
+        classifyPrismaTransactionError(error) === "retryable" ||
+        (error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === "P2010" &&
+          (String(error.meta?.code) === "40001" || error.message.includes("40001")))
       ) {
         throw new IdentityTransactionConflictError({ cause: error })
       }
