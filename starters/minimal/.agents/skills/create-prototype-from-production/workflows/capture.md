@@ -34,6 +34,11 @@ For each representative, under `reference/pages/<slug>/`:
 Save `reference/pages/<slug>/content.json` with the page's real text, image
 URLs and link targets. No screenshots for non-representatives.
 
+Icon glyphs are not text. Icon fonts render ligature names (`calendar_month`,
+`person_outline`) that `innerText` returns as words. Exclude elements that
+are `aria-hidden="true"` or use an icon font from extracted text, and record
+the icon name in its own `icon` field.
+
 ## Tokens, fonts and assets
 
 From the home page: `:root` custom properties, computed typography and colors
@@ -44,7 +49,9 @@ Download only assets that built pages use, from URLs observed in the browser
 evidence. Use plain HTTP first; if an asset origin denies it, read the bytes
 through the browser. Name files by detected type (magic bytes), not URL
 extension. Record each in `reference/assets.json` with source URL and hash.
-Flag files over 1 MB in the handoff instead of silently shrinking them.
+Keep every asset at its original size: never shrink, recompress or skip one
+for size. List files over 1 MB in the handoff. If a single file is over
+300 MB, ask whether to keep it; with no answer, keep it.
 
 ## Write the context documents
 
@@ -64,3 +71,5 @@ find their sections:
 
 Mark anything not observed as `proposed-default`. The intake go-ahead
 activates these documents; they are not drafts.
+
+Commit `reference/` and `.agents/context/` before Build starts.

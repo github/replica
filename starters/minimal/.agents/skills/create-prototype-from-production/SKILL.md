@@ -14,7 +14,8 @@ workflows are optional layers. Nothing in this skill waits on them.
 
 ## Intake: one batched question, then work
 
-Ask once, in a single `ask_user` call (two questions). If the user is
+Ask both questions before opening the site: in one call if the question tool
+takes several, otherwise back to back. If the user is
 unavailable (autopilot, headless or no answer), apply the defaults and record
 them in the handoff: first-level coverage, and **yes** to the go-ahead. The
 go-ahead covers only local, git-reversible actions in this repository, so an
@@ -31,7 +32,11 @@ Never push, publish or touch other repositories without an explicit answer.
 Everything else is a stated default, never a question: use the site's real
 public assets and copy for a private demo; preserve its language; disable
 real submissions; keep external sites as outbound links; stop at login,
-OTP and CAPTCHA walls.
+OTP and CAPTCHA walls; keep every asset at original size (ask only about a
+single file over 300 MB, and keep it if nobody answers).
+
+Commit at the end of Capture and again at the end of Build, never one commit
+for the whole run.
 
 ## Phases
 
@@ -67,3 +72,6 @@ read, and the intake go-ahead is their explicit activation. Do not run
 | "No answer, so I can't treat it as approval"                  | Unanswered means the defaults, including yes to the local go-ahead.            |
 | "Capture every filter option / every FAQ open"                | One screenshot per kind of state, at most 8 per representative.                |
 | "Each page looks a bit different, so it is its own family"    | Compare section types in order. More families than half the pages is too fine. |
+| "Inner layouts are simplified; I'll note it in differences"   | A representative missing a section, layout or image is a defect. Fix it first. |
+| "One generic renderer can serve every family"                 | One composition per family, passing the representative gate.                   |
+| "This file is huge, shrink or skip it"                        | Keep originals. Ask only above 300 MB; no answer means keep.                   |

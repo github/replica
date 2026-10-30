@@ -47,6 +47,11 @@ test("requires exactly one representative per family", () => {
   assert.match(checkLedger(ledger(pages)).join("\n"), /exactly one representative/)
 })
 
+test("rejects a URL listed under two decisions", () => {
+  const pages = [hub, { url: hub.url, foundIn: ["header"], decision: "stub-auth" }]
+  assert.match(checkLedger(ledger(pages)).join("\n"), /listed more than once/)
+})
+
 test("rejects duplicate routes and unexplained blocks", () => {
   const pages = [
     hub,

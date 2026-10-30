@@ -58,6 +58,9 @@ Decide per page:
 | `stub-download` | PDF, app store or file download                                    |
 | `deferred`      | Out of the agreed coverage; local "not built" boundary             |
 
+Each URL appears once. A login dialog, menu or panel that opens on a page is
+not its own row: note it on that page's row.
+
 `decision` is coverage scope and does not change by phase. A page you are
 capturing now but building later is still `build`, with `status: planned`.
 

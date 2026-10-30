@@ -22,8 +22,11 @@ export function checkLedger(ledger, { final = false } = {}) {
 
   const families = new Map()
   const routes = new Map()
+  const urls = new Set()
   for (const [index, page] of ledger.pages.entries()) {
     const label = page.url ?? `pages[${index}]`
+    if (urls.has(page.url)) problems.push(`${label}: listed more than once`)
+    urls.add(page.url)
     if (!DECISIONS.has(page.decision))
       problems.push(`${label}: unknown decision "${page.decision}"`)
     if (!Array.isArray(page.foundIn) || page.foundIn.length === 0)
