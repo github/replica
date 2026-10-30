@@ -3,11 +3,11 @@ model SecurityAudit {
   id String @id @default(uuid()) @db.Uuid
 
   // Attribute columns
-  action     String               @db.VarChar(100)
-  outcome    SecurityAuditOutcome
-  targetType String               @map("target_type") @db.VarChar(100)
-  targetId   String?              @map("target_id") @db.VarChar(100)
-  context    Json                 @db.JsonB
+  action     String                @db.VarChar(100)
+  outcome    SecurityAuditOutcome?
+  targetType String                @map("target_type") @db.VarChar(100)
+  targetId   String?               @map("target_id") @db.VarChar(100)
+  context    Json                  @db.JsonB
 
   // Timestamp columns
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)

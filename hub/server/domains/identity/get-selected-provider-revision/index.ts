@@ -1,17 +1,12 @@
-import { z } from "zod"
-
+import { parseProviderKey } from "../../../utils/parse-provider-key/index.ts"
 import { ProviderRevisionInvariantError } from "../errors.ts"
 import type { GetSelectedProviderRevisionDependencies } from "./types.ts"
-
-const providerKeySchema = z.string().regex(/^[a-z0-9][a-z0-9._-]{0,99}$/)
 
 export async function getSelectedProviderRevision(
   providerKey: string,
   dependencies: GetSelectedProviderRevisionDependencies,
 ) {
-  const provider = await dependencies.findAuthenticationProvider(
-    providerKeySchema.parse(providerKey),
-  )
+  const provider = await dependencies.findAuthenticationProvider(parseProviderKey(providerKey))
   if (!provider) return null
   if (!provider.selectedRevision) {
     throw new ProviderRevisionInvariantError(

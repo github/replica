@@ -4,6 +4,7 @@ import { createAuthenticationProvider } from "../../../repositories/authenticati
 import { findAuthenticationProvider } from "../../../repositories/authentication-providers/find-authentication-provider/index.ts"
 import { selectAuthenticationProviderRevision } from "../../../repositories/authentication-providers/select-authentication-provider-revision/index.ts"
 import { createSecurityAudit } from "../../../repositories/security-audits/create-security-audit/index.ts"
+import { classifyPrismaTransactionError } from "../../../utils/classify-prisma-transaction-error/index.ts"
 import { IdentityTransactionConflictError } from "../errors.ts"
 import type {
   FindAuthenticationProviderForTransaction,
@@ -31,10 +32,7 @@ export function runProviderRevisionTransaction<Result>(
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     )
     .catch((error: unknown) => {
-      if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        ["P2002", "P2034"].includes(error.code)
-      ) {
+      if (classifyPrismaTransactionError(error) === "retryable") {
         throw new IdentityTransactionConflictError({ cause: error })
       }
       throw error

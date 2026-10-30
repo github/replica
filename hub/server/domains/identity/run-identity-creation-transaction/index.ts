@@ -3,6 +3,7 @@ import { createExternalIdentity } from "../../../repositories/external-identitie
 import { findExternalIdentity } from "../../../repositories/external-identities/find-external-identity/index.ts"
 import { createSecurityAudit } from "../../../repositories/security-audits/create-security-audit/index.ts"
 import { createUser } from "../../../repositories/users/create-user/index.ts"
+import { classifyPrismaTransactionError } from "../../../utils/classify-prisma-transaction-error/index.ts"
 import { IdentityTransactionConflictError } from "../errors.ts"
 import type {
   FindExternalIdentityForTransaction,
@@ -27,10 +28,7 @@ export function runIdentityCreationTransaction<Result>(
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     )
     .catch((error: unknown) => {
-      if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        ["P2002", "P2034"].includes(error.code)
-      ) {
+      if (classifyPrismaTransactionError(error) === "retryable") {
         throw new IdentityTransactionConflictError({ cause: error })
       }
       throw error

@@ -1,12 +1,13 @@
 import { z } from "zod"
 
 import type { ExternalIdentityTuple } from "../../../repositories/external-identities/find-external-identity/types.ts"
+import { parseProviderKey } from "../../../utils/parse-provider-key/index.ts"
 import { ExternalIdentityTupleTooLargeError, ExternalIdentityTupleUnicodeError } from "../errors.ts"
 
 export const externalIdentityTupleMaxBytes = 2_000
 const externalIdentityTupleSchema = z
   .object({
-    provider: z.string().regex(/^[a-z0-9][a-z0-9._-]{0,99}$/),
+    provider: z.unknown(),
     issuer: z.string().min(1).max(500),
     subject: z.string().min(1).max(500),
   })
@@ -36,16 +37,17 @@ export function parseExternalIdentityTuple(input: unknown): ExternalIdentityTupl
     throw new Error("External identity input must be a plain object.")
   }
   const tuple = externalIdentityTupleSchema.parse(input)
+  const provider = parseProviderKey(tuple.provider)
   if (hasInvalidUnicode(tuple.issuer) || hasInvalidUnicode(tuple.subject)) {
     throw new ExternalIdentityTupleUnicodeError()
   }
   const bytes =
-    Buffer.byteLength(tuple.provider, "utf8") +
+    Buffer.byteLength(provider, "utf8") +
     Buffer.byteLength(tuple.issuer, "utf8") +
     Buffer.byteLength(tuple.subject, "utf8") +
     2
   if (bytes > externalIdentityTupleMaxBytes) {
     throw new ExternalIdentityTupleTooLargeError()
   }
-  return tuple
+  return { provider, issuer: tuple.issuer, subject: tuple.subject }
 }

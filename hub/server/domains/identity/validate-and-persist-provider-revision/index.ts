@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto"
 import { z } from "zod"
 
+import { parseProviderKey } from "../../../utils/parse-provider-key/index.ts"
 import {
   IdentityTransactionConflictError,
   ProviderConfigurationValidationError,
@@ -20,7 +21,7 @@ import type {
 
 const providerRevisionSchema = z
   .object({
-    providerKey: z.string().regex(/^[a-z0-9][a-z0-9._-]{0,99}$/),
+    providerKey: z.unknown(),
     revision: z.number().int().positive(),
     configuration: z.unknown(),
   })
@@ -46,6 +47,7 @@ export async function validateAndPersistProviderRevision<Candidate>(
     throw new Error("Provider revision input must be a plain object.")
   }
   const parsed = providerRevisionSchema.parse(input)
+  const providerKey = parseProviderKey(parsed.providerKey)
   let canonicalPublicConfiguration: string
   try {
     const validated = await dependencies.validateConfiguration(input.configuration)
@@ -65,7 +67,7 @@ export async function validateAndPersistProviderRevision<Candidate>(
       await dependencies.writeAudit({
         id: dependencies.createId(),
         type: "provider_revision_validation_failed",
-        providerKey: parsed.providerKey,
+        providerKey,
         revision: parsed.revision,
       })
     } catch (auditError) {
@@ -85,7 +87,7 @@ export async function validateAndPersistProviderRevision<Candidate>(
     return await runWithBoundedRetries(
       () =>
         dependencies.runTransaction(async (repositories) => {
-          const current = await getSelectedProviderRevision(parsed.providerKey, repositories)
+          const current = await getSelectedProviderRevision(providerKey, repositories)
           let providerId: string
 
           if (current) {
@@ -108,7 +110,7 @@ export async function validateAndPersistProviderRevision<Candidate>(
             providerId = dependencies.createId()
             await repositories.createAuthenticationProvider({
               id: providerId,
-              key: parsed.providerKey,
+              key: providerKey,
             })
           }
 
@@ -124,7 +126,7 @@ export async function validateAndPersistProviderRevision<Candidate>(
             id: dependencies.createId(),
             type: "provider_revision_selected",
             providerId,
-            providerKey: parsed.providerKey,
+            providerKey,
             revision: parsed.revision,
           })
 
@@ -142,14 +144,14 @@ export async function validateAndPersistProviderRevision<Candidate>(
           ? {
               id: dependencies.createId(),
               type: "provider_revision_denied",
-              providerKey: parsed.providerKey,
+              providerKey,
               revision: parsed.revision,
               reason,
             }
           : {
               id: dependencies.createId(),
               type: "provider_revision_persist_failed",
-              providerKey: parsed.providerKey,
+              providerKey,
               revision: parsed.revision,
               reason: conflict ? "retry_exhausted" : "transaction_error",
             },

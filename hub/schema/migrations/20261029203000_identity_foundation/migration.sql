@@ -55,7 +55,7 @@ CREATE TABLE "authentication_provider_revisions" (
 CREATE TABLE "security_audits" (
     "id" UUID NOT NULL,
     "action" VARCHAR(100) NOT NULL,
-    "outcome" "SecurityAuditOutcome" NOT NULL,
+    "outcome" "SecurityAuditOutcome",
     "target_type" VARCHAR(100) NOT NULL,
     "target_id" VARCHAR(100),
     "context" JSONB NOT NULL,

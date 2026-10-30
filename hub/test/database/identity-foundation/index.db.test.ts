@@ -356,4 +356,25 @@ describe("identity foundation migration", () => {
     ).rejects.toThrow()
     await expect(prisma.securityAudit.count()).resolves.toBe(0)
   })
+
+  it("allows informational immutable audits without an outcome", async () => {
+    const auditId = randomUUID()
+
+    await expect(
+      prisma.securityAudit.create({
+        data: {
+          id: auditId,
+          action: "identity.kernel.observed",
+          targetType: "identity_kernel",
+          context: { detail: "informational" },
+        },
+      }),
+    ).resolves.toMatchObject({ id: auditId, outcome: null })
+    await expect(
+      prisma.securityAudit.update({
+        where: { id: auditId },
+        data: { outcome: "SUCCESS" },
+      }),
+    ).rejects.toThrow("Security audit records are immutable")
+  })
 })

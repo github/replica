@@ -40,6 +40,17 @@ describe("parseExternalIdentityTuple()", () => {
     expect(parseExternalIdentityTuple(tuple)).toEqual(tuple)
   })
 
+  it("uses the shared opaque provider key contract without changing case", () => {
+    const tuple = {
+      provider: "GitHub.App/V2",
+      issuer: "https://id.example.test",
+      subject: "person-123",
+    }
+
+    expect(parseExternalIdentityTuple(tuple)).toEqual(tuple)
+    expect(() => parseExternalIdentityTuple({ ...tuple, provider: "provider key" })).toThrow()
+  })
+
   it.each([
     ["issuer NUL", { provider, issuer: "https://id.example.test\0", subject: "person" }],
     ["subject NUL", { provider, issuer: "https://id.example.test", subject: "person\0" }],

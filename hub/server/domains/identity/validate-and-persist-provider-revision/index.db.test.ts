@@ -86,6 +86,7 @@ describe("validateAndPersistProviderRevision()", () => {
       order.push("validate")
       return validateConfiguration(candidate)
     })
+
     const base = dependencies(validator)
     async function runTransaction<Result>(
       operation: (repositories: ProviderRevisionRepositories) => Promise<Result>,
@@ -110,6 +111,31 @@ describe("validateAndPersistProviderRevision()", () => {
         .digest("hex"),
     )
     expect(Object.keys(revision ?? {})).not.toContain("settings")
+  })
+
+  it("uses the same opaque provider key for provider state and typed audits", async () => {
+    const providerKey = "GitHub.App/V2"
+
+    const result = await validateAndPersistProviderRevision(
+      { ...input(1), providerKey },
+      dependencies(),
+    )
+
+    await expect(
+      prisma.authenticationProvider.findUnique({ where: { id: result.providerId } }),
+    ).resolves.toMatchObject({ key: providerKey })
+    await expect(
+      prisma.securityAudit.findFirst({
+        where: { action: "identity.provider_revision.selected" },
+      }),
+    ).resolves.toMatchObject({ context: { provider: providerKey, revision: 1 } })
+    await expect(
+      validateAndPersistProviderRevision(
+        { ...input(2), providerKey: "provider key" },
+        dependencies(),
+      ),
+    ).rejects.toThrow()
+    await expect(prisma.authenticationProvider.count()).resolves.toBe(1)
   })
 
   it("persists no validated configuration value beyond its digest", async () => {

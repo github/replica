@@ -1,8 +1,6 @@
 # Hub database
 
-Hub uses PostgreSQL and Prisma. The schema contains the provider-neutral identity transaction foundation. Authentication provider revisions store a validated-configuration digest, not provider configuration, and every committed provider must select one of its own revisions. Hub sessions, memberships, invitations, source integrations, and product records are not part of this foundation.
-
-An external identity's provider, issuer, and subject share a 2,000-byte UTF-8 limit, including two separator bytes. Runtime parsing and the committed database constraint enforce the same conservative bound so the composite unique index remains below PostgreSQL's B-tree item limit.
+Hub uses PostgreSQL and Prisma.
 
 [Background jobs](background-jobs.md) use the same database with BullMQ-owned tables and functions in the `bullmq` schema. Prisma does not own those objects. `npm run setup` applies Prisma migrations before BullMQ setup and schedule registration.
 
