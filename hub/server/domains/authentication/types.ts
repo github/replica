@@ -24,9 +24,6 @@ export interface AuthenticationProviderAdapter {
 
 export interface GitHubAuthenticationServices {
   appOrigin: string
-  callbackRateLimiter: {
-    take(key: string, now: Date): boolean
-  }
   complete(input: { browserBinding: string; code: string; state: string }): Promise<{
     attributes: PublicIdentityAttributes
     expiresAt: Date
@@ -34,8 +31,10 @@ export interface GitHubAuthenticationServices {
     status: "authentication_proved"
   }>
   now(): Date
+  recordRateLimitDenial(operation: "callback" | "start", primaryError: Error): Promise<void>
+  reserveRateLimit(input: { operation: "callback" | "start"; requestIp: string }): Promise<boolean>
   secureCookies: boolean
-  start(input: { requestIp: string }): Promise<{
+  start(input: { requestIpDigest: string }): Promise<{
     authorizationUrl: string
     browserBinding: string
     expiresAt: Date

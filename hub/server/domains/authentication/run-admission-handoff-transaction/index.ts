@@ -41,7 +41,9 @@ export function runAdmissionHandoffTransaction<Result>(
     .catch((error: unknown) => {
       if (
         error instanceof Prisma.PrismaClientKnownRequestError &&
-        ["P2002", "P2034"].includes(error.code)
+        (["P2002", "P2034"].includes(error.code) ||
+          (error.code === "P2010" &&
+            (String(error.meta?.code) === "40001" || error.message.includes("40001"))))
       ) {
         throw new IdentityTransactionConflictError({ cause: error })
       }

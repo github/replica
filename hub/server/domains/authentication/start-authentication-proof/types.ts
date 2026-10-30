@@ -27,12 +27,11 @@ export interface StartAuthenticationProofDependencies {
   encryptCodeVerifier(value: string): string
   getSelectedProviderRevision(): Promise<SelectedProviderRevision | null>
   now(): Date
-  recentAttemptCount(input: { createdAfter: Date; requestIpDigest: string }): Promise<number>
   writeDenialAudit(reason: "configuration_changed" | "rate_limited"): Promise<unknown>
 }
 
 export interface StartAuthenticationProofInput {
-  requestIp: string
+  requestIpDigest: string
 }
 
 export interface StartAuthenticationProofResult {

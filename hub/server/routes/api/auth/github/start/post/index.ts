@@ -1,6 +1,7 @@
 import type { RequestHandler } from "express"
 
 import { AuthenticationProofError } from "../../../../../../domains/authentication/errors.ts"
+import { hashAuthenticationValue } from "../../../../../../utils/authentication/hash-authentication-value/index.ts"
 import type { GitHubAuthenticationRoutesDependencies } from "../../types.ts"
 
 const BROWSER_COOKIE = "hub_auth_browser"
@@ -13,9 +14,19 @@ export function post(dependencies: GitHubAuthenticationRoutesDependencies): Requ
       response.status(403).json({ error: "Authentication request origin is not allowed." })
       return
     }
+    const requestIp = request.ip ?? request.socket.remoteAddress ?? "unavailable"
+    if (!(await dependencies.reserveRateLimit({ operation: "start", requestIp }))) {
+      const error = new AuthenticationProofError(
+        "rate_limited",
+        "Too many authentication attempts were started.",
+      )
+      await dependencies.recordRateLimitDenial("start", error)
+      response.status(429).json({ error: error.message })
+      return
+    }
     try {
       const result = await dependencies.start({
-        requestIp: request.ip ?? request.socket.remoteAddress ?? "unavailable",
+        requestIpDigest: hashAuthenticationValue(requestIp),
       })
       response.cookie(BROWSER_COOKIE, result.browserBinding, {
         httpOnly: true,

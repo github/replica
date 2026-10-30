@@ -70,6 +70,25 @@ CREATE TABLE "authentication_revocation_generations" (
     CONSTRAINT "authentication_revocation_generations_positive" CHECK ("generation" > 0)
 );
 
+CREATE TABLE "authentication_rate_limits" (
+    "id" UUID NOT NULL,
+    "scope" VARCHAR(32) NOT NULL,
+    "key_digest" VARCHAR(64) NOT NULL,
+    "window_started_at" TIMESTAMPTZ(3) NOT NULL,
+    "reservation_count" INTEGER NOT NULL,
+    "created_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "authentication_rate_limits_pkey" PRIMARY KEY ("id"),
+    CONSTRAINT "authentication_rate_limits_scope" CHECK (
+        "scope" IN ('github_callback', 'github_start')
+    ),
+    CONSTRAINT "authentication_rate_limits_digest" CHECK (
+        "key_digest" ~ '^[0-9a-f]{64}$'
+    ),
+    CONSTRAINT "authentication_rate_limits_count" CHECK ("reservation_count" > 0)
+);
+
 CREATE UNIQUE INDEX "authorization_attempts_state_digest_key"
 ON "authorization_attempts"("state_digest");
 CREATE INDEX "authorization_attempts_expires_at_idx" ON "authorization_attempts"("expires_at");
@@ -82,6 +101,10 @@ CREATE INDEX "admission_handoffs_external_identity_id_idx"
 ON "admission_handoffs"("external_identity_id");
 CREATE UNIQUE INDEX "authentication_revocation_generations_key_key"
 ON "authentication_revocation_generations"("key");
+CREATE UNIQUE INDEX "authentication_rate_limits_scope_key_digest_key"
+ON "authentication_rate_limits"("scope", "key_digest");
+CREATE INDEX "authentication_rate_limits_window_started_at_idx"
+ON "authentication_rate_limits"("window_started_at");
 
 ALTER TABLE "authorization_attempts"
 ADD CONSTRAINT "authorization_attempts_provider_revision_id_fkey"

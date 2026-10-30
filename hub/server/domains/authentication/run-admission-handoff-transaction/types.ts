@@ -1,5 +1,6 @@
 import type { Prisma } from "../../../generated/prisma/client.ts"
 import type { CreateAdmissionHandoffInput } from "../../../repositories/admission-handoffs/create-admission-handoff/types.ts"
+import type { ConsumeAdmissionHandoffResult } from "../../../repositories/admission-handoffs/consume-admission-handoff/types.ts"
 import type { CreateSecurityAuditEvent } from "../../../repositories/security-audits/create-security-audit/types.ts"
 import type { AuthenticationProviderRecord } from "../../identity/run-provider-revision-transaction/types.ts"
 
@@ -15,7 +16,10 @@ export interface AdmissionHandoffRecord {
 }
 
 export interface AdmissionHandoffRepositories {
-  consumeAdmissionHandoff(input: { id: string; consumedAt: Date }): Promise<boolean>
+  consumeAdmissionHandoff(input: {
+    browserBindingDigest: string
+    id: string
+  }): Promise<ConsumeAdmissionHandoffResult>
   createAdmissionHandoff(input: CreateAdmissionHandoffInput): Promise<unknown>
   createSecurityAudit(input: CreateSecurityAuditEvent): Promise<unknown>
   findAdmissionHandoff(tokenDigest: string): Promise<AdmissionHandoffRecord | null>
