@@ -150,6 +150,10 @@ For Hub or canvas UI changes, finish the PR description with screenshots of ever
 
 Still run the relevant checks before opening the PR. Mention only known verification gaps that affect the change, such as a required check that could not run or behavior that remains unverified. Describe the actual gap, not whether the agent drafting the description ran tests itself.
 
+### Stacked pull requests
+
+For stacked PRs, use GitHub's built-in stacked PR feature. Setting each PR's base to another PR's branch does not create a native stack by itself. Check that GitHub shows the PRs as a stack.
+
 ## Pull request review
 
 Maintainers may ask for revisions before merging. Contributions are reviewed for correctness, fit with the project's direction, and ongoing maintenance needs. Not every proposal or pull request will be accepted.

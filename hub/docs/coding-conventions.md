@@ -48,6 +48,11 @@ components, hooks, and utilities
 - Put each standalone function in a kebab-case directory with `index.ts` or `index.tsx`, its tests, types, and styles.
 - Export at most one function per file and import exact directories.
 - Do not create shared index files that only collect sibling exports.
+- Keep `index.ts` focused on its function:
+  - Put schemas and constants declared outside functions in `constants.ts` beside `index.ts`.
+  - Put types declared outside functions in `types.ts` beside `index.ts`.
+  - Keep values and types that depend on function arguments or type parameters inside that function.
+  - Put constants shared by a domain in that domain's directory. Do not create a function directory just to hold constants.
 - Rails TSX page views adapt Superglue data and browser workflows into their one presentation Page.
 - Discover Rails TSX page views from their virtual paths instead of maintaining a parallel mapping.
 - Group package, alias, and relative imports separately.

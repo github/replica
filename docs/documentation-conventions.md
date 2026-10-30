@@ -12,6 +12,12 @@ These conventions apply across Replica, including documentation, pull request de
 - Avoid repeating known context.
 - Ask one focused question when the answer changes product behavior or prevents costly rework.
 
+### Answer the current question
+
+For a specific design question, recommend an option and explain its benefits and costs. Ask a question only when the answer would change the decision. Save function lists and other implementation details for implementation discussions.
+
+For example, write: “Send live comment updates only to people who still have access. After reconnecting, load the current comments instead of replaying missed updates. This avoids storing a separate notification history.”
+
 ## Plain language
 
 - Name the person or system performing the action.
@@ -37,13 +43,15 @@ Prefer concrete wording:
 
 ## Product and design discussions
 
-State the product contract before proposing implementation details:
+Before discussing implementation, agree on the feature requirements:
 
 1. Name the person or system using the feature.
 2. State the outcome they need.
 3. State what they may view or change.
 4. Explain how access or state begins and ends.
 5. Name the first version's non-goals.
+
+Once these requirements are agreed upon, keep following them without listing them in every reply. Answer the current question without adding unrelated requirements. Explain access rules, failures, and recovery when they affect the decision.
 
 Label accepted requirements and proposed implementation choices separately. Do not present one possible mechanism as technically necessary. When a security boundary has several valid designs, explain the risk being controlled and why the proposed boundary is the simplest fit.
 
