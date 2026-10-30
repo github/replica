@@ -108,4 +108,26 @@ describe("createSecurityAudit()", () => {
     expect(() => createSecurityAudit({ securityAudit: { create } }, withUnexpected)).toThrow()
     expect(create).not.toHaveBeenCalled()
   })
+
+  it("allows safe metadata only through typed audit fields", async () => {
+    const create = vi.fn<(input: { data: Prisma.SecurityAuditCreateInput }) => Promise<unknown>>()
+    create.mockResolvedValue(undefined)
+
+    await createSecurityAudit(
+      { securityAudit: { create } },
+      {
+        id: "5dd31031-6f1c-4c16-87c2-aee5342145cc",
+        type: "external_identity_created",
+        externalIdentityId: "e8714e71-52a7-45e8-a639-99ec37f2d85f",
+        provider: "workforce",
+        issuer: "https://id.example.test",
+      },
+    )
+
+    expect(create).toHaveBeenCalledOnce()
+    expect(create.mock.calls[0]?.[0].data.context).toEqual({
+      issuer: "https://id.example.test",
+      provider: "workforce",
+    })
+  })
 })

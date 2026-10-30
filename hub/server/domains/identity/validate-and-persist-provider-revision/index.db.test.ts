@@ -11,6 +11,7 @@ import { createSecurityAudit } from "../../../repositories/security-audits/creat
 import {
   IdentityTransactionConflictError,
   ProviderConfigurationValidationError,
+  ProviderRevisionConflictError,
   ProviderRevisionDriftError,
   ProviderRevisionGapError,
   ProviderRevisionRollbackError,
@@ -302,6 +303,76 @@ describe("validateAndPersistProviderRevision()", () => {
     ).rejects.toThrow("injected selection failure")
     await expect(prisma.authenticationProviderRevision.count()).resolves.toBe(1)
     await expect(prisma.securityAudit.count({ where: { outcome: "FAILURE" } })).resolves.toBe(1)
+  })
+
+  it("rolls back revision selection when the final success audit insert fails", async () => {
+    const first = await validateAndPersistProviderRevision(input(1), dependencies())
+    const rawErrorMarker = "raw-provider-success-audit-error-marker"
+    const base = dependencies()
+    async function runTransaction<Result>(
+      operation: (repositories: ProviderRevisionRepositories) => Promise<Result>,
+    ): Promise<Result> {
+      return runProviderRevisionTransaction(prisma, (repositories) =>
+        operation({
+          ...repositories,
+          createSecurityAudit: () => Promise.reject(new Error(rawErrorMarker)),
+        }),
+      )
+    }
+
+    await expect(
+      validateAndPersistProviderRevision(input(2), { ...base, runTransaction }),
+    ).rejects.toThrow(rawErrorMarker)
+    await expect(prisma.authenticationProviderRevision.count()).resolves.toBe(1)
+    await expect(
+      prisma.authenticationProvider.findUnique({
+        where: { id: first.providerId },
+        include: { selectedRevision: true },
+      }),
+    ).resolves.toMatchObject({ selectedRevision: { id: first.revisionId, revision: 1 } })
+    const failureAudits = await prisma.securityAudit.findMany({ where: { outcome: "FAILURE" } })
+    expect(failureAudits).toHaveLength(1)
+    expect(failureAudits[0]?.action).toBe("identity.provider_revision.persist_failed")
+    expect(failureAudits[0]?.context).toEqual({
+      provider: "workforce",
+      reason: "transaction_error",
+      revision: 2,
+    })
+    expect(JSON.stringify(failureAudits)).not.toContain(rawErrorMarker)
+  })
+
+  it("writes one terminal audit after the fixed provider retry budget is exhausted", async () => {
+    const first = await validateAndPersistProviderRevision(input(1), dependencies())
+    const base = dependencies()
+    let attempts = 0
+    function runTransaction<Result>(): Promise<Result> {
+      attempts += 1
+      return Promise.reject(new IdentityTransactionConflictError())
+    }
+
+    await expect(
+      validateAndPersistProviderRevision(input(2), { ...base, runTransaction }),
+    ).rejects.toBeInstanceOf(ProviderRevisionConflictError)
+    expect(attempts).toBe(3)
+    await expect(prisma.authenticationProviderRevision.count()).resolves.toBe(1)
+    await expect(
+      prisma.authenticationProvider.findUnique({
+        where: { id: first.providerId },
+        include: { selectedRevision: true },
+      }),
+    ).resolves.toMatchObject({ selectedRevision: { id: first.revisionId, revision: 1 } })
+    await expect(prisma.securityAudit.findMany({ where: { outcome: "FAILURE" } })).resolves.toEqual(
+      [
+        expect.objectContaining({
+          action: "identity.provider_revision.persist_failed",
+          context: {
+            provider: "workforce",
+            reason: "retry_exhausted",
+            revision: 2,
+          },
+        }),
+      ],
+    )
   })
 
   it("converges competing equal configuration to selected and unchanged", async () => {

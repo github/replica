@@ -106,4 +106,30 @@ describe("normalizeBoundedJson()", () => {
       normalizeBoundedJson({ nested: { deeper: { value: "too-deep" } } }, limits({ maxDepth: 2 })),
     ).toThrow("cannot exceed 2 nested levels")
   })
+
+  it("rejects representative credential keys and values", () => {
+    const privateKeyHeader = ["-----BEGIN PRIVATE", " KEY-----"].join("")
+
+    expect(() => normalizeBoundedJson({ clientSecret: "opaque-value" }, limits())).toThrow(
+      "secret-bearing fields",
+    )
+    expect(() => normalizeBoundedJson({ metadata: "Bearer opaque-value" }, limits())).toThrow(
+      "credential or key material",
+    )
+    expect(() => normalizeBoundedJson({ certificate: privateKeyHeader }, limits())).toThrow(
+      "credential or key material",
+    )
+  })
+
+  it("allows safe identity metadata without over-rejection", () => {
+    const metadata = {
+      tokenEndpoint: "https://id.example.test/token",
+      keyId: "signing-key-1",
+      publicKeyUrl: "https://id.example.test/keys",
+      issuer: "https://id.example.test",
+      label: "ordinary metadata",
+    }
+
+    expect(normalizeBoundedJson(metadata, limits({ maxBytes: 1_000 }))).toEqual(metadata)
+  })
 })

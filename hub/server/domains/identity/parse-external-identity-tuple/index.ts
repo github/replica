@@ -1,7 +1,7 @@
 import { z } from "zod"
 
 import type { ExternalIdentityTuple } from "../../../repositories/external-identities/find-external-identity/types.ts"
-import { ExternalIdentityTupleTooLargeError } from "../errors.ts"
+import { ExternalIdentityTupleTooLargeError, ExternalIdentityTupleUnicodeError } from "../errors.ts"
 
 export const externalIdentityTupleMaxBytes = 2_000
 const externalIdentityTupleSchema = z
@@ -12,6 +12,21 @@ const externalIdentityTupleSchema = z
   })
   .strict()
 
+function hasInvalidUnicode(value: string) {
+  if (value.includes("\0")) return true
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index)
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = value.charCodeAt(index + 1)
+      if (!Number.isInteger(next) || next < 0xdc00 || next > 0xdfff) return true
+      index += 1
+    } else if (code >= 0xdc00 && code <= 0xdfff) {
+      return true
+    }
+  }
+  return false
+}
+
 export function parseExternalIdentityTuple(input: unknown): ExternalIdentityTuple {
   if (
     typeof input !== "object" ||
@@ -21,6 +36,9 @@ export function parseExternalIdentityTuple(input: unknown): ExternalIdentityTupl
     throw new Error("External identity input must be a plain object.")
   }
   const tuple = externalIdentityTupleSchema.parse(input)
+  if (hasInvalidUnicode(tuple.issuer) || hasInvalidUnicode(tuple.subject)) {
+    throw new ExternalIdentityTupleUnicodeError()
+  }
   const bytes =
     Buffer.byteLength(tuple.provider, "utf8") +
     Buffer.byteLength(tuple.issuer, "utf8") +

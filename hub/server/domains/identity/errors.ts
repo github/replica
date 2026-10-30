@@ -22,6 +22,13 @@ export class ExternalIdentityTupleTooLargeError extends Error {
   }
 }
 
+export class ExternalIdentityTupleUnicodeError extends Error {
+  constructor() {
+    super("The external identity tuple contains invalid Unicode.")
+    this.name = "ExternalIdentityTupleUnicodeError"
+  }
+}
+
 export class ProviderRevisionConflictError extends Error {
   constructor(options?: ErrorOptions) {
     super("The provider revision conflicted with another provider configuration change.", options)

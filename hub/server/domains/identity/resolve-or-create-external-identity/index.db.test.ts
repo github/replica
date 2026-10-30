@@ -157,6 +157,55 @@ describe("resolveOrCreateExternalIdentity()", () => {
     await expect(prisma.securityAudit.count()).resolves.toBe(0)
   })
 
+  it("rejects invalid Unicode before state or audit writes", async () => {
+    for (const input of [
+      { ...tuple, issuer: `${tuple.issuer}\0` },
+      { ...tuple, subject: `${tuple.subject}\0` },
+      { ...tuple, issuer: "issuer-\ud800" },
+      { ...tuple, issuer: "issuer-\udc00" },
+      { ...tuple, subject: "subject-\ud800" },
+      { ...tuple, subject: "subject-\udc00" },
+    ]) {
+      await expect(resolveOrCreateExternalIdentity(input, dependencies())).rejects.toThrow(
+        "contains invalid Unicode",
+      )
+    }
+
+    await expect(prisma.user.count()).resolves.toBe(0)
+    await expect(prisma.externalIdentity.count()).resolves.toBe(0)
+    await expect(prisma.securityAudit.count()).resolves.toBe(0)
+  })
+
+  it("rolls back identity state when the final success audit insert fails", async () => {
+    const rawErrorMarker = "raw-success-audit-error-marker"
+    const base = dependencies()
+    async function runTransaction<Result>(
+      operation: (repositories: IdentityCreationRepositories) => Promise<Result>,
+    ): Promise<Result> {
+      return runIdentityCreationTransaction(prisma, (repositories) =>
+        operation({
+          ...repositories,
+          createSecurityAudit: () => Promise.reject(new Error(rawErrorMarker)),
+        }),
+      )
+    }
+
+    await expect(
+      resolveOrCreateExternalIdentity(tuple, { ...base, runTransaction }),
+    ).rejects.toThrow(rawErrorMarker)
+    await expect(prisma.user.count()).resolves.toBe(0)
+    await expect(prisma.externalIdentity.count()).resolves.toBe(0)
+    const audits = await prisma.securityAudit.findMany()
+    expect(audits).toHaveLength(1)
+    expect(audits[0]?.action).toBe("identity.external.create_failed")
+    expect(audits[0]?.context).toEqual({
+      issuer: tuple.issuer,
+      provider: tuple.provider,
+      reason: "transaction_error",
+    })
+    expect(JSON.stringify(audits)).not.toContain(rawErrorMarker)
+  })
+
   it("rolls back partial state before auditing an unexpected transaction failure", async () => {
     const base = dependencies()
     async function runTransaction<Result>(
