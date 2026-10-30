@@ -77,6 +77,7 @@ export async function completeAuthenticationProof(
       "The authentication provider configuration changed during this attempt.",
     )
   }
+  const expectedRevocationGeneration = await dependencies.getRevocationGeneration()
   const identity = await dependencies.resolveOrCreateIdentity({
     provider: evidence.provider,
     issuer: evidence.issuer,
@@ -84,14 +85,22 @@ export async function completeAuthenticationProof(
   })
   const handoffToken = dependencies.createOpaqueValue()
   const expiresAt = new Date(dependencies.now().getTime() + HANDOFF_LIFETIME_MS)
-  await dependencies.createHandoff({
+  const handoff = await dependencies.createHandoff({
     externalIdentityId: identity.externalIdentityId,
     providerRevisionId: attempt.providerRevisionId,
     browserBindingDigest,
     tokenDigest: hashAuthenticationValue(handoffToken),
     displayAttributes: evidence.attributes,
     expiresAt,
+    expectedRevocationGeneration,
   })
+  if (handoff.status === "restart") {
+    await dependencies.writeDenialAudit("configuration_changed")
+    throw new AuthenticationProofError(
+      "configuration_changed",
+      "Authentication state changed before the admission handoff was created.",
+    )
+  }
 
   return {
     status: "authentication_proved",
