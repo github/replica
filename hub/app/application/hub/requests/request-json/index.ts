@@ -4,6 +4,7 @@ import { bootstrapHubApi } from "../../bootstrap"
 import { apiErrorSchema } from "../../contracts"
 import { ApiContractError } from "../api-contract-error"
 import { ApiRequestError } from "../api-request-error"
+import { mockSessionContext } from "../mock-session-context"
 
 interface JsonRequestInit extends Omit<RequestInit, "body"> {
   body?: string
@@ -21,6 +22,14 @@ export async function requestJson<T>(
   const headers = new Headers(init.headers)
   headers.set("Accept", "application/json")
   if (init.body !== undefined) headers.set("Content-Type", "application/json")
+  if (
+    import.meta.env.DEV &&
+    import.meta.env.MODE === "mock" &&
+    !["GET", "HEAD"].includes((init.method ?? "GET").toUpperCase()) &&
+    mockSessionContext.revision !== undefined
+  ) {
+    headers.set("X-Replica-Mock-Session-Revision", String(mockSessionContext.revision))
+  }
 
   let response: Response
   try {

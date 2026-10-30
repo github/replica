@@ -17,7 +17,8 @@
     overflow: auto;
   }
 
-  .hub-app-frame--mock .hub-application {
+  .hub-app-frame--mock .hub-application,
+  .hub-app-frame--mock .hub-route-outlet {
     min-block-size: 0;
     block-size: 100%;
   }

@@ -1,0 +1,45 @@
+.hub-product-flow {
+  display: flex;
+  block-size: 100dvh;
+  min-block-size: 0;
+  flex-direction: column;
+}
+
+.hub-product-flow > div {
+  display: flex;
+  min-block-size: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.hub-product-flow > div > div[tabindex="-1"] {
+  max-block-size: 40%;
+  overflow: auto;
+  flex: none;
+}
+
+.hub-product-flow[data-mock-notice="true"] > div > div[tabindex="-1"] {
+  outline: 2px solid var(--hub-mock-outline);
+  outline-offset: -2px;
+}
+
+.hub-product-flow__result {
+  min-inline-size: 0;
+  padding: 0.75rem;
+  flex: none;
+  background: var(--hub-canvas-default);
+  overflow-wrap: anywhere;
+}
+
+.hub-product-flow__workspace {
+  position: relative;
+  min-block-size: 0;
+  flex: 1;
+  contain: layout;
+}
+
+@media (width < 48rem) {
+  .hub-app-frame--mock .hub-product-flow {
+    block-size: 100%;
+  }
+}

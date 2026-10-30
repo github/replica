@@ -8,6 +8,10 @@ import {
   Scripts,
   ScrollRestoration,
   useRevalidator,
+  useFetcher,
+  useFetchers,
+  useNavigate,
+  useRouteLoaderData,
   useRouteError,
   useSearchParams,
 } from "react-router"
@@ -16,22 +20,52 @@ import { HubThemeProvider } from "@hooks/use-hub-theme"
 import "@/tokens/base.css"
 
 import type { Route } from "./+types/root"
-import type { WorkspaceResponse } from "./contracts"
+import type { SessionResponse } from "./session-contracts"
 import { ModeNotice } from "./mode-notice"
 import { HubNavigation } from "./navigation"
 import { ApiContractError } from "./requests/api-contract-error"
 import { ApiRequestError } from "./requests/api-request-error"
-import { getWorkspace } from "./requests/get-workspace"
+import { getSession } from "./requests/get-session"
 import { RouteFeedback } from "./route-feedback"
 
 import "./styles.css"
 
 const mockMode = import.meta.env.DEV && import.meta.env.MODE === "mock"
+const mockDestinations = [
+  { path: "/welcome", label: "Welcome" },
+  { path: "/notifications", label: "Notifications" },
+  { path: "/repositories/2001", label: "Repository" },
+  { path: "/repositories/2001/prototypes/1", label: "Prototype and reviews" },
+  { path: "/repositories/2001/prototypes/1/builds", label: "Build history" },
+  { path: "/repositories/2001/prototypes/1/builds/3", label: "Build details" },
+  { path: "/repositories/2001/new", label: "Create a prototype" },
+  { path: "/repositories/2001/templates/default", label: "Browse a template" },
+  { path: "/repositories/2001/prototypes/manage", label: "Manage prototypes" },
+  { path: "/repositories/2001/prototypes/1/share-links", label: "Share links" },
+  { path: "/admin/sharing", label: "Sharing settings" },
+  { path: "/shared/demo-active", label: "Public shared preview" },
+  { path: "/shared/demo-expired", label: "Expired share link" },
+  { path: "/shared/demo-revoked", label: "Revoked share link" },
+  { path: "/settings/analytics", label: "Analytics" },
+  { path: "/settings/learnings", label: "Learnings" },
+  { path: "/settings/canvas", label: "Canvas connections" },
+  { path: "/settings/canvas/approve", label: "Approve a mock connection" },
+  { path: "/settings/copilot", label: "Copilot connection" },
+  { path: "/settings/github", label: "GitHub App" },
+  { path: "/settings/admins", label: "Administrators" },
+  { path: "/settings/audit", label: "Activity" },
+  { path: "/settings/github/setup", label: "GitHub App setup" },
+  { path: "/settings/github/register", label: "Register a mock app" },
+  { path: "/settings/github/installed", label: "Mock installation" },
+  { path: "/settings/enroll", label: "Mock enrollment" },
+  { path: "/settings/authorize", label: "Mock confirmation" },
+  { path: "/settings/sessions", label: "End mock sessions" },
+]
 
 export async function clientLoader({
   request,
-}: Pick<Route.ClientLoaderArgs, "request">): Promise<WorkspaceResponse> {
-  return getWorkspace(request)
+}: Pick<Route.ClientLoaderArgs, "request">): Promise<SessionResponse> {
+  return getSession(request)
 }
 
 export function meta() {
@@ -40,8 +74,24 @@ export function meta() {
 
 function MockControls() {
   const [params, setParams] = useSearchParams()
+  const session = useRouteLoaderData<SessionResponse>("root")
+  const fetcher = useFetcher()
+  const navigate = useNavigate()
   return (
     <ModeNotice
+      profile={session?.profile ?? "owner"}
+      sessionUnavailable={!session}
+      changingProfile={fetcher.state !== "idle"}
+      onProfileChange={(profile) => {
+        void fetcher.submit({ profile }, { method: "post", action: "/session" })
+      }}
+      destinations={mockDestinations}
+      onNavigate={(path) => {
+        const destination = new URL(path, window.location.origin)
+        const scenario = params.get("mockScenario")
+        if (scenario) destination.searchParams.set("mockScenario", scenario)
+        void navigate(`${destination.pathname}${destination.search}`)
+      }}
       scenario={params.get("mockScenario") ?? "normal"}
       onScenarioChange={(scenario) => {
         const next = new URLSearchParams(params)
@@ -134,9 +184,24 @@ export function ErrorBoundary() {
 }
 
 export default function HubRoot({ loaderData }: Pick<Route.ComponentProps, "loaderData">) {
+  const fetchers = useFetchers()
+  const sessionFetcher = useFetcher()
+  const changingSession = fetchers.some(
+    (fetcher) => fetcher.state !== "idle" && fetcher.formAction === "/session",
+  )
   return (
-    <HubNavigation>
-      <Outlet context={loaderData} />
+    <HubNavigation
+      onSignOut={() => {
+        void sessionFetcher.submit(
+          { profile: "signed-out" },
+          { method: "post", action: "/session" },
+        )
+      }}
+    >
+      {changingSession ? <HydrateFallback /> : null}
+      <div className="hub-route-outlet" hidden={changingSession} inert={changingSession}>
+        <Outlet key={`${loaderData.profile}:${loaderData.revision}`} context={loaderData} />
+      </div>
     </HubNavigation>
   )
 }

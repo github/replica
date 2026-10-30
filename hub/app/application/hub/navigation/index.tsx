@@ -7,7 +7,10 @@ import { HubAlert } from "@components/hub-alert"
 
 import "./styles.css"
 
-export function HubNavigation({ children }: PropsWithChildren) {
+export function HubNavigation({
+  children,
+  onSignOut,
+}: PropsWithChildren<{ onSignOut?: () => void }>) {
   const location = useLocation()
   const navigate = useNavigate()
   const navigation = useNavigation()
@@ -75,8 +78,31 @@ export function HubNavigation({ children }: PropsWithChildren) {
 
   function blockLegacySubmission(event: SubmitEvent<HTMLDivElement>) {
     if (event.defaultPrevented || !(event.target instanceof HTMLFormElement)) return
-    if (["get", "dialog"].includes(event.target.method.toLowerCase())) return
+    const method = event.target.method.toLowerCase()
+    if (method === "dialog") return
+    if (method === "get") {
+      const destination = new URL(event.target.action)
+      if (destination.origin !== window.location.origin || destination.pathname.startsWith("/api/"))
+        return
+      event.preventDefault()
+      const fields = new FormData(event.target, event.nativeEvent.submitter)
+      const query = new URLSearchParams()
+      for (const [name, value] of fields) {
+        if (typeof value !== "string") {
+          setBlockedAction("This filter form cannot submit files.")
+          return
+        }
+        query.append(name, value)
+      }
+      destination.search = query.toString()
+      void navigate(`${destination.pathname}${destination.search}${destination.hash}`)
+      return
+    }
     event.preventDefault()
+    if (new URL(event.target.action).pathname === "/session" && onSignOut) {
+      onSignOut()
+      return
+    }
     setBlockedAction("This action is not connected in the frontend yet. No request was sent.")
   }
 

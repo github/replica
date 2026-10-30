@@ -1,8 +1,8 @@
 # Routed frontend
 
-The first connected Hub journey uses React Router Framework Mode as a browser-rendered SPA: repository, prototype preview, build history, and build details. It reuses the retained pages rather than implementing a second set of screens.
+The Hub frontend uses React Router Framework Mode as a browser-rendered SPA. All 27 retained page modules are connected to local mock flows: repositories, prototypes, reviews, sharing, setup, account controls, administration, analytics, and learning. The application reuses those pages rather than implementing a second set of screens.
 
-This is an evolving frontend implementation. The Express product APIs, production sign-in, real build hosting, and reviews are not implemented.
+This is an evolving frontend implementation, not a restored production Hub. Real authentication, authorization, product APIs, persistence, external integrations, build hosting, and publishing remain separate work.
 
 Browser source lives directly under [app/](../app/). The routed Hub entry is [application/hub/](../app/application/hub/); pages, features, components, hooks, utilities, Storybook fixtures, and theme tokens are sibling directories. The Express API stays separate under [server/](../server/).
 
@@ -14,25 +14,30 @@ From `hub/`, with dependencies installed:
 npm run dev:mock
 ```
 
-Open <http://127.0.0.1:5173/repositories/2001>. No API server, database, GitHub App, or credentials are needed. The mock controls identify the synthetic environment and select slow, empty, forbidden, server-error, invalid-response, or save-error scenarios. Empty scenarios apply to collections and prototype previews.
+Open <http://127.0.0.1:5173/repositories/2001>. No API server, database, GitHub App, or credentials are needed. **Mock flow** opens the connected page groups. **Mock API scenario** selects slow, empty, forbidden, server-error, invalid-response, or save-error behavior.
 
 If port 5173 is occupied, leave that server running and use `npm run dev:mock -- --port 0`. Open the URL printed by the CLI; the operating system assigns a free port.
 
 The dataset uses `octocat`, `mona`, `github/prototype`, and `github/empty`. Every page reads the same in-memory records. A successful name or description edit is visible when navigating back to the repository; it changes metadata, not build contents. A full reload or **Reset mock data** creates a fresh store from the JSON fixture. Closing the tab discards its store. There is no browser-storage persistence, and reset never changes a real Hub.
 
-Mock-only UI and temporary integration notices, including the disconnected-reviews banner, have a 2px orange outline. Ordinary product UI does not get this outline just because it displays mock records. Mock controls occupy their own row on narrow screens so they do not cover page controls. On wider screens they float separately from the page.
+**Mock user** selects an owner, a read-only user, an administrator, or a signed-out state. Owner and administrator use Octocat; the read-only profile uses Mona. These are fixture-defined UI capabilities, not production access policies. Signing in requires no credentials. Switching profiles removes the previous viewer's displayed data and drafts without resetting the shared synthetic records. Delayed writes are bound to their initiating mock session revision and are rejected if the viewer changes.
+
+The neutral root reads the simulated session. Private pages load their workspace in a separate layout; public shared previews and signed-out pages do not load a private workspace. Replacing these contracts with real identity and authorization is outside this frontend work.
+
+Mock-only UI and temporary integration notices have a 2px orange outline. Ordinary product UI does not get this outline just because it displays mock records. Mock controls occupy their own row on narrow screens so they do not cover page controls. On wider screens they float separately from the page.
 
 Local preview HTML and representative SVG images are synthetic assets, not published builds or captured build evidence. They are served only by the mock development server.
 
 ## Routes and state
 
-Start the mock development server before opening these examples. The links use the default port, `5173`; replace it with the port printed by the CLI if you start the server on another port. These examples cover every connected route. Retained-only pages in the inventory below do not have application routes yet.
+Start the mock development server before opening these examples. The links use the default port, `5173`; replace it with the port printed by the CLI if you start the server on another port. The inventory below lists the other connected pages.
 
 | Route | Connected presentation | URL state | Open an example |
 | --- | --- | --- | --- |
-| `/` | Redirects to the first available repository, or shows an empty state | Repository selection comes from the workspace response | [Home](http://127.0.0.1:5173/) |
+| `/` | Redirects to a repository or mock sign-in, or shows an empty workspace | Selection comes from session and workspace responses | [Home](http://127.0.0.1:5173/) |
+| `/sign-in` | Mock sign-in using the retained home page | Already signed-in viewers return to their workspace | [Sign-in](http://127.0.0.1:5173/sign-in) |
 | `/repositories/:repositoryId` | Repository prototypes | `q`, `author`, `page`, `view` | [github/prototype](http://127.0.0.1:5173/repositories/2001) |
-| `/repositories/:repositoryId/prototypes/:prototypeId` | Prototype preview and editable name/description | Optional `build` pins the preview | [Welcome](http://127.0.0.1:5173/repositories/2001/prototypes/1) |
+| `/repositories/:repositoryId/prototypes/:prototypeId` | Preview, metadata, and review conversations | `build` pins the preview; `comment` opens a conversation | [Welcome review](http://127.0.0.1:5173/repositories/2001/prototypes/1?build=3&comment=1) |
 | `/repositories/:repositoryId/prototypes/:prototypeId/builds` | Build history | `page` | [Welcome build history](http://127.0.0.1:5173/repositories/2001/prototypes/1/builds) |
 | `/repositories/:repositoryId/prototypes/:prototypeId/builds/:buildNumber` | Build metadata and representative images | Build selection is in the path | [Successful Build 3](http://127.0.0.1:5173/repositories/2001/prototypes/1/builds/3) |
 | Other paths | Explicit not-found feedback | No success-shaped placeholder | [Not-found page (intentional 404)](http://127.0.0.1:5173/not-connected) |
@@ -46,9 +51,19 @@ Other seeded page states:
 
 `author=me` selects the mock viewer; other author selections use an ID returned by the authors endpoint. Search, author, pagination, and gallery/list changes are reflected in the URL. Draft text and pending form state remain local to the interaction.
 
-Application code adapts the retained pages' internal links to SPA navigation while preserving modified clicks, external links, downloads, and new tabs. Unconnected non-GET forms, including the retained sign-out form, display a warning rather than submitting to removed server actions.
+Review filters also live in the URL: `commentSearch`, `commentParticipant`, and the `commentBuild`, `commentPage`, `commentResolved`, `commentUnread`, and `commentMine` flags. A flag value of `1` enables it. Closing a conversation removes `comment`; browser back/forward restores the selection and filters.
 
-Prototype previews use the existing preview bridge with reviews disabled. The page explicitly says reviews are not connected; it does not fetch removed review APIs or pretend an empty review successfully loaded. This notice describes an unfinished frontend integration in either mode, not a failed mock request. Start-page editing, branching, publication, workflow installation, and other product mutations are outside this first journey.
+Application code adapts internal links and same-origin GET forms to SPA navigation while preserving modified clicks, external links, downloads, and new tabs. Explicit adapters handle the connected mutations and mock sign-out. Unknown non-GET forms display a warning rather than submitting to removed server actions.
+
+## Connected mock flows
+
+- **Create and manage:** create a synthetic prototype and Build, start from a template, register a synthetic branch, or edit gallery metadata and start-page metadata. These actions change canonical local records, not GitHub, source code, workflows, or immutable Build contents.
+- **Review:** the existing preview bridge supports element and area selection. Comments, replies, edits, deletion, resolution, reactions, and read positions share a mock review store. Failed saves retain the draft; recovery can retry it. The read-only profile can inspect conversations but cannot change them. This is not a live multi-user review service.
+- **Share:** create and revoke local links pinned to successful Builds. `demo-active`, `demo-expired`, and `demo-revoked` exercise public states. New links open in the same tab because another document receives a fresh mock store. Disabling mock sharing revokes existing local links; re-enabling permits new links. This is provisional demo behavior, not an accepted production sharing policy.
+- **Account and setup:** simulate sign-in/out, welcome dismissal, connection approval/revocation, GitHub App setup, confirmation, enrollment, and ending sessions. Do not enter real credentials or secrets. No provider authorization, installation, key rotation, or real session revocation occurs.
+- **Administration and activity:** exercise synthetic administrator changes, notifications, activity filters, analytics destinations, and learning actions. No real telemetry export, durable security audit, model run, or background job is performed.
+
+Use the administrator mock profile for administrative mutation states. Other profiles demonstrate the existing read-only and access-denied presentation. Profile changes and error scenarios are test controls, not security boundaries.
 
 ## Request boundary
 
@@ -60,6 +75,7 @@ These are frontend/mock contracts under [the application contracts](../app/appli
 
 | HTTP interface | Result |
 | --- | --- |
+| `GET`, `POST`, `DELETE /api/session` | Simulated viewer, capabilities, and revision |
 | `GET /api/workspace` | Viewer and repository navigation |
 | `GET /api/repositories/:repositoryId` | Filtered, paginated prototypes and repository authors |
 | `GET /api/repositories/:repositoryId/authors` | Searchable author choices with a cursor |
@@ -67,8 +83,20 @@ These are frontend/mock contracts under [the application contracts](../app/appli
 | `GET /api/repositories/:repositoryId/prototypes/:prototypeId/builds` | Paginated build history |
 | `GET /api/repositories/:repositoryId/prototypes/:prototypeId/builds/:buildNumber` | Build details |
 | `PATCH /api/repositories/:repositoryId/prototypes/:prototypeId` | Updated name/description and prototype data |
+| `/api/repositories/:repositoryId/prototypes/:prototypeId/review-comments` and its comment actions | Review collections, changes, reactions, and read positions |
+| `GET /api/repositories/:repositoryId/templates` and `/api/repositories/:repositoryId/templates/:templateId` | Template browsing |
+| `POST /api/repositories/:repositoryId/prototypes` | Synthetic prototype and Build creation |
+| `GET /api/repositories/:repositoryId/prototype-management`, `PATCH /api/repositories/:repositoryId/prototype-management/:prototypeId` | Management records and metadata changes |
+| `POST /api/repositories/:repositoryId/prototype-candidates/:candidateId` | Synthetic branch registration |
+| `/api/repositories/:repositoryId/prototypes/:prototypeId/share-links` | Build-pinned local links and revocation |
+| `GET /api/shared/:shareId` | Public preview or an explicit inactive-link state |
+| `GET`, `PATCH /api/product/sharing-settings` | Local sharing state |
+| `GET /api/settings/workspace`, `/api/settings/public`, `/api/settings/admin-candidates` | Settings records and synthetic page capabilities |
+| `POST /api/settings/actions` | Explicitly named local account, setup, administrative, analytics, and learning actions |
 
 Errors use an HTTP status and `{ "error": "..." }`. Request schemas and the same response schemas check the JSON fixtures and HTTP boundary. Server-side input validation and authorization remain separate backend responsibilities.
+
+The [product contracts](../app/application/hub/product-contracts/index.ts), [settings contracts](../app/application/hub/settings-contracts/index.ts), and [session contracts](../app/application/hub/session-contracts/index.ts) define those provisional records. The review adapter injects this request boundary into the retained review hooks without changing their default consumers. Mock handlers use the shared response helper and check the initiating session revision immediately before mutations, including after asynchronous body parsing.
 
 There is no shared query cache or automatic retry loop. Requests use `cache: "no-store"`; React Router owns route data and action revalidation. Manual retries revalidate the route. TanStack Query can be added later if shared caching, deduplication, or background refresh warrants it without switching routers.
 
@@ -91,36 +119,36 @@ Vite bundles Primer's CommonJS entries for the framework's development and build
 
 The migration started from commit `3254a642c9bb2dbf635915892475fa37d7bf2f00`. Its Hub entry point rendered only the logo. The retained page tests, stories, and typed props provide presentation and interaction references, not proof that the removed backend destinations work.
 
-The four connected page modules below form the first journey. The other 23 top-level pages remain retained presentation. Source alone does not establish whether their behavior shipped previously or was proposed; confirm that ancestry and the API as each flow is connected.
+All page modules below have a mock route. This demonstrates frontend navigation and local behavior, not backend feature parity or evidence that every retained design shipped previously.
 
 | Page module | Intent and current connection |
 | --- | --- |
 | [Repositories show](../app/pages/repositories-show-page/) | Connected repository listing, filters, and pagination |
-| [Prototypes show](../app/pages/prototypes-show-page/) | Connected local preview and name/description edit; reviews explicitly disconnected |
+| [Prototypes show](../app/pages/prototypes-show-page/) | Preview, metadata, and mock review conversations |
 | [Builds index](../app/pages/builds-index-page/) | Connected build history |
 | [Builds show](../app/pages/builds-show-page/) | Connected build details |
-| [Home](../app/pages/home-index-page/) | Retained sign-in entry; `signInPath` POST is not connected |
-| [Analytics](../app/pages/analytics-page/) | Retained destination/event configuration and POST actions |
-| [Canvas pairings](../app/pages/canvas-pairings-page/) | Retained approve/revoke/cancel presentation |
-| [Copilot connection](../app/pages/copilot-connection-page/) | Retained connect/disconnect forms |
-| [Fresh authorization](../app/pages/fresh-authorization-page/) | Retained confirmation/cancellation forms |
-| [GitHub App](../app/pages/github-app-page/) | Retained configuration/reset forms |
-| [GitHub App install](../app/pages/github-app-setup-install-page/) | Retained installation guidance |
-| [GitHub App register](../app/pages/github-app-setup-register-page/) | Retained registration form |
-| [GitHub App setup](../app/pages/github-app-setup-show-page/) | Retained secret/organization setup form |
-| [Admin confirmation](../app/pages/hub-admin-confirmation-page/) | Retained privileged-action confirmation |
-| [Admin enrollment](../app/pages/hub-admin-enrollment-page/) | Retained enrollment form |
-| [Admins](../app/pages/hub-admins-page/) | Retained administrator list and add/confirmation presentation |
-| [Learnings](../app/pages/learnings-page/) | Retained run, edit, reject, and retire presentation |
-| [New prototype](../app/pages/new-prototype-page/) | Retained client brief/template flow; submission API unconfirmed |
-| [Notifications](../app/pages/notifications-page/) | Retained list/load-more presentation |
-| [Prototype management](../app/pages/prototype-management-page/) | Retained management navigation |
-| [Replica browse](../app/pages/replica-browse-page/) | Retained preview/branch orchestration; submission API unconfirmed |
-| [Security audit](../app/pages/security-audit-page/) | Retained scope, pagination, and sign-out presentation |
-| [Session revocation](../app/pages/session-revocation-page/) | Retained revoke/cancel/sign-in presentation |
-| [Share links](../app/pages/share-links-index-page/) | Retained create/manage share-link presentation |
-| [Shared build](../app/pages/shared-builds-show-page/) | Retained shared-preview presentation; no sharing service |
-| [Sharing settings](../app/pages/sharing-settings-page/) | Retained settings form |
-| [Welcome](../app/pages/welcome-page/) | Retained setup/guidance/dismiss presentation |
+| [Home](../app/pages/home-index-page/) | `/sign-in` |
+| [Analytics](../app/pages/analytics-page/) | `/settings/analytics` |
+| [Canvas pairings](../app/pages/canvas-pairings-page/) | `/settings/canvas` and `/settings/canvas/approve` |
+| [Copilot connection](../app/pages/copilot-connection-page/) | `/settings/copilot` |
+| [Fresh authorization](../app/pages/fresh-authorization-page/) | `/settings/authorize` |
+| [GitHub App](../app/pages/github-app-page/) | `/settings/github` |
+| [GitHub App install](../app/pages/github-app-setup-install-page/) | `/settings/github/installed` |
+| [GitHub App register](../app/pages/github-app-setup-register-page/) | `/settings/github/register` |
+| [GitHub App setup](../app/pages/github-app-setup-show-page/) | `/settings/github/setup` |
+| [Admin confirmation](../app/pages/hub-admin-confirmation-page/) | `/settings/admins/:userId/:operation` |
+| [Admin enrollment](../app/pages/hub-admin-enrollment-page/) | `/settings/enroll` |
+| [Admins](../app/pages/hub-admins-page/) | `/settings/admins` |
+| [Learnings](../app/pages/learnings-page/) | `/settings/learnings` |
+| [New prototype](../app/pages/new-prototype-page/) | `/repositories/:repositoryId/new` |
+| [Notifications](../app/pages/notifications-page/) | `/notifications` |
+| [Prototype management](../app/pages/prototype-management-page/) | `/repositories/:repositoryId/prototypes/manage` |
+| [Replica browse](../app/pages/replica-browse-page/) | `/repositories/:repositoryId/templates/:templateId` |
+| [Security audit](../app/pages/security-audit-page/) | `/settings/audit` |
+| [Session revocation](../app/pages/session-revocation-page/) | `/settings/sessions` |
+| [Share links](../app/pages/share-links-index-page/) | `/repositories/:repositoryId/prototypes/:prototypeId/share-links` |
+| [Shared build](../app/pages/shared-builds-show-page/) | `/shared/:shareId` |
+| [Sharing settings](../app/pages/sharing-settings-page/) | `/admin/sharing` |
+| [Welcome](../app/pages/welcome-page/) | `/welcome` |
 
-Use focused request/store/route tests for the connected journey and existing page tests for their local behavior. Review visual changes in Storybook and capture the affected stories following the [Storybook guide](storybook.md#ui-changes-and-pull-request-evidence). Do not freeze whole DOM trees, incidental copy, or speculative APIs as the migration's ground truth.
+Settings collection filters use the URL, including `repositoryId` where a repository is selected. Use focused request/store/route tests for cross-page behavior and existing page tests for local interactions. Review visual changes in Storybook and capture affected stories following the [Storybook guide](storybook.md#ui-changes-and-pull-request-evidence). Do not freeze whole DOM trees, incidental copy, or provisional APIs as the migration's ground truth.

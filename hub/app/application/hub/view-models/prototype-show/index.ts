@@ -80,7 +80,7 @@ export function prototypeShowData(
     prototypeId: data.prototype.id,
     repositoryId: data.repository.id,
     repositoryName: data.repository.nameWithOwner,
-    reviewCommentsPath: "",
+    reviewCommentsPath: `/api/repositories/${data.repository.id}/prototypes/${data.prototype.id}/review-comments`,
     reviewComments: {
       bodyMaximumBytes: 10_000,
       copy: reviewCommentsCopy,

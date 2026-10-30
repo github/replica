@@ -1,0 +1,38 @@
+.settings-form-boundary {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.settings-form-boundary > [aria-busy] {
+  display: flex;
+  min-block-size: 0;
+  block-size: 100%;
+  flex-direction: column;
+}
+
+.settings-form-boundary > [aria-busy] > [role="status"],
+.settings-form-boundary > [aria-busy] > [role="alert"] {
+  max-block-size: 40%;
+  overflow: auto;
+  flex: none;
+}
+
+.settings-form-boundary--mock > [aria-busy] > [role="status"],
+.settings-form-boundary--mock > [aria-busy] > [role="alert"] {
+  outline: 2px solid var(--hub-mock-outline);
+  outline-offset: -2px;
+}
+
+.settings-form-boundary__content {
+  position: relative;
+  min-block-size: 0;
+  overflow: auto;
+  contain: layout;
+  flex: 1;
+}
+
+.settings-form-boundary__content > .setup,
+.settings-form-boundary__content > .canvas-pairings {
+  min-block-size: 100%;
+}

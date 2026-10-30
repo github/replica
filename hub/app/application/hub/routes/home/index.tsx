@@ -1,15 +1,22 @@
-import { Navigate, useOutletContext } from "react-router"
+import { redirect } from "react-router"
 
 import { HubEmptyState } from "@components/hub-empty-state"
 
-import type { WorkspaceResponse } from "../../contracts"
+import type { Route } from "./+types/index"
+import { getSession } from "../../requests/get-session"
+import { getWorkspace } from "../../requests/get-workspace"
+
+export async function clientLoader({ request }: Pick<Route.ClientLoaderArgs, "request">) {
+  const session = await getSession(request)
+  if (!session.viewer) throw redirect("/sign-in")
+  const workspace = await getWorkspace(request)
+  const firstRepository = workspace.repositories[0]
+  if (firstRepository) throw redirect(`/repositories/${firstRepository.id}`)
+  return null
+}
 
 export default function HomeRoute() {
-  const workspace = useOutletContext<WorkspaceResponse>()
-  const firstRepository = workspace.repositories[0]
-  return firstRepository ? (
-    <Navigate to={`/repositories/${firstRepository.id}`} replace />
-  ) : (
+  return (
     <main>
       <HubEmptyState
         heading="No repositories available"

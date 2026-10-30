@@ -19,6 +19,11 @@ import type {
   RouteQuery,
   WorkspaceResponse,
 } from "../../contracts"
+import { createMockSession } from "../create-session"
+import type { MockFlowContext } from "../flow-context/types"
+import { createReviewStore } from "../create-review-store"
+import { createProductStore } from "../create-product-store"
+import { createSettingsStore } from "../create-settings-store"
 import seedData from "../seed.json"
 import { MockStoreError } from "../store-error"
 
@@ -50,7 +55,7 @@ export function createMockStore({ origin, seed = seedData }: Options) {
   const data = seedSchema.parse(structuredClone(seed))
   const viewerRecord = data.users.find((user) => user.login === data.viewerLogin)
   if (!viewerRecord) throw new Error("The mock viewer is missing from the fixture users.")
-  const viewer = viewerRecord
+  const session = createMockSession(data.users, viewerRecord.login)
 
   const repositories = new Set(data.repositories.map(({ id }) => id))
   const prototypeKeys = new Set(
@@ -110,7 +115,9 @@ export function createMockStore({ origin, seed = seedData }: Options) {
     if (!prototype) throw new MockStoreError(404, "Prototype not found.")
     return {
       ...prototype,
-      canEdit: prototype.authorLogin === viewer.login,
+      canEdit:
+        session.read().profile !== "reader" &&
+        prototype.authorLogin === session.read().viewer?.login,
       builds: builds
         .filter((build) => build.repositoryId === repositoryId && build.prototypeId === prototypeId)
         .sort((left, right) => right.number - left.number)
@@ -154,13 +161,28 @@ export function createMockStore({ origin, seed = seedData }: Options) {
     return { repository: repositoryRecord(repositoryId), prototype, selectedBuild }
   }
 
+  const flowContext: MockFlowContext = {
+    origin: apiOrigin,
+    session,
+    resources: { ...data, builds },
+    repositoryRecord,
+    prototypeResponse,
+  }
+  const settings = createSettingsStore(flowContext)
+
   return {
     origin: apiOrigin,
-
+    session,
+    flowContext,
+    review: createReviewStore(flowContext),
+    product: createProductStore(flowContext),
+    settings,
     getWorkspace(): WorkspaceResponse {
       return {
-        viewer: { ...viewer },
+        viewer: session.requireViewer(),
         repositories: data.repositories.map((repository) => ({ ...repository })),
+        capabilities: session.read().capabilities,
+        navigation: settings.getNavigationState(),
       }
     },
 
@@ -168,6 +190,7 @@ export function createMockStore({ origin, seed = seedData }: Options) {
       repositoryId: number,
       query: Pick<RouteQuery, "q" | "author" | "page"> = { q: "", author: "", page: 1 },
     ): RepositoryResponse {
+      const viewer = session.requireViewer()
       const repository = repositoryRecord(repositoryId)
       const authorLogin =
         query.author === "me"
@@ -192,9 +215,13 @@ export function createMockStore({ origin, seed = seedData }: Options) {
       }
     },
 
-    getPrototype: prototypeResponse,
+    getPrototype(repositoryId: number, prototypeId: number, buildNumber?: number) {
+      session.requireViewer()
+      return prototypeResponse(repositoryId, prototypeId, buildNumber)
+    },
 
     getBuild(repositoryId: number, prototypeId: number, buildNumber: number): BuildResponse {
+      session.requireViewer()
       const response = prototypeResponse(repositoryId, prototypeId, buildNumber)
       if (!response.selectedBuild) throw new MockStoreError(404, "Build not found.")
       return {
@@ -205,6 +232,7 @@ export function createMockStore({ origin, seed = seedData }: Options) {
     },
 
     getBuildHistory(repositoryId: number, prototypeId: number, page = 1): BuildHistoryResponse {
+      session.requireViewer()
       const prototype = prototypeRecord(repositoryId, prototypeId)
       const selected = paginate(prototype.builds, page)
       return {
@@ -216,6 +244,7 @@ export function createMockStore({ origin, seed = seedData }: Options) {
     },
 
     getAuthors(repositoryId: number, query = "", cursor: string | null = null): AuthorResults {
+      session.requireViewer()
       const search = query.trim().toLowerCase()
       const authors = repositoryAuthors(repositoryId)
         .filter((user) =>
@@ -236,6 +265,7 @@ export function createMockStore({ origin, seed = seedData }: Options) {
       prototypeId: number,
       details: PrototypeDetails,
     ): PrototypeResponse {
+      session.requireViewer()
       const prototype = prototypeRecord(repositoryId, prototypeId)
       if (!prototype.canEdit) throw new MockStoreError(403, "You cannot edit this prototype.")
       const parsed = prototypeDetailsSchema.parse(details)

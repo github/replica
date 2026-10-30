@@ -57,9 +57,22 @@ export const paginationSchema = z.object({
   pageCount: identifier,
 })
 
+export const workspaceCapabilitiesSchema = z.object({
+  createPrototypes: z.boolean(),
+  manageSharing: z.boolean(),
+  administerHub: z.boolean(),
+})
+
 export const workspaceResponseSchema = z.object({
   viewer: userSchema,
   repositories: z.array(repositorySchema),
+  capabilities: workspaceCapabilitiesSchema.optional(),
+  navigation: z
+    .object({
+      welcomeHidden: z.boolean(),
+      notificationsUnreadCount: z.number().int().nonnegative(),
+    })
+    .optional(),
 })
 
 export const repositoryResponseSchema = z.object({

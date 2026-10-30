@@ -68,6 +68,10 @@ export function prototypeWorkspace({
         }
       : undefined,
     moreActionsLabel: "More actions",
+    shareLinksLabel: "Share links",
+    shareLinksPath: resourcePath(`${path}/share-links`, search, {
+      build: selectedBuild?.number ?? null,
+    }),
     prototypeInfoLabel: "About this prototype",
     repositoryPath: resourcePath(`/repositories/${repository.id}`, search),
     selectedBuild: selectedBuild

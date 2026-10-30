@@ -1,14 +1,15 @@
-import { delay, http, HttpResponse } from "msw"
+import { http, HttpResponse } from "msw"
+import { z } from "zod"
 
-import {
-  mockScenarioSchema,
-  prototypeDetailsSchema,
-  routeIdentifierSchema,
-  routeQuerySchema,
-} from "../../contracts"
-import type { MockScenario } from "../../contracts"
+import { prototypeDetailsSchema, routeIdentifierSchema, routeQuerySchema } from "../../contracts"
 import type { MockStore } from "../create-store"
 import { MockStoreError } from "../store-error"
+import { mockProfileSchema } from "../../session-contracts"
+import { readMockJson } from "../read-json"
+import { respondMock } from "../respond"
+import { createReviewHandlers } from "../create-review-handlers"
+import { createProductHandlers } from "../create-product-handlers"
+import { createSettingsHandlers } from "../create-settings-handlers"
 
 export function createMockHandlers(store: MockStore) {
   function api(path: string) {
@@ -40,34 +41,41 @@ export function createMockHandlers(store: MockStore) {
     }
   }
 
-  async function withScenario(
+  function withScenario(
     request: Request,
-    operation: (scenario: MockScenario) => Response | Promise<Response>,
+    operation: Parameters<typeof respondMock>[1],
   ): Promise<Response> {
-    const parsed = mockScenarioSchema.safeParse(
-      request.headers.get("X-Replica-Mock-Scenario") ?? "normal",
-    )
-    if (!parsed.success) {
-      return HttpResponse.json({ error: "Unknown mock scenario." }, { status: 400 })
-    }
-    const scenario = parsed.data
-    if (scenario === "loading") await delay(1500)
-    if (scenario === "forbidden") {
-      return HttpResponse.json({ error: "You cannot access this mock resource." }, { status: 403 })
-    }
-    if (scenario === "server-error" || (scenario === "save-error" && request.method === "PATCH")) {
-      return HttpResponse.json(
-        { error: "The mock API could not complete the request." },
-        { status: 500 },
-      )
-    }
-    if (scenario === "invalid-response") {
-      return HttpResponse.json({ unexpected: "This intentionally fails the API schema." })
-    }
-    return respond(() => operation(scenario))
+    return respondMock(request, operation, store.session)
   }
 
   return [
+    ...createReviewHandlers(store.review, store.origin, store.session),
+    ...createProductHandlers(store.product, store.origin, store.session),
+    ...createSettingsHandlers(store.settings, store.origin, store.session),
+    http.get(api("/session"), ({ request }) =>
+      respondMock(request, () => HttpResponse.json(store.session.read())),
+    ),
+    http.post(api("/session"), ({ request }) =>
+      respondMock(
+        request,
+        async (_scenario, assertCurrentSession) => {
+          const { profile } = await readMockJson(
+            request,
+            z.object({ profile: mockProfileSchema }).strict(),
+          )
+          assertCurrentSession()
+          return HttpResponse.json(store.session.select(profile))
+        },
+        store.session,
+      ),
+    ),
+    http.delete(api("/session"), ({ request }) =>
+      respondMock(
+        request,
+        () => HttpResponse.json(store.session.select("signed-out")),
+        store.session,
+      ),
+    ),
     http.get(api("/workspace"), () => respond(() => HttpResponse.json(store.getWorkspace()))),
 
     http.get(api("/repositories/:repositoryId"), ({ request, params }) =>
@@ -145,12 +153,13 @@ export function createMockHandlers(store: MockStore) {
     ),
 
     http.patch(api("/repositories/:repositoryId/prototypes/:prototypeId"), ({ request, params }) =>
-      withScenario(request, async () => {
+      withScenario(request, async (_scenario, assertCurrentSession) => {
         let body: unknown
         try {
           body = await request.json()
         } catch (error) {
           if (error instanceof SyntaxError) {
+            assertCurrentSession()
             return HttpResponse.json(
               { error: "The request body is not valid JSON." },
               { status: 400 },
