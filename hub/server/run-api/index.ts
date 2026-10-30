@@ -2,7 +2,6 @@ import { createServer } from "node:http"
 import type { Logger } from "pino"
 
 import { createApp } from "../create-app/index.ts"
-import { createGitHubAuthenticationServices } from "../domains/authentication/create-github-authentication-services/index.ts"
 import { readGitHubAuthenticationConfiguration } from "../domains/authentication/read-github-authentication-configuration/index.ts"
 import { readTrustedProxyHops } from "../integrations/express/read-trusted-proxy-hops/index.ts"
 import { attachRealtimeServer } from "../integrations/ws/attach-realtime-server/index.ts"
@@ -27,7 +26,11 @@ export async function runApi({
   const realtime = attachRealtimeServer({ server, path: "/api/realtime", logger })
   const authenticationConfiguration = readGitHubAuthenticationConfiguration(process.env)
   const githubAuthentication = authenticationConfiguration
-    ? await createGitHubAuthenticationServices(authenticationConfiguration)
+    ? await import(
+        "../domains/authentication/create-github-authentication-services/index.ts"
+      ).then(({ createGitHubAuthenticationServices }) =>
+        createGitHubAuthenticationServices(authenticationConfiguration),
+      )
     : undefined
   server.on(
     "request",
