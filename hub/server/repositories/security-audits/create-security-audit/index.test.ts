@@ -12,6 +12,31 @@ describe("createSecurityAudit()", () => {
 
     await createSecurityAudit(database, {
       id,
+      type: "authentication_attempt_denied",
+      provider: "github",
+      reason: "invalid_or_expired",
+    })
+    await createSecurityAudit(database, {
+      id,
+      type: "authentication_handoff_created",
+      handoffId: "4f58d4a0-dd53-4c9f-b68b-87fb85af8941",
+      externalIdentityId: "e8714e71-52a7-45e8-a639-99ec37f2d85f",
+      providerRevisionId: "df75faa4-ed4c-44ed-8db0-443cc3b426ed",
+    })
+    await createSecurityAudit(database, {
+      id,
+      type: "authentication_handoff_consumed",
+      handoffId: "4f58d4a0-dd53-4c9f-b68b-87fb85af8941",
+      externalIdentityId: "e8714e71-52a7-45e8-a639-99ec37f2d85f",
+    })
+    await createSecurityAudit(database, {
+      id,
+      type: "authentication_handoff_denied",
+      handoffId: "4f58d4a0-dd53-4c9f-b68b-87fb85af8941",
+      reason: "revoked",
+    })
+    await createSecurityAudit(database, {
+      id,
       type: "external_identity_created",
       externalIdentityId: "e8714e71-52a7-45e8-a639-99ec37f2d85f",
       provider: "workforce",
@@ -53,6 +78,31 @@ describe("createSecurityAudit()", () => {
     })
 
     expect(create.mock.calls.map(([{ data }]) => data)).toEqual([
+      expect.objectContaining({
+        action: "authentication.attempt.denied",
+        outcome: "DENIED",
+        targetType: "authorization_attempt",
+        context: { provider: "github", reason: "invalid_or_expired" },
+      }),
+      expect.objectContaining({
+        action: "authentication.handoff.created",
+        outcome: "SUCCESS",
+        targetType: "admission_handoff",
+        context: {
+          externalIdentityId: "e8714e71-52a7-45e8-a639-99ec37f2d85f",
+          providerRevisionId: "df75faa4-ed4c-44ed-8db0-443cc3b426ed",
+        },
+      }),
+      expect.objectContaining({
+        action: "authentication.handoff.consumed",
+        outcome: "SUCCESS",
+        context: { externalIdentityId: "e8714e71-52a7-45e8-a639-99ec37f2d85f" },
+      }),
+      expect.objectContaining({
+        action: "authentication.handoff.denied",
+        outcome: "DENIED",
+        context: { reason: "revoked" },
+      }),
       expect.objectContaining({
         action: "identity.external.created",
         outcome: "SUCCESS",
