@@ -847,7 +847,7 @@ test("the shared bundle has a complete context library and working local links",
 })
 
 for (const [source, extraSkills, activeContext] of [
-  ["starters/minimal", 0, false],
+  ["starters/minimal", 1, false],
   ["starters/coreai", 11, true],
 ]) {
   test(`${source} composes with shared guidance without collisions or broken links`, t => {
