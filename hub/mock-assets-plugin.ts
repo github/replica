@@ -6,7 +6,7 @@ import type { Plugin } from "vite"
 const require = createRequire(import.meta.url)
 
 export function mockAssetsPlugin(): Plugin {
-  const root = resolve(import.meta.dirname, "app/javascript/application/hub/mocks/assets")
+  const root = resolve(import.meta.dirname, "app/application/hub/mocks/assets")
   const assets = new Map([
     [
       "/mockServiceWorker.js",

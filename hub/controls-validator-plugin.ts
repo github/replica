@@ -2,10 +2,7 @@ import { fileURLToPath } from "node:url"
 import { dirname, resolve } from "node:path"
 import { normalizePath, type Plugin } from "vite"
 
-const root = resolve(
-  dirname(fileURLToPath(import.meta.url)),
-  "./app/javascript/utils/prototype-controls",
-)
+const root = resolve(dirname(fileURLToPath(import.meta.url)), "./app/utils/prototype-controls")
 export const controlsValidatorModule = "replica-controls-validator"
 export const controlsValidatorPath = resolve(root, "controls-shape.cjs")
 const validationPath = normalizePath(resolve(root, "controls-validation.mjs"))

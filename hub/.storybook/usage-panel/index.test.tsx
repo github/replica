@@ -18,15 +18,15 @@ vi.mock("../usage-view", () => ({
 
 describe("UsagePanel()", () => {
   it("requests the current report on mount and renders subsequent usage updates", () => {
-    const path = "app/javascript/components/widget/index.tsx"
+    const path = "app/components/widget/index.tsx"
     const latest: UsageIndex = {
       components: {
         [path]: {
-          consumers: [{ path: "app/javascript/pages/example.tsx", lines: [3] }],
+          consumers: [{ path: "app/pages/example.tsx", lines: [3] }],
           surfaces: [],
         },
       },
-      stories: { "app/javascript/components/widget/stories.tsx": [path] },
+      stories: { "app/components/widget/stories.tsx": [path] },
     }
     vi.mocked(useParameter).mockReturnValue({ components: {}, stories: {} })
     vi.mocked(useStorybookState).mockReturnValue({
@@ -36,7 +36,7 @@ describe("UsagePanel()", () => {
           type: "story",
           id: "widget--default",
           title: "Widget",
-          importPath: "./app/javascript/components/widget/stories.tsx",
+          importPath: "./app/components/widget/stories.tsx",
         },
       },
     } as unknown as ReturnType<typeof useStorybookState>)
@@ -49,10 +49,10 @@ describe("UsagePanel()", () => {
 
     render(<UsagePanel />)
     expect(emit).toHaveBeenCalledWith("storybook/component-usage/request")
-    expect(screen.getByRole("status").textContent).toContain("app/javascript/pages/example.tsx")
+    expect(screen.getByRole("status").textContent).toContain("app/pages/example.tsx")
 
     act(() => receive?.({ ...latest, components: { [path]: { consumers: [], surfaces: [] } } }))
-    expect(screen.getByRole("status").textContent).not.toContain("app/javascript/pages/example.tsx")
+    expect(screen.getByRole("status").textContent).not.toContain("app/pages/example.tsx")
     expect(screen.getByRole("status").textContent).toContain(path)
   })
 })

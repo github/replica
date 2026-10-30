@@ -20,7 +20,7 @@ Prototypes serve `public/controls.replica.json`. The extension injects the share
 
 Controls must report connection, validation, and binding errors. A healthy connection does not prove that a control changes the intended interface; inspect the result. URL values must not include credentials, private Hub addresses, or another prototype's saved state.
 
-Shared source stays under `app/javascript/utils/prototype-controls/`. See [Controls development](prototype-controls.md) for schema generation and generated-file checks.
+Shared source stays under `app/utils/prototype-controls/`. See [Controls development](prototype-controls.md) for schema generation and generated-file checks.
 
 ## Publishing boundary
 
@@ -48,7 +48,7 @@ Use the existing browser workflow for rendered checks. Source and jsdom tests do
 
 ## Contributor workflow
 
-Frontend source stays under `app/javascript/application/prototype-canvas/`, with its startup code in `application/start-prototype-canvas/` and preview bridge in `application/prototype-preview-bridge/`. Shared components, features, hooks, utilities, and theme tokens keep their existing paths.
+Frontend source stays under `app/application/prototype-canvas/`, with its startup code in `application/start-prototype-canvas/` and preview bridge in `application/prototype-preview-bridge/`. Shared components, features, hooks, utilities, and theme tokens keep their existing paths.
 
 Extension commands and local servers live under `.github/extensions/replica-prototype/`. Edit their TypeScript `.mts` files, then regenerate the committed `.mjs` files. Installed users run those generated files without installing Hub's dependencies.
 

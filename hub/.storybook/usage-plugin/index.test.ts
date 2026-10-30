@@ -41,17 +41,17 @@ describe("usagePlugin()", () => {
     vi.useFakeTimers()
     const initial: UsageIndex = { components: {}, stories: {} }
     const next: UsageIndex = {
-      components: { "app/javascript/components/widget/index.tsx": { consumers: [], surfaces: [] } },
+      components: { "app/components/widget/index.tsx": { consumers: [], surfaces: [] } },
       stories: {},
     }
     vi.mocked(analyzeUsage).mockReturnValueOnce(initial).mockReturnValue(next)
     const { root, watcher, httpServer, server, module, load } = await startPlugin()
     try {
       await load()
-      watcher.emit("add", resolve(root, "app/javascript/components/widget/index.tsx"))
+      watcher.emit("add", resolve(root, "app/components/widget/index.tsx"))
       vi.advanceTimersByTime(60)
-      watcher.emit("change", resolve(root, "app/javascript/components/widget/stories.tsx"))
-      watcher.emit("unlink", resolve(root, "app/javascript/application/example/index.tsx"))
+      watcher.emit("change", resolve(root, "app/components/widget/stories.tsx"))
+      watcher.emit("unlink", resolve(root, "app/application/example/index.tsx"))
       watcher.emit("change", resolve(root, "tsconfig.json"))
       vi.advanceTimersByTime(99)
       expect(analyzeUsage).toHaveBeenCalledTimes(1)
@@ -75,14 +75,14 @@ describe("usagePlugin()", () => {
     try {
       await load()
       for (const path of [
-        "app/javascript/example.test.tsx",
-        "app/javascript/example.spec.ts",
-        "app/javascript/__tests__/example.tsx",
-        "app/javascript/fixtures/example.tsx",
-        "app/javascript/test-support/example.tsx",
-        "app/javascript/storybook/example.tsx",
-        "app/javascript/example.stories.tsx",
-        "app/javascript/example.json",
+        "app/example.test.tsx",
+        "app/example.spec.ts",
+        "app/__tests__/example.tsx",
+        "app/fixtures/example.tsx",
+        "app/test-support/example.tsx",
+        "app/storybook/example.tsx",
+        "app/example.stories.tsx",
+        "app/example.json",
         "node_modules/package/index.ts",
         "../outside.tsx",
       ]) {
@@ -103,7 +103,7 @@ describe("usagePlugin()", () => {
     const { root, watcher, httpServer, server, load } = await startPlugin()
     try {
       await load()
-      watcher.emit("change", resolve(root, "app/javascript/components/widget/index.tsx"))
+      watcher.emit("change", resolve(root, "app/components/widget/index.tsx"))
       vi.runAllTimers()
       expect(analyzeUsage).toHaveBeenCalledTimes(2)
       expect(server.ws.send).not.toHaveBeenCalled()
@@ -121,10 +121,10 @@ describe("usagePlugin()", () => {
     try {
       await load()
       const events = [
-        ["add", "app/javascript/components/widget/index.ts"],
-        ["unlink", "app/javascript/application/example/index.tsx"],
-        ["change", "app/javascript/components/widget/stories.tsx"],
-        ["change", "app/javascript/types.d.ts"],
+        ["add", "app/components/widget/index.ts"],
+        ["unlink", "app/application/example/index.tsx"],
+        ["change", "app/components/widget/stories.tsx"],
+        ["change", "app/types.d.ts"],
         ["change", "tsconfig.json"],
       ] as const
       for (const [event, path] of events) {
@@ -175,7 +175,7 @@ describe("usagePlugin()", () => {
     const { root, watcher, httpServer, server, load } = await startPlugin()
     try {
       await load()
-      watcher.emit("change", resolve(root, "app/javascript/components/widget/index.tsx"))
+      watcher.emit("change", resolve(root, "app/components/widget/index.tsx"))
       httpServer.emit("close")
       vi.runAllTimers()
       expect(analyzeUsage).toHaveBeenCalledTimes(1)

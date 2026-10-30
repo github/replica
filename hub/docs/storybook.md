@@ -10,7 +10,7 @@ Stories follow `Pages -> Features -> Components`. Components are reusable interf
 
 Preserve the catalogue groups: `Components/Name`, `Prototype canvas/Name`, `Hub/Design/Name`, `Hub/Pages/Name`, and `Hub/Features/Name`. These organize the workbench without changing the production import direction.
 
-Keep `stories.tsx` beside its implementation. Catalogue-only inventories live under `app/javascript/storybook/`. Use local state and isolated TypeScript fixtures from that directory; production code must not depend on story fixtures. The canonical synthetic personas remain `octocat`, `mona`, `github/prototype`, and `github/empty`.
+Keep `stories.tsx` beside its implementation. Catalogue-only inventories live under `app/storybook/`. Use local state and isolated TypeScript fixtures from that directory; production code must not depend on story fixtures. The canonical synthetic personas remain `octocat`, `mona`, `github/prototype`, and `github/empty`.
 
 Collection surfaces normally need Empty, Single, and Multiple stories. Add cases only for distinct product states such as loading, failure, permissions, draft protection, or recovery. Use the existing theme and viewport controls instead of duplicating light, dark, or narrow stories.
 
@@ -18,7 +18,7 @@ The top-level decorator uses `HubThemeProvider` so portals inherit Brand and Hub
 
 ## Component usage
 
-The **Used in** panel analyzes production TypeScript JSX consumers under `app/javascript/` and follows them to pages and application surfaces. Counts represent source locations, not runtime instances. It excludes stories, fixtures, test support, and tests. Missing metadata and unused components have distinct empty states.
+The **Used in** panel analyzes production TypeScript JSX consumers under `app/` and follows them to pages and application surfaces. Counts represent source locations, not runtime instances. It excludes stories, fixtures, test support, and tests. Missing metadata and unused components have distinct empty states.
 
 The Storybook-only Vite plugin updates the report without reloading the preview. The production app does not load the analyzer or usage panel. GitHub source links target `main` and may differ from this rebuild branch.
 

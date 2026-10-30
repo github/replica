@@ -35,10 +35,7 @@ describe("Storybook viteFinal()", () => {
       if (!address || typeof address === "string")
         throw new Error("Vite did not start an HTTP server.")
       const origin = `http://127.0.0.1:${address.port}`
-      const validationFile = resolve(
-        root,
-        "app/javascript/utils/prototype-controls/controls-validation.mjs",
-      )
+      const validationFile = resolve(root, "app/utils/prototype-controls/controls-validation.mjs")
       const response = await fetch(
         `${origin}/@fs/${normalizePath(validationFile)}?v=cache-suffixed-importer`,
       )

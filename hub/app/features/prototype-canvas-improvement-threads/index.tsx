@@ -25,7 +25,7 @@ import { useReviewCardPosition } from "@hooks/use-review-card-position"
 import { ReviewThreadReplyForm } from "@features/review-thread-reply-form"
 import { copy } from "./en"
 import type { ImprovementThread, ImprovementThreadsProps } from "./types"
-import avatarPlaceholder from "../../../../public/avatar-placeholder.svg?raw"
+import avatarPlaceholder from "../../../public/avatar-placeholder.svg?raw"
 
 import "@features/review-comment-row/styles.css"
 import "@features/review-thread-message/styles.css"

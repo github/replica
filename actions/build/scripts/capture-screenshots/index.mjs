@@ -17,7 +17,7 @@ export async function captureScreenshots(root, screenshots, configRoot = root) {
   await validateBuildOutput(root)
   const manifest = await readTemplates(configRoot)
   const controlsAdapter = await readFile(
-    new URL("../../../../hub/app/javascript/utils/prototype-controls/browser.js", import.meta.url),
+    new URL("../../../../hub/app/utils/prototype-controls/browser.js", import.meta.url),
     "utf8",
   )
   await rm(screenshots, { force: true, recursive: true })

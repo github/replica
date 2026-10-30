@@ -21,11 +21,11 @@ Route loaders, actions, and their URL readers can throw a `Response` to select R
 
 Application code imports Pages, Pages import Features, and Features import Components, hooks, and utilities. Imports must not point back up these layers. Keep presentation props typed and independent of a backend framework.
 
-Preserve the existing `app/javascript/{application,pages,features,components,hooks,utils}/` layout. Keep page orchestration in application code rather than hiding requests or authorization inside presentation.
+Preserve the existing `app/{application,pages,features,components,hooks,utils}/` layout. Keep page orchestration in application code rather than hiding requests or authorization inside presentation.
 
 ## Interface
 
-- Use Primer Brand components and tokens first. Hub-owned styles use the semantic `--hub-*` mappings in `app/javascript/tokens/base.css`.
+- Use Primer Brand components and tokens first. Hub-owned styles use the semantic `--hub-*` mappings in `app/tokens/base.css`.
 - When Brand lacks an app primitive, build a focused, accessible Hub-owned control instead of importing `@primer/react`.
 - Keep `HubThemeProvider` around application and Storybook content so portals inherit the resolved theme.
 - Use Storybook as the presentation workbench and add or update colocated stories for meaningful visual changes.

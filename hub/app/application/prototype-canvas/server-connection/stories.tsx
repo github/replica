@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { waitFor, within } from "storybook/test"
 
 import { useHubTheme } from "@hooks/use-hub-theme"
-import { renderMissingPrototypeHtml } from "../../../../../../.github/extensions/replica-prototype/render-missing-prototype-html/index.mjs"
+import { renderMissingPrototypeHtml } from "../../../../../.github/extensions/replica-prototype/render-missing-prototype-html/index.mjs"
 import { installFixture } from "./install-fixture"
 
 function ServerConnection({ scenario }: { scenario: string }) {

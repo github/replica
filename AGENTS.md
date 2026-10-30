@@ -29,7 +29,7 @@ Follow the [commit and PR conventions](CONTRIBUTING.md#commits-and-pull-requests
 
 ## Project boundaries
 
-- `hub/` starts a TypeScript Express API and React + Vite frontend, with PostgreSQL and Prisma for database development. Hosting and review features are not implemented. Sign-in and deployment choices are not decided. Shared canvas and Controls source stays under `hub/app/javascript/`. Read `hub/AGENTS.md` and [Hub architecture](hub/docs/architecture.md) before changing it.
+- `hub/` starts a TypeScript Express API and React + Vite frontend, with PostgreSQL and Prisma for database development. Hosting and review features are not implemented. Sign-in and deployment choices are not decided. Shared canvas and Controls source stays under `hub/app/`. Read `hub/AGENTS.md` and [Hub architecture](hub/docs/architecture.md) before changing it.
 - `starter/` is the single source for the Vite + React app, `.agents/skills/`, and `.agents/context-templates/`. Product- and design-system-specific guidance belongs in consuming repositories.
 - `actions/build/` owns the artifact contract between prototype repositories and Hub.
 - `packages/learning/` owns the learning contracts, the memory provider and consolidator interfaces, the reference providers and consolidators, the conformance suite, and the `replica-learning` command. It is private repository source with no release yet. Read its `README.md` and [ADR 0001](docs/adr/0001-learning-extension-architecture.md) before changing it.

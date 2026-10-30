@@ -21,10 +21,8 @@ await build({
     rolldownOptions: { output: { minify: true } },
     outDir: assets.pathname,
     lib: {
-      entry: new URL(
-        "../app/javascript/application/prototype-preview-bridge/index.ts",
-        import.meta.url,
-      ).pathname,
+      entry: new URL("../app/application/prototype-preview-bridge/index.ts", import.meta.url)
+        .pathname,
       formats: ["es"],
       name: "ReplicaCanvasBridge",
       fileName: () => "canvas-bridge.js",
@@ -38,7 +36,7 @@ await build({
   logLevel: "warn",
   resolve: {
     alias: {
-      "@utils": new URL("../app/javascript/utils/", import.meta.url).pathname,
+      "@utils": new URL("../app/utils/", import.meta.url).pathname,
     },
   },
   build: {
@@ -47,8 +45,7 @@ await build({
     rolldownOptions: { output: { minify: true } },
     outDir: assets.pathname,
     lib: {
-      entry: new URL("../app/javascript/utils/review-anchor/validate-anchor.ts", import.meta.url)
-        .pathname,
+      entry: new URL("../app/utils/review-anchor/validate-anchor.ts", import.meta.url).pathname,
       formats: ["es"],
       fileName: () => "review-anchor-validation.mjs",
     },
@@ -66,10 +63,8 @@ await build({
     rolldownOptions: { output: { minify: true } },
     outDir: assets.pathname,
     lib: {
-      entry: new URL(
-        "../app/javascript/utils/prototype-controls/controls-validation.mjs",
-        import.meta.url,
-      ).pathname,
+      entry: new URL("../app/utils/prototype-controls/controls-validation.mjs", import.meta.url)
+        .pathname,
       formats: ["es"],
       fileName: () => "controls-validator.mjs",
     },

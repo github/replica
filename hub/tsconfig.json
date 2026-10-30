@@ -11,13 +11,13 @@
     "noEmit": true,
     "noUncheckedIndexedAccess": true,
     "paths": {
-      "@/*": ["./app/javascript/*"],
-      "@application/*": ["./app/javascript/application/*"],
-      "@components/*": ["./app/javascript/components/*"],
-      "@features/*": ["./app/javascript/features/*"],
-      "@hooks/*": ["./app/javascript/hooks/*"],
-      "@pages/*": ["./app/javascript/pages/*"],
-      "@utils/*": ["./app/javascript/utils/*"]
+      "@/*": ["./app/*"],
+      "@application/*": ["./app/application/*"],
+      "@components/*": ["./app/components/*"],
+      "@features/*": ["./app/features/*"],
+      "@hooks/*": ["./app/hooks/*"],
+      "@pages/*": ["./app/pages/*"],
+      "@utils/*": ["./app/utils/*"]
     },
     "resolveJsonModule": true,
     "rootDirs": [".", "./.react-router/types"],
@@ -27,7 +27,7 @@
     "types": ["node", "vite/client", "vitest/globals"]
   },
   "include": [
-    "app/javascript",
+    "app",
     ".react-router/types/**/*",
     "server",
     "test",

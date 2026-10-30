@@ -14,7 +14,7 @@ export default defineConfig({
     cssCodeSplit: false,
     outDir: "../.github/extensions/replica-prototype/assets",
     rollupOptions: {
-      input: "app/javascript/application/start-prototype-canvas/index.tsx",
+      input: "app/application/start-prototype-canvas/index.tsx",
       output: {
         assetFileNames: (asset) =>
           asset.names.some((name) => name.endsWith(".woff2"))
@@ -24,7 +24,7 @@ export default defineConfig({
           groups: [
             {
               name: "improvement-notes-prototype",
-              test: /app[\\/]javascript[\\/]features[\\/]prototype-canvas-improvement-notes[\\/]/,
+              test: /app[\\/]features[\\/]prototype-canvas-improvement-notes[\\/]/,
               priority: 5,
               includeDependenciesRecursively: false,
             },

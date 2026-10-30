@@ -7,7 +7,7 @@ import { vi } from "vitest"
 const HUB_ORIGIN = "http://replica.localhost:19500"
 const PREVIEW_ORIGIN = "http://b1.preview.replica.localhost:19500"
 const BRIDGE_SOURCE = readFileSync(
-  "app/javascript/features/install-replica-preview-bridge/index.js",
+  "app/features/install-replica-preview-bridge/index.js",
   "utf8",
 ).replace('"__REPLICA_HUB_ORIGIN__"', JSON.stringify(HUB_ORIGIN))
 

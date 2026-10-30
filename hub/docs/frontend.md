@@ -4,6 +4,8 @@ The first connected Hub journey uses React Router Framework Mode as a browser-re
 
 This is an evolving frontend implementation. The Express product APIs, production sign-in, real build hosting, and reviews are not implemented.
 
+Browser source lives directly under [app/](../app/). The routed Hub entry is [application/hub/](../app/application/hub/); pages, features, components, hooks, utilities, Storybook fixtures, and theme tokens are sibling directories. The Express API stays separate under [server/](../server/).
+
 ## Start with mock data
 
 From `hub/`, with dependencies installed:
@@ -24,14 +26,23 @@ Local preview HTML and representative SVG images are synthetic assets, not publi
 
 ## Routes and state
 
-| Route | Connected presentation | URL state |
-| --- | --- | --- |
-| `/` | Redirects to the first available repository, or shows an empty state | Repository selection comes from the workspace response |
-| `/repositories/:repositoryId` | Repository prototypes | `q`, `author`, `page`, `view` |
-| `/repositories/:repositoryId/prototypes/:prototypeId` | Prototype preview and editable name/description | Optional `build` pins the preview |
-| `/repositories/:repositoryId/prototypes/:prototypeId/builds` | Build history | `page` |
-| `/repositories/:repositoryId/prototypes/:prototypeId/builds/:buildNumber` | Build metadata and representative images | Build selection is in the path |
-| Other paths | Explicit not-found feedback | No success-shaped placeholder |
+Start the mock development server before opening these examples. The links use the default port, `5173`; replace it with the port printed by the CLI if you start the server on another port. These examples cover every connected route. Retained-only pages in the inventory below do not have application routes yet.
+
+| Route | Connected presentation | URL state | Open an example |
+| --- | --- | --- | --- |
+| `/` | Redirects to the first available repository, or shows an empty state | Repository selection comes from the workspace response | [Home](http://127.0.0.1:5173/) |
+| `/repositories/:repositoryId` | Repository prototypes | `q`, `author`, `page`, `view` | [github/prototype](http://127.0.0.1:5173/repositories/2001) |
+| `/repositories/:repositoryId/prototypes/:prototypeId` | Prototype preview and editable name/description | Optional `build` pins the preview | [Welcome](http://127.0.0.1:5173/repositories/2001/prototypes/1) |
+| `/repositories/:repositoryId/prototypes/:prototypeId/builds` | Build history | `page` | [Welcome build history](http://127.0.0.1:5173/repositories/2001/prototypes/1/builds) |
+| `/repositories/:repositoryId/prototypes/:prototypeId/builds/:buildNumber` | Build metadata and representative images | Build selection is in the path | [Successful Build 3](http://127.0.0.1:5173/repositories/2001/prototypes/1/builds/3) |
+| Other paths | Explicit not-found feedback | No success-shaped placeholder | [Not-found page (intentional 404)](http://127.0.0.1:5173/not-connected) |
+
+Other seeded page states:
+
+- Repositories: [list view](http://127.0.0.1:5173/repositories/2001?view=list) and [empty github/empty repository](http://127.0.0.1:5173/repositories/2002).
+- Prototypes: [Welcome pinned to Build 1](http://127.0.0.1:5173/repositories/2001/prototypes/1?build=1), [Navigation with a running build](http://127.0.0.1:5173/repositories/2001/prototypes/2), and [Settings without builds](http://127.0.0.1:5173/repositories/2001/prototypes/3).
+- Build history: [older Welcome builds](http://127.0.0.1:5173/repositories/2001/prototypes/1/builds?page=2) and [empty Settings history](http://127.0.0.1:5173/repositories/2001/prototypes/3/builds).
+- Build details: [failed Welcome Build 2](http://127.0.0.1:5173/repositories/2001/prototypes/1/builds/2) and [running Navigation Build 1](http://127.0.0.1:5173/repositories/2001/prototypes/2/builds/1).
 
 `author=me` selects the mock viewer; other author selections use an ID returned by the authors endpoint. Search, author, pagination, and gallery/list changes are reflected in the URL. Draft text and pending form state remain local to the interaction.
 
@@ -45,7 +56,7 @@ Route modules export `clientLoader`, `clientAction`, and their default component
 
 The shared JSON client awaits mock startup before sending any API request. It forwards cancellation, checks HTTP status, parses JSON, and validates the result with Zod. API, JSON, schema, and startup failures remain errors. Expected details-save failures appear in the still-open editor with its draft intact.
 
-These are frontend/mock contracts under [the application contracts](../app/javascript/application/hub/contracts/index.ts), not Prisma models or already-implemented Express endpoints. The mock identifiers preserve the retained presentation; coordinate real identifiers and contracts with backend work.
+These are frontend/mock contracts under [the application contracts](../app/application/hub/contracts/index.ts), not Prisma models or already-implemented Express endpoints. The mock identifiers preserve the retained presentation; coordinate real identifiers and contracts with backend work.
 
 | HTTP interface | Result |
 | --- | --- |
@@ -84,32 +95,32 @@ The four connected page modules below form the first journey. The other 23 top-l
 
 | Page module | Intent and current connection |
 | --- | --- |
-| [Repositories show](../app/javascript/pages/repositories-show-page/) | Connected repository listing, filters, and pagination |
-| [Prototypes show](../app/javascript/pages/prototypes-show-page/) | Connected local preview and name/description edit; reviews explicitly disconnected |
-| [Builds index](../app/javascript/pages/builds-index-page/) | Connected build history |
-| [Builds show](../app/javascript/pages/builds-show-page/) | Connected build details |
-| [Home](../app/javascript/pages/home-index-page/) | Retained sign-in entry; `signInPath` POST is not connected |
-| [Analytics](../app/javascript/pages/analytics-page/) | Retained destination/event configuration and POST actions |
-| [Canvas pairings](../app/javascript/pages/canvas-pairings-page/) | Retained approve/revoke/cancel presentation |
-| [Copilot connection](../app/javascript/pages/copilot-connection-page/) | Retained connect/disconnect forms |
-| [Fresh authorization](../app/javascript/pages/fresh-authorization-page/) | Retained confirmation/cancellation forms |
-| [GitHub App](../app/javascript/pages/github-app-page/) | Retained configuration/reset forms |
-| [GitHub App install](../app/javascript/pages/github-app-setup-install-page/) | Retained installation guidance |
-| [GitHub App register](../app/javascript/pages/github-app-setup-register-page/) | Retained registration form |
-| [GitHub App setup](../app/javascript/pages/github-app-setup-show-page/) | Retained secret/organization setup form |
-| [Admin confirmation](../app/javascript/pages/hub-admin-confirmation-page/) | Retained privileged-action confirmation |
-| [Admin enrollment](../app/javascript/pages/hub-admin-enrollment-page/) | Retained enrollment form |
-| [Admins](../app/javascript/pages/hub-admins-page/) | Retained administrator list and add/confirmation presentation |
-| [Learnings](../app/javascript/pages/learnings-page/) | Retained run, edit, reject, and retire presentation |
-| [New prototype](../app/javascript/pages/new-prototype-page/) | Retained client brief/template flow; submission API unconfirmed |
-| [Notifications](../app/javascript/pages/notifications-page/) | Retained list/load-more presentation |
-| [Prototype management](../app/javascript/pages/prototype-management-page/) | Retained management navigation |
-| [Replica browse](../app/javascript/pages/replica-browse-page/) | Retained preview/branch orchestration; submission API unconfirmed |
-| [Security audit](../app/javascript/pages/security-audit-page/) | Retained scope, pagination, and sign-out presentation |
-| [Session revocation](../app/javascript/pages/session-revocation-page/) | Retained revoke/cancel/sign-in presentation |
-| [Share links](../app/javascript/pages/share-links-index-page/) | Retained create/manage share-link presentation |
-| [Shared build](../app/javascript/pages/shared-builds-show-page/) | Retained shared-preview presentation; no sharing service |
-| [Sharing settings](../app/javascript/pages/sharing-settings-page/) | Retained settings form |
-| [Welcome](../app/javascript/pages/welcome-page/) | Retained setup/guidance/dismiss presentation |
+| [Repositories show](../app/pages/repositories-show-page/) | Connected repository listing, filters, and pagination |
+| [Prototypes show](../app/pages/prototypes-show-page/) | Connected local preview and name/description edit; reviews explicitly disconnected |
+| [Builds index](../app/pages/builds-index-page/) | Connected build history |
+| [Builds show](../app/pages/builds-show-page/) | Connected build details |
+| [Home](../app/pages/home-index-page/) | Retained sign-in entry; `signInPath` POST is not connected |
+| [Analytics](../app/pages/analytics-page/) | Retained destination/event configuration and POST actions |
+| [Canvas pairings](../app/pages/canvas-pairings-page/) | Retained approve/revoke/cancel presentation |
+| [Copilot connection](../app/pages/copilot-connection-page/) | Retained connect/disconnect forms |
+| [Fresh authorization](../app/pages/fresh-authorization-page/) | Retained confirmation/cancellation forms |
+| [GitHub App](../app/pages/github-app-page/) | Retained configuration/reset forms |
+| [GitHub App install](../app/pages/github-app-setup-install-page/) | Retained installation guidance |
+| [GitHub App register](../app/pages/github-app-setup-register-page/) | Retained registration form |
+| [GitHub App setup](../app/pages/github-app-setup-show-page/) | Retained secret/organization setup form |
+| [Admin confirmation](../app/pages/hub-admin-confirmation-page/) | Retained privileged-action confirmation |
+| [Admin enrollment](../app/pages/hub-admin-enrollment-page/) | Retained enrollment form |
+| [Admins](../app/pages/hub-admins-page/) | Retained administrator list and add/confirmation presentation |
+| [Learnings](../app/pages/learnings-page/) | Retained run, edit, reject, and retire presentation |
+| [New prototype](../app/pages/new-prototype-page/) | Retained client brief/template flow; submission API unconfirmed |
+| [Notifications](../app/pages/notifications-page/) | Retained list/load-more presentation |
+| [Prototype management](../app/pages/prototype-management-page/) | Retained management navigation |
+| [Replica browse](../app/pages/replica-browse-page/) | Retained preview/branch orchestration; submission API unconfirmed |
+| [Security audit](../app/pages/security-audit-page/) | Retained scope, pagination, and sign-out presentation |
+| [Session revocation](../app/pages/session-revocation-page/) | Retained revoke/cancel/sign-in presentation |
+| [Share links](../app/pages/share-links-index-page/) | Retained create/manage share-link presentation |
+| [Shared build](../app/pages/shared-builds-show-page/) | Retained shared-preview presentation; no sharing service |
+| [Sharing settings](../app/pages/sharing-settings-page/) | Retained settings form |
+| [Welcome](../app/pages/welcome-page/) | Retained setup/guidance/dismiss presentation |
 
 Use focused request/store/route tests for the connected journey and existing page tests for their local behavior. Review visual changes in Storybook and capture the affected stories following the [Storybook guide](storybook.md#ui-changes-and-pull-request-evidence). Do not freeze whole DOM trees, incidental copy, or speculative APIs as the migration's ground truth.

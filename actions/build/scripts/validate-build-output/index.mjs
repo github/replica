@@ -6,7 +6,7 @@ import { collectBuildFiles } from "../collect-build-files/index.mjs"
 import { MAX_ENTRIES, MAX_FILE_BYTES, MAX_PATH_DEPTH, MAX_TOTAL_BYTES } from "../constants.mjs"
 import { requireIndexFile } from "../require-index-file/index.mjs"
 import { requiredPathArgument } from "../required-path-argument/index.mjs"
-import { validateControlsDocument } from "../../../../hub/app/javascript/utils/prototype-controls/controls.mjs"
+import { validateControlsDocument } from "../../../../hub/app/utils/prototype-controls/controls.mjs"
 
 const DEFAULT_LIMITS = {
   maxEntries: MAX_ENTRIES,

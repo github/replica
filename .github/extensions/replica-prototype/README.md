@@ -296,6 +296,6 @@ These requirements are agent instructions, not a sandbox or a new host permissio
 
 The extension never kills or restarts a manually started server. A version-1 handshake from the exact proxy iframe origin and current nonce is required before selecting targets. Local readiness does not prove uncommitted files match the published Build. Nothing is automatically committed, pushed, published or dispatched.
 
-The canonical runtime and tests live in `hub/app/javascript/application/prototype-preview-bridge/`. The extension build packages this source as `assets/canvas-bridge.js`. The runtime accepts only its fixed canvas parent on `127.0.0.1`, receives no Hub credentials or comment bodies, and returns anchor metadata. Uncertain targets remain available in the comments sidebar without an estimated marker.
+The canonical runtime and tests live in `hub/app/application/prototype-preview-bridge/`. The extension build packages this source as `assets/canvas-bridge.js`. The runtime accepts only its fixed canvas parent on `127.0.0.1`, receives no Hub credentials or comment bodies, and returns anchor metadata. Uncertain targets remain available in the comments sidebar without an estimated marker.
 
 For project discovery, process boundaries, status limitations, and contributor commands, see the [prototype canvas guide](https://github.com/github/replica/blob/main/hub/docs/prototype-canvas.md).

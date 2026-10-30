@@ -34,7 +34,7 @@ export function usagePlugin(root: string): Plugin {
         const isConfig = /(^|\/)tsconfig(?:\.[^/]+)?\.json$/.test(path)
         const isStory = /(^|\/)stories\.tsx$/.test(path)
         const isSource =
-          /^app\/javascript\/.+\.tsx?$/.test(path) &&
+          /^app\/.+\.tsx?$/.test(path) &&
           !/(^|\/)(storybook|test|tests|__tests__|fixtures|__fixtures__|test-support)(\/|$)|\.(test|spec|stories)\.[^.]+$/.test(
             path,
           )
