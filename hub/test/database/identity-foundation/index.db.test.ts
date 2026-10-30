@@ -29,7 +29,7 @@ async function createProviderAggregate(key: string, digest = "a".repeat(64)) {
 }
 
 describe("identity foundation migration", () => {
-  it("deploys the committed baseline with only C1 application tables", async () => {
+  it("deploys C1 followed by the C2 authentication proof migration", async () => {
     const migrations = await prisma.$queryRaw<Array<{ migration_name: string }>>`
       SELECT migration_name
       FROM public._prisma_migrations
@@ -45,10 +45,16 @@ describe("identity foundation migration", () => {
       ORDER BY table_name
     `
 
-    expect(migrations).toEqual([{ migration_name: "20261029203000_identity_foundation" }])
+    expect(migrations).toEqual([
+      { migration_name: "20261029203000_identity_foundation" },
+      { migration_name: "20261030170000_authentication_proof" },
+    ])
     expect(tables).toEqual([
+      { table_name: "admission_handoffs" },
       { table_name: "authentication_provider_revisions" },
       { table_name: "authentication_providers" },
+      { table_name: "authentication_revocation_generations" },
+      { table_name: "authorization_attempts" },
       { table_name: "external_identities" },
       { table_name: "security_audits" },
       { table_name: "users" },
@@ -68,6 +74,21 @@ describe("identity foundation migration", () => {
       "created_at",
       "updated_at",
     ])
+  })
+
+  it("enforces one-use authentication history and monotonic global revocation", async () => {
+    const generation = await prisma.authenticationRevocationGeneration.findUniqueOrThrow({
+      where: { key: "global" },
+    })
+    await expect(
+      prisma.authenticationRevocationGeneration.update({
+        where: { key: "global" },
+        data: { generation: generation.generation },
+      }),
+    ).rejects.toThrow("Authentication revocation generation may only increase")
+    await expect(
+      prisma.authenticationRevocationGeneration.delete({ where: { key: "global" } }),
+    ).rejects.toThrow("Authentication revocation generation may only increase")
   })
 
   it("keeps the identity tuple unique and rejects every identity history change", async () => {

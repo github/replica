@@ -34,6 +34,17 @@ export async function resetDatabase(databaseUrl: string) {
       )
       await client.query(`TRUNCATE ${names.join(", ")} RESTART IDENTITY CASCADE`)
     }
+    if (
+      tables.rows.some(
+        ({ schemaname, tablename }) =>
+          schemaname === "public" && tablename === "authentication_revocation_generations",
+      )
+    ) {
+      await client.query(
+        `INSERT INTO public.authentication_revocation_generations (id, key, generation)
+         VALUES ('00000000-0000-4000-8000-000000000001', 'global', 1)`,
+      )
+    }
   } finally {
     await client.end()
   }
