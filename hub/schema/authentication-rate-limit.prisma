@@ -1,0 +1,18 @@
+model AuthenticationRateLimit {
+  // ID columns
+  id String @id @default(uuid()) @db.Uuid
+
+  // Attribute columns
+  scope            String   @db.VarChar(32)
+  keyDigest        String   @map("key_digest") @db.VarChar(64)
+  windowStartedAt  DateTime @map("window_started_at") @db.Timestamptz(3)
+  reservationCount Int      @map("reservation_count")
+
+  // Timestamp columns
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([scope, keyDigest])
+  @@index([windowStartedAt])
+  @@map("authentication_rate_limits")
+}

@@ -2,6 +2,7 @@ import { z } from "zod"
 
 import { hashAuthenticationValue } from "../../../utils/authentication/hash-authentication-value/index.ts"
 import { AuthenticationProofError } from "../errors.ts"
+import { recordAuthenticationDenial } from "../record-authentication-denial/index.ts"
 import type {
   CompleteAuthenticationProofDependencies,
   CompleteAuthenticationProofInput,
@@ -30,20 +31,26 @@ export async function completeAuthenticationProof(
     consumedAt: now,
   })
   if (!attempt) {
-    await dependencies.writeDenialAudit("invalid_or_expired")
-    throw new AuthenticationProofError(
+    const error = new AuthenticationProofError(
       "attempt_invalid",
       "The authentication attempt is invalid or has expired.",
     )
+    await recordAuthenticationDenial(error, () =>
+      dependencies.writeDenialAudit("invalid_or_expired"),
+    )
+    throw error
   }
 
   const selectedBeforeProof = await dependencies.getSelectedProviderRevision()
   if (!selectedBeforeProof || selectedBeforeProof.id !== attempt.providerRevisionId) {
-    await dependencies.writeDenialAudit("configuration_changed")
-    throw new AuthenticationProofError(
+    const error = new AuthenticationProofError(
       "configuration_changed",
       "The authentication provider configuration changed during this attempt.",
     )
+    await recordAuthenticationDenial(error, () =>
+      dependencies.writeDenialAudit("configuration_changed"),
+    )
+    throw error
   }
 
   let evidence
@@ -54,28 +61,35 @@ export async function completeAuthenticationProof(
       codeVerifier: dependencies.decryptCodeVerifier(attempt.codeVerifierCiphertext),
     })
   } catch (error) {
-    await dependencies.writeDenialAudit("provider_failed")
-    throw new AuthenticationProofError(
+    const primaryError = new AuthenticationProofError(
       "provider_failed",
       "The authentication provider could not prove the external identity.",
       { cause: error },
     )
+    await recordAuthenticationDenial(primaryError, () =>
+      dependencies.writeDenialAudit("provider_failed"),
+    )
+    throw primaryError
   }
   if (evidence.provider !== dependencies.adapter.providerKey) {
-    await dependencies.writeDenialAudit("provider_failed")
-    throw new AuthenticationProofError(
+    const error = new AuthenticationProofError(
       "provider_failed",
       "The authentication provider returned mismatched identity evidence.",
     )
+    await recordAuthenticationDenial(error, () => dependencies.writeDenialAudit("provider_failed"))
+    throw error
   }
 
   const selectedAfterProof = await dependencies.getSelectedProviderRevision()
   if (!selectedAfterProof || selectedAfterProof.id !== attempt.providerRevisionId) {
-    await dependencies.writeDenialAudit("configuration_changed")
-    throw new AuthenticationProofError(
+    const error = new AuthenticationProofError(
       "configuration_changed",
       "The authentication provider configuration changed during this attempt.",
     )
+    await recordAuthenticationDenial(error, () =>
+      dependencies.writeDenialAudit("configuration_changed"),
+    )
+    throw error
   }
   const expectedRevocationGeneration = await dependencies.getRevocationGeneration()
   const identity = await dependencies.resolveOrCreateIdentity({
@@ -95,11 +109,14 @@ export async function completeAuthenticationProof(
     expectedRevocationGeneration,
   })
   if (handoff.status === "restart") {
-    await dependencies.writeDenialAudit("configuration_changed")
-    throw new AuthenticationProofError(
+    const error = new AuthenticationProofError(
       "configuration_changed",
       "Authentication state changed before the admission handoff was created.",
     )
+    await recordAuthenticationDenial(error, () =>
+      dependencies.writeDenialAudit("configuration_changed"),
+    )
+    throw error
   }
 
   return {

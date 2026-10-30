@@ -1,6 +1,5 @@
 import { z } from "zod"
 
-import type { ImmutableIdentityEvidence } from "../../../domains/authentication/types.ts"
 import { GitHubProviderRequestError } from "../errors.ts"
 import type {
   CreateGitHubUserAuthenticationAdapterInput,
@@ -71,11 +70,7 @@ export function createGitHubUserAuthenticationAdapter(
       }).toString()
       return url
     },
-    async completeAuthenticationProof({
-      callbackUri,
-      code,
-      codeVerifier,
-    }): Promise<ImmutableIdentityEvidence> {
+    async completeAuthenticationProof({ callbackUri, code, codeVerifier }) {
       if (callbackUri !== configuration.callbackUri) {
         throw new Error("GitHub callback URI does not match the configured callback URI.")
       }

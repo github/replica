@@ -5,6 +5,8 @@ import { hashAuthenticationValue } from "../../../utils/authentication/hash-auth
 import { IdentityTransactionConflictError } from "../../identity/errors.ts"
 import { getSelectedProviderRevision } from "../../identity/get-selected-provider-revision/index.ts"
 import { runWithBoundedRetries } from "../../identity/run-with-bounded-retries/index.ts"
+import { AuthenticationProofError } from "../errors.ts"
+import { recordAuthenticationDenial } from "../record-authentication-denial/index.ts"
 import type { AdmissionHandoffTransaction } from "../run-admission-handoff-transaction/types.ts"
 import type { PublicIdentityAttributes } from "../types.ts"
 
@@ -32,7 +34,6 @@ export function consumeAuthenticationAdmissionHandoff(
   input: {
     browserBinding: string
     handoffToken: string
-    now: Date
     providerKey: string
   },
   dependencies: {
@@ -50,10 +51,7 @@ export function consumeAuthenticationAdmissionHandoff(
         const handoff = await repositories.findAdmissionHandoff(tokenDigest)
         let reason: DenialReason | null = null
         if (!handoff || handoff.consumedAt) reason = "replayed"
-        else if (handoff.expiresAt <= input.now) reason = "expired"
-        else if (handoff.browserBindingDigest !== browserBindingDigest) {
-          reason = "browser_mismatch"
-        } else {
+        else {
           await repositories.lockAuthenticationProviderSelection(input.providerKey)
           await repositories.lockAuthenticationRevocationGeneration()
           const selectedRevision = await getSelectedProviderRevision(
@@ -71,28 +69,37 @@ export function consumeAuthenticationAdmissionHandoff(
         }
 
         if (reason) {
-          await repositories.createSecurityAudit({
-            id: createId(),
-            type: "authentication_handoff_denied",
-            ...(handoff ? { handoffId: handoff.id } : {}),
-            reason,
-          })
-          return { status: "denied", reason }
+          const deniedReason = reason
+          await recordAuthenticationDenial(
+            new AuthenticationProofError("attempt_invalid", "The admission handoff was denied."),
+            () =>
+              repositories.createSecurityAudit({
+                id: createId(),
+                type: "authentication_handoff_denied",
+                ...(handoff ? { handoffId: handoff.id } : {}),
+                reason: deniedReason,
+              }),
+          )
+          return { status: "denied", reason: deniedReason }
         }
 
-        if (
-          !(await repositories.consumeAdmissionHandoff({
-            id: handoff!.id,
-            consumedAt: input.now,
-          }))
-        ) {
-          await repositories.createSecurityAudit({
-            id: createId(),
-            type: "authentication_handoff_denied",
-            handoffId: handoff!.id,
-            reason: "replayed",
-          })
-          return { status: "denied", reason: "replayed" }
+        const consumption = await repositories.consumeAdmissionHandoff({
+          id: handoff!.id,
+          browserBindingDigest,
+        })
+        if (consumption !== "consumed") {
+          const deniedReason = consumption
+          await recordAuthenticationDenial(
+            new AuthenticationProofError("attempt_invalid", "The admission handoff was denied."),
+            () =>
+              repositories.createSecurityAudit({
+                id: createId(),
+                type: "authentication_handoff_denied",
+                handoffId: handoff!.id,
+                reason: deniedReason,
+              }),
+          )
+          return { status: "denied", reason: deniedReason }
         }
         await repositories.createSecurityAudit({
           id: createId(),

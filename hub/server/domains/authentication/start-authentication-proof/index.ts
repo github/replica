@@ -3,16 +3,15 @@ import { z } from "zod"
 
 import { hashAuthenticationValue } from "../../../utils/authentication/hash-authentication-value/index.ts"
 import { AuthenticationProofError } from "../errors.ts"
+import { recordAuthenticationDenial } from "../record-authentication-denial/index.ts"
 import type {
   StartAuthenticationProofDependencies,
   StartAuthenticationProofInput,
   StartAuthenticationProofResult,
 } from "./types.ts"
 
-const inputSchema = z.object({ requestIp: z.string().min(1).max(200) }).strict()
+const inputSchema = z.object({ requestIpDigest: z.string().regex(/^[0-9a-f]{64}$/) }).strict()
 const ATTEMPT_LIFETIME_MS = 10 * 60 * 1_000
-const INITIATION_WINDOW_MS = 10 * 60 * 1_000
-const INITIATION_LIMIT = 10
 
 export async function startAuthenticationProof(
   input: StartAuthenticationProofInput,
@@ -21,30 +20,20 @@ export async function startAuthenticationProof(
   const parsed = inputSchema.parse(input)
   const now = dependencies.now()
   await dependencies.deleteExpiredArtifacts(now)
-  const requestIpDigest = hashAuthenticationValue(parsed.requestIp)
-  const recentAttemptCount = await dependencies.recentAttemptCount({
-    requestIpDigest,
-    createdAfter: new Date(now.getTime() - INITIATION_WINDOW_MS),
-  })
-  if (recentAttemptCount >= INITIATION_LIMIT) {
-    await dependencies.writeDenialAudit("rate_limited")
-    throw new AuthenticationProofError(
-      "rate_limited",
-      "Too many authentication attempts were started.",
-    )
-  }
-
   const selectedRevision = await dependencies.getSelectedProviderRevision()
   if (
     !selectedRevision ||
     selectedRevision.revision !== dependencies.expectedRevision ||
     selectedRevision.configurationDigest !== dependencies.configurationDigest
   ) {
-    await dependencies.writeDenialAudit("configuration_changed")
-    throw new AuthenticationProofError(
+    const error = new AuthenticationProofError(
       "configuration_changed",
       "The selected authentication provider configuration is unavailable.",
     )
+    await recordAuthenticationDenial(error, () =>
+      dependencies.writeDenialAudit("configuration_changed"),
+    )
+    throw error
   }
 
   const state = dependencies.createOpaqueValue()
@@ -60,7 +49,7 @@ export async function startAuthenticationProof(
     browserBindingDigest: hashAuthenticationValue(browserBinding),
     codeChallenge,
     codeVerifierCiphertext: dependencies.encryptCodeVerifier(codeVerifier),
-    requestIpDigest,
+    requestIpDigest: parsed.requestIpDigest,
     expiresAt,
   })
 

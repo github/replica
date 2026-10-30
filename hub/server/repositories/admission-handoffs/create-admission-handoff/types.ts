@@ -1,11 +1,15 @@
 import type { Prisma } from "../../../generated/prisma/client.ts"
-import type { PublicIdentityAttributes } from "../../../domains/authentication/types.ts"
 
 export type CreateAdmissionHandoffDatabase = Pick<Prisma.TransactionClient, "admissionHandoff">
 
 export interface CreateAdmissionHandoffInput {
   browserBindingDigest: string
-  displayAttributes: PublicIdentityAttributes
+  displayAttributes: {
+    avatarUrl: string | null
+    email: string | null
+    login: string
+    name: string | null
+  }
   expiresAt: Date
   externalIdentityId: string
   id: string

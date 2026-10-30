@@ -17,10 +17,14 @@ export function get(dependencies: GitHubAuthenticationRoutesDependencies): Reque
   return async (request, response) => {
     response.set("Cache-Control", "no-store")
     response.locals.omitLogPayload = true
-    const now = dependencies.now()
     const requestIp = request.ip ?? request.socket.remoteAddress ?? "unavailable"
-    if (!dependencies.callbackRateLimiter.take(requestIp, now)) {
-      response.status(429).json({ error: "Too many authentication callbacks were received." })
+    if (!(await dependencies.reserveRateLimit({ operation: "callback", requestIp }))) {
+      const error = new AuthenticationProofError(
+        "rate_limited",
+        "Too many authentication callbacks were received.",
+      )
+      await dependencies.recordRateLimitDenial("callback", error)
+      response.status(429).json({ error: error.message })
       return
     }
     const parsed = querySchema.safeParse(request.query)
