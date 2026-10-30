@@ -32,6 +32,7 @@ async function openServer(dependencies: GitHubAuthenticationRoutesDependencies) 
 }
 
 function dependencies() {
+  const browserBinding = "b".repeat(43)
   const complete = vi.fn(() =>
     Promise.resolve({
       status: "authentication_proved" as const,
@@ -49,13 +50,14 @@ function dependencies() {
     Promise.resolve({
       authorizationUrl:
         "https://github.com/login/oauth/authorize?state=state-secret&code_challenge=challenge",
-      browserBinding: "browser-binding-secret",
+      browserBinding,
       expiresAt: new Date("2026-10-30T16:10:00Z"),
     }),
   )
   return {
     complete,
     start,
+    browserBinding,
     value: {
       appOrigin: "https://hub.example.test",
       callbackRateLimiter: createBoundedRateLimiter({
@@ -73,7 +75,7 @@ function dependencies() {
 
 describe("GitHub authentication routes", () => {
   it("starts only from the configured origin and sets a bounded browser cookie", async () => {
-    const { start, value } = dependencies()
+    const { browserBinding, start, value } = dependencies()
     const { baseUrl } = await openServer(value)
 
     const denied = await fetch(`${baseUrl}/api/auth/github/start`, {
@@ -97,19 +99,21 @@ describe("GitHub authentication routes", () => {
     expect(response.headers.get("location")).toContain("github.com/login/oauth/authorize")
     expect(response.headers.get("cache-control")).toBe("no-store")
     expect(response.headers.get("set-cookie")).toMatch(
-      /^hub_auth_browser=browser-binding-secret; Path=\/api\/auth; Expires=.*; HttpOnly; Secure; SameSite=Lax$/,
+      new RegExp(
+        `^hub_auth_browser=${browserBinding}; Path=/api/auth; Expires=.*; HttpOnly; Secure; SameSite=Lax$`,
+      ),
     )
     expect(start).toHaveBeenCalledWith({ requestIp: "192.0.2.10" })
   })
 
   it("returns a non-admitted handoff and excludes callback secrets from HTTP logs", async () => {
-    const { complete, value } = dependencies()
+    const { browserBinding, complete, value } = dependencies()
     const { baseUrl, records } = await openServer(value)
     const response = await fetch(
       `${baseUrl}/api/auth/github/callback?code=authorization-code-secret&state=${"s".repeat(32)}`,
       {
         headers: {
-          cookie: "hub_auth_browser=browser-binding-secret",
+          cookie: `hub_auth_browser=${browserBinding}`,
           "x-forwarded-for": "192.0.2.10",
         },
       },
@@ -130,18 +134,16 @@ describe("GitHub authentication routes", () => {
       },
     })
     expect(complete).toHaveBeenCalledWith({
-      browserBinding: "browser-binding-secret",
+      browserBinding,
       code: "authorization-code-secret",
       state: "s".repeat(32),
     })
     await vi.waitFor(() => expect(records).toHaveLength(1))
-    expect(records.join("")).not.toMatch(
-      /authorization-code-secret|browser-binding-secret|handoff-secret/,
-    )
+    expect(records.join("")).not.toMatch(/authorization-code-secret|handoff-secret/)
   })
 
   it("rejects malformed, oversized, and rate-limited callbacks before proof completion", async () => {
-    const { complete, value } = dependencies()
+    const { browserBinding, complete, value } = dependencies()
     value.callbackRateLimiter = createBoundedRateLimiter({
       limit: 1,
       maxKeys: 100,
@@ -158,12 +160,36 @@ describe("GitHub authentication routes", () => {
       `${baseUrl}/api/auth/github/callback?code=code&state=${"s".repeat(32)}`,
       {
         headers: {
-          cookie: "hub_auth_browser=browser-binding-secret",
+          cookie: `hub_auth_browser=${browserBinding}`,
           "x-forwarded-for": "192.0.2.10",
         },
       },
     )
     expect(limited.status).toBe(429)
     expect(complete).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["short", "short"],
+    ["long", "b".repeat(44)],
+    ["invalid alphabet", `${"b".repeat(42)}=`],
+  ])("rejects a %s browser binding before domain completion", async (_name, binding) => {
+    const { complete, value } = dependencies()
+    const { baseUrl, records } = await openServer(value)
+
+    const response = await fetch(
+      `${baseUrl}/api/auth/github/callback?code=code&state=${"s".repeat(32)}`,
+      { headers: { cookie: `hub_auth_browser=${binding}` } },
+    )
+
+    expect(response.status).toBe(400)
+    expect(response.headers.get("cache-control")).toBe("no-store")
+    expect(await response.json()).toEqual({
+      error: "The authentication callback is invalid.",
+    })
+    expect(complete).not.toHaveBeenCalled()
+    await vi.waitFor(() => expect(records).toHaveLength(1))
+    expect(JSON.parse(records[0]!)).toMatchObject({ level: 40, statusCode: 400 })
+    expect(records[0]).not.toContain(binding)
   })
 })

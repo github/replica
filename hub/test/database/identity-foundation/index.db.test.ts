@@ -91,6 +91,161 @@ describe("identity foundation migration", () => {
     ).rejects.toThrow("Authentication revocation generation may only increase")
   })
 
+  it("enforces authorization attempt constraints and first-consumption-only history", async () => {
+    const { revisionId } = await createProviderAggregate("github")
+    const createdAt = new Date()
+    const attempt = {
+      id: randomUUID(),
+      providerRevisionId: revisionId,
+      stateDigest: "a".repeat(64),
+      browserBindingDigest: "b".repeat(64),
+      codeChallenge: "c".repeat(43),
+      codeVerifierCiphertext: "encrypted",
+      requestIpDigest: "d".repeat(64),
+      expiresAt: new Date(createdAt.getTime() + 60_000),
+    }
+    await prisma.authorizationAttempt.create({ data: attempt })
+
+    await expect(
+      prisma.authorizationAttempt.create({
+        data: { ...attempt, id: randomUUID(), stateDigest: "invalid" },
+      }),
+    ).rejects.toThrow()
+    await expect(
+      prisma.authorizationAttempt.create({
+        data: {
+          ...attempt,
+          id: randomUUID(),
+          stateDigest: "e".repeat(64),
+          expiresAt: new Date(0),
+        },
+      }),
+    ).rejects.toThrow()
+    await expect(
+      prisma.authorizationAttempt.create({
+        data: {
+          ...attempt,
+          id: randomUUID(),
+          stateDigest: "f".repeat(64),
+          providerRevisionId: randomUUID(),
+        },
+      }),
+    ).rejects.toMatchObject({ code: "P2003" })
+    await expect(prisma.authorizationAttempt.delete({ where: { id: attempt.id } })).rejects.toThrow(
+      "Unexpired authorization attempts cannot be deleted",
+    )
+
+    const consumedAt = new Date(Date.now() + 1_000)
+    await prisma.authorizationAttempt.update({
+      where: { id: attempt.id },
+      data: { consumedAt },
+    })
+    await expect(
+      prisma.authorizationAttempt.update({
+        where: { id: attempt.id },
+        data: { consumedAt: new Date(consumedAt.getTime() + 1_000) },
+      }),
+    ).rejects.toThrow("first consumption")
+    await expect(
+      prisma.authorizationAttempt.update({
+        where: { id: attempt.id },
+        data: { stateDigest: "f".repeat(64) },
+      }),
+    ).rejects.toThrow("first consumption")
+  })
+
+  it("enforces admission handoff evidence, ownership, and one-use history", async () => {
+    const { revisionId } = await createProviderAggregate("github")
+    const userId = randomUUID()
+    const externalIdentityId = randomUUID()
+    await createUser(prisma, { id: userId })
+    await createExternalIdentity(prisma, {
+      id: externalIdentityId,
+      userId,
+      provider: "github",
+      issuer: "https://github.com",
+      subject: "123",
+    })
+    const handoff = {
+      id: randomUUID(),
+      externalIdentityId,
+      providerRevisionId: revisionId,
+      tokenDigest: "a".repeat(64),
+      browserBindingDigest: "b".repeat(64),
+      revocationGeneration: 1n,
+      displayAttributes: { login: "octocat" },
+      expiresAt: new Date(Date.now() + 60_000),
+    }
+    await prisma.admissionHandoff.create({ data: handoff })
+
+    await expect(
+      prisma.admissionHandoff.create({
+        data: { ...handoff, id: randomUUID(), tokenDigest: "invalid" },
+      }),
+    ).rejects.toThrow()
+    await expect(
+      prisma.admissionHandoff.create({
+        data: {
+          ...handoff,
+          id: randomUUID(),
+          tokenDigest: "f".repeat(64),
+          expiresAt: new Date(0),
+        },
+      }),
+    ).rejects.toThrow()
+    await expect(
+      prisma.admissionHandoff.create({
+        data: {
+          ...handoff,
+          id: randomUUID(),
+          tokenDigest: "c".repeat(64),
+          displayAttributes: ["not", "an", "object"],
+        },
+      }),
+    ).rejects.toThrow()
+    await expect(
+      prisma.admissionHandoff.create({
+        data: {
+          ...handoff,
+          id: randomUUID(),
+          tokenDigest: "d".repeat(64),
+          displayAttributes: { detail: "x".repeat(5_000) },
+        },
+      }),
+    ).rejects.toThrow()
+    await expect(
+      prisma.admissionHandoff.create({
+        data: {
+          ...handoff,
+          id: randomUUID(),
+          tokenDigest: "e".repeat(64),
+          providerRevisionId: randomUUID(),
+        },
+      }),
+    ).rejects.toMatchObject({ code: "P2003" })
+    await expect(prisma.admissionHandoff.delete({ where: { id: handoff.id } })).rejects.toThrow(
+      "Unexpired admission handoffs cannot be deleted",
+    )
+
+    const consumedAt = new Date(Date.now() + 1_000)
+    await prisma.admissionHandoff.update({
+      where: { id: handoff.id },
+      data: { consumedAt },
+    })
+    await expect(
+      prisma.admissionHandoff.update({
+        where: { id: handoff.id },
+        data: { consumedAt: new Date(consumedAt.getTime() + 1_000) },
+      }),
+    ).rejects.toThrow("first consumption")
+    await expect(
+      prisma.admissionHandoff.update({
+        where: { id: handoff.id },
+        data: { displayAttributes: { login: "changed" } },
+      }),
+    ).rejects.toThrow("first consumption")
+  })
+
   it("keeps the identity tuple unique and rejects every identity history change", async () => {
     const firstUserId = randomUUID()
     const secondUserId = randomUUID()

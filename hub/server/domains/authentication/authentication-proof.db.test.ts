@@ -13,6 +13,7 @@ import { runIdentityCreationTransaction } from "../identity/run-identity-creatio
 import { runProviderRevisionTransaction } from "../identity/run-provider-revision-transaction"
 import { validateAndPersistProviderRevision } from "../identity/validate-and-persist-provider-revision"
 import { consumeAuthenticationAdmissionHandoff } from "./consume-admission-handoff"
+import { runAdmissionHandoffTransaction } from "./run-admission-handoff-transaction"
 
 async function createProvider(revision = 1) {
   const result = await validateAndPersistProviderRevision(
@@ -125,8 +126,12 @@ describe("authentication proof database boundaries", () => {
       now: new Date(Date.now() + 1_000),
     }
     const results = await Promise.all([
-      consumeAuthenticationAdmissionHandoff(prisma, input),
-      consumeAuthenticationAdmissionHandoff(prisma, input),
+      consumeAuthenticationAdmissionHandoff(input, {
+        runTransaction: (operation) => runAdmissionHandoffTransaction(prisma, operation),
+      }),
+      consumeAuthenticationAdmissionHandoff(input, {
+        runTransaction: (operation) => runAdmissionHandoffTransaction(prisma, operation),
+      }),
     ])
     expect(results.filter(({ status }) => status === "consumed")).toHaveLength(1)
     expect(results.filter(({ status }) => status === "denied")).toHaveLength(1)
@@ -164,23 +169,29 @@ describe("authentication proof database boundaries", () => {
     await addHandoff("revoked", 1n)
     await incrementAuthenticationRevocationGeneration(prisma)
     await expect(
-      consumeAuthenticationAdmissionHandoff(prisma, {
-        handoffToken: "revoked",
-        browserBinding: "browser",
-        providerKey: "github",
-        now,
-      }),
+      consumeAuthenticationAdmissionHandoff(
+        {
+          handoffToken: "revoked",
+          browserBinding: "browser",
+          providerKey: "github",
+          now,
+        },
+        { runTransaction: (operation) => runAdmissionHandoffTransaction(prisma, operation) },
+      ),
     ).resolves.toEqual({ status: "denied", reason: "revoked" })
 
     await addHandoff("drifted", 2n)
     await createProvider(2)
     await expect(
-      consumeAuthenticationAdmissionHandoff(prisma, {
-        handoffToken: "drifted",
-        browserBinding: "browser",
-        providerKey: "github",
-        now,
-      }),
+      consumeAuthenticationAdmissionHandoff(
+        {
+          handoffToken: "drifted",
+          browserBinding: "browser",
+          providerKey: "github",
+          now,
+        },
+        { runTransaction: (operation) => runAdmissionHandoffTransaction(prisma, operation) },
+      ),
     ).resolves.toEqual({ status: "denied", reason: "provider_revision_changed" })
   })
 })

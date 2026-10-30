@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
 import { createGitHubUserAuthenticationAdapter } from "."
+import { GitHubProviderRequestError } from "../errors"
 
 const publicConfiguration = {
   authorizationEndpoint: "https://github.com/login/oauth/authorize",
@@ -117,4 +118,39 @@ describe("createGitHubUserAuthenticationAdapter()", () => {
       }),
     ).toThrow("callback URI")
   })
+
+  it.each(["token exchange", "current user"] as const)(
+    "bounds a stalled %s request with a typed provider failure",
+    async (stage) => {
+      const aborted = AbortSignal.abort(new DOMException("timed out", "TimeoutError"))
+      vi.spyOn(AbortSignal, "timeout").mockReturnValue(aborted)
+      const request = vi.fn<typeof fetch>()
+      if (stage === "current user") {
+        request.mockResolvedValueOnce(
+          new Response(JSON.stringify({ access_token: "provider-token", token_type: "bearer" }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        )
+      }
+      request.mockImplementationOnce((_url, init) => {
+        expect(init?.signal).toBe(aborted)
+        return Promise.reject(new Error("request aborted", { cause: init?.signal?.reason }))
+      })
+      const adapter = createGitHubUserAuthenticationAdapter({
+        clientSecret: "client-secret",
+        publicConfiguration,
+        fetch: request,
+      })
+
+      await expect(
+        adapter.completeAuthenticationProof({
+          callbackUri: publicConfiguration.callbackUri,
+          code: "authorization-code",
+          codeVerifier: "verifier-value",
+        }),
+      ).rejects.toBeInstanceOf(GitHubProviderRequestError)
+      expect(request).toHaveBeenCalledTimes(stage === "token exchange" ? 1 : 2)
+    },
+  )
 })

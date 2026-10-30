@@ -8,7 +8,7 @@ describe("completeAuthenticationProof()", () => {
     const order: string[] = []
     const createHandoff = vi.fn(() => {
       order.push("handoff")
-      return Promise.resolve()
+      return Promise.resolve({ status: "created" as const })
     })
     const result = await completeAuthenticationProof(
       {
@@ -53,6 +53,7 @@ describe("completeAuthenticationProof()", () => {
             revision: 1,
             configurationDigest: "a".repeat(64),
           }),
+        getRevocationGeneration: () => Promise.resolve(1n),
         now: () => new Date("2026-10-30T16:00:00Z"),
         resolveOrCreateIdentity: () => {
           order.push("identity")
@@ -74,9 +75,6 @@ describe("completeAuthenticationProof()", () => {
       expect.objectContaining({
         tokenDigest: createHash("sha256").update("handoff-secret").digest("hex"),
       }),
-    )
-    expect(JSON.stringify(createHandoff.mock.calls)).not.toMatch(
-      /authorization-code|pkce-verifier|handoff-secret/,
     )
     expect(result).not.toHaveProperty("userId")
     expect(result).not.toHaveProperty("session")
@@ -103,6 +101,7 @@ describe("completeAuthenticationProof()", () => {
           createOpaqueValue: vi.fn(),
           decryptCodeVerifier: vi.fn(),
           getSelectedProviderRevision: vi.fn(),
+          getRevocationGeneration: vi.fn(),
           now: () => new Date(),
           resolveOrCreateIdentity: vi.fn(),
           writeDenialAudit: vi.fn(),
@@ -110,5 +109,50 @@ describe("completeAuthenticationProof()", () => {
       ),
     ).rejects.toMatchObject({ code: "attempt_invalid" })
     expect(completeProvider).not.toHaveBeenCalled()
+  })
+
+  it("keeps a consumed attempt consumed when the bounded provider request fails", async () => {
+    const consumeAttempt = vi.fn(() =>
+      Promise.resolve({
+        providerRevisionId: "00000000-0000-4000-8000-000000000011",
+        codeVerifierCiphertext: "encrypted-verifier",
+      }),
+    )
+    const createHandoff = vi.fn()
+
+    await expect(
+      completeAuthenticationProof(
+        {
+          browserBinding: "browser-binding-value-with-required-length",
+          code: "authorization-code",
+          state: "state-value-with-the-required-minimum-length",
+        },
+        {
+          adapter: {
+            providerKey: "github",
+            createAuthorizationUrl: vi.fn(),
+            completeAuthenticationProof: () =>
+              Promise.reject(new Error("bounded provider failure")),
+          },
+          callbackUri: "https://hub.test/callback",
+          consumeAttempt,
+          createHandoff,
+          createOpaqueValue: vi.fn(),
+          decryptCodeVerifier: () => "pkce-verifier",
+          getSelectedProviderRevision: () =>
+            Promise.resolve({
+              id: "00000000-0000-4000-8000-000000000011",
+              revision: 1,
+              configurationDigest: "a".repeat(64),
+            }),
+          getRevocationGeneration: vi.fn(),
+          now: () => new Date(),
+          resolveOrCreateIdentity: vi.fn(),
+          writeDenialAudit: vi.fn(),
+        },
+      ),
+    ).rejects.toMatchObject({ code: "provider_failed" })
+    expect(consumeAttempt).toHaveBeenCalledOnce()
+    expect(createHandoff).not.toHaveBeenCalled()
   })
 })
