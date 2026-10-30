@@ -1,4 +1,4 @@
-import { Button, Stack } from "@primer/react-brand"
+import { Button, Stack } from "@primer/react-brand/esm"
 import type { Ref } from "react"
 
 import { HubContentPageHeader } from "@components/hub-content-page-header"

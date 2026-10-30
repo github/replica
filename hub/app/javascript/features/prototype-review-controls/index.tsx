@@ -1,4 +1,4 @@
-import { Button, Tooltip } from "@primer/react-brand"
+import { Button, Tooltip } from "@primer/react-brand/esm"
 
 import { HubCounter } from "@components/hub-counter"
 import { ReviewCommentControl } from "@features/prototype-workspace-header/review-comment-control"

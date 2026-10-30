@@ -1,4 +1,4 @@
-import { Heading, Stack, Text } from "@primer/react-brand"
+import { Heading, Stack, Text } from "@primer/react-brand/esm"
 import type { Meta, StoryObj } from "@storybook/react-vite"
 
 const meta = {

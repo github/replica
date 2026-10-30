@@ -1,4 +1,4 @@
-import { Button } from "@primer/react-brand"
+import { Button } from "@primer/react-brand/esm"
 
 import { ConversationInbox } from "@features/conversation-inbox"
 import { HubWorkspace } from "@features/hub-workspace"

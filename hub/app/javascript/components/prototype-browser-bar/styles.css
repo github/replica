@@ -1,5 +1,5 @@
 .canvas-browser-theme {
-  color-scheme: light;
+  color-scheme: light dark;
 }
 
 .canvas-browser-theme[data-color-mode="dark"] {

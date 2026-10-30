@@ -1,4 +1,4 @@
-import { Button } from "@primer/react-brand"
+import { Button } from "@primer/react-brand/esm"
 import { useId, type RefObject } from "react"
 
 import { BranchPublication } from "../prototype-branch-publication"

@@ -1,4 +1,4 @@
-import { Label } from "@primer/react-brand"
+import { Label } from "@primer/react-brand/esm"
 
 import type { BuildStateLabelProps } from "./types"
 

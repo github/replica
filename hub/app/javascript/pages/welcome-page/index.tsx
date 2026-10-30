@@ -1,7 +1,7 @@
 import { useState } from "react"
 
 import { BookIcon, LinkExternalIcon, PlusIcon, QuestionIcon } from "@primer/octicons-react"
-import { Button, Heading, Text } from "@primer/react-brand"
+import { Button, Heading, Text } from "@primer/react-brand/esm"
 
 import { HubAlert } from "@components/hub-alert"
 import { HubWorkspace } from "@features/hub-workspace"

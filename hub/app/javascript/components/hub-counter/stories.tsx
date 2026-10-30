@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { Button } from "@primer/react-brand"
+import { Button } from "@primer/react-brand/esm"
 import type { CSSProperties } from "react"
 
 import { HubCounter } from "."

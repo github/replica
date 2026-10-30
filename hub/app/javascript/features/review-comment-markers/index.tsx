@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useLayoutEffect, useRef } from "react"
-import { Tooltip } from "@primer/react-brand"
+import { Tooltip } from "@primer/react-brand/esm"
 
 import { ReviewParticipantStack } from "@features/review-participant-stack"
 import { getAreaAnchorGeometry } from "@utils/get-area-anchor-geometry"

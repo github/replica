@@ -1,5 +1,5 @@
 import { LinkIcon } from "@primer/octicons-react"
-import { Button, FormControl, Heading, Select, TextInput } from "@primer/react-brand"
+import { Button, FormControl, Heading, Select, TextInput } from "@primer/react-brand/esm"
 import { useId } from "react"
 
 import { HubVisuallyHidden } from "@components/hub-visually-hidden"

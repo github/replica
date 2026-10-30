@@ -60,7 +60,7 @@ const definitions = {
 const sources = {
   [hostEntry]: `
     import { createRoot } from "react-dom/client"
-    import { ThemeProvider } from "@primer/react-brand"
+    import { ThemeProvider } from "@primer/react-brand/esm"
     import { createRef } from "react"
     import { BuildControls } from "${root}app/javascript/features/build-controls/index.tsx"
     const frame = createRef()

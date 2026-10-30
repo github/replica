@@ -1,5 +1,5 @@
 import { CrosshairsIcon } from "@primer/octicons-react"
-import { Button, FormControl, Textarea } from "@primer/react-brand"
+import { Button, FormControl, Textarea } from "@primer/react-brand/esm"
 import {
   useCallback,
   useEffect,

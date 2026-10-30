@@ -1,4 +1,4 @@
-import { Button, Heading, Text } from "@primer/react-brand"
+import { Button, Heading, Text } from "@primer/react-brand/esm"
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useEffect, useState, useSyncExternalStore } from "react"
 

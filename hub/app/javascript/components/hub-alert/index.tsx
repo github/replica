@@ -1,7 +1,7 @@
 import type { HTMLAttributes, ReactNode } from "react"
 
 import { AlertIcon, CheckCircleIcon, InfoIcon, StopIcon, XIcon } from "@primer/octicons-react"
-import { Text } from "@primer/react-brand"
+import { Text } from "@primer/react-brand/esm"
 
 import { HubIconButton } from "../hub-icon-button"
 

@@ -1,5 +1,5 @@
 import { CheckIcon, RepoIcon } from "@primer/octicons-react"
-import { ActionMenu } from "@primer/react-brand"
+import { ActionMenu } from "@primer/react-brand/esm"
 
 import { HubSpinner } from "@components/hub-spinner"
 

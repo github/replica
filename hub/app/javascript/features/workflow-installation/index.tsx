@@ -1,5 +1,5 @@
 import { WorkflowIcon } from "@primer/octicons-react"
-import { Button, Heading, Text } from "@primer/react-brand"
+import { Button, Heading, Text } from "@primer/react-brand/esm"
 
 import type { WorkflowInstallationData } from "./types"
 

@@ -1,5 +1,5 @@
 import { XIcon } from "@primer/octicons-react"
-import { Button, Heading } from "@primer/react-brand"
+import { Button, Heading } from "@primer/react-brand/esm"
 
 import { HubCounter } from "@components/hub-counter"
 import { HubIconButton } from "@components/hub-icon-button"

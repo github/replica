@@ -1,4 +1,4 @@
-import { Button } from "@primer/react-brand"
+import { Button } from "@primer/react-brand/esm"
 import type { Meta, StoryObj } from "@storybook/react-vite"
 
 import { GithubAppSetupHeader } from "@features/github-app-setup-header"

@@ -1,6 +1,6 @@
 import { useId } from "react"
 
-import { Radio } from "@primer/react-brand"
+import { Radio } from "@primer/react-brand/esm"
 
 import { HubVisuallyHidden } from "../hub-visually-hidden"
 

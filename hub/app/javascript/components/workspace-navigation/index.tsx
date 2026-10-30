@@ -1,7 +1,7 @@
 import type { ReactNode } from "react"
 
 import { SidebarCollapseIcon, SidebarExpandIcon } from "@primer/octicons-react"
-import { Tooltip } from "@primer/react-brand"
+import { Tooltip } from "@primer/react-brand/esm"
 
 import { FeedbackIcon } from "@components/feedback-icon"
 import { RepositoryNavigationItem } from "@components/repository-navigation-item"

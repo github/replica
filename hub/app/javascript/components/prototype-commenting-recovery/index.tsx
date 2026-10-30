@@ -1,4 +1,4 @@
-import { Button } from "@primer/react-brand"
+import { Button } from "@primer/react-brand/esm"
 import { useId } from "react"
 
 import { CanvasDialog } from "../prototype-canvas-dialog"

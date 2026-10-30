@@ -1,5 +1,5 @@
 import { XIcon } from "@primer/octicons-react"
-import { Button, Heading, Tooltip } from "@primer/react-brand"
+import { Button, Heading, Tooltip } from "@primer/react-brand/esm"
 import { useEffect, useId, useRef, useState } from "react"
 import type { SubmitEvent } from "react"
 

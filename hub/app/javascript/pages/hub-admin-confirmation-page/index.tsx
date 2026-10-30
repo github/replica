@@ -1,4 +1,4 @@
-import { Button, Text } from "@primer/react-brand"
+import { Button, Text } from "@primer/react-brand/esm"
 
 import { HubAlert } from "@components/hub-alert"
 import { HubAdministrationPage } from "@features/hub-administration-page"

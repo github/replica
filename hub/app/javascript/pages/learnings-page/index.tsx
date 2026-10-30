@@ -1,5 +1,5 @@
 import { type ReactNode, type RefObject, useRef, useState } from "react"
-import { Button, FormControl, Heading, Text, Textarea } from "@primer/react-brand"
+import { Button, FormControl, Heading, Text, Textarea } from "@primer/react-brand/esm"
 
 import { HubAlert } from "@components/hub-alert"
 import { HubContentPageHeader } from "@components/hub-content-page-header"

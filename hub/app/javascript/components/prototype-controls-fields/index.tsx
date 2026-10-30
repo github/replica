@@ -1,5 +1,5 @@
 import { ChevronDownIcon, ChevronRightIcon } from "@primer/octicons-react"
-import { Button, Text } from "@primer/react-brand"
+import { Button, Text } from "@primer/react-brand/esm"
 import { Fragment, useId, useLayoutEffect, useRef, useState, type MouseEvent } from "react"
 
 import type { Control } from "@utils/prototype-controls/controls.mjs"

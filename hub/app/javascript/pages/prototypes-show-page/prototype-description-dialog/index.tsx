@@ -8,7 +8,7 @@ import {
   Text,
   Textarea,
   TextInput,
-} from "@primer/react-brand"
+} from "@primer/react-brand/esm"
 import { useEffect, useId, useRef } from "react"
 import type { KeyboardEvent } from "react"
 

@@ -1,4 +1,4 @@
-import { Button, Heading, Text } from "@primer/react-brand"
+import { Button, Heading, Text } from "@primer/react-brand/esm"
 import { useEffect, useState, useSyncExternalStore } from "react"
 
 import { createControls } from "@utils/prototype-controls/controls.mjs"
