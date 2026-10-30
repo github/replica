@@ -5,7 +5,7 @@ import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { createApp } from "../../../../create-app"
 import { createLogger } from "../../../../integrations/pino/create-logger"
-import { createBoundedRateLimiter } from "../../../../utils/authentication/create-bounded-rate-limiter"
+import { hashAuthenticationValue } from "../../../../utils/authentication/hash-authentication-value"
 import type { GitHubAuthenticationRoutesDependencies } from "./types"
 
 async function openServer(dependencies: GitHubAuthenticationRoutesDependencies) {
@@ -54,19 +54,20 @@ function dependencies() {
       expiresAt: new Date("2026-10-30T16:10:00Z"),
     }),
   )
+  const reserveRateLimit = vi.fn(() => Promise.resolve(true))
+  const recordRateLimitDenial = vi.fn(() => Promise.resolve())
   return {
     complete,
+    reserveRateLimit,
+    recordRateLimitDenial,
     start,
     browserBinding,
     value: {
       appOrigin: "https://hub.example.test",
-      callbackRateLimiter: createBoundedRateLimiter({
-        limit: 20,
-        maxKeys: 100,
-        windowMs: 60_000,
-      }),
       complete,
       now: () => new Date("2026-10-30T16:00:00Z"),
+      recordRateLimitDenial,
+      reserveRateLimit,
       secureCookies: true,
       start,
     } satisfies GitHubAuthenticationRoutesDependencies,
@@ -103,7 +104,9 @@ describe("GitHub authentication routes", () => {
         `^hub_auth_browser=${browserBinding}; Path=/api/auth; Expires=.*; HttpOnly; Secure; SameSite=Lax$`,
       ),
     )
-    expect(start).toHaveBeenCalledWith({ requestIp: "192.0.2.10" })
+    expect(start).toHaveBeenCalledWith({
+      requestIpDigest: hashAuthenticationValue("192.0.2.10"),
+    })
   })
 
   it("returns a non-admitted handoff and excludes callback secrets from HTTP logs", async () => {
@@ -143,12 +146,8 @@ describe("GitHub authentication routes", () => {
   })
 
   it("rejects malformed, oversized, and rate-limited callbacks before proof completion", async () => {
-    const { browserBinding, complete, value } = dependencies()
-    value.callbackRateLimiter = createBoundedRateLimiter({
-      limit: 1,
-      maxKeys: 100,
-      windowMs: 60_000,
-    })
+    const { browserBinding, complete, reserveRateLimit, value } = dependencies()
+    reserveRateLimit.mockResolvedValueOnce(true).mockResolvedValueOnce(false)
     const { baseUrl } = await openServer(value)
 
     const malformed = await fetch(
@@ -156,6 +155,10 @@ describe("GitHub authentication routes", () => {
       { headers: { cookie: "hub_auth_browser=binding", "x-forwarded-for": "192.0.2.10" } },
     )
     expect(malformed.status).toBe(400)
+    expect(reserveRateLimit).toHaveBeenNthCalledWith(1, {
+      operation: "callback",
+      requestIp: "192.0.2.10",
+    })
     const limited = await fetch(
       `${baseUrl}/api/auth/github/callback?code=code&state=${"s".repeat(32)}`,
       {
@@ -191,5 +194,26 @@ describe("GitHub authentication routes", () => {
     await vi.waitFor(() => expect(records).toHaveLength(1))
     expect(JSON.parse(records[0]!)).toMatchObject({ level: 40, statusCode: 400 })
     expect(records[0]).not.toContain(binding)
+  })
+
+  it("returns a sanitized error when denial and audit both fail", async () => {
+    const { complete, value } = dependencies()
+    complete.mockRejectedValueOnce(
+      new AggregateError(
+        [new Error("safe primary"), new Error("raw audit failure with provider-token-secret")],
+        "dual failure",
+      ),
+    )
+    const { baseUrl, records } = await openServer(value)
+
+    const response = await fetch(
+      `${baseUrl}/api/auth/github/callback?code=code&state=${"s".repeat(32)}`,
+      { headers: { cookie: `hub_auth_browser=${"b".repeat(43)}` } },
+    )
+
+    expect(response.status).toBe(500)
+    expect(await response.json()).toEqual({ error: "Internal server error" })
+    await vi.waitFor(() => expect(records).toHaveLength(1))
+    expect(records[0]).not.toMatch(/provider-token-secret|raw audit failure|safe primary/)
   })
 })
