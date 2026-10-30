@@ -13,6 +13,7 @@ export default defineConfig(
   {
     ignores: [
       "**/.local/**",
+      ".react-router/**",
       "**/*.js",
       "coverage/**",
       "node_modules/**",
@@ -80,6 +81,28 @@ export default defineConfig(
     files: ["app/javascript/application/start-prototype-canvas/index.tsx"],
     rules: {
       "react-refresh/only-export-components": "off",
+    },
+  },
+  {
+    files: [
+      "app/javascript/application/hub/root.tsx",
+      "app/javascript/application/hub/routes/**/index.tsx",
+    ],
+    rules: {
+      "react-refresh/only-export-components": "off",
+    },
+  },
+  {
+    files: [
+      "app/javascript/application/hub/routes/**/index.tsx",
+      "app/javascript/application/hub/read-route-identifier/index.ts",
+      "app/javascript/application/hub/read-route-query/index.ts",
+    ],
+    rules: {
+      "@typescript-eslint/only-throw-error": [
+        "error",
+        { allow: [{ from: "lib", name: "Response" }] },
+      ],
     },
   },
   {

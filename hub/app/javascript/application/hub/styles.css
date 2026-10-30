@@ -1,0 +1,28 @@
+.hub-app-frame {
+  min-block-size: 100vh;
+}
+
+@media (width < 48rem) {
+  .hub-app-frame--mock {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    block-size: 100dvh;
+    overflow: hidden;
+  }
+
+  .hub-app-frame--mock > #app {
+    min-block-size: 0;
+    block-size: 100%;
+    contain: layout;
+    overflow: auto;
+  }
+
+  .hub-app-frame--mock .hub-application {
+    min-block-size: 0;
+    block-size: 100%;
+  }
+
+  .hub-app-frame--mock .hub-route-feedback {
+    min-block-size: 100%;
+  }
+}

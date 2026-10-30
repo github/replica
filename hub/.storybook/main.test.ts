@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises"
+import { mkdir, mkdtemp, rm } from "node:fs/promises"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath, URL } from "node:url"
 
@@ -12,7 +12,8 @@ import config from "./main"
 describe("Storybook viteFinal()", () => {
   it("serves the source controls validator as browser-compatible ESM", async () => {
     const root = resolve(dirname(fileURLToPath(import.meta.url)), "..")
-    const cacheDir = await mkdtemp(join(root, ".storybook-controls-cache-"))
+    await mkdir(join(root, ".local"), { recursive: true })
+    const cacheDir = await mkdtemp(join(root, ".local", "storybook-controls-cache-"))
     let server: ViteDevServer | undefined
     try {
       server = await createServer(

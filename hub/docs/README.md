@@ -3,6 +3,7 @@
 Hub is being rebuilt. The [Hub overview](../README.md) describes what the baseline provides and which product capabilities are not implemented.
 
 - [Architecture](architecture.md): accepted stack, boundaries, and non-goals.
+- [Routed frontend](frontend.md): connected mock journey, API contracts, modes, and retained-page inventory.
 - [Code architecture conventions](backend-architecture.md): repositories, integrations, utilities, and domains.
 - [Coding conventions](coding-conventions.md): frontend layers and interface rules.
 - [Development](development.md): local API and frontend setup.

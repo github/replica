@@ -20,6 +20,7 @@
       "@utils/*": ["./app/javascript/utils/*"]
     },
     "resolveJsonModule": true,
+    "rootDirs": [".", "./.react-router/types"],
     "skipLibCheck": true,
     "strict": true,
     "target": "ES2023",
@@ -27,6 +28,7 @@
   },
   "include": [
     "app/javascript",
+    ".react-router/types/**/*",
     "server",
     "test",
     ".storybook/**/*.ts",
@@ -35,6 +37,8 @@
     "prisma7.config.ts",
     "vite-aliases.ts",
     "controls-validator-plugin.ts",
+    "mock-assets-plugin.ts",
+    "react-router.config.ts",
     "vite.config.ts",
     "vitest.config.ts"
   ]

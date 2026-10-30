@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="900" viewBox="0 0 1400 900">
+  <title>Synthetic desktop prototype preview</title>
+  <rect width="1400" height="900" fill="#f6f8fa" />
+  <rect width="1400" height="88" fill="#ffffff" />
+  <path d="M0 88h1400" stroke="#d1d9e0" />
+  <g fill="#1f2328" font-family="system-ui,sans-serif">
+    <text x="64" y="55" font-size="24" font-weight="600">Prototype workspace</text>
+    <text x="64" y="190" font-size="20" fill="#59636e">Synthetic local preview</text>
+    <text x="64" y="275" font-size="58" font-weight="650">Welcome to the prototype</text>
+    <text x="64" y="335" font-size="24">Explore a new flow with Octocat and Mona.</text>
+  </g>
+  <g fill="#ffffff" stroke="#d1d9e0">
+    <rect x="64" y="410" width="400" height="250" rx="18" />
+    <rect x="500" y="410" width="400" height="250" rx="18" />
+    <rect x="936" y="410" width="400" height="250" rx="18" />
+  </g>
+  <g fill="#1f2328" font-family="system-ui,sans-serif" font-size="32">
+    <text x="100" y="475">Explore</text>
+    <text x="536" y="475">Refine</text>
+    <text x="972" y="475">Compare</text>
+  </g>
+</svg>

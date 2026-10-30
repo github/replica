@@ -34,10 +34,10 @@ Hub has a TypeScript Express API, React + Vite frontend, and PostgreSQL with Pri
 ```sh
 cd hub
 npm ci
-npm run dev
+npm run dev:mock
 ```
 
-This starts the frontend. In a second terminal, run `cd hub && npm run dev:api` to start the API. See [Hub development](hub/docs/development.md) for database setup, addresses, and commands. A GitHub App is not required.
+This starts the frontend's local mock journey without an API or database. For real API integration, run `npm run dev` and, in a second terminal, `npm run dev:api` from `hub/`. See [Hub development](hub/docs/development.md) for setup and [Routed frontend](hub/docs/frontend.md) for connected routes and mock behavior. A GitHub App is not required.
 
 ### Replica Starter
 

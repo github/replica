@@ -26,7 +26,7 @@ Replica has four parts:
 | --- | --- |
 | **Starter** | Creates a local prototype project with agent skills and a working app you can adapt. |
 | **Copilot canvas extension** | Opens your local prototype alongside your Copilot conversation. |
-| **Replica Hub (in development)** | Starts an Express API and React + Vite frontend. Hosting and review features are not available yet. |
+| **Replica Hub (in development)** | Starts an Express API and a routed React frontend with a local mock repository/prototype/build journey. Hosting and review features are not available yet. |
 | **GitHub build action** | Builds prototype files for upload. It is not needed for local prototyping, and the new Hub cannot receive those files yet. |
 
 **Ready to make prototypes?** Follow [Get started with Replica](docs/getting-started.md) to install the GitHub Copilot app, add your team's prototyping repository, install the canvas, and create your first local prototype with controls.

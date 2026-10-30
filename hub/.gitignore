@@ -2,6 +2,7 @@
 !/.env.example
 /.local
 /.npm
+/.react-router
 /.storybook/instances
 /.storybook/settings.json
 /.storybook/template-fixture-build

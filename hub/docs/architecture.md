@@ -6,9 +6,9 @@ Hub contributors are rebuilding the app on `build/hub/new` before merging it int
 
 The team has chosen TypeScript, Express for the API, React and Vite for the frontend, and Vitest for tests. The old backend and the frontend code that connected to it have been removed rather than rewritten.
 
-The API responds to a health check, and the frontend displays the logo with light and dark themes. Storybook keeps the existing components and pages available for reuse.
+The API responds to a health check. The frontend connects repository, prototype-preview, build-history, and build-detail pages in an explicit local mock mode, with light and dark themes. Storybook keeps the other retained components and pages available for reuse.
 
-Contributors can use PostgreSQL and Prisma locally or in the devcontainer. The database has no product models yet. Sign-in, deployment, and product APIs have not been built. This app cannot yet find repositories, import Builds, host previews, save product data, or support reviews.
+Contributors can use PostgreSQL and Prisma locally or in the devcontainer. The database has no product models yet. Sign-in, deployment, and product APIs have not been built. The app cannot yet discover real repositories, import Builds, host published previews, persist product data, or support reviews.
 
 ## Backend
 
@@ -33,11 +33,13 @@ flowchart LR
   Features --> Utilities
 ```
 
-Keep the existing `app/javascript/` layout. Application code starts React and will connect pages to the API. Pages assemble whole screens from typed props. Features combine components for one task. Components are reusable interface elements that do not need to know the larger task.
+Keep the existing `app/javascript/` layout. Application code under `application/hub/` configures React Router Framework SPA Mode, calls the shared `fetch`/Zod request layer, and maps response records to page props. Pages assemble whole screens from typed props. Features combine components for one task. Components are reusable interface elements that do not need to know the larger task.
 
 Imports follow the arrows above. Shared components, hooks, and utilities must not import pages, features, or application code. Keep browser and server code separate. Agree on the API before adding types shared between them.
 
-The frontend displays the existing logo inside the theme provider. Existing pages and features use ordinary browser links. Their old destinations do not exist in the new API; keeping the interface does not make those features work.
+The theme provider wraps normal routes, loading feedback, and error feedback. Route loaders and actions own requests and revalidation; shareable filters and selections live in the URL. MSW starts only in explicit mock development mode and uses one coherent JSON-backed store. API failures never activate mock mode.
+
+The application adapts retained internal links to SPA navigation and blocks unconnected legacy form submissions with visible feedback. Most retained destinations still have no product API. The [frontend guide](frontend.md) owns the connected routes, provisional HTTP contracts, mock lifecycle, and complete retained-page inventory.
 
 ## Other projects
 

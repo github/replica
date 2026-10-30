@@ -1,0 +1,99 @@
+{
+  "viewerLogin": "octocat",
+  "users": [
+    { "id": "octocat", "login": "octocat", "name": "The Octocat", "avatarUrl": null },
+    { "id": "mona", "login": "mona", "name": "Mona", "avatarUrl": null }
+  ],
+  "repositories": [
+    { "id": 2001, "nameWithOwner": "github/prototype", "defaultBranch": "main" },
+    { "id": 2002, "nameWithOwner": "github/empty", "defaultBranch": "main" }
+  ],
+  "prototypes": [
+    {
+      "id": 1,
+      "repositoryId": 2001,
+      "name": "Welcome",
+      "branchName": "prototype/welcome",
+      "description": "Explore a new welcome flow.",
+      "authorLogin": "octocat"
+    },
+    {
+      "id": 2,
+      "repositoryId": 2001,
+      "name": "Navigation",
+      "branchName": "prototype/navigation",
+      "description": "Try a simpler navigation structure.",
+      "authorLogin": "mona"
+    },
+    {
+      "id": 3,
+      "repositoryId": 2001,
+      "name": "Settings",
+      "branchName": "prototype/settings",
+      "description": null,
+      "authorLogin": "octocat"
+    }
+  ],
+  "builds": [
+    {
+      "number": 3,
+      "repositoryId": 2001,
+      "prototypeId": 1,
+      "state": "successful",
+      "commitSha": "3333333333333333333333333333333333333333",
+      "commitAuthorLogin": "octocat",
+      "createdAt": "2026-10-28T15:00:00Z",
+      "startedAt": "2026-10-28T15:00:10Z",
+      "finishedAt": "2026-10-28T15:01:00Z",
+      "previewUrl": "/mock-previews/example.html?prototype=Welcome&build=3",
+      "desktopScreenshotUrl": "/mock-previews/desktop.svg",
+      "narrowScreenshotUrl": "/mock-previews/narrow.svg",
+      "failureSummary": null
+    },
+    {
+      "number": 2,
+      "repositoryId": 2001,
+      "prototypeId": 1,
+      "state": "failed",
+      "commitSha": "2222222222222222222222222222222222222222",
+      "commitAuthorLogin": "mona",
+      "createdAt": "2026-10-27T15:00:00Z",
+      "startedAt": "2026-10-27T15:00:10Z",
+      "finishedAt": "2026-10-27T15:00:40Z",
+      "previewUrl": null,
+      "desktopScreenshotUrl": null,
+      "narrowScreenshotUrl": null,
+      "failureSummary": "The synthetic build command exited with code 1."
+    },
+    {
+      "number": 1,
+      "repositoryId": 2001,
+      "prototypeId": 1,
+      "state": "successful",
+      "commitSha": "1111111111111111111111111111111111111111",
+      "commitAuthorLogin": "octocat",
+      "createdAt": "2026-10-26T15:00:00Z",
+      "startedAt": "2026-10-26T15:00:10Z",
+      "finishedAt": "2026-10-26T15:01:00Z",
+      "previewUrl": "/mock-previews/example.html?prototype=Welcome&build=1",
+      "desktopScreenshotUrl": "/mock-previews/desktop.svg",
+      "narrowScreenshotUrl": "/mock-previews/narrow.svg",
+      "failureSummary": null
+    },
+    {
+      "number": 1,
+      "repositoryId": 2001,
+      "prototypeId": 2,
+      "state": "running",
+      "commitSha": "4444444444444444444444444444444444444444",
+      "commitAuthorLogin": "mona",
+      "createdAt": "2026-10-28T14:00:00Z",
+      "startedAt": "2026-10-28T14:00:10Z",
+      "finishedAt": null,
+      "previewUrl": null,
+      "desktopScreenshotUrl": null,
+      "narrowScreenshotUrl": null,
+      "failureSummary": null
+    }
+  ]
+}

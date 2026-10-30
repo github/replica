@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Local mock prototype</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: system-ui, sans-serif;
+      }
+      body {
+        margin: 0;
+        background: light-dark(#f6f8fa, #0d1117);
+        color: light-dark(#1f2328, #f0f6fc);
+      }
+      header,
+      main {
+        max-width: 64rem;
+        margin: auto;
+        padding: 2rem;
+      }
+      header {
+        display: flex;
+        justify-content: space-between;
+        border-bottom: 1px solid light-dark(#d1d9e0, #3d444d);
+      }
+      a {
+        color: light-dark(#0969da, #79c0ff);
+      }
+      h1 {
+        font-size: clamp(2rem, 5vw, 4rem);
+        margin-block: 2rem 1rem;
+      }
+      .cards {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+        gap: 1rem;
+        margin-block: 2rem;
+      }
+      article {
+        background: light-dark(white, #151b23);
+        padding: 1.5rem;
+        border: 1px solid light-dark(#d1d9e0, #3d444d);
+        border-radius: 0.75rem;
+      }
+      .notice {
+        color: light-dark(#59636e, #9198a1);
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <strong>Prototype workspace</strong>
+      <a href="#details">Explore the example</a>
+    </header>
+    <main>
+      <p class="notice">Synthetic local preview. No build was published.</p>
+      <h1 id="name">Welcome to the prototype</h1>
+      <p>Review the layout while the Hub frontend is connected to its mock API.</p>
+      <div class="cards" id="details">
+        <article>
+          <h2>Explore</h2>
+          <p>Navigate repositories, prototypes, and build history in Hub.</p>
+        </article>
+        <article>
+          <h2>Refine</h2>
+          <p>Edit the prototype name and description using local mock data.</p>
+        </article>
+        <article>
+          <h2>Compare</h2>
+          <p>Choose another build without publishing or calling GitHub.</p>
+        </article>
+      </div>
+    </main>
+    <script>
+      const name = new URLSearchParams(location.search).get("prototype")
+      if (name) document.getElementById("name").textContent = name
+    </script>
+  </body>
+</html>

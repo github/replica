@@ -1,0 +1,44 @@
+.hub-mode-notice {
+  z-index: 10000;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  border-block-end: 0.0625rem solid var(--hub-border-default);
+  background: var(--hub-canvas-default);
+  color: var(--hub-fg-default);
+  box-shadow: var(--hub-shadow-floating);
+  font-size: 0.8125rem;
+}
+
+@media (min-width: 48rem) {
+  .hub-mode-notice {
+    position: fixed;
+    inset: auto 1rem 1rem auto;
+    max-inline-size: calc(100vw - 2rem);
+    border: 0.0625rem solid var(--hub-border-default);
+    border-radius: var(--hub-radius-medium);
+  }
+}
+
+.hub-mode-notice select {
+  min-block-size: 2rem;
+  max-inline-size: 10rem;
+  padding: 0.25rem;
+  border: 0.0625rem solid var(--hub-border-default);
+  border-radius: var(--hub-radius-small);
+  background: var(--hub-canvas-default);
+  color: var(--hub-fg-default);
+  font: inherit;
+}
+
+.hub-mode-notice__label {
+  position: absolute;
+  inline-size: 0.0625rem;
+  block-size: 0.0625rem;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
