@@ -9,12 +9,20 @@ import WebSocket from "ws"
 import { deferred } from "../../test/ws/deferred"
 import { rejected } from "../../test/ws/rejected"
 import { createApp } from "../create-app"
+import { readGitHubAuthenticationConfiguration } from "../domains/authentication/read-github-authentication-configuration"
+import type { GitHubAuthenticationServices } from "../domains/authentication/types"
 import { createLogger } from "../integrations/pino/create-logger"
+import { readTrustedProxyHops } from "../integrations/express/read-trusted-proxy-hops"
 import { attachRealtimeServer } from "../integrations/ws/attach-realtime-server"
 import type * as RealtimeModule from "../integrations/ws/attach-realtime-server"
 import type { RealtimeServer } from "../integrations/ws/types"
 
 vi.mock("../create-app", { spy: true })
+vi.mock("../domains/authentication/read-github-authentication-configuration", { spy: true })
+vi.mock("../domains/authentication/create-github-authentication-services", () => ({
+  createGitHubAuthenticationServices: vi.fn(),
+}))
+vi.mock("../integrations/express/read-trusted-proxy-hops", { spy: true })
 vi.mock("../integrations/ws/attach-realtime-server", { spy: true })
 
 vi.mock("node:http", async (importOriginal) => {
@@ -54,6 +62,113 @@ async function startApi(options: { port: number; shutdownTimeoutMs?: number }) {
 }
 
 describe("runApi()", () => {
+  it("creates no server or realtime resources when authentication configuration parsing fails", async () => {
+    const { runApi } = await import(".")
+    const failure = new Error("invalid authentication configuration")
+    vi.mocked(readGitHubAuthenticationConfiguration).mockImplementationOnce(() => {
+      throw failure
+    })
+    const signals = {
+      SIGINT: process.listeners("SIGINT"),
+      SIGTERM: process.listeners("SIGTERM"),
+    }
+
+    await expect(runApi({ port: 0, logger: createLogger({ level: "silent" }) })).rejects.toBe(
+      failure,
+    )
+    expect(createServer).not.toHaveBeenCalled()
+    expect(attachRealtimeServer).not.toHaveBeenCalled()
+    expect(process.listeners("SIGINT")).toEqual(signals.SIGINT)
+    expect(process.listeners("SIGTERM")).toEqual(signals.SIGTERM)
+  })
+
+  it("creates no server or realtime resources when authentication service initialization fails", async () => {
+    const { runApi } = await import(".")
+    const configuration = {
+      appOrigin: "https://hub.example.test",
+      clientSecret: "client-secret",
+      encryptionKey: Buffer.alloc(32),
+      publicConfiguration: {
+        authorizationEndpoint: "https://github.com/login/oauth/authorize",
+        callbackUri: "https://hub.example.test/api/auth/github/callback",
+        clientId: "client-id",
+        tokenEndpoint: "https://github.com/login/oauth/access_token",
+        userEndpoint: "https://api.github.com/user",
+      },
+      revision: 1,
+      secureCookies: true,
+    }
+    const failure = new Error("database unavailable")
+    vi.mocked(readGitHubAuthenticationConfiguration).mockReturnValueOnce(configuration)
+    const { createGitHubAuthenticationServices } =
+      await import("../domains/authentication/create-github-authentication-services")
+    vi.mocked(createGitHubAuthenticationServices).mockRejectedValueOnce(failure)
+    const signals = {
+      SIGINT: process.listeners("SIGINT"),
+      SIGTERM: process.listeners("SIGTERM"),
+    }
+
+    await expect(runApi({ port: 0, logger: createLogger({ level: "silent" }) })).rejects.toBe(
+      failure,
+    )
+    expect(readTrustedProxyHops).toHaveBeenCalled()
+    expect(createServer).not.toHaveBeenCalled()
+    expect(attachRealtimeServer).not.toHaveBeenCalled()
+    expect(process.listeners("SIGINT")).toEqual(signals.SIGINT)
+    expect(process.listeners("SIGTERM")).toEqual(signals.SIGTERM)
+  })
+
+  it("completes authentication initialization before attaching realtime and listening", async () => {
+    const configuration = {
+      appOrigin: "https://hub.example.test",
+      clientSecret: "client-secret",
+      encryptionKey: Buffer.alloc(32),
+      publicConfiguration: {
+        authorizationEndpoint: "https://github.com/login/oauth/authorize",
+        callbackUri: "https://hub.example.test/api/auth/github/callback",
+        clientId: "client-id",
+        tokenEndpoint: "https://github.com/login/oauth/access_token",
+        userEndpoint: "https://api.github.com/user",
+      },
+      revision: 1,
+      secureCookies: true,
+    }
+    const initialized = deferred<GitHubAuthenticationServices>()
+    vi.mocked(readGitHubAuthenticationConfiguration).mockReturnValueOnce(configuration)
+    const { createGitHubAuthenticationServices } =
+      await import("../domains/authentication/create-github-authentication-services")
+    vi.mocked(createGitHubAuthenticationServices).mockReturnValueOnce(initialized.promise)
+    const { runApi } = await import(".")
+    const logger = createLogger({ level: "silent" })
+    const previousSignals = process.listeners("SIGTERM")
+    const running = runApi({ port: 0, logger })
+    void running.catch(() => {})
+
+    await vi.waitFor(() => expect(createGitHubAuthenticationServices).toHaveBeenCalledOnce())
+    expect(createServer).not.toHaveBeenCalled()
+    expect(attachRealtimeServer).not.toHaveBeenCalled()
+    const services: GitHubAuthenticationServices = {
+      appOrigin: configuration.appOrigin,
+      complete: vi.fn(),
+      now: () => new Date(),
+      recordRateLimitDenial: vi.fn(),
+      reserveRateLimit: vi.fn(),
+      secureCookies: true,
+      start: vi.fn(),
+    }
+    initialized.resolve(services)
+    await vi.waitFor(() => expect(attachRealtimeServer).toHaveBeenCalledOnce())
+    const server = vi.mocked(createServer).mock.results.at(-1)?.value as Server
+    await vi.waitFor(() => expect(server.listening).toBe(true))
+    const signal = process
+      .listeners("SIGTERM")
+      .find((listener) => !previousSignals.includes(listener))
+    if (signal) Reflect.apply(signal, process, ["SIGTERM"])
+    await running
+
+    expect(vi.mocked(createApp).mock.calls.at(-1)?.[0]?.githubAuthentication).toBe(services)
+  })
+
   it("attaches realtime to the HTTP server, injects broadcast, and forbids upgrades without access policies", async () => {
     const { server, running, signal } = await startApi({ port: 0 })
     await once(server, "listening")
