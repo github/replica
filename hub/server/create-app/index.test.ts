@@ -100,6 +100,7 @@ describe("createApp()", () => {
     const logger = createLogger({
       destination: { write: (line) => records.push(parseRecord(line)) },
     })
+
     const server = createServer(createApp({ logger }))
     const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
 
@@ -136,6 +137,55 @@ describe("createApp()", () => {
       })
     }
   })
+
+  it.each([
+    { name: "malformed", body: '{"token":"secret-body"', statusCode: 400 },
+    {
+      name: "oversized",
+      body: JSON.stringify({ token: "x".repeat(1024 * 1024) }),
+      statusCode: 413,
+    },
+  ])(
+    "protects $name authentication payloads before JSON parsing fails",
+    async ({ body, statusCode }) => {
+      const records: Record<string, unknown>[] = []
+      const logger = createLogger({
+        destination: { write: (line) => records.push(parseRecord(line)) },
+      })
+      const server = createServer(createApp({ logger }))
+
+      try {
+        server.listen(0, "127.0.0.1")
+        await once(server, "listening")
+        const { port } = server.address() as AddressInfo
+        const response = await fetch(
+          `http://127.0.0.1:${port}/api/auth/github/callback?code=secret-code&state=secret-state`,
+          {
+            method: "POST",
+            headers: {
+              cookie: "hub_auth_browser=secret-cookie",
+              "content-type": "application/json",
+            },
+            body,
+          },
+        )
+
+        expect(response.status).toBe(statusCode)
+        expect(response.headers.get("cache-control")).toBe("no-store")
+        expect(await response.json()).toEqual({ error: "Invalid request" })
+        await vi.waitFor(() => expect(records).toHaveLength(1))
+        expect(records[0]).not.toHaveProperty("query")
+        expect(records[0]).not.toHaveProperty("body")
+        expect(JSON.stringify(records)).not.toMatch(
+          /secret-code|secret-state|secret-cookie|secret-body/,
+        )
+      } finally {
+        await new Promise<void>((resolve, reject) => {
+          server.close((error) => (error ? reject(error) : resolve()))
+        })
+      }
+    },
+  )
 
   it.each([
     { method: "GET", path: "/repositories" },

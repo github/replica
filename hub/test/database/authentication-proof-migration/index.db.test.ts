@@ -33,7 +33,15 @@ describe("authentication proof migration", () => {
         }
         await promisify(execFile)(
           process.execPath,
-          [prisma, "migrate", "resolve", "--applied", migrationName],
+          [
+            prisma,
+            "migrate",
+            "resolve",
+            "--applied",
+            migrationName,
+            "--config",
+            join(hubRoot, "prisma7.config.ts"),
+          ],
           options,
         )
         await promisify(execFile)(

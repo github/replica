@@ -7,6 +7,8 @@ import { incrementAuthenticationRevocationGeneration } from "../../repositories/
 import { lockAuthenticationRevocationGeneration } from "../../repositories/authentication-revocation-generations/lock-authentication-revocation-generation"
 import { createSecurityAudit } from "../../repositories/security-audits/create-security-audit"
 import { hashAuthenticationValue } from "../../utils/authentication/hash-authentication-value"
+import { getDatabaseUrl } from "../../../test/database/get-database-url"
+import { waitForDatabaseLock } from "../../../test/database/wait-for-database-lock"
 import { resolveOrCreateExternalIdentity } from "../identity/resolve-or-create-external-identity"
 import { runIdentityCreationTransaction } from "../identity/run-identity-creation-transaction"
 import { runProviderRevisionTransaction } from "../identity/run-provider-revision-transaction"
@@ -107,6 +109,7 @@ describe("authentication handoff creation races", () => {
       selectionCompleted = true
     })()
     await selectionStarted.promise
+    await waitForDatabaseLock(getDatabaseUrl())
     expect(selectionCompleted).toBe(false)
     barrier.release()
 
@@ -151,6 +154,7 @@ describe("authentication handoff creation races", () => {
           changeCompleted = true
         })()
         await changeStarted.promise
+        await waitForDatabaseLock(getDatabaseUrl())
         expect(changeCompleted).toBe(false)
         barrier.release()
 
@@ -181,6 +185,7 @@ describe("authentication handoff creation races", () => {
       revocationCompleted = true
     })()
     await revocationStarted.promise
+    await waitForDatabaseLock(getDatabaseUrl())
     expect(revocationCompleted).toBe(false)
     barrier.release()
 

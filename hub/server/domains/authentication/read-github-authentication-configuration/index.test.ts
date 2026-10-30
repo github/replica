@@ -53,4 +53,34 @@ describe("readGitHubAuthenticationConfiguration()", () => {
       }),
     ).toThrow("32 bytes")
   })
+
+  it.each([
+    "https://hub.example.test/",
+    "https://hub.example.test/path",
+    "https://hub.example.test?query=1",
+    "https://hub.example.test#fragment",
+    "https://user@hub.example.test",
+  ])("rejects HUB_APP_ORIGIN that is not an exact origin: %s", (appOrigin) => {
+    expect(() =>
+      readGitHubAuthenticationConfiguration({ ...configured, HUB_APP_ORIGIN: appOrigin }),
+    ).toThrow("exact origin")
+  })
+
+  it("accepts an exact origin with an explicit port", () => {
+    expect(
+      readGitHubAuthenticationConfiguration({
+        ...configured,
+        HUB_APP_ORIGIN: "https://hub.example.test:8443",
+      })?.appOrigin,
+    ).toBe("https://hub.example.test:8443")
+  })
+
+  it("rejects non-github.com provider endpoints", () => {
+    expect(() =>
+      readGitHubAuthenticationConfiguration({
+        ...configured,
+        GITHUB_USER_ENDPOINT: "https://github.enterprise.test/api/v3/user",
+      }),
+    ).toThrow()
+  })
 })

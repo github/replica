@@ -5,7 +5,9 @@ import { startAuthenticationProof } from "."
 
 describe("startAuthenticationProof()", () => {
   it("persists only digests and encrypted PKCE material before returning the provider URL", async () => {
-    const createAttempt = vi.fn(() => Promise.resolve())
+    const createAttempt = vi.fn(() =>
+      Promise.resolve({ expiresAt: new Date("2026-10-30T16:10:00Z") }),
+    )
     const createAuthorizationUrl = vi.fn(
       ({ codeChallenge, state }: { codeChallenge: string; state: string }) =>
         new URL(`https://provider.test/authorize?state=${state}&challenge=${codeChallenge}`),
@@ -48,7 +50,7 @@ describe("startAuthenticationProof()", () => {
       requestIpDigest: createHash("sha256").update("192.0.2.10").digest("hex"),
       codeChallenge: createHash("sha256").update("verifier-secret").digest("base64url"),
       codeVerifierCiphertext: "encrypted:15",
-      expiresAt: new Date("2026-10-30T16:10:00Z"),
+      lifetimeSeconds: 600,
     })
     expect(JSON.stringify(createAttempt.mock.calls)).not.toMatch(
       /state-secret|browser-secret|verifier-secret/,

@@ -54,6 +54,8 @@ describe("completeAuthenticationProof()", () => {
             configurationDigest: "a".repeat(64),
           }),
         getRevocationGeneration: () => Promise.resolve(1n),
+        localConfigurationDigest: "a".repeat(64),
+        localRevision: 1,
         now: () => new Date("2026-10-30T16:00:00Z"),
         resolveOrCreateIdentity: () => {
           order.push("identity")
@@ -102,6 +104,8 @@ describe("completeAuthenticationProof()", () => {
           decryptCodeVerifier: vi.fn(),
           getSelectedProviderRevision: vi.fn(),
           getRevocationGeneration: vi.fn(),
+          localConfigurationDigest: "a".repeat(64),
+          localRevision: 1,
           now: () => new Date(),
           resolveOrCreateIdentity: vi.fn(),
           writeDenialAudit: vi.fn(),
@@ -146,6 +150,8 @@ describe("completeAuthenticationProof()", () => {
               configurationDigest: "a".repeat(64),
             }),
           getRevocationGeneration: vi.fn(),
+          localConfigurationDigest: "a".repeat(64),
+          localRevision: 1,
           now: () => new Date(),
           resolveOrCreateIdentity: vi.fn(),
           writeDenialAudit: vi.fn(),
@@ -154,5 +160,47 @@ describe("completeAuthenticationProof()", () => {
     ).rejects.toMatchObject({ code: "provider_failed" })
     expect(consumeAttempt).toHaveBeenCalledOnce()
     expect(createHandoff).not.toHaveBeenCalled()
+  })
+
+  it("does not use a local adapter whose revision digest differs from the selected revision", async () => {
+    const completeProvider = vi.fn()
+    await expect(
+      completeAuthenticationProof(
+        {
+          browserBinding: "browser-binding-value-with-required-length",
+          code: "authorization-code",
+          state: "state-value-with-the-required-minimum-length",
+        },
+        {
+          adapter: {
+            providerKey: "github",
+            createAuthorizationUrl: vi.fn(),
+            completeAuthenticationProof: completeProvider,
+          },
+          callbackUri: "https://hub.test/callback",
+          consumeAttempt: () =>
+            Promise.resolve({
+              providerRevisionId: "00000000-0000-4000-8000-000000000011",
+              codeVerifierCiphertext: "encrypted-verifier",
+            }),
+          createHandoff: vi.fn(),
+          createOpaqueValue: vi.fn(),
+          decryptCodeVerifier: vi.fn(),
+          getSelectedProviderRevision: () =>
+            Promise.resolve({
+              id: "00000000-0000-4000-8000-000000000011",
+              revision: 2,
+              configurationDigest: "b".repeat(64),
+            }),
+          getRevocationGeneration: vi.fn(),
+          localConfigurationDigest: "a".repeat(64),
+          localRevision: 1,
+          now: () => new Date(),
+          resolveOrCreateIdentity: vi.fn(),
+          writeDenialAudit: vi.fn(),
+        },
+      ),
+    ).rejects.toMatchObject({ code: "configuration_changed" })
+    expect(completeProvider).not.toHaveBeenCalled()
   })
 })

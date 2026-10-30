@@ -54,7 +54,9 @@ function dependencies() {
       expiresAt: new Date("2026-10-30T16:10:00Z"),
     }),
   )
-  const reserveRateLimit = vi.fn(() => Promise.resolve(true))
+  const reserveRateLimit = vi.fn(() =>
+    Promise.resolve({ reserved: true, shouldAuditDenial: false }),
+  )
   const recordRateLimitDenial = vi.fn(() => Promise.resolve())
   return {
     complete,
@@ -104,6 +106,11 @@ describe("GitHub authentication routes", () => {
         `^hub_auth_browser=${browserBinding}; Path=/api/auth; Expires=.*; HttpOnly; Secure; SameSite=Lax$`,
       ),
     )
+    expect(response.headers.get("set-cookie")).toMatch(
+      new RegExp(
+        `^hub_auth_browser=${browserBinding}; Path=/api/auth; Expires=.*; HttpOnly; Secure; SameSite=Lax$`,
+      ),
+    )
     expect(start).toHaveBeenCalledWith({
       requestIpDigest: hashAuthenticationValue("192.0.2.10"),
     })
@@ -146,8 +153,11 @@ describe("GitHub authentication routes", () => {
   })
 
   it("rejects malformed, oversized, and rate-limited callbacks before proof completion", async () => {
-    const { browserBinding, complete, reserveRateLimit, value } = dependencies()
-    reserveRateLimit.mockResolvedValueOnce(true).mockResolvedValueOnce(false)
+    const { browserBinding, complete, recordRateLimitDenial, reserveRateLimit, value } =
+      dependencies()
+    reserveRateLimit
+      .mockResolvedValueOnce({ reserved: true, shouldAuditDenial: false })
+      .mockResolvedValueOnce({ reserved: false, shouldAuditDenial: true })
     const { baseUrl } = await openServer(value)
 
     const malformed = await fetch(
@@ -169,6 +179,7 @@ describe("GitHub authentication routes", () => {
       },
     )
     expect(limited.status).toBe(429)
+    expect(recordRateLimitDenial).toHaveBeenCalledOnce()
     expect(complete).not.toHaveBeenCalled()
   })
 

@@ -3,8 +3,10 @@ import { createDecipheriv } from "node:crypto"
 export function decryptAuthenticationValue(value: string, key: Buffer): string {
   if (key.length !== 32) throw new Error("Authentication encryption key must contain 32 bytes.")
   const parts = value.split(".")
-  if (parts.length !== 3) throw new Error("Authentication ciphertext is invalid.")
-  const [initializationVector, tag, ciphertext] = parts
+  if (parts.length !== 4 || parts[0] !== "v1" || value.length > 500) {
+    throw new Error("Authentication ciphertext is invalid.")
+  }
+  const [, initializationVector, tag, ciphertext] = parts
   const decipher = createDecipheriv(
     "aes-256-gcm",
     key,

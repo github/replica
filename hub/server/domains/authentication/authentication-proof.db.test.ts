@@ -3,13 +3,17 @@ import { describe, expect, it } from "vitest"
 
 import { prisma } from "../../integrations/prisma"
 import { createAdmissionHandoff } from "../../repositories/admission-handoffs/create-admission-handoff"
+import { deleteExpiredAdmissionHandoffs } from "../../repositories/admission-handoffs/delete-expired-admission-handoffs"
 import { createAuthorizationAttempt } from "../../repositories/authorization-attempts/create-authorization-attempt"
+import { deleteExpiredAuthorizationAttempts } from "../../repositories/authorization-attempts/delete-expired-authorization-attempts"
 import { consumeAuthorizationAttempt } from "../../repositories/authorization-attempts/consume-authorization-attempt"
 import { lockAuthenticationProviderSelection } from "../../repositories/authentication-providers/lock-authentication-provider-selection"
 import { incrementAuthenticationRevocationGeneration } from "../../repositories/authentication-revocation-generations/increment-authentication-revocation-generation"
 import { lockAuthenticationRevocationGeneration } from "../../repositories/authentication-revocation-generations/lock-authentication-revocation-generation"
 import { createSecurityAudit } from "../../repositories/security-audits/create-security-audit"
 import { hashAuthenticationValue } from "../../utils/authentication/hash-authentication-value"
+import { getDatabaseUrl } from "../../../test/database/get-database-url"
+import { waitForDatabaseLock } from "../../../test/database/wait-for-database-lock"
 import { resolveOrCreateExternalIdentity } from "../identity/resolve-or-create-external-identity"
 import { runIdentityCreationTransaction } from "../identity/run-identity-creation-transaction"
 import { runProviderRevisionTransaction } from "../identity/run-provider-revision-transaction"
@@ -51,7 +55,6 @@ async function createIdentity() {
 describe("authentication proof database boundaries", () => {
   it("atomically consumes an authorization attempt once and rejects replay, expiry, and mismatch", async () => {
     const provider = await createProvider()
-    const now = new Date()
     const base = {
       id: randomUUID(),
       providerRevisionId: provider.revisionId,
@@ -60,45 +63,97 @@ describe("authentication proof database boundaries", () => {
       codeChallenge: "c".repeat(43),
       codeVerifierCiphertext: "encrypted-verifier",
       requestIpDigest: "d".repeat(64),
-      expiresAt: new Date(now.getTime() + 10 * 60 * 1_000),
+      lifetimeSeconds: 600,
     }
     await createAuthorizationAttempt(prisma, base)
-    const consumedAt = new Date(Date.now() + 1_000)
+    await expect(
+      consumeAuthorizationAttempt(prisma, {
+        stateDigest: base.stateDigest,
+        browserBindingDigest: "e".repeat(64),
+      }),
+    ).resolves.toBeNull()
 
     const [first, second] = await Promise.all([
       consumeAuthorizationAttempt(prisma, {
         stateDigest: base.stateDigest,
         browserBindingDigest: base.browserBindingDigest,
-        consumedAt,
       }),
       consumeAuthorizationAttempt(prisma, {
         stateDigest: base.stateDigest,
         browserBindingDigest: base.browserBindingDigest,
-        consumedAt,
       }),
     ])
     expect([first, second].filter(Boolean)).toHaveLength(1)
     await expect(
       consumeAuthorizationAttempt(prisma, {
         stateDigest: base.stateDigest,
-        browserBindingDigest: "e".repeat(64),
-        consumedAt,
+        browserBindingDigest: base.browserBindingDigest,
       }),
     ).resolves.toBeNull()
 
-    await createAuthorizationAttempt(prisma, {
-      ...base,
-      id: randomUUID(),
-      stateDigest: "f".repeat(64),
-      expiresAt: new Date(now.getTime() + 60_000),
-    })
+    await prisma.$executeRaw`
+      INSERT INTO "authorization_attempts" (
+        "id", "provider_revision_id", "state_digest", "browser_binding_digest",
+        "code_challenge", "code_verifier_ciphertext", "request_ip_digest",
+        "expires_at", "created_at", "updated_at"
+      ) VALUES (
+        ${randomUUID()}::uuid, ${provider.revisionId}::uuid, ${"f".repeat(64)},
+        ${base.browserBindingDigest}, ${base.codeChallenge}, ${base.codeVerifierCiphertext},
+        ${base.requestIpDigest}, clock_timestamp() - interval '1 millisecond',
+        clock_timestamp() - interval '1 second', clock_timestamp()
+      )
+    `
     await expect(
       consumeAuthorizationAttempt(prisma, {
         stateDigest: "f".repeat(64),
         browserBindingDigest: base.browserBindingDigest,
-        consumedAt: new Date(now.getTime() + 2 * 60_000),
       }),
     ).resolves.toBeNull()
+  })
+
+  it("denies an authorization attempt that expires while waiting on its row lock", async () => {
+    const provider = await createProvider()
+    const stateDigest = "9".repeat(64)
+    await prisma.$executeRaw`
+      INSERT INTO "authorization_attempts" (
+        "id", "provider_revision_id", "state_digest", "browser_binding_digest",
+        "code_challenge", "code_verifier_ciphertext", "request_ip_digest",
+        "expires_at", "created_at", "updated_at"
+      ) VALUES (
+        ${randomUUID()}::uuid, ${provider.revisionId}::uuid, ${stateDigest},
+        ${"b".repeat(64)}, ${"c".repeat(43)}, 'encrypted', ${"d".repeat(64)},
+        clock_timestamp() + interval '10 milliseconds',
+        clock_timestamp(), clock_timestamp()
+      )
+    `
+    let release!: () => void
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let locked!: () => void
+    const acquired = new Promise<void>((resolve) => {
+      locked = resolve
+    })
+    const holder = prisma.$transaction(async (transaction) => {
+      await transaction.$queryRaw`
+        SELECT "id" FROM "authorization_attempts"
+        WHERE "state_digest" = ${stateDigest}
+        FOR UPDATE
+      `
+      locked()
+      await waiting
+    })
+    await acquired
+    const consumption = consumeAuthorizationAttempt(prisma, {
+      stateDigest,
+      browserBindingDigest: "b".repeat(64),
+    })
+    await waitForDatabaseLock(getDatabaseUrl())
+    await prisma.$executeRaw`SELECT pg_sleep(0.02)`
+    release()
+    await holder
+
+    await expect(consumption).resolves.toBeNull()
   })
 
   it("allows exactly one browser-bound handoff consumption and creates no session or membership", async () => {
@@ -256,5 +311,39 @@ describe("authentication proof database boundaries", () => {
         { runTransaction: (operation) => runAdmissionHandoffTransaction(prisma, operation) },
       ),
     ).resolves.toEqual({ status: "denied", reason: "provider_revision_changed" })
+  })
+
+  it("deletes expired authentication artifacts using database time", async () => {
+    const provider = await createProvider()
+    const identity = await createIdentity()
+    await prisma.$executeRaw`
+      INSERT INTO "authorization_attempts" (
+        "id", "provider_revision_id", "state_digest", "browser_binding_digest",
+        "code_challenge", "code_verifier_ciphertext", "request_ip_digest",
+        "expires_at", "created_at", "updated_at"
+      ) VALUES (
+        ${randomUUID()}::uuid, ${provider.revisionId}::uuid, ${"a".repeat(64)},
+        ${"b".repeat(64)}, ${"c".repeat(43)}, 'encrypted', ${"d".repeat(64)},
+        clock_timestamp() - interval '1 millisecond',
+        clock_timestamp() - interval '1 second', clock_timestamp()
+      )
+    `
+    await prisma.$executeRaw`
+      INSERT INTO "admission_handoffs" (
+        "id", "external_identity_id", "provider_revision_id", "token_digest",
+        "browser_binding_digest", "revocation_generation", "display_attributes",
+        "expires_at", "created_at", "updated_at"
+      ) VALUES (
+        ${randomUUID()}::uuid, ${identity.externalIdentityId}::uuid,
+        ${provider.revisionId}::uuid, ${"e".repeat(64)}, ${"f".repeat(64)}, 1,
+        '{"login":"octocat"}'::jsonb, clock_timestamp() - interval '1 millisecond',
+        clock_timestamp() - interval '1 second', clock_timestamp()
+      )
+    `
+
+    await deleteExpiredAuthorizationAttempts(prisma)
+    await deleteExpiredAdmissionHandoffs(prisma)
+    await expect(prisma.authorizationAttempt.count()).resolves.toBe(0)
+    await expect(prisma.admissionHandoff.count()).resolves.toBe(0)
   })
 })
