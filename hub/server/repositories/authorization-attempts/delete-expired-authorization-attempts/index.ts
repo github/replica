@@ -1,8 +1,10 @@
 import type { Prisma } from "../../../generated/prisma/client.ts"
 
 export async function deleteExpiredAuthorizationAttempts(
-  database: Pick<Prisma.TransactionClient, "authorizationAttempt">,
-  now: Date,
+  database: Pick<Prisma.TransactionClient, "$executeRaw">,
 ): Promise<void> {
-  await database.authorizationAttempt.deleteMany({ where: { expiresAt: { lte: now } } })
+  await database.$executeRaw`
+    DELETE FROM "authorization_attempts"
+    WHERE "expires_at" <= clock_timestamp()
+  `
 }

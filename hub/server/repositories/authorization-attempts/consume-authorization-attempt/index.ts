@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { Prisma } from "../../../generated/prisma/client.ts"
 
 import type {
   ConsumeAuthorizationAttemptDatabase,
@@ -8,7 +9,6 @@ import type {
 const inputSchema = z
   .object({
     browserBindingDigest: z.string().regex(/^[0-9a-f]{64}$/),
-    consumedAt: z.date(),
     stateDigest: z.string().regex(/^[0-9a-f]{64}$/),
   })
   .strict()
@@ -18,17 +18,34 @@ export async function consumeAuthorizationAttempt(
   input: ConsumeAuthorizationAttemptInput,
 ) {
   const parsed = inputSchema.parse(input)
-  const consumed = await database.authorizationAttempt.updateMany({
-    where: {
-      stateDigest: parsed.stateDigest,
-      browserBindingDigest: parsed.browserBindingDigest,
-      consumedAt: null,
-      expiresAt: { gt: parsed.consumedAt },
+  return database.$transaction(
+    async (transaction) => {
+      const locked = await transaction.$queryRaw<Array<{ id: string }>>`
+        SELECT "id"
+        FROM "authorization_attempts"
+        WHERE "state_digest" = ${parsed.stateDigest}
+        FOR UPDATE
+      `
+      if (!locked.length) return null
+      const consumed = await transaction.$queryRaw<
+        Array<{ code_verifier_ciphertext: string; provider_revision_id: string }>
+      >`
+        UPDATE "authorization_attempts"
+        SET "consumed_at" = clock_timestamp(), "updated_at" = clock_timestamp()
+        WHERE "state_digest" = ${parsed.stateDigest}
+          AND "browser_binding_digest" = ${parsed.browserBindingDigest}
+          AND "consumed_at" IS NULL
+          AND "expires_at" > clock_timestamp()
+        RETURNING "code_verifier_ciphertext", "provider_revision_id"
+      `
+      const attempt = consumed[0]
+      return attempt
+        ? {
+            codeVerifierCiphertext: attempt.code_verifier_ciphertext,
+            providerRevisionId: attempt.provider_revision_id,
+          }
+        : null
     },
-    data: { consumedAt: parsed.consumedAt },
-  })
-  if (consumed.count !== 1) return null
-  return database.authorizationAttempt.findUniqueOrThrow({
-    where: { stateDigest: parsed.stateDigest },
-  })
+    { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted },
+  )
 }

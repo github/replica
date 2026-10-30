@@ -15,15 +15,15 @@ export interface StartAuthenticationProofDependencies {
     browserBindingDigest: string
     codeChallenge: string
     codeVerifierCiphertext: string
-    expiresAt: Date
     id: string
+    lifetimeSeconds: number
     providerRevisionId: string
     requestIpDigest: string
     stateDigest: string
-  }): Promise<unknown>
+  }): Promise<{ expiresAt: Date }>
   createId(): string
   createOpaqueValue(): string
-  deleteExpiredArtifacts(now: Date): Promise<void>
+  deleteExpiredArtifacts(): Promise<void>
   encryptCodeVerifier(value: string): string
   getSelectedProviderRevision(): Promise<SelectedProviderRevision | null>
   now(): Date

@@ -76,6 +76,7 @@ CREATE TABLE "authentication_rate_limits" (
     "key_digest" VARCHAR(64) NOT NULL,
     "window_started_at" TIMESTAMPTZ(3) NOT NULL,
     "reservation_count" INTEGER NOT NULL,
+    "denial_audited_at" TIMESTAMPTZ(3),
     "created_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 

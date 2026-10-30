@@ -15,12 +15,15 @@ export function post(dependencies: GitHubAuthenticationRoutesDependencies): Requ
       return
     }
     const requestIp = request.ip ?? request.socket.remoteAddress ?? "unavailable"
-    if (!(await dependencies.reserveRateLimit({ operation: "start", requestIp }))) {
+    const rateLimit = await dependencies.reserveRateLimit({ operation: "start", requestIp })
+    if (!rateLimit.reserved) {
       const error = new AuthenticationProofError(
         "rate_limited",
         "Too many authentication attempts were started.",
       )
-      await dependencies.recordRateLimitDenial("start", error)
+      if (rateLimit.shouldAuditDenial) {
+        await dependencies.recordRateLimitDenial("start", error)
+      }
       response.status(429).json({ error: error.message })
       return
     }

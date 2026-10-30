@@ -1,16 +1,13 @@
 import type { Prisma } from "../../../generated/prisma/client.ts"
 
-export type CreateAuthorizationAttemptDatabase = Pick<
-  Prisma.TransactionClient,
-  "authorizationAttempt"
->
+export type CreateAuthorizationAttemptDatabase = Pick<Prisma.TransactionClient, "$queryRaw">
 
 export interface CreateAuthorizationAttemptInput {
   browserBindingDigest: string
   codeChallenge: string
   codeVerifierCiphertext: string
-  expiresAt: Date
   id: string
+  lifetimeSeconds: number
   providerRevisionId: string
   requestIpDigest: string
   stateDigest: string

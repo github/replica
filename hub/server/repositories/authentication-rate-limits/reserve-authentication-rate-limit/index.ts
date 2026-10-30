@@ -3,6 +3,7 @@ import { z } from "zod"
 
 import type {
   AuthenticationRateLimitDatabase,
+  AuthenticationRateLimitReservation,
   ReserveAuthenticationRateLimitInput,
 } from "./types.ts"
 
@@ -19,7 +20,7 @@ const inputSchema = z
 export function reserveAuthenticationRateLimit(
   database: AuthenticationRateLimitDatabase,
   input: ReserveAuthenticationRateLimitInput,
-): Promise<boolean> {
+): Promise<AuthenticationRateLimitReservation> {
   const parsed = inputSchema.parse(input)
   return database.$transaction(
     async (transaction) => {
@@ -30,8 +31,8 @@ export function reserveAuthenticationRateLimit(
       `
       await transaction.$executeRaw`
         DELETE FROM "authentication_rate_limits"
-        WHERE "window_started_at" + make_interval(secs => ${parsed.windowSeconds * 2})
-          <= clock_timestamp()
+        WHERE "window_started_at" <=
+          statement_timestamp() - make_interval(secs => ${parsed.windowSeconds * 2})
       `
       const reserved = await transaction.$queryRaw<Array<{ reservation_count: number }>>`
         INSERT INTO "authentication_rate_limits" (
@@ -56,13 +57,29 @@ export function reserveAuthenticationRateLimit(
             THEN 1
             ELSE "authentication_rate_limits"."reservation_count" + 1
           END,
+          "denial_audited_at" = CASE
+            WHEN "authentication_rate_limits"."window_started_at"
+              + make_interval(secs => ${parsed.windowSeconds}) <= statement_timestamp()
+            THEN NULL
+            ELSE "authentication_rate_limits"."denial_audited_at"
+          END,
           "updated_at" = clock_timestamp()
         WHERE "authentication_rate_limits"."window_started_at"
             + make_interval(secs => ${parsed.windowSeconds}) <= clock_timestamp()
           OR "authentication_rate_limits"."reservation_count" < ${parsed.limit}
         RETURNING "reservation_count"
       `
-      return reserved.length === 1
+      if (reserved.length === 1) return { reserved: true, shouldAuditDenial: false }
+      const audited = await transaction.$queryRaw<Array<{ id: string }>>`
+        UPDATE "authentication_rate_limits"
+        SET "denial_audited_at" = statement_timestamp(),
+            "updated_at" = statement_timestamp()
+        WHERE "scope" = ${parsed.scope}
+          AND "key_digest" = ${parsed.keyDigest}
+          AND "denial_audited_at" IS NULL
+        RETURNING "id"
+      `
+      return { reserved: false, shouldAuditDenial: audited.length === 1 }
     },
     { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted },
   )

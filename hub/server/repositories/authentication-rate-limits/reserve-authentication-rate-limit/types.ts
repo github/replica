@@ -14,3 +14,8 @@ export interface AuthenticationRateLimitDatabase {
     options: { isolationLevel: Prisma.TransactionIsolationLevel },
   ): Promise<Result>
 }
+
+export interface AuthenticationRateLimitReservation {
+  reserved: boolean
+  shouldAuditDenial: boolean
+}

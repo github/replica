@@ -18,8 +18,7 @@ export async function startAuthenticationProof(
   dependencies: StartAuthenticationProofDependencies,
 ): Promise<StartAuthenticationProofResult> {
   const parsed = inputSchema.parse(input)
-  const now = dependencies.now()
-  await dependencies.deleteExpiredArtifacts(now)
+  await dependencies.deleteExpiredArtifacts()
   const selectedRevision = await dependencies.getSelectedProviderRevision()
   if (
     !selectedRevision ||
@@ -40,9 +39,7 @@ export async function startAuthenticationProof(
   const browserBinding = dependencies.createOpaqueValue()
   const codeVerifier = dependencies.createOpaqueValue()
   const codeChallenge = createHash("sha256").update(codeVerifier).digest("base64url")
-  const expiresAt = new Date(now.getTime() + ATTEMPT_LIFETIME_MS)
-
-  await dependencies.createAttempt({
+  const { expiresAt } = await dependencies.createAttempt({
     id: dependencies.createId(),
     providerRevisionId: selectedRevision.id,
     stateDigest: hashAuthenticationValue(state),
@@ -50,7 +47,7 @@ export async function startAuthenticationProof(
     codeChallenge,
     codeVerifierCiphertext: dependencies.encryptCodeVerifier(codeVerifier),
     requestIpDigest: parsed.requestIpDigest,
-    expiresAt,
+    lifetimeSeconds: ATTEMPT_LIFETIME_MS / 1_000,
   })
 
   return {
