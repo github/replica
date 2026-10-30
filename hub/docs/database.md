@@ -1,6 +1,6 @@
 # Hub database
 
-Hub uses PostgreSQL and Prisma. Product models and migrations have not been added.
+Hub uses PostgreSQL and Prisma.
 
 [Background jobs](background-jobs.md) use the same database with BullMQ-owned tables and functions in the `bullmq` schema. Prisma does not own those objects. `npm run setup` applies Prisma migrations before BullMQ setup and schedule registration.
 
@@ -66,6 +66,6 @@ npm run db:generate
 
 `npm ci` also generates the client. Generated TypeScript lives under the ignored `server/generated/prisma/` directory and compiles with the API. Schema validation and generation do not require a running database or `DATABASE_URL`; migration and database commands require both. Generate again after changing a schema.
 
-Use `db:migrate` only with a local development database. It needs permission to create a shadow database to calculate migrations. `npm run db:deploy` applies committed migrations without creating new ones; it is not a production deployment setup. `npm run db:studio` opens Prisma's database editor and should be used only with an intended development database.
+Use `db:migrate` only with a local development database. It needs permission to create a shadow database to calculate migrations. `npm run db:deploy` applies committed migrations without creating new ones; database tests use this command so constraints in committed migrations are exercised. It is not a production deployment setup. `npm run db:studio` opens Prisma's database editor and should be used only with an intended development database.
 
-The [database-enabled test projects](testing-and-operations.md#parallel-database-tests) use separate databases for every project, worker, and test run. Setup applies the current Prisma schema directly and clears records before each case. Tests do not use the development database for records.
+The [database-enabled test projects](testing-and-operations.md#parallel-database-tests) use separate databases for every project, worker, and test run. Setup deploys the committed migrations and clears records before each case. Tests do not use the development database for records.
