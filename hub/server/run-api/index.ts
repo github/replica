@@ -26,10 +26,9 @@ export async function runApi({
   const realtime = attachRealtimeServer({ server, path: "/api/realtime", logger })
   const authenticationConfiguration = readGitHubAuthenticationConfiguration(process.env)
   const githubAuthentication = authenticationConfiguration
-    ? await import(
-        "../domains/authentication/create-github-authentication-services/index.ts"
-      ).then(({ createGitHubAuthenticationServices }) =>
-        createGitHubAuthenticationServices(authenticationConfiguration),
+    ? await import("../domains/authentication/create-github-authentication-services/index.ts").then(
+        ({ createGitHubAuthenticationServices }) =>
+          createGitHubAuthenticationServices(authenticationConfiguration),
       )
     : undefined
   server.on(
