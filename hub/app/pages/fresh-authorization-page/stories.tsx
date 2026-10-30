@@ -28,6 +28,35 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Required: Story = {}
+export const Simulation: Story = {
+  args: {
+    data: {
+      ...meta.args.data,
+      simulation: true,
+      heading: "Confirm the simulated continuation",
+      description:
+        "Confirm copilot-connect for @octocat. This is not a GitHub, password or MFA check.",
+      submitLabel: "Confirm simulation",
+      submitPath: "/settings/authorize",
+      cancelLabel: "Cancel simulation",
+      cancelPath: "/settings/authorize",
+      continuation: { id: "mock-continuation-1", method: "post" },
+    },
+  },
+}
+export const NoPendingSimulation: Story = {
+  args: {
+    data: {
+      ...Simulation.args!.data!,
+      heading: "Nothing to confirm",
+      description:
+        "No pending mock continuation belongs to this profile. Start a Copilot or enrollment simulation first.",
+      canContinue: false,
+      continuation: undefined,
+      cancelPath: undefined,
+    },
+  },
+}
 export const HubAdministratorChange: Story = {
   args: {
     data: {

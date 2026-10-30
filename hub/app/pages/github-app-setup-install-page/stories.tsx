@@ -20,3 +20,28 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Default: Story = {}
+export const SimulationPending: Story = {
+  args: {
+    data: {
+      ...meta.args.data,
+      simulation: true,
+      heading: "Simulate App installation",
+      description:
+        "The App and installation identifiers are synthetic. No external App or repository changed.",
+      submitPath: "/settings/github/installed",
+      submitLabel: "Simulate installation",
+      nextPath: "/settings/github",
+      nextLabel: "Review mock App",
+    },
+  },
+}
+export const SimulationComplete: Story = {
+  args: {
+    data: {
+      ...SimulationPending.args!.data!,
+      heading: "Mock installation complete",
+      submitPath: undefined,
+      submitLabel: undefined,
+    },
+  },
+}

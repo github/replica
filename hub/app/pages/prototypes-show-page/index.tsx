@@ -65,7 +65,10 @@ export function PrototypesShowPage(props: PrototypesShowPageProps | PrototypePre
   const reviewControls: PrototypeWorkspaceHeaderProps["reviewControls"] = review
     ? {
         bridgeReady: bridge.ready && Boolean(data.selectedBuild),
-        selectionBlocked: bridge.selectedAnchor !== null || review.conversationDraftActive,
+        selectionBlocked:
+          Boolean(data.reviewReadOnly) ||
+          bridge.selectedAnchor !== null ||
+          review.conversationDraftActive,
         selecting: bridge.selecting,
         onCancelSelection: bridge.cancelSelection,
         onStartAreaSelection: review.startAreaSelection,
@@ -208,6 +211,7 @@ export function PrototypesShowPage(props: PrototypesShowPageProps | PrototypePre
                         bodyMaximumBytes={data.reviewComments.bodyMaximumBytes}
                         mutation={review.comments.mutation}
                         copy={data.reviewComments.copy}
+                        readOnly={data.reviewReadOnly}
                         onClose={review.closeThread}
                         onDraftStateChange={review.setConversationDraftActive}
                         onReply={async (body) =>

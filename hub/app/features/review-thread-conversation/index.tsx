@@ -42,6 +42,7 @@ export function ReviewThreadConversation({
   bodyMaximumBytes,
   mutation,
   copy,
+  readOnly = false,
   onClose,
   onDraftStateChange,
   onReply,
@@ -112,16 +113,18 @@ export function ReviewThreadConversation({
       comments.map((comment) => comment.reactions.length).join(","),
     ].join(":"),
   })
-  const blockedLabel = state.replyBlocked
-    ? thread.root.deletedAt
-      ? copy.deletedReplyBlockedLabel
-      : thread.root.resolvedBy
-        ? copy.resolvedByLabel.replace(
-            "%{author}",
-            thread.root.resolvedBy.name || `@${thread.root.resolvedBy.login}`,
-          )
-        : copy.resolvedReplyBlockedLabel
-    : null
+  const blockedLabel = readOnly
+    ? copy.selectionBlockedLabel
+    : state.replyBlocked
+      ? thread.root.deletedAt
+        ? copy.deletedReplyBlockedLabel
+        : thread.root.resolvedBy
+          ? copy.resolvedByLabel.replace(
+              "%{author}",
+              thread.root.resolvedBy.name || `@${thread.root.resolvedBy.login}`,
+            )
+          : copy.resolvedReplyBlockedLabel
+      : null
 
   const focusCloseButton = useCallback(() => {
     // Brand Button does not forward the ref without a Tooltip wrapper.
@@ -267,7 +270,7 @@ export function ReviewThreadConversation({
           {thread.root.buildNumber !== null ? (
             <Button
               size="small"
-              disabled={state.draftActive || mutation !== null}
+              disabled={readOnly || state.draftActive || mutation !== null}
               aria-busy={
                 mutation !== null &&
                 "commentId" in mutation &&
@@ -384,6 +387,7 @@ export function ReviewThreadConversation({
               deleting={mutation?.kind === "delete" && mutation.commentId === comment.id}
               deleteFailed={state.confirmingDeleteId === comment.id && state.deleteFailed}
               actionsDisabled={
+                readOnly ||
                 (mutation !== null &&
                   mutation.kind !== "add-reaction" &&
                   mutation.kind !== "remove-reaction") ||
@@ -432,7 +436,7 @@ export function ReviewThreadConversation({
               replyDraft={state.replyDraft}
               replyBodyTooLong={state.replyBodyTooLong}
               replyFailed={state.replyFailed}
-              replyDisabled={mutation !== null || state.editingCommentId !== null}
+              replyDisabled={readOnly || mutation !== null || state.editingCommentId !== null}
               replying={mutation?.kind === "reply" && mutation.commentId === thread.root.id}
               copy={copy}
               onKeepDraft={actions.keepDraft}

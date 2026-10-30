@@ -17,11 +17,29 @@ export function usePrototypeReview({
   reviewCommentsPath,
   viewerLogin,
   selectedBuild,
+  transport,
+  filters: controlledFilters,
+  onFiltersChange,
+  selectedThreadId: controlledThreadId,
+  onSelectedThreadChange,
 }: PrototypeReviewOptions) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [filters, setFilters] = useState(DEFAULT_REVIEW_COMMENT_FILTERS)
+  const [localFilters, setLocalFilters] = useState(DEFAULT_REVIEW_COMMENT_FILTERS)
+  const filters = controlledFilters ?? localFilters
   const [showPins, setShowPins] = useState(true)
-  const [selectedThreadId, setSelectedThreadId] = useState<number | null>(null)
+  const [localThreadId, setLocalThreadId] = useState<number | null>(null)
+  const selectedThreadId = controlledThreadId === undefined ? localThreadId : controlledThreadId
+  const setSelectedThreadId = useCallback(
+    (id: number | null) => {
+      setLocalThreadId(id)
+      onSelectedThreadChange?.(id)
+    },
+    [onSelectedThreadChange],
+  )
+  function setFilters(nextFilters: typeof filters) {
+    setLocalFilters(nextFilters)
+    onFiltersChange?.(nextFilters)
+  }
   const [conversationDraftActive, setConversationDraftActive] = useState(false)
   const focusLauncherOnClose = useRef(false)
   const toggleSidebar = useCallback(() => {
@@ -32,7 +50,7 @@ export function usePrototypeReview({
       setSelectedThreadId(null)
     }
     setSidebarOpen(!sidebarOpen)
-  }, [conversationDraftActive, sidebarOpen])
+  }, [conversationDraftActive, sidebarOpen, setSelectedThreadId])
   useEffect(() => {
     if (sidebarOpen || !focusLauncherOnClose.current) return
 
@@ -42,7 +60,7 @@ export function usePrototypeReview({
       ?.querySelector<HTMLButtonElement>(".review-shell__comments-toggle")
       ?.focus({ preventScroll: true })
   }, [iframeRef, sidebarOpen])
-  const comments = useReviewComments(reviewCommentsPath, authenticityToken)
+  const comments = useReviewComments(reviewCommentsPath, authenticityToken, transport)
   const threads = useMemo(
     () => groupReviewCommentsIntoThreads(comments.comments),
     [comments.comments],
@@ -60,7 +78,7 @@ export function usePrototypeReview({
   const handleSelectionStart = useCallback(() => {
     setSelectedThreadId(null)
     setConversationDraftActive(false)
-  }, [])
+  }, [setSelectedThreadId])
   const anchorReferences = useMemo(
     () =>
       threads.map((thread) => ({

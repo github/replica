@@ -163,6 +163,47 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Default: Story = {}
+export const ReadOnlySimulation: Story = {
+  args: {
+    data: {
+      ...data,
+      canDecide: false,
+      copy: {
+        ...data.copy,
+        description:
+          "Review synthetic suggestions and preview accepted guidance. Nothing is sent to Copilot or an agent.",
+      },
+      run: { ...data.run, available: false },
+      status: {
+        message: "The Copilot simulation is disconnected.",
+        refused: true,
+        activity: null,
+        usage: "No provider requests, learning jobs, or credits are used.",
+      },
+      identityNotice: "This mock profile can read guidance but cannot change it.",
+    },
+  },
+}
+export const SimulatedRunPending: Story = {
+  args: {
+    data: {
+      ...data,
+      simulationRun: true,
+      copy: {
+        ...data.copy,
+        description:
+          "Review synthetic suggestions and preview accepted guidance. Nothing is sent to Copilot or an agent.",
+        runLabel: "Advance simulated run",
+      },
+      status: {
+        message: "The Copilot simulation is connected.",
+        refused: false,
+        activity: "Fake run 1 is queued. Advance it to demonstrate the next step.",
+        usage: "No provider requests, learning jobs, or credits are used.",
+      },
+    },
+  },
+}
 
 export const OpposingEvidence: Story = {
   args: {

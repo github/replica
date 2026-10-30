@@ -15,23 +15,37 @@ export function GithubAppSetupShowPage({ data }: { data: GithubAppSetupShowPageD
       <form action={data.submitPath} method="post" className="setup__form">
         <input type="hidden" name="authenticity_token" value={data.authenticityToken} />
 
-        <FormControl required>
-          <FormControl.Label>{data.secretLabel}</FormControl.Label>
-          <TextInput
-            name="bootstrap_secret"
-            type="password"
-            autoComplete="current-password"
-            fullWidth
-          />
-        </FormControl>
+        {!data.simulation ? (
+          <FormControl required>
+            <FormControl.Label>{data.secretLabel}</FormControl.Label>
+            <TextInput
+              name="bootstrap_secret"
+              type="password"
+              autoComplete="current-password"
+              fullWidth
+            />
+          </FormControl>
+        ) : null}
 
         <FormControl>
           <FormControl.Label>{data.organizationLabel}</FormControl.Label>
-          <TextInput name="organization" autoComplete="organization" fullWidth />
+          <TextInput
+            name="organization"
+            autoComplete={data.simulation ? "off" : "organization"}
+            defaultValue={data.simulation ? "github" : undefined}
+            readOnly={data.simulation}
+            fullWidth
+          />
           <FormControl.Hint>{data.organizationHint}</FormControl.Hint>
         </FormControl>
 
-        <Button type="submit" variant="primary" block>
+        <Button
+          type="submit"
+          variant="primary"
+          disabled={data.canContinue === false}
+          className={data.simulation ? "setup__mock-control" : undefined}
+          block
+        >
           {data.submitLabel}
         </Button>
       </form>

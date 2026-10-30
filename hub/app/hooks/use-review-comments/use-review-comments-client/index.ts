@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef } from "react"
 
 import { REVIEW_COMMENT_MUTATION_SCHEMA } from "@utils/review-comment/schemas"
 import { readRateLimitError } from "@utils/read-rate-limit-error"
+import type { ReviewComment } from "@utils/review-comment/types"
 
 import { fetchAllReviewComments } from "./fetch-all-review-comments"
 import { reviewAccessUnavailable } from "./review-access-unavailable"
@@ -25,12 +26,14 @@ function createReviewCommentsClient({
   onRefreshStarted,
   onReviewAccessLost,
   onMutationRateLimited,
+  transport,
 }: Omit<ReviewCommentsClientOptions, "onReset">): ActiveReviewCommentsClient {
   let activeChanges = 0
   let activeRefreshController: AbortController | null = null
   let disposed = false
   let refreshRequested = false
   let writeRevision = 0
+  const pendingChanges = new Set<AbortController>()
 
   function startRefreshIfReady() {
     if (disposed || activeChanges > 0 || activeRefreshController || !refreshRequested) return
@@ -42,7 +45,7 @@ function createReviewCommentsClient({
 
     void (async () => {
       try {
-        const result = await fetchAllReviewComments(path, controller.signal)
+        const result = await (transport?.load ?? fetchAllReviewComments)(path, controller.signal)
         if (disposed || controller.signal.aborted) return
 
         if (result.kind === "success") {
@@ -93,46 +96,67 @@ function createReviewCommentsClient({
     }
 
     try {
-      const headers: Record<string, string> = {
-        Accept: "application/json",
-        "X-CSRF-Token": authenticityToken,
-      }
-      if (body) headers["Content-Type"] = "application/json"
+      let changedComments: ReviewComment[]
+      if (transport) {
+        const controller = new AbortController()
+        pendingChanges.add(controller)
+        try {
+          changedComments = await transport.change(requestPath, method, body, controller.signal)
+        } catch (error) {
+          if (!disposed) {
+            onMutationRateLimited?.(
+              error instanceof Error ? error.message : "The review change could not be saved.",
+            )
+          }
+          return null
+        } finally {
+          pendingChanges.delete(controller)
+        }
+      } else {
+        const headers: Record<string, string> = {
+          Accept: "application/json",
+          "X-CSRF-Token": authenticityToken,
+        }
+        if (body) headers["Content-Type"] = "application/json"
 
-      let response: Response
-      try {
-        response = await fetch(requestPath, {
-          method,
-          headers,
-          body: body ? JSON.stringify(body) : undefined,
-        })
-      } catch {
-        return null
+        let response: Response
+        try {
+          response = await fetch(requestPath, {
+            method,
+            headers,
+            body: body ? JSON.stringify(body) : undefined,
+          })
+        } catch {
+          return null
+        }
+
+        if (reviewAccessUnavailable(response)) refreshComments()
+        if (response.status === 429) {
+          const message = await readRateLimitError(response)
+          if (message && !disposed) onMutationRateLimited?.(message)
+          return null
+        }
+        if (!response.ok || response.redirected) return null
+
+        let responseBody: unknown
+        try {
+          responseBody = await response.json()
+        } catch {
+          return null
+        }
+        const parsedMutation = REVIEW_COMMENT_MUTATION_SCHEMA.safeParse(responseBody)
+        if (!parsedMutation.success || disposed) return null
+        changedComments = parsedMutation.data.comments
       }
 
-      if (reviewAccessUnavailable(response)) refreshComments()
-      if (response.status === 429) {
-        const message = await readRateLimitError(response)
-        if (message && !disposed) onMutationRateLimited?.(message)
-        return null
-      }
-      if (!response.ok || response.redirected) return null
-
-      let responseBody: unknown
-      try {
-        responseBody = await response.json()
-      } catch {
-        return null
-      }
-      const parsedMutation = REVIEW_COMMENT_MUTATION_SCHEMA.safeParse(responseBody)
-      if (!parsedMutation.success || disposed) return null
+      if (disposed) return null
 
       if (markingRead && (requestedWriteRevision !== writeRevision || activeChanges > 1)) {
         refreshComments()
       } else {
-        onCommentsChanged(parsedMutation.data.comments)
+        onCommentsChanged(changedComments)
       }
-      return parsedMutation.data.comments[0] ?? null
+      return changedComments[0] ?? null
     } finally {
       if (!markingRead) writeRevision += 1
       activeChanges -= 1
@@ -145,6 +169,8 @@ function createReviewCommentsClient({
     refreshRequested = false
     activeRefreshController?.abort()
     activeRefreshController = null
+    pendingChanges.forEach((controller) => controller.abort())
+    pendingChanges.clear()
   }
 
   return { dispose, refreshComments, sendCommentChange }
@@ -161,6 +187,7 @@ export function useReviewCommentsClient({
   onReset,
   onReviewAccessLost,
   onMutationRateLimited,
+  transport,
 }: ReviewCommentsClientOptions): ReviewCommentsClient {
   const clientRef = useRef<ActiveReviewCommentsClient | null>(null)
 
@@ -174,6 +201,7 @@ export function useReviewCommentsClient({
       onRefreshStarted,
       onReviewAccessLost,
       onMutationRateLimited,
+      transport,
     })
     clientRef.current = client
     onReset()
@@ -193,6 +221,7 @@ export function useReviewCommentsClient({
     onReviewAccessLost,
     onMutationRateLimited,
     path,
+    transport,
   ])
 
   const refreshComments = useCallback(() => {

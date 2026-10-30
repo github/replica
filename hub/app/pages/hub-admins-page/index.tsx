@@ -13,9 +13,11 @@ import "./styles.css"
 export function HubAdminsPage({
   data,
   onSearch,
+  pending,
 }: {
   data: HubAdminsPageData
   onSearch: (query: string) => Promise<HubAdministratorSearchResults>
+  pending?: boolean
 }) {
   const [adding, setAdding] = useState(false)
   const trigger = useRef<HTMLButtonElement>(null)
@@ -66,6 +68,7 @@ export function HubAdminsPage({
           data={data.addAdministrator}
           authenticityToken={data.authenticityToken}
           onSearch={onSearch}
+          pending={pending}
           onClose={() => {
             setAdding(false)
             trigger.current?.focus()

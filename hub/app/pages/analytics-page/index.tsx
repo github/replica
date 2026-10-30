@@ -44,11 +44,20 @@ export function AnalyticsPage({ data }: { data: AnalyticsPageData }) {
           <Text as="p" className="analytics-page__description">
             {copy.description}
           </Text>
-          <Text as="p" className="analytics-page__privacy">
+          <Text
+            as="p"
+            className={`analytics-page__privacy${data.simulation ? " analytics-page__mock-notice" : ""}`}
+          >
             {copy.privacy}
           </Text>
           {data.alert ? <HubAlert title={data.alert} variant="critical" /> : null}
-          {data.notice ? <HubAlert title={data.notice} variant="success" /> : null}
+          {data.notice ? (
+            <HubAlert
+              title={data.notice}
+              variant="success"
+              className={data.simulation ? "analytics-page__mock-notice" : undefined}
+            />
+          ) : null}
           <div className="analytics-page__section-header">
             <Heading as="h2" size="5">
               {copy.destinations}
@@ -56,6 +65,7 @@ export function AnalyticsPage({ data }: { data: AnalyticsPageData }) {
             <Button
               ref={addButton}
               type="button"
+              disabled={data.readOnly}
               variant="secondary"
               leadingVisual={<PlusIcon size={16} aria-hidden="true" />}
               aria-expanded={adding}
@@ -131,7 +141,7 @@ export function AnalyticsPage({ data }: { data: AnalyticsPageData }) {
                       aria-label={copy.provider}
                       name="destination[provider]"
                       value={provider}
-                      disabled={!!destination}
+                      disabled={!!destination || data.readOnly}
                       onChange={(event) => setNewProvider(event.target.value as AnalyticsProvider)}
                     >
                       {(destination ? [destination.provider] : available).map((value) => (
@@ -141,7 +151,21 @@ export function AnalyticsPage({ data }: { data: AnalyticsPageData }) {
                       ))}
                     </Select>
                   </FormControl>
-                  {provider === "custom" ? (
+                  {provider === "custom" && data.simulation ? (
+                    <>
+                      <FormControl id={`${prefix}-name`} required fullWidth>
+                        <FormControl.Label>{copy.customName}</FormControl.Label>
+                        <TextInput
+                          name="destination[name]"
+                          defaultValue={destination?.provider === "custom" ? destination.name : ""}
+                          maxLength={64}
+                          disabled={data.readOnly}
+                          required
+                        />
+                      </FormControl>
+                      <Text as="p">{copy.customEndpointHelp}</Text>
+                    </>
+                  ) : provider === "custom" ? (
                     <CustomFields
                       key={destination?.id ?? "new-custom"}
                       destination={destination?.provider === "custom" ? destination : undefined}
@@ -158,6 +182,7 @@ export function AnalyticsPage({ data }: { data: AnalyticsPageData }) {
                           key={provider}
                           name="destination[region]"
                           defaultValue={destination?.region ?? "us"}
+                          disabled={data.readOnly}
                         >
                           <Select.Option value="us">{copy.us}</Select.Option>
                           <Select.Option value="eu">{copy.eu}</Select.Option>
@@ -168,31 +193,35 @@ export function AnalyticsPage({ data }: { data: AnalyticsPageData }) {
                       </FormControl>
                       {destination ? <Text as="p">{copy.rotation}</Text> : null}
                       {provider === "mixpanel" ? <Text as="p">{copy.mixpanelHelp}</Text> : null}
-                      {(provider === "segment"
-                        ? [{ key: "write_key", label: copy.writeKey }]
-                        : [
-                            { key: "service_account_username", label: copy.serviceAccountUsername },
-                            { key: "service_account_secret", label: copy.serviceAccountSecret },
-                            { key: "project_id", label: copy.projectId },
-                          ]
-                      ).map(({ key, label }) => (
-                        <FormControl
-                          key={key}
-                          id={`${prefix}-${key}`}
-                          required={!destination}
-                          fullWidth
-                        >
-                          <FormControl.Label>{label}</FormControl.Label>
-                          <TextInput
-                            aria-label={label}
-                            type="password"
-                            autoComplete="new-password"
-                            name={`destination[credentials][${key}]`}
-                            maxLength={1024}
+                      {!data.simulation &&
+                        (provider === "segment"
+                          ? [{ key: "write_key", label: copy.writeKey }]
+                          : [
+                              {
+                                key: "service_account_username",
+                                label: copy.serviceAccountUsername,
+                              },
+                              { key: "service_account_secret", label: copy.serviceAccountSecret },
+                              { key: "project_id", label: copy.projectId },
+                            ]
+                        ).map(({ key, label }) => (
+                          <FormControl
+                            key={key}
+                            id={`${prefix}-${key}`}
                             required={!destination}
-                          />
-                        </FormControl>
-                      ))}
+                            fullWidth
+                          >
+                            <FormControl.Label>{label}</FormControl.Label>
+                            <TextInput
+                              aria-label={label}
+                              type="password"
+                              autoComplete="new-password"
+                              name={`destination[credentials][${key}]`}
+                              maxLength={1024}
+                              required={!destination}
+                            />
+                          </FormControl>
+                        ))}
                     </>
                   )}
                   <fieldset className="analytics-page__events">
@@ -206,6 +235,7 @@ export function AnalyticsPage({ data }: { data: AnalyticsPageData }) {
                           defaultChecked={
                             !destination || destination.eventTypes.includes(event.value)
                           }
+                          disabled={data.readOnly}
                         />
                         <FormControl.Label>{event.label}</FormControl.Label>
                       </FormControl>
@@ -219,6 +249,7 @@ export function AnalyticsPage({ data }: { data: AnalyticsPageData }) {
                           aria-label={copy.history}
                           name="destination[history]"
                           defaultValue="new"
+                          disabled={data.readOnly}
                         >
                           <Select.Option value="new">{copy.newEvents}</Select.Option>
                           <Select.Option value="retained">{copy.retainedEvents}</Select.Option>
@@ -230,7 +261,7 @@ export function AnalyticsPage({ data }: { data: AnalyticsPageData }) {
                 </form>
 
                 <div className="analytics-page__actions">
-                  <Button type="submit" form={formId} variant="primary">
+                  <Button type="submit" form={formId} variant="primary" disabled={data.readOnly}>
                     {copy.save}
                   </Button>
                   {destination ? (
@@ -247,7 +278,7 @@ export function AnalyticsPage({ data }: { data: AnalyticsPageData }) {
                           name="operation"
                           value={destination.enabled ? "pause" : "resume"}
                         />
-                        <Button type="submit" variant="secondary">
+                        <Button type="submit" variant="secondary" disabled={data.readOnly}>
                           {destination.enabled ? copy.pause : copy.resume}
                         </Button>
                       </form>
@@ -262,6 +293,7 @@ export function AnalyticsPage({ data }: { data: AnalyticsPageData }) {
                           type="submit"
                           variant="primary"
                           className="analytics-page__disconnect"
+                          disabled={data.readOnly}
                         >
                           {copy.disconnect}
                         </Button>

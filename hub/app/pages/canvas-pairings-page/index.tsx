@@ -57,7 +57,7 @@ export function CanvasPairingsPage({ data }: { data: CanvasPairingsPageData }) {
                   name="learnings_consent_version"
                   value={data.learningsConsentVersion}
                 />
-                <Button type="submit" variant="primary">
+                <Button type="submit" variant="primary" disabled={data.canApprove === false}>
                   {data.approveLabel}
                 </Button>
                 <Button as="a" href={data.cancelPath} variant="secondary">
@@ -68,6 +68,16 @@ export function CanvasPairingsPage({ data }: { data: CanvasPairingsPageData }) {
           ) : (
             <>
               {data.notice ? <HubAlert title={data.notice} variant="success" /> : null}
+              {data.createPath && data.createLabel ? (
+                <Button
+                  as="a"
+                  href={data.createPath}
+                  variant="primary"
+                  className={data.simulation ? "canvas-pairings__mock-control" : undefined}
+                >
+                  {data.createLabel}
+                </Button>
+              ) : null}
               {data.grants.length ? (
                 <ul className="canvas-pairings__grants">
                   {data.grants.map((grant) => (

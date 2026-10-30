@@ -19,6 +19,13 @@ export function WelcomePage({ data }: { data: WelcomePageData }) {
         <article className="welcome-page">
           <div className="welcome-page__content welcome-page__content--top">
             {data.notice ? <HubAlert title={data.notice} variant="success" /> : null}
+            {data.mockNotice ? (
+              <HubAlert
+                title={data.mockNotice}
+                variant="success"
+                className="welcome-page__mock-notice"
+              />
+            ) : null}
 
             <header className="welcome-page__introduction">
               <Heading as="h1" size="2" className="welcome-page__heading">

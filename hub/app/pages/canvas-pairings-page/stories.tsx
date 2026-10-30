@@ -61,6 +61,40 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Approval: Story = {}
+export const MockConnections: Story = {
+  args: {
+    data: {
+      ...connections,
+      simulation: true,
+      description:
+        "This is a local simulation. No Copilot canvas, credentials, or external account is connected.",
+      createLabel: "Try a mock approval",
+      createPath: "/settings/canvas/approve?repositoryId=2001",
+      grants: [],
+    },
+  },
+}
+export const ReadOnlyMockApproval: Story = {
+  args: {
+    data: {
+      ...approval,
+      simulation: true,
+      canApprove: false,
+      repository: "github/prototype",
+      code: "MOCK-1234",
+      codeLabel: "Synthetic code — not a credential",
+      description: "This is a local simulation. No external connection is made.",
+      codeInstruction:
+        "This fixed code demonstrates approval only. Do not enter a real connection code.",
+      permissions: "This read-only mock profile cannot approve a connection.",
+      approveLabel: "Approve simulation",
+      expiration: "The mock fixture displays a seven-day expiry. Remove it from",
+      connectionsPath: "/settings/canvas",
+      approvePath: "/settings/canvas/approve?repositoryId=2001",
+      cancelPath: "/settings/canvas",
+    },
+  },
+}
 
 export const Connected: Story = { args: { data: connections } }
 

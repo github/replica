@@ -1,4 +1,5 @@
 type SharedData = {
+  simulation?: boolean
   pageTitle: string
   productName: string
   heading: string
@@ -9,6 +10,7 @@ type SharedData = {
 export type CanvasPairingsPageData =
   | (SharedData & {
       kind: "approval"
+      canApprove?: boolean
       code: string
       codeLabel: string
       codeInstruction: string
@@ -26,6 +28,8 @@ export type CanvasPairingsPageData =
     })
   | (SharedData & {
       kind: "connections"
+      createLabel?: string
+      createPath?: string | null
       emptyLabel: string
       backLabel: string
       backPath: string

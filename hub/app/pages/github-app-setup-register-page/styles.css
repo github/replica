@@ -5,3 +5,7 @@
   line-height: 1.5;
   color: var(--hub-fg-muted);
 }
+.setup__register-mock-control {
+  outline: 2px solid var(--hub-mock-outline);
+  outline-offset: -2px;
+}

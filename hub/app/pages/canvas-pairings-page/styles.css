@@ -82,3 +82,7 @@
 .canvas-pairings__grant p {
   margin-top: var(--hub-space-8);
 }
+.canvas-pairings__mock-control {
+  outline: 2px solid var(--hub-mock-outline);
+  outline-offset: -2px;
+}

@@ -1,0 +1,5 @@
+.replica-browse__mock-notice {
+  flex: none;
+  outline: 2px solid var(--hub-mock-outline);
+  outline-offset: -2px;
+}

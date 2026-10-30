@@ -16,6 +16,9 @@ export function ShareLinkItem({
   openLabel,
   controlQuery = "",
   managementBuildNumber,
+  canDelete = true,
+  openInNewTab = true,
+  busy = false,
 }: ShareLinkItemProps) {
   return (
     <ShareLinkRow
@@ -24,31 +27,40 @@ export function ShareLinkItem({
       copyErrorLabel={copyErrorLabel}
       copyLabel={copyLabel}
     >
-      <Button as="a" href={shareLink.url} target="_blank" rel="noreferrer" variant="secondary">
+      <Button
+        as="a"
+        href={shareLink.url}
+        target={openInNewTab ? "_blank" : undefined}
+        rel="noreferrer"
+        variant="secondary"
+      >
         {openLabel}
       </Button>
 
-      <form
-        action={shareLink.deletePath}
-        method="post"
-        onSubmit={(event) => {
-          if (!window.confirm(shareLink.deletePrompt)) event.preventDefault()
-        }}
-      >
-        <input type="hidden" name="_method" value="delete" />
-        <input type="hidden" name="authenticity_token" value={authenticityToken} />
-        <input type="hidden" name="control_query" value={controlQuery} />
-        {managementBuildNumber ? (
-          <input type="hidden" name="management_build" value={managementBuildNumber} />
-        ) : null}
-        <HubIconButton
-          type="submit"
-          icon={TrashIcon}
-          aria-label={deleteLabel}
-          title={deleteLabel}
-          variant="danger"
-        />
-      </form>
+      {canDelete ? (
+        <form
+          action={shareLink.deletePath}
+          method="post"
+          onSubmit={(event) => {
+            if (!window.confirm(shareLink.deletePrompt)) event.preventDefault()
+          }}
+        >
+          <input type="hidden" name="_method" value="delete" />
+          <input type="hidden" name="authenticity_token" value={authenticityToken} />
+          <input type="hidden" name="control_query" value={controlQuery} />
+          {managementBuildNumber ? (
+            <input type="hidden" name="management_build" value={managementBuildNumber} />
+          ) : null}
+          <HubIconButton
+            type="submit"
+            icon={TrashIcon}
+            aria-label={deleteLabel}
+            title={deleteLabel}
+            variant="danger"
+            disabled={busy}
+          />
+        </form>
+      ) : null}
     </ShareLinkRow>
   )
 }

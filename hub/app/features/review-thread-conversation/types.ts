@@ -12,6 +12,7 @@ export interface ReviewThreadConversationProps {
   bodyMaximumBytes: number
   mutation: ReviewCommentMutation | null
   copy: ReviewCommentsCopy
+  readOnly?: boolean
   onClose: () => void
   onDraftStateChange: (active: boolean) => void
   onReply: (body: string) => Promise<boolean>

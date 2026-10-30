@@ -231,3 +231,7 @@ a.welcome-page__action:hover {
     }
   }
 }
+.welcome-page__mock-notice {
+  outline: 2px solid var(--hub-mock-outline);
+  outline-offset: -2px;
+}

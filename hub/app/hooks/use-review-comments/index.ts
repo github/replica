@@ -10,6 +10,7 @@ import type {
 import type { ReviewCommentMutation, ReviewCommentsState } from "./types"
 import { useReviewCommentsClient } from "./use-review-comments-client"
 import { useReviewCommentsState } from "./use-review-comments-state"
+import type { ReviewCommentsTransport } from "./use-review-comments-client/types"
 
 /** Returns the current root activity version for a root or reply. */
 function threadActivityVersion(commentId: number, comments: ReviewComment[]) {
@@ -22,7 +23,11 @@ function threadActivityVersion(commentId: number, comments: ReviewComment[]) {
 }
 
 /** Loads review data and sends authorized comment changes. */
-export function useReviewComments(path: string, authenticityToken: string): ReviewCommentsState {
+export function useReviewComments(
+  path: string,
+  authenticityToken: string,
+  transport?: ReviewCommentsTransport,
+): ReviewCommentsState {
   const [mutation, setMutation] = useState<ReviewCommentMutation | null>(null)
   const mutationRef = useRef<ReviewCommentMutation | null>(null)
   const [mutationError, setMutationError] = useState<string | null>(null)
@@ -37,6 +42,7 @@ export function useReviewComments(path: string, authenticityToken: string): Revi
     onReset: reviewState.resetComments,
     onReviewAccessLost: reviewState.clearCommentsAfterAccessLoss,
     onMutationRateLimited: setMutationError,
+    transport,
   })
 
   async function saveComment(

@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { useState } from "react"
 
 import { authenticatedHeaderData } from "@/storybook/fixtures/authenticated-header"
 import { githubEmpty, githubPrototype } from "@/storybook/fixtures/repositories"
@@ -199,5 +200,30 @@ export const ClearedDetails: Story = {
     await userEvent.click(canvas.getByRole("button", { name: data.copy.editDetails }))
     await userEvent.clear(canvas.getByRole("textbox", { name: data.copy.outcomeLabel }))
     await userEvent.click(canvas.getByRole("button", { name: data.copy.saveDetails }))
+  },
+}
+
+export const MockCreated: Story = {
+  args: { data: { ...data, copy: { ...data.copy, submitLabel: "Create mock prototype" } } },
+  render: function MockCreatedStory(args) {
+    const [created, setCreated] = useState(false)
+    return (
+      <NewPrototypePage
+        {...args}
+        mockNotice={
+          created
+            ? "Mock prototype created locally. No code, branch, or workflow changed."
+            : undefined
+        }
+        onCreate={() => setCreated(true)}
+      />
+    )
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.type(
+      canvas.getByRole("textbox", { name: data.copy.heading }),
+      "Compare two build layouts",
+    )
+    await userEvent.click(canvas.getByRole("button", { name: "Create mock prototype" }))
   },
 }

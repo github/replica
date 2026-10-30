@@ -8,6 +8,7 @@ import { HubAdministrationWorkspace } from "@features/hub-administration-workspa
 
 import type { FreshAuthorizationPageData } from "./types"
 import "@features/hub-administration-page/styles.css"
+import "./styles.css"
 
 export function FreshAuthorizationPage({
   data,
@@ -30,7 +31,13 @@ export function FreshAuthorizationPage({
             <input type="hidden" name="_method" value={data.continuation.method} />
           </>
         )}
-        <Button type="submit" variant="primary" block>
+        <Button
+          type="submit"
+          variant="primary"
+          disabled={data.canContinue === false}
+          className={data.simulation ? "fresh-authorization__mock-control" : undefined}
+          block
+        >
           {data.submitLabel}
         </Button>
       </form>
@@ -39,7 +46,19 @@ export function FreshAuthorizationPage({
         <form action={data.cancelPath} method="post">
           <input type="hidden" name="authenticity_token" value={data.authenticityToken} />
           <input type="hidden" name="_method" value="delete" />
-          <Button type="submit" variant="subtle" block>
+          {data.continuation ? (
+            <input
+              type="hidden"
+              name="authorization_continuation_id"
+              value={data.continuation.id}
+            />
+          ) : null}
+          <Button
+            type="submit"
+            variant="subtle"
+            className={data.simulation ? "fresh-authorization__mock-control" : undefined}
+            block
+          >
             {data.cancelLabel}
           </Button>
         </form>

@@ -1,6 +1,7 @@
 import type { HubAdministrationPageData } from "@features/hub-administration-page/types"
 
 export interface SessionRevocationPageData extends HubAdministrationPageData {
+  simulation?: boolean
   pageTitle: string
   canRevoke: boolean
   scope: string

@@ -17,4 +17,7 @@ export interface ShareLinkItemProps {
   copyLabel: string
   deleteLabel: string
   openLabel: string
+  canDelete?: boolean
+  openInNewTab?: boolean
+  busy?: boolean
 }

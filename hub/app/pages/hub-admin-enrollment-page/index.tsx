@@ -13,16 +13,24 @@ export function HubAdminEnrollmentPage({ data }: { data: HubAdminEnrollmentPageD
       <GithubAppSetupHeader data={data} />
       <form action={data.submitPath} method="post" className="operator-enrollment__form">
         <input type="hidden" name="authenticity_token" value={data.authenticityToken} />
-        <FormControl required>
-          <FormControl.Label>{data.secretLabel}</FormControl.Label>
-          <TextInput
-            name="bootstrap_secret"
-            type="password"
-            autoComplete="current-password"
-            fullWidth
-          />
-        </FormControl>
-        <Button type="submit" variant="primary" block>
+        {!data.simulation ? (
+          <FormControl required>
+            <FormControl.Label>{data.secretLabel}</FormControl.Label>
+            <TextInput
+              name="bootstrap_secret"
+              type="password"
+              autoComplete="current-password"
+              fullWidth
+            />
+          </FormControl>
+        ) : null}
+        <Button
+          type="submit"
+          variant="primary"
+          disabled={data.canContinue === false}
+          className={data.simulation ? "operator-enrollment__mock-control" : undefined}
+          block
+        >
           {data.submitLabel}
         </Button>
       </form>

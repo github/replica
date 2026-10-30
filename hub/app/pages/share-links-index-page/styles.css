@@ -1,0 +1,4 @@
+.share-links-index__mock-notice {
+  outline: 2px solid var(--hub-mock-outline);
+  outline-offset: -2px;
+}

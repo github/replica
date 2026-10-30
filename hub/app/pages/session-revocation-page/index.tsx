@@ -9,7 +9,14 @@ import "./styles.css"
 /** Requires deliberate confirmation and keeps the signed-out result on this page. */
 export function SessionRevocationPage({ data }: { data: SessionRevocationPageData }) {
   return (
-    <HubAdministrationPage data={data}>
+    <HubAdministrationPage data={data.simulation ? { ...data, notice: null } : data}>
+      {data.simulation && data.notice ? (
+        <HubAlert
+          variant="success"
+          title={data.notice}
+          className="session-revocation-page__mock-notice"
+        />
+      ) : null}
       <Text as="p">{data.scope}</Text>
 
       {data.signedOut ? (
@@ -36,7 +43,11 @@ export function SessionRevocationPage({ data }: { data: SessionRevocationPageDat
               <Button type="submit" name="cancelled" value="1" formNoValidate variant="secondary">
                 {data.cancelLabel}
               </Button>
-              <Button type="submit" variant="primary">
+              <Button
+                type="submit"
+                variant="primary"
+                className={data.simulation ? "session-revocation-page__mock-control" : undefined}
+              >
                 {data.submitLabel}
               </Button>
             </div>

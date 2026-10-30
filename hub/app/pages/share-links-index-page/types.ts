@@ -19,9 +19,19 @@ export interface ShareLinksIndexPageData extends PrototypeWorkspaceData {
   noBuildHeading: string
   noBuildLabel: string
   notice: string | null
+  mockNotice?: string
   openLabel: string
   pageTitle: string
   shareLinks: ShareLinkData[]
   publicSharingEnabled: boolean
   disabledLabel: string
+  canManage?: boolean
+  readOnlyLabel?: string
+  openInNewTab?: boolean
+  inactiveShareLinks?: Array<{
+    id: number
+    label: string
+    stateLabel: string
+    url: string
+  }>
 }

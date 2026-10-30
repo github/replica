@@ -15,10 +15,18 @@ export function PrototypeManagementPage({
   data,
   candidates,
   repositoryChoices,
+  saving,
+  saveError,
+  saved,
+  readOnly,
 }: {
   data: PrototypeManagementPageData
   candidates?: PageSectionState
   repositoryChoices?: PageSectionState
+  saving?: boolean
+  saveError?: string | null
+  saved?: boolean
+  readOnly?: boolean
 }) {
   return (
     <RepositoryWorkspace
@@ -54,6 +62,10 @@ export function PrototypeManagementPage({
             loading={candidates?.loading}
             loadFailed={candidates?.failed}
             onRetry={candidates?.retry}
+            saving={saving}
+            saveError={saveError}
+            saved={saved}
+            readOnly={readOnly}
           />
         </div>
       </div>

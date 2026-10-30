@@ -1,6 +1,17 @@
 import type { ReviewComment } from "@utils/review-comment/types"
+import type { ReviewCommentsFetchResult } from "./fetch-all-review-comments/types"
 
 export type ReviewCommentChangeMethod = "POST" | "PATCH" | "DELETE"
+
+export interface ReviewCommentsTransport {
+  load: (path: string, signal: AbortSignal) => Promise<ReviewCommentsFetchResult>
+  change: (
+    path: string,
+    method: ReviewCommentChangeMethod,
+    body?: object,
+    signal?: AbortSignal,
+  ) => Promise<ReviewComment[]>
+}
 
 export interface ReviewCommentsClient {
   refreshComments: () => void
@@ -21,4 +32,5 @@ export interface ReviewCommentsClientOptions {
   onReset: () => void
   onReviewAccessLost: () => void
   onMutationRateLimited?: (message: string) => void
+  transport?: ReviewCommentsTransport
 }

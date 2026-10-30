@@ -23,9 +23,17 @@ const EMPTY_DETAILS: PrototypeDetails = { change: "", audience: "", outcome: "" 
 export function NewPrototypePage({
   data,
   onOpenApp,
+  onCreate,
+  busy = false,
+  submissionDisabled = false,
+  mockNotice,
 }: {
   data: NewPrototypePageData
   onOpenApp?: (url: string) => void
+  onCreate?: (input: { brief: string; description: string; templateId: string }) => void
+  busy?: boolean
+  submissionDisabled?: boolean
+  mockNotice?: string
 }) {
   const headingId = useId()
   const detailsHeadingId = useId()
@@ -130,7 +138,16 @@ export function NewPrototypePage({
 
   async function submit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!brief.trim()) return
+    if (!brief.trim() || busy || submissionDisabled) return
+
+    if (onCreate) {
+      onCreate({
+        brief: brief.trim(),
+        description: [brief.trim(), ...fields].join("\n\n"),
+        templateId,
+      })
+      return
+    }
 
     if (data.submissionMode === "copy") {
       setCopyResult(null)
@@ -154,6 +171,9 @@ export function NewPrototypePage({
     <RepositoryWorkspace data={data}>
       <div className="new-prototype">
         <div className="new-prototype__content">
+          {mockNotice ? (
+            <HubAlert className="new-prototype__mock-notice" title={mockNotice} variant="success" />
+          ) : null}
           <Heading
             as="h1"
             size="5"
@@ -164,7 +184,12 @@ export function NewPrototypePage({
             {copy.heading}
           </Heading>
 
-          <form className="new-prototype__form" onSubmit={(event) => void submit(event)}>
+          <form
+            className="new-prototype__form"
+            onSubmit={(event) => void submit(event)}
+            inert={busy || submissionDisabled}
+            aria-busy={busy}
+          >
             <PrototypeBriefComposer
               label={copy.heading}
               labelledBy={headingId}

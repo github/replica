@@ -28,7 +28,11 @@ export function LearningsPage({ data }: { data: LearningsPageData }) {
             data.run.available ? (
               <form action={data.run.path} method="post">
                 <input type="hidden" name="authenticity_token" value={data.authenticityToken} />
-                <Button type="submit" variant="secondary">
+                <Button
+                  type="submit"
+                  variant="secondary"
+                  className={data.simulationRun ? "learnings-page__mock-control" : undefined}
+                >
                   {copy.runLabel}
                 </Button>
               </form>
@@ -70,6 +74,7 @@ export function LearningsPage({ data }: { data: LearningsPageData }) {
                 suggestion={suggestion}
                 copy={copy}
                 authenticityToken={data.authenticityToken}
+                canDecide={data.canDecide !== false}
               />
             ))
           ) : (
@@ -91,6 +96,7 @@ export function LearningsPage({ data }: { data: LearningsPageData }) {
                 learning={learning}
                 copy={copy}
                 authenticityToken={data.authenticityToken}
+                canDecide={data.canDecide !== false}
               />
             ))
           ) : (
@@ -168,10 +174,12 @@ function Suggestion({
   suggestion,
   copy,
   authenticityToken,
+  canDecide,
 }: {
   suggestion: LearningSuggestion
   copy: Copy
   authenticityToken: string
+  canDecide: boolean
 }) {
   const [mode, setMode] = useState<"choose" | "edit" | "reject">("choose")
   const editButton = useRef<HTMLButtonElement>(null)
@@ -249,7 +257,7 @@ function Suggestion({
         ) : null,
       )}
 
-      {mode === "choose" ? (
+      {!canDecide ? null : mode === "choose" ? (
         <div className="learnings-page__actions">
           <DecisionForm
             path={suggestion.decisionPath}
@@ -323,10 +331,12 @@ function Learning({
   learning,
   copy,
   authenticityToken,
+  canDecide,
 }: {
   learning: AcceptedLearning
   copy: Copy
   authenticityToken: string
+  canDecide: boolean
 }) {
   const [retiring, setRetiring] = useState(false)
   const retireButton = useRef<HTMLButtonElement>(null)
@@ -345,7 +355,7 @@ function Learning({
       <Text as="p" size="200" variant={learning.recalled ? "default" : "muted"}>
         {learning.status}
       </Text>
-      {retiring ? (
+      {!canDecide ? null : retiring ? (
         <DecisionForm
           path={learning.decisionPath}
           decision="retire"

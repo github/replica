@@ -19,7 +19,13 @@ export function GithubAppPage({ data }: { data: GithubAppPageData }) {
           {paragraph}
         </Text>
       ))}
-      {data.busyLabel ? <HubAlert variant="warning" title={data.busyLabel} /> : null}
+      {data.busyLabel ? (
+        <HubAlert
+          variant="warning"
+          title={data.busyLabel}
+          className={form?.simulation ? "github-app-page__mock-notice" : undefined}
+        />
+      ) : null}
 
       {data.links.length ? (
         <div className="hub-administration-page__actions">
@@ -53,7 +59,11 @@ export function GithubAppPage({ data }: { data: GithubAppPageData }) {
               <input type="hidden" name="operation" value={form.operation} />
             ) : null}
 
-            {form.credentials ? (
+            {form.credentials && form.simulation ? (
+              <Text as="p" className="github-app-page__mock-notice">
+                {form.credentials.limits}
+              </Text>
+            ) : form.credentials ? (
               <>
                 <FormControl id="github-app-client-secret" required fullWidth>
                   <FormControl.Label>{form.credentials.secretLabel}</FormControl.Label>
@@ -91,7 +101,7 @@ export function GithubAppPage({ data }: { data: GithubAppPageData }) {
                 <TextInput
                   type="text"
                   name="confirmation"
-                  pattern="delete local GitHub App configuration"
+                  pattern={form.confirmationPhrase ?? "delete local GitHub App configuration"}
                   required
                   disabled={form.disabled}
                   fullWidth
@@ -104,7 +114,12 @@ export function GithubAppPage({ data }: { data: GithubAppPageData }) {
             </label>
 
             <div className="hub-administration-page__actions">
-              <Button type="submit" variant="primary" disabled={form.disabled}>
+              <Button
+                type="submit"
+                variant="primary"
+                disabled={form.disabled}
+                className={form.simulation ? "github-app-page__mock-control" : undefined}
+              >
                 {form.submitLabel}
               </Button>
             </div>

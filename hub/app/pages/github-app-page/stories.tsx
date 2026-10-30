@@ -41,6 +41,51 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Configured: Story = {}
+export const SimulatedCredentials: Story = {
+  args: {
+    data: {
+      ...data,
+      heading: "Simulate replacement credentials",
+      description: "No provider, repository access or credentials are involved.",
+      verification: "This changes only the in-memory fixture. No authorization occurs.",
+      paragraphs: ["Fake credential revision 0."],
+      links: [],
+      form: {
+        action: "/settings/github?change=credentials",
+        method: "patch",
+        simulation: true,
+        submitLabel: "Advance fake credential revision",
+        confirmLabel: "I confirm this change affects synthetic local records only.",
+        disabled: false,
+        credentials: {
+          secretLabel: "Not collected",
+          keyLabel: "Not collected",
+          limits:
+            "No secret field or file upload is available. This advances a fake nonsecret revision number.",
+        },
+      },
+    },
+  },
+}
+export const SimulatedRotationPending: Story = {
+  args: {
+    data: {
+      ...SimulatedCredentials.args!.data!,
+      heading: "Simulate webhook rotation",
+      busyLabel: "The fake provider response is pending. Confirm it below to advance the fixture.",
+      paragraphs: ["Mock webhook rotation: pending. No webhook or secret changed."],
+      form: {
+        action: "/settings/github?change=rotation",
+        method: "post",
+        operation: "retry",
+        simulation: true,
+        submitLabel: "Confirm fake provider response",
+        confirmLabel: "I confirm this change affects synthetic local records only.",
+        disabled: false,
+      },
+    },
+  },
+}
 export const InstallationRequired: Story = {
   args: {
     data: {

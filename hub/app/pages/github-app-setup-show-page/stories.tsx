@@ -26,3 +26,19 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Default: Story = {}
+export const Simulation: Story = {
+  args: {
+    data: {
+      ...meta.args.data,
+      simulation: true,
+      canContinue: true,
+      heading: "Simulate GitHub App setup",
+      description:
+        "Create a local synthetic App record. No bootstrap secret, account or provider connection is used.",
+      organizationLabel: "Synthetic organization",
+      organizationHint: "github is a fixed fixture identifier, not a connected organization.",
+      submitLabel: "Continue mock setup",
+      submitPath: "/settings/github/setup",
+    },
+  },
+}

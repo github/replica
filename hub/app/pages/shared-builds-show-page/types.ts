@@ -1,9 +1,15 @@
-export interface SharedBuildsShowPageData {
+interface SharedBuildBase {
   frameTitle: string
   label: string
   pageTitle: string
-  previewUrl: string
   productName: string
   controlsIdentity?: string
   controlsOrigin?: string
+  mockNotice?: string
 }
+
+export type SharedBuildsShowPageData = SharedBuildBase &
+  (
+    | { previewUrl: string; unavailable?: never }
+    | { previewUrl?: never; unavailable: { heading: string; description: string } }
+  )

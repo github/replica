@@ -81,3 +81,35 @@ export const AccessRemoved: Story = {
     },
   },
 }
+
+const mockEnabledData: Extract<SharingSettingsPageData, { accessDenied: false }> = {
+  ...data,
+  heading: "Public sharing",
+  description:
+    "Control signed-out access to synthetic local previews. This setting changes only the local mock session.",
+  statusLabel: "Mock public sharing is enabled",
+  operation: "disable",
+  submitLabel: "Disable mock public sharing",
+  consequence:
+    "All existing local share links will be permanently revoked. Enabling later permits new links only.",
+  confirmLabel: "I understand and confirm this mock sharing change.",
+  verification:
+    "This is a local mock confirmation. No GitHub verification or deployed Hub is changed.",
+}
+
+export const MockEnabled: Story = {
+  args: { data: mockEnabledData },
+}
+
+export const MockDisabled: Story = {
+  args: {
+    data: {
+      ...mockEnabledData,
+      statusLabel: "Mock public sharing is disabled",
+      operation: "enable",
+      submitLabel: "Enable mock public sharing",
+      consequence:
+        "New local links can open fixed synthetic Builds without signing in. Previously revoked links stay revoked.",
+    },
+  },
+}

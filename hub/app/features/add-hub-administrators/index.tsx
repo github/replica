@@ -17,11 +17,13 @@ export function AddHubAdministrators({
   authenticityToken,
   onSearch,
   onClose,
+  pending,
 }: {
   data: AddHubAdministratorsData
   authenticityToken: string
   onSearch: (query: string) => Promise<HubAdministratorSearchResults>
   onClose: () => void
+  pending?: boolean
 }) {
   const dialog = useRef<HTMLDialogElement>(null)
   const body = useScrollFade<HTMLDivElement>()
@@ -35,7 +37,8 @@ export function AddHubAdministrators({
   const [error, setError] = useState(false)
   const [selected, setSelected] = useState<HubAdministratorCandidate[]>([])
   const [confirmed, setConfirmed] = useState(false)
-  const [submitting, setSubmitting] = useState(false)
+  const [localSubmitting, setSubmitting] = useState(false)
+  const submitting = pending ?? localSubmitting
   const visibleUsers = [
     ...selected.filter((user) => !results?.users.some((entry) => entry.id === user.id)),
     ...(results?.users ?? []),
@@ -176,7 +179,7 @@ export function AddHubAdministrators({
                 event.preventDefault()
                 return
               }
-              setSubmitting(true)
+              if (pending === undefined) setSubmitting(true)
             }}
           >
             <input type="hidden" name="authenticity_token" value={authenticityToken} />

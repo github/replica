@@ -12,6 +12,21 @@
   min-height: 0;
 }
 
+.shared-build[data-notice="true"] {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.shared-build[data-notice="true"] > :first-child {
+  outline: 2px solid var(--hub-mock-outline);
+  outline-offset: -2px;
+}
+
+.shared-build__unavailable {
+  display: grid;
+  place-items: center;
+  padding: 2rem;
+}
+
 .shared-build__frame {
   background: var(--hub-canvas-default);
   display: block;

@@ -95,6 +95,37 @@ export const Denied: Story = {
   },
 }
 export const Ended: Story = { args: { data: result } }
+export const SimulatedConfirmation: Story = {
+  args: {
+    data: {
+      ...sessionRevocationData,
+      simulation: true,
+      heading: "End this mock browser session?",
+      description:
+        "Only this tab's in-memory profile changes. Real sessions, other browsers and share links are untouched.",
+      scope:
+        "The current synthetic browser profile signs out. No credentials or external connections exist.",
+      ownSession: "@octocat will be signed out of this simulation.",
+      verification: "No identity provider is contacted.",
+      counts: "1 mock browser session. No real sessions are counted.",
+      confirmLabel: "I understand this ends only the current mock browser session.",
+      submitLabel: "End mock browser session",
+      submitPath: "/settings/sessions",
+    },
+  },
+}
+export const SimulatedEnded: Story = {
+  args: {
+    data: {
+      ...result,
+      simulation: true,
+      heading: "Mock browser session ended",
+      description: "Real sessions, other browsers and share links are untouched.",
+      scope: "Only this tab's in-memory mock profile changed.",
+      notice: "The mock session ended. Use the mock profile controls to start again.",
+    },
+  },
+}
 export const DisconnectDeliveryFailed: Story = {
   args: {
     data: {

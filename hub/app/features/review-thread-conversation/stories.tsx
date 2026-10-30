@@ -92,6 +92,25 @@ export const ReadOnlyConversation: Story = {
   },
 }
 
+export const ReadOnlyProfile: Story = {
+  args: {
+    readOnly: true,
+    copy: {
+      ...reviewCommentsCopy,
+      selectionBlockedLabel: "This mock profile can read reviews but cannot change them.",
+    },
+    thread: {
+      ...repliedReviewThread,
+      root: { ...repliedReviewThread.root, viewerCanEdit: false, viewerCanDelete: false },
+      replies: repliedReviewThread.replies.map((reply) => ({
+        ...reply,
+        viewerCanEdit: false,
+        viewerCanDelete: false,
+      })),
+    },
+  },
+}
+
 export const Multiple: Story = {
   args: {
     thread: repliedReviewThread,

@@ -2,3 +2,8 @@
   display: grid;
   gap: var(--hub-space-16);
 }
+
+.operator-enrollment__mock-control {
+  outline: 2px solid var(--hub-mock-outline);
+  outline-offset: -2px;
+}

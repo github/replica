@@ -1,6 +1,8 @@
 import type { HubAdministrationPageData } from "@features/hub-administration-page/types"
 
 export interface GithubAppForm {
+  simulation?: boolean
+  confirmationPhrase?: string
   action: string
   method: "patch" | "post" | "delete"
   operation?: "start" | "retry"

@@ -24,6 +24,12 @@
   margin-top: 1rem;
 }
 
+.new-prototype__mock-notice {
+  margin-block-end: 1.5rem;
+  outline: 2px solid var(--hub-mock-outline);
+  outline-offset: -2px;
+}
+
 .new-prototype__heading {
   margin: 0 0 2rem;
   color: var(--hub-fg-default);

@@ -1,4 +1,4 @@
-import { createRef } from "react"
+import { createRef, useState } from "react"
 import type { Meta, StoryObj } from "@storybook/react-vite"
 
 import { useHubTheme } from "@hooks/use-hub-theme"
@@ -142,5 +142,37 @@ export const Local: Story = {
 export const LocalEmpty: Story = {
   args: {
     data: { ...localReplicaBrowseData, selectedBuild: undefined },
+  },
+}
+
+export const MockForkCreated: Story = {
+  args: Template.args,
+  render: function MockForkStory(args) {
+    const { resolvedColorMode } = useHubTheme()
+    const [created, setCreated] = useState(false)
+    return (
+      <ReplicaBrowsePage
+        {...args}
+        previewTheme={resolvedColorMode}
+        mockNotice={
+          created
+            ? "Mock prototype created from this template. No GitHub operation ran."
+            : undefined
+        }
+        onCreate={() => setCreated(true)}
+      />
+    )
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: data.forkLabel }))
+    await userEvent.type(
+      canvas.getByRole("textbox", { name: data.branchPlaceholder }),
+      "Try a simpler welcome flow",
+    )
+    await userEvent.click(
+      canvas
+        .getAllByRole("button", { name: data.branchSubmitLabel })
+        .find((button) => !button.hasAttribute("disabled"))!,
+    )
   },
 }

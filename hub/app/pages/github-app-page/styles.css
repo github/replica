@@ -4,6 +4,16 @@
   max-inline-size: 44rem;
 }
 
+.github-app-page__mock-control,
+.github-app-page__mock-notice {
+  outline: 2px solid var(--hub-mock-outline);
+  outline-offset: -2px;
+}
+
+.github-app-page__mock-notice {
+  padding: 0.75rem;
+}
+
 .github-app-page__field {
   display: grid;
   gap: 0.5rem;

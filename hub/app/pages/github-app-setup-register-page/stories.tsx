@@ -24,3 +24,18 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Default: Story = {}
+export const Simulation: Story = {
+  args: {
+    data: {
+      ...meta.args.data,
+      simulation: true,
+      heading: "Register the mock App",
+      description: "No App is created on GitHub. This advances one local fixture record.",
+      access:
+        "The fixture refers to github/prototype and github/empty. No repository access is requested or granted.",
+      manifest: '{"name":"Replica Hub mock","mock":true}',
+      submitLabel: "Register simulation",
+      submitPath: "/settings/github/register",
+    },
+  },
+}

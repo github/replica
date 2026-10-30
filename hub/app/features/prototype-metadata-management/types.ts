@@ -6,6 +6,7 @@ export interface PrototypeMetadataEntry {
   startPage: string | null
   startPageImportError?: string | null
   path: string
+  readOnly?: boolean
 }
 
 export interface PrototypeMetadataManagementData {

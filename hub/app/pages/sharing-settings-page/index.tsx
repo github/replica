@@ -7,7 +7,13 @@ import type { SharingSettingsPageData } from "./types"
 import "./styles.css"
 
 /** Keeps the consequence and explicit confirmation beside the deployment control. */
-export function SharingSettingsPage({ data }: { data: SharingSettingsPageData }) {
+export function SharingSettingsPage({
+  data,
+  busy = false,
+}: {
+  data: SharingSettingsPageData
+  busy?: boolean
+}) {
   return (
     <HubAdministrationPage data={data}>
       {data.accessDenied ? (
@@ -21,16 +27,22 @@ export function SharingSettingsPage({ data }: { data: SharingSettingsPageData })
           <HubAlert title={data.consequence} variant="warning" />
           <Text as="p">{data.verification}</Text>
 
-          <form action={data.submitPath} method="post" className="sharing-settings-page__form">
+          <form
+            key={data.operation}
+            action={data.submitPath}
+            method="post"
+            className="sharing-settings-page__form"
+            aria-busy={busy}
+          >
             <input type="hidden" name="_method" value="patch" />
             <input type="hidden" name="authenticity_token" value={data.authenticityToken} />
             <input type="hidden" name="operation" value={data.operation} />
 
             <label className="sharing-settings-page__confirmation">
-              <input type="checkbox" name="confirmed" value="1" required />
+              <input type="checkbox" name="confirmed" value="1" required disabled={busy} />
               <span>{data.confirmLabel}</span>
             </label>
-            <Button type="submit" variant="primary">
+            <Button type="submit" variant="primary" disabled={busy}>
               {data.submitLabel}
             </Button>
           </form>

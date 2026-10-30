@@ -19,12 +19,20 @@ export function PrototypeMetadataManagement({
   loading = false,
   loadFailed = false,
   onRetry,
+  saving = false,
+  saveError,
+  saved = false,
+  readOnly = false,
 }: {
   authenticityToken: string
   data: PrototypeMetadataManagementData
   loading?: boolean
   loadFailed?: boolean
   onRetry?: () => void
+  saving?: boolean
+  saveError?: string | null
+  saved?: boolean
+  readOnly?: boolean
 }) {
   const [selected, setSelected] = useState<{
     entry: PrototypeMetadataEntry
@@ -42,6 +50,10 @@ export function PrototypeMetadataManagement({
     if (!dialog.current?.open) dialog.current?.showModal()
     dialog.current?.querySelector<HTMLInputElement>('input[name="prototype[name]"]')?.focus()
   }, [selected])
+
+  useEffect(() => {
+    if (saved && !saving) dialog.current?.close()
+  }, [saved, saving])
 
   function open(
     entry: PrototypeMetadataEntry,
@@ -93,6 +105,7 @@ export function PrototypeMetadataManagement({
                     type="button"
                     variant="secondary"
                     size="small"
+                    disabled={saving || readOnly || entry.readOnly}
                     aria-label={`${data.addLabel}: ${entry.branchName}`}
                     onClick={(event: MouseEvent<HTMLButtonElement>) => open(entry, false, event)}
                   >
@@ -140,6 +153,7 @@ export function PrototypeMetadataManagement({
                   type="button"
                   variant="secondary"
                   size="small"
+                  disabled={saving || readOnly || entry.readOnly}
                   aria-label={`${data.editLabel}: ${entry.branchName}`}
                   onClick={(event: MouseEvent<HTMLButtonElement>) => open(entry, true, event)}
                 >
@@ -157,6 +171,9 @@ export function PrototypeMetadataManagement({
         ref={dialog}
         className="prototype-metadata__dialog"
         aria-labelledby={headingId}
+        onCancel={(event) => {
+          if (saving) event.preventDefault()
+        }}
         onClose={() => {
           setSelected(null)
           trigger.current?.focus()
@@ -174,10 +191,12 @@ export function PrototypeMetadataManagement({
                 variant="invisible"
                 size="small"
                 aria-label={data.closeDialogLabel}
+                disabled={saving}
                 onClick={() => dialog.current?.close()}
               />
             </div>
             <Text as="p">{selected.entry.branchName}</Text>
+            {saveError ? <HubAlert title={saveError} variant="critical" layout="compact" /> : null}
             {selected.entry.startPageImportError ? (
               <HubAlert
                 title={selected.entry.startPageImportError}
@@ -191,6 +210,7 @@ export function PrototypeMetadataManagement({
               action={selected.entry.path}
               method="post"
               className="prototype-metadata__form"
+              aria-busy={saving}
             >
               <input type="hidden" name="_method" value="patch" />
               <input type="hidden" name="authenticity_token" value={authenticityToken} />
@@ -201,6 +221,7 @@ export function PrototypeMetadataManagement({
                   name="prototype[name]"
                   defaultValue={selected.entry.name}
                   maxLength={data.nameMaximumLength}
+                  disabled={saving}
                 />
               </FormControl>
 
@@ -210,6 +231,7 @@ export function PrototypeMetadataManagement({
                   name="prototype[description]"
                   defaultValue={selected.entry.description ?? ""}
                   maxLength={data.descriptionMaximumLength}
+                  disabled={saving}
                 />
               </FormControl>
 
@@ -219,6 +241,7 @@ export function PrototypeMetadataManagement({
                   name="prototype[start_page]"
                   defaultValue={selected.entry.startPage ?? ""}
                   placeholder="/"
+                  disabled={saving}
                 />
                 <FormControl.Hint>{data.startPageHint}</FormControl.Hint>
               </FormControl>
@@ -228,11 +251,12 @@ export function PrototypeMetadataManagement({
                   type="button"
                   variant="secondary"
                   size="small"
+                  disabled={saving}
                   onClick={() => dialog.current?.close()}
                 >
                   {data.cancelLabel}
                 </Button>
-                <Button type="submit" variant="primary" size="small">
+                <Button type="submit" variant="primary" size="small" disabled={saving}>
                   {selected.registered ? data.saveLabel : data.addLabel}
                 </Button>
               </div>

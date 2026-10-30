@@ -58,3 +58,7 @@ export const Permanent: Story = {
     },
   },
 }
+
+export const ReadOnly: Story = {
+  args: { canDelete: false },
+}

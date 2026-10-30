@@ -60,6 +60,7 @@ export interface PrototypesShowPageData extends PrototypeWorkspaceData {
   repositoryId: number
   repositoryName: string
   reviewCommentsPath: string
+  reviewReadOnly?: boolean
   reviewComments: {
     bodyMaximumBytes: number
     copy: ReviewCommentsCopy

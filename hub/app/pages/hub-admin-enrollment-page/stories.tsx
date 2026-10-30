@@ -25,3 +25,17 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Enrollment: Story = {}
+export const Simulation: Story = {
+  args: {
+    data: {
+      ...meta.args.data,
+      simulation: true,
+      canContinue: true,
+      heading: "Try administrator enrollment",
+      description:
+        "Continue as synthetic Octocat, then confirm a local continuation. No secret or provider identity is requested.",
+      submitLabel: "Start mock enrollment example",
+      submitPath: "/settings/enroll",
+    },
+  },
+}
