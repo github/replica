@@ -1,6 +1,7 @@
 import "dotenv/config"
 import { z } from "zod"
 
+import { startTelemetry } from "../integrations/opentelemetry/start-telemetry/index.ts"
 import { logger } from "../integrations/pino/index.ts"
 import { jobProcessors } from "./configuration.ts"
 import { runJobWorker } from "./run-job-worker/index.ts"
@@ -15,11 +16,16 @@ try {
     .min(1)
     .max(100)
     .parse(process.env[variable] ?? 1)
-  await runJobWorker({ name, databaseUrl, concurrency, logger, processors: jobProcessors[name] })
+  const telemetry = startTelemetry(process.env, logger)
+  try {
+    await runJobWorker({ name, databaseUrl, concurrency, logger, processors: jobProcessors[name] })
+  } finally {
+    await telemetry.shutdown()
+  }
 } catch (error) {
   logger.fatal(
     { errorType: error instanceof Error ? error.name : "UnknownError" },
-    "Job worker failed; check database access, worker configuration, and shutdown time",
+    "Job worker failed; check database access, worker configuration, telemetry, and shutdown time",
   )
   process.exit(1)
 }
