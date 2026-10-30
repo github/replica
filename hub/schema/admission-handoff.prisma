@@ -1,0 +1,26 @@
+model AdmissionHandoff {
+  // ID columns
+  id                 String @id @default(uuid()) @db.Uuid
+  externalIdentityId String @map("external_identity_id") @db.Uuid
+  providerRevisionId String @map("provider_revision_id") @db.Uuid
+
+  // Relations
+  externalIdentity ExternalIdentity               @relation(fields: [externalIdentityId], references: [id], onDelete: Restrict)
+  providerRevision AuthenticationProviderRevision @relation(fields: [providerRevisionId], references: [id], onDelete: Restrict)
+
+  // Attribute columns
+  tokenDigest          String    @unique @map("token_digest") @db.VarChar(64)
+  browserBindingDigest String    @map("browser_binding_digest") @db.VarChar(64)
+  revocationGeneration BigInt    @map("revocation_generation")
+  displayAttributes    Json      @map("display_attributes") @db.JsonB
+  expiresAt            DateTime  @map("expires_at") @db.Timestamptz(3)
+  consumedAt           DateTime? @map("consumed_at") @db.Timestamptz(3)
+
+  // Timestamp columns
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([expiresAt])
+  @@index([externalIdentityId])
+  @@map("admission_handoffs")
+}

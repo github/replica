@@ -10,6 +10,12 @@ interface SecurityAuditEvent {
   id: string
 }
 
+export interface AuthenticationAttemptDeniedAudit extends SecurityAuditEvent {
+  type: "authentication_attempt_denied"
+  provider: string
+  reason: "configuration_changed" | "invalid_or_expired" | "provider_failed" | "rate_limited"
+}
+
 export interface ExternalIdentityCreatedAudit extends SecurityAuditEvent {
   type: "external_identity_created"
   externalIdentityId: string
@@ -51,7 +57,30 @@ export interface ProviderRevisionPersistFailedAudit extends SecurityAuditEvent {
   revision: number
 }
 
+export interface AuthenticationHandoffCreatedAudit extends SecurityAuditEvent {
+  type: "authentication_handoff_created"
+  externalIdentityId: string
+  handoffId: string
+  providerRevisionId: string
+}
+
+export interface AuthenticationHandoffConsumedAudit extends SecurityAuditEvent {
+  type: "authentication_handoff_consumed"
+  externalIdentityId: string
+  handoffId: string
+}
+
+export interface AuthenticationHandoffDeniedAudit extends SecurityAuditEvent {
+  type: "authentication_handoff_denied"
+  reason: "browser_mismatch" | "expired" | "provider_revision_changed" | "replayed" | "revoked"
+  handoffId?: string
+}
+
 export type CreateSecurityAuditEvent =
+  | AuthenticationAttemptDeniedAudit
+  | AuthenticationHandoffConsumedAudit
+  | AuthenticationHandoffCreatedAudit
+  | AuthenticationHandoffDeniedAudit
   | ExternalIdentityCreatedAudit
   | ExternalIdentityCreateFailedAudit
   | ProviderRevisionValidationFailedAudit

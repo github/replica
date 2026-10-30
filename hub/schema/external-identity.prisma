@@ -4,7 +4,8 @@ model ExternalIdentity {
   userId String @map("user_id") @db.Uuid
 
   // Relations
-  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  user              User               @relation(fields: [userId], references: [id], onDelete: Restrict)
+  admissionHandoffs AdmissionHandoff[]
 
   // Attribute columns
   provider String @db.VarChar(100)

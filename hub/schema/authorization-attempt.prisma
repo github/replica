@@ -1,0 +1,25 @@
+model AuthorizationAttempt {
+  // ID columns
+  id                 String @id @default(uuid()) @db.Uuid
+  providerRevisionId String @map("provider_revision_id") @db.Uuid
+
+  // Relations
+  providerRevision AuthenticationProviderRevision @relation(fields: [providerRevisionId], references: [id], onDelete: Restrict)
+
+  // Attribute columns
+  stateDigest            String    @unique @map("state_digest") @db.VarChar(64)
+  browserBindingDigest   String    @map("browser_binding_digest") @db.VarChar(64)
+  codeChallenge          String    @map("code_challenge") @db.VarChar(43)
+  codeVerifierCiphertext String    @map("code_verifier_ciphertext") @db.VarChar(500)
+  requestIpDigest        String    @map("request_ip_digest") @db.VarChar(64)
+  expiresAt              DateTime  @map("expires_at") @db.Timestamptz(3)
+  consumedAt             DateTime? @map("consumed_at") @db.Timestamptz(3)
+
+  // Timestamp columns
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([expiresAt])
+  @@index([requestIpDigest, createdAt])
+  @@map("authorization_attempts")
+}
