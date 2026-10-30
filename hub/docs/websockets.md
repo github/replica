@@ -4,6 +4,8 @@ Hub can send live updates to the client app and Copilot plugin through the `ws` 
 
 The application attaches `/api/realtime` to the same HTTP server as Express and passes its broadcast function to `createApp()`. Vite forwards WebSocket upgrades under `/api` during development. The endpoint rejects connections until application access checks are supplied. There are no comment channels or product events yet.
 
+`runApi()` owns the shared server and signal handlers. It waits for HTTP requests and WebSockets to close before the entrypoint flushes [telemetry](telemetry.md). A failure closing either transport is reported after both cleanup operations settle, unless the overall API shutdown deadline expires.
+
 ## Server operations
 
 `attachRealtimeServer({ server, path, logger, limits?, authenticate?, authorizeSubscription? })` receives an existing Node HTTP server and an injected Pino logger. It does not start listening or open another port. It returns an instance with two operations:

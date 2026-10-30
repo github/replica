@@ -42,6 +42,8 @@ Vite also forwards WebSocket upgrades under `/api`. The `/api/realtime` endpoint
 
 The API reads an optional `PORT` environment variable, defaulting to 3001. If you change it, update the local Vite proxy target to match. The editor forwards ports 3001, 5173, and 6006 from the devcontainer. API startup reads `.env` when present; Compose's environment takes precedence.
 
+On `SIGINT` or `SIGTERM`, the API stops accepting requests and allows active requests up to 30 seconds to finish, then flushes [optional telemetry](telemetry.md) within five seconds. No automatic request tracing is installed.
+
 ## Background workers
 
 The API and frontend do not start background consumers. After starting PostgreSQL, run `npm run setup` once, then start `npm run worker:on-demand` and `npm run worker:scheduled` in separate terminals. Both use `DATABASE_URL`; their concurrency settings are in `.env.example`.

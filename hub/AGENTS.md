@@ -6,6 +6,7 @@ Hub is being rebuilt in TypeScript. The app starts locally, but its product feat
 - [Code architecture conventions](docs/backend-architecture.md) define repositories, integrations, utilities, domains, and allowed imports.
 - [Coding conventions](docs/coding-conventions.md) explain frontend layers, formatting, and interface rules.
 - [Database conventions](docs/database.md) define Prisma files, model section order, UUID keys, timestamps, and database naming.
+- [Telemetry](docs/telemetry.md) defines explicit spans, safe attributes, operator configuration, and API and worker lifetime.
 - [Development](docs/development.md) and [testing](docs/testing-and-operations.md) own local and CI commands.
 - [Storybook](docs/storybook.md#ui-changes-and-pull-request-evidence) owns presentation coverage, cleanup, and PR screenshots.
 
