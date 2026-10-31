@@ -30,12 +30,13 @@ Local preview HTML and representative SVG images are synthetic assets, not publi
 
 ## Routes and state
 
-Start the mock development server before opening these examples. The links use the default port, `5173`; replace it with the port printed by the CLI if you start the server on another port. The inventory below lists the other connected pages.
+Start the mock development server before opening these examples. The links use the default port, `5173`; replace it with the port printed by the CLI if you start the server on another port. The [retained-page inventory](#retained-page-inventory) includes example links for every connected page.
 
 | Route | Connected presentation | URL state | Open an example |
 | --- | --- | --- | --- |
 | `/` | Redirects to a repository or mock sign-in, or shows an empty workspace | Selection comes from session and workspace responses | [Home](http://127.0.0.1:5173/) |
 | `/sign-in` | Mock sign-in using the retained home page | Already signed-in viewers return to their workspace | [Sign-in](http://127.0.0.1:5173/sign-in) |
+| `/session` | Mock sign-in/out and profile selection; POST action only, not a page | `profile` comes from the submitted form | [Mock sign-in form](http://127.0.0.1:5173/sign-in); **Mock user** also submits this action |
 | `/repositories/:repositoryId` | Repository prototypes | `q`, `author`, `page`, `view` | [github/prototype](http://127.0.0.1:5173/repositories/2001) |
 | `/repositories/:repositoryId/prototypes/:prototypeId` | Preview, metadata, and review conversations | `build` pins the preview; `comment` opens a conversation | [Welcome review](http://127.0.0.1:5173/repositories/2001/prototypes/1?build=3&comment=1) |
 | `/repositories/:repositoryId/prototypes/:prototypeId/builds` | Build history | `page` | [Welcome build history](http://127.0.0.1:5173/repositories/2001/prototypes/1/builds) |
@@ -48,6 +49,8 @@ Other seeded page states:
 - Prototypes: [Welcome pinned to Build 1](http://127.0.0.1:5173/repositories/2001/prototypes/1?build=1), [Navigation with a running build](http://127.0.0.1:5173/repositories/2001/prototypes/2), and [Settings without builds](http://127.0.0.1:5173/repositories/2001/prototypes/3).
 - Build history: [older Welcome builds](http://127.0.0.1:5173/repositories/2001/prototypes/1/builds?page=2) and [empty Settings history](http://127.0.0.1:5173/repositories/2001/prototypes/3/builds).
 - Build details: [failed Welcome Build 2](http://127.0.0.1:5173/repositories/2001/prototypes/1/builds/2) and [running Navigation Build 1](http://127.0.0.1:5173/repositories/2001/prototypes/2/builds/1).
+- Templates: [default starter](http://127.0.0.1:5173/repositories/2001/templates/default) and [Welcome template](http://127.0.0.1:5173/repositories/2001/templates/prototype-1).
+- Shared previews: [active link](http://127.0.0.1:5173/shared/demo-active), [expired link](http://127.0.0.1:5173/shared/demo-expired), and [revoked link](http://127.0.0.1:5173/shared/demo-revoked).
 
 `author=me` selects the mock viewer; other author selections use an ID returned by the authors endpoint. Search, author, pagination, and gallery/list changes are reflected in the URL. Draft text and pending form state remain local to the interaction.
 
@@ -121,34 +124,38 @@ The migration started from commit `3254a642c9bb2dbf635915892475fa37d7bf2f00`. It
 
 All page modules below have a mock route. This demonstrates frontend navigation and local behavior, not backend feature parity or evidence that every retained design shipped previously.
 
-| Page module | Intent and current connection |
-| --- | --- |
-| [Repositories show](../app/pages/repositories-show-page/) | Connected repository listing, filters, and pagination |
-| [Prototypes show](../app/pages/prototypes-show-page/) | Preview, metadata, and mock review conversations |
-| [Builds index](../app/pages/builds-index-page/) | Connected build history |
-| [Builds show](../app/pages/builds-show-page/) | Connected build details |
-| [Home](../app/pages/home-index-page/) | `/sign-in` |
-| [Analytics](../app/pages/analytics-page/) | `/settings/analytics` |
-| [Canvas pairings](../app/pages/canvas-pairings-page/) | `/settings/canvas` and `/settings/canvas/approve` |
-| [Copilot connection](../app/pages/copilot-connection-page/) | `/settings/copilot` |
-| [Fresh authorization](../app/pages/fresh-authorization-page/) | `/settings/authorize` |
-| [GitHub App](../app/pages/github-app-page/) | `/settings/github` |
-| [GitHub App install](../app/pages/github-app-setup-install-page/) | `/settings/github/installed` |
-| [GitHub App register](../app/pages/github-app-setup-register-page/) | `/settings/github/register` |
-| [GitHub App setup](../app/pages/github-app-setup-show-page/) | `/settings/github/setup` |
-| [Admin confirmation](../app/pages/hub-admin-confirmation-page/) | `/settings/admins/:userId/:operation` |
-| [Admin enrollment](../app/pages/hub-admin-enrollment-page/) | `/settings/enroll` |
-| [Admins](../app/pages/hub-admins-page/) | `/settings/admins` |
-| [Learnings](../app/pages/learnings-page/) | `/settings/learnings` |
-| [New prototype](../app/pages/new-prototype-page/) | `/repositories/:repositoryId/new` |
-| [Notifications](../app/pages/notifications-page/) | `/notifications` |
-| [Prototype management](../app/pages/prototype-management-page/) | `/repositories/:repositoryId/prototypes/manage` |
-| [Replica browse](../app/pages/replica-browse-page/) | `/repositories/:repositoryId/templates/:templateId` |
-| [Security audit](../app/pages/security-audit-page/) | `/settings/audit` |
-| [Session revocation](../app/pages/session-revocation-page/) | `/settings/sessions` |
-| [Share links](../app/pages/share-links-index-page/) | `/repositories/:repositoryId/prototypes/:prototypeId/share-links` |
-| [Shared build](../app/pages/shared-builds-show-page/) | `/shared/:shareId` |
-| [Sharing settings](../app/pages/sharing-settings-page/) | `/admin/sharing` |
-| [Welcome](../app/pages/welcome-page/) | `/welcome` |
+Examples use seeded identifiers. A fresh document starts with the Owner mock profile; use **Mock user** and **Mock flow** in the same tab to explore other profiles without reloading. Choose the signed-out profile for sign-in and the administrator profile for administrative actions.
+
+GitHub App registration and installation redirect to setup until their preceding mock steps are complete. Start with the setup example and follow its buttons in the same tab. Fresh authorization needs a pending continuation from the Copilot connection or administrator enrollment flow.
+
+| Page module | Intent and current connection | Open an example |
+| --- | --- | --- |
+| [Repositories show](../app/pages/repositories-show-page/) | Connected repository listing, filters, and pagination | [github/prototype](http://127.0.0.1:5173/repositories/2001) |
+| [Prototypes show](../app/pages/prototypes-show-page/) | Preview, metadata, and mock review conversations | [Welcome review](http://127.0.0.1:5173/repositories/2001/prototypes/1?build=3&comment=1) |
+| [Builds index](../app/pages/builds-index-page/) | Connected build history | [Welcome history](http://127.0.0.1:5173/repositories/2001/prototypes/1/builds) |
+| [Builds show](../app/pages/builds-show-page/) | Connected build details | [Successful Build 3](http://127.0.0.1:5173/repositories/2001/prototypes/1/builds/3) |
+| [Home](../app/pages/home-index-page/) | `/sign-in` | [Mock sign-in](http://127.0.0.1:5173/sign-in) |
+| [Analytics](../app/pages/analytics-page/) | `/settings/analytics` | [Repository analytics](http://127.0.0.1:5173/settings/analytics?repositoryId=2001) |
+| [Canvas pairings](../app/pages/canvas-pairings-page/) | `/settings/canvas` and `/settings/canvas/approve` | [Connections](http://127.0.0.1:5173/settings/canvas?repositoryId=2001) and [approval](http://127.0.0.1:5173/settings/canvas/approve?repositoryId=2001) |
+| [Copilot connection](../app/pages/copilot-connection-page/) | `/settings/copilot` | [Mock Copilot connection](http://127.0.0.1:5173/settings/copilot) |
+| [Fresh authorization](../app/pages/fresh-authorization-page/) | `/settings/authorize` | [Confirmation after starting a continuation](http://127.0.0.1:5173/settings/authorize) |
+| [GitHub App](../app/pages/github-app-page/) | `/settings/github` | [Mock App settings](http://127.0.0.1:5173/settings/github) |
+| [GitHub App install](../app/pages/github-app-setup-install-page/) | `/settings/github/installed` | [Installation after registration](http://127.0.0.1:5173/settings/github/installed) |
+| [GitHub App register](../app/pages/github-app-setup-register-page/) | `/settings/github/register` | [Registration after setup](http://127.0.0.1:5173/settings/github/register) |
+| [GitHub App setup](../app/pages/github-app-setup-show-page/) | `/settings/github/setup` | [Start mock App setup](http://127.0.0.1:5173/settings/github/setup) |
+| [Admin confirmation](../app/pages/hub-admin-confirmation-page/) | `/settings/admins/:userId/:operation` | [Add Mona](http://127.0.0.1:5173/settings/admins/2/designate) and [remove Octocat after adding Mona](http://127.0.0.1:5173/settings/admins/1/revoke) |
+| [Admin enrollment](../app/pages/hub-admin-enrollment-page/) | `/settings/enroll` | [Mock enrollment](http://127.0.0.1:5173/settings/enroll) |
+| [Admins](../app/pages/hub-admins-page/) | `/settings/admins` | [Administrator roster](http://127.0.0.1:5173/settings/admins) |
+| [Learnings](../app/pages/learnings-page/) | `/settings/learnings` | [Repository learnings](http://127.0.0.1:5173/settings/learnings?repositoryId=2001) |
+| [New prototype](../app/pages/new-prototype-page/) | `/repositories/:repositoryId/new` | [Create a prototype](http://127.0.0.1:5173/repositories/2001/new) |
+| [Notifications](../app/pages/notifications-page/) | `/notifications` | [Mock inbox](http://127.0.0.1:5173/notifications) |
+| [Prototype management](../app/pages/prototype-management-page/) | `/repositories/:repositoryId/prototypes/manage` | [Manage prototypes](http://127.0.0.1:5173/repositories/2001/prototypes/manage) |
+| [Replica browse](../app/pages/replica-browse-page/) | `/repositories/:repositoryId/templates/:templateId` | [Browse the default template](http://127.0.0.1:5173/repositories/2001/templates/default) |
+| [Security audit](../app/pages/security-audit-page/) | `/settings/audit` | [Mock activity](http://127.0.0.1:5173/settings/audit?repositoryId=2001) |
+| [Session revocation](../app/pages/session-revocation-page/) | `/settings/sessions` | [Mock browser session](http://127.0.0.1:5173/settings/sessions) |
+| [Share links](../app/pages/share-links-index-page/) | `/repositories/:repositoryId/prototypes/:prototypeId/share-links` | [Welcome share links](http://127.0.0.1:5173/repositories/2001/prototypes/1/share-links) |
+| [Shared build](../app/pages/shared-builds-show-page/) | `/shared/:shareId` | [Active shared preview](http://127.0.0.1:5173/shared/demo-active) |
+| [Sharing settings](../app/pages/sharing-settings-page/) | `/admin/sharing` | [Mock sharing controls](http://127.0.0.1:5173/admin/sharing) |
+| [Welcome](../app/pages/welcome-page/) | `/welcome` | [Welcome page](http://127.0.0.1:5173/welcome) |
 
 Settings collection filters use the URL, including `repositoryId` where a repository is selected. Use focused request/store/route tests for cross-page behavior and existing page tests for local interactions. Review visual changes in Storybook and capture affected stories following the [Storybook guide](storybook.md#ui-changes-and-pull-request-evidence). Do not freeze whole DOM trees, incidental copy, or provisional APIs as the migration's ground truth.
