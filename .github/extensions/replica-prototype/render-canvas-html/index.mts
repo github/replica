@@ -3,15 +3,16 @@ import type { CanvasContext } from "../create-canvas-context/index.mjs"
 export function renderCanvasHtml(
   context: Pick<CanvasContext, "normalizedUrl" | "name" | "improvementThreadsSample"> & {
     previewUrl?: string
+    monitorPrototype?: boolean
   },
   token: string,
-  setupUrl?: string,
 ) {
   const bootstrap = JSON.stringify({
     prototypeUrl: context.normalizedUrl,
     previewUrl: context.previewUrl,
     name: context.name,
     token,
+    monitorPrototype: context.monitorPrototype === true,
     pickAndPolish: true,
     ...(context.improvementThreadsSample ? { improvementThreadsSample: true } : {}),
   }).replaceAll("<", "\\u003c")
@@ -28,32 +29,6 @@ export function renderCanvasHtml(
   <div id="root"></div>
   <script>window.__REPLICA_CANVAS__ = ${bootstrap};</script>
   <script type="module" src="/assets/renderer.js"></script>
-  ${
-    setupUrl
-      ? `<p id="prototype-connection-error" role="alert"></p>
-  <script>
-    const setupUrl = ${JSON.stringify(setupUrl).replaceAll("<", "\\u003c")}
-    async function checkPrototype() {
-      try {
-        const response = await fetch("/api/prototype/status", {
-          headers: { "X-Replica-Canvas-Token": window.__REPLICA_CANVAS__.token },
-        })
-        const status = await response.json()
-        if (!response.ok) throw new Error(status.error || "Could not check the prototype server.")
-        if (!status.available) {
-          window.location.replace(setupUrl)
-          return
-        }
-        document.querySelector("#prototype-connection-error").textContent = ""
-      } catch (error) {
-        document.querySelector("#prototype-connection-error").textContent = error.message
-      }
-      setTimeout(checkPrototype, 5000)
-    }
-    checkPrototype()
-  </script>`
-      : ""
-  }
 </body>
 </html>`
 }

@@ -1,6 +1,6 @@
 # Replica prototype canvas
 
-The Replica prototype canvas puts a local prototype in the Copilot app alongside repository status and a Publish control. Open it from **+ → Canvas** to find running HTTP servers in this checkout, then select **Connect** beside the one you want. When none is running, **Start dev server** is the primary action beside **Scan again**. Opening a canvas never executes a repository script; starting requires your click and does not send a chat request.
+The Replica prototype canvas puts a local prototype in the Copilot app alongside repository status and a Publish control. Open it from **+ → Canvas**. Without a running server, the canvas keeps its toolbar and shows Hub's creation form with optional details and template selection. An existing repository connection is reused without another approval. Submitting sends the brief to the current conversation. The outlined section below the form offers **Start prototype**, **Scan again**, and **Connect** for servers in this checkout. Opening a canvas never executes a repository script; starting requires your click and does not send a chat request. See [the creation and connection states](../../../hub/docs/prototype-canvas.md#before-a-prototype-is-running).
 
 ## Local prototype controls
 
@@ -84,7 +84,7 @@ Copilot CLI runs extensions only while its extensions feature is on. In Copilot 
 
 For every connected user with repository access, including Read and Triage, **More actions → Improve context** requests the bundled `/review-hub-feedback` skill in the current chat. Hub checks access again on click. The skill identifies reusable feedback themes; it does not generate solutions or edit context. See [feedback review](../../../hub/docs/prototype-canvas.md#feedback-review) for access and recovery.
 
-Agents can use actions on the existing `replica-prototype` canvas to retrieve conversations for the current prototype or every reviewable prototype in the checkout's repository, across all Builds. Both use the approved repository connection. Repository retrieval requires a Hub deployment with the repository comments API; it needs no migration, MCP server or separate comment store. Open the canvas, but no running or connected local preview is required for comment actions. They reuse the saved Hub selection and approved credentials; missing authorization still requires connecting to Hub. Preview interactions and publishing still require a connected local preview.
+Agents can use actions on the existing `replica-prototype` canvas to retrieve conversations for the current prototype or every reviewable prototype in the checkout's repository, across all Builds. Both use the approved repository connection. Repository retrieval requires a Hub deployment with the repository comments API; it needs no migration, MCP server or separate comment store. Open the canvas, but no running or connected local preview is required for comment actions. They reuse the saved Hub selection and approved credentials; missing authorization still requires connecting to Hub. Preview interactions require a connected local preview; repository status, publication, metadata, and sharing remain available without one.
 
 Before a local preview is connected, each comment action resolves the current checkout and saved Hub selection afresh. Changing that selection does not require reopening the canvas; continuations from a different Hub or branch are rejected as stale.
 
@@ -225,7 +225,7 @@ Treat the complete canvas URL as a secret. The document capability is separate f
 
 ### Start a dev server
 
-When an empty scan finds a supported `dev`, `start`, or `serve` script in the current directory's `package.json`, the panel shows **Start dev server** beside **Scan again**. If several scripts qualify, choose one from the script selector. Clicking starts repository code, including package-manager lifecycle hooks; only do this for a checkout you trust. The manifest and lockfiles are rechecked before execution; changed scripts require a new scan.
+When a scan finds a supported `dev`, `start`, or `serve` script in the current directory's `package.json`, the panel shows **Start prototype** beside **Scan again**. If several scripts qualify, choose one from the script selector. Clicking starts repository code, including package-manager lifecycle hooks; only do this for a checkout you trust. The manifest and lockfiles are rechecked before execution; changed scripts require a new scan.
 
 Automatic startup recognizes direct Vite, Next.js, Astro, webpack dev-server, Vue CLI, and Create React App commands. It does not search subdirectories or infer monorepo workspace targets, compound shell commands, or custom wrappers. The package manager comes from `packageManager`, then the lockfile, then npm if neither is present. Conflicting package-manager declarations stop startup. Missing runtimes, package managers, and dependencies require manual setup; the extension does not install them or allow Corepack to download a manager.
 

@@ -24,11 +24,11 @@ export async function createCanvasContext({
       "This Copilot session has no working directory, so repository status cannot be read.",
     )
   }
-  const normalizedUrl = normalizePrototypeUrl(prototypeUrl)
+  const normalizedUrl = prototypeUrl == null ? null : normalizePrototypeUrl(prototypeUrl)
   if (typeof improvementThreadsSample !== "boolean")
     throw new Error("improvementThreadsSample must be a boolean.")
-  const stateUrl = new URL(normalizedUrl)
-  stateUrl.hash = ""
+  const stateUrl = normalizedUrl ? new URL(normalizedUrl) : null
+  if (stateUrl) stateUrl.hash = ""
   const resolvedRepositoryPath = path.resolve(repositoryPath)
   const target = await resolvePublishTarget({
     repository,
@@ -41,7 +41,7 @@ export async function createCanvasContext({
     .update(
       [
         path.resolve(sessionWorkspacePath),
-        stateUrl.toString(),
+        stateUrl?.toString() ?? "disconnected",
         target.repository || "",
         target.branch || "",
         target.commitSha || "",
@@ -60,7 +60,7 @@ export async function createCanvasContext({
     stateDirectory,
     stateFile: path.join(stateDirectory, `${stateId}.json`),
     stateId,
-    urlHost: new URL(normalizedUrl).host,
+    urlHost: normalizedUrl ? new URL(normalizedUrl).host : null,
     ...(improvementThreadsSample ? { improvementThreadsSample: true } : {}),
   }
 }
@@ -113,7 +113,7 @@ function normalizePrototypeUrl(value) {
 }
 function normalizeName(name, normalizedUrl) {
   if (name === undefined) {
-    return new URL(normalizedUrl).hostname
+    return normalizedUrl ? new URL(normalizedUrl).hostname : "New prototype"
   }
   if (typeof name !== "string" || name.trim() === "") {
     throw new Error("name must contain visible text.")

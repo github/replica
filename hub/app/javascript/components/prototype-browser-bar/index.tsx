@@ -14,6 +14,7 @@ import { copy } from "@utils/prototype-canvas/en"
 import "./styles.css"
 
 type Props = {
+  connected?: boolean
   address: string
   addressRef?: Ref<HTMLInputElement>
   canGoBack: boolean
@@ -28,6 +29,7 @@ type Props = {
 }
 
 export function BrowserBar({
+  connected = true,
   address,
   addressRef,
   canGoBack,
@@ -71,7 +73,7 @@ export function BrowserBar({
           <button
             type="button"
             aria-label={copy.browserBack}
-            disabled={!canGoBack}
+            disabled={!connected || !canGoBack}
             onClick={onBack}
           >
             <ArrowLeftIcon size={16} />
@@ -79,12 +81,17 @@ export function BrowserBar({
           <button
             type="button"
             aria-label={copy.browserForward}
-            disabled={!canGoForward}
+            disabled={!connected || !canGoForward}
             onClick={onForward}
           >
             <ArrowRightIcon size={16} />
           </button>
-          <button type="button" aria-label={copy.browserReload} onClick={onReload}>
+          <button
+            type="button"
+            aria-label={copy.browserReload}
+            disabled={!connected}
+            onClick={onReload}
+          >
             <SyncIcon size={16} />
           </button>
         </div>
@@ -96,6 +103,8 @@ export function BrowserBar({
             aria-invalid={Boolean(error)}
             aria-describedby={error ? "canvas-browser-address-error" : undefined}
             spellCheck={false}
+            disabled={!connected}
+            placeholder={connected ? undefined : copy.noPrototypeConnected}
             value={draft}
             onChange={(event) => {
               setEdit({ address, value: event.target.value, error: "" })
@@ -124,6 +133,7 @@ export function BrowserBar({
             type="button"
             aria-label={copy.browserOpenTab}
             title={copy.browserOpenTab}
+            disabled={!connected}
             onClick={() => {
               void onOpenTab().catch((cause: unknown) => {
                 setEdit({

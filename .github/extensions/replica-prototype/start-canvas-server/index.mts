@@ -31,6 +31,8 @@ import { createLocalReviewComments } from "../create-local-review-comments/index
 import { createReviewerProfile } from "../create-reviewer-profile/index.mjs"
 import { readHubObject } from "../read-hub-object/index.mjs"
 import { readHubError } from "../read-hub-error/index.mjs"
+import { requestPrototypeCreation } from "../request-prototype-creation/index.mjs"
+import type { MissingPrototypeServer } from "../start-missing-prototype-server/index.mjs"
 import type { CanvasContext } from "../create-canvas-context/index.mjs"
 import type { HubClient, HubStatus } from "../create-hub-client/index.mjs"
 import type { HubConnection, HubConnectionOptions } from "../create-hub-connection/index.mjs"
@@ -56,6 +58,7 @@ export type CanvasServerOptions = {
   openBrowser?: ShareBrowser
   agentCommands?: AgentCommands
   setupUrl?: string
+  serverConnection?: MissingPrototypeServer
   controlsDiagnosisDirectory?: string
   commentingDirectory?: string
   prototypeStatus?: () => Promise<PrototypeServerStatus>
@@ -127,7 +130,7 @@ export async function startCanvasServer(
   options: CanvasServerOptions = {},
 ) {
   let context = initialContext
-  let preview: PreviewProxy
+  let preview: PreviewProxy | undefined
   const publishPreferences = createPublishPreferences(options.publishPreferencesDirectory)
   const comments = createCommentStore(initialContext.sessionWorkspacePath)
   const source = await readFile(new URL("../assets/canvas-bridge.js", import.meta.url), "utf8")
@@ -207,7 +210,7 @@ export async function startCanvasServer(
       } catch {
         throw httpError(422, "Start page must be a valid prototype URL or route.")
       }
-      if (url.origin === new URL(context.normalizedUrl).origin) {
+      if (context.normalizedUrl && url.origin === new URL(context.normalizedUrl).origin) {
         if (
           url.username ||
           url.password ||
@@ -258,6 +261,7 @@ export async function startCanvasServer(
     const branchName = status.branch.split("/").at(-1)?.replaceAll(/[-_]+/g, " ").trim()
     const canvasName =
       context.target.branch === publishContext.target.branch &&
+      publishContext.normalizedUrl &&
       publishContext.name !== new URL(publishContext.normalizedUrl).hostname
         ? publishContext.name
         : null
@@ -391,7 +395,7 @@ export async function startCanvasServer(
       await routeRequest(
         request,
         response,
-        { ...context, previewUrl: preview.url },
+        { ...context, previewUrl: preview?.url },
         session,
         token,
         documentToken,
@@ -462,6 +466,7 @@ export async function startCanvasServer(
 
   const url = `http://127.0.0.1:${address.port}/?document=${documentToken}`
   function connectPreview(current: CanvasContext) {
+    if (!current.normalizedUrl) throw new Error("Connect a prototype before starting its preview.")
     return startPreviewProxy({
       prototypeUrl: current.normalizedUrl,
       parentOrigin: new URL(url).origin,
@@ -470,7 +475,7 @@ export async function startCanvasServer(
   }
   let previewUpdate = Promise.resolve()
   try {
-    preview = await connectPreview(context)
+    if (context.normalizedUrl) preview = await connectPreview(context)
   } catch (error) {
     await closeServer(server)
     throw error
@@ -482,12 +487,15 @@ export async function startCanvasServer(
       previewUpdate = previewUpdate
         .catch(() => {})
         .then(async () => {
-          const upstream = new URL(nextContext.normalizedUrl)
-          if (upstream.username || upstream.password)
+          const upstream = nextContext.normalizedUrl ? new URL(nextContext.normalizedUrl) : null
+          if (upstream && (upstream.username || upstream.password))
             throw new Error("Replica preview requires an unauthenticated loopback prototype URL.")
           let previous
-          if (upstream.origin !== new URL(context.normalizedUrl).origin) {
-            const nextPreview = await connectPreview(nextContext)
+          if (
+            upstream?.origin !==
+            (context.normalizedUrl ? new URL(context.normalizedUrl).origin : undefined)
+          ) {
+            const nextPreview = upstream ? await connectPreview(nextContext) : undefined
             previous = preview
             preview = nextPreview
           }
@@ -510,7 +518,7 @@ export async function startCanvasServer(
         await previewUpdate
       } finally {
         try {
-          await preview.close()
+          await preview?.close()
         } finally {
           await closeServer(server)
         }
@@ -522,7 +530,7 @@ export async function startCanvasServer(
 async function routeRequest(
   request: IncomingMessage,
   response: ServerResponse,
-  context: CanvasContext & { previewUrl: string },
+  context: CanvasContext & { previewUrl?: string },
   session: PublishSession,
   token: string,
   documentToken: string,
@@ -552,7 +560,10 @@ async function routeRequest(
     ) {
       throw httpError(403, "Invalid canvas document token.")
     }
-    sendHtml(response, renderCanvasHtml(context, token, options.setupUrl))
+    sendHtml(
+      response,
+      renderCanvasHtml({ ...context, monitorPrototype: Boolean(options.serverConnection) }, token),
+    )
     return
   }
   if (request.method === "GET" && ASSET_PATHS.has(requestUrl.pathname)) {
@@ -566,6 +577,69 @@ async function routeRequest(
   }
 
   requireToken(request, token)
+  if (
+    options.serverConnection &&
+    request.method === "GET" &&
+    requestUrl.pathname === "/api/server/status"
+  ) {
+    sendJson(response, 200, await options.serverConnection.request("/status"))
+    return
+  }
+  if (request.method === "GET" && requestUrl.pathname === "/api/prototypes/new") {
+    const hub = await hubClient()
+    if (!hub) throw httpError(409, "Connect to Hub to load templates.")
+    sendJson(response, 200, await hub.request("/api/canvas/templates"))
+    return
+  }
+  if (request.method === "POST" && requestUrl.pathname === "/api/prototypes/new") {
+    sendJson(
+      response,
+      200,
+      await requestPrototypeCreation(
+        await currentCanvasContext(context),
+        session,
+        await hubClient(),
+        await readJson(request, 32_768),
+      ),
+    )
+    return
+  }
+  if (
+    options.serverConnection &&
+    request.method === "GET" &&
+    requestUrl.pathname === "/api/servers"
+  ) {
+    sendJson(response, 200, await options.serverConnection.request("/servers"))
+    return
+  }
+  if (
+    options.serverConnection &&
+    request.method === "POST" &&
+    requestUrl.pathname === "/api/server/start"
+  ) {
+    const { script } = await readJson(request)
+    if (typeof script !== "string") throw httpError(422, "Choose a dev server script.")
+    sendJson(
+      response,
+      200,
+      await options.serverConnection.request(`/start?script=${encodeURIComponent(script)}`, "POST"),
+    )
+    return
+  }
+  if (
+    options.serverConnection &&
+    request.method === "POST" &&
+    requestUrl.pathname === "/api/server/connect"
+  ) {
+    const { url } = await readJson(request)
+    if (typeof url !== "string") throw httpError(422, "Choose a running server.")
+    sendJson(
+      response,
+      200,
+      await options.serverConnection.request(`/connect?url=${encodeURIComponent(url)}`, "POST"),
+    )
+    return
+  }
   if (requestUrl.pathname === "/api/improvement-notes/capture" && request.method === "POST") {
     sendJson(response, 200, await improvementNotes.capture())
     return
@@ -637,6 +711,8 @@ async function routeRequest(
     return
   }
   if (request.method === "POST" && requestUrl.pathname === "/api/prototype/open") {
+    if (!context.normalizedUrl)
+      throw httpError(409, "Connect a prototype before opening its address.")
     const { url: value } = await readJson(request)
     if (typeof value !== "string" || value.length > 2048) {
       throw httpError(422, "Enter a valid prototype URL.")

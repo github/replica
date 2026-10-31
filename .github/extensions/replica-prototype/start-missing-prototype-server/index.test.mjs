@@ -479,7 +479,7 @@ describe("startMissingPrototypeServer()", () => {
       assert.equal(button.disabled, false)
       assert.equal(
         status.textContent,
-        "Could not scan for running servers. Check that lsof is installed and can inspect this checkout, then scan again.",
+        "Could not check for servers. Check that lsof is installed and can inspect this checkout.",
       )
       failScan = false
       available = false
@@ -505,7 +505,7 @@ describe("startMissingPrototypeServer()", () => {
       assert.equal(connectButton.disabled, false)
       assert.equal(
         status.textContent,
-        "Could not connect to that server. Make sure it is running, then scan again or choose another server.",
+        "Could not connect to that server. Make sure it is running, then try again or choose another server.",
       )
       failConnect = false
       await connectButton.handlers.click()
@@ -558,7 +558,7 @@ describe("startMissingPrototypeServer()", () => {
       const scanError = await scanFailure.json()
       assert.deepEqual(scanError, {
         error:
-          "Could not scan for running servers. Check that lsof is installed and can inspect this checkout, then scan again.",
+          "Could not check for servers. Check that lsof is installed and can inspect this checkout.",
       })
 
       failScan = false
@@ -567,8 +567,8 @@ describe("startMissingPrototypeServer()", () => {
         servers: [candidate],
         warnings: [
           "http://[::1]:5174/ did not return an HTML page (HTTP 404).",
-          "http://127.0.0.1:5175/ could not be checked. Make sure it is running, then scan again.",
-          "A server could not be checked. Make sure it is running and serves HTML, then scan again.",
+          "http://127.0.0.1:5175/ could not be checked. Make sure it is running.",
+          "A server could not be checked. Make sure it is running and serves HTML.",
         ],
         development: {
           scripts: [],
@@ -584,7 +584,7 @@ describe("startMissingPrototypeServer()", () => {
       const connectionError = await connectionFailure.json()
       assert.deepEqual(connectionError, {
         error:
-          "Could not connect to that server. Make sure it is running, then scan again or choose another server.",
+          "Could not connect to that server. Make sure it is running, then try again or choose another server.",
       })
       const startupFailure = await fetch(new URL("/start?script=revision:dev", server.url), {
         method: "POST",

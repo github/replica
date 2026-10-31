@@ -44,6 +44,16 @@ type RegistrationOptions = {
   displayName?: string
   hubOptions?: HubConnectionOptions
 }
+
+function retainRepositoryState(next: CanvasContext, previous?: CanvasContext): CanvasContext {
+  if (
+    previous?.target.repository !== next.target.repository ||
+    previous?.target.branch !== next.target.branch
+  )
+    return next
+  // Server availability must not discard a pending publication in this panel.
+  return { ...next, stateId: previous.stateId, stateFile: previous.stateFile }
+}
 type PrototypeInput = {
   prototypeUrl?: string
   name?: string
@@ -72,7 +82,7 @@ type Entry = MissingPrototypeServer & {
   closed?: boolean
 }
 type ConnectedEntry = Entry & {
-  context: CanvasContext
+  context: CanvasContext & { normalizedUrl: string }
   prototype: CanvasServer
   agentCommands: AgentCommands
 }
@@ -902,7 +912,7 @@ export async function registerPrototypeCanvas(
               additionalProperties: false,
             },
             handler: async (ctx) => {
-              const entry = requireOpenPrototypeEntry(ctx.instanceId)
+              const entry = requireCanvasEntry(ctx.instanceId)
 
               try {
                 const [state, hubStatus] = await Promise.all([
@@ -965,7 +975,7 @@ export async function registerPrototypeCanvas(
               },
             },
             handler: async (ctx) => {
-              const entry = requireOpenPrototypeEntry(ctx.instanceId)
+              const entry = requireCanvasEntry(ctx.instanceId)
               const { target, outcome, reason } = isRecord(ctx.input) ? ctx.input : {}
               if (
                 !isRecord(target) ||
@@ -1030,7 +1040,7 @@ export async function registerPrototypeCanvas(
               },
             },
             handler: async (ctx) => {
-              const entry = requireOpenPrototypeEntry(ctx.instanceId)
+              const entry = requireCanvasEntry(ctx.instanceId)
 
               try {
                 if (
@@ -1124,6 +1134,23 @@ export async function registerPrototypeCanvas(
               instanceId: ctx.instanceId,
             }
             servers.set(ctx.instanceId, entry)
+            try {
+              const initialContext = await createCanvasContext({ ...input, ...contextOptions })
+              entry.context = { ...initialContext, normalizedUrl: null, urlHost: null }
+              entry.agentCommands = agentCommands()
+              const rendererEntry = entry
+              entry.prototype = await startCanvasServer(entry.context, session, {
+                serverConnection: missing,
+                hubOptions: canvasOptions.hubOptions,
+                prototypeStatus: () => prototypeStatus(rendererEntry),
+                instanceId: entry.instanceId,
+                agentCommands: entry.agentCommands,
+              })
+            } catch (error) {
+              servers.delete(ctx.instanceId)
+              await closeEntry(entry)
+              throw error
+            }
           }
           try {
             if (input.prototypeUrl) await activatePrototype(entry, input, false)
@@ -1203,12 +1230,15 @@ export async function registerPrototypeCanvas(
     try {
       const prototypeUrl = input.prototypeUrl
       if (!prototypeUrl) throw new Error("prototypeUrl must be a valid HTTP or HTTPS URL.")
-      const context = await createCanvasContext({
-        ...input,
-        prototypeUrl,
-        ...entry.contextOptions,
-      })
-      const status = await checkServer(context.normalizedUrl)
+      const context = retainRepositoryState(
+        await createCanvasContext({
+          ...input,
+          prototypeUrl,
+          ...entry.contextOptions,
+        }),
+        entry.context,
+      )
+      const status = await checkServer(prototypeUrl)
       if (entry.closed) throw new CanvasError("canvas_not_open", "The setup panel was closed.")
       if (!status.available) {
         return { connected: false, message: status.message }
@@ -1216,7 +1246,7 @@ export async function registerPrototypeCanvas(
       const prototype =
         entry.prototype ||
         (await startCanvasServer(context, session, {
-          setupUrl: entry.url,
+          serverConnection: entry,
           hubOptions: canvasOptions.hubOptions,
           prototypeStatus: () => prototypeStatus(entry),
           instanceId: entry.instanceId,
@@ -1249,7 +1279,7 @@ export async function registerPrototypeCanvas(
       entry.context = context
       entry.kind = "prototype"
       entry.connect(prototype.url)
-      return { prototypeUrl: context.normalizedUrl, connected: true }
+      return { prototypeUrl, connected: true }
     } catch (error) {
       throw toCanvasError("connect_failed", error)
     } finally {
@@ -1260,13 +1290,20 @@ export async function registerPrototypeCanvas(
   async function prototypeStatus(entry: Entry): Promise<PrototypeServerStatus> {
     if (entry.kind !== "prototype")
       return { available: false, message: "Prototype server unavailable." }
-    if (!entry.context) throw new Error("The connected prototype has no canvas context.")
+    if (!entry.context?.normalizedUrl || !entry.prototype)
+      throw new Error("The connected prototype has no canvas context.")
     const context = entry.context
-    const status = await checkServer(context.normalizedUrl)
+    const status = await checkServer(entry.context.normalizedUrl)
     if (entry.context !== context || entry.connecting || entry.closed) return { available: true }
     if (!status.available) {
       entry.kind = "missing"
       entry.disconnect()
+      const disconnected = retainRepositoryState(
+        await createCanvasContext({ ...entry.input, ...entry.contextOptions, prototypeUrl: null }),
+        entry.context,
+      )
+      await entry.prototype.setContext(disconnected)
+      entry.context = disconnected
     }
     return status
   }
@@ -1275,7 +1312,7 @@ export async function registerPrototypeCanvas(
     return {
       title: "Preview",
       status: entry.kind === "prototype" ? "Prototype connected" : "Ready to connect",
-      url: entry.url,
+      url: entry.prototype?.url || entry.url,
     }
   }
 
@@ -1307,6 +1344,17 @@ export async function registerPrototypeCanvas(
     }
     return entry
   }
+  function requireCanvasEntry(instanceId: string) {
+    const entry = requireOpenEntry(instanceId)
+    if (!entry.context || !entry.prototype || !entry.agentCommands)
+      throw new CanvasError("canvas_not_open", "The canvas renderer is not available.")
+    return {
+      ...entry,
+      context: entry.context,
+      prototype: entry.prototype,
+      agentCommands: entry.agentCommands,
+    }
+  }
   function toCanvasError(code: string, error: unknown) {
     if (error instanceof CanvasError) {
       return error
@@ -1320,6 +1368,7 @@ function isConnectedEntry(entry: Entry): entry is ConnectedEntry {
   return (
     entry.kind === "prototype" &&
     entry.context !== undefined &&
+    entry.context.normalizedUrl !== null &&
     entry.prototype !== undefined &&
     entry.agentCommands !== undefined
   )

@@ -36,6 +36,10 @@ export async function requestControlsDiagnosis(context, session, input, options 
     throw Object.assign(new Error("Invalid controls diagnosis evidence."), {
       statusCode: 400,
     })
+  if (!context.normalizedUrl)
+    throw Object.assign(new Error("Connect a prototype before diagnosing its controls."), {
+      statusCode: 409,
+    })
   const previewUrl = diagnosisPreviewUrl(evidence.previewUrl, new URL(context.normalizedUrl).origin)
   const reported = {
     status: evidence.status,

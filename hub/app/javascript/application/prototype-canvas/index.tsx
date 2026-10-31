@@ -1,5 +1,5 @@
 import { ThemeProvider } from "@primer/react-brand/esm"
-import { lazy, Suspense, useCallback, useLayoutEffect, useRef, useState } from "react"
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
 
 import { AppDialogs } from "@features/prototype-canvas-dialogs"
 import { BrowserBar } from "@components/prototype-browser-bar"
@@ -24,6 +24,7 @@ import { useShareControlSettings } from "@hooks/use-prototype-share-control-sett
 import { useShareIntent } from "@hooks/use-canvas-share-intent"
 import { useShareLinks } from "@hooks/use-canvas-share-links"
 import { controlsStatus } from "@utils/prototype-controls-status"
+import { CanvasPrototypeCreation } from "@features/canvas-prototype-creation"
 
 import "./styles.css"
 
@@ -163,6 +164,28 @@ export function App({ config }: Props) {
     preferenceSaving: publishPreference.saving,
   })
   const readiness = resolveShareReadiness(state, hub.status, publication.publication)
+  useEffect(() => {
+    if (!config.monitorPrototype) return
+    let disposed = false
+    let checking = false
+    async function check() {
+      if (checking) return
+      checking = true
+      try {
+        const status = await request<{ available: boolean }>("/api/prototype/status", config.token)
+        if (!disposed && status.available !== Boolean(config.prototypeUrl)) window.location.reload()
+      } catch (cause) {
+        if (!disposed) setError(cause instanceof Error ? cause.message : String(cause))
+      } finally {
+        checking = false
+      }
+    }
+    const timer = window.setInterval(() => void check(), 5000)
+    return () => {
+      disposed = true
+      window.clearInterval(timer)
+    }
+  }, [config.monitorPrototype, config.prototypeUrl, config.token, setError])
   const shareContext = sharing.state.context
   const shareControlSettings = useShareControlSettings(
     shareContext
@@ -245,6 +268,7 @@ export function App({ config }: Props) {
       >
         <CanvasReviewFeedback>
           <BrowserBar
+            connected={Boolean(config.prototypeUrl)}
             address={address}
             addressRef={addressRef}
             canGoBack={navigation.index > 0}
@@ -281,7 +305,7 @@ export function App({ config }: Props) {
             onBuildDetails={() => setBuildDetailsOpen(true)}
             controlsButtonRef={controlsButtonRef}
             controlsOpen={controlsOpen}
-            onControls={() => setControlsOpen(!controlsOpen)}
+            onControls={config.prototypeUrl ? () => setControlsOpen(!controlsOpen) : undefined}
             onPublish={() => void publication.publish()}
             onShare={handleShare}
             onImproveContext={canReviewFeedback ? () => void handleImproveContext() : undefined}
@@ -297,17 +321,26 @@ export function App({ config }: Props) {
             }}
           />
 
-          <iframe
-            key={frameKey}
-            ref={frameRef}
-            className="prototype-frame"
-            title={copy.prototypeFrameTitle(config.name)}
-            src={source}
-            style={{
-              colorScheme: appearance,
-              backgroundColor: "var(--hub-canvas-default)",
-            }}
-          />
+          {config.prototypeUrl ? (
+            <iframe
+              key={frameKey}
+              ref={frameRef}
+              className="prototype-frame"
+              title={copy.prototypeFrameTitle(config.name)}
+              src={source}
+              style={{
+                colorScheme: appearance,
+                backgroundColor: "var(--hub-canvas-default)",
+              }}
+            />
+          ) : (
+            <CanvasPrototypeCreation
+              key={`${hub.status?.repository}:${hub.status?.hubOrigin}`}
+              token={config.token}
+              status={hub.status}
+              onConnect={connection.showAndConnect}
+            />
+          )}
 
           <PrototypeCanvasHubPanel
             config={config}
@@ -338,7 +371,7 @@ export function App({ config }: Props) {
             <Suspense fallback={<p role="status">{copy.improvementNotesLoading}</p>}>
               <PrototypeCanvasThreadSample />
             </Suspense>
-          ) : config.pickAndPolish ? (
+          ) : config.pickAndPolish && config.prototypeUrl ? (
             <Suspense
               fallback={
                 <p className="visually-hidden" role="status">

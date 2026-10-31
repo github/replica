@@ -55,6 +55,7 @@ export const copy = {
   browserForward: "Forward",
   browserReload: "Reload preview",
   browserAddress: "Prototype address",
+  noPrototypeConnected: "No prototype connected",
   browserAddressInvalid: "Enter a valid URL or route.",
   browserAddressOrigin: "The address must stay on this prototype's origin.",
   browserOpenTab: "Open preview in browser",
