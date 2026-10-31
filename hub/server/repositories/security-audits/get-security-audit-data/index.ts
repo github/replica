@@ -1,10 +1,10 @@
 import type { Prisma } from "../../../generated/prisma/client.ts"
 import { SecurityAuditOutcome } from "../../../generated/prisma/enums.ts"
-import { createSecurityAuditContext } from "../create-security-audit-context/index.ts"
-import type { CreateSecurityAuditEvent } from "../create-security-audit/types.ts"
+import { createSecurityAuditContextWithProviderKey } from "../create-security-audit-context/index.ts"
+import type { ParsedSecurityAuditEvent } from "../parse-security-audit-event/types.ts"
 
 export function getSecurityAuditData(
-  event: CreateSecurityAuditEvent,
+  event: ParsedSecurityAuditEvent,
 ): Prisma.SecurityAuditCreateInput {
   switch (event.type) {
     case "external_identity_created":
@@ -14,7 +14,7 @@ export function getSecurityAuditData(
         outcome: SecurityAuditOutcome.SUCCESS,
         targetType: "external_identity",
         targetId: event.externalIdentityId,
-        context: createSecurityAuditContext({
+        context: createSecurityAuditContextWithProviderKey({
           provider: event.provider,
           issuer: event.issuer,
         }),
@@ -25,7 +25,7 @@ export function getSecurityAuditData(
         action: "identity.external.create_failed",
         outcome: SecurityAuditOutcome.FAILURE,
         targetType: "external_identity",
-        context: createSecurityAuditContext({
+        context: createSecurityAuditContextWithProviderKey({
           provider: event.provider,
           issuer: event.issuer,
           reason: event.reason,
@@ -38,7 +38,7 @@ export function getSecurityAuditData(
         outcome: SecurityAuditOutcome.SUCCESS,
         targetType: "authentication_provider",
         targetId: event.providerId,
-        context: createSecurityAuditContext({
+        context: createSecurityAuditContextWithProviderKey({
           provider: event.providerKey,
           revision: event.revision,
         }),
@@ -49,7 +49,7 @@ export function getSecurityAuditData(
         action: "identity.provider_revision.validation_failed",
         outcome: SecurityAuditOutcome.FAILURE,
         targetType: "authentication_provider",
-        context: createSecurityAuditContext({
+        context: createSecurityAuditContextWithProviderKey({
           provider: event.providerKey,
           revision: event.revision,
           reason: "validation_failed",
@@ -61,7 +61,7 @@ export function getSecurityAuditData(
         action: "identity.provider_revision.denied",
         outcome: SecurityAuditOutcome.DENIED,
         targetType: "authentication_provider",
-        context: createSecurityAuditContext({
+        context: createSecurityAuditContextWithProviderKey({
           provider: event.providerKey,
           revision: event.revision,
           reason: event.reason,
@@ -73,7 +73,7 @@ export function getSecurityAuditData(
         action: "identity.provider_revision.persist_failed",
         outcome: SecurityAuditOutcome.FAILURE,
         targetType: "authentication_provider",
-        context: createSecurityAuditContext({
+        context: createSecurityAuditContextWithProviderKey({
           provider: event.providerKey,
           revision: event.revision,
           reason: event.reason,
