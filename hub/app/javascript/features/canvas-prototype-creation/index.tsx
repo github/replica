@@ -1,4 +1,4 @@
-import { Button, Heading } from "@primer/react-brand"
+import { Button, Heading } from "@primer/react-brand/esm"
 import { useEffect, useRef, useState } from "react"
 import { z } from "zod"
 

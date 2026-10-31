@@ -1,4 +1,4 @@
-import { ActionMenu, Button, Heading } from "@primer/react-brand"
+import { ActionMenu, Button, Heading } from "@primer/react-brand/esm"
 import { useEffect, useState } from "react"
 
 import { HubAlert } from "@components/hub-alert"
