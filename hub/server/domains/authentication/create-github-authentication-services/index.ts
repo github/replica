@@ -56,14 +56,9 @@ export async function createGitHubAuthenticationServices(
       findAuthenticationProvider: (key) => findAuthenticationProvider(prisma, key),
     })
   }
-  function now() {
-    return new Date()
-  }
-
   return {
     appOrigin: configuration.appOrigin,
     secureCookies: configuration.secureCookies,
-    now,
     reserveRateLimit: ({ operation, requestIp }) =>
       reserveAuthenticationRateLimit(prisma, {
         operation,
@@ -86,7 +81,6 @@ export async function createGitHubAuthenticationServices(
         encryptCodeVerifier: (value) =>
           encryptAuthenticationValue(value, configuration.encryptionKey),
         getSelectedProviderRevision: getRevision,
-        now,
         writeDenialAudit: (reason) =>
           createSecurityAudit(prisma, {
             id: randomUUID(),
@@ -114,7 +108,6 @@ export async function createGitHubAuthenticationServices(
         getRevocationGeneration: () => getAuthenticationRevocationGeneration(prisma),
         localConfigurationDigest: configurationDigest,
         localRevision: configuration.revision,
-        now,
         resolveOrCreateIdentity: (identity) =>
           resolveOrCreateExternalIdentity(identity, {
             createId: randomUUID,

@@ -18,7 +18,6 @@ export interface CompleteAuthenticationProofDependencies {
     browserBindingDigest: string
     displayAttributes: PublicIdentityAttributes
     expectedRevocationGeneration: bigint
-    expiresAt: Date
     externalIdentityId: string
     providerRevisionId: string
     tokenDigest: string
@@ -29,7 +28,6 @@ export interface CompleteAuthenticationProofDependencies {
   localRevision: number
   getSelectedProviderRevision(): Promise<SelectedProviderRevision | null>
   getRevocationGeneration(): Promise<bigint>
-  now(): Date
   resolveOrCreateIdentity(input: {
     issuer: string
     provider: string

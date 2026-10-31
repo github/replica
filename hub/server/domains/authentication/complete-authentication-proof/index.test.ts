@@ -8,7 +8,11 @@ describe("completeAuthenticationProof()", () => {
     const order: string[] = []
     const createHandoff = vi.fn(() => {
       order.push("handoff")
-      return Promise.resolve({ status: "created" as const })
+      return Promise.resolve({
+        status: "created" as const,
+        createdAt: new Date("2026-10-30T16:00:00Z"),
+        expiresAt: new Date("2026-10-30T16:05:00Z"),
+      })
     })
     const result = await completeAuthenticationProof(
       {
@@ -56,7 +60,6 @@ describe("completeAuthenticationProof()", () => {
         getRevocationGeneration: () => Promise.resolve(1n),
         localConfigurationDigest: "a".repeat(64),
         localRevision: 1,
-        now: () => new Date("2026-10-30T16:00:00Z"),
         resolveOrCreateIdentity: () => {
           order.push("identity")
           return Promise.resolve({
@@ -106,7 +109,6 @@ describe("completeAuthenticationProof()", () => {
           getRevocationGeneration: vi.fn(),
           localConfigurationDigest: "a".repeat(64),
           localRevision: 1,
-          now: () => new Date(),
           resolveOrCreateIdentity: vi.fn(),
           writeDenialAudit: vi.fn(),
         },
@@ -152,7 +154,6 @@ describe("completeAuthenticationProof()", () => {
           getRevocationGeneration: vi.fn(),
           localConfigurationDigest: "a".repeat(64),
           localRevision: 1,
-          now: () => new Date(),
           resolveOrCreateIdentity: vi.fn(),
           writeDenialAudit: vi.fn(),
         },
@@ -195,7 +196,6 @@ describe("completeAuthenticationProof()", () => {
           getRevocationGeneration: vi.fn(),
           localConfigurationDigest: "a".repeat(64),
           localRevision: 1,
-          now: () => new Date(),
           resolveOrCreateIdentity: vi.fn(),
           writeDenialAudit: vi.fn(),
         },

@@ -30,7 +30,6 @@ export interface GitHubAuthenticationServices {
     handoffToken: string
     status: "authentication_proved"
   }>
-  now(): Date
   reserveRateLimit(input: {
     operation: "callback" | "start"
     requestIp: string

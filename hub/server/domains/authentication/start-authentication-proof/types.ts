@@ -26,7 +26,6 @@ export interface StartAuthenticationProofDependencies {
   deleteExpiredArtifacts(): Promise<void>
   encryptCodeVerifier(value: string): string
   getSelectedProviderRevision(): Promise<SelectedProviderRevision | null>
-  now(): Date
   writeDenialAudit(reason: "configuration_changed" | "rate_limited"): Promise<unknown>
 }
 

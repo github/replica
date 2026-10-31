@@ -34,7 +34,6 @@ const input = {
   browserBindingDigest: "b".repeat(64),
   displayAttributes: { login: "octocat", name: null, avatarUrl: null, email: null },
   expectedRevocationGeneration: 1n,
-  expiresAt: new Date("2026-10-30T17:00:00Z"),
   externalIdentityId: "00000000-0000-4000-8000-000000000003",
   providerKey: "github",
   providerRevisionId: "00000000-0000-4000-8000-000000000002",

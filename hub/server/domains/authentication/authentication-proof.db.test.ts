@@ -19,6 +19,7 @@ import { runIdentityCreationTransaction } from "../identity/run-identity-creatio
 import { runProviderRevisionTransaction } from "../identity/run-provider-revision-transaction"
 import { validateAndPersistProviderRevision } from "../identity/validate-and-persist-provider-revision"
 import { consumeAuthenticationAdmissionHandoff } from "./consume-admission-handoff"
+import { createAuthenticationAdmissionHandoff } from "./create-admission-handoff"
 import { runAdmissionHandoffTransaction } from "./run-admission-handoff-transaction"
 
 async function createProvider(revision = 1) {
@@ -159,7 +160,6 @@ describe("authentication proof database boundaries", () => {
   it("allows exactly one browser-bound handoff consumption and creates no session or membership", async () => {
     const provider = await createProvider()
     const identity = await createIdentity()
-    const now = new Date()
     await createAdmissionHandoff(prisma, {
       id: randomUUID(),
       externalIdentityId: identity.externalIdentityId,
@@ -173,7 +173,7 @@ describe("authentication proof database boundaries", () => {
         avatarUrl: null,
         email: null,
       },
-      expiresAt: new Date(now.getTime() + 5 * 60 * 1_000),
+      lifetimeSeconds: 300,
     })
 
     const input = {
@@ -267,7 +267,6 @@ describe("authentication proof database boundaries", () => {
   it("denies handoffs after global revocation or provider revision drift", async () => {
     const provider = await createProvider()
     const identity = await createIdentity()
-    const now = new Date()
     async function addHandoff(token: string, revocationGeneration: bigint) {
       await createAdmissionHandoff(prisma, {
         id: randomUUID(),
@@ -282,7 +281,7 @@ describe("authentication proof database boundaries", () => {
           avatarUrl: null,
           email: null,
         },
-        expiresAt: new Date(now.getTime() + 5 * 60 * 1_000),
+        lifetimeSeconds: 300,
       })
     }
 
@@ -345,5 +344,36 @@ describe("authentication proof database boundaries", () => {
     await deleteExpiredAdmissionHandoffs(prisma)
     await expect(prisma.authorizationAttempt.count()).resolves.toBe(0)
     await expect(prisma.admissionHandoff.count()).resolves.toBe(0)
+  })
+
+  it("creates handoffs with the fixed lifetime from database time", async () => {
+    const provider = await createProvider()
+    const identity = await createIdentity()
+    const result = await createAuthenticationAdmissionHandoff(
+      {
+        browserBindingDigest: hashAuthenticationValue("browser"),
+        displayAttributes: {
+          login: "octocat",
+          name: null,
+          avatarUrl: null,
+          email: null,
+        },
+        expectedRevocationGeneration: 1n,
+        externalIdentityId: identity.externalIdentityId,
+        providerKey: "github",
+        providerRevisionId: provider.revisionId,
+        tokenDigest: hashAuthenticationValue("handoff"),
+      },
+      {
+        runTransaction: (operation) => runAdmissionHandoffTransaction(prisma, operation),
+      },
+    )
+    expect(result.status).toBe("created")
+    if (result.status !== "created") throw new Error("Expected a created handoff.")
+    expect(result.expiresAt.getTime() - result.createdAt.getTime()).toBe(300_000)
+    await expect(prisma.admissionHandoff.findFirstOrThrow()).resolves.toMatchObject({
+      createdAt: result.createdAt,
+      expiresAt: result.expiresAt,
+    })
   })
 })

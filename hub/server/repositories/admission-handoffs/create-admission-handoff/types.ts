@@ -1,6 +1,6 @@
 import type { Prisma } from "../../../generated/prisma/client.ts"
 
-export type CreateAdmissionHandoffDatabase = Pick<Prisma.TransactionClient, "admissionHandoff">
+export type CreateAdmissionHandoffDatabase = Pick<Prisma.TransactionClient, "$queryRaw">
 
 export interface CreateAdmissionHandoffInput {
   browserBindingDigest: string
@@ -10,9 +10,9 @@ export interface CreateAdmissionHandoffInput {
     login: string
     name: string | null
   }
-  expiresAt: Date
   externalIdentityId: string
   id: string
+  lifetimeSeconds: number
   providerRevisionId: string
   revocationGeneration: bigint
   tokenDigest: string

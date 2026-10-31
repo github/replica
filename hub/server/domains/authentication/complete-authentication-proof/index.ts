@@ -16,7 +16,6 @@ const inputSchema = z
     state: z.string().min(32).max(200),
   })
   .strict()
-const HANDOFF_LIFETIME_MS = 5 * 60 * 1_000
 
 export async function completeAuthenticationProof(
   input: CompleteAuthenticationProofInput,
@@ -106,14 +105,12 @@ export async function completeAuthenticationProof(
     subject: evidence.subject,
   })
   const handoffToken = dependencies.createOpaqueValue()
-  const expiresAt = new Date(dependencies.now().getTime() + HANDOFF_LIFETIME_MS)
   const handoff = await dependencies.createHandoff({
     externalIdentityId: identity.externalIdentityId,
     providerRevisionId: attempt.providerRevisionId,
     browserBindingDigest,
     tokenDigest: hashAuthenticationValue(handoffToken),
     displayAttributes: evidence.attributes,
-    expiresAt,
     expectedRevocationGeneration,
   })
   if (handoff.status === "restart") {
@@ -131,6 +128,6 @@ export async function completeAuthenticationProof(
     status: "authentication_proved",
     handoffToken,
     attributes: evidence.attributes,
-    expiresAt,
+    expiresAt: handoff.expiresAt,
   }
 }

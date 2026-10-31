@@ -7,7 +7,7 @@ import type { PublicIdentityAttributes } from "../types.ts"
 import type { AdmissionHandoffTransaction } from "../run-admission-handoff-transaction/types.ts"
 
 export type CreateAuthenticationAdmissionHandoffResult =
-  | { status: "created" }
+  | { status: "created"; createdAt: Date; expiresAt: Date }
   | {
       status: "restart"
       reason: "conflict" | "provider_revision_changed" | "revoked"
@@ -18,7 +18,6 @@ export function createAuthenticationAdmissionHandoff(
     browserBindingDigest: string
     displayAttributes: PublicIdentityAttributes
     expectedRevocationGeneration: bigint
-    expiresAt: Date
     externalIdentityId: string
     providerKey: string
     providerRevisionId: string
@@ -29,6 +28,7 @@ export function createAuthenticationAdmissionHandoff(
     runTransaction: AdmissionHandoffTransaction
   },
 ): Promise<CreateAuthenticationAdmissionHandoffResult> {
+  const handoffLifetimeSeconds = 5 * 60
   const createId = dependencies.createId ?? randomUUID
   return runWithBoundedRetries(
     () =>
@@ -46,7 +46,7 @@ export function createAuthenticationAdmissionHandoff(
         }
 
         const handoffId = createId()
-        await repositories.createAdmissionHandoff({
+        const timestamps = await repositories.createAdmissionHandoff({
           id: handoffId,
           externalIdentityId: input.externalIdentityId,
           providerRevisionId: input.providerRevisionId,
@@ -54,7 +54,7 @@ export function createAuthenticationAdmissionHandoff(
           browserBindingDigest: input.browserBindingDigest,
           revocationGeneration,
           displayAttributes: input.displayAttributes,
-          expiresAt: input.expiresAt,
+          lifetimeSeconds: handoffLifetimeSeconds,
         })
         await repositories.createSecurityAudit({
           id: createId(),
@@ -63,7 +63,7 @@ export function createAuthenticationAdmissionHandoff(
           externalIdentityId: input.externalIdentityId,
           providerRevisionId: input.providerRevisionId,
         })
-        return { status: "created" } as const
+        return { status: "created", ...timestamps } as const
       }),
     (error) => error instanceof IdentityTransactionConflictError,
   ).catch((error: unknown) => {

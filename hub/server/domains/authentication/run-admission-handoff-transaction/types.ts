@@ -20,7 +20,9 @@ export interface AdmissionHandoffRepositories {
     browserBindingDigest: string
     id: string
   }): Promise<ConsumeAdmissionHandoffResult>
-  createAdmissionHandoff(input: CreateAdmissionHandoffInput): Promise<unknown>
+  createAdmissionHandoff(
+    input: CreateAdmissionHandoffInput,
+  ): Promise<{ createdAt: Date; expiresAt: Date }>
   createSecurityAudit(input: CreateSecurityAuditEvent): Promise<unknown>
   findAdmissionHandoff(tokenDigest: string): Promise<AdmissionHandoffRecord | null>
   findAuthenticationProvider(key: string): Promise<AuthenticationProviderRecord | null>

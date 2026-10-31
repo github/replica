@@ -54,7 +54,6 @@ function handoffInput(externalIdentityId: string, providerRevisionId: string, to
     browserBindingDigest: hashAuthenticationValue("browser"),
     displayAttributes: { login: "octocat", name: null, avatarUrl: null, email: null },
     expectedRevocationGeneration: 1n,
-    expiresAt: new Date(Date.now() + 5 * 60 * 1_000),
     externalIdentityId,
     providerKey: "github",
     providerRevisionId,
@@ -111,9 +110,17 @@ describe("authentication handoff creation races", () => {
     await selectionStarted.promise
     await waitForDatabaseLock(getDatabaseUrl())
     expect(selectionCompleted).toBe(false)
+    const releaseRows = await prisma.$queryRaw<Array<{ releasedAt: Date }>>`
+      SELECT clock_timestamp() AS "releasedAt"
+    `
+    const releasedAt = releaseRows[0]!.releasedAt
     barrier.release()
 
-    await expect(creation).resolves.toEqual({ status: "created" })
+    const created = await creation
+    expect(created.status).toBe("created")
+    if (created.status !== "created") throw new Error("Expected a created handoff.")
+    expect(created.createdAt.getTime()).toBeGreaterThanOrEqual(releasedAt.getTime())
+    expect(created.expiresAt.getTime() - created.createdAt.getTime()).toBe(300_000)
     await selection
     await expect(prisma.admissionHandoff.count()).resolves.toBe(1)
     await expect(
@@ -189,7 +196,7 @@ describe("authentication handoff creation races", () => {
     expect(revocationCompleted).toBe(false)
     barrier.release()
 
-    await expect(creation).resolves.toEqual({ status: "created" })
+    await expect(creation).resolves.toMatchObject({ status: "created" })
     await revocation
     await expect(prisma.admissionHandoff.count()).resolves.toBe(1)
   })

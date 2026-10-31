@@ -65,7 +65,6 @@ function dependencies() {
     value: {
       appOrigin: "https://hub.example.test",
       complete,
-      now: () => new Date("2026-10-30T16:00:00Z"),
       reserveRateLimit,
       secureCookies: true,
       start,

@@ -36,7 +36,6 @@ describe("startAuthenticationProof()", () => {
             revision: 1,
             configurationDigest: "a".repeat(64),
           }),
-        now: () => new Date("2026-10-30T16:00:00Z"),
         writeDenialAudit: vi.fn(),
       },
     )
@@ -118,7 +117,6 @@ describe("startAuthenticationProof()", () => {
             revision: 1,
             configurationDigest: "a".repeat(64),
           }),
-        now: () => new Date(),
         writeDenialAudit: () => Promise.reject(auditFailure),
       },
     ).catch((caught: unknown) => caught)

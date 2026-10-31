@@ -150,7 +150,6 @@ describe("runApi()", () => {
     const services: GitHubAuthenticationServices = {
       appOrigin: configuration.appOrigin,
       complete: vi.fn(),
-      now: () => new Date(),
       reserveRateLimit: vi.fn(),
       secureCookies: true,
       start: vi.fn(),
