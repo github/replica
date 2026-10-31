@@ -5,7 +5,7 @@ import {
   LinkExternalIcon,
   SyncIcon,
 } from "@primer/octicons-react"
-import { Accordion, Button, InlineLink, Text } from "@primer/react-brand"
+import { Accordion, Button, InlineLink, Text } from "@primer/react-brand/esm"
 import {
   useEffect,
   useId,

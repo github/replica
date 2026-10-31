@@ -255,6 +255,7 @@ describe("ReviewThreadConversation()", () => {
             rejectAdd = reject
           }),
       )
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
       renderConversation({ onAddReaction })
 
       fireEvent.click(screen.getByRole("button", { name: "Add reaction" }))
@@ -270,6 +271,7 @@ describe("ReviewThreadConversation()", () => {
       expect(screen.queryByRole("button", { name: "Add reaction" })).not.toBeInTheDocument()
 
       await act(async () => {
+        await vi.runOnlyPendingTimersAsync()
         if (failure === "rejected") rejectAdd?.(new Error("Offline"))
         else finishAdd?.(false)
         await Promise.resolve()

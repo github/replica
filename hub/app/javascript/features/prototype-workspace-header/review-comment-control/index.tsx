@@ -1,5 +1,5 @@
 import { ChatIcon, CommentIcon, PaintbrushIcon, XIcon } from "@primer/octicons-react"
-import { ActionMenu, Tooltip } from "@primer/react-brand"
+import { ActionMenu, Tooltip } from "@primer/react-brand/esm"
 import { useId } from "react"
 import { HubIconButton } from "@components/hub-icon-button"
 import { HubVisuallyHidden } from "@components/hub-visually-hidden"

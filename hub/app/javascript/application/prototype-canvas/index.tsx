@@ -1,4 +1,4 @@
-import { ThemeProvider } from "@primer/react-brand"
+import { ThemeProvider } from "@primer/react-brand/esm"
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
 
 import { AppDialogs } from "@features/prototype-canvas-dialogs"

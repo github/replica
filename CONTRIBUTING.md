@@ -75,6 +75,12 @@ Reuse an existing compatible Node.js installation. If it is unavailable on macOS
 
 ### Replica build action
 
+`npm test` runs the complete build-action suite through Vitest in the Node environment. Browser capture tests keep their Playwright driver, and test files run serially.
+
+Use Vitest assertions and keep fixtures inside each case. The shared test setup removes directories created with `temporaryDirectory()` after each case and the Vitest configuration resets mocks and stubbed globals.
+
+Action scripts use TypeScript that Node executes directly, without a compilation step. Keep syntax compatible with native type stripping; `npm run lint` type-checks scripts, tests, and test helpers.
+
 The shared build action requires npm, Chromium, and a Node.js version matching `engines.node` in [actions/build/package.json](actions/build/package.json):
 
 ```sh
@@ -143,6 +149,10 @@ Include an accurate Mermaid diagram when it makes a proposed flow or system boun
 For Hub or canvas UI changes, finish the PR description with screenshots of every added or changed story, following the [Storybook evidence workflow](hub/docs/storybook.md#ui-changes-and-pull-request-evidence). Recordings may supplement the screenshots. Omit validation sections and checklists from the PR description. Do not repeat passing test or CI results. Leave statements such as "CI is green" and "tests passed" out of the description; GitHub displays the checks.
 
 Still run the relevant checks before opening the PR. Mention only known verification gaps that affect the change, such as a required check that could not run or behavior that remains unverified. Describe the actual gap, not whether the agent drafting the description ran tests itself.
+
+### Stacked pull requests
+
+For stacked PRs, use GitHub's built-in stacked PR feature. Setting each PR's base to another PR's branch does not create a native stack by itself. Check that GitHub shows the PRs as a stack.
 
 ## Pull request review
 

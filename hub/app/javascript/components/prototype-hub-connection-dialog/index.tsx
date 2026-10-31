@@ -1,5 +1,5 @@
 import { PencilIcon, SyncIcon } from "@primer/octicons-react"
-import { Button, TextInput } from "@primer/react-brand"
+import { Button, TextInput } from "@primer/react-brand/esm"
 import { useEffect, useId, useRef, useState, type RefObject } from "react"
 
 import { HubIconButton } from "@components/hub-icon-button"

@@ -7,7 +7,7 @@ import {
   SyncIcon,
 } from "@primer/octicons-react"
 import { useState, type Ref, type SubmitEvent } from "react"
-import { ThemeProvider } from "@primer/react-brand"
+import { ThemeProvider } from "@primer/react-brand/esm"
 
 import { copy } from "@utils/prototype-canvas/en"
 

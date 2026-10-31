@@ -1,0 +1,23 @@
+json.pageTitle t("github_app_setup.manual.page_title")
+json.productName t("application.name")
+json.heading t("github_app_setup.manual.heading")
+json.description t("github_app_setup.manual.description")
+json.error @setup_error
+json.submitPath manual_setup_path
+json.authenticityToken form_authenticity_token
+json.submitLabel t("github_app_setup.manual.submit")
+json.confirmLabel t("github_app_setup.manual.confirm")
+json.keyLabel t("github_app_setup.manual.key_label")
+json.keyHint t("github_app_setup.manual.key_hint")
+json.instructions t("github_app_setup.manual.instructions")
+json.fields t("github_app_setup.manual.fields")
+manifest = JSON.parse(@registration.fetch(:manifest))
+json.settings [
+  { label: t("github_app_setup.manual.settings.name"), value: manifest.fetch("name") },
+  { label: t("github_app_setup.manual.settings.homepage"), value: manifest.fetch("url") },
+  { label: t("github_app_setup.manual.settings.callback"), value: manifest.fetch("callback_urls").first },
+  { label: t("github_app_setup.manual.settings.webhook"), value: "#{Rails.configuration.x.hub_origin.delete_suffix("/")}/github/webhooks" }
+]
+json.permissions manifest.fetch("default_permissions").map { |name, level|
+  { label: t("github_app_setup.manual.permissions.#{name}"), value: t("github_app_setup.manual.levels.#{level}") }
+}

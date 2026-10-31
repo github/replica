@@ -1,4 +1,4 @@
-import { Checkbox, FormControl } from "@primer/react-brand"
+import { Checkbox, FormControl } from "@primer/react-brand/esm"
 import { useId } from "react"
 
 import { HubAlert } from "@components/hub-alert"

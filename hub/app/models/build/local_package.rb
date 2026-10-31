@@ -110,18 +110,18 @@ class Build::LocalPackage < ActiveRecord::AssociatedObject
       run!("npm", "ci", "--offline", "--ignore-scripts", "--omit=dev",
         chdir: action.to_s, environment:)
     end
-    run!("node", scripts.join("validate-repository/index.mjs").to_s,
+    run!("node", scripts.join("validate-repository/index.ts").to_s,
       "--root", checkout, environment:)
     run!("npm", "ci", "--offline", chdir: checkout, environment:)
     run!("npm", "run", "build", chdir: checkout, environment:)
-    run!("node", scripts.join("validate-build-output/index.mjs").to_s,
+    run!("node", scripts.join("validate-build-output/index.ts").to_s,
       "--root", checkout, environment:)
     screenshots = File.join(directory, "screenshots")
-    run!("node", scripts.join("capture-screenshots/index.mjs").to_s,
+    run!("node", scripts.join("capture-screenshots/index.ts").to_s,
       "--root", checkout, "--screenshots", screenshots,
       environment: environment.merge(self.class.browser_environment))
     output = File.join(directory, "package")
-    run!("node", scripts.join("create-package/index.mjs").to_s,
+    run!("node", scripts.join("create-package/index.ts").to_s,
       "--root", checkout, "--screenshots", screenshots, "--output", output, environment:)
 
     zip_path = File.join(directory, "package.zip")

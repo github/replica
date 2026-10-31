@@ -49,6 +49,13 @@ class GithubWebhook
     else
       verify_app!(installation)
     end
+    return if !configuration.accepts_installation?(installation["id"])
+    if configuration.pinned_installation? && event.in?(%w[installation installation_repositories])
+      account = installation.fetch("account")
+      return if account["id"] != installation_snapshot.fetch(:installation_account_github_id) ||
+        account["type"] != installation_snapshot.fetch(:installation_owner_type)
+    end
+
     delivery = find_delivery!
     if delivery.processed?
       with_delivery_configuration! do
@@ -90,6 +97,9 @@ class GithubWebhook
   def with_delivery_configuration!(&block)
     if event.in?(%w[push workflow_run])
       configuration.with_installation!(snapshot: installation_snapshot, &block)
+    elsif configuration.pinned_installation?
+      identity = installation_snapshot.except(:installation_state, :owner_github_id, :owner_type)
+      configuration.with_installation!(snapshot: identity, &block)
     else
       GithubAppConfiguration.with_credentials!(**credential_snapshot, &block)
     end

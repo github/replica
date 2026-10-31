@@ -1,10 +1,8 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
-import { afterEach, expect, it, vi } from "vitest"
+import { expect, it, vi } from "vitest"
 
 import { BrowserBar } from "."
 import browserStyles from "./styles.css?inline"
-
-afterEach(() => vi.unstubAllGlobals())
 
 const address = "http://localhost:5173/#/cli/cli/tree/main"
 
@@ -26,33 +24,19 @@ function renderBar(onNavigate = vi.fn(), appearance: "light" | "dark" = "light")
   return onNavigate
 }
 
-it.each(["light", "dark"] as const)(
-  "uses the system's %s fallback independently of the selected prototype appearance",
-  (mode) => {
-    vi.stubGlobal(
-      "matchMedia",
-      vi.fn((query: string) => ({
-        matches: query === "(prefers-color-scheme: dark)" && mode === "dark",
-        media: query,
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
-      })),
-    )
-    renderBar(vi.fn(), mode === "light" ? "dark" : "light")
-    const theme = screen
-      .getByRole("navigation", { name: "Prototype navigation" })
-      .closest("[data-color-mode]")
-    expect(theme).toHaveAttribute("data-color-mode", mode)
-    expect(browserStyles).toContain(
-      "--hub-canvas-default: var(--background-color-default, var(--brand-color-canvas-default));",
-    )
-    expect(browserStyles).toContain(
-      "--hub-fg-default: var(--text-color-default, var(--brand-color-text-default));",
-    )
-    expect(browserStyles).toContain('html[data-color-mode="dark"] .canvas-browser-bar')
-    expect(browserStyles).toContain('body[data-color-mode="light"] .canvas-browser-bar')
-  },
-)
+it("keeps native controls on the system theme independently of the prototype appearance", () => {
+  render(<style>{browserStyles}</style>)
+  renderBar(vi.fn(), "dark")
+  const theme = screen
+    .getByRole("navigation", { name: "Prototype navigation" })
+    .closest("[data-color-mode]")
+  expect(theme).toHaveAttribute("data-color-mode", "auto")
+  expect(theme).toHaveStyle("color-scheme: light dark")
+  expect(screen.getByRole("button", { name: "Dark appearance" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  )
+})
 
 it("keeps navigation on the prototype origin and reports invalid addresses", () => {
   const navigate = renderBar()

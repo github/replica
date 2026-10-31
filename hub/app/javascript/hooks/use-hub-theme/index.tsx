@@ -1,4 +1,4 @@
-import { ThemeProvider as BrandThemeProvider } from "@primer/react-brand"
+import { ThemeProvider as BrandThemeProvider } from "@primer/react-brand/esm"
 import { createContext, useContext, useLayoutEffect, useState, useSyncExternalStore } from "react"
 import type { PropsWithChildren } from "react"
 

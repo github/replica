@@ -1,4 +1,4 @@
-import { FormControl, Textarea, TextInput } from "@primer/react-brand"
+import { FormControl, Textarea, TextInput } from "@primer/react-brand/esm"
 import { useState, type ChangeEvent, type CSSProperties } from "react"
 
 import { valueIssue, type Control } from "@utils/prototype-controls/controls.mjs"

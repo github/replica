@@ -2,7 +2,7 @@
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "replica-prototype",
   "description": "Wrap a running prototype with Replica publish controls and repository status.",
-  "version": "1.5.3",
+  "version": "1.5.4",
   "author": {
     "name": "GitHub"
   },

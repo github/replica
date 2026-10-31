@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 
 import { BuildStateLabel } from "."
-vi.mock("@primer/react-brand", () => ({
+vi.mock("@primer/react-brand/esm", () => ({
   Label: ({ children, color }: { children: string; color: string }) => (
     <span data-color={color}>{children}</span>
   ),

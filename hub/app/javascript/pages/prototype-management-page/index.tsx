@@ -1,5 +1,5 @@
 import { ArrowLeftIcon } from "@primer/octicons-react"
-import { Heading } from "@primer/react-brand"
+import { Heading } from "@primer/react-brand/esm"
 
 import { HubAlert } from "@components/hub-alert"
 import { HubIconButton } from "@components/hub-icon-button"

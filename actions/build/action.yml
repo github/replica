@@ -9,8 +9,12 @@ runs:
       with:
         node-version: 24
 
+    - name: Check checkout credentials
+      run: node "$GITHUB_ACTION_PATH/scripts/validate-checkout/index.ts" --root "$GITHUB_WORKSPACE"
+      shell: bash
+
     - name: Check required npm files and build script
-      run: node "$GITHUB_ACTION_PATH/scripts/validate-repository/index.mjs" --root "$GITHUB_WORKSPACE"
+      run: node "$GITHUB_ACTION_PATH/scripts/validate-repository/index.ts" --root "$GITHUB_WORKSPACE"
       shell: bash
 
     - name: Install browser-check dependencies
@@ -33,7 +37,7 @@ runs:
       shell: bash
 
     - name: Check dist paths and size limits
-      run: node "$GITHUB_ACTION_PATH/scripts/validate-build-output/index.mjs" --root "$GITHUB_WORKSPACE"
+      run: node "$GITHUB_ACTION_PATH/scripts/validate-build-output/index.ts" --root "$GITHUB_WORKSPACE"
       shell: bash
 
     - name: Copy dist to runner temporary storage
@@ -44,7 +48,7 @@ runs:
       shell: bash
 
     - name: Check copied dist paths and size limits
-      run: node "$GITHUB_ACTION_PATH/scripts/validate-build-output/index.mjs" --root "$RUNNER_TEMP/replica-build-root"
+      run: node "$GITHUB_ACTION_PATH/scripts/validate-build-output/index.ts" --root "$RUNNER_TEMP/replica-build-root"
       shell: bash
 
     - name: Install Chromium
@@ -52,11 +56,11 @@ runs:
       shell: bash
 
     - name: Capture screenshots
-      run: node "$GITHUB_ACTION_PATH/scripts/capture-screenshots/index.mjs" --root "$RUNNER_TEMP/replica-build-root" --config-root "$GITHUB_WORKSPACE" --screenshots "$RUNNER_TEMP/replica-screenshots"
+      run: node "$GITHUB_ACTION_PATH/scripts/capture-screenshots/index.ts" --root "$RUNNER_TEMP/replica-build-root" --config-root "$GITHUB_WORKSPACE" --screenshots "$RUNNER_TEMP/replica-screenshots"
       shell: bash
 
     - name: Create Replica package
-      run: node "$GITHUB_ACTION_PATH/scripts/create-package/index.mjs" --root "$RUNNER_TEMP/replica-build-root" --screenshots "$RUNNER_TEMP/replica-screenshots" --output "$RUNNER_TEMP/replica-build-v1"
+      run: node "$GITHUB_ACTION_PATH/scripts/create-package/index.ts" --root "$RUNNER_TEMP/replica-build-root" --screenshots "$RUNNER_TEMP/replica-screenshots" --output "$RUNNER_TEMP/replica-build-v1"
       shell: bash
 
     - name: Upload Replica package

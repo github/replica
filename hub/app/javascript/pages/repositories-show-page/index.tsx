@@ -1,7 +1,7 @@
 import { useState } from "react"
 
 import { GearIcon, GitBranchIcon, SearchIcon } from "@primer/octicons-react"
-import { Button, Pagination, Text } from "@primer/react-brand"
+import { Button, Pagination, Text } from "@primer/react-brand/esm"
 
 import { HubAlert } from "@components/hub-alert"
 import { HubEmptyState } from "@components/hub-empty-state"

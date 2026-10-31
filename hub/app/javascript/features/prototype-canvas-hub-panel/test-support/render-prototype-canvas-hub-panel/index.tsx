@@ -1,4 +1,4 @@
-import { ThemeProvider } from "@primer/react-brand"
+import { ThemeProvider } from "@primer/react-brand/esm"
 import { render } from "@testing-library/react"
 import { createRef, type ComponentProps, type ReactNode } from "react"
 

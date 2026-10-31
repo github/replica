@@ -6,6 +6,7 @@ These fixed budgets are product policy, not measured capacity or configurable de
 
 | Feature | Allowance | Counted identity |
 | --- | --- | --- |
+| GitHub App setup authorization, including rejected secrets | 5 per minute | Trusted source IP |
 | GitHub OAuth initiation, including enrollment and fresh verification | 60 per 5 minutes | Trusted source IP |
 | GitHub OAuth callback | 60 per 5 minutes, separately from initiation | Trusted source IP |
 | Comment creation, replies, edits, deletion, reactions, and resolution | 60 per minute | Hub user |
@@ -22,6 +23,8 @@ Budgets counted per Hub user span repositories and credentials. Features have se
 The request path uses Rails's rate limiter with one explicit feature scope. Production stores its atomic counters in the existing Solid Cache database. Independent workers must share that database and its persistent storage; separate cache files do not form a shared Hub budget. A counter window begins on its first request. Later increments retain that expiry. Cache increment failures raise instead of falling through Rails's nil-counter admission behavior.
 
 IP budgets use the same trusted-proxy boundary as the [security audit](security-audit.md). Hub uses the socket peer unless Rails's configured trusted proxies include it. The HTTPS edge must replace untrusted forwarding metadata with a verified client chain, and backend ingress and proxy trust must match the intended forwarders. Local socket tests do not establish deployed TLS or proxy enforcement.
+
+Setup authorization attempts share their IP allowance across browser Sessions. Opening the setup page and continuing an authorized setup through its callback and installation do not spend this allowance. A throttled attempt cannot authorize setup, even with the correct bootstrap secret. Keep using a long, generated bootstrap secret; throttling does not replace secret strength.
 
 Fresh-verification POST requests spend the existing initiation allowance before challenge lookup, including unknown or deleted targets. Passive reads do not spend it. Local HTTP 429 responses remain in ordinary request logs only; they never write security-audit records.
 
@@ -49,7 +52,7 @@ GitHub retains recoverable deliveries for [three days](https://docs.github.com/e
 
 Initial scans and credential re-verification walk the full available history. Ordinary scans follow GitHub's documented date boundary and stop only after a whole page predates the previous completed scan's start. Mixed pages are processed in full. Saving the start, rather than the finish, lets the next scan find deliveries that arrived while earlier pages were being read.
 
-Recovered pushes follow the [Build discovery guard](build-discovery.md#discovery-rules): GitHub must still report that commit at the branch head, with no later local head observation during the lookup. Ordinary live pushes do not make this extra GitHub request. Recovered installation creation must fetch its current GitHub status before changing the installed owner state; an old removed installation cannot replace its active successor.
+Recovered pushes follow the [Build discovery guard](build-discovery.md#discovery-rules): GitHub must still report that commit at the branch head, with no later local head observation during the lookup. Ordinary live pushes do not make this extra GitHub request. Recovered installation creation must fetch its current GitHub status before changing the installed owner state; an old removed installation cannot replace its active successor. Hub only processes webhook events and retries failed deliveries for the installation ID entered during manual setup. Events and delivery records for other installations of the same App are ignored.
 
 Changing credentials for the same App preserves pending recovery, but stops dispatch using its old credential revision. The next scheduler tick clears the old scan cursor, queue claim, and worker leases and starts a current-App-authenticated scan. Each retained delivery waits with `credentials_changed` until that scan observes its exact GUID and matching event and installation. Only then can it use the new credentials. Neither re-verification nor repeated credential changes extend the original earliest-delivery deadline, reset consumed attempts, or shorten backoff. Unobserved deliveries cannot resend and expire visibly at the original three-day cutoff.
 

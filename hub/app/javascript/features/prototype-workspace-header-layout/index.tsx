@@ -1,4 +1,4 @@
-import { Heading, Stack } from "@primer/react-brand"
+import { Heading, Stack } from "@primer/react-brand/esm"
 import type { PropsWithChildren, ReactNode } from "react"
 
 import "./styles.css"

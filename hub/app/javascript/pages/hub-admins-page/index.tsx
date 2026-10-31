@@ -1,6 +1,6 @@
 import { useRef, useState } from "react"
 
-import { Button, Heading, Text } from "@primer/react-brand"
+import { Button, Heading, Text } from "@primer/react-brand/esm"
 
 import { AddHubAdministrators } from "@features/add-hub-administrators"
 import type { HubAdministratorSearchResults } from "@features/add-hub-administrators/types"

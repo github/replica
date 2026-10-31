@@ -1,7 +1,7 @@
 import { useRef } from "react"
 
 import { DeviceDesktopIcon, MoonIcon, SignOutIcon, SunIcon } from "@primer/octicons-react"
-import { ActionMenu } from "@primer/react-brand"
+import { ActionMenu } from "@primer/react-brand/esm"
 
 import { HubUserAvatar } from "@components/hub-user-avatar"
 import { useOptionalHubTheme } from "@hooks/use-hub-theme"

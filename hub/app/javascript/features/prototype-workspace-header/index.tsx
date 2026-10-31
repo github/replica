@@ -10,7 +10,7 @@ import {
   SunIcon,
   XIcon,
 } from "@primer/octicons-react"
-import { ActionMenu, Tooltip } from "@primer/react-brand"
+import { ActionMenu, Tooltip } from "@primer/react-brand/esm"
 import { NavigationContext } from "@thoughtbot/superglue"
 import { useContext, useState } from "react"
 import type { CSSProperties, KeyboardEvent, MouseEvent } from "react"

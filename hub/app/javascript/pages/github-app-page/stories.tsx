@@ -41,6 +41,33 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Configured: Story = {}
+export const PinnedInstallationActive: Story = {
+  args: {
+    data: {
+      ...data,
+      identity: "App 123 - octocat (User, identity 1)",
+      installation: "Approved installation 456 in github: active",
+      paragraphs: [
+        ...data.paragraphs,
+        "This connection uses an explicitly approved installation. Webhook configuration and secret rotation affect every installation of this App.",
+      ],
+    },
+  },
+}
+export const PinnedInstallationRemoved: Story = {
+  args: {
+    data: {
+      ...data,
+      identity: "App 123 - octocat (User, identity 1)",
+      installation: "Approved installation 456 in github: removed",
+      paragraphs: [
+        ...data.paragraphs,
+        "The approved installation is unavailable. Hub will not adopt another installation. Restore access to that installation at GitHub, or review the documented local reset and manual reconnection procedure if its ID has changed.",
+        "This connection uses an explicitly approved installation. Webhook configuration and secret rotation affect every installation of this App.",
+      ],
+    },
+  },
+}
 export const InstallationRequired: Story = {
   args: {
     data: {

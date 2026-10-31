@@ -1,4 +1,4 @@
-import { Button, Text } from "@primer/react-brand"
+import { Button, Text } from "@primer/react-brand/esm"
 
 import { GithubAppSetupHeader } from "@features/github-app-setup-header"
 import { GithubAppSetupPage } from "@features/github-app-setup-page"
@@ -22,6 +22,8 @@ export function GithubAppSetupRegisterPage({ data }: { data: GithubAppSetupRegis
           {data.submitLabel}
         </Button>
       </form>
+
+      <a href={data.manualPath}>{data.manualLabel}</a>
     </GithubAppSetupPage>
   )
 }

@@ -39,7 +39,7 @@ class SecurityAuditEvent < ApplicationRecord
     session_id canvas_grant_id canvas_pairing_id share_link_id
     analytics_destination_id github_app_configuration_id target_user_id
   ].freeze
-  SOURCES = %w[browser canvas command].freeze
+  SOURCES = %w[browser canvas command bootstrap].freeze
   DEVICE_FAMILIES = %w[desktop mobile unknown].freeze
   BROWSER_FAMILIES = %w[edge firefox chrome safari unknown].freeze
 

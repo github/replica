@@ -1,4 +1,4 @@
-import { Heading, Stack, Text } from "@primer/react-brand"
+import { Heading, Stack, Text } from "@primer/react-brand/esm"
 
 import { HubContentPageHeader } from "@components/hub-content-page-header"
 import type { ShareLinksContentProps } from "./types"

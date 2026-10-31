@@ -11,6 +11,8 @@ const meta = {
       description: "Replica Hub uses a private GitHub App to discover and authorize prototypes.",
       heading: "Create the GitHub App",
       manifest: '{"name":"Replica Hub"}',
+      manualLabel: "Create manually or connect an existing App",
+      manualPath: "/setup/manual",
       pageTitle: "Create GitHub App",
       productName: "Replica Hub",
       submitLabel: "Create the App on GitHub",

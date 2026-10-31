@@ -1,4 +1,4 @@
 json.pageTitle t("github_app_setup.install.page_title")
 json.productName t("application.name")
 json.heading t("github_app_setup.install.heading")
-json.description t("github_app_setup.install.description")
+json.description t(@manual_connection ? "github_app_setup.manual.complete" : "github_app_setup.install.description")

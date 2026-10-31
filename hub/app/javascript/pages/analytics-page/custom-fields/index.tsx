@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Button, Checkbox, FormControl, Text, TextInput, Textarea } from "@primer/react-brand"
+import { Button, Checkbox, FormControl, Text, TextInput, Textarea } from "@primer/react-brand/esm"
 
 import { previewCustomBody } from "../preview"
 import type { AnalyticsDestination, AnalyticsPageData } from "../types"

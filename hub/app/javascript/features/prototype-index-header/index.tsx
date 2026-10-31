@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react"
 import type { ReactNode } from "react"
 
 import { XIcon } from "@primer/octicons-react"
-import { Heading, Text } from "@primer/react-brand"
+import { Heading, Text } from "@primer/react-brand/esm"
 
 import { HubIconButton } from "@components/hub-icon-button"
 

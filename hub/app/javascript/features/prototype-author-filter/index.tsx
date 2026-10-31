@@ -1,4 +1,4 @@
-import { ActionMenu } from "@primer/react-brand"
+import { ActionMenu } from "@primer/react-brand/esm"
 
 import type { PrototypeAuthorResults, PrototypeListing } from "@utils/prototype-listing/types"
 

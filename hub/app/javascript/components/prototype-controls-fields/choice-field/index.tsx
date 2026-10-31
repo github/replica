@@ -6,7 +6,7 @@ import {
   RadioGroup,
   Select,
   Text,
-} from "@primer/react-brand"
+} from "@primer/react-brand/esm"
 
 import { HubVisuallyHidden } from "@components/hub-visually-hidden"
 

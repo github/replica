@@ -1,5 +1,5 @@
 import { LinkExternalIcon, TrashIcon, XIcon } from "@primer/octicons-react"
-import { Button, Heading, Tooltip } from "@primer/react-brand"
+import { Button, Heading, Tooltip } from "@primer/react-brand/esm"
 import { useEffect, useRef, useState, type RefObject } from "react"
 
 import { CopyableTextInput } from "@components/copyable-text-input"

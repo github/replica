@@ -1,5 +1,5 @@
 import { CopyIcon } from "@primer/octicons-react"
-import { Button, InlineLink, Text } from "@primer/react-brand"
+import { Button, InlineLink, Text } from "@primer/react-brand/esm"
 import { useState } from "react"
 import type { MouseEvent } from "react"
 

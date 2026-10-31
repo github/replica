@@ -65,6 +65,7 @@ class WebhookRedelivery < ApplicationRecord
     # A current App's failed remote attempt requests a new, normally verified delivery.
     def record_remote!(configuration:, metadata:)
       return if !GithubWebhook.supported_event?(event: metadata["event"], action: metadata["action"])
+      return if !configuration.accepts_installation?(metadata["installation_id"])
       return if where(github_delivery_id: metadata["guid"]).where.not(github_app_configuration_id: configuration.id).exists?
 
       receipt = WebhookDelivery.find_by(github_delivery_id: metadata["guid"])
@@ -115,6 +116,8 @@ class WebhookRedelivery < ApplicationRecord
 
     # Retains original delivery time across GitHub's differently numbered attempts.
     def record_pending!(configuration:, guid:, event:, installation_id:, delivered_at:, attempt_id: nil, reverified: false)
+      return if !configuration.accepts_installation?(installation_id)
+
       GithubAppConfiguration.with_credentials!(**configuration.credential_snapshot) do
         if delivered_at + WINDOW <= Time.current
           where(github_app_configuration_id: configuration.id, github_delivery_id: guid, state: ACTIVE_STATES)
@@ -209,6 +212,8 @@ class WebhookRedelivery < ApplicationRecord
         configuration.credential_revision != current.credential_revision
       raise GithubAppConfiguration::Superseded, "GitHub App credentials changed; start again"
     end
+
+    return true if current.pinned_installation? && !current.accepts_installation?(installation_id)
 
     return false if event.in?(%w[installation installation_repositories])
 

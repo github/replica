@@ -48,6 +48,11 @@ components, hooks, and utilities
 - Put each standalone function in a kebab-case directory with `index.ts` or `index.tsx`, its tests, types, and styles.
 - Export at most one function per file and import exact directories.
 - Do not create shared index files that only collect sibling exports.
+- Keep `index.ts` focused on its function:
+  - Put schemas and constants declared outside functions in `constants.ts` beside `index.ts`.
+  - Put types declared outside functions in `types.ts` beside `index.ts`.
+  - Keep values and types that depend on function arguments or type parameters inside that function.
+  - Put constants shared by a domain in that domain's directory. Do not create a function directory just to hold constants.
 - Rails TSX page views adapt Superglue data and browser workflows into their one presentation Page.
 - Discover Rails TSX page views from their virtual paths instead of maintaining a parallel mapping.
 - Group package, alias, and relative imports separately.
@@ -55,7 +60,7 @@ components, hooks, and utilities
 ## Interface
 
 - For Hub and canvas work, preserve existing feedback patterns. Flag perceived missing messages or interaction states in chat and ask before adding them; new success messages, banners, or notifications require explicit agreement. Keep required failure reporting explicit.
-- Use Primer Brand components and Brand tokens first. Hub-owned styles use the semantic `--hub-*` mappings in `app/javascript/tokens/base.css`.
+- Use Primer Brand components and Brand tokens first. Import components from `@primer/react-brand/esm` so the build includes their styles. Hub-owned styles use the semantic `--hub-*` mappings in `app/javascript/tokens/base.css`.
 - When Brand lacks an app primitive, build a focused, accessible Hub-owned control instead of importing `@primer/react`.
 - Use Storybook as the primary workbench for presentation changes.
 - Keep page data and application hooks in Rails TSX page views so Pages accept typed presentation props.

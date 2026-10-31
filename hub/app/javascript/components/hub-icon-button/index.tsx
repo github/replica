@@ -1,7 +1,7 @@
 import { useId } from "react"
 import type { ComponentPropsWithRef, ElementType } from "react"
 
-import { Button, Tooltip } from "@primer/react-brand"
+import { Button, Tooltip } from "@primer/react-brand/esm"
 
 import { HubSpinner } from "../hub-spinner"
 import { HubVisuallyHidden } from "../hub-visually-hidden"

@@ -15,7 +15,7 @@ import {
   ShieldCheckIcon,
   SignOutIcon,
 } from "@primer/octicons-react"
-import { Tooltip } from "@primer/react-brand"
+import { Tooltip } from "@primer/react-brand/esm"
 
 import { RepositoryNavigationItem } from "@components/repository-navigation-item"
 import { RepositorySelector } from "@components/repository-selector"

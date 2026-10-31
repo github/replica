@@ -6,7 +6,7 @@ import {
   CheckCircleIcon,
   SyncIcon,
 } from "@primer/octicons-react"
-import { Button, Heading } from "@primer/react-brand"
+import { Button, Heading } from "@primer/react-brand/esm"
 
 import { HubAlert } from "@components/hub-alert"
 import { HubUserAvatar } from "@components/hub-user-avatar"

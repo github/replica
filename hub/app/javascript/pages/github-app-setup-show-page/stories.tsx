@@ -8,7 +8,8 @@ const meta = {
   args: {
     data: {
       authenticityToken: "storybook-token",
-      description: "Connect a private GitHub App owned by your organization or personal account.",
+      description:
+        "Enter the deployment bootstrap secret to create or connect this Hub's GitHub App.",
       heading: "Connect GitHub",
       organizationHint: "Leave blank to create the App for your personal account.",
       organizationLabel: "Organization",

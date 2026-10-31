@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { Button } from "@primer/react-brand"
+import { Button } from "@primer/react-brand/esm"
 
 import { mona } from "@/storybook/fixtures/users"
 import { authenticatedHubWorkspaceData } from "@/storybook/fixtures/hub-administration"

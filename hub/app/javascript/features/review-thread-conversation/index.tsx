@@ -1,5 +1,5 @@
 import { XIcon } from "@primer/octicons-react"
-import { Button, Heading } from "@primer/react-brand"
+import { Button, Heading } from "@primer/react-brand/esm"
 import { useCallback, useEffect, useId, useRef, useState } from "react"
 
 import { ReviewThreadReplyForm } from "@features/review-thread-reply-form"
