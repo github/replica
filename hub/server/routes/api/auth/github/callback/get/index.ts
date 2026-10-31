@@ -24,9 +24,6 @@ export function get(dependencies: GitHubAuthenticationRoutesDependencies): Reque
         "rate_limited",
         "Too many authentication callbacks were received.",
       )
-      if (rateLimit.shouldAuditDenial) {
-        await dependencies.recordRateLimitDenial("callback", error)
-      }
       response.status(429).json({ error: error.message })
       return
     }

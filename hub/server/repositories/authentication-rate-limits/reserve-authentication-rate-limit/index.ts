@@ -1,4 +1,3 @@
-import { Prisma } from "../../../generated/prisma/client.ts"
 import { z } from "zod"
 
 import type {
@@ -22,19 +21,18 @@ export function reserveAuthenticationRateLimit(
   input: ReserveAuthenticationRateLimitInput,
 ): Promise<AuthenticationRateLimitReservation> {
   const parsed = inputSchema.parse(input)
-  return database.$transaction(
-    async (transaction) => {
-      await transaction.$queryRaw<Array<{ locked: boolean }>>`
+  return (async () => {
+    await database.$queryRaw<Array<{ locked: boolean }>>`
         SELECT pg_advisory_xact_lock(
           hashtextextended(${`${parsed.scope}:${parsed.keyDigest}`}, 0)
         ) IS NULL AS "locked"
       `
-      await transaction.$executeRaw`
+    await database.$executeRaw`
         DELETE FROM "authentication_rate_limits"
         WHERE "window_started_at" <=
           statement_timestamp() - make_interval(secs => ${parsed.windowSeconds * 2})
       `
-      const reserved = await transaction.$queryRaw<Array<{ reservation_count: number }>>`
+    const reserved = await database.$queryRaw<Array<{ reservation_count: number }>>`
         INSERT INTO "authentication_rate_limits" (
           "id", "scope", "key_digest", "window_started_at", "reservation_count"
         ) VALUES (
@@ -69,18 +67,16 @@ export function reserveAuthenticationRateLimit(
           OR "authentication_rate_limits"."reservation_count" < ${parsed.limit}
         RETURNING "reservation_count"
       `
-      if (reserved.length === 1) return { reserved: true, shouldAuditDenial: false }
-      const audited = await transaction.$queryRaw<Array<{ id: string }>>`
-        UPDATE "authentication_rate_limits"
-        SET "denial_audited_at" = statement_timestamp(),
-            "updated_at" = statement_timestamp()
+    if (reserved.length === 1) return { reserved: true, shouldAuditDenial: false }
+    const bucket = await database.$queryRaw<Array<{ denial_audited_at: Date | null }>>`
+        SELECT "denial_audited_at"
+        FROM "authentication_rate_limits"
         WHERE "scope" = ${parsed.scope}
           AND "key_digest" = ${parsed.keyDigest}
-          AND "denial_audited_at" IS NULL
-        RETURNING "id"
       `
-      return { reserved: false, shouldAuditDenial: audited.length === 1 }
-    },
-    { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted },
-  )
+    return {
+      reserved: false,
+      shouldAuditDenial: bucket[0]?.denial_audited_at === null,
+    }
+  })()
 }

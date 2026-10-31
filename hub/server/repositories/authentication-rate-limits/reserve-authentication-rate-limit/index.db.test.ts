@@ -2,21 +2,22 @@ import { randomUUID } from "node:crypto"
 import { describe, expect, it } from "vitest"
 
 import { prisma } from "../../../integrations/prisma"
-import type { AuthenticationRateLimitDatabase } from "./types"
 import { reserveAuthenticationRateLimit } from "."
 
 function reserve(
   keyDigest: string,
   scope: "github_callback" | "github_start" = "github_start",
-  database: AuthenticationRateLimitDatabase = prisma,
+  database = prisma,
 ) {
-  return reserveAuthenticationRateLimit(database, {
-    id: randomUUID(),
-    keyDigest,
-    limit: 10,
-    scope,
-    windowSeconds: 600,
-  })
+  return database.$transaction((transaction) =>
+    reserveAuthenticationRateLimit(transaction, {
+      id: randomUUID(),
+      keyDigest,
+      limit: 10,
+      scope,
+      windowSeconds: 600,
+    }),
+  )
 }
 
 describe("reserveAuthenticationRateLimit()", () => {
@@ -54,34 +55,20 @@ describe("reserveAuthenticationRateLimit()", () => {
   })
 
   it("does not reserve capacity when its transaction rolls back", async () => {
-    const rollbackDatabase: AuthenticationRateLimitDatabase = {
-      $transaction(
-        operation: Parameters<AuthenticationRateLimitDatabase["$transaction"]>[0],
-        options: Parameters<AuthenticationRateLimitDatabase["$transaction"]>[1],
-      ) {
-        return prisma.$transaction(async (transaction) => {
-          await operation(transaction)
-          throw new Error("forced rollback")
-        }, options)
-      },
-    }
-
-    await expect(reserve("a".repeat(64), "github_start", rollbackDatabase)).rejects.toThrow(
-      "forced rollback",
-    )
+    await expect(
+      prisma.$transaction(async (transaction) => {
+        await reserveAuthenticationRateLimit(transaction, {
+          id: randomUUID(),
+          keyDigest: "a".repeat(64),
+          limit: 10,
+          scope: "github_start",
+          windowSeconds: 600,
+        })
+        throw new Error("forced rollback")
+      }),
+    ).rejects.toThrow("forced rollback")
     const results = await Promise.all(Array.from({ length: 10 }, () => reserve("a".repeat(64))))
     expect(results.every(({ reserved }) => reserved)).toBe(true)
-  })
-
-  it("allows only one durable denial audit per bucket window", async () => {
-    await Promise.all(Array.from({ length: 10 }, () => reserve("a".repeat(64))))
-
-    const denied = await Promise.all(Array.from({ length: 5 }, () => reserve("a".repeat(64))))
-    expect(denied.every(({ reserved }) => !reserved)).toBe(true)
-    expect(denied.filter(({ shouldAuditDenial }) => shouldAuditDenial)).toHaveLength(1)
-    const bucket = await prisma.authenticationRateLimit.findFirstOrThrow()
-    expect(bucket.denialAuditedAt).toBeInstanceOf(Date)
-    expect(bucket.keyDigest).toBe("a".repeat(64))
   })
 
   it("keeps cleanup eligible for the window-start index", async () => {

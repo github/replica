@@ -8,12 +8,10 @@ export interface ReserveAuthenticationRateLimitInput {
   windowSeconds: number
 }
 
-export interface AuthenticationRateLimitDatabase {
-  $transaction<Result>(
-    operation: (transaction: Prisma.TransactionClient) => Promise<Result>,
-    options: { isolationLevel: Prisma.TransactionIsolationLevel },
-  ): Promise<Result>
-}
+export type AuthenticationRateLimitDatabase = Pick<
+  Prisma.TransactionClient,
+  "$executeRaw" | "$queryRaw"
+>
 
 export interface AuthenticationRateLimitReservation {
   reserved: boolean

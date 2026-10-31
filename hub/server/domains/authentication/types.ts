@@ -31,11 +31,10 @@ export interface GitHubAuthenticationServices {
     status: "authentication_proved"
   }>
   now(): Date
-  recordRateLimitDenial(operation: "callback" | "start", primaryError: Error): Promise<void>
   reserveRateLimit(input: {
     operation: "callback" | "start"
     requestIp: string
-  }): Promise<{ reserved: boolean; shouldAuditDenial: boolean }>
+  }): Promise<{ reserved: boolean }>
   secureCookies: boolean
   start(input: { requestIpDigest: string }): Promise<{
     authorizationUrl: string

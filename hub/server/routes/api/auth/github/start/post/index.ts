@@ -21,9 +21,6 @@ export function post(dependencies: GitHubAuthenticationRoutesDependencies): Requ
         "rate_limited",
         "Too many authentication attempts were started.",
       )
-      if (rateLimit.shouldAuditDenial) {
-        await dependencies.recordRateLimitDenial("start", error)
-      }
       response.status(429).json({ error: error.message })
       return
     }

@@ -151,7 +151,6 @@ describe("runApi()", () => {
       appOrigin: configuration.appOrigin,
       complete: vi.fn(),
       now: () => new Date(),
-      recordRateLimitDenial: vi.fn(),
       reserveRateLimit: vi.fn(),
       secureCookies: true,
       start: vi.fn(),

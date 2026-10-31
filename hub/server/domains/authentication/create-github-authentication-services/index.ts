@@ -9,11 +9,9 @@ import { deleteExpiredAdmissionHandoffs } from "../../../repositories/admission-
 import { findAuthenticationProvider } from "../../../repositories/authentication-providers/find-authentication-provider/index.ts"
 import { getAuthenticationRevocationGeneration } from "../../../repositories/authentication-revocation-generations/get-authentication-revocation-generation/index.ts"
 import { createSecurityAudit } from "../../../repositories/security-audits/create-security-audit/index.ts"
-import { reserveAuthenticationRateLimit } from "../../../repositories/authentication-rate-limits/reserve-authentication-rate-limit/index.ts"
 import { createOpaqueValue } from "../../../utils/authentication/create-opaque-value/index.ts"
 import { decryptAuthenticationValue } from "../../../utils/authentication/decrypt-authentication-value/index.ts"
 import { encryptAuthenticationValue } from "../../../utils/authentication/encrypt-authentication-value/index.ts"
-import { hashAuthenticationValue } from "../../../utils/authentication/hash-authentication-value/index.ts"
 import { getSelectedProviderRevision } from "../../identity/get-selected-provider-revision/index.ts"
 import { resolveOrCreateExternalIdentity } from "../../identity/resolve-or-create-external-identity/index.ts"
 import { runIdentityCreationTransaction } from "../../identity/run-identity-creation-transaction/index.ts"
@@ -22,7 +20,7 @@ import { validateAndPersistProviderRevision } from "../../identity/validate-and-
 import { completeAuthenticationProof } from "../complete-authentication-proof/index.ts"
 import { createAuthenticationAdmissionHandoff } from "../create-admission-handoff/index.ts"
 import { runAdmissionHandoffTransaction } from "../run-admission-handoff-transaction/index.ts"
-import { recordAuthenticationDenial } from "../record-authentication-denial/index.ts"
+import { reserveAuthenticationRateLimit } from "../reserve-authentication-rate-limit/index.ts"
 import { startAuthenticationProof } from "../start-authentication-proof/index.ts"
 import type { GitHubAuthenticationServices } from "../types.ts"
 import type { GitHubAuthenticationConfiguration } from "./types.ts"
@@ -68,21 +66,10 @@ export async function createGitHubAuthenticationServices(
     now,
     reserveRateLimit: ({ operation, requestIp }) =>
       reserveAuthenticationRateLimit(prisma, {
-        id: randomUUID(),
-        keyDigest: hashAuthenticationValue(requestIp),
-        limit: operation === "start" ? 10 : 20,
-        scope: operation === "start" ? "github_start" : "github_callback",
-        windowSeconds: 10 * 60,
+        operation,
+        provider: adapter.providerKey,
+        requestIp,
       }),
-    recordRateLimitDenial: (_operation, primaryError) =>
-      recordAuthenticationDenial(primaryError, () =>
-        createSecurityAudit(prisma, {
-          id: randomUUID(),
-          type: "authentication_attempt_denied",
-          provider: adapter.providerKey,
-          reason: "rate_limited",
-        }),
-      ),
     start: (input) =>
       startAuthenticationProof(input, {
         adapter,

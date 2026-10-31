@@ -57,18 +57,15 @@ function dependencies() {
   const reserveRateLimit = vi.fn(() =>
     Promise.resolve({ reserved: true, shouldAuditDenial: false }),
   )
-  const recordRateLimitDenial = vi.fn(() => Promise.resolve())
   return {
     complete,
     reserveRateLimit,
-    recordRateLimitDenial,
     start,
     browserBinding,
     value: {
       appOrigin: "https://hub.example.test",
       complete,
       now: () => new Date("2026-10-30T16:00:00Z"),
-      recordRateLimitDenial,
       reserveRateLimit,
       secureCookies: true,
       start,
@@ -153,8 +150,7 @@ describe("GitHub authentication routes", () => {
   })
 
   it("rejects malformed, oversized, and rate-limited callbacks before proof completion", async () => {
-    const { browserBinding, complete, recordRateLimitDenial, reserveRateLimit, value } =
-      dependencies()
+    const { browserBinding, complete, reserveRateLimit, value } = dependencies()
     reserveRateLimit
       .mockResolvedValueOnce({ reserved: true, shouldAuditDenial: false })
       .mockResolvedValueOnce({ reserved: false, shouldAuditDenial: true })
@@ -179,7 +175,6 @@ describe("GitHub authentication routes", () => {
       },
     )
     expect(limited.status).toBe(429)
-    expect(recordRateLimitDenial).toHaveBeenCalledOnce()
     expect(complete).not.toHaveBeenCalled()
   })
 
