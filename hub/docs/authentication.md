@@ -1,29 +1,23 @@
 # Authentication proof
 
-Hub can prove a GitHub user identity without admitting that user to Hub. The proof flow creates a short-lived admission handoff for the next identity layer. It does not create a usable session, membership, role, invitation, or product authority.
+Hub has internal GitHub authentication proof primitives for a future complete sign-in callback. This layer does not register public start or callback routes and does not issue a session, membership, admission decision, or product authority.
 
-## Current flow
+## Proof flow
 
-`POST /api/auth/github/start` accepts requests only from the configured Hub origin. Hub reserves capacity in a database-backed rate-limit window for the trusted request address, selects the configured GitHub provider revision, stores a one-use authorization attempt, sets an HTTP-only browser-binding cookie, and redirects to GitHub with state and PKCE. The callback reserves its separate database-backed budget before parsing callback values, so every Hub replica enforces the same limits.
+The start primitive selects the configured GitHub provider revision, creates opaque state, browser binding, and a PKCE verifier, and persists one short-lived authorization attempt. PostgreSQL owns attempt creation, expiry, locking, and one-use consumption time. The stored attempt contains digests plus the encrypted verifier, not raw state, browser binding, or provider tokens.
 
-GitHub returns to `GET /api/auth/github/callback`. Hub consumes the attempt before exchanging the bounded authorization code. It uses the public github.com current-user endpoint and binds the immutable external identity to the numeric GitHub user ID. Login, name, avatar URL, and email remain display attributes. GitHub Enterprise endpoints are not accepted in this version.
+The completion primitive consumes the browser-bound attempt before provider work, confirms that the selected provider revision and digest match the local validated adapter, exchanges the bounded authorization code, reads the public github.com current user, and resolves the immutable external identity through the identity kernel. GitHub's numeric user ID is the immutable subject. Login, name, avatar URL, and email are display attributes.
 
-A successful callback returns `authentication_proved` with `admission: "pending"` and a short-lived opaque handoff token. The handoff is bound to the browser, selected provider revision, and global revocation generation. It is not a Hub session and cannot access product routes.
+Completion returns a bounded provider-neutral proof value in memory. It includes the resolved external identity and user IDs, provider revision, expected revocation generation, immutable provider evidence, and display attributes. A later admission domain can consume that value immediately in the same callback request without importing GitHub-specific types.
 
-## Stored data
+If admission or session issuance fails, the user must restart sign-in in this version. Hub does not persist a bearer proof, pending enrollment, handoff token, or half-signed-in browser state. A future asynchronous approval flow would need its own domain-specific pending-enrollment contract.
 
-Hub stores SHA-256 digests of state, browser binding, request address, and handoff token. The PKCE verifier is encrypted with the configured authentication encryption key. Provider access tokens are used only for the current-user lookup and are never saved, logged, or audited.
+## Safety boundaries
 
-Authorization attempts and admission handoffs can transition from unconsumed to consumed once. Their identity, provider revision, expiry, and evidence cannot change. PostgreSQL creates and consumes attempts using its own clock, and admission-handoff consumption uses PostgreSQL's current clock after acquiring its transaction locks, so callers cannot choose the expiry-check time. The global revocation generation can only increase.
+GitHub configuration is explicit and revisioned. Only the public github.com authorization, token, and user endpoints are accepted. Provider requests have fixed deadlines, reject redirects, and discard access tokens after the user lookup.
 
-The C1 identity kernel continues to own users, immutable external identity mappings, provider revision digests, and security audits. Provider requests and validation run outside C1 database transactions.
-
-## Configuration
-
-Authentication routes are disabled unless `AUTHENTICATION_PROVIDER=github` is set. When enabled, startup requires the GitHub client, endpoint, callback, revision, cookie, origin, and encryption settings listed in [.env.example](../.env.example). Hub validates the strict public configuration allowlist and selects its explicit revision through the identity kernel. Unknown fields and revision drift fail closed; Hub never falls back to another provider.
-
-Set `HUB_TRUSTED_PROXY_HOPS` only to the exact number of protected proxies in front of Hub. The default is `0`, so forwarded client addresses are ignored.
+Start and callback orchestration can use the database-backed rate-limit primitive, exact origin parsing, trusted-proxy settings, and pre-parser authentication payload suppression. Those reusable boundaries remain internal until the complete callback route is owned by the admission/session layer.
 
 ## Not implemented
 
-This layer does not consume a handoff through an HTTP route or issue a usable Hub session. It does not evaluate installation membership, invitations, bootstrap or recovery state, roles, repository permissions, or product authorization. Entra OIDC, account linking, synchronized access, SCIM, publishing, and migration from old Hub instances are also not implemented.
+This layer does not expose a complete sign-in route, set a usable session cookie, evaluate installation membership, invitations, bootstrap or recovery state, roles, repository permissions, or product authorization. Entra OIDC, account linking, synchronized access, SCIM, publishing, and migration from old Hub instances are also not implemented.

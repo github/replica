@@ -1,6 +1,6 @@
 # Hub development
 
-Use the Hub devcontainer for Node.js and PostgreSQL, or run Node.js locally with the same database service. GitHub authentication proof can be configured locally, but it does not admit users or create Hub sessions. Production deployment is not configured.
+Use the Hub devcontainer for Node.js and PostgreSQL, or run Node.js locally with the same database service. GitHub authentication proof primitives can be configured for tests and future composition, but Hub does not expose a complete sign-in route. Production deployment is not configured.
 
 ## Devcontainer
 
@@ -20,7 +20,7 @@ cp .env.example .env
 npm ci --engine-strict
 ```
 
-The example URL connects to PostgreSQL on `127.0.0.1:5432`. To use another development database, set `DATABASE_URL` in `.env` instead. Do not commit credentials. The health and frontend routes do not query the database. Authentication routes require the database and remain disabled unless an authentication provider is selected.
+The example URL connects to PostgreSQL on `127.0.0.1:5432`. To use another development database, set `DATABASE_URL` in `.env` instead. Do not commit credentials. The health and frontend routes do not query the database. Authentication routes are not registered in this layer.
 
 ## Start the app
 
@@ -36,7 +36,7 @@ In a second terminal, also from `hub/`, start Vite:
 npm run dev
 ```
 
-Open <http://127.0.0.1:5173>. Vite serves the frontend and forwards `/api` requests to Express at <http://127.0.0.1:3001>. `GET /api/health` returns JSON. When GitHub authentication is configured, the API also provides the proof-only start and callback routes described in [Authentication proof](authentication.md).
+Open <http://127.0.0.1:5173>. Vite serves the frontend and forwards `/api` requests to Express at <http://127.0.0.1:3001>. `GET /api/health` returns JSON. The internal proof primitives described in [Authentication proof](authentication.md) are composed only by tests and future complete callback orchestration.
 
 To enable the GitHub proof flow, copy the commented authentication settings from `.env.example`, register the exact callback URI in a GitHub OAuth App, and generate the local encryption key with `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"`. Keep the client secret and encryption key out of source control. Use insecure cookies only for loopback HTTP development. Both servers accept connections only from this machine. Stop each with Ctrl+C.
 
