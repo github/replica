@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-import { hashAuthenticationValue } from "../../../utils/authentication/hash-authentication-value/index.ts"
+import { hashAuthenticationValue } from "../hash-authentication-value/index.ts"
 import { AuthenticationProofError } from "../errors.ts"
 import { parseImmutableIdentityEvidence } from "../parse-immutable-identity-evidence/index.ts"
 import { recordAuthenticationDenial } from "../record-authentication-denial/index.ts"

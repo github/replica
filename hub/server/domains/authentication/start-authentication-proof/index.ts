@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto"
 import { z } from "zod"
 
-import { hashAuthenticationValue } from "../../../utils/authentication/hash-authentication-value/index.ts"
+import { hashAuthenticationValue } from "../hash-authentication-value/index.ts"
 import { AuthenticationProofError } from "../errors.ts"
 import { recordAuthenticationDenial } from "../record-authentication-denial/index.ts"
 import type {
