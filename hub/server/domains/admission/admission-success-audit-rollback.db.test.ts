@@ -15,6 +15,9 @@ describe("admission success audit rollback", () => {
     const externalIdentityId = randomUUID()
     const attemptId = randomUUID()
     const sessionId = randomUUID()
+    const suffix = randomUUID().replaceAll("-", "")
+    const functionName = `fail_session_audit_${suffix}`
+    const triggerName = `fail_session_audit_${suffix}`
     await prisma.$transaction(async (transaction) => {
       await transaction.authenticationProvider.create({
         data: { id: providerId, key: "github" },
@@ -57,27 +60,45 @@ describe("admission success audit rollback", () => {
       })
     })
 
-    await expect(
-      admitAuthenticationProof(
-        {
-          proof: { authorizationAttemptId: attemptId, externalIdentityId },
-          providerKey: "github",
-          sessionDigest: "d".repeat(64),
-          sessionId,
-          sessionLifetimeSeconds: 3_600,
-        },
-        {
-          createId: randomUUID,
-          runTransaction: (operation) =>
-            runAdmissionTransaction(prisma, operation, (transaction, event) =>
-              event.type === "session_created"
-                ? Promise.reject(new Error("session audit unavailable"))
-                : createSecurityAudit(transaction, event),
-            ),
-          writeAudit: (event) => createSecurityAudit(prisma, event),
-        },
-      ),
-    ).rejects.toBeInstanceOf(AdmissionPersistenceError)
+    await prisma.$executeRawUnsafe(`
+      CREATE FUNCTION "${functionName}"()
+      RETURNS trigger
+      LANGUAGE plpgsql
+      AS $$
+      BEGIN
+        IF NEW.action = 'session.created' THEN
+          RAISE EXCEPTION 'session audit unavailable';
+        END IF;
+        RETURN NEW;
+      END;
+      $$
+    `)
+    await prisma.$executeRawUnsafe(`
+      CREATE TRIGGER "${triggerName}"
+      BEFORE INSERT ON security_audits
+      FOR EACH ROW EXECUTE FUNCTION "${functionName}"()
+    `)
+    try {
+      await expect(
+        admitAuthenticationProof(
+          {
+            proof: { authorizationAttemptId: attemptId, externalIdentityId },
+            providerKey: "github",
+            sessionDigest: "d".repeat(64),
+            sessionId,
+            sessionLifetimeSeconds: 3_600,
+          },
+          {
+            createId: randomUUID,
+            runTransaction: (operation) => runAdmissionTransaction(prisma, operation),
+            writeAudit: (event) => createSecurityAudit(prisma, event),
+          },
+        ),
+      ).rejects.toBeInstanceOf(AdmissionPersistenceError)
+    } finally {
+      await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS "${triggerName}" ON security_audits`)
+      await prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS "${functionName}"()`)
+    }
 
     expect(await prisma.membership.count()).toBe(0)
     expect(await prisma.membershipAssignment.count()).toBe(0)

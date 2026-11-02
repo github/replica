@@ -14,15 +14,10 @@ import { lockUser } from "../../../repositories/users/lock-user/index.ts"
 import { classifyPrismaTransactionError } from "../../../utils/classify-prisma-transaction-error/index.ts"
 import { AdmissionTransactionConflictError } from "../errors.ts"
 import type { AdmissionDatabaseClient, AdmissionRepositories } from "./types.ts"
-import type { CreateSecurityAuditEvent } from "../../../repositories/security-audits/create-security-audit/types.ts"
 
 export function runAdmissionTransaction<Result>(
   database: AdmissionDatabaseClient,
   operation: (repositories: AdmissionRepositories) => Promise<Result>,
-  writeSuccessAudit: (
-    transaction: Prisma.TransactionClient,
-    event: CreateSecurityAuditEvent,
-  ) => Promise<unknown> = createSecurityAudit,
 ): Promise<Result> {
   return database
     .$transaction(
@@ -32,7 +27,7 @@ export function runAdmissionTransaction<Result>(
             createOrRestoreBootstrapAssignment(transaction, input),
           createHubSession: (input) => createHubSession(transaction, input),
           createOrRestoreMembership: (input) => createOrRestoreMembership(transaction, input),
-          createSecurityAudit: (input) => writeSuccessAudit(transaction, input),
+          createSecurityAudit: (input) => createSecurityAudit(transaction, input),
           lockActiveAssignment: (membershipId) =>
             lockActiveMembershipAssignment(transaction, membershipId),
           lockAttempt: (id) => lockConsumedAuthorizationAttempt(transaction, id),
