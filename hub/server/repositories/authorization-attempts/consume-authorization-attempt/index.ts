@@ -28,7 +28,7 @@ export async function consumeAuthorizationAttempt(
       `
       if (!locked.length) return null
       const consumed = await transaction.$queryRaw<
-        Array<{ code_verifier_ciphertext: string; provider_revision_id: string }>
+        Array<{ id: string; code_verifier_ciphertext: string; provider_revision_id: string }>
       >`
         UPDATE "authorization_attempts"
         SET "consumed_at" = clock_timestamp(), "updated_at" = clock_timestamp()
@@ -36,11 +36,12 @@ export async function consumeAuthorizationAttempt(
           AND "browser_binding_digest" = ${parsed.browserBindingDigest}
           AND "consumed_at" IS NULL
           AND "expires_at" > clock_timestamp()
-        RETURNING "code_verifier_ciphertext", "provider_revision_id"
+        RETURNING "id", "code_verifier_ciphertext", "provider_revision_id"
       `
       const attempt = consumed[0]
       return attempt
         ? {
+            id: attempt.id,
             codeVerifierCiphertext: attempt.code_verifier_ciphertext,
             providerRevisionId: attempt.provider_revision_id,
           }

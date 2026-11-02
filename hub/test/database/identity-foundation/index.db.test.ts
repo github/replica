@@ -52,8 +52,6 @@ describe("identity foundation migration", () => {
     expect(tables).toEqual([
       { table_name: "authentication_provider_revisions" },
       { table_name: "authentication_providers" },
-      { table_name: "authentication_rate_limits" },
-      { table_name: "authentication_revocation_generations" },
       { table_name: "authorization_attempts" },
       { table_name: "external_identities" },
       { table_name: "security_audits" },
@@ -74,58 +72,6 @@ describe("identity foundation migration", () => {
       "created_at",
       "updated_at",
     ])
-  })
-
-  it("enforces one-use authentication history and monotonic global revocation", async () => {
-    const generation = await prisma.authenticationRevocationGeneration.findUniqueOrThrow({
-      where: { key: "global" },
-    })
-
-    await expect(
-      prisma.authenticationRevocationGeneration.update({
-        where: { key: "global" },
-        data: { generation: generation.generation },
-      }),
-    ).rejects.toThrow("Authentication revocation generation may only increase")
-    await expect(
-      prisma.authenticationRevocationGeneration.delete({ where: { key: "global" } }),
-    ).rejects.toThrow("Authentication revocation generation may only increase")
-  })
-
-  it("enforces bounded authentication rate-limit bucket state", async () => {
-    await expect(
-      prisma.authenticationRateLimit.create({
-        data: {
-          id: randomUUID(),
-          scope: "unknown",
-          keyDigest: "a".repeat(64),
-          windowStartedAt: new Date(),
-          reservationCount: 1,
-        },
-      }),
-    ).rejects.toThrow()
-    await expect(
-      prisma.authenticationRateLimit.create({
-        data: {
-          id: randomUUID(),
-          scope: "github_start",
-          keyDigest: "invalid",
-          windowStartedAt: new Date(),
-          reservationCount: 1,
-        },
-      }),
-    ).rejects.toThrow()
-    await expect(
-      prisma.authenticationRateLimit.create({
-        data: {
-          id: randomUUID(),
-          scope: "github_start",
-          keyDigest: "a".repeat(64),
-          windowStartedAt: new Date(),
-          reservationCount: 0,
-        },
-      }),
-    ).rejects.toThrow()
   })
 
   it("enforces authorization attempt constraints and first-consumption-only history", async () => {

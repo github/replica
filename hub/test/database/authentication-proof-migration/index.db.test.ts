@@ -61,13 +61,10 @@ describe("authentication proof migration", () => {
           `SELECT table_name
            FROM information_schema.tables
            WHERE table_schema = 'public'
-             AND table_name IN ('authorization_attempts', 'authentication_rate_limits')
+             AND table_name = 'authorization_attempts'
            ORDER BY table_name`,
         )
-        expect(c2Tables.rows).toEqual([
-          { table_name: "authentication_rate_limits" },
-          { table_name: "authorization_attempts" },
-        ])
+        expect(c2Tables.rows).toEqual([{ table_name: "authorization_attempts" }])
 
         const providerId = "00000000-0000-4000-8000-000000000010"
         const revisionId = "00000000-0000-4000-8000-000000000011"

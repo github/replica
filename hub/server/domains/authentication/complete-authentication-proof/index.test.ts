@@ -26,6 +26,7 @@ function dependencies() {
   )
   const consumeAttempt = vi.fn<CompleteAuthenticationProofDependencies["consumeAttempt"]>(() =>
     Promise.resolve({
+      id: "00000000-0000-4000-8000-000000000010",
       providerRevisionId: revision.id,
       codeVerifierCiphertext: "encrypted-verifier",
     }),
@@ -42,7 +43,6 @@ function dependencies() {
     localConfigurationDigest: revision.configurationDigest,
     localRevision: revision.revision,
     getSelectedProviderRevision: vi.fn(() => Promise.resolve(revision)),
-    getRevocationGeneration: vi.fn(() => Promise.resolve(7n)),
     resolveOrCreateIdentity: vi.fn(() =>
       Promise.resolve({
         externalIdentityId: "00000000-0000-4000-8000-000000000012",
@@ -65,19 +65,8 @@ describe("completeAuthenticationProof()", () => {
     )
 
     expect(result.proof).toEqual<AuthenticationProofResult>({
-      attributes: {
-        name: null,
-        avatarUrl: null,
-        email: null,
-        preferredUsername: "octocat",
-      },
-      expectedRevocationGeneration: 7n,
+      authorizationAttemptId: "00000000-0000-4000-8000-000000000010",
       externalIdentityId: "00000000-0000-4000-8000-000000000012",
-      issuer: "https://github.com",
-      providerKey: "github",
-      providerRevisionId: revision.id,
-      subject: "123",
-      userId: "00000000-0000-4000-8000-000000000013",
     })
     expect(result).not.toHaveProperty("handoffToken")
     expect(result).not.toHaveProperty("session")
@@ -89,6 +78,7 @@ describe("completeAuthenticationProof()", () => {
     scoped.consumeAttempt.mockImplementation(() => {
       order.push("consume")
       return Promise.resolve({
+        id: "00000000-0000-4000-8000-000000000010",
         providerRevisionId: revision.id,
         codeVerifierCiphertext: "encrypted-verifier",
       })
@@ -156,8 +146,7 @@ describe("completeAuthenticationProof()", () => {
     function admit(proof: AuthenticationProofResult) {
       return {
         identity: proof.externalIdentityId,
-        providerRevision: proof.providerRevisionId,
-        revocationGeneration: proof.expectedRevocationGeneration,
+        attempt: proof.authorizationAttemptId,
       }
     }
     const result = await completeAuthenticationProof(
@@ -171,8 +160,7 @@ describe("completeAuthenticationProof()", () => {
 
     expect(admit(result.proof)).toEqual({
       identity: "00000000-0000-4000-8000-000000000012",
-      providerRevision: revision.id,
-      revocationGeneration: 7n,
+      attempt: "00000000-0000-4000-8000-000000000010",
     })
   })
 
@@ -194,16 +182,14 @@ describe("completeAuthenticationProof()", () => {
       scoped,
     )
 
-    expect(result.proof).toMatchObject({
-      providerKey: "oidc",
+    expect(scoped.resolveOrCreateIdentity).toHaveBeenCalledWith({
+      provider: "oidc",
       issuer: "https://id.example.test",
       subject: "person-456",
-      attributes: {
-        avatarUrl: null,
-        email: null,
-        name: null,
-        preferredUsername: null,
-      },
+    })
+    expect(result.proof).toEqual({
+      authorizationAttemptId: "00000000-0000-4000-8000-000000000010",
+      externalIdentityId: "00000000-0000-4000-8000-000000000012",
     })
   })
 })
