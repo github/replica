@@ -4,31 +4,56 @@ import type { AddressInfo } from "node:net"
 import { describe, expect, it, vi } from "vitest"
 
 import { createApp } from "../../../create-app"
-import type { AuthenticationRouteRuntime } from "./types"
+import type { AuthenticationRouteDependencies } from "./types"
 
-function runtime(): AuthenticationRouteRuntime {
-  const start = vi.fn()
+function routeDependencies() {
   const checkRateLimit = vi.fn().mockResolvedValue(true)
+  const startSignIn = vi.fn()
+  const startEnrollment = vi.fn()
   const verifyBootstrapSecret = vi.fn().mockReturnValue(false)
-  const authentication: AuthenticationRouteRuntime = {
-    applicationOrigin: "http://127.0.0.1:5173",
-    secureCookie: false,
-    start,
-    complete: vi.fn(),
-    admit: vi.fn(),
-    restore: vi.fn(),
-    end: vi.fn(),
-    checkRateLimit,
-    verifyBootstrapSecret,
-    writeBootstrapDenial: vi.fn().mockResolvedValue(undefined),
+  const dependencies: AuthenticationRouteDependencies = {
+    signIn: {
+      applicationOrigin: "http://127.0.0.1:5173",
+      checkRateLimit,
+      secureCookie: false,
+      start: startSignIn,
+    },
+    administratorEnrollment: {
+      applicationOrigin: "http://127.0.0.1:5173",
+      checkRateLimit,
+      secureCookie: false,
+      start: startEnrollment,
+      verifyBootstrapSecret,
+      writeBootstrapDenial: vi.fn().mockResolvedValue(undefined),
+      writeRateLimitDenial: vi.fn().mockResolvedValue(undefined),
+    },
+    callback: {
+      checkRateLimit,
+      secureCookie: false,
+      complete: vi.fn(),
+      admit: vi.fn(),
+    },
+    currentSession: {
+      secureCookie: false,
+      restore: vi.fn(),
+    },
+    signOut: {
+      applicationOrigin: "http://127.0.0.1:5173",
+      secureCookie: false,
+      end: vi.fn(),
+    },
   }
-  return Object.assign(authentication, {
-    testDoubles: { checkRateLimit, start, verifyBootstrapSecret },
-  })
+  return {
+    dependencies,
+    checkRateLimit,
+    startEnrollment,
+    startSignIn,
+    verifyBootstrapSecret,
+  }
 }
 
 async function withServer(
-  authentication: AuthenticationRouteRuntime,
+  authentication: AuthenticationRouteDependencies,
   operation: (baseUrl: string) => Promise<void>,
 ) {
   const server = createServer(createApp({ authentication }))
@@ -46,53 +71,36 @@ async function withServer(
 
 describe("authenticationRoutes()", () => {
   it("rejects a start from a different origin before provider work", async () => {
-    const authentication = runtime()
-    const testDoubles = (
-      authentication as AuthenticationRouteRuntime & {
-        testDoubles: {
-          checkRateLimit: ReturnType<typeof vi.fn>
-          start: ReturnType<typeof vi.fn>
-          verifyBootstrapSecret: ReturnType<typeof vi.fn>
-        }
-      }
-    ).testDoubles
-    await withServer(authentication, async (baseUrl) => {
+    const { dependencies, checkRateLimit, startSignIn } = routeDependencies()
+    await withServer(dependencies, async (baseUrl) => {
       const response = await fetch(`${baseUrl}/api/auth/github/start`, {
         method: "POST",
         headers: { origin: "https://attacker.example" },
       })
 
       expect(response.status).toBe(403)
-      expect(testDoubles.checkRateLimit).not.toHaveBeenCalled()
-      expect(testDoubles.start).not.toHaveBeenCalled()
+      expect(checkRateLimit).not.toHaveBeenCalled()
+      expect(startSignIn).not.toHaveBeenCalled()
     })
   })
 
   it("rate-limits an enrollment before parsing its secret", async () => {
-    const authentication = runtime()
-    const testDoubles = (
-      authentication as AuthenticationRouteRuntime & {
-        testDoubles: {
-          checkRateLimit: ReturnType<typeof vi.fn>
-          start: ReturnType<typeof vi.fn>
-          verifyBootstrapSecret: ReturnType<typeof vi.fn>
-        }
-      }
-    ).testDoubles
-    testDoubles.checkRateLimit.mockResolvedValue(false)
-    await withServer(authentication, async (baseUrl) => {
+    const { dependencies, checkRateLimit, startEnrollment, verifyBootstrapSecret } =
+      routeDependencies()
+    checkRateLimit.mockResolvedValue(false)
+    await withServer(dependencies, async (baseUrl) => {
       const response = await fetch(`${baseUrl}/api/auth/github/admin-enrollment/start`, {
         method: "POST",
         headers: {
-          origin: authentication.applicationOrigin,
+          origin: dependencies.administratorEnrollment.applicationOrigin,
           "content-type": "application/x-www-form-urlencoded",
         },
         body: "bootstrap_secret=payload-secret",
       })
 
       expect(response.status).toBe(429)
-      expect(testDoubles.verifyBootstrapSecret).not.toHaveBeenCalled()
-      expect(testDoubles.start).not.toHaveBeenCalled()
+      expect(verifyBootstrapSecret).not.toHaveBeenCalled()
+      expect(startEnrollment).not.toHaveBeenCalled()
     })
   })
 })

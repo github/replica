@@ -20,7 +20,7 @@ The administrator enrollment start requires `HUB_BOOTSTRAP_SECRET` before OAuth 
 
 A successful enrollment creates or restores an active administrator assignment owned by the verified external identity. The same secret can enroll another administrator or restore a previous administrator, including when another administrator still exists. Repository permissions do not affect Hub admission.
 
-Membership lifecycle and assignment provenance are separate. The schema supports active, suspended, and removed memberships, and distinguishes bootstrap-owned assignments from provider-owned assignments. GitHub sign-in creates only bootstrap administrator assignments. Provider-owned assignment synchronization is not implemented.
+Membership lifecycle and assignment provenance are separate. The schema supports active, suspended, and removed memberships. This version stores only bootstrap-owned administrator assignments; provider-owned assignment synchronization and member roles remain deferred.
 
 ## Browser session
 

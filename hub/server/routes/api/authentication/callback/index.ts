@@ -10,7 +10,7 @@ import { readCookie } from "../../../../integrations/express/read-cookie/index.t
 import { createOpaqueValue } from "../../../../utils/authentication/create-opaque-value/index.ts"
 import { hashAuthenticationValue } from "../../../../utils/authentication/hash-authentication-value/index.ts"
 import { browserCookieName } from "../start/index.ts"
-import type { AuthenticationRouteRuntime } from "../types.ts"
+import type { AuthenticationCallbackDependencies } from "../types.ts"
 
 const querySchema = z
   .object({
@@ -20,36 +20,36 @@ const querySchema = z
   .strict()
 const sessionCookieName = "hub_session"
 
-export function callback(runtime: AuthenticationRouteRuntime): RequestHandler {
+export function callback(dependencies: AuthenticationCallbackDependencies): RequestHandler {
   return async (request, response, next) => {
     const query = querySchema.safeParse(request.query)
     const browserBinding = readCookie(request, browserCookieName)
     if (!query.success || !browserBinding) {
       response.setHeader(
         "Set-Cookie",
-        clearAuthenticationCookie(browserCookieName, runtime.secureCookie),
+        clearAuthenticationCookie(browserCookieName, dependencies.secureCookie),
       )
       response.redirect(303, "/?authentication=denied")
       return
     }
     try {
-      const completed = await runtime.complete({
+      const completed = await dependencies.complete({
         browserBinding,
         code: query.data.code,
         state: query.data.state,
       })
       const sessionValue = createOpaqueValue()
-      const admitted = await runtime.admit({
+      const admitted = await dependencies.admit({
         proof: completed.proof,
         sessionDigest: hashAuthenticationValue(sessionValue),
         sessionId: randomUUID(),
       })
       response.setHeader("Set-Cookie", [
-        clearAuthenticationCookie(browserCookieName, runtime.secureCookie),
+        clearAuthenticationCookie(browserCookieName, dependencies.secureCookie),
         createAuthenticationCookie({
           expiresAt: admitted.expiresAt,
           name: sessionCookieName,
-          secure: runtime.secureCookie,
+          secure: dependencies.secureCookie,
           value: sessionValue,
         }),
       ])
@@ -57,8 +57,8 @@ export function callback(runtime: AuthenticationRouteRuntime): RequestHandler {
     } catch (error) {
       if (error instanceof AdmissionDeniedError || error instanceof AuthenticationProofError) {
         response.setHeader("Set-Cookie", [
-          clearAuthenticationCookie(browserCookieName, runtime.secureCookie),
-          clearAuthenticationCookie(sessionCookieName, runtime.secureCookie),
+          clearAuthenticationCookie(browserCookieName, dependencies.secureCookie),
+          clearAuthenticationCookie(sessionCookieName, dependencies.secureCookie),
         ])
         response.redirect(303, "/?authentication=denied")
         return

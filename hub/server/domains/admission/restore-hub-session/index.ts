@@ -11,7 +11,6 @@ const digestSchema = z.string().regex(/^[0-9a-f]{64}$/)
 export async function restoreHubSession(
   digest: string,
   dependencies: {
-    createId(): string
     database: {
       $transaction<Result>(
         operation: (transaction: Prisma.TransactionClient) => Promise<Result>,

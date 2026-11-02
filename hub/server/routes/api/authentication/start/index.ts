@@ -1,23 +1,20 @@
 import type { RequestHandler } from "express"
 
 import { createAuthenticationCookie } from "../../../../integrations/express/create-authentication-cookie/index.ts"
-import type { AuthenticationRouteRuntime, AuthorizationPurpose } from "../types.ts"
+import type { StartAuthenticationDependencies } from "../types.ts"
 
 const browserCookieName = "hub_auth_browser"
 
-export function start(
-  runtime: AuthenticationRouteRuntime,
-  purpose: AuthorizationPurpose,
-): RequestHandler {
+export function start(dependencies: StartAuthenticationDependencies): RequestHandler {
   return async (_request, response, next) => {
     try {
-      const result = await runtime.start(purpose)
+      const result = await dependencies.start()
       response.setHeader(
         "Set-Cookie",
         createAuthenticationCookie({
           expiresAt: result.expiresAt,
           name: browserCookieName,
-          secure: runtime.secureCookie,
+          secure: dependencies.secureCookie,
           value: result.browserBinding,
         }),
       )

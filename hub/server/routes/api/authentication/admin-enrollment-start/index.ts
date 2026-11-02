@@ -1,7 +1,7 @@
 import type { RequestHandler } from "express"
 import { z } from "zod"
 
-import type { AuthenticationRouteRuntime } from "../types.ts"
+import type { StartAdministratorEnrollmentDependencies } from "../types.ts"
 import { start } from "../start/index.ts"
 
 const bodySchema = z
@@ -10,13 +10,15 @@ const bodySchema = z
   })
   .strict()
 
-export function adminEnrollmentStart(runtime: AuthenticationRouteRuntime): RequestHandler {
-  const startEnrollment = start(runtime, "ADMIN_ENROLLMENT")
+export function adminEnrollmentStart(
+  dependencies: StartAdministratorEnrollmentDependencies,
+): RequestHandler {
+  const startEnrollment = start(dependencies)
   return async (request, response, next) => {
     const body = bodySchema.safeParse(request.body)
-    if (!body.success || !runtime.verifyBootstrapSecret(body.data.bootstrap_secret)) {
+    if (!body.success || !dependencies.verifyBootstrapSecret(body.data.bootstrap_secret)) {
       try {
-        await runtime.writeBootstrapDenial("invalid_secret")
+        await dependencies.writeBootstrapDenial("invalid_secret")
       } catch (error) {
         next(error)
         return

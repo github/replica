@@ -4,9 +4,9 @@ import { clearAuthenticationCookie } from "../../../../integrations/express/clea
 import { readCookie } from "../../../../integrations/express/read-cookie/index.ts"
 import { hashAuthenticationValue } from "../../../../utils/authentication/hash-authentication-value/index.ts"
 import { sessionCookieName } from "../callback/index.ts"
-import type { AuthenticationRouteRuntime } from "../types.ts"
+import type { CurrentSessionDependencies } from "../types.ts"
 
-export function current(runtime: AuthenticationRouteRuntime): RequestHandler {
+export function current(dependencies: CurrentSessionDependencies): RequestHandler {
   return async (request, response, next) => {
     const value = readCookie(request, sessionCookieName)
     if (!value) {
@@ -14,11 +14,11 @@ export function current(runtime: AuthenticationRouteRuntime): RequestHandler {
       return
     }
     try {
-      const session = await runtime.restore(hashAuthenticationValue(value))
+      const session = await dependencies.restore(hashAuthenticationValue(value))
       if (!session) {
         response.setHeader(
           "Set-Cookie",
-          clearAuthenticationCookie(sessionCookieName, runtime.secureCookie),
+          clearAuthenticationCookie(sessionCookieName, dependencies.secureCookie),
         )
         response.status(401).json({ authenticated: false })
         return

@@ -4,16 +4,16 @@ import { clearAuthenticationCookie } from "../../../../integrations/express/clea
 import { readCookie } from "../../../../integrations/express/read-cookie/index.ts"
 import { hashAuthenticationValue } from "../../../../utils/authentication/hash-authentication-value/index.ts"
 import { sessionCookieName } from "../callback/index.ts"
-import type { AuthenticationRouteRuntime } from "../types.ts"
+import type { SignOutDependencies } from "../types.ts"
 
-export function signOut(runtime: AuthenticationRouteRuntime): RequestHandler {
+export function signOut(dependencies: SignOutDependencies): RequestHandler {
   return async (request, response, next) => {
     const value = readCookie(request, sessionCookieName)
     try {
-      if (value) await runtime.end(hashAuthenticationValue(value))
+      if (value) await dependencies.end(hashAuthenticationValue(value))
       response.setHeader(
         "Set-Cookie",
-        clearAuthenticationCookie(sessionCookieName, runtime.secureCookie),
+        clearAuthenticationCookie(sessionCookieName, dependencies.secureCookie),
       )
       response.status(204).end()
     } catch (error) {

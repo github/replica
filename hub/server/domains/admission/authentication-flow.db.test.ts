@@ -5,8 +5,8 @@ import type { AddressInfo } from "node:net"
 import { describe, expect, it, vi } from "vitest"
 
 import { createApp } from "../../create-app"
+import { createAuthenticationRouteDependencies } from "../../create-authentication-route-dependencies"
 import { prisma } from "../../integrations/prisma"
-import { createGitHubAuthenticationRuntime } from "./create-github-authentication-runtime"
 
 const applicationOrigin = "http://127.0.0.1:5173"
 const clientId = "github-client"
@@ -42,8 +42,8 @@ async function openServer(userIds: number[]) {
     }
     throw new Error(`Unexpected provider request: ${url}`)
   })
-  const runtime = createGitHubAuthenticationRuntime(runtimeEnvironment(), providerRequest)
-  const server = createServer(createApp({ authentication: runtime }))
+  const dependencies = createAuthenticationRouteDependencies(runtimeEnvironment(), providerRequest)
+  const server = createServer(createApp({ authentication: dependencies }))
   server.listen(0, "127.0.0.1")
   await once(server, "listening")
   const { port } = server.address() as AddressInfo
