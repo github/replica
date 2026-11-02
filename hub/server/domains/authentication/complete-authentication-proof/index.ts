@@ -101,7 +101,6 @@ export async function completeAuthenticationProof(
     )
     throw error
   }
-  const expectedRevocationGeneration = await dependencies.getRevocationGeneration()
   const identity = await dependencies.resolveOrCreateIdentity({
     provider: evidence.provider,
     issuer: evidence.issuer,
@@ -109,14 +108,8 @@ export async function completeAuthenticationProof(
   })
   return {
     proof: {
-      attributes: evidence.attributes,
-      expectedRevocationGeneration,
+      authorizationAttemptId: attempt.id,
       externalIdentityId: identity.externalIdentityId,
-      issuer: evidence.issuer,
-      providerKey: evidence.provider,
-      providerRevisionId: attempt.providerRevisionId,
-      subject: evidence.subject,
-      userId: identity.userId,
     },
   }
 }

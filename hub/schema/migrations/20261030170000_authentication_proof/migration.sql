@@ -26,50 +26,11 @@ CREATE TABLE "authorization_attempts" (
     )
 );
 
-CREATE TABLE "authentication_revocation_generations" (
-    "id" UUID NOT NULL,
-    "key" VARCHAR(32) NOT NULL,
-    "generation" BIGINT NOT NULL DEFAULT 1,
-    "created_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    CONSTRAINT "authentication_revocation_generations_pkey" PRIMARY KEY ("id"),
-    CONSTRAINT "authentication_revocation_generations_key_present" CHECK (length("key") > 0),
-    CONSTRAINT "authentication_revocation_generations_global_key" CHECK ("key" = 'global'),
-    CONSTRAINT "authentication_revocation_generations_positive" CHECK ("generation" > 0)
-);
-
-CREATE TABLE "authentication_rate_limits" (
-    "id" UUID NOT NULL,
-    "scope" VARCHAR(32) NOT NULL,
-    "key_digest" VARCHAR(64) NOT NULL,
-    "window_started_at" TIMESTAMPTZ(3) NOT NULL,
-    "reservation_count" INTEGER NOT NULL,
-    "denial_audited_at" TIMESTAMPTZ(3),
-    "created_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updated_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    CONSTRAINT "authentication_rate_limits_pkey" PRIMARY KEY ("id"),
-    CONSTRAINT "authentication_rate_limits_scope" CHECK (
-        "scope" IN ('github_callback', 'github_start')
-    ),
-    CONSTRAINT "authentication_rate_limits_digest" CHECK (
-        "key_digest" ~ '^[0-9a-f]{64}$'
-    ),
-    CONSTRAINT "authentication_rate_limits_count" CHECK ("reservation_count" > 0)
-);
-
 CREATE UNIQUE INDEX "authorization_attempts_state_digest_key"
 ON "authorization_attempts"("state_digest");
 CREATE INDEX "authorization_attempts_expires_at_idx" ON "authorization_attempts"("expires_at");
 CREATE INDEX "authorization_attempts_request_ip_digest_created_at_idx"
 ON "authorization_attempts"("request_ip_digest", "created_at");
-CREATE UNIQUE INDEX "authentication_revocation_generations_key_key"
-ON "authentication_revocation_generations"("key");
-CREATE UNIQUE INDEX "authentication_rate_limits_scope_key_digest_key"
-ON "authentication_rate_limits"("scope", "key_digest");
-CREATE INDEX "authentication_rate_limits_window_started_at_idx"
-ON "authentication_rate_limits"("window_started_at");
 
 ALTER TABLE "authorization_attempts"
 ADD CONSTRAINT "authorization_attempts_provider_revision_id_fkey"
@@ -107,33 +68,3 @@ $$;
 CREATE TRIGGER "authorization_attempts_protected"
 BEFORE UPDATE OR DELETE ON "authorization_attempts"
 FOR EACH ROW EXECUTE FUNCTION protect_authorization_attempt();
-
-CREATE FUNCTION protect_authentication_revocation_generation()
-RETURNS trigger
-LANGUAGE plpgsql
-AS $$
-BEGIN
-    IF TG_OP = 'DELETE'
-       OR NEW."id" <> OLD."id"
-       OR NEW."key" <> OLD."key"
-       OR NEW."generation" <= OLD."generation"
-       OR NEW."created_at" <> OLD."created_at" THEN
-        RAISE EXCEPTION 'Authentication revocation generation may only increase.';
-    END IF;
-    RETURN NEW;
-END;
-$$;
-
-CREATE TRIGGER "authentication_revocation_generations_protected"
-BEFORE UPDATE OR DELETE ON "authentication_revocation_generations"
-FOR EACH ROW EXECUTE FUNCTION protect_authentication_revocation_generation();
-
-INSERT INTO "authentication_revocation_generations" (
-    "id",
-    "key",
-    "generation"
-) VALUES (
-    '00000000-0000-4000-8000-000000000001',
-    'global',
-    1
-);

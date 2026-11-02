@@ -2,6 +2,7 @@ import type { AuthenticationProofResult, AuthenticationProviderAdapter } from ".
 import type { SelectedProviderRevision } from "../start-authentication-proof/types.ts"
 
 export interface ConsumedAuthorizationAttempt {
+  id: string
   codeVerifierCiphertext: string
   providerRevisionId: string
 }
@@ -17,7 +18,6 @@ export interface CompleteAuthenticationProofDependencies {
   localConfigurationDigest: string
   localRevision: number
   getSelectedProviderRevision(): Promise<SelectedProviderRevision | null>
-  getRevocationGeneration(): Promise<bigint>
   resolveOrCreateIdentity(input: {
     issuer: string
     provider: string

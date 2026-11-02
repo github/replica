@@ -1,7 +1,6 @@
 import express from "express"
 
 import { handleError } from "../integrations/express/handle-error/index.ts"
-import { protectAuthenticationRequest } from "../integrations/express/protect-authentication-request/index.ts"
 import { respondNotFound } from "../integrations/express/respond-not-found/index.ts"
 import { createRequestLogger } from "../integrations/pino/create-request-logger/index.ts"
 import { routes } from "../routes/index.ts"
@@ -9,11 +8,9 @@ import { routes } from "../routes/index.ts"
 import type { CreateAppOptions } from "./types.ts"
 
 /** Give every endpoint the same request logging and safe error responses. */
-export function createApp({ broadcast, logger, trustedProxyHops = 0 }: CreateAppOptions = {}) {
+export function createApp({ broadcast, logger }: CreateAppOptions = {}) {
   const app = express()
   app.disable("x-powered-by")
-  app.set("trust proxy", trustedProxyHops)
-  app.use(protectAuthenticationRequest())
   app.use(createRequestLogger(logger))
   app.use(express.json())
 

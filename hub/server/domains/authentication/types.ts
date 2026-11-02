@@ -14,19 +14,13 @@ export interface ImmutableIdentityEvidence {
 
 /**
  * Internal same-request proof for C3 admission/session orchestration.
- * C3 must not accept this shape from HTTP input. Its transaction locks provider selection,
- * then revocation generation, rechecks both references, verifies the immutable identity tuple,
- * evaluates admission, and writes the session plus final success audit atomically.
+ * C3 must not accept this shape from HTTP input. It rereads both IDs, verifies the consumed
+ * attempt and immutable identity mapping, locks its admission/session aggregates, evaluates
+ * admission, and writes the session plus final success audit atomically.
  */
 export interface AuthenticationProofResult {
-  attributes: IdentityPresentationAttributes
-  expectedRevocationGeneration: bigint
+  authorizationAttemptId: string
   externalIdentityId: string
-  issuer: string
-  providerKey: string
-  providerRevisionId: string
-  subject: string
-  userId: string
 }
 
 export interface AuthenticationProviderAdapter {
@@ -37,21 +31,4 @@ export interface AuthenticationProviderAdapter {
     code: string
     codeVerifier: string
   }): Promise<unknown>
-}
-
-export interface GitHubAuthenticationServices {
-  appOrigin: string
-  complete(input: { browserBinding: string; code: string; state: string }): Promise<{
-    proof: AuthenticationProofResult
-  }>
-  reserveRateLimit(input: {
-    operation: "callback" | "start"
-    requestIp: string
-  }): Promise<{ reserved: boolean }>
-  secureCookies: boolean
-  start(input: { requestIpDigest: string }): Promise<{
-    authorizationUrl: string
-    browserBinding: string
-    expiresAt: Date
-  }>
 }
