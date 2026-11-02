@@ -1,10 +1,7 @@
 import { z } from "zod"
 
-export const providerKeyMaxCharacters = 100
-export const providerKeyMaxBytes = 400
-
-declare const providerKeyBrand: unique symbol
-export type ProviderKey = string & { readonly [providerKeyBrand]: true }
+import { providerKeyMaxBytes, providerKeyMaxCharacters } from "./constants.ts"
+import type { ProviderKey } from "./types.ts"
 
 const providerKeySchema = z.string().min(1)
 

@@ -1,4 +1,4 @@
-import type { ProviderKey } from "../../../utils/parse-provider-key/index.ts"
+import type { ProviderKey } from "../../../utils/parse-provider-key/types.ts"
 import type {
   ExternalIdentityCreatedAudit,
   ExternalIdentityCreateFailedAudit,

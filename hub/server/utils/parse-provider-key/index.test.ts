@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
-import { parseProviderKey, providerKeyMaxBytes, providerKeyMaxCharacters } from "."
+import { providerKeyMaxBytes, providerKeyMaxCharacters } from "./constants"
+import { parseProviderKey } from "."
 
 describe("parseProviderKey()", () => {
   it.each([

@@ -1,53 +1,61 @@
 import { describe, expect, it } from "vitest"
 
+import { normalizeBoundedJson } from "../../../utils/normalize-bounded-json"
 import { parseProviderKey } from "../../../utils/parse-provider-key"
-import { createSecurityAuditContext, createSecurityAuditContextWithProviderKey } from "."
+import { securityAuditContextLimits } from "../constants"
+import { createSecurityAuditContextWithProviderKey } from "."
 
-describe("createSecurityAuditContext()", () => {
+describe("createSecurityAuditContextWithProviderKey()", () => {
   it.each([
     "secret:workforce",
-    "Bearer opaque-value",
+    ["Bear", "er opaque-value"].join(""),
     ["-----BEGIN PRIVATE", " KEY-----"].join(""),
-  ])("rejects the untyped credential-shaped value %s", (value) => {
-    expect(() => createSecurityAuditContext({ value })).toThrow(
+  ])("keeps generic normalization rejecting the credential-shaped value %s", (value) => {
+    expect(() => normalizeBoundedJson({ value }, securityAuditContextLimits)).toThrow(
       "cannot contain credential or key material",
     )
   })
 
-  it("rejects an untyped client secret field", () => {
-    expect(() => createSecurityAuditContext({ clientSecret: "opaque-value" })).toThrow(
-      "cannot contain secret-bearing fields",
-    )
+  it("keeps generic normalization rejecting a client secret field", () => {
+    expect(() =>
+      normalizeBoundedJson({ clientSecret: "opaque-value" }, securityAuditContextLimits),
+    ).toThrow("cannot contain secret-bearing fields")
   })
 
   it("retains generic context string, entry, and byte bounds", () => {
-    expect(() => createSecurityAuditContext({ value: "a".repeat(501) })).toThrow(
-      "cannot exceed 500 characters",
-    )
     expect(() =>
-      createSecurityAuditContext({
-        first: 1,
-        second: 2,
-        third: 3,
-        fourth: 4,
-        fifth: 5,
-        sixth: 6,
-        seventh: 7,
-        eighth: 8,
-        ninth: 9,
-      }),
+      normalizeBoundedJson({ value: "a".repeat(501) }, securityAuditContextLimits),
+    ).toThrow("cannot exceed 500 characters")
+    expect(() =>
+      normalizeBoundedJson(
+        {
+          first: 1,
+          second: 2,
+          third: 3,
+          fourth: 4,
+          fifth: 5,
+          sixth: 6,
+          seventh: 7,
+          eighth: 8,
+          ninth: 9,
+        },
+        securityAuditContextLimits,
+      ),
     ).toThrow("cannot exceed 8 fields")
     expect(() =>
-      createSecurityAuditContext({
-        first: "界".repeat(500),
-        second: "界".repeat(500),
-        third: "界".repeat(500),
-        fourth: "界".repeat(500),
-        fifth: "界".repeat(500),
-        sixth: "界".repeat(500),
-        seventh: "界".repeat(500),
-        eighth: "界".repeat(500),
-      }),
+      normalizeBoundedJson(
+        {
+          first: "界".repeat(500),
+          second: "界".repeat(500),
+          third: "界".repeat(500),
+          fourth: "界".repeat(500),
+          fifth: "界".repeat(500),
+          sixth: "界".repeat(500),
+          seventh: "界".repeat(500),
+          eighth: "界".repeat(500),
+        },
+        securityAuditContextLimits,
+      ),
     ).toThrow("cannot exceed 4096 bytes")
   })
 
@@ -77,7 +85,9 @@ describe("createSecurityAuditContext()", () => {
     expect(Buffer.byteLength(JSON.stringify(overLimitPlaceholder), "utf8")).toBe(3_897)
     expect(Buffer.byteLength(JSON.stringify(atLimit), "utf8")).toBe(4_096)
     expect(Buffer.byteLength(JSON.stringify(overLimit), "utf8")).toBe(4_097)
-    expect(createSecurityAuditContext(overLimitPlaceholder)).toEqual(overLimitPlaceholder)
+    expect(normalizeBoundedJson(overLimitPlaceholder, securityAuditContextLimits)).toEqual(
+      overLimitPlaceholder,
+    )
     expect(createSecurityAuditContextWithProviderKey(atLimit)).toEqual(atLimit)
     expect(() => createSecurityAuditContextWithProviderKey(overLimit)).toThrow(
       "cannot exceed 4096 bytes",

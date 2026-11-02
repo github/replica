@@ -1,6 +1,6 @@
 import type { Prisma } from "../../../generated/prisma/client.ts"
 import { SecurityAuditOutcome } from "../../../generated/prisma/enums.ts"
-import { createSecurityAuditContextWithProviderKey } from "../create-security-audit-context/index.ts"
+import { createSecurityAuditContextWithProviderKey } from "../create-security-audit-context-with-provider-key/index.ts"
 import type { ParsedSecurityAuditEvent } from "../parse-security-audit-event/types.ts"
 
 export function getSecurityAuditData(
