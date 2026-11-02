@@ -308,6 +308,20 @@ describe("authentication proof migration", () => {
           `SELECT key, revision FROM session_revocation_states`,
         )
         expect(revocation.rows).toEqual([{ key: "global", revision: 0 }])
+        await expect(
+          database.query(
+            `INSERT INTO session_revocation_states
+               (id, key, revision, created_at, updated_at)
+             VALUES (gen_random_uuid(), 'extra', 0, clock_timestamp(), clock_timestamp())`,
+          ),
+        ).rejects.toThrow()
+        await expect(
+          database.query(
+            `INSERT INTO session_revocation_states
+               (id, key, revision, created_at, updated_at)
+             VALUES (gen_random_uuid(), 'global', 0, clock_timestamp(), clock_timestamp())`,
+          ),
+        ).rejects.toThrow()
         for (const statement of [
           `DELETE FROM session_revocation_states WHERE key = 'global'`,
           `UPDATE session_revocation_states SET key = 'replacement', revision = 1, updated_at = clock_timestamp() WHERE key = 'global'`,

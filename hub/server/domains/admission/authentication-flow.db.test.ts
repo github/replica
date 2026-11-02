@@ -90,6 +90,19 @@ async function completeAuthentication(
 }
 
 describe("Hub admission and session flow", () => {
+  it("enforces the migrated global revocation singleton on fresh databases", async () => {
+    await expect(
+      prisma.sessionRevocationState.create({
+        data: { id: randomUUID(), key: "extra", revision: 0 },
+      }),
+    ).rejects.toThrow()
+    await expect(
+      prisma.sessionRevocationState.create({
+        data: { id: randomUUID(), key: "global", revision: 0 },
+      }),
+    ).rejects.toThrow()
+  })
+
   it("enrolls an administrator, restores the session, signs out, and signs in again", async () => {
     const server = await openServer([101, 101, 101])
     try {

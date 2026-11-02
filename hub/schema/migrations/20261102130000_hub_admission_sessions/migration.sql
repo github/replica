@@ -41,7 +41,8 @@ CREATE TABLE "session_revocation_states" (
     "created_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "session_revocation_states_pkey" PRIMARY KEY ("id"),
-    CONSTRAINT "session_revocation_states_revision" CHECK ("revision" >= 0)
+    CONSTRAINT "session_revocation_states_revision" CHECK ("revision" >= 0),
+    CONSTRAINT "session_revocation_states_singleton" CHECK ("key" = 'global')
 );
 
 CREATE TABLE "hub_sessions" (
