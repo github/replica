@@ -1,6 +1,6 @@
 # Hub development
 
-Use the Hub devcontainer for Node.js and PostgreSQL, or run Node.js locally with the same database service. GitHub authentication proof primitives can be configured for tests and future composition, but Hub does not expose a complete sign-in route. Production deployment is not configured.
+Use the Hub devcontainer for Node.js and PostgreSQL, or run Node.js locally with the same database service. Hub includes internal GitHub authentication proof primitives but exposes no authentication route. Production deployment is not configured.
 
 ## Devcontainer
 

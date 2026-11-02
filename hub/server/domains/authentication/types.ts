@@ -5,8 +5,8 @@ export interface ImmutableIdentityEvidence {
 }
 
 /**
- * Internal same-request proof reference. It is not request input, a session, or authority.
- * A later consumer rereads both referenced authoritative records before making decisions.
+ * Internal proof reference. It is not request input, a session, or authority.
+ * A trusted consumer rereads both referenced authoritative records before using it.
  */
 export interface AuthenticationProofResult {
   authorizationAttemptId: string
