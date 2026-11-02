@@ -1,92 +1,121 @@
-import { createHash } from "node:crypto"
 import { describe, expect, it, vi } from "vitest"
 
+import type { CompleteAuthenticationProofDependencies } from "./types"
+import type { AuthenticationProofResult } from "../types"
 import { completeAuthenticationProof } from "."
 
+const revision = {
+  id: "00000000-0000-4000-8000-000000000011",
+  revision: 1,
+  configurationDigest: "a".repeat(64),
+}
+
+function dependencies() {
+  const consumeAttempt = vi.fn<CompleteAuthenticationProofDependencies["consumeAttempt"]>(() =>
+    Promise.resolve({
+      providerRevisionId: revision.id,
+      codeVerifierCiphertext: "encrypted-verifier",
+    }),
+  )
+  return {
+    adapter: {
+      providerKey: "github",
+      createAuthorizationUrl: vi.fn(),
+      completeAuthenticationProof: vi.fn(() =>
+        Promise.resolve({
+          provider: "github",
+          issuer: "https://github.com",
+          subject: "123",
+          attributes: {
+            login: "octocat",
+            name: null,
+            avatarUrl: null,
+            email: null,
+          },
+        }),
+      ),
+    },
+    callbackUri: "https://hub.example.test/api/auth/github/callback",
+    consumeAttempt,
+    decryptCodeVerifier: vi.fn(() => "pkce-verifier"),
+    localConfigurationDigest: revision.configurationDigest,
+    localRevision: revision.revision,
+    getSelectedProviderRevision: vi.fn(() => Promise.resolve(revision)),
+    getRevocationGeneration: vi.fn(() => Promise.resolve(7n)),
+    resolveOrCreateIdentity: vi.fn(() =>
+      Promise.resolve({
+        externalIdentityId: "00000000-0000-4000-8000-000000000012",
+        userId: "00000000-0000-4000-8000-000000000013",
+      }),
+    ),
+    writeDenialAudit: vi.fn(() => Promise.resolve()),
+  }
+}
+
 describe("completeAuthenticationProof()", () => {
-  it("consumes the attempt before provider work and returns only a pending handoff", async () => {
-    const order: string[] = []
-    const createHandoff = vi.fn(() => {
-      order.push("handoff")
-      return Promise.resolve({
-        status: "created" as const,
-        createdAt: new Date("2026-10-30T16:00:00Z"),
-        expiresAt: new Date("2026-10-30T16:05:00Z"),
-      })
-    })
+  it("returns bounded in-memory proof for same-request admission composition", async () => {
     const result = await completeAuthenticationProof(
       {
         browserBinding: "browser-binding-value-with-required-length",
         code: "authorization-code",
         state: "state-value-with-the-required-minimum-length",
       },
-      {
-        adapter: {
-          providerKey: "github",
-          createAuthorizationUrl: vi.fn(),
-          completeAuthenticationProof: (input) => {
-            order.push("provider")
-            expect(input.codeVerifier).toBe("pkce-verifier")
-            return Promise.resolve({
-              provider: "github",
-              issuer: "https://github.com",
-              subject: "123",
-              attributes: {
-                login: "octocat",
-                name: null,
-                avatarUrl: null,
-                email: null,
-              },
-            })
-          },
-        },
-        callbackUri: "https://hub.test/callback",
-        consumeAttempt: () => {
-          order.push("consume")
-          return Promise.resolve({
-            providerRevisionId: "00000000-0000-4000-8000-000000000011",
-            codeVerifierCiphertext: "encrypted-verifier",
-          })
-        },
-        createHandoff,
-        createOpaqueValue: () => "handoff-secret",
-        decryptCodeVerifier: () => "pkce-verifier",
-        getSelectedProviderRevision: () =>
-          Promise.resolve({
-            id: "00000000-0000-4000-8000-000000000011",
-            revision: 1,
-            configurationDigest: "a".repeat(64),
-          }),
-        getRevocationGeneration: () => Promise.resolve(1n),
-        localConfigurationDigest: "a".repeat(64),
-        localRevision: 1,
-        resolveOrCreateIdentity: () => {
-          order.push("identity")
-          return Promise.resolve({
-            externalIdentityId: "00000000-0000-4000-8000-000000000012",
-            userId: "00000000-0000-4000-8000-000000000013",
-          })
-        },
-        writeDenialAudit: vi.fn(),
-      },
+      dependencies(),
     )
 
-    expect(order).toEqual(["consume", "provider", "identity", "handoff"])
-    expect(result).toMatchObject({
-      status: "authentication_proved",
-      handoffToken: "handoff-secret",
+    expect(result.proof).toEqual<AuthenticationProofResult>({
+      attributes: {
+        login: "octocat",
+        name: null,
+        avatarUrl: null,
+        email: null,
+      },
+      expectedRevocationGeneration: 7n,
+      externalIdentityId: "00000000-0000-4000-8000-000000000012",
+      issuer: "https://github.com",
+      providerKey: "github",
+      providerRevisionId: revision.id,
+      subject: "123",
+      userId: "00000000-0000-4000-8000-000000000013",
     })
-    expect(createHandoff).toHaveBeenCalledWith(
-      expect.objectContaining({
-        tokenDigest: createHash("sha256").update("handoff-secret").digest("hex"),
-      }),
-    )
-    expect(result).not.toHaveProperty("userId")
+    expect(result).not.toHaveProperty("handoffToken")
     expect(result).not.toHaveProperty("session")
   })
 
-  it("does not call the provider for replayed or browser-mismatched attempts", async () => {
-    const completeProvider = vi.fn()
+  it("consumes the browser-bound attempt before provider work", async () => {
+    const order: string[] = []
+    const scoped = dependencies()
+    scoped.consumeAttempt.mockImplementation(() => {
+      order.push("consume")
+      return Promise.resolve({
+        providerRevisionId: revision.id,
+        codeVerifierCiphertext: "encrypted-verifier",
+      })
+    })
+    scoped.adapter.completeAuthenticationProof.mockImplementation(() => {
+      order.push("provider")
+      return Promise.resolve({
+        provider: "github",
+        issuer: "https://github.com",
+        subject: "123",
+        attributes: { login: "octocat", name: null, avatarUrl: null, email: null },
+      })
+    })
+
+    await completeAuthenticationProof(
+      {
+        browserBinding: "browser-binding-value-with-required-length",
+        code: "authorization-code",
+        state: "state-value-with-the-required-minimum-length",
+      },
+      scoped,
+    )
+    expect(order).toEqual(["consume", "provider"])
+  })
+
+  it("fails closed before provider work for replay or configuration drift", async () => {
+    const replay = dependencies()
+    replay.consumeAttempt.mockImplementationOnce(() => Promise.resolve(null))
     await expect(
       completeAuthenticationProof(
         {
@@ -94,38 +123,16 @@ describe("completeAuthenticationProof()", () => {
           code: "authorization-code",
           state: "state-value-with-the-required-minimum-length",
         },
-        {
-          adapter: {
-            providerKey: "github",
-            createAuthorizationUrl: vi.fn(),
-            completeAuthenticationProof: completeProvider,
-          },
-          callbackUri: "https://hub.test/callback",
-          consumeAttempt: () => Promise.resolve(null),
-          createHandoff: vi.fn(),
-          createOpaqueValue: vi.fn(),
-          decryptCodeVerifier: vi.fn(),
-          getSelectedProviderRevision: vi.fn(),
-          getRevocationGeneration: vi.fn(),
-          localConfigurationDigest: "a".repeat(64),
-          localRevision: 1,
-          resolveOrCreateIdentity: vi.fn(),
-          writeDenialAudit: vi.fn(),
-        },
+        replay,
       ),
     ).rejects.toMatchObject({ code: "attempt_invalid" })
-    expect(completeProvider).not.toHaveBeenCalled()
-  })
+    expect(replay.adapter.completeAuthenticationProof).not.toHaveBeenCalled()
 
-  it("keeps a consumed attempt consumed when the bounded provider request fails", async () => {
-    const consumeAttempt = vi.fn(() =>
-      Promise.resolve({
-        providerRevisionId: "00000000-0000-4000-8000-000000000011",
-        codeVerifierCiphertext: "encrypted-verifier",
-      }),
-    )
-    const createHandoff = vi.fn()
-
+    const drift = dependencies()
+    drift.getSelectedProviderRevision.mockResolvedValueOnce({
+      ...revision,
+      configurationDigest: "b".repeat(64),
+    })
     await expect(
       completeAuthenticationProof(
         {
@@ -133,74 +140,33 @@ describe("completeAuthenticationProof()", () => {
           code: "authorization-code",
           state: "state-value-with-the-required-minimum-length",
         },
-        {
-          adapter: {
-            providerKey: "github",
-            createAuthorizationUrl: vi.fn(),
-            completeAuthenticationProof: () =>
-              Promise.reject(new Error("bounded provider failure")),
-          },
-          callbackUri: "https://hub.test/callback",
-          consumeAttempt,
-          createHandoff,
-          createOpaqueValue: vi.fn(),
-          decryptCodeVerifier: () => "pkce-verifier",
-          getSelectedProviderRevision: () =>
-            Promise.resolve({
-              id: "00000000-0000-4000-8000-000000000011",
-              revision: 1,
-              configurationDigest: "a".repeat(64),
-            }),
-          getRevocationGeneration: vi.fn(),
-          localConfigurationDigest: "a".repeat(64),
-          localRevision: 1,
-          resolveOrCreateIdentity: vi.fn(),
-          writeDenialAudit: vi.fn(),
-        },
-      ),
-    ).rejects.toMatchObject({ code: "provider_failed" })
-    expect(consumeAttempt).toHaveBeenCalledOnce()
-    expect(createHandoff).not.toHaveBeenCalled()
-  })
-
-  it("does not use a local adapter whose revision digest differs from the selected revision", async () => {
-    const completeProvider = vi.fn()
-    await expect(
-      completeAuthenticationProof(
-        {
-          browserBinding: "browser-binding-value-with-required-length",
-          code: "authorization-code",
-          state: "state-value-with-the-required-minimum-length",
-        },
-        {
-          adapter: {
-            providerKey: "github",
-            createAuthorizationUrl: vi.fn(),
-            completeAuthenticationProof: completeProvider,
-          },
-          callbackUri: "https://hub.test/callback",
-          consumeAttempt: () =>
-            Promise.resolve({
-              providerRevisionId: "00000000-0000-4000-8000-000000000011",
-              codeVerifierCiphertext: "encrypted-verifier",
-            }),
-          createHandoff: vi.fn(),
-          createOpaqueValue: vi.fn(),
-          decryptCodeVerifier: vi.fn(),
-          getSelectedProviderRevision: () =>
-            Promise.resolve({
-              id: "00000000-0000-4000-8000-000000000011",
-              revision: 2,
-              configurationDigest: "b".repeat(64),
-            }),
-          getRevocationGeneration: vi.fn(),
-          localConfigurationDigest: "a".repeat(64),
-          localRevision: 1,
-          resolveOrCreateIdentity: vi.fn(),
-          writeDenialAudit: vi.fn(),
-        },
+        drift,
       ),
     ).rejects.toMatchObject({ code: "configuration_changed" })
-    expect(completeProvider).not.toHaveBeenCalled()
+    expect(drift.adapter.completeAuthenticationProof).not.toHaveBeenCalled()
+  })
+
+  it("is structurally consumable by a provider-neutral admission domain", async () => {
+    function admit(proof: AuthenticationProofResult) {
+      return {
+        identity: proof.externalIdentityId,
+        providerRevision: proof.providerRevisionId,
+        revocationGeneration: proof.expectedRevocationGeneration,
+      }
+    }
+    const result = await completeAuthenticationProof(
+      {
+        browserBinding: "browser-binding-value-with-required-length",
+        code: "authorization-code",
+        state: "state-value-with-the-required-minimum-length",
+      },
+      dependencies(),
+    )
+
+    expect(admit(result.proof)).toEqual({
+      identity: "00000000-0000-4000-8000-000000000012",
+      providerRevision: revision.id,
+      revocationGeneration: 7n,
+    })
   })
 })
