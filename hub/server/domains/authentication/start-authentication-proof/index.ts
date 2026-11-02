@@ -44,7 +44,6 @@ export async function startAuthenticationProof(
     providerRevisionId: selectedRevision.id,
     stateDigest: hashAuthenticationValue(state),
     browserBindingDigest: hashAuthenticationValue(browserBinding),
-    codeChallenge,
     codeVerifierCiphertext: dependencies.encryptCodeVerifier(codeVerifier),
     lifetimeSeconds: ATTEMPT_LIFETIME_MS / 1_000,
   })

@@ -1,6 +1,6 @@
 # Authentication proof
 
-Hub has internal GitHub authentication proof primitives for a future complete sign-in callback. This layer does not register public start or callback routes and does not issue a session, membership, admission decision, or product authority.
+Hub has internal GitHub authentication proof primitives. No public authentication flow is registered.
 
 ## Proof flow
 
@@ -12,12 +12,10 @@ Completion returns a minimal provider-neutral proof value in memory containing o
 
 A later same-request consumer must reread the referenced authoritative records before deciding anything.
 
-If admission or session issuance fails, the user must restart sign-in in this version. Hub does not persist a bearer proof, pending enrollment, handoff token, or half-signed-in browser state. A future asynchronous approval flow would need its own domain-specific pending-enrollment contract.
-
 ## Safety boundaries
 
 GitHub configuration is explicit and revisioned. Only the public github.com authorization, token, and user endpoints are accepted. Provider requests have fixed deadlines, reject redirects, and discard access tokens after the user lookup.
 
 ## Not implemented
 
-This layer does not expose a complete sign-in route, set a usable session cookie, evaluate installation membership, invitations, bootstrap or recovery state, roles, repository permissions, or product authorization. Entra OIDC, account linking, synchronized access, SCIM, publishing, and migration from old Hub instances are also not implemented.
+This layer does not expose a sign-in route or create product authority.

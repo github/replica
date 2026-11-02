@@ -9,7 +9,6 @@ model AuthorizationAttempt {
   // Attribute columns
   stateDigest            String    @unique @map("state_digest") @db.VarChar(64)
   browserBindingDigest   String    @map("browser_binding_digest") @db.VarChar(64)
-  codeChallenge          String    @map("code_challenge") @db.VarChar(43)
   codeVerifierCiphertext String    @map("code_verifier_ciphertext") @db.VarChar(500)
   expiresAt              DateTime  @map("expires_at") @db.Timestamptz(3)
   consumedAt             DateTime? @map("consumed_at") @db.Timestamptz(3)

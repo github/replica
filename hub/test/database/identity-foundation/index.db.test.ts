@@ -82,7 +82,6 @@ describe("identity foundation migration", () => {
       providerRevisionId: revisionId,
       stateDigest: "a".repeat(64),
       browserBindingDigest: "b".repeat(64),
-      codeChallenge: "c".repeat(43),
       codeVerifierCiphertext: "encrypted",
       expiresAt: new Date(createdAt.getTime() + 60_000),
     }

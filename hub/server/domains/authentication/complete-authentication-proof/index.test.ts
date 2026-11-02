@@ -48,7 +48,7 @@ function dependencies() {
 }
 
 describe("completeAuthenticationProof()", () => {
-  it("returns bounded in-memory proof for same-request admission composition", async () => {
+  it("returns only the bounded internal proof references", async () => {
     const result = await completeAuthenticationProof(
       {
         browserBinding: "browser-binding-value-with-required-length",
@@ -62,8 +62,10 @@ describe("completeAuthenticationProof()", () => {
       authorizationAttemptId: "00000000-0000-4000-8000-000000000010",
       externalIdentityId: "00000000-0000-4000-8000-000000000012",
     })
-    expect(result).not.toHaveProperty("handoffToken")
-    expect(result).not.toHaveProperty("session")
+    expect(Object.keys(result.proof).sort()).toEqual([
+      "authorizationAttemptId",
+      "externalIdentityId",
+    ])
   })
 
   it("consumes the browser-bound attempt before provider work", async () => {
@@ -130,8 +132,8 @@ describe("completeAuthenticationProof()", () => {
     expect(drift.adapter.completeAuthenticationProof).not.toHaveBeenCalled()
   })
 
-  it("is structurally consumable by a provider-neutral admission domain", async () => {
-    function admit(proof: AuthenticationProofResult) {
+  it("supports authoritative record loading through the two proof references", async () => {
+    function loadRecords(proof: AuthenticationProofResult) {
       return {
         identity: proof.externalIdentityId,
         attempt: proof.authorizationAttemptId,
@@ -146,7 +148,7 @@ describe("completeAuthenticationProof()", () => {
       dependencies(),
     )
 
-    expect(admit(result.proof)).toEqual({
+    expect(loadRecords(result.proof)).toEqual({
       identity: "00000000-0000-4000-8000-000000000012",
       attempt: "00000000-0000-4000-8000-000000000010",
     })

@@ -31,7 +31,6 @@ describe("authentication proof database boundaries", () => {
       providerRevisionId,
       stateDigest: "a".repeat(64),
       browserBindingDigest: "b".repeat(64),
-      codeChallenge: "c".repeat(43),
       codeVerifierCiphertext: "encrypted-verifier",
       lifetimeSeconds: 600,
     }
@@ -58,15 +57,19 @@ describe("authentication proof database boundaries", () => {
     ).resolves.toBeNull()
   })
 
-  it("returns no durable proof transfer, session, or membership tables", async () => {
+  it("adds only the authorization-attempt proof table", async () => {
     const tables = await prisma.$queryRaw<Array<{ table_name: string }>>`
       SELECT table_name
       FROM information_schema.tables
       WHERE table_schema = 'public'
-        AND (
-          table_name LIKE '%handoff%'
-          OR table_name LIKE '%session%'
-          OR table_name LIKE '%membership%'
+        AND table_name NOT IN (
+          '_prisma_migrations',
+          'authentication_provider_revisions',
+          'authentication_providers',
+          'authorization_attempts',
+          'external_identities',
+          'security_audits',
+          'users'
         )
     `
     expect(tables).toEqual([])

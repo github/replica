@@ -46,7 +46,6 @@ describe("startAuthenticationProof()", () => {
       providerRevisionId: "00000000-0000-4000-8000-000000000011",
       stateDigest: createHash("sha256").update("state-secret").digest("hex"),
       browserBindingDigest: createHash("sha256").update("browser-secret").digest("hex"),
-      codeChallenge: createHash("sha256").update("verifier-secret").digest("base64url"),
       codeVerifierCiphertext: "encrypted:15",
       lifetimeSeconds: 600,
     })

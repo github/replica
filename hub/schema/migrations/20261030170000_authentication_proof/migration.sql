@@ -3,7 +3,6 @@ CREATE TABLE "authorization_attempts" (
     "provider_revision_id" UUID NOT NULL,
     "state_digest" VARCHAR(64) NOT NULL,
     "browser_binding_digest" VARCHAR(64) NOT NULL,
-    "code_challenge" VARCHAR(43) NOT NULL,
     "code_verifier_ciphertext" VARCHAR(500) NOT NULL,
     "expires_at" TIMESTAMPTZ(3) NOT NULL,
     "consumed_at" TIMESTAMPTZ(3),
@@ -14,9 +13,6 @@ CREATE TABLE "authorization_attempts" (
     CONSTRAINT "authorization_attempts_digests" CHECK (
         "state_digest" ~ '^[0-9a-f]{64}$'
         AND "browser_binding_digest" ~ '^[0-9a-f]{64}$'
-    ),
-    CONSTRAINT "authorization_attempts_code_challenge" CHECK (
-        "code_challenge" ~ '^[A-Za-z0-9_-]{43}$'
     ),
     CONSTRAINT "authorization_attempts_expiry" CHECK ("expires_at" > "created_at"),
     CONSTRAINT "authorization_attempts_consumption" CHECK (
@@ -48,7 +44,6 @@ BEGIN
        OR NEW."provider_revision_id" <> OLD."provider_revision_id"
        OR NEW."state_digest" <> OLD."state_digest"
        OR NEW."browser_binding_digest" <> OLD."browser_binding_digest"
-       OR NEW."code_challenge" <> OLD."code_challenge"
        OR NEW."code_verifier_ciphertext" <> OLD."code_verifier_ciphertext"
        OR NEW."expires_at" <> OLD."expires_at"
        OR NEW."created_at" <> OLD."created_at"

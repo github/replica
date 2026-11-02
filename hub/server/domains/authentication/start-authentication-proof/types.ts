@@ -13,7 +13,6 @@ export interface StartAuthenticationProofDependencies {
   expectedRevision: number
   createAttempt(input: {
     browserBindingDigest: string
-    codeChallenge: string
     codeVerifierCiphertext: string
     id: string
     lifetimeSeconds: number
@@ -25,7 +24,7 @@ export interface StartAuthenticationProofDependencies {
   deleteExpiredArtifacts(): Promise<void>
   encryptCodeVerifier(value: string): string
   getSelectedProviderRevision(): Promise<SelectedProviderRevision | null>
-  writeDenialAudit(reason: "configuration_changed" | "rate_limited"): Promise<unknown>
+  writeDenialAudit(reason: "configuration_changed"): Promise<unknown>
 }
 
 export type StartAuthenticationProofInput = Record<string, never>

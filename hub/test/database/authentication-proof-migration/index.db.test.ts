@@ -77,7 +77,6 @@ describe("authentication proof migration", () => {
           "provider_revision_id",
           "state_digest",
           "browser_binding_digest",
-          "code_challenge",
           "code_verifier_ciphertext",
           "expires_at",
           "consumed_at",
@@ -109,17 +108,17 @@ describe("authentication proof migration", () => {
           database.query(
             `INSERT INTO authorization_attempts
                (id, provider_revision_id, state_digest, browser_binding_digest,
-                code_challenge, code_verifier_ciphertext, expires_at)
-             VALUES ($1, $2, 'bad', $3, $4, 'encrypted', CURRENT_TIMESTAMP + interval '1 minute')`,
-            [attemptId, revisionId, "b".repeat(64), "c".repeat(43)],
+                code_verifier_ciphertext, expires_at)
+             VALUES ($1, $2, 'bad', $3, 'encrypted', CURRENT_TIMESTAMP + interval '1 minute')`,
+            [attemptId, revisionId, "b".repeat(64)],
           ),
         ).rejects.toThrow()
         await database.query(
           `INSERT INTO authorization_attempts
              (id, provider_revision_id, state_digest, browser_binding_digest,
-              code_challenge, code_verifier_ciphertext, expires_at)
-           VALUES ($1, $2, $3, $4, $5, 'encrypted', CURRENT_TIMESTAMP + interval '1 minute')`,
-          [attemptId, revisionId, "a".repeat(64), "b".repeat(64), "c".repeat(43)],
+              code_verifier_ciphertext, expires_at)
+           VALUES ($1, $2, $3, $4, 'encrypted', CURRENT_TIMESTAMP + interval '1 minute')`,
+          [attemptId, revisionId, "a".repeat(64), "b".repeat(64)],
         )
         await expect(
           database.query(`DELETE FROM authorization_attempts WHERE id = $1`, [attemptId]),

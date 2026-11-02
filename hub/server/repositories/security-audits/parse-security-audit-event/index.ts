@@ -9,12 +9,7 @@ const eventSchema = z.discriminatedUnion("type", [
       id: z.uuid(),
       type: z.literal("authentication_attempt_denied"),
       provider: z.unknown(),
-      reason: z.enum([
-        "configuration_changed",
-        "invalid_or_expired",
-        "provider_failed",
-        "rate_limited",
-      ]),
+      reason: z.enum(["configuration_changed", "invalid_or_expired", "provider_failed"]),
     })
     .strict(),
   z

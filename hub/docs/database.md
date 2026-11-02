@@ -1,6 +1,6 @@
 # Hub database
 
-Hub uses PostgreSQL and Prisma. The schema contains the provider-neutral identity transaction foundation and one-use authorization attempts. Authentication provider revisions store a validated-configuration digest, not provider configuration, and every committed provider must select one of its own revisions. Hub rate limits, revocation state, sessions, memberships, invitations, durable proof transfers, source integrations, and product records are not part of this foundation.
+Hub uses PostgreSQL and Prisma. The schema contains the provider-neutral identity transaction foundation and one-use authorization attempts. Authentication provider revisions store a validated-configuration digest, not provider configuration, and every committed provider must select one of its own revisions. The proof foundation adds no other product records.
 
 An external identity's provider, issuer, and subject share a 2,000-byte UTF-8 limit, including two separator bytes. Runtime parsing and the committed database constraint enforce the same conservative bound so the composite unique index remains below PostgreSQL's B-tree item limit.
 

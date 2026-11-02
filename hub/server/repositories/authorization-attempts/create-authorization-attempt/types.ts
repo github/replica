@@ -4,7 +4,6 @@ export type CreateAuthorizationAttemptDatabase = Pick<Prisma.TransactionClient, 
 
 export interface CreateAuthorizationAttemptInput {
   browserBindingDigest: string
-  codeChallenge: string
   codeVerifierCiphertext: string
   id: string
   lifetimeSeconds: number

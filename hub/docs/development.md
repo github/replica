@@ -36,9 +36,9 @@ In a second terminal, also from `hub/`, start Vite:
 npm run dev
 ```
 
-Open <http://127.0.0.1:5173>. Vite serves the frontend and forwards `/api` requests to Express at <http://127.0.0.1:3001>. `GET /api/health` returns JSON. The internal proof primitives described in [Authentication proof](authentication.md) are composed only by tests and future complete callback orchestration.
+Open <http://127.0.0.1:5173>. Vite serves the frontend and forwards `/api` requests to Express at <http://127.0.0.1:3001>. `GET /api/health` returns JSON. The internal proof primitives described in [Authentication proof](authentication.md) are not registered as routes.
 
-Future callback/session work will add its own runtime configuration. The current API has no public sign-in route or authentication environment settings. Both servers accept connections only from this machine. Stop each with Ctrl+C.
+The current API has no public authentication route or authentication environment settings. Both servers accept connections only from this machine. Stop each with Ctrl+C.
 
 Vite also forwards WebSocket upgrades under `/api`. The `/api/realtime` endpoint rejects connections until application access checks are connected; see [WebSocket updates](websockets.md). Stopping the API closes its WebSocket connections as well.
 
