@@ -49,8 +49,10 @@ describe("admission success audit rollback", () => {
           stateDigest: "b".repeat(64),
           browserBindingDigest: "c".repeat(64),
           codeVerifierCiphertext: "encrypted",
-          expiresAt: new Date(Date.now() + 60_000),
-          consumedAt: new Date(),
+          createdAt: new Date("2020-01-01T00:00:00Z"),
+          updatedAt: new Date("2020-01-01T00:00:00Z"),
+          expiresAt: new Date("2030-01-01T00:00:00Z"),
+          consumedAt: new Date("2020-01-01T00:01:00Z"),
         },
       })
     })
