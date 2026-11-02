@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto"
 import { describe, expect, it } from "vitest"
 
 import { prisma } from "../../../server/integrations/prisma"
+import { deleteExpiredAuthorizationAttempts } from "../../../server/repositories/authorization-attempts/delete-expired-authorization-attempts"
 import { createExternalIdentity } from "../../../server/repositories/external-identities/create-external-identity"
 import { createUser } from "../../../server/repositories/users/create-user"
 
@@ -133,6 +134,57 @@ describe("identity foundation migration", () => {
         data: { stateDigest: "f".repeat(64) },
       }),
     ).rejects.toThrow("first consumption")
+  })
+
+  it("uses the transaction timestamp when deleting expired authorization attempts", async () => {
+    const { revisionId } = await createProviderAggregate("github")
+    const attemptId = randomUUID()
+
+    await expect(
+      prisma.$transaction(async (transaction) => {
+        const cutoffRows = await transaction.$queryRaw<Array<{ cutoff: Date }>>`
+          SELECT CURRENT_TIMESTAMP AS cutoff
+        `
+        const cutoff = cutoffRows[0]?.cutoff
+        if (!cutoff) throw new Error("Expected a transaction timestamp.")
+        const createdAt = new Date(cutoff.getTime() - 1_000)
+        const expiresAt = new Date(cutoff.getTime() + 1)
+
+        await prisma.authorizationAttempt.create({
+          data: {
+            id: attemptId,
+            providerRevisionId: revisionId,
+            stateDigest: "c".repeat(64),
+            browserBindingDigest: "d".repeat(64),
+            codeVerifierCiphertext: "encrypted",
+            expiresAt,
+            createdAt,
+            updatedAt: createdAt,
+          },
+        })
+        const wallClockRows = await transaction.$queryRaw<
+          Array<{ pastWallClockDeadline: boolean }>
+        >`
+          SELECT clock_timestamp() > ${expiresAt} AS "pastWallClockDeadline"
+        `
+        const pastWallClockDeadline = wallClockRows[0]?.pastWallClockDeadline
+        if (pastWallClockDeadline === undefined) {
+          throw new Error("Expected a wall-clock deadline comparison.")
+        }
+        expect(pastWallClockDeadline).toBe(true)
+
+        await deleteExpiredAuthorizationAttempts(transaction)
+
+        await expect(
+          transaction.authorizationAttempt.findUnique({ where: { id: attemptId } }),
+        ).resolves.toMatchObject({ id: attemptId })
+      }),
+    ).resolves.toBeUndefined()
+
+    await deleteExpiredAuthorizationAttempts(prisma)
+    await expect(
+      prisma.authorizationAttempt.findUnique({ where: { id: attemptId } }),
+    ).resolves.toBeNull()
   })
 
   it("keeps the identity tuple unique and rejects every identity history change", async () => {

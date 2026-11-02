@@ -5,6 +5,6 @@ export async function deleteExpiredAuthorizationAttempts(
 ): Promise<void> {
   await database.$executeRaw`
     DELETE FROM "authorization_attempts"
-    WHERE "expires_at" <= clock_timestamp()
+    WHERE "expires_at" <= CURRENT_TIMESTAMP
   `
 }

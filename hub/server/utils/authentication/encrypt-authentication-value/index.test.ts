@@ -15,7 +15,15 @@ describe("encryptAuthenticationValue()", () => {
   it("rejects tampering, wrong keys, malformed versions, and invalid bounds", () => {
     const key = Buffer.alloc(32, 1)
     const encrypted = encryptAuthenticationValue("secret-value", key)
-    const tampered = `${encrypted.slice(0, -1)}A`
+    const segments = encrypted.split(".")
+    const encodedCiphertext = segments[3]
+    if (!encodedCiphertext) throw new Error("Expected a versioned ciphertext.")
+    const ciphertext = Buffer.from(encodedCiphertext, "base64url")
+    const firstByte = ciphertext.at(0)
+    if (firstByte === undefined) throw new Error("Expected ciphertext bytes.")
+    ciphertext[0] = firstByte ^ 1
+    segments[3] = ciphertext.toString("base64url")
+    const tampered = segments.join(".")
 
     expect(() => decryptAuthenticationValue(tampered, key)).toThrow()
     expect(() => decryptAuthenticationValue(encrypted, Buffer.alloc(32, 2))).toThrow()
