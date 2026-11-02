@@ -22,7 +22,14 @@ export async function checkAuthenticationRateLimit(
   const input = inputSchema.parse(rawInput)
   await database.$executeRaw`
     DELETE FROM "authentication_rate_limits"
-    WHERE "expires_at" <= clock_timestamp()
+    WHERE "id" IN (
+      SELECT "id"
+      FROM "authentication_rate_limits"
+      WHERE "expires_at" <= clock_timestamp()
+      ORDER BY "expires_at", "id"
+      LIMIT 100
+      FOR UPDATE SKIP LOCKED
+    )
   `
   const rows = await database.$queryRaw<Array<{ count: number }>>`
     INSERT INTO "authentication_rate_limits" (

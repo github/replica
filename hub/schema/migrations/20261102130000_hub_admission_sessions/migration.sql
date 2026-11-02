@@ -1,7 +1,7 @@
 CREATE TYPE "AuthorizationAttemptPurpose" AS ENUM ('SIGN_IN', 'ADMIN_ENROLLMENT');
 CREATE TYPE "MembershipLifecycle" AS ENUM ('ACTIVE', 'SUSPENDED', 'REMOVED');
-CREATE TYPE "MembershipRole" AS ENUM ('ADMINISTRATOR', 'MEMBER');
-CREATE TYPE "MembershipAssignmentSource" AS ENUM ('BOOTSTRAP', 'PROVIDER');
+CREATE TYPE "MembershipRole" AS ENUM ('ADMINISTRATOR');
+CREATE TYPE "MembershipAssignmentSource" AS ENUM ('BOOTSTRAP');
 CREATE TYPE "MembershipAssignmentLifecycle" AS ENUM ('ACTIVE', 'REVOKED');
 
 ALTER TABLE "authorization_attempts"
@@ -22,18 +22,15 @@ CREATE TABLE "memberships" (
 CREATE TABLE "membership_assignments" (
     "id" UUID NOT NULL,
     "membership_id" UUID NOT NULL,
-    "external_identity_id" UUID,
-    "provider_id" UUID,
+    "external_identity_id" UUID NOT NULL,
     "source" "MembershipAssignmentSource" NOT NULL,
     "role" "MembershipRole" NOT NULL,
     "lifecycle" "MembershipAssignmentLifecycle" NOT NULL DEFAULT 'ACTIVE',
     "created_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "membership_assignments_pkey" PRIMARY KEY ("id"),
-    CONSTRAINT "membership_assignments_owner" CHECK (
-        ("source" = 'BOOTSTRAP' AND "external_identity_id" IS NOT NULL AND "provider_id" IS NULL)
-        OR
-        ("source" = 'PROVIDER' AND "external_identity_id" IS NULL AND "provider_id" IS NOT NULL)
+    CONSTRAINT "membership_assignments_bootstrap_administrator" CHECK (
+        "source" = 'BOOTSTRAP' AND "role" = 'ADMINISTRATOR'
     )
 );
 
@@ -83,10 +80,8 @@ CREATE UNIQUE INDEX "memberships_user_id_key" ON "memberships"("user_id");
 CREATE INDEX "memberships_lifecycle_idx" ON "memberships"("lifecycle");
 CREATE UNIQUE INDEX "membership_assignments_membership_id_source_role_key"
 ON "membership_assignments"("membership_id", "source", "role");
-CREATE INDEX "membership_assignments_external_identity_id_idx"
+CREATE UNIQUE INDEX "membership_assignments_external_identity_id_key"
 ON "membership_assignments"("external_identity_id");
-CREATE INDEX "membership_assignments_provider_id_idx"
-ON "membership_assignments"("provider_id");
 CREATE UNIQUE INDEX "session_revocation_states_key_key"
 ON "session_revocation_states"("key");
 CREATE UNIQUE INDEX "hub_sessions_digest_key" ON "hub_sessions"("digest");
@@ -111,11 +106,6 @@ ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE "membership_assignments"
 ADD CONSTRAINT "membership_assignments_external_identity_id_fkey"
 FOREIGN KEY ("external_identity_id") REFERENCES "external_identities"("id")
-ON DELETE RESTRICT ON UPDATE CASCADE;
-
-ALTER TABLE "membership_assignments"
-ADD CONSTRAINT "membership_assignments_provider_id_fkey"
-FOREIGN KEY ("provider_id") REFERENCES "authentication_providers"("id")
 ON DELETE RESTRICT ON UPDATE CASCADE;
 
 ALTER TABLE "hub_sessions"
@@ -149,6 +139,51 @@ $$;
 CREATE TRIGGER "authorization_attempts_purpose_protected"
 BEFORE UPDATE ON "authorization_attempts"
 FOR EACH ROW EXECUTE FUNCTION protect_authorization_attempt_purpose();
+
+CREATE FUNCTION protect_membership_assignment()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    membership_user_id UUID;
+    identity_user_id UUID;
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        RAISE EXCEPTION 'Membership assignment history cannot be deleted.';
+    END IF;
+
+    IF TG_OP = 'INSERT' THEN
+        SELECT "user_id" INTO membership_user_id
+        FROM "memberships"
+        WHERE "id" = NEW."membership_id";
+
+        SELECT "user_id" INTO identity_user_id
+        FROM "external_identities"
+        WHERE "id" = NEW."external_identity_id";
+
+        IF membership_user_id IS NULL
+           OR identity_user_id IS NULL
+           OR membership_user_id <> identity_user_id THEN
+            RAISE EXCEPTION 'Membership assignment owner must belong to the membership user.';
+        END IF;
+        RETURN NEW;
+    END IF;
+
+    IF NEW."id" <> OLD."id"
+       OR NEW."membership_id" <> OLD."membership_id"
+       OR NEW."external_identity_id" <> OLD."external_identity_id"
+       OR NEW."source" <> OLD."source"
+       OR NEW."role" <> OLD."role"
+       OR NEW."created_at" <> OLD."created_at" THEN
+        RAISE EXCEPTION 'Membership assignment identity and authority are immutable.';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER "membership_assignments_protected"
+BEFORE INSERT OR UPDATE OR DELETE ON "membership_assignments"
+FOR EACH ROW EXECUTE FUNCTION protect_membership_assignment();
 
 CREATE FUNCTION protect_hub_session()
 RETURNS trigger

@@ -22,6 +22,7 @@ import { validateAndPersistProviderRevision } from "../../identity/validate-and-
 import { admitAuthenticationProof } from "../admit-authentication-proof/index.ts"
 import { endHubSession } from "../end-hub-session/index.ts"
 import { restoreHubSession } from "../restore-hub-session/index.ts"
+import { runAdmissionTransaction } from "../run-admission-transaction/index.ts"
 import { verifyBootstrapSecret } from "../verify-bootstrap-secret/index.ts"
 
 import type { AuthenticationRouteRuntime } from "../../../routes/api/authentication/types.ts"
@@ -158,7 +159,11 @@ export function createGitHubAuthenticationRuntime(
           providerKey: adapter.providerKey,
           sessionLifetimeSeconds: 12 * 60 * 60,
         },
-        { createId: randomUUID, database: prisma },
+        {
+          createId: randomUUID,
+          runTransaction: (operation) => runAdmissionTransaction(prisma, operation),
+          writeAudit: (event) => createSecurityAudit(prisma, event),
+        },
       )
     },
     restore(sessionDigest) {

@@ -1,5 +1,6 @@
-import type { Prisma, PrismaClient } from "../../../generated/prisma/client.ts"
+import type { CreateSecurityAuditEvent } from "../../../repositories/security-audits/create-security-audit/types.ts"
 import type { AuthenticationProofResult } from "../../authentication/types.ts"
+import type { AdmissionTransaction } from "../run-admission-transaction/types.ts"
 
 export interface AdmitAuthenticationProofInput {
   proof: AuthenticationProofResult
@@ -11,15 +12,14 @@ export interface AdmitAuthenticationProofInput {
 
 export interface AdmitAuthenticationProofDependencies {
   createId(): string
-  database: Pick<PrismaClient, "$transaction" | "securityAudit">
+  runTransaction: AdmissionTransaction
+  writeAudit(input: CreateSecurityAuditEvent): Promise<unknown>
 }
 
 export interface AdmittedHubSession {
   expiresAt: Date
   membershipId: string
-  role: "administrator" | "member"
+  role: "administrator"
   sessionId: string
   userId: string
 }
-
-export type AdmissionTransaction = Prisma.TransactionClient

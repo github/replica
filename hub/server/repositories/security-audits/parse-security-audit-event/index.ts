@@ -53,14 +53,6 @@ const eventSchema = z.discriminatedUnion("type", [
   z
     .object({
       id: z.uuid(),
-      type: z.literal("session_restored"),
-      sessionId: z.uuid(),
-      membershipId: z.uuid(),
-    })
-    .strict(),
-  z
-    .object({
-      id: z.uuid(),
       type: z.literal("session_ended"),
       sessionId: z.uuid(),
       membershipId: z.uuid(),
@@ -79,6 +71,14 @@ const eventSchema = z.discriminatedUnion("type", [
         "membership_missing",
         "provider_revoked",
       ]),
+    })
+    .strict(),
+  z
+    .object({
+      id: z.uuid(),
+      type: z.literal("admission_failed"),
+      externalIdentityId: z.uuid(),
+      reason: z.enum(["retry_exhausted", "transaction_error"]),
     })
     .strict(),
   z

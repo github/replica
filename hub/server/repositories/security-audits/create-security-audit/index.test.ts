@@ -74,12 +74,6 @@ describe("createSecurityAudit()", () => {
     })
     await createSecurityAudit(database, {
       id,
-      type: "session_restored",
-      sessionId: "85956fe6-022e-4092-a2ee-8435f612844f",
-      membershipId: "8a2479e7-3ca4-46f8-9749-c35d8e4eb09e",
-    })
-    await createSecurityAudit(database, {
-      id,
       type: "session_ended",
       sessionId: "85956fe6-022e-4092-a2ee-8435f612844f",
       membershipId: "8a2479e7-3ca4-46f8-9749-c35d8e4eb09e",
@@ -165,12 +159,6 @@ describe("createSecurityAudit()", () => {
       }),
       expect.objectContaining({
         action: "session.created",
-        outcome: "SUCCESS",
-        targetType: "hub_session",
-        context: { membershipId: "8a2479e7-3ca4-46f8-9749-c35d8e4eb09e" },
-      }),
-      expect.objectContaining({
-        action: "session.restored",
         outcome: "SUCCESS",
         targetType: "hub_session",
         context: { membershipId: "8a2479e7-3ca4-46f8-9749-c35d8e4eb09e" },

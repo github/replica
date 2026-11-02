@@ -29,16 +29,10 @@ export function getSecurityAuditData(
         context: { source: event.source, role: event.role },
       }
     case "session_created":
-    case "session_restored":
     case "session_ended":
       return {
         id: event.id,
-        action:
-          event.type === "session_created"
-            ? "session.created"
-            : event.type === "session_restored"
-              ? "session.restored"
-              : "session.ended",
+        action: event.type === "session_created" ? "session.created" : "session.ended",
         outcome: SecurityAuditOutcome.SUCCESS,
         targetType: "hub_session",
         targetId: event.sessionId,
@@ -49,6 +43,15 @@ export function getSecurityAuditData(
         id: event.id,
         action: "admission.denied",
         outcome: SecurityAuditOutcome.DENIED,
+        targetType: "external_identity",
+        targetId: event.externalIdentityId,
+        context: { reason: event.reason },
+      }
+    case "admission_failed":
+      return {
+        id: event.id,
+        action: "admission.failed",
+        outcome: SecurityAuditOutcome.FAILURE,
         targetType: "external_identity",
         targetId: event.externalIdentityId,
         context: { reason: event.reason },

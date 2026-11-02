@@ -127,6 +127,16 @@ describe("Hub admission and session flow", () => {
         authenticated: true,
         role: "administrator",
       })
+      const auditCountBeforeRestores = await prisma.securityAudit.count()
+      const repeatedRestores = await Promise.all(
+        Array.from({ length: 20 }, () =>
+          fetch(`${server.baseUrl}/api/auth/session`, {
+            headers: { cookie: `hub_session=${encodeURIComponent(firstSession!)}` },
+          }),
+        ),
+      )
+      expect(repeatedRestores.every((response) => response.status === 200)).toBe(true)
+      expect(await prisma.securityAudit.count()).toBe(auditCountBeforeRestores)
 
       const signedOut = await fetch(`${server.baseUrl}/api/auth/session/sign-out`, {
         method: "POST",
@@ -138,6 +148,16 @@ describe("Hub admission and session flow", () => {
       expect(signedOut.status).toBe(204)
       const endedSession = await prisma.hubSession.findFirst({ select: { endedAt: true } })
       expect(endedSession?.endedAt).toBeInstanceOf(Date)
+      const auditCountAfterSignOut = await prisma.securityAudit.count()
+      const replayedSignOut = await fetch(`${server.baseUrl}/api/auth/session/sign-out`, {
+        method: "POST",
+        headers: {
+          cookie: `hub_session=${encodeURIComponent(firstSession!)}`,
+          origin: applicationOrigin,
+        },
+      })
+      expect(replayedSignOut.status).toBe(204)
+      expect(await prisma.securityAudit.count()).toBe(auditCountAfterSignOut)
 
       const signIn = await startAuthentication(server.baseUrl, "/api/auth/github/start")
       const signedIn = await completeAuthentication(server.baseUrl, signIn)
@@ -167,6 +187,7 @@ describe("Hub admission and session flow", () => {
         where: { subject: "201" },
         include: { user: { include: { membership: true } } },
       })
+
       await prisma.membership.update({
         where: { id: firstIdentity.user.membership!.id },
         data: { lifecycle: "REMOVED" },
@@ -191,6 +212,54 @@ describe("Hub admission and session flow", () => {
         lifecycle: "ACTIVE",
         assignments: [{ lifecycle: "ACTIVE" }],
       })
+    } finally {
+      await server.close()
+    }
+  })
+
+  it("converges concurrent bootstrap callbacks for the same and different identities", async () => {
+    const secret = "bootstrap-secret-that-is-at-least-32-characters"
+    const server = await openServer([401, 401, 402, 403])
+    try {
+      const sameIdentityAttempts = await Promise.all(
+        Array.from({ length: 2 }, () =>
+          startAuthentication(
+            server.baseUrl,
+            "/api/auth/github/admin-enrollment/start",
+            new URLSearchParams({ bootstrap_secret: secret }),
+          ),
+        ),
+      )
+      const sameIdentityCallbacks = await Promise.all(
+        sameIdentityAttempts.map((attempt) => completeAuthentication(server.baseUrl, attempt)),
+      )
+      expect(sameIdentityCallbacks.map((response) => response.headers.get("location"))).toEqual([
+        "/?authentication=success",
+        "/?authentication=success",
+      ])
+      expect(await prisma.membership.count()).toBe(1)
+      expect(await prisma.membershipAssignment.count()).toBe(1)
+      expect(await prisma.hubSession.count()).toBe(2)
+
+      const differentIdentityAttempts = await Promise.all(
+        Array.from({ length: 2 }, () =>
+          startAuthentication(
+            server.baseUrl,
+            "/api/auth/github/admin-enrollment/start",
+            new URLSearchParams({ bootstrap_secret: secret }),
+          ),
+        ),
+      )
+      const differentIdentityCallbacks = await Promise.all(
+        differentIdentityAttempts.map((attempt) => completeAuthentication(server.baseUrl, attempt)),
+      )
+      expect(
+        differentIdentityCallbacks.map((response) => response.headers.get("location")),
+        JSON.stringify(await prisma.securityAudit.findMany()),
+      ).toEqual(["/?authentication=success", "/?authentication=success"])
+      expect(await prisma.membership.count()).toBe(3)
+      expect(await prisma.membershipAssignment.count()).toBe(3)
+      expect(await prisma.hubSession.count()).toBe(4)
     } finally {
       await server.close()
     }
@@ -241,20 +310,100 @@ describe("Hub admission and session flow", () => {
     }
   })
 
-  it("enforces assignment ownership and immutable session digests in PostgreSQL", async () => {
+  it("enforces immutable bootstrap assignment authority and same-user ownership", async () => {
     const user = await prisma.user.create({ data: { id: randomUUID() } })
+    const otherUser = await prisma.user.create({ data: { id: randomUUID() } })
+    const identity = await prisma.externalIdentity.create({
+      data: {
+        id: randomUUID(),
+        userId: user.id,
+        provider: "github",
+        issuer: "https://github.com",
+        subject: "999",
+      },
+    })
+    const otherIdentity = await prisma.externalIdentity.create({
+      data: {
+        id: randomUUID(),
+        userId: otherUser.id,
+        provider: "github",
+        issuer: "https://github.com",
+        subject: "1000",
+      },
+    })
     const membership = await prisma.membership.create({
       data: { id: randomUUID(), userId: user.id },
     })
+    const assignment = await prisma.membershipAssignment.create({
+      data: {
+        id: randomUUID(),
+        membershipId: membership.id,
+        externalIdentityId: identity.id,
+        source: "BOOTSTRAP",
+        role: "ADMINISTRATOR",
+      },
+    })
+    const otherMembership = await prisma.membership.create({
+      data: { id: randomUUID(), userId: otherUser.id },
+    })
+
     await expect(
       prisma.membershipAssignment.create({
         data: {
           id: randomUUID(),
           membershipId: membership.id,
+          externalIdentityId: otherIdentity.id,
           source: "BOOTSTRAP",
           role: "ADMINISTRATOR",
         },
       }),
     ).rejects.toThrow()
+    await expect(
+      prisma.membershipAssignment.update({
+        where: { id: assignment.id },
+        data: { membershipId: otherMembership.id },
+      }),
+    ).rejects.toThrow("identity and authority are immutable")
+    await expect(
+      prisma.membershipAssignment.update({
+        where: { id: assignment.id },
+        data: { externalIdentityId: otherIdentity.id },
+      }),
+    ).rejects.toThrow("identity and authority are immutable")
+    await expect(
+      prisma.$executeRaw`
+        UPDATE "membership_assignments"
+        SET "source" = 'PROVIDER'
+        WHERE "id" = ${assignment.id}::uuid
+      `,
+    ).rejects.toThrow()
+    await expect(
+      prisma.$executeRaw`
+        UPDATE "membership_assignments"
+        SET "role" = 'MEMBER'
+        WHERE "id" = ${assignment.id}::uuid
+      `,
+    ).rejects.toThrow()
+    await expect(
+      prisma.membershipAssignment.delete({ where: { id: assignment.id } }),
+    ).rejects.toThrow("cannot be deleted")
+
+    await prisma.membershipAssignment.update({
+      where: { id: assignment.id },
+      data: { lifecycle: "REVOKED" },
+    })
+    await prisma.membershipAssignment.update({
+      where: { id: assignment.id },
+      data: { lifecycle: "ACTIVE" },
+    })
+    await expect(
+      prisma.membershipAssignment.findUnique({ where: { id: assignment.id } }),
+    ).resolves.toMatchObject({
+      externalIdentityId: identity.id,
+      membershipId: membership.id,
+      lifecycle: "ACTIVE",
+      role: "ADMINISTRATOR",
+      source: "BOOTSTRAP",
+    })
   })
 })

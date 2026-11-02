@@ -8,6 +8,20 @@ describe("classifyPrismaTransactionError()", () => {
     expect(classifyPrismaTransactionError(createKnownRequestError(code))).toBe("retryable")
   })
 
+  it("classifies raw PostgreSQL serialization failures as retryable", () => {
+    expect(
+      classifyPrismaTransactionError(createKnownRequestError("P2010", { code: "40001" })),
+    ).toBe("retryable")
+  })
+
+  it("classifies driver adapter serialization failures as retryable", () => {
+    expect(
+      classifyPrismaTransactionError({
+        cause: { originalCode: "40001", kind: "TransactionWriteConflict" },
+      }),
+    ).toBe("retryable")
+  })
+
   it("classifies other known errors as terminal", () => {
     expect(classifyPrismaTransactionError(createKnownRequestError("P2003"))).toBe("terminal")
   })

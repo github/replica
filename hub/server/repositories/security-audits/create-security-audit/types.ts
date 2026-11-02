@@ -45,12 +45,6 @@ export interface SessionCreatedAudit extends SecurityAuditEvent {
   membershipId: string
 }
 
-export interface SessionRestoredAudit extends SecurityAuditEvent {
-  type: "session_restored"
-  sessionId: string
-  membershipId: string
-}
-
 export interface SessionEndedAudit extends SecurityAuditEvent {
   type: "session_ended"
   sessionId: string
@@ -67,6 +61,12 @@ export interface AdmissionDeniedAudit extends SecurityAuditEvent {
     | "membership_inactive"
     | "membership_missing"
     | "provider_revoked"
+}
+
+export interface AdmissionFailedAudit extends SecurityAuditEvent {
+  type: "admission_failed"
+  externalIdentityId: string
+  reason: "retry_exhausted" | "transaction_error"
 }
 
 export interface ExternalIdentityCreatedAudit extends SecurityAuditEvent {
@@ -116,9 +116,9 @@ export type CreateSecurityAuditEvent =
   | MembershipAssignmentCreatedAudit
   | MembershipAssignmentRestoredAudit
   | SessionCreatedAudit
-  | SessionRestoredAudit
   | SessionEndedAudit
   | AdmissionDeniedAudit
+  | AdmissionFailedAudit
   | ExternalIdentityCreatedAudit
   | ExternalIdentityCreateFailedAudit
   | ProviderRevisionValidationFailedAudit

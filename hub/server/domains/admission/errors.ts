@@ -17,3 +17,17 @@ export class AdmissionDeniedError extends Error {
     this.externalIdentityId = externalIdentityId
   }
 }
+
+export class AdmissionTransactionConflictError extends Error {
+  constructor(options?: ErrorOptions) {
+    super("The admission transaction conflicted with another database change.", options)
+    this.name = "AdmissionTransactionConflictError"
+  }
+}
+
+export class AdmissionPersistenceError extends Error {
+  constructor(options?: ErrorOptions) {
+    super("Hub admission could not be completed.", options)
+    this.name = "AdmissionPersistenceError"
+  }
+}
