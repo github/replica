@@ -4,11 +4,11 @@ import { z } from "zod"
 
 import { AdmissionDeniedError } from "../../../../domains/admission/errors.ts"
 import { AuthenticationProofError } from "../../../../domains/authentication/errors.ts"
+import { createOpaqueValue } from "../../../../domains/authentication/create-opaque-value/index.ts"
+import { hashAuthenticationValue } from "../../../../domains/authentication/hash-authentication-value/index.ts"
 import { clearAuthenticationCookie } from "../../../../integrations/express/clear-authentication-cookie/index.ts"
 import { createAuthenticationCookie } from "../../../../integrations/express/create-authentication-cookie/index.ts"
 import { readCookie } from "../../../../integrations/express/read-cookie/index.ts"
-import { createOpaqueValue } from "../../../../utils/authentication/create-opaque-value/index.ts"
-import { hashAuthenticationValue } from "../../../../utils/authentication/hash-authentication-value/index.ts"
 import { browserCookieName } from "../start/index.ts"
 import type { AuthenticationCallbackDependencies } from "../types.ts"
 

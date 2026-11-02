@@ -1,8 +1,8 @@
 import type { RequestHandler } from "express"
 
+import { hashAuthenticationValue } from "../../../../domains/authentication/hash-authentication-value/index.ts"
 import { clearAuthenticationCookie } from "../../../../integrations/express/clear-authentication-cookie/index.ts"
 import { readCookie } from "../../../../integrations/express/read-cookie/index.ts"
-import { hashAuthenticationValue } from "../../../../utils/authentication/hash-authentication-value/index.ts"
 import { sessionCookieName } from "../callback/index.ts"
 import type { SignOutDependencies } from "../types.ts"
 
