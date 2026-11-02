@@ -57,30 +57,8 @@ export interface ProviderRevisionPersistFailedAudit extends SecurityAuditEvent {
   revision: number
 }
 
-export interface AuthenticationHandoffCreatedAudit extends SecurityAuditEvent {
-  type: "authentication_handoff_created"
-  externalIdentityId: string
-  handoffId: string
-  providerRevisionId: string
-}
-
-export interface AuthenticationHandoffConsumedAudit extends SecurityAuditEvent {
-  type: "authentication_handoff_consumed"
-  externalIdentityId: string
-  handoffId: string
-}
-
-export interface AuthenticationHandoffDeniedAudit extends SecurityAuditEvent {
-  type: "authentication_handoff_denied"
-  reason: "browser_mismatch" | "expired" | "provider_revision_changed" | "replayed" | "revoked"
-  handoffId?: string
-}
-
 export type CreateSecurityAuditEvent =
   | AuthenticationAttemptDeniedAudit
-  | AuthenticationHandoffConsumedAudit
-  | AuthenticationHandoffCreatedAudit
-  | AuthenticationHandoffDeniedAudit
   | ExternalIdentityCreatedAudit
   | ExternalIdentityCreateFailedAudit
   | ProviderRevisionValidationFailedAudit

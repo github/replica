@@ -104,30 +104,16 @@ export async function completeAuthenticationProof(
     issuer: evidence.issuer,
     subject: evidence.subject,
   })
-  const handoffToken = dependencies.createOpaqueValue()
-  const handoff = await dependencies.createHandoff({
-    externalIdentityId: identity.externalIdentityId,
-    providerRevisionId: attempt.providerRevisionId,
-    browserBindingDigest,
-    tokenDigest: hashAuthenticationValue(handoffToken),
-    displayAttributes: evidence.attributes,
-    expectedRevocationGeneration,
-  })
-  if (handoff.status === "restart") {
-    const error = new AuthenticationProofError(
-      "configuration_changed",
-      "Authentication state changed before the admission handoff was created.",
-    )
-    await recordAuthenticationDenial(error, () =>
-      dependencies.writeDenialAudit("configuration_changed"),
-    )
-    throw error
-  }
-
   return {
-    status: "authentication_proved",
-    handoffToken,
-    attributes: evidence.attributes,
-    expiresAt: handoff.expiresAt,
+    proof: {
+      attributes: evidence.attributes,
+      expectedRevocationGeneration,
+      externalIdentityId: identity.externalIdentityId,
+      issuer: evidence.issuer,
+      providerKey: evidence.provider,
+      providerRevisionId: attempt.providerRevisionId,
+      subject: evidence.subject,
+      userId: identity.userId,
+    },
   }
 }

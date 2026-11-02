@@ -12,6 +12,17 @@ export interface ImmutableIdentityEvidence {
   subject: string
 }
 
+export interface AuthenticationProofResult {
+  attributes: PublicIdentityAttributes
+  expectedRevocationGeneration: bigint
+  externalIdentityId: string
+  issuer: string
+  providerKey: string
+  providerRevisionId: string
+  subject: string
+  userId: string
+}
+
 export interface AuthenticationProviderAdapter {
   readonly providerKey: string
   createAuthorizationUrl(input: { callbackUri: string; codeChallenge: string; state: string }): URL
@@ -25,10 +36,7 @@ export interface AuthenticationProviderAdapter {
 export interface GitHubAuthenticationServices {
   appOrigin: string
   complete(input: { browserBinding: string; code: string; state: string }): Promise<{
-    attributes: PublicIdentityAttributes
-    expiresAt: Date
-    handoffToken: string
-    status: "authentication_proved"
+    proof: AuthenticationProofResult
   }>
   reserveRateLimit(input: {
     operation: "callback" | "start"

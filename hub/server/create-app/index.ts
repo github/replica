@@ -9,12 +9,7 @@ import { routes } from "../routes/index.ts"
 import type { CreateAppOptions } from "./types.ts"
 
 /** Give every endpoint the same request logging and safe error responses. */
-export function createApp({
-  broadcast,
-  githubAuthentication,
-  logger,
-  trustedProxyHops = 0,
-}: CreateAppOptions = {}) {
+export function createApp({ broadcast, logger, trustedProxyHops = 0 }: CreateAppOptions = {}) {
   const app = express()
   app.disable("x-powered-by")
   app.set("trust proxy", trustedProxyHops)
@@ -22,7 +17,7 @@ export function createApp({
   app.use(createRequestLogger(logger))
   app.use(express.json())
 
-  routes(app, { broadcast, githubAuthentication })
+  routes(app, { broadcast })
   app.use(respondNotFound)
   app.use(handleError)
 

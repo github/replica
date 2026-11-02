@@ -7,7 +7,6 @@ model AuthenticationProviderRevision {
   provider              AuthenticationProvider  @relation("AuthenticationProviderRevisions", fields: [providerId], references: [id], onDelete: Restrict)
   selectedBy            AuthenticationProvider? @relation("SelectedAuthenticationProviderRevision")
   authorizationAttempts AuthorizationAttempt[]
-  admissionHandoffs     AdmissionHandoff[]
 
   // Attribute columns
   revision            Int

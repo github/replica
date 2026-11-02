@@ -5,7 +5,6 @@ import { prisma } from "../../../integrations/prisma/index.ts"
 import { createAuthorizationAttempt } from "../../../repositories/authorization-attempts/create-authorization-attempt/index.ts"
 import { consumeAuthorizationAttempt } from "../../../repositories/authorization-attempts/consume-authorization-attempt/index.ts"
 import { deleteExpiredAuthorizationAttempts } from "../../../repositories/authorization-attempts/delete-expired-authorization-attempts/index.ts"
-import { deleteExpiredAdmissionHandoffs } from "../../../repositories/admission-handoffs/delete-expired-admission-handoffs/index.ts"
 import { findAuthenticationProvider } from "../../../repositories/authentication-providers/find-authentication-provider/index.ts"
 import { getAuthenticationRevocationGeneration } from "../../../repositories/authentication-revocation-generations/get-authentication-revocation-generation/index.ts"
 import { createSecurityAudit } from "../../../repositories/security-audits/create-security-audit/index.ts"
@@ -18,8 +17,6 @@ import { runIdentityCreationTransaction } from "../../identity/run-identity-crea
 import { runProviderRevisionTransaction } from "../../identity/run-provider-revision-transaction/index.ts"
 import { validateAndPersistProviderRevision } from "../../identity/validate-and-persist-provider-revision/index.ts"
 import { completeAuthenticationProof } from "../complete-authentication-proof/index.ts"
-import { createAuthenticationAdmissionHandoff } from "../create-admission-handoff/index.ts"
-import { runAdmissionHandoffTransaction } from "../run-admission-handoff-transaction/index.ts"
 import { reserveAuthenticationRateLimit } from "../reserve-authentication-rate-limit/index.ts"
 import { startAuthenticationProof } from "../start-authentication-proof/index.ts"
 import type { GitHubAuthenticationServices } from "../types.ts"
@@ -76,7 +73,6 @@ export async function createGitHubAuthenticationServices(
         createOpaqueValue,
         deleteExpiredArtifacts: async () => {
           await deleteExpiredAuthorizationAttempts(prisma)
-          await deleteExpiredAdmissionHandoffs(prisma)
         },
         encryptCodeVerifier: (value) =>
           encryptAuthenticationValue(value, configuration.encryptionKey),
@@ -94,14 +90,6 @@ export async function createGitHubAuthenticationServices(
         adapter,
         callbackUri: adapter.callbackUri,
         consumeAttempt: (attempt) => consumeAuthorizationAttempt(prisma, attempt),
-        createHandoff: (handoff) =>
-          createAuthenticationAdmissionHandoff(
-            { ...handoff, providerKey: adapter.providerKey },
-            {
-              runTransaction: (operation) => runAdmissionHandoffTransaction(prisma, operation),
-            },
-          ),
-        createOpaqueValue,
         decryptCodeVerifier: (value) =>
           decryptAuthenticationValue(value, configuration.encryptionKey),
         getSelectedProviderRevision: getRevision,
