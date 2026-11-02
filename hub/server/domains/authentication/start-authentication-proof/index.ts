@@ -10,14 +10,14 @@ import type {
   StartAuthenticationProofResult,
 } from "./types.ts"
 
-const inputSchema = z.object({ requestIpDigest: z.string().regex(/^[0-9a-f]{64}$/) }).strict()
+const inputSchema = z.object({}).strict()
 const ATTEMPT_LIFETIME_MS = 10 * 60 * 1_000
 
 export async function startAuthenticationProof(
   input: StartAuthenticationProofInput,
   dependencies: StartAuthenticationProofDependencies,
 ): Promise<StartAuthenticationProofResult> {
-  const parsed = inputSchema.parse(input)
+  inputSchema.parse(input)
   await dependencies.deleteExpiredArtifacts()
   const selectedRevision = await dependencies.getSelectedProviderRevision()
   if (
@@ -46,7 +46,6 @@ export async function startAuthenticationProof(
     browserBindingDigest: hashAuthenticationValue(browserBinding),
     codeChallenge,
     codeVerifierCiphertext: dependencies.encryptCodeVerifier(codeVerifier),
-    requestIpDigest: parsed.requestIpDigest,
     lifetimeSeconds: ATTEMPT_LIFETIME_MS / 1_000,
   })
 

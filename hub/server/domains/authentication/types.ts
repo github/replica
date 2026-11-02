@@ -1,22 +1,12 @@
-export interface IdentityPresentationAttributes {
-  avatarUrl: string | null
-  email: string | null
-  name: string | null
-  preferredUsername: string | null
-}
-
 export interface ImmutableIdentityEvidence {
-  attributes: IdentityPresentationAttributes
   issuer: string
   provider: string
   subject: string
 }
 
 /**
- * Internal same-request proof for C3 admission/session orchestration.
- * C3 must not accept this shape from HTTP input. It rereads both IDs, verifies the consumed
- * attempt and immutable identity mapping, locks its admission/session aggregates, evaluates
- * admission, and writes the session plus final success audit atomically.
+ * Internal same-request proof reference. It is not request input, a session, or authority.
+ * A later consumer rereads both referenced authoritative records before making decisions.
  */
 export interface AuthenticationProofResult {
   authorizationAttemptId: string

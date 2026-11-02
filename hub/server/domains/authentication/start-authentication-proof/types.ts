@@ -18,7 +18,6 @@ export interface StartAuthenticationProofDependencies {
     id: string
     lifetimeSeconds: number
     providerRevisionId: string
-    requestIpDigest: string
     stateDigest: string
   }): Promise<{ expiresAt: Date }>
   createId(): string
@@ -29,9 +28,7 @@ export interface StartAuthenticationProofDependencies {
   writeDenialAudit(reason: "configuration_changed" | "rate_limited"): Promise<unknown>
 }
 
-export interface StartAuthenticationProofInput {
-  requestIpDigest: string
-}
+export type StartAuthenticationProofInput = Record<string, never>
 
 export interface StartAuthenticationProofResult {
   authorizationUrl: string

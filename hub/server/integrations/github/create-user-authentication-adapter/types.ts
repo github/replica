@@ -13,12 +13,6 @@ export interface CreateGitHubUserAuthenticationAdapterInput {
 }
 
 export interface GitHubUserIdentityEvidence {
-  attributes: {
-    avatarUrl: string | null
-    email: string | null
-    name: string | null
-    preferredUsername: string | null
-  }
   issuer: string
   provider: string
   subject: string

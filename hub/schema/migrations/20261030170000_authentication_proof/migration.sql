@@ -5,7 +5,6 @@ CREATE TABLE "authorization_attempts" (
     "browser_binding_digest" VARCHAR(64) NOT NULL,
     "code_challenge" VARCHAR(43) NOT NULL,
     "code_verifier_ciphertext" VARCHAR(500) NOT NULL,
-    "request_ip_digest" VARCHAR(64) NOT NULL,
     "expires_at" TIMESTAMPTZ(3) NOT NULL,
     "consumed_at" TIMESTAMPTZ(3),
     "created_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -15,7 +14,6 @@ CREATE TABLE "authorization_attempts" (
     CONSTRAINT "authorization_attempts_digests" CHECK (
         "state_digest" ~ '^[0-9a-f]{64}$'
         AND "browser_binding_digest" ~ '^[0-9a-f]{64}$'
-        AND "request_ip_digest" ~ '^[0-9a-f]{64}$'
     ),
     CONSTRAINT "authorization_attempts_code_challenge" CHECK (
         "code_challenge" ~ '^[A-Za-z0-9_-]{43}$'
@@ -29,8 +27,6 @@ CREATE TABLE "authorization_attempts" (
 CREATE UNIQUE INDEX "authorization_attempts_state_digest_key"
 ON "authorization_attempts"("state_digest");
 CREATE INDEX "authorization_attempts_expires_at_idx" ON "authorization_attempts"("expires_at");
-CREATE INDEX "authorization_attempts_request_ip_digest_created_at_idx"
-ON "authorization_attempts"("request_ip_digest", "created_at");
 
 ALTER TABLE "authorization_attempts"
 ADD CONSTRAINT "authorization_attempts_provider_revision_id_fkey"
@@ -54,7 +50,6 @@ BEGIN
        OR NEW."browser_binding_digest" <> OLD."browser_binding_digest"
        OR NEW."code_challenge" <> OLD."code_challenge"
        OR NEW."code_verifier_ciphertext" <> OLD."code_verifier_ciphertext"
-       OR NEW."request_ip_digest" <> OLD."request_ip_digest"
        OR NEW."expires_at" <> OLD."expires_at"
        OR NEW."created_at" <> OLD."created_at"
        OR OLD."consumed_at" IS NOT NULL

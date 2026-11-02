@@ -9,6 +9,5 @@ export interface CreateAuthorizationAttemptInput {
   id: string
   lifetimeSeconds: number
   providerRevisionId: string
-  requestIpDigest: string
   stateDigest: string
 }

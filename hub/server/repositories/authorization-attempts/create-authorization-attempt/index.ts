@@ -13,7 +13,6 @@ const inputSchema = z
     id: z.uuid(),
     lifetimeSeconds: z.number().int().min(1).max(3_600),
     providerRevisionId: z.uuid(),
-    requestIpDigest: z.string().regex(/^[0-9a-f]{64}$/),
     stateDigest: z.string().regex(/^[0-9a-f]{64}$/),
   })
   .strict()
@@ -26,8 +25,8 @@ export async function createAuthorizationAttempt(
   const rows = await database.$queryRaw<Array<{ expires_at: Date }>>`
     INSERT INTO "authorization_attempts" (
       "id", "provider_revision_id", "state_digest", "browser_binding_digest",
-      "code_challenge", "code_verifier_ciphertext", "request_ip_digest",
-      "expires_at", "created_at", "updated_at"
+      "code_challenge", "code_verifier_ciphertext", "expires_at",
+      "created_at", "updated_at"
     ) VALUES (
       ${parsed.id}::uuid,
       ${parsed.providerRevisionId}::uuid,
@@ -35,7 +34,6 @@ export async function createAuthorizationAttempt(
       ${parsed.browserBindingDigest},
       ${parsed.codeChallenge},
       ${parsed.codeVerifierCiphertext},
-      ${parsed.requestIpDigest},
       clock_timestamp() + make_interval(secs => ${parsed.lifetimeSeconds}),
       clock_timestamp(),
       clock_timestamp()
