@@ -10,6 +10,7 @@ const meta = {
     data: {
       heading: "Signed in to Replica Hub",
       description: "Your Hub session is active and will be checked against current membership.",
+      notice: null,
       roleLabel: "Administrator",
       signOutLabel: "Sign out",
       signOutPath: "/api/auth/session/sign-out",
@@ -21,3 +22,12 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Administrator: Story = {}
+
+export const CallbackSucceeded: Story = {
+  args: {
+    data: {
+      ...meta.args.data,
+      notice: "GitHub sign-in succeeded and Replica Hub restored your active session.",
+    },
+  },
+}

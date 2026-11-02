@@ -70,11 +70,11 @@ export const SessionsEnded: Story = {
   },
 }
 
-export const AuthorizationSucceeded: Story = {
+export const SessionRestoreFailed: Story = {
   args: {
     data: {
       ...data,
-      notice: "GitHub sign-in succeeded and Replica Hub created an active session.",
+      alert: "Replica Hub could not restore your session. Sign in again to continue.",
     },
   },
 }

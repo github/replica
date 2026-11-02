@@ -5,16 +5,17 @@ import { useHubTheme } from "@hooks/use-hub-theme"
 import { CurrentSessionPage } from "@pages/current-session-page"
 import { HomeIndexPage } from "@pages/home-index-page"
 import { HubAdminEnrollmentPage } from "@pages/hub-admin-enrollment-page"
+import { SessionLoadingPage } from "@pages/session-loading-page"
 
 type SessionState =
   | { status: "loading" }
-  | { status: "signed-out" }
-  | { status: "signed-in"; role: "administrator" | "member" }
+  | { status: "signed-out"; restoreFailed: boolean }
+  | { status: "signed-in"; role: "administrator" }
 
 const currentSessionSchema = z
   .object({
     authenticated: z.literal(true),
-    role: z.enum(["administrator", "member"]),
+    role: z.literal("administrator"),
   })
   .strict()
 
@@ -34,11 +35,11 @@ export function HubApplication() {
         setSession(
           result.authenticated
             ? { status: "signed-in", role: result.role }
-            : { status: "signed-out" },
+            : { status: "signed-out", restoreFailed: authentication === "success" },
         ),
       )
-      .catch(() => setSession({ status: "signed-out" }))
-  }, [])
+      .catch(() => setSession({ status: "signed-out", restoreFailed: true }))
+  }, [authentication])
 
   if (window.location.pathname === "/admin-enrollment") {
     return (
@@ -62,19 +63,25 @@ export function HubApplication() {
         data={{
           heading: "Signed in to Replica Hub",
           description: "This session is checked against your current Hub membership.",
-          roleLabel: session.role === "administrator" ? "Administrator" : "Member",
+          notice:
+            authentication === "success"
+              ? "GitHub sign-in succeeded and Replica Hub restored your active session."
+              : null,
+          roleLabel: "Administrator",
           signOutLabel: "Sign out",
           signOutPath: "/api/auth/session/sign-out",
         }}
       />
     )
   }
+  if (session.status === "loading") return <SessionLoadingPage />
   return (
     <HomeIndexPage
       colorMode={resolvedColorMode}
       data={{
-        alert:
-          authentication === "denied"
+        alert: session.restoreFailed
+          ? "Replica Hub could not restore your session. Sign in again to continue."
+          : authentication === "denied"
             ? "GitHub could not complete sign-in, or this account is not an active Hub member."
             : null,
         authenticityToken: "",
@@ -84,10 +91,7 @@ export function HubApplication() {
         footerNote: "\u00a9 2026 GitHub, Inc.",
         heading: "Build and review prototypes with your team.",
         localMode: false,
-        notice:
-          authentication === "success"
-            ? "GitHub sign-in succeeded and Replica Hub created an active session."
-            : null,
+        notice: null,
         pageTitle: "Replica Hub",
         pauseAnimationLabel: "Pause animation",
         resumeAnimationLabel: "Resume animation",

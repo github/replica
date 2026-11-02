@@ -1,0 +1,15 @@
+.session-loading-page {
+  min-height: 100vh;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 2rem;
+  padding: 2rem;
+  background: var(--hub-background-default);
+}
+
+.session-loading-page__status {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}

@@ -7,13 +7,13 @@ import { GithubAppSetupPage } from "@features/github-app-setup-page"
 import type { HubAdminEnrollmentPageData } from "./types"
 import "./styles.css"
 
-/** Requires operator-secret possession before starting a fresh GitHub identity check. */
+/** Requires the deployment bootstrap secret before starting a fresh GitHub identity check. */
 export function HubAdminEnrollmentPage({ data }: { data: HubAdminEnrollmentPageData }) {
   return (
     <GithubAppSetupPage>
       <GithubAppSetupHeader data={data} />
       {data.alert ? <HubAlert title={data.alert} variant="warning" /> : null}
-      <form action={data.submitPath} method="post" className="operator-enrollment__form">
+      <form action={data.submitPath} method="post" className="administrator-enrollment__form">
         <FormControl required>
           <FormControl.Label>{data.secretLabel}</FormControl.Label>
           <TextInput

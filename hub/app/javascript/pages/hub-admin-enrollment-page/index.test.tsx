@@ -12,8 +12,8 @@ describe("HubAdminEnrollmentPage()", () => {
           data={{
             alert: null,
             productName: "Replica Hub",
-            pageTitle: "Enroll an operator",
-            heading: "Enroll an operator",
+            pageTitle: "Enroll an administrator",
+            heading: "Enroll an administrator",
             description: "Verify your own GitHub account.",
             secretLabel: "Bootstrap secret",
             submitLabel: "Verify with GitHub",

@@ -3,15 +3,15 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HubAdminEnrollmentPage } from "."
 
 const meta = {
-  title: "Hub/Pages/Security/Operator enrollment",
+  title: "Hub/Pages/Security/Administrator enrollment",
   component: HubAdminEnrollmentPage,
   parameters: { layout: "fullscreen" },
   args: {
     data: {
       alert: null,
       productName: "Replica Hub",
-      pageTitle: "Enroll a Hub operator",
-      heading: "Enroll a Hub operator",
+      pageTitle: "Enroll a Hub administrator",
+      heading: "Enroll a Hub administrator",
       description:
         "Enter the deployment's bootstrap secret, then verify your own GitHub account. This grants deployment administration, not access to private repositories.",
       secretLabel: "Bootstrap secret",

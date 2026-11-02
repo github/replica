@@ -12,6 +12,7 @@ describe("CurrentSessionPage()", () => {
           data={{
             heading: "Signed in",
             description: "Current membership is active.",
+            notice: null,
             roleLabel: "Administrator",
             signOutLabel: "Sign out",
             signOutPath: "/api/auth/session/sign-out",

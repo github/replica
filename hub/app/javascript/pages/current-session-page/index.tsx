@@ -1,5 +1,6 @@
 import { Button, Heading, Text } from "@primer/react-brand"
 
+import { HubAlert } from "@components/hub-alert"
 import { ReplicaLogo } from "@components/replica-logo"
 
 import type { CurrentSessionPageData } from "./types"
@@ -14,6 +15,7 @@ export function CurrentSessionPage({ data }: { data: CurrentSessionPageData }) {
           {data.heading}
         </Heading>
         <Text as="p">{data.description}</Text>
+        {data.notice ? <HubAlert title={data.notice} variant="success" /> : null}
         <Text as="p">
           <strong>{data.roleLabel}</strong>
         </Text>
