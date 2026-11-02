@@ -98,21 +98,16 @@ describe("Hub admission and session flow", () => {
           bootstrap_secret: "bootstrap-secret-that-is-at-least-32-characters",
         }),
       )
-      expect(
-        await prisma.authenticationProvider.findUnique({
-          where: { key: "github" },
-          select: {
-            selectedRevision: {
-              select: { revision: true, configurationDigest: true },
-            },
+      const provider = await prisma.authenticationProvider.findUnique({
+        where: { key: "github" },
+        select: {
+          selectedRevision: {
+            select: { revision: true, configurationDigest: true },
           },
-        }),
-      ).toEqual({
-        selectedRevision: {
-          revision: 1,
-          configurationDigest: expect.stringMatching(/^[0-9a-f]{64}$/),
         },
       })
+      expect(provider?.selectedRevision?.revision).toBe(1)
+      expect(provider?.selectedRevision?.configurationDigest).toMatch(/^[0-9a-f]{64}$/)
       const enrolled = await completeAuthentication(server.baseUrl, enrollment)
       expect(enrolled.status).toBe(303)
       expect(enrolled.headers.get("location")).toBe("/?authentication=success")

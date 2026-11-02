@@ -1,11 +1,8 @@
 import { randomUUID } from "node:crypto"
 import { describe, expect, it, vi } from "vitest"
 
-import {
-  AdmissionDeniedError,
-  AdmissionPersistenceError,
-  AdmissionTransactionConflictError,
-} from "../errors"
+import { AdmissionPersistenceError, AdmissionTransactionConflictError } from "../errors"
+import type { AdmissionDeniedError } from "../errors"
 import type { AdmissionRepositories } from "../run-admission-transaction/types"
 import { admitAuthenticationProof } from "."
 
@@ -53,11 +50,14 @@ function repositories(overrides: Partial<AdmissionRepositories> = {}): Admission
 describe("admitAuthenticationProof()", () => {
   it("retries the complete transaction with the kernel policy before succeeding", async () => {
     const records = repositories()
-    const runTransaction = vi
-      .fn()
-      .mockRejectedValueOnce(new AdmissionTransactionConflictError())
-      .mockRejectedValueOnce(new AdmissionTransactionConflictError())
-      .mockImplementation((operation) => operation(records))
+    let transactionCalls = 0
+    async function runTransaction<Result>(
+      operation: (repositories: AdmissionRepositories) => Promise<Result>,
+    ) {
+      transactionCalls += 1
+      if (transactionCalls < 3) throw new AdmissionTransactionConflictError()
+      return operation(records)
+    }
     const writeAudit = vi.fn()
 
     await expect(
@@ -68,7 +68,7 @@ describe("admitAuthenticationProof()", () => {
       }),
     ).resolves.toMatchObject({ role: "administrator" })
 
-    expect(runTransaction).toHaveBeenCalledTimes(3)
+    expect(transactionCalls).toBe(3)
     expect(writeAudit).not.toHaveBeenCalled()
   })
 
@@ -97,7 +97,13 @@ describe("admitAuthenticationProof()", () => {
   })
 
   it("fails closed when the authoritative user reread is missing", async () => {
-    const records = repositories({ lockUser: vi.fn().mockResolvedValue(null) })
+    const createOrRestoreMembership = vi.fn().mockResolvedValue({ id: randomUUID() })
+    const createHubSession = vi.fn().mockResolvedValue({ expiresAt: new Date("2030-01-01") })
+    const records = repositories({
+      createHubSession,
+      createOrRestoreMembership,
+      lockUser: vi.fn().mockResolvedValue(null),
+    })
     const writeAudit = vi.fn().mockResolvedValue(undefined)
     const request = input()
 
@@ -111,8 +117,8 @@ describe("admitAuthenticationProof()", () => {
       reason: "identity_mismatch",
     })
 
-    expect(records.createOrRestoreMembership).not.toHaveBeenCalled()
-    expect(records.createHubSession).not.toHaveBeenCalled()
+    expect(createOrRestoreMembership).not.toHaveBeenCalled()
+    expect(createHubSession).not.toHaveBeenCalled()
     expect(writeAudit).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "admission_denied",
@@ -122,7 +128,9 @@ describe("admitAuthenticationProof()", () => {
   })
 
   it("denies a proof when the selected provider revision changed before admission", async () => {
+    const createHubSession = vi.fn().mockResolvedValue({ expiresAt: new Date("2030-01-01") })
     const records = repositories({
+      createHubSession,
       lockProvider: vi.fn().mockResolvedValue({ selectedRevisionId: "new-revision" }),
     })
     const writeAudit = vi.fn().mockResolvedValue(undefined)
@@ -137,7 +145,7 @@ describe("admitAuthenticationProof()", () => {
       reason: "configuration_changed",
     })
 
-    expect(records.createHubSession).not.toHaveBeenCalled()
+    expect(createHubSession).not.toHaveBeenCalled()
     expect(writeAudit).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "admission_denied",
