@@ -8,17 +8,15 @@ The start primitive selects the configured GitHub provider revision, creates opa
 
 The completion primitive consumes the browser-bound attempt before provider work, confirms that the selected provider revision and digest match the local validated adapter, exchanges the bounded authorization code, reads the public github.com current user, and resolves the immutable external identity through the identity kernel. GitHub's numeric user ID is the immutable subject. Preferred username, name, avatar URL, and email are nullable presentation data and never identity, admission, or authorization keys.
 
-Completion returns a bounded provider-neutral proof value in memory. It includes the resolved external identity and user IDs, provider revision, expected revocation generation, immutable provider evidence, and presentation attributes. This value is internal-only and must be passed directly to C3 in the same callback request; it must never be reconstructed from browser request data.
+Completion returns a minimal provider-neutral proof value in memory containing only the consumed authorization attempt ID and resolved external identity ID. This value is internal-only and must be passed directly to C3 in the same callback request; it must never be reconstructed from browser request data.
 
-C3's admission/session transaction must lock provider selection and then the global revocation generation. It must recheck the proof's provider revision and expected generation, verify that the referenced external identity and user still match the immutable provider, issuer, and subject tuple, evaluate admission, and create the session plus final success audit atomically. Revision drift, revocation, identity mismatch, or admission denial creates no session and requires the user to restart sign-in.
+C3 rereads the consumed attempt and external identity with their user and immutable provider tuple. Its accepted transaction design will own provider/revocation rechecks, admission, session issuance, and the final success audit. Any mismatch or denial creates no session and requires the user to restart sign-in.
 
 If admission or session issuance fails, the user must restart sign-in in this version. Hub does not persist a bearer proof, pending enrollment, handoff token, or half-signed-in browser state. A future asynchronous approval flow would need its own domain-specific pending-enrollment contract.
 
 ## Safety boundaries
 
 GitHub configuration is explicit and revisioned. Only the public github.com authorization, token, and user endpoints are accepted. Provider requests have fixed deadlines, reject redirects, and discard access tokens after the user lookup.
-
-Start and callback orchestration can use the database-backed rate-limit primitive, exact origin parsing, trusted-proxy settings, and pre-parser authentication payload suppression. Those reusable boundaries remain internal until the complete callback route is owned by the admission/session layer.
 
 ## Not implemented
 
