@@ -1,0 +1,5 @@
+enum MembershipLifecycle {
+  ACTIVE
+  SUSPENDED
+  REMOVED
+}

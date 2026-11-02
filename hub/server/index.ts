@@ -3,6 +3,7 @@ import "dotenv/config"
 import { createConfiguredArtifactStorage } from "./domains/artifacts/create-configured-artifact-storage/index.ts"
 import { startTelemetry } from "./integrations/opentelemetry/start-telemetry/index.ts"
 import { logger } from "./integrations/pino/index.ts"
+import { createGitHubAuthenticationRuntime } from "./domains/admission/create-github-authentication-runtime/index.ts"
 import { runApi } from "./run-api/index.ts"
 import { setup } from "./scripts/setup/index.ts"
 import { startServerProcesses } from "./start-server-processes/index.ts"
@@ -19,9 +20,22 @@ try {
   const isStorageReady = storage ? () => storage.isReady() : undefined
   const telemetry = startTelemetry(process.env, logger)
   try {
+    const trustedProxyHops = Number(process.env.HUB_TRUSTED_PROXY_HOPS ?? 0)
+    if (!Number.isInteger(trustedProxyHops) || trustedProxyHops < 0 || trustedProxyHops > 10) {
+      throw new Error("HUB_TRUSTED_PROXY_HOPS must be an integer between 0 and 10.")
+    }
+    const authentication = process.env.HUB_APPLICATION_ORIGIN
+      ? createGitHubAuthenticationRuntime(process.env)
+      : undefined
     if (configuration.mode === "setup") await setup()
     else if (configuration.mode === "api")
-      await runApi({ ...configuration, logger, isReady: isStorageReady })
+      await runApi({
+        ...configuration,
+        logger,
+        isReady: isStorageReady,
+        authentication,
+        trustedProxyHops,
+      })
     else {
       const databaseUrl = configuration.databaseUrl
       if (!databaseUrl) throw new Error("This runtime mode requires DATABASE_URL.")
@@ -31,6 +45,8 @@ try {
           databaseUrl,
           logger,
           isStorageReady,
+          authentication,
+          trustedProxyHops,
         })
       } else {
         const name = configuration.mode

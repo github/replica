@@ -6,6 +6,7 @@ model AuthenticationProvider {
   // Relations
   revisions        AuthenticationProviderRevision[] @relation("AuthenticationProviderRevisions")
   selectedRevision AuthenticationProviderRevision?  @relation("SelectedAuthenticationProviderRevision", fields: [selectedRevisionId], references: [id], onDelete: Restrict)
+  membershipAssignments MembershipAssignment[]
 
   // Attribute columns
   key String @unique @db.VarChar(100)

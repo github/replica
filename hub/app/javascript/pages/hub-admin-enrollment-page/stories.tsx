@@ -8,6 +8,7 @@ const meta = {
   parameters: { layout: "fullscreen" },
   args: {
     data: {
+      alert: null,
       productName: "Replica Hub",
       pageTitle: "Enroll a Hub operator",
       heading: "Enroll a Hub operator",
@@ -15,8 +16,7 @@ const meta = {
         "Enter the deployment's bootstrap secret, then verify your own GitHub account. This grants deployment administration, not access to private repositories.",
       secretLabel: "Bootstrap secret",
       submitLabel: "Verify with GitHub",
-      submitPath: "/operator/enrollment",
-      authenticityToken: "storybook-token",
+      submitPath: "/api/auth/github/admin-enrollment/start",
     },
   },
 } satisfies Meta<typeof HubAdminEnrollmentPage>
@@ -25,3 +25,12 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Enrollment: Story = {}
+
+export const InvalidSecret: Story = {
+  args: {
+    data: {
+      ...meta.args.data,
+      alert: "Administrator enrollment was denied. Check the bootstrap secret and try again.",
+    },
+  },
+}

@@ -1,0 +1,19 @@
+.current-session-page {
+  min-height: 100vh;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 2rem;
+  padding: 2rem;
+  background: var(--hub-background-default);
+}
+
+.current-session-page__card {
+  display: grid;
+  gap: 1rem;
+  width: min(100%, 32rem);
+  padding: 2rem;
+  border: 1px solid var(--hub-border-default);
+  border-radius: 1rem;
+  background: var(--hub-background-overlay);
+}

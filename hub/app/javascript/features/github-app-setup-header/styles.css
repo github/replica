@@ -2,6 +2,7 @@
   font-size: 2rem;
   letter-spacing: -0.05em;
   line-height: 1;
+  overflow-wrap: anywhere;
 }
 
 .setup__description {

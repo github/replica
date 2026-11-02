@@ -1,0 +1,4 @@
+enum MembershipAssignmentSource {
+  BOOTSTRAP
+  PROVIDER
+}

@@ -4,12 +4,15 @@ import { resolve } from "node:path"
 import type { Logger } from "pino"
 
 import { createApp } from "../create-app/index.ts"
+import type { AuthenticationRouteRuntime } from "../routes/api/authentication/types.ts"
 import { attachRealtimeServer } from "../integrations/ws/attach-realtime-server/index.ts"
 import { shutdownServer } from "../shutdown-server/index.ts"
 
 export async function runApi({
   port,
   logger,
+  authentication,
+  trustedProxyHops = 0,
   shutdownTimeoutMs = 30_000,
   host = "127.0.0.1",
   clientDirectory,
@@ -18,6 +21,8 @@ export async function runApi({
 }: {
   port: number
   logger: Logger
+  authentication?: AuthenticationRouteRuntime
+  trustedProxyHops?: number
   shutdownTimeoutMs?: number
   host?: string
   clientDirectory?: string
@@ -42,6 +47,8 @@ export async function runApi({
       broadcast: realtime.broadcast,
       clientDirectory,
       isReady: async () => !stoppingRequested && (isReady ? await isReady() : true),
+      authentication,
+      trustedProxyHops,
     }),
   )
   let finishBinding!: () => void

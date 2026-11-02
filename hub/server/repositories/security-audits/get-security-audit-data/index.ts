@@ -7,6 +7,52 @@ export function getSecurityAuditData(
   event: ParsedSecurityAuditEvent,
 ): Prisma.SecurityAuditCreateInput {
   switch (event.type) {
+    case "bootstrap_attempt_denied":
+      return {
+        id: event.id,
+        action: "admission.bootstrap.denied",
+        outcome: SecurityAuditOutcome.DENIED,
+        targetType: "bootstrap_enrollment",
+        context: { reason: event.reason },
+      }
+    case "membership_assignment_created":
+    case "membership_assignment_restored":
+      return {
+        id: event.id,
+        action:
+          event.type === "membership_assignment_created"
+            ? "membership.assignment.created"
+            : "membership.assignment.restored",
+        outcome: SecurityAuditOutcome.SUCCESS,
+        targetType: "membership",
+        targetId: event.membershipId,
+        context: { source: event.source, role: event.role },
+      }
+    case "session_created":
+    case "session_restored":
+    case "session_ended":
+      return {
+        id: event.id,
+        action:
+          event.type === "session_created"
+            ? "session.created"
+            : event.type === "session_restored"
+              ? "session.restored"
+              : "session.ended",
+        outcome: SecurityAuditOutcome.SUCCESS,
+        targetType: "hub_session",
+        targetId: event.sessionId,
+        context: { membershipId: event.membershipId },
+      }
+    case "admission_denied":
+      return {
+        id: event.id,
+        action: "admission.denied",
+        outcome: SecurityAuditOutcome.DENIED,
+        targetType: "external_identity",
+        targetId: event.externalIdentityId,
+        context: { reason: event.reason },
+      }
     case "authentication_attempt_denied":
       return {
         id: event.id,

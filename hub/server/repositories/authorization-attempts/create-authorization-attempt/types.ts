@@ -7,6 +7,7 @@ export interface CreateAuthorizationAttemptInput {
   codeVerifierCiphertext: string
   id: string
   lifetimeSeconds: number
+  purpose: "SIGN_IN" | "ADMIN_ENROLLMENT"
   providerRevisionId: string
   stateDigest: string
 }

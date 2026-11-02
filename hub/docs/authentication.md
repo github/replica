@@ -1,6 +1,6 @@
-# Authentication proof
+# Authentication and Hub sessions
 
-Hub has internal GitHub authentication proof primitives. No public authentication flow is registered.
+Hub exposes a same-request GitHub sign-in flow. The provider proof remains internal; the callback immediately rereads authoritative records, decides admission, and issues a Hub session when access is allowed.
 
 ## Proof flow
 
@@ -8,9 +8,33 @@ The start primitive selects the configured GitHub provider revision, creates opa
 
 The completion primitive consumes the browser-bound attempt before provider work, confirms that the selected provider revision and digest match the local validated adapter, exchanges the bounded authorization code, reads the public github.com current user, and resolves the immutable external identity through the identity kernel. GitHub's numeric user ID is the immutable subject. Profile and presentation data are outside this foundation.
 
-Completion returns a minimal provider-neutral proof value in memory containing only the consumed authorization attempt ID and resolved external identity ID. This value is internal-only, is not a session or authority, and must never be reconstructed from browser request data.
+Completion returns a minimal provider-neutral proof value in memory containing only the consumed authorization attempt ID and resolved external identity ID. This value is internal-only, is not a session or authority, and is never reconstructed from browser request data.
 
-A trusted consumer must reread the referenced authoritative records before using the proof.
+The callback passes that value directly to admission in the same process. Admission locks and rereads the consumed attempt, selected provider revision, external identity, global session revocation state, membership, and active assignments before creating a session.
+
+## Admission
+
+Normal sign-in requires an active membership with an active assignment. Unknown identities, suspended memberships, removed memberships, and identities without active assignments are denied without creating a session.
+
+The administrator enrollment start requires `HUB_BOOTSTRAP_SECRET` before OAuth begins. The configured secret must contain at least 32 characters and is compared in constant time. The secret authorizes each browser-bound, one-use authorization attempt; it is not stored, audited, logged, or globally consumed.
+
+A successful enrollment creates or restores an active administrator assignment owned by the verified external identity. The same secret can enroll another administrator or restore a previous administrator, including when another administrator still exists. Repository permissions do not affect Hub admission.
+
+Membership lifecycle and assignment provenance are separate. The schema supports active, suspended, and removed memberships, and distinguishes bootstrap-owned assignments from provider-owned assignments. GitHub sign-in creates only bootstrap administrator assignments. Provider-owned assignment synchronization is not implemented.
+
+## Browser session
+
+Hub creates a fresh opaque session value only after admission succeeds. The browser receives the value in an `HttpOnly`, `SameSite=Lax` cookie with a bounded lifetime; HTTPS origins also set `Secure`. The database stores only its SHA-256 digest.
+
+Every current-session restore rereads the global revocation revision, session expiry and termination state, membership lifecycle, and active assignment. A retained cookie stops authorizing access after sign-out, expiry, suspension, removal, assignment revocation, or a global revision change.
+
+`GET /api/auth/session` restores the current session. `POST /api/auth/session/sign-out` ends it and clears the cookie. Hub does not issue refresh tokens, perform provider logout, or support step-up authentication.
+
+## HTTP boundary
+
+`POST /api/auth/github/start` begins normal sign-in. `POST /api/auth/github/admin-enrollment/start` verifies the reusable bootstrap secret before beginning administrator enrollment. `GET /api/auth/github/callback` consumes GitHub's callback and redirects with a generic success or denial result.
+
+Start and sign-out requests require the exact configured application origin. Authentication routes use database-backed per-address-digest rate limits, disable response storage, and omit query, form, and cookie payloads from request completion logs. Callback rate limiting runs before callback parsing.
 
 Consumed attempts remain available as short-lived protocol state for ten minutes after consumption so a trusted same-request consumer can reread them. Cleanup removes expired unconsumed attempts and consumed attempts after that fixed retention window; this is not authentication history.
 
@@ -20,4 +44,4 @@ GitHub configuration is explicit and revisioned. Only the public github.com auth
 
 ## Not implemented
 
-This layer does not expose a sign-in route or create product authority.
+Hub does not provide invitations, member administration, recovery secrets, setup-only bootstrap consumption, provider assignment synchronization, repository admission, refresh tokens, or provider logout.

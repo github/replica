@@ -1,0 +1,71 @@
+import { randomUUID } from "node:crypto"
+import type { RequestHandler } from "express"
+import { z } from "zod"
+
+import { AdmissionDeniedError } from "../../../../domains/admission/errors.ts"
+import { AuthenticationProofError } from "../../../../domains/authentication/errors.ts"
+import { clearAuthenticationCookie } from "../../../../integrations/express/clear-authentication-cookie/index.ts"
+import { createAuthenticationCookie } from "../../../../integrations/express/create-authentication-cookie/index.ts"
+import { readCookie } from "../../../../integrations/express/read-cookie/index.ts"
+import { createOpaqueValue } from "../../../../utils/authentication/create-opaque-value/index.ts"
+import { hashAuthenticationValue } from "../../../../utils/authentication/hash-authentication-value/index.ts"
+import { browserCookieName } from "../start/index.ts"
+import type { AuthenticationRouteRuntime } from "../types.ts"
+
+const querySchema = z
+  .object({
+    code: z.string().min(1).max(1_000),
+    state: z.string().min(32).max(200),
+  })
+  .strict()
+const sessionCookieName = "hub_session"
+
+export function callback(runtime: AuthenticationRouteRuntime): RequestHandler {
+  return async (request, response, next) => {
+    const query = querySchema.safeParse(request.query)
+    const browserBinding = readCookie(request, browserCookieName)
+    if (!query.success || !browserBinding) {
+      response.setHeader(
+        "Set-Cookie",
+        clearAuthenticationCookie(browserCookieName, runtime.secureCookie),
+      )
+      response.redirect(303, "/?authentication=denied")
+      return
+    }
+    try {
+      const completed = await runtime.complete({
+        browserBinding,
+        code: query.data.code,
+        state: query.data.state,
+      })
+      const sessionValue = createOpaqueValue()
+      const admitted = await runtime.admit({
+        proof: completed.proof,
+        sessionDigest: hashAuthenticationValue(sessionValue),
+        sessionId: randomUUID(),
+      })
+      response.setHeader("Set-Cookie", [
+        clearAuthenticationCookie(browserCookieName, runtime.secureCookie),
+        createAuthenticationCookie({
+          expiresAt: admitted.expiresAt,
+          name: sessionCookieName,
+          secure: runtime.secureCookie,
+          value: sessionValue,
+        }),
+      ])
+      response.redirect(303, "/?authentication=success")
+    } catch (error) {
+      if (error instanceof AdmissionDeniedError || error instanceof AuthenticationProofError) {
+        response.setHeader("Set-Cookie", [
+          clearAuthenticationCookie(browserCookieName, runtime.secureCookie),
+          clearAuthenticationCookie(sessionCookieName, runtime.secureCookie),
+        ])
+        response.redirect(303, "/?authentication=denied")
+        return
+      }
+      next(error)
+    }
+  }
+}
+
+export { sessionCookieName }

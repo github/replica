@@ -29,7 +29,7 @@ async function createProviderAggregate(key: string, digest = "a".repeat(64)) {
 }
 
 describe("identity foundation migration", () => {
-  it("deploys C1 followed by the C2 authentication proof migration", async () => {
+  it("deploys the identity, proof, admission, and session migrations", async () => {
     const migrations = await prisma.$queryRaw<Array<{ migration_name: string }>>`
       SELECT migration_name
       FROM public._prisma_migrations
@@ -48,13 +48,19 @@ describe("identity foundation migration", () => {
     expect(migrations).toEqual([
       { migration_name: "20261029203000_identity_foundation" },
       { migration_name: "20261030170000_authentication_proof" },
+      { migration_name: "20261102130000_hub_admission_sessions" },
     ])
     expect(tables).toEqual([
       { table_name: "authentication_provider_revisions" },
       { table_name: "authentication_providers" },
+      { table_name: "authentication_rate_limits" },
       { table_name: "authorization_attempts" },
       { table_name: "external_identities" },
+      { table_name: "hub_sessions" },
+      { table_name: "membership_assignments" },
+      { table_name: "memberships" },
       { table_name: "security_audits" },
+      { table_name: "session_revocation_states" },
       { table_name: "users" },
     ])
     const revisionColumns = await prisma.$queryRaw<Array<{ column_name: string }>>`
@@ -83,6 +89,7 @@ describe("identity foundation migration", () => {
       stateDigest: "a".repeat(64),
       browserBindingDigest: "b".repeat(64),
       codeVerifierCiphertext: "encrypted",
+      purpose: "SIGN_IN" as const,
       expiresAt: new Date(createdAt.getTime() + 60_000),
     }
     await prisma.authorizationAttempt.create({ data: attempt })
@@ -133,6 +140,58 @@ describe("identity foundation migration", () => {
         data: { stateDigest: "f".repeat(64) },
       }),
     ).rejects.toThrow("first consumption")
+  })
+
+  it("uses the transaction timestamp when deleting expired authorization attempts", async () => {
+    const { revisionId } = await createProviderAggregate("github")
+    const attemptId = randomUUID()
+
+    await expect(
+      prisma.$transaction(async (transaction) => {
+        const cutoffRows = await transaction.$queryRaw<Array<{ cutoff: Date }>>`
+          SELECT CURRENT_TIMESTAMP AS cutoff
+        `
+        const cutoff = cutoffRows[0]?.cutoff
+        if (!cutoff) throw new Error("Expected a transaction timestamp.")
+        const createdAt = new Date(cutoff.getTime() - 1_000)
+        const expiresAt = new Date(cutoff.getTime() + 1)
+
+        await prisma.authorizationAttempt.create({
+          data: {
+            id: attemptId,
+            providerRevisionId: revisionId,
+            stateDigest: "c".repeat(64),
+            browserBindingDigest: "d".repeat(64),
+            codeVerifierCiphertext: "encrypted",
+            purpose: "SIGN_IN",
+            expiresAt,
+            createdAt,
+            updatedAt: createdAt,
+          },
+        })
+        const wallClockRows = await transaction.$queryRaw<
+          Array<{ pastWallClockDeadline: boolean }>
+        >`
+          SELECT clock_timestamp() > ${expiresAt} AS "pastWallClockDeadline"
+        `
+        const pastWallClockDeadline = wallClockRows[0]?.pastWallClockDeadline
+        if (pastWallClockDeadline === undefined) {
+          throw new Error("Expected a wall-clock deadline comparison.")
+        }
+        expect(pastWallClockDeadline).toBe(true)
+
+        await deleteExpiredAuthorizationAttempts(transaction)
+
+        await expect(
+          transaction.authorizationAttempt.findUnique({ where: { id: attemptId } }),
+        ).resolves.toMatchObject({ id: attemptId })
+      }),
+    ).resolves.toBeUndefined()
+
+    await deleteExpiredAuthorizationAttempts(prisma)
+    await expect(
+      prisma.authorizationAttempt.findUnique({ where: { id: attemptId } }),
+    ).resolves.toBeNull()
   })
 
   it("keeps the identity tuple unique and rejects every identity history change", async () => {

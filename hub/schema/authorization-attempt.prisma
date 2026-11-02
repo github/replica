@@ -7,6 +7,7 @@ model AuthorizationAttempt {
   providerRevision AuthenticationProviderRevision @relation(fields: [providerRevisionId], references: [id], onDelete: Restrict)
 
   // Attribute columns
+  purpose                AuthorizationAttemptPurpose
   stateDigest            String    @unique @map("state_digest") @db.VarChar(64)
   browserBindingDigest   String    @map("browser_binding_digest") @db.VarChar(64)
   codeVerifierCiphertext String    @map("code_verifier_ciphertext") @db.VarChar(500)

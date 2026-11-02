@@ -20,6 +20,55 @@ export interface AuthenticationAttemptDeniedAudit extends SecurityAuditEvent {
     | "verification_state_invalid"
 }
 
+export interface BootstrapAttemptDeniedAudit extends SecurityAuditEvent {
+  type: "bootstrap_attempt_denied"
+  reason: "invalid_secret" | "rate_limited"
+}
+
+export interface MembershipAssignmentCreatedAudit extends SecurityAuditEvent {
+  type: "membership_assignment_created"
+  membershipId: string
+  source: "bootstrap"
+  role: "administrator"
+}
+
+export interface MembershipAssignmentRestoredAudit extends SecurityAuditEvent {
+  type: "membership_assignment_restored"
+  membershipId: string
+  source: "bootstrap"
+  role: "administrator"
+}
+
+export interface SessionCreatedAudit extends SecurityAuditEvent {
+  type: "session_created"
+  sessionId: string
+  membershipId: string
+}
+
+export interface SessionRestoredAudit extends SecurityAuditEvent {
+  type: "session_restored"
+  sessionId: string
+  membershipId: string
+}
+
+export interface SessionEndedAudit extends SecurityAuditEvent {
+  type: "session_ended"
+  sessionId: string
+  membershipId: string
+}
+
+export interface AdmissionDeniedAudit extends SecurityAuditEvent {
+  type: "admission_denied"
+  externalIdentityId: string
+  reason:
+    | "attempt_mismatch"
+    | "configuration_changed"
+    | "identity_mismatch"
+    | "membership_inactive"
+    | "membership_missing"
+    | "provider_revoked"
+}
+
 export interface ExternalIdentityCreatedAudit extends SecurityAuditEvent {
   type: "external_identity_created"
   externalIdentityId: string
@@ -63,6 +112,13 @@ export interface ProviderRevisionPersistFailedAudit extends SecurityAuditEvent {
 
 export type CreateSecurityAuditEvent =
   | AuthenticationAttemptDeniedAudit
+  | BootstrapAttemptDeniedAudit
+  | MembershipAssignmentCreatedAudit
+  | MembershipAssignmentRestoredAudit
+  | SessionCreatedAudit
+  | SessionRestoredAudit
+  | SessionEndedAudit
+  | AdmissionDeniedAudit
   | ExternalIdentityCreatedAudit
   | ExternalIdentityCreateFailedAudit
   | ProviderRevisionValidationFailedAudit

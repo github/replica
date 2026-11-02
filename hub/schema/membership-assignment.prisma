@@ -1,0 +1,26 @@
+model MembershipAssignment {
+  // ID columns
+  id                 String  @id @default(uuid()) @db.Uuid
+  membershipId       String  @map("membership_id") @db.Uuid
+  externalIdentityId String? @map("external_identity_id") @db.Uuid
+  providerId         String? @map("provider_id") @db.Uuid
+
+  // Relations
+  membership       Membership             @relation(fields: [membershipId], references: [id], onDelete: Restrict)
+  externalIdentity ExternalIdentity?      @relation(fields: [externalIdentityId], references: [id], onDelete: Restrict)
+  provider         AuthenticationProvider? @relation(fields: [providerId], references: [id], onDelete: Restrict)
+
+  // Attribute columns
+  source    MembershipAssignmentSource
+  role      MembershipRole
+  lifecycle MembershipAssignmentLifecycle @default(ACTIVE)
+
+  // Timestamp columns
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([membershipId, source, role])
+  @@index([externalIdentityId])
+  @@index([providerId])
+  @@map("membership_assignments")
+}

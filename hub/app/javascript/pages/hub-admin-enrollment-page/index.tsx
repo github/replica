@@ -1,5 +1,6 @@
 import { Button, FormControl, TextInput } from "@primer/react-brand"
 
+import { HubAlert } from "@components/hub-alert"
 import { GithubAppSetupHeader } from "@features/github-app-setup-header"
 import { GithubAppSetupPage } from "@features/github-app-setup-page"
 
@@ -11,8 +12,8 @@ export function HubAdminEnrollmentPage({ data }: { data: HubAdminEnrollmentPageD
   return (
     <GithubAppSetupPage>
       <GithubAppSetupHeader data={data} />
+      {data.alert ? <HubAlert title={data.alert} variant="warning" /> : null}
       <form action={data.submitPath} method="post" className="operator-enrollment__form">
-        <input type="hidden" name="authenticity_token" value={data.authenticityToken} />
         <FormControl required>
           <FormControl.Label>{data.secretLabel}</FormControl.Label>
           <TextInput
