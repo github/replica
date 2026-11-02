@@ -9,10 +9,20 @@ describe("startAuthenticationProof()", () => {
       Promise.resolve({ expiresAt: new Date("2026-10-30T16:10:00Z") }),
     )
     const createAuthorizationUrl = vi.fn(
-      ({ codeChallenge, state }: { codeChallenge: string; state: string }) =>
-        new URL(`https://provider.test/authorize?state=${state}&challenge=${codeChallenge}`),
+      ({ codeChallenge, state }: { codeChallenge: string; state: string }) => {
+        const url = new URL("https://provider.test/authorize")
+        url.search = new URLSearchParams({
+          state,
+          code_challenge: codeChallenge,
+          code_challenge_method: "S256",
+        }).toString()
+        return url
+      },
     )
     const opaqueValues = ["state-secret", "browser-secret", "verifier-secret"][Symbol.iterator]()
+    const encryptCodeVerifier = vi.fn(
+      (value: string) => `encrypted:${createHash("sha256").update(value).digest("hex")}`,
+    )
 
     const result = await startAuthenticationProof(
       {},
@@ -29,7 +39,7 @@ describe("startAuthenticationProof()", () => {
         createId: () => "00000000-0000-4000-8000-000000000010",
         createOpaqueValue: () => opaqueValues.next().value!,
         deleteExpiredArtifacts: vi.fn(),
-        encryptCodeVerifier: (value) => `encrypted:${value.length}`,
+        encryptCodeVerifier,
         getSelectedProviderRevision: () =>
           Promise.resolve({
             id: "00000000-0000-4000-8000-000000000011",
@@ -40,15 +50,32 @@ describe("startAuthenticationProof()", () => {
       },
     )
 
+    const expectedChallenge = createHash("sha256").update("verifier-secret").digest("base64url")
+    const expectedCiphertext = `encrypted:${createHash("sha256")
+      .update("verifier-secret")
+      .digest("hex")}`
     expect(result.browserBinding).toBe("browser-secret")
+    expect(createAuthorizationUrl).toHaveBeenCalledOnce()
+    expect(createAuthorizationUrl).toHaveBeenCalledWith({
+      callbackUri: "https://hub.test/callback",
+      codeChallenge: expectedChallenge,
+      state: "state-secret",
+    })
+    const authorizationUrl = new URL(result.authorizationUrl)
+    expect(authorizationUrl.searchParams.get("state")).toBe("state-secret")
+    expect(authorizationUrl.searchParams.get("code_challenge")).toBe(expectedChallenge)
+    expect(authorizationUrl.searchParams.get("code_challenge")).not.toBe("verifier-secret")
+    expect(authorizationUrl.searchParams.get("code_challenge_method")).toBe("S256")
     expect(createAttempt).toHaveBeenCalledWith({
       id: "00000000-0000-4000-8000-000000000010",
       providerRevisionId: "00000000-0000-4000-8000-000000000011",
       stateDigest: createHash("sha256").update("state-secret").digest("hex"),
       browserBindingDigest: createHash("sha256").update("browser-secret").digest("hex"),
-      codeVerifierCiphertext: "encrypted:15",
+      codeVerifierCiphertext: expectedCiphertext,
       lifetimeSeconds: 600,
     })
+    expect(encryptCodeVerifier).toHaveBeenCalledOnce()
+    expect(encryptCodeVerifier).toHaveBeenCalledWith("verifier-secret")
     expect(JSON.stringify(createAttempt.mock.calls)).not.toMatch(
       /state-secret|browser-secret|verifier-secret/,
     )

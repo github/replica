@@ -56,20 +56,33 @@ export async function completeAuthenticationProof(
     throw error
   }
 
+  let codeVerifier
+  try {
+    codeVerifier = dependencies.decryptCodeVerifier(attempt.codeVerifierCiphertext)
+  } catch {
+    const error = new AuthenticationProofError(
+      "verification_state_invalid",
+      "The authentication attempt contains invalid verification state.",
+    )
+    await recordAuthenticationDenial(error, () =>
+      dependencies.writeDenialAudit("verification_state_invalid"),
+    )
+    throw error
+  }
+
   let evidence
   try {
     evidence = parseImmutableIdentityEvidence(
       await dependencies.adapter.completeAuthenticationProof({
         callbackUri: dependencies.callbackUri,
         code: parsed.code,
-        codeVerifier: dependencies.decryptCodeVerifier(attempt.codeVerifierCiphertext),
+        codeVerifier,
       }),
     )
-  } catch (error) {
+  } catch {
     const primaryError = new AuthenticationProofError(
       "provider_failed",
       "The authentication provider could not prove the external identity.",
-      { cause: error },
     )
     await recordAuthenticationDenial(primaryError, () =>
       dependencies.writeDenialAudit("provider_failed"),

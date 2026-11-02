@@ -27,4 +27,15 @@ describe("parseSecurityAuditEvent()", () => {
       }),
     ).toThrow()
   })
+
+  it("accepts verification-state denial as a bounded authentication audit reason", () => {
+    const event = {
+      id: "5dd31031-6f1c-4c16-87c2-aee5342145cc",
+      type: "authentication_attempt_denied",
+      provider: "github",
+      reason: "verification_state_invalid",
+    }
+
+    expect(parseSecurityAuditEvent(event)).toEqual(event)
+  })
 })

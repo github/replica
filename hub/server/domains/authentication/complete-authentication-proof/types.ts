@@ -24,7 +24,11 @@ export interface CompleteAuthenticationProofDependencies {
     subject: string
   }): Promise<{ externalIdentityId: string; userId: string }>
   writeDenialAudit(
-    reason: "configuration_changed" | "invalid_or_expired" | "provider_failed",
+    reason:
+      | "configuration_changed"
+      | "invalid_or_expired"
+      | "provider_failed"
+      | "verification_state_invalid",
   ): Promise<unknown>
 }
 

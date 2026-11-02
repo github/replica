@@ -57,6 +57,94 @@ describe("authentication proof database boundaries", () => {
     ).resolves.toBeNull()
   })
 
+  it("does not consume attempts expired at or before the database clock", async () => {
+    const providerId = randomUUID()
+    const providerRevisionId = randomUUID()
+    const expiredAttemptId = randomUUID()
+    const boundaryAttemptId = randomUUID()
+    const browserBindingDigest = "b".repeat(64)
+    const expiredStateDigest = "c".repeat(64)
+    const boundaryStateDigest = "d".repeat(64)
+    await prisma.$transaction(async (transaction) => {
+      await transaction.authenticationProvider.create({
+        data: { id: providerId, key: "github" },
+      })
+      await transaction.authenticationProviderRevision.create({
+        data: {
+          id: providerRevisionId,
+          providerId,
+          revision: 1,
+          configurationDigest: "a".repeat(64),
+        },
+      })
+      await transaction.authenticationProvider.update({
+        where: { id: providerId },
+        data: { selectedRevisionId: providerRevisionId },
+      })
+      await transaction.$executeRaw`
+        INSERT INTO "authorization_attempts" (
+          "id",
+          "provider_revision_id",
+          "state_digest",
+          "browser_binding_digest",
+          "code_verifier_ciphertext",
+          "expires_at",
+          "created_at",
+          "updated_at"
+        ) VALUES (
+          ${expiredAttemptId}::uuid,
+          ${providerRevisionId}::uuid,
+          ${expiredStateDigest},
+          ${browserBindingDigest},
+          'encrypted-verifier',
+          clock_timestamp() - interval '1 second',
+          clock_timestamp() - interval '2 minutes',
+          clock_timestamp() - interval '2 minutes'
+        )
+      `
+      await transaction.$executeRaw`
+        INSERT INTO "authorization_attempts" (
+          "id",
+          "provider_revision_id",
+          "state_digest",
+          "browser_binding_digest",
+          "code_verifier_ciphertext",
+          "expires_at",
+          "created_at",
+          "updated_at"
+        ) VALUES (
+          ${boundaryAttemptId}::uuid,
+          ${providerRevisionId}::uuid,
+          ${boundaryStateDigest},
+          ${browserBindingDigest},
+          'encrypted-verifier',
+          clock_timestamp(),
+          clock_timestamp() - interval '2 minutes',
+          clock_timestamp() - interval '2 minutes'
+        )
+      `
+    })
+
+    await expect(
+      consumeAuthorizationAttempt(prisma, {
+        stateDigest: expiredStateDigest,
+        browserBindingDigest,
+      }),
+    ).resolves.toBeNull()
+    await expect(
+      consumeAuthorizationAttempt(prisma, {
+        stateDigest: boundaryStateDigest,
+        browserBindingDigest,
+      }),
+    ).resolves.toBeNull()
+    await expect(
+      prisma.authorizationAttempt.findMany({
+        where: { id: { in: [expiredAttemptId, boundaryAttemptId] } },
+        select: { consumedAt: true },
+      }),
+    ).resolves.toEqual([{ consumedAt: null }, { consumedAt: null }])
+  })
+
   it("adds only the authorization-attempt proof table", async () => {
     const tables = await prisma.$queryRaw<Array<{ table_name: string }>>`
       SELECT table_name

@@ -113,6 +113,21 @@ describe("createGitHubUserAuthenticationAdapter()", () => {
     ).toThrow("callback URI")
   })
 
+  it.each(["authorizationEndpoint", "tokenEndpoint", "userEndpoint"] as const)(
+    "rejects a schema-valid unapproved %s",
+    (endpoint) => {
+      expect(() =>
+        createGitHubUserAuthenticationAdapter({
+          clientSecret: "secret",
+          publicConfiguration: {
+            ...publicConfiguration,
+            [endpoint]: `https://github.example.test/${endpoint}`,
+          },
+        }),
+      ).toThrow("GitHub authentication endpoints must use the approved github.com instance.")
+    },
+  )
+
   it.each(["token exchange", "current user"] as const)(
     "bounds a stalled %s request with a typed provider failure",
     async (stage) => {

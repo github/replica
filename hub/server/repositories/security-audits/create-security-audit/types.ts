@@ -13,7 +13,11 @@ interface SecurityAuditEvent {
 export interface AuthenticationAttemptDeniedAudit extends SecurityAuditEvent {
   type: "authentication_attempt_denied"
   provider: string
-  reason: "configuration_changed" | "invalid_or_expired" | "provider_failed"
+  reason:
+    | "configuration_changed"
+    | "invalid_or_expired"
+    | "provider_failed"
+    | "verification_state_invalid"
 }
 
 export interface ExternalIdentityCreatedAudit extends SecurityAuditEvent {
