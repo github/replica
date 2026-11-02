@@ -16,12 +16,6 @@ function dependencies() {
       provider: "github",
       issuer: "https://github.com",
       subject: "123",
-      attributes: {
-        name: null,
-        avatarUrl: null,
-        email: null,
-        preferredUsername: "octocat",
-      },
     }),
   )
   const consumeAttempt = vi.fn<CompleteAuthenticationProofDependencies["consumeAttempt"]>(() =>
@@ -89,12 +83,6 @@ describe("completeAuthenticationProof()", () => {
         provider: "github",
         issuer: "https://github.com",
         subject: "123",
-        attributes: {
-          preferredUsername: "octocat",
-          name: null,
-          avatarUrl: null,
-          email: null,
-        },
       })
     })
 

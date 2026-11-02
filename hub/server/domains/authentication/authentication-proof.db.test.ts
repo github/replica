@@ -33,7 +33,6 @@ describe("authentication proof database boundaries", () => {
       browserBindingDigest: "b".repeat(64),
       codeChallenge: "c".repeat(43),
       codeVerifierCiphertext: "encrypted-verifier",
-      requestIpDigest: "d".repeat(64),
       lifetimeSeconds: 600,
     }
     const { expiresAt } = await createAuthorizationAttempt(prisma, input)

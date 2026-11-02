@@ -84,7 +84,6 @@ describe("identity foundation migration", () => {
       browserBindingDigest: "b".repeat(64),
       codeChallenge: "c".repeat(43),
       codeVerifierCiphertext: "encrypted",
-      requestIpDigest: "d".repeat(64),
       expiresAt: new Date(createdAt.getTime() + 60_000),
     }
     await prisma.authorizationAttempt.create({ data: attempt })

@@ -65,6 +65,25 @@ describe("authentication proof migration", () => {
            ORDER BY table_name`,
         )
         expect(c2Tables.rows).toEqual([{ table_name: "authorization_attempts" }])
+        const attemptColumns = await database.query<{ column_name: string }>(
+          `SELECT column_name
+           FROM information_schema.columns
+           WHERE table_schema = 'public'
+             AND table_name = 'authorization_attempts'
+           ORDER BY ordinal_position`,
+        )
+        expect(attemptColumns.rows.map(({ column_name }) => column_name)).toEqual([
+          "id",
+          "provider_revision_id",
+          "state_digest",
+          "browser_binding_digest",
+          "code_challenge",
+          "code_verifier_ciphertext",
+          "expires_at",
+          "consumed_at",
+          "created_at",
+          "updated_at",
+        ])
 
         const providerId = "00000000-0000-4000-8000-000000000010"
         const revisionId = "00000000-0000-4000-8000-000000000011"
@@ -90,17 +109,17 @@ describe("authentication proof migration", () => {
           database.query(
             `INSERT INTO authorization_attempts
                (id, provider_revision_id, state_digest, browser_binding_digest,
-                code_challenge, code_verifier_ciphertext, request_ip_digest, expires_at)
-             VALUES ($1, $2, 'bad', $3, $4, 'encrypted', $5, CURRENT_TIMESTAMP + interval '1 minute')`,
-            [attemptId, revisionId, "b".repeat(64), "c".repeat(43), "d".repeat(64)],
+                code_challenge, code_verifier_ciphertext, expires_at)
+             VALUES ($1, $2, 'bad', $3, $4, 'encrypted', CURRENT_TIMESTAMP + interval '1 minute')`,
+            [attemptId, revisionId, "b".repeat(64), "c".repeat(43)],
           ),
         ).rejects.toThrow()
         await database.query(
           `INSERT INTO authorization_attempts
              (id, provider_revision_id, state_digest, browser_binding_digest,
-              code_challenge, code_verifier_ciphertext, request_ip_digest, expires_at)
-           VALUES ($1, $2, $3, $4, $5, 'encrypted', $6, CURRENT_TIMESTAMP + interval '1 minute')`,
-          [attemptId, revisionId, "a".repeat(64), "b".repeat(64), "c".repeat(43), "d".repeat(64)],
+              code_challenge, code_verifier_ciphertext, expires_at)
+           VALUES ($1, $2, $3, $4, $5, 'encrypted', CURRENT_TIMESTAMP + interval '1 minute')`,
+          [attemptId, revisionId, "a".repeat(64), "b".repeat(64), "c".repeat(43)],
         )
         await expect(
           database.query(`DELETE FROM authorization_attempts WHERE id = $1`, [attemptId]),

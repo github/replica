@@ -62,12 +62,6 @@ describe("createGitHubUserAuthenticationAdapter()", () => {
       provider: "github",
       issuer: "https://github.com",
       subject: "123456",
-      attributes: {
-        preferredUsername: "octocat",
-        name: "The Octocat",
-        avatarUrl: "https://avatars.example.test/octocat",
-        email: "octocat@example.test",
-      },
     })
     const tokenRequest = request.mock.calls[0]!
     expect(tokenRequest[0]).toBe(publicConfiguration.tokenEndpoint)

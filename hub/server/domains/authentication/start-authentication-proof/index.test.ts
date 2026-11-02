@@ -15,7 +15,7 @@ describe("startAuthenticationProof()", () => {
     const opaqueValues = ["state-secret", "browser-secret", "verifier-secret"][Symbol.iterator]()
 
     const result = await startAuthenticationProof(
-      { requestIpDigest: createHash("sha256").update("192.0.2.10").digest("hex") },
+      {},
       {
         adapter: {
           providerKey: "github",
@@ -46,7 +46,6 @@ describe("startAuthenticationProof()", () => {
       providerRevisionId: "00000000-0000-4000-8000-000000000011",
       stateDigest: createHash("sha256").update("state-secret").digest("hex"),
       browserBindingDigest: createHash("sha256").update("browser-secret").digest("hex"),
-      requestIpDigest: createHash("sha256").update("192.0.2.10").digest("hex"),
       codeChallenge: createHash("sha256").update("verifier-secret").digest("base64url"),
       codeVerifierCiphertext: "encrypted:15",
       lifetimeSeconds: 600,
@@ -82,12 +81,9 @@ describe("startAuthenticationProof()", () => {
       writeDenialAudit: vi.fn(),
     }
 
-    await expect(
-      startAuthenticationProof(
-        { requestIpDigest: createHash("sha256").update("192.0.2.10").digest("hex") },
-        dependencies,
-      ),
-    ).rejects.toMatchObject({ code: "configuration_changed" })
+    await expect(startAuthenticationProof({}, dependencies)).rejects.toMatchObject({
+      code: "configuration_changed",
+    })
     expect(createAttempt).not.toHaveBeenCalled()
   })
 
@@ -96,7 +92,7 @@ describe("startAuthenticationProof()", () => {
     const auditFailure = new Error("audit unavailable")
 
     const error = await startAuthenticationProof(
-      { requestIpDigest: "a".repeat(64) },
+      {},
       {
         adapter: {
           providerKey: "github",
