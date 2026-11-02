@@ -16,8 +16,8 @@ export interface GitHubUserIdentityEvidence {
   attributes: {
     avatarUrl: string | null
     email: string | null
-    login: string
     name: string | null
+    preferredUsername: string | null
   }
   issuer: string
   provider: string

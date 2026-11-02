@@ -120,8 +120,8 @@ export function createGitHubUserAuthenticationAdapter(
         attributes: {
           avatarUrl: user.avatar_url,
           email: user.email,
-          login: user.login,
           name: user.name,
+          preferredUsername: user.login,
         },
       }
     },

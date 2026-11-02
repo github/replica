@@ -38,7 +38,7 @@ npm run dev
 
 Open <http://127.0.0.1:5173>. Vite serves the frontend and forwards `/api` requests to Express at <http://127.0.0.1:3001>. `GET /api/health` returns JSON. The internal proof primitives described in [Authentication proof](authentication.md) are composed only by tests and future complete callback orchestration.
 
-To enable the GitHub proof flow, copy the commented authentication settings from `.env.example`, register the exact callback URI in a GitHub OAuth App, and generate the local encryption key with `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"`. Keep the client secret and encryption key out of source control. Use insecure cookies only for loopback HTTP development. Both servers accept connections only from this machine. Stop each with Ctrl+C.
+The commented GitHub settings in `.env.example` document the configuration that future C3 callback composition will require. Setting them does not enable a public flow in the current API. Keep the client secret and encryption key out of source control. Both servers accept connections only from this machine. Stop each with Ctrl+C.
 
 Vite also forwards WebSocket upgrades under `/api`. The `/api/realtime` endpoint rejects connections until application access checks are connected; see [WebSocket updates](websockets.md). Stopping the API closes its WebSocket connections as well.
 

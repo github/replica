@@ -1,19 +1,25 @@
-export interface PublicIdentityAttributes {
+export interface IdentityPresentationAttributes {
   avatarUrl: string | null
   email: string | null
-  login: string
   name: string | null
+  preferredUsername: string | null
 }
 
 export interface ImmutableIdentityEvidence {
-  attributes: PublicIdentityAttributes
+  attributes: IdentityPresentationAttributes
   issuer: string
   provider: string
   subject: string
 }
 
+/**
+ * Internal same-request proof for C3 admission/session orchestration.
+ * C3 must not accept this shape from HTTP input. Its transaction locks provider selection,
+ * then revocation generation, rechecks both references, verifies the immutable identity tuple,
+ * evaluates admission, and writes the session plus final success audit atomically.
+ */
 export interface AuthenticationProofResult {
-  attributes: PublicIdentityAttributes
+  attributes: IdentityPresentationAttributes
   expectedRevocationGeneration: bigint
   externalIdentityId: string
   issuer: string
@@ -30,7 +36,7 @@ export interface AuthenticationProviderAdapter {
     callbackUri: string
     code: string
     codeVerifier: string
-  }): Promise<ImmutableIdentityEvidence>
+  }): Promise<unknown>
 }
 
 export interface GitHubAuthenticationServices {

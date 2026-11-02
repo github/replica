@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
 import type { CompleteAuthenticationProofDependencies } from "./types"
-import type { AuthenticationProofResult } from "../types"
+import type { AuthenticationProofResult, AuthenticationProviderAdapter } from "../types"
 import { completeAuthenticationProof } from "."
 
 const revision = {
@@ -11,6 +11,19 @@ const revision = {
 }
 
 function dependencies() {
+  const completeProvider = vi.fn<AuthenticationProviderAdapter["completeAuthenticationProof"]>(() =>
+    Promise.resolve({
+      provider: "github",
+      issuer: "https://github.com",
+      subject: "123",
+      attributes: {
+        name: null,
+        avatarUrl: null,
+        email: null,
+        preferredUsername: "octocat",
+      },
+    }),
+  )
   const consumeAttempt = vi.fn<CompleteAuthenticationProofDependencies["consumeAttempt"]>(() =>
     Promise.resolve({
       providerRevisionId: revision.id,
@@ -21,19 +34,7 @@ function dependencies() {
     adapter: {
       providerKey: "github",
       createAuthorizationUrl: vi.fn(),
-      completeAuthenticationProof: vi.fn(() =>
-        Promise.resolve({
-          provider: "github",
-          issuer: "https://github.com",
-          subject: "123",
-          attributes: {
-            login: "octocat",
-            name: null,
-            avatarUrl: null,
-            email: null,
-          },
-        }),
-      ),
+      completeAuthenticationProof: completeProvider,
     },
     callbackUri: "https://hub.example.test/api/auth/github/callback",
     consumeAttempt,
@@ -65,10 +66,10 @@ describe("completeAuthenticationProof()", () => {
 
     expect(result.proof).toEqual<AuthenticationProofResult>({
       attributes: {
-        login: "octocat",
         name: null,
         avatarUrl: null,
         email: null,
+        preferredUsername: "octocat",
       },
       expectedRevocationGeneration: 7n,
       externalIdentityId: "00000000-0000-4000-8000-000000000012",
@@ -98,7 +99,12 @@ describe("completeAuthenticationProof()", () => {
         provider: "github",
         issuer: "https://github.com",
         subject: "123",
-        attributes: { login: "octocat", name: null, avatarUrl: null, email: null },
+        attributes: {
+          preferredUsername: "octocat",
+          name: null,
+          avatarUrl: null,
+          email: null,
+        },
       })
     })
 
@@ -167,6 +173,37 @@ describe("completeAuthenticationProof()", () => {
       identity: "00000000-0000-4000-8000-000000000012",
       providerRevision: revision.id,
       revocationGeneration: 7n,
+    })
+  })
+
+  it("accepts OIDC-like proof with no presentation attributes", async () => {
+    const scoped = dependencies()
+    scoped.adapter.providerKey = "oidc"
+    scoped.adapter.completeAuthenticationProof.mockResolvedValueOnce({
+      provider: "oidc",
+      issuer: "https://id.example.test",
+      subject: "person-456",
+    })
+
+    const result = await completeAuthenticationProof(
+      {
+        browserBinding: "browser-binding-value-with-required-length",
+        code: "authorization-code",
+        state: "state-value-with-the-required-minimum-length",
+      },
+      scoped,
+    )
+
+    expect(result.proof).toMatchObject({
+      providerKey: "oidc",
+      issuer: "https://id.example.test",
+      subject: "person-456",
+      attributes: {
+        avatarUrl: null,
+        email: null,
+        name: null,
+        preferredUsername: null,
+      },
     })
   })
 })

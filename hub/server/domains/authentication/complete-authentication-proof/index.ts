@@ -2,6 +2,7 @@ import { z } from "zod"
 
 import { hashAuthenticationValue } from "../../../utils/authentication/hash-authentication-value/index.ts"
 import { AuthenticationProofError } from "../errors.ts"
+import { parseImmutableIdentityEvidence } from "../parse-immutable-identity-evidence/index.ts"
 import { recordAuthenticationDenial } from "../record-authentication-denial/index.ts"
 import type {
   CompleteAuthenticationProofDependencies,
@@ -57,11 +58,13 @@ export async function completeAuthenticationProof(
 
   let evidence
   try {
-    evidence = await dependencies.adapter.completeAuthenticationProof({
-      callbackUri: dependencies.callbackUri,
-      code: parsed.code,
-      codeVerifier: dependencies.decryptCodeVerifier(attempt.codeVerifierCiphertext),
-    })
+    evidence = parseImmutableIdentityEvidence(
+      await dependencies.adapter.completeAuthenticationProof({
+        callbackUri: dependencies.callbackUri,
+        code: parsed.code,
+        codeVerifier: dependencies.decryptCodeVerifier(attempt.codeVerifierCiphertext),
+      }),
+    )
   } catch (error) {
     const primaryError = new AuthenticationProofError(
       "provider_failed",

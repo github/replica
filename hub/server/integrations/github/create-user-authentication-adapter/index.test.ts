@@ -63,7 +63,7 @@ describe("createGitHubUserAuthenticationAdapter()", () => {
       issuer: "https://github.com",
       subject: "123456",
       attributes: {
-        login: "octocat",
+        preferredUsername: "octocat",
         name: "The Octocat",
         avatarUrl: "https://avatars.example.test/octocat",
         email: "octocat@example.test",
