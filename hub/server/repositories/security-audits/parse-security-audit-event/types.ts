@@ -12,6 +12,7 @@ import type {
   ProviderRevisionValidationFailedAudit,
   MembershipAssignmentCreatedAudit,
   MembershipAssignmentRestoredAudit,
+  MembershipAssignmentRevokedAudit,
   MembershipCreatedAudit,
   MembershipRestoredAudit,
   SessionCreatedAudit,
@@ -25,6 +26,7 @@ export type ParsedSecurityAuditEvent =
   | BootstrapAttemptDeniedAudit
   | MembershipAssignmentCreatedAudit
   | MembershipAssignmentRestoredAudit
+  | MembershipAssignmentRevokedAudit
   | MembershipCreatedAudit
   | MembershipRestoredAudit
   | SessionCreatedAudit
