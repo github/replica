@@ -4,6 +4,31 @@ import type { Prisma } from "../../../generated/prisma/client"
 import { createSecurityAudit } from "."
 
 describe("createSecurityAudit()", () => {
+  it.each(["secret:workforce", "GitHub.App/V2", "Entra:Tenant", "custom+提供者"])(
+    "stores the exact canonical provider key %s through the typed audit mapping",
+    async (providerKey) => {
+      const create = vi.fn<(input: { data: Prisma.SecurityAuditCreateInput }) => Promise<unknown>>()
+      create.mockResolvedValue(undefined)
+
+      await createSecurityAudit(
+        { securityAudit: { create } },
+        {
+          id: "5dd31031-6f1c-4c16-87c2-aee5342145cc",
+          type: "provider_revision_selected",
+          providerId: "df75faa4-ed4c-44ed-8db0-443cc3b426ed",
+          providerKey,
+          revision: 1,
+        },
+      )
+
+      expect(create).toHaveBeenCalledOnce()
+      expect(create.mock.calls[0]?.[0].data.context).toEqual({
+        provider: providerKey,
+        revision: 1,
+      })
+    },
+  )
+
   it("maps each kernel event to its allowlisted audit record", async () => {
     const create = vi.fn<(input: { data: Prisma.SecurityAuditCreateInput }) => Promise<unknown>>()
     create.mockResolvedValue(undefined)

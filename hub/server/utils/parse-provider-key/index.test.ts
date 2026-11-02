@@ -1,14 +1,18 @@
 import { describe, expect, it } from "vitest"
 
-import { parseProviderKey, providerKeyMaxBytes, providerKeyMaxCharacters } from "."
+import { providerKeyMaxBytes, providerKeyMaxCharacters } from "./constants"
+import { parseProviderKey } from "."
 
 describe("parseProviderKey()", () => {
-  it.each(["GitHub.App/V2", "Entra:Tenant", "custom+adapter@example", "提供者"])(
-    "preserves the opaque case-sensitive key %s",
-    (key) => {
-      expect(parseProviderKey(key)).toBe(key)
-    },
-  )
+  it.each([
+    "secret:workforce",
+    "GitHub.App/V2",
+    "Entra:Tenant",
+    "custom+adapter@example",
+    "提供者",
+  ])("preserves the opaque case-sensitive key %s", (key) => {
+    expect(parseProviderKey(key)).toBe(key)
+  })
 
   it("accepts exact character and UTF-8 byte boundaries", () => {
     expect(parseProviderKey("a".repeat(providerKeyMaxCharacters))).toHaveLength(

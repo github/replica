@@ -1,7 +1,7 @@
 import { z } from "zod"
 
 import { parseProviderKey } from "../../../utils/parse-provider-key/index.ts"
-import type { CreateSecurityAuditEvent } from "../create-security-audit/types.ts"
+import type { ParsedSecurityAuditEvent } from "./types.ts"
 
 const eventSchema = z.discriminatedUnion("type", [
   z
@@ -59,7 +59,7 @@ const eventSchema = z.discriminatedUnion("type", [
     .strict(),
 ])
 
-export function parseSecurityAuditEvent(input: unknown): CreateSecurityAuditEvent {
+export function parseSecurityAuditEvent(input: unknown): ParsedSecurityAuditEvent {
   const event = eventSchema.parse(input)
   switch (event.type) {
     case "external_identity_created":

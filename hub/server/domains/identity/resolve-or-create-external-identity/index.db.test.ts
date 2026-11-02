@@ -52,7 +52,8 @@ function controlledConcurrentTransaction(): IdentityCreationTransaction {
 
 describe("resolveOrCreateExternalIdentity()", () => {
   it("atomically creates a user, immutable external identity, and success audit", async () => {
-    const result = await resolveOrCreateExternalIdentity(tuple, dependencies())
+    const acceptedTuple = { ...tuple, provider: "secret:workforce" }
+    const result = await resolveOrCreateExternalIdentity(acceptedTuple, dependencies())
 
     expect(result.status).toBe("created")
     await expect(prisma.user.findMany()).resolves.toEqual([
@@ -62,7 +63,7 @@ describe("resolveOrCreateExternalIdentity()", () => {
       expect.objectContaining({
         id: result.externalIdentityId,
         userId: result.userId,
-        ...tuple,
+        ...acceptedTuple,
       }),
     ])
     await expect(prisma.securityAudit.findMany()).resolves.toEqual([
@@ -70,7 +71,7 @@ describe("resolveOrCreateExternalIdentity()", () => {
         action: "identity.external.created",
         outcome: "SUCCESS",
         targetId: result.externalIdentityId,
-        context: { provider: tuple.provider, issuer: tuple.issuer },
+        context: { provider: acceptedTuple.provider, issuer: acceptedTuple.issuer },
       }),
     ])
   })
@@ -145,6 +146,7 @@ describe("resolveOrCreateExternalIdentity()", () => {
       { ...tuple, id: randomUUID() },
       { ...tuple, userId: victimUserId },
       { ...tuple, provider: { value: tuple.provider } },
+      { ...tuple, provider: "provider key" },
       new IdentityInput(),
     ]) {
       await expect(resolveOrCreateExternalIdentity(input, dependencies())).rejects.toThrow()
@@ -177,6 +179,7 @@ describe("resolveOrCreateExternalIdentity()", () => {
   })
 
   it("rolls back identity state when the final success audit insert fails", async () => {
+    const acceptedTuple = { ...tuple, provider: "secret:workforce" }
     const rawErrorMarker = "raw-success-audit-error-marker"
     const base = dependencies()
     async function runTransaction<Result>(
@@ -191,7 +194,7 @@ describe("resolveOrCreateExternalIdentity()", () => {
     }
 
     await expect(
-      resolveOrCreateExternalIdentity(tuple, { ...base, runTransaction }),
+      resolveOrCreateExternalIdentity(acceptedTuple, { ...base, runTransaction }),
     ).rejects.toThrow(rawErrorMarker)
     await expect(prisma.user.count()).resolves.toBe(0)
     await expect(prisma.externalIdentity.count()).resolves.toBe(0)
@@ -199,8 +202,8 @@ describe("resolveOrCreateExternalIdentity()", () => {
     expect(audits).toHaveLength(1)
     expect(audits[0]?.action).toBe("identity.external.create_failed")
     expect(audits[0]?.context).toEqual({
-      issuer: tuple.issuer,
-      provider: tuple.provider,
+      issuer: acceptedTuple.issuer,
+      provider: acceptedTuple.provider,
       reason: "transaction_error",
     })
     expect(JSON.stringify(audits)).not.toContain(rawErrorMarker)
