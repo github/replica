@@ -1,0 +1,102 @@
+import { randomUUID } from "node:crypto"
+import { describe, expect, it } from "vitest"
+
+import { prisma } from "../../integrations/prisma"
+import { createSecurityAudit } from "../../repositories/security-audits/create-security-audit"
+import { admitAuthenticationProof } from "./admit-authentication-proof"
+import { AdmissionPersistenceError } from "./errors"
+import { runAdmissionTransaction } from "./run-admission-transaction"
+
+describe("admission success audit rollback", () => {
+  it("rolls back bootstrap state and writes one terminal audit when session success audit fails", async () => {
+    const providerId = randomUUID()
+    const revisionId = randomUUID()
+    const userId = randomUUID()
+    const externalIdentityId = randomUUID()
+    const attemptId = randomUUID()
+    const sessionId = randomUUID()
+    await prisma.$transaction(async (transaction) => {
+      await transaction.authenticationProvider.create({
+        data: { id: providerId, key: "github" },
+      })
+      await transaction.authenticationProviderRevision.create({
+        data: {
+          id: revisionId,
+          providerId,
+          revision: 1,
+          configurationDigest: "a".repeat(64),
+        },
+      })
+      await transaction.authenticationProvider.update({
+        where: { id: providerId },
+        data: { selectedRevisionId: revisionId },
+      })
+      await transaction.user.create({ data: { id: userId } })
+      await transaction.externalIdentity.create({
+        data: {
+          id: externalIdentityId,
+          userId,
+          provider: "github",
+          issuer: "https://github.com",
+          subject: "rollback-user",
+        },
+      })
+      await transaction.authorizationAttempt.create({
+        data: {
+          id: attemptId,
+          providerRevisionId: revisionId,
+          purpose: "ADMIN_ENROLLMENT",
+          stateDigest: "b".repeat(64),
+          browserBindingDigest: "c".repeat(64),
+          codeVerifierCiphertext: "encrypted",
+          expiresAt: new Date(Date.now() + 60_000),
+          consumedAt: new Date(),
+        },
+      })
+    })
+
+    await expect(
+      admitAuthenticationProof(
+        {
+          proof: { authorizationAttemptId: attemptId, externalIdentityId },
+          providerKey: "github",
+          sessionDigest: "d".repeat(64),
+          sessionId,
+          sessionLifetimeSeconds: 3_600,
+        },
+        {
+          createId: randomUUID,
+          runTransaction: (operation) =>
+            runAdmissionTransaction(prisma, operation, (transaction, event) =>
+              event.type === "session_created"
+                ? Promise.reject(new Error("session audit unavailable"))
+                : createSecurityAudit(transaction, event),
+            ),
+          writeAudit: (event) => createSecurityAudit(prisma, event),
+        },
+      ),
+    ).rejects.toBeInstanceOf(AdmissionPersistenceError)
+
+    expect(await prisma.membership.count()).toBe(0)
+    expect(await prisma.membershipAssignment.count()).toBe(0)
+    expect(await prisma.hubSession.count()).toBe(0)
+    const consumedAttempt = await prisma.authorizationAttempt.findUniqueOrThrow({
+      where: { id: attemptId },
+      select: { consumedAt: true },
+    })
+    expect(consumedAttempt.consumedAt).toBeInstanceOf(Date)
+    expect(
+      await prisma.securityAudit.findMany({
+        orderBy: { createdAt: "asc" },
+        select: { action: true, context: true, outcome: true, targetId: true },
+      }),
+    ).toEqual([
+      {
+        action: "admission.failed",
+        context: { reason: "transaction_error" },
+        outcome: "FAILURE",
+        targetId: externalIdentityId,
+      },
+    ])
+  })
+})
