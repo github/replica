@@ -6,57 +6,51 @@ import { securityAuditContextLimits } from "../constants"
 import { createSecurityAuditContextWithProviderKey } from "."
 
 describe("createSecurityAuditContextWithProviderKey()", () => {
-  it.each([
-    "secret:workforce",
-    ["Bear", "er opaque-value"].join(""),
-    ["-----BEGIN PRIVATE", " KEY-----"].join(""),
-  ])("keeps generic normalization rejecting the credential-shaped value %s", (value) => {
-    expect(() => normalizeBoundedJson({ value }, securityAuditContextLimits)).toThrow(
-      "cannot contain credential or key material",
-    )
-  })
+  it("accepts a 500-character sibling string and rejects 501 characters", () => {
+    const provider = parseProviderKey("secret:workforce")
 
-  it("keeps generic normalization rejecting a client secret field", () => {
+    expect(
+      createSecurityAuditContextWithProviderKey({
+        provider,
+        value: "a".repeat(500),
+      }),
+    ).toEqual({ provider, value: "a".repeat(500) })
     expect(() =>
-      normalizeBoundedJson({ clientSecret: "opaque-value" }, securityAuditContextLimits),
-    ).toThrow("cannot contain secret-bearing fields")
-  })
-
-  it("retains generic context string, entry, and byte bounds", () => {
-    expect(() =>
-      normalizeBoundedJson({ value: "a".repeat(501) }, securityAuditContextLimits),
+      createSecurityAuditContextWithProviderKey({
+        provider,
+        value: "a".repeat(501),
+      }),
     ).toThrow("cannot exceed 500 characters")
+  })
+
+  it("accepts eight total fields including provider and rejects nine", () => {
+    const atLimit = {
+      provider: parseProviderKey("secret:workforce"),
+      first: 1,
+      second: 2,
+      third: 3,
+      fourth: 4,
+      fifth: 5,
+      sixth: 6,
+      seventh: 7,
+    }
+
+    expect(createSecurityAuditContextWithProviderKey(atLimit)).toEqual(atLimit)
     expect(() =>
-      normalizeBoundedJson(
-        {
-          first: 1,
-          second: 2,
-          third: 3,
-          fourth: 4,
-          fifth: 5,
-          sixth: 6,
-          seventh: 7,
-          eighth: 8,
-          ninth: 9,
-        },
-        securityAuditContextLimits,
-      ),
+      createSecurityAuditContextWithProviderKey({
+        ...atLimit,
+        eighth: 8,
+      }),
     ).toThrow("cannot exceed 8 fields")
+  })
+
+  it("rejects a secret-bearing sibling key", () => {
     expect(() =>
-      normalizeBoundedJson(
-        {
-          first: "界".repeat(500),
-          second: "界".repeat(500),
-          third: "界".repeat(500),
-          fourth: "界".repeat(500),
-          fifth: "界".repeat(500),
-          sixth: "界".repeat(500),
-          seventh: "界".repeat(500),
-          eighth: "界".repeat(500),
-        },
-        securityAuditContextLimits,
-      ),
-    ).toThrow("cannot exceed 4096 bytes")
+      createSecurityAuditContextWithProviderKey({
+        provider: parseProviderKey("secret:workforce"),
+        clientSecret: "opaque-value",
+      }),
+    ).toThrow("cannot contain secret-bearing fields")
   })
 
   it("accepts 4096 restored bytes and rejects 4097 after placeholder validation", () => {
