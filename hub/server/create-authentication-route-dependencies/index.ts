@@ -4,6 +4,7 @@ import { admitAuthenticationProof } from "../domains/admission/admit-authenticat
 import { endHubSession } from "../domains/admission/end-hub-session/index.ts"
 import { restoreHubSession } from "../domains/admission/restore-hub-session/index.ts"
 import { runAdmissionTransaction } from "../domains/admission/run-admission-transaction/index.ts"
+import { runSessionRestoreTransaction } from "../domains/admission/run-session-restore-transaction/index.ts"
 import { verifyBootstrapSecret } from "../domains/admission/verify-bootstrap-secret/index.ts"
 import { completeAuthenticationProof } from "../domains/authentication/complete-authentication-proof/index.ts"
 import { createGitHubAuthenticationContext } from "../domains/authentication/create-github-authentication-context/index.ts"
@@ -156,7 +157,10 @@ export function createAuthenticationRouteDependencies(
     },
     currentSession: {
       secureCookie: context.secureCookie,
-      restore: (sessionDigest) => restoreHubSession(sessionDigest, { database: prisma }),
+      restore: (sessionDigest) =>
+        restoreHubSession(sessionDigest, {
+          runTransaction: (operation) => runSessionRestoreTransaction(prisma, operation),
+        }),
     },
     signOut: {
       applicationOrigin: context.applicationOrigin,

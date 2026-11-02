@@ -8,6 +8,7 @@ import { createApp } from "../../create-app"
 import { createAuthenticationRouteDependencies } from "../../create-authentication-route-dependencies"
 import { prisma } from "../../integrations/prisma"
 import { restoreHubSession } from "./restore-hub-session"
+import { runSessionRestoreTransaction } from "./run-session-restore-transaction"
 
 const applicationOrigin = "http://127.0.0.1:5173"
 const clientId = "github-client"
@@ -496,6 +497,10 @@ describe("Hub admission and session flow", () => {
         expiresAt: new Date("2020-01-02T00:00:00Z"),
       },
     })
-    await expect(restoreHubSession(expiredDigest, { database: prisma })).resolves.toBeNull()
+    await expect(
+      restoreHubSession(expiredDigest, {
+        runTransaction: (operation) => runSessionRestoreTransaction(prisma, operation),
+      }),
+    ).resolves.toBeNull()
   })
 })
