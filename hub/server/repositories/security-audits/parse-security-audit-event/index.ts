@@ -45,6 +45,20 @@ const eventSchema = z.discriminatedUnion("type", [
   z
     .object({
       id: z.uuid(),
+      type: z.literal("membership_created"),
+      membershipId: z.uuid(),
+    })
+    .strict(),
+  z
+    .object({
+      id: z.uuid(),
+      type: z.literal("membership_restored"),
+      membershipId: z.uuid(),
+    })
+    .strict(),
+  z
+    .object({
+      id: z.uuid(),
       type: z.literal("session_created"),
       sessionId: z.uuid(),
       membershipId: z.uuid(),

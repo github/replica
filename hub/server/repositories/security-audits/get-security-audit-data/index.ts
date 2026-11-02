@@ -28,6 +28,16 @@ export function getSecurityAuditData(
         targetId: event.membershipId,
         context: { source: event.source, role: event.role },
       }
+    case "membership_created":
+    case "membership_restored":
+      return {
+        id: event.id,
+        action: event.type === "membership_created" ? "membership.created" : "membership.restored",
+        outcome: SecurityAuditOutcome.SUCCESS,
+        targetType: "membership",
+        targetId: event.membershipId,
+        context: {},
+      }
     case "session_created":
     case "session_ended":
       return {

@@ -8,7 +8,7 @@ export async function lockSelectedAuthenticationProvider(
     SELECT "selected_revision_id" AS "selectedRevisionId"
     FROM "authentication_providers"
     WHERE "key" = ${key}
-    FOR UPDATE
+    FOR SHARE
   `
   return rows[0] ?? null
 }

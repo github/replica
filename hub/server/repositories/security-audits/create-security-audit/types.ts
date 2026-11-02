@@ -32,6 +32,16 @@ export interface MembershipAssignmentCreatedAudit extends SecurityAuditEvent {
   role: "administrator"
 }
 
+export interface MembershipCreatedAudit extends SecurityAuditEvent {
+  type: "membership_created"
+  membershipId: string
+}
+
+export interface MembershipRestoredAudit extends SecurityAuditEvent {
+  type: "membership_restored"
+  membershipId: string
+}
+
 export interface MembershipAssignmentRestoredAudit extends SecurityAuditEvent {
   type: "membership_assignment_restored"
   membershipId: string
@@ -115,6 +125,8 @@ export type CreateSecurityAuditEvent =
   | BootstrapAttemptDeniedAudit
   | MembershipAssignmentCreatedAudit
   | MembershipAssignmentRestoredAudit
+  | MembershipCreatedAudit
+  | MembershipRestoredAudit
   | SessionCreatedAudit
   | SessionEndedAudit
   | AdmissionDeniedAudit

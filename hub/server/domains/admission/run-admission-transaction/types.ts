@@ -15,7 +15,10 @@ export interface AdmissionRepositories {
     revocationRevision: number
     userId: string
   }): Promise<{ expiresAt: Date }>
-  createOrRestoreMembership(input: { id: string; userId: string }): Promise<{ id: string }>
+  createOrRestoreMembership(input: { id: string; userId: string }): Promise<{
+    id: string
+    transition: "created" | "restored" | "unchanged"
+  }>
   createSecurityAudit(input: CreateSecurityAuditEvent): Promise<unknown>
   lockActiveAssignment(membershipId: string): Promise<{ role: "ADMINISTRATOR" } | null>
   lockAttempt(id: string): Promise<{

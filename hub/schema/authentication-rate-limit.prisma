@@ -8,6 +8,7 @@ model AuthenticationRateLimit {
   windowStartedAt DateTime @map("window_started_at") @db.Timestamptz(3)
   count       Int
   expiresAt   DateTime @map("expires_at") @db.Timestamptz(3)
+  denialAuditedAt DateTime? @map("denial_audited_at") @db.Timestamptz(3)
 
   // Timestamp columns
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)

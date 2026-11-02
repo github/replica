@@ -3,8 +3,10 @@ import type { Request } from "express"
 import type { AuthenticationProofResult } from "../../../domains/authentication/types.ts"
 
 export interface RateLimitDependencies {
-  checkRateLimit(operation: "start" | "callback", subjectDigest: string): Promise<boolean>
-  writeRateLimitDenial?(): Promise<unknown>
+  checkRateLimit(
+    operation: "start" | "callback",
+    subjectDigest: string,
+  ): Promise<{ allowed: boolean; auditFailed: boolean }>
 }
 
 export interface StartAuthenticationDependencies extends RateLimitDependencies {

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto"
 
 import { admitAuthenticationProof } from "../domains/admission/admit-authentication-proof/index.ts"
+import { checkAuthenticationRateLimit } from "../domains/admission/check-authentication-rate-limit/index.ts"
 import { endHubSession } from "../domains/admission/end-hub-session/index.ts"
 import { restoreHubSession } from "../domains/admission/restore-hub-session/index.ts"
 import { runAdmissionTransaction } from "../domains/admission/run-admission-transaction/index.ts"
@@ -15,7 +16,6 @@ import { runIdentityCreationTransaction } from "../domains/identity/run-identity
 import { runProviderRevisionTransaction } from "../domains/identity/run-provider-revision-transaction/index.ts"
 import { validateAndPersistProviderRevision } from "../domains/identity/validate-and-persist-provider-revision/index.ts"
 import { prisma } from "../integrations/prisma/index.ts"
-import { checkAuthenticationRateLimit } from "../repositories/authentication-rate-limits/check-authentication-rate-limit/index.ts"
 import { findAuthenticationProvider } from "../repositories/authentication-providers/find-authentication-provider/index.ts"
 import { consumeAuthorizationAttempt } from "../repositories/authorization-attempts/consume-authorization-attempt/index.ts"
 import { createAuthorizationAttempt } from "../repositories/authorization-attempts/create-authorization-attempt/index.ts"
@@ -85,9 +85,15 @@ export function createAuthenticationRouteDependencies(
       )
     }
   }
-  function checkRateLimit(operation: "start" | "callback", subjectDigest: string) {
+  function checkRateLimit(
+    operation: "start" | "callback",
+    subjectDigest: string,
+    auditFirstDenial = false,
+  ) {
     return checkAuthenticationRateLimit(
       {
+        auditFirstDenial,
+        createId: randomUUID,
         limit: operation === "start" ? 10 : 30,
         operation,
         subjectDigest,
@@ -105,6 +111,7 @@ export function createAuthenticationRouteDependencies(
     signIn: { ...sharedStart, start: start("SIGN_IN") },
     administratorEnrollment: {
       ...sharedStart,
+      checkRateLimit: (operation, subjectDigest) => checkRateLimit(operation, subjectDigest, true),
       start: start("ADMIN_ENROLLMENT"),
       verifyBootstrapSecret: (submittedSecret) =>
         verifyBootstrapSecret(context.bootstrapSecret, submittedSecret),
@@ -113,12 +120,6 @@ export function createAuthenticationRouteDependencies(
           id: randomUUID(),
           type: "bootstrap_attempt_denied",
           reason,
-        }),
-      writeRateLimitDenial: () =>
-        createSecurityAudit(prisma, {
-          id: randomUUID(),
-          type: "bootstrap_attempt_denied",
-          reason: "rate_limited",
         }),
     },
     callback: {

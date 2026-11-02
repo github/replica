@@ -39,6 +39,13 @@ async function ensureBootstrapMembership(
     id: createId(),
     userId,
   })
+  if (membership.transition !== "unchanged") {
+    await repositories.createSecurityAudit({
+      id: createId(),
+      type: membership.transition === "created" ? "membership_created" : "membership_restored",
+      membershipId: membership.id,
+    })
+  }
   const assignment = await repositories.createBootstrapAssignment({
     externalIdentityId: input.proof.externalIdentityId,
     id: createId(),

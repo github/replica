@@ -68,6 +68,7 @@ CREATE TABLE "authentication_rate_limits" (
     "window_started_at" TIMESTAMPTZ(3) NOT NULL,
     "count" INTEGER NOT NULL,
     "expires_at" TIMESTAMPTZ(3) NOT NULL,
+    "denial_audited_at" TIMESTAMPTZ(3),
     "created_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "authentication_rate_limits_pkey" PRIMARY KEY ("id"),
@@ -123,6 +124,60 @@ INSERT INTO "session_revocation_states" (
 ) VALUES (
     gen_random_uuid(), 'global', 0, clock_timestamp(), clock_timestamp()
 );
+
+CREATE FUNCTION protect_session_revocation_state()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        RAISE EXCEPTION 'Session revocation authority cannot be deleted.';
+    END IF;
+    IF NEW."id" <> OLD."id"
+       OR NEW."key" <> OLD."key"
+       OR NEW."created_at" <> OLD."created_at" THEN
+        RAISE EXCEPTION 'Session revocation authority identity and history are immutable.';
+    END IF;
+    IF NEW."revision" <> OLD."revision" + 1 THEN
+        RAISE EXCEPTION 'Session revocation revision must increment exactly once.';
+    END IF;
+    IF NEW."updated_at" <= OLD."updated_at" THEN
+        RAISE EXCEPTION 'Session revocation updates must advance updated_at.';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER "session_revocation_states_protected"
+BEFORE UPDATE OR DELETE ON "session_revocation_states"
+FOR EACH ROW EXECUTE FUNCTION protect_session_revocation_state();
+
+CREATE FUNCTION protect_membership()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        RAISE EXCEPTION 'Membership history cannot be deleted.';
+    END IF;
+    IF NEW."id" <> OLD."id"
+       OR NEW."user_id" <> OLD."user_id"
+       OR NEW."created_at" <> OLD."created_at" THEN
+        RAISE EXCEPTION 'Membership identity and ownership are immutable.';
+    END IF;
+    IF NEW."lifecycle" = OLD."lifecycle" THEN
+        RAISE EXCEPTION 'Membership updates must change lifecycle.';
+    END IF;
+    IF NEW."updated_at" <= OLD."updated_at" THEN
+        RAISE EXCEPTION 'Membership lifecycle updates must advance updated_at.';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER "memberships_protected"
+BEFORE UPDATE OR DELETE ON "memberships"
+FOR EACH ROW EXECUTE FUNCTION protect_membership();
 
 CREATE FUNCTION protect_authorization_attempt_purpose()
 RETURNS trigger

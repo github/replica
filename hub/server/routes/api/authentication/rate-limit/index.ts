@@ -11,8 +11,11 @@ export function rateLimit(
     const subjectDigest = createHash("sha256")
       .update([operation, request.ip ?? request.socket.remoteAddress ?? "unknown"].join(":"))
       .digest("hex")
-    if (!(await dependencies.checkRateLimit(operation, subjectDigest))) {
-      await dependencies.writeRateLimitDenial?.()
+    const decision = await dependencies.checkRateLimit(operation, subjectDigest)
+    if (!decision.allowed) {
+      if (decision.auditFailed) {
+        request.log.error("Bootstrap rate-limit denial audit failed")
+      }
       response.status(429).json({ error: "Too many authentication attempts. Try again later." })
       return
     }
