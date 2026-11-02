@@ -6,6 +6,8 @@ Hub exposes a same-request GitHub sign-in flow. The provider proof remains inter
 
 The start primitive selects the configured GitHub provider revision, creates opaque state, browser binding, and a PKCE verifier, and persists one short-lived authorization attempt. PostgreSQL owns attempt creation, expiry, locking, and one-use consumption time. The stored attempt contains digests plus the encrypted verifier, not raw state, browser binding, or provider tokens.
 
+GitHub and future provider adapters are defined in code, not discovered from database records. On the first configured start, Hub validates the adapter's public configuration and creates and selects revision 1 through the identity kernel. A later configuration uses the next accepted revision. Operators do not seed provider rows. Failed validation or replacement leaves the current selected revision usable, while older replicas and attempts fail closed when their local revision no longer matches the selected revision.
+
 The completion primitive consumes the browser-bound attempt before provider work, confirms that the selected provider revision and digest match the local validated adapter, exchanges the bounded authorization code, reads the public github.com current user, and resolves the immutable external identity through the identity kernel. GitHub's numeric user ID is the immutable subject. Profile and presentation data are outside this foundation.
 
 Completion returns a minimal provider-neutral proof value in memory containing only the consumed authorization attempt ID and resolved external identity ID. This value is internal-only, is not a session or authority, and is never reconstructed from browser request data.

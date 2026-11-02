@@ -241,6 +241,95 @@ describe("authentication proof migration", () => {
             [attemptId],
           ),
         ).rejects.toThrow("first consumption")
+
+        const userId = "00000000-0000-4000-8000-000000000020"
+        const otherUserId = "00000000-0000-4000-8000-000000000021"
+        const identityId = "00000000-0000-4000-8000-000000000022"
+        const otherIdentityId = "00000000-0000-4000-8000-000000000023"
+        const membershipId = "00000000-0000-4000-8000-000000000024"
+        const otherMembershipId = "00000000-0000-4000-8000-000000000025"
+        const assignmentId = "00000000-0000-4000-8000-000000000026"
+        await database.query(`INSERT INTO users (id) VALUES ($1), ($2)`, [userId, otherUserId])
+        await database.query(
+          `INSERT INTO external_identities
+             (id, user_id, provider, issuer, subject)
+           VALUES
+             ($1, $2, 'github', 'https://github.com', '20'),
+             ($3, $4, 'github', 'https://github.com', '21')`,
+          [identityId, userId, otherIdentityId, otherUserId],
+        )
+        await database.query(
+          `INSERT INTO memberships (id, user_id)
+           VALUES ($1, $2), ($3, $4)`,
+          [membershipId, userId, otherMembershipId, otherUserId],
+        )
+        await database.query(
+          `INSERT INTO membership_assignments
+             (id, membership_id, external_identity_id, source, role)
+           VALUES ($1, $2, $3, 'BOOTSTRAP', 'ADMINISTRATOR')`,
+          [assignmentId, membershipId, identityId],
+        )
+        await expect(
+          database.query(
+            `INSERT INTO membership_assignments
+               (id, membership_id, external_identity_id, source, role)
+             VALUES (gen_random_uuid(), $1, $2, 'BOOTSTRAP', 'ADMINISTRATOR')`,
+            [otherMembershipId, identityId],
+          ),
+        ).rejects.toThrow("must belong to the membership user")
+        for (const statement of [
+          `UPDATE membership_assignments SET membership_id = '${otherMembershipId}' WHERE id = '${assignmentId}'`,
+          `UPDATE membership_assignments SET external_identity_id = '${otherIdentityId}' WHERE id = '${assignmentId}'`,
+          `UPDATE membership_assignments SET created_at = clock_timestamp() WHERE id = '${assignmentId}'`,
+          `DELETE FROM membership_assignments WHERE id = '${assignmentId}'`,
+        ]) {
+          await expect(database.query(statement)).rejects.toThrow()
+        }
+        await expect(
+          database.query(`UPDATE membership_assignments SET role = 'MEMBER' WHERE id = $1`, [
+            assignmentId,
+          ]),
+        ).rejects.toThrow()
+        await expect(
+          database.query(`UPDATE membership_assignments SET source = 'PROVIDER' WHERE id = $1`, [
+            assignmentId,
+          ]),
+        ).rejects.toThrow()
+        await database.query(
+          `UPDATE membership_assignments SET lifecycle = 'REVOKED' WHERE id = $1`,
+          [assignmentId],
+        )
+        await database.query(
+          `UPDATE membership_assignments SET lifecycle = 'ACTIVE' WHERE id = $1`,
+          [assignmentId],
+        )
+
+        const revocation = await database.query<{ key: string; revision: number }>(
+          `SELECT key, revision FROM session_revocation_states`,
+        )
+        expect(revocation.rows).toEqual([{ key: "global", revision: 0 }])
+        await expect(
+          database.query(
+            `INSERT INTO hub_sessions
+               (id, user_id, membership_id, digest, revocation_revision, expires_at)
+             VALUES (
+               gen_random_uuid(), $1, $2, 'bad', 0,
+               clock_timestamp() + interval '1 hour'
+             )`,
+            [userId, membershipId],
+          ),
+        ).rejects.toThrow()
+        await expect(
+          database.query(
+            `INSERT INTO authentication_rate_limits
+               (id, operation, subject_digest, window_started_at, count, expires_at)
+             VALUES (
+               gen_random_uuid(), 'start', $1, clock_timestamp(), 0,
+               clock_timestamp() + interval '1 minute'
+             )`,
+            ["a".repeat(64)],
+          ),
+        ).rejects.toThrow()
       } finally {
         await database.end()
       }

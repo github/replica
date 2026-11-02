@@ -40,6 +40,8 @@ Open <http://127.0.0.1:5173>. Vite serves the frontend and forwards `/api` reque
 
 The API registers authentication routes when `HUB_APPLICATION_ORIGIN` is configured. Set the GitHub client, provider revision, encryption key, and bootstrap secret settings documented in `.env.example` at the same time. Both development servers accept connections only from this machine. Stop each with Ctrl+C.
 
+No authentication-provider database seed is required. The first sign-in start validates the configured GitHub adapter and persists only its provider key, revision number, and public-configuration digest.
+
 Vite also forwards WebSocket upgrades under `/api`. The `/api/realtime` endpoint rejects connections until application access checks are connected; see [WebSocket updates](websockets.md). Stopping the API closes its WebSocket connections as well.
 
 The API reads an optional `PORT` environment variable, defaulting to 3001. If you change it, update the local Vite proxy target to match. The editor forwards ports 3001, 5173, and 6006 from the devcontainer. API startup reads `.env` when present; Compose's environment takes precedence.

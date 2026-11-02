@@ -86,6 +86,12 @@ describe("createSecurityAudit()", () => {
     })
     await createSecurityAudit(database, {
       id,
+      type: "admission_failed",
+      externalIdentityId: "e8714e71-52a7-45e8-a639-99ec37f2d85f",
+      reason: "retry_exhausted",
+    })
+    await createSecurityAudit(database, {
+      id,
       type: "external_identity_created",
       externalIdentityId: "e8714e71-52a7-45e8-a639-99ec37f2d85f",
       provider: "workforce",
@@ -174,6 +180,12 @@ describe("createSecurityAudit()", () => {
         outcome: "DENIED",
         targetType: "external_identity",
         context: { reason: "membership_missing" },
+      }),
+      expect.objectContaining({
+        action: "admission.failed",
+        outcome: "FAILURE",
+        targetType: "external_identity",
+        context: { reason: "retry_exhausted" },
       }),
       expect.objectContaining({
         action: "identity.external.created",

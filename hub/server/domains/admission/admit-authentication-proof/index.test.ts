@@ -121,6 +121,31 @@ describe("admitAuthenticationProof()", () => {
     )
   })
 
+  it("denies a proof when the selected provider revision changed before admission", async () => {
+    const records = repositories({
+      lockProvider: vi.fn().mockResolvedValue({ selectedRevisionId: "new-revision" }),
+    })
+    const writeAudit = vi.fn().mockResolvedValue(undefined)
+
+    await expect(
+      admitAuthenticationProof(input(), {
+        createId: randomUUID,
+        runTransaction: (operation) => operation(records),
+        writeAudit,
+      }),
+    ).rejects.toMatchObject<Partial<AdmissionDeniedError>>({
+      reason: "configuration_changed",
+    })
+
+    expect(records.createHubSession).not.toHaveBeenCalled()
+    expect(writeAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "admission_denied",
+        reason: "configuration_changed",
+      }),
+    )
+  })
+
   it("records a terminal failure only after a success-audit rollback", async () => {
     const committed: string[] = []
     const records = repositories({
