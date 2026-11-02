@@ -13,7 +13,7 @@ export function getSecurityAuditData(
         action: "authentication.attempt.denied",
         outcome: SecurityAuditOutcome.DENIED,
         targetType: "authorization_attempt",
-        context: createSecurityAuditContext({
+        context: createSecurityAuditContextWithProviderKey({
           provider: event.provider,
           reason: event.reason,
         }),
