@@ -20,7 +20,7 @@ cp .env.example .env
 npm ci --engine-strict
 ```
 
-The example URL connects to PostgreSQL on `127.0.0.1:5432`. To use another development database, set `DATABASE_URL` in `.env` instead. Do not commit credentials. The health and frontend routes do not query the database. Authentication routes are not registered in this layer.
+The example URL connects to PostgreSQL on `127.0.0.1:5432`. To use another development database, set `DATABASE_URL` in `.env` instead. Do not commit credentials. The health and frontend routes do not query the database. Authentication routes are not registered.
 
 ## Start the app
 

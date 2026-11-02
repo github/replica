@@ -10,7 +10,7 @@ The completion primitive consumes the browser-bound attempt before provider work
 
 Completion returns a minimal provider-neutral proof value in memory containing only the consumed authorization attempt ID and resolved external identity ID. This value is internal-only, is not a session or authority, and must never be reconstructed from browser request data.
 
-A later same-request consumer must reread the referenced authoritative records before deciding anything.
+A trusted consumer must reread the referenced authoritative records before using the proof.
 
 ## Safety boundaries
 
