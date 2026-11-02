@@ -6,11 +6,11 @@ Hub has internal GitHub authentication proof primitives for a future complete si
 
 The start primitive selects the configured GitHub provider revision, creates opaque state, browser binding, and a PKCE verifier, and persists one short-lived authorization attempt. PostgreSQL owns attempt creation, expiry, locking, and one-use consumption time. The stored attempt contains digests plus the encrypted verifier, not raw state, browser binding, or provider tokens.
 
-The completion primitive consumes the browser-bound attempt before provider work, confirms that the selected provider revision and digest match the local validated adapter, exchanges the bounded authorization code, reads the public github.com current user, and resolves the immutable external identity through the identity kernel. GitHub's numeric user ID is the immutable subject. Preferred username, name, avatar URL, and email are nullable presentation data and never identity, admission, or authorization keys.
+The completion primitive consumes the browser-bound attempt before provider work, confirms that the selected provider revision and digest match the local validated adapter, exchanges the bounded authorization code, reads the public github.com current user, and resolves the immutable external identity through the identity kernel. GitHub's numeric user ID is the immutable subject. Profile and presentation data are outside this foundation.
 
-Completion returns a minimal provider-neutral proof value in memory containing only the consumed authorization attempt ID and resolved external identity ID. This value is internal-only and must be passed directly to C3 in the same callback request; it must never be reconstructed from browser request data.
+Completion returns a minimal provider-neutral proof value in memory containing only the consumed authorization attempt ID and resolved external identity ID. This value is internal-only, is not a session or authority, and must never be reconstructed from browser request data.
 
-C3 rereads the consumed attempt and external identity with their user and immutable provider tuple. Its accepted transaction design will own provider/revocation rechecks, admission, session issuance, and the final success audit. Any mismatch or denial creates no session and requires the user to restart sign-in.
+A later same-request consumer must reread the referenced authoritative records before deciding anything.
 
 If admission or session issuance fails, the user must restart sign-in in this version. Hub does not persist a bearer proof, pending enrollment, handoff token, or half-signed-in browser state. A future asynchronous approval flow would need its own domain-specific pending-enrollment contract.
 
