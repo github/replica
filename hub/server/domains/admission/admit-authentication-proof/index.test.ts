@@ -24,7 +24,10 @@ function repositories(overrides: Partial<AdmissionRepositories> = {}): Admission
   return {
     createBootstrapAssignment: vi.fn().mockResolvedValue("created"),
     createHubSession: vi.fn().mockResolvedValue({ expiresAt: new Date("2030-01-01") }),
-    createOrRestoreMembership: vi.fn().mockResolvedValue({ id: membershipId }),
+    createOrRestoreMembership: vi.fn().mockResolvedValue({
+      id: membershipId,
+      transition: "created",
+    }),
     createSecurityAudit: vi.fn().mockResolvedValue(undefined),
     lockActiveAssignment: vi.fn().mockResolvedValue({ role: "ADMINISTRATOR" }),
     lockAttempt: vi.fn().mockResolvedValue({
@@ -97,7 +100,10 @@ describe("admitAuthenticationProof()", () => {
   })
 
   it("fails closed when the authoritative user reread is missing", async () => {
-    const createOrRestoreMembership = vi.fn().mockResolvedValue({ id: randomUUID() })
+    const createOrRestoreMembership = vi.fn().mockResolvedValue({
+      id: randomUUID(),
+      transition: "created",
+    })
     const createHubSession = vi.fn().mockResolvedValue({ expiresAt: new Date("2030-01-01") })
     const records = repositories({
       createHubSession,
@@ -133,6 +139,7 @@ describe("admitAuthenticationProof()", () => {
       createHubSession,
       lockProvider: vi.fn().mockResolvedValue({ selectedRevisionId: "new-revision" }),
     })
+
     const writeAudit = vi.fn().mockResolvedValue(undefined)
 
     await expect(
@@ -151,6 +158,60 @@ describe("admitAuthenticationProof()", () => {
         type: "admission_denied",
         reason: "configuration_changed",
       }),
+    )
+  })
+
+  it("audits membership restoration without duplicating an unchanged assignment audit", async () => {
+    const createSecurityAudit = vi
+      .fn<AdmissionRepositories["createSecurityAudit"]>()
+      .mockResolvedValue(undefined)
+    const records = repositories({
+      createBootstrapAssignment: vi.fn().mockResolvedValue("unchanged"),
+      createOrRestoreMembership: vi.fn().mockResolvedValue({
+        id: "membership-id",
+        transition: "restored",
+      }),
+      createSecurityAudit,
+    })
+
+    await admitAuthenticationProof(input(), {
+      createId: randomUUID,
+      runTransaction: (operation) => operation(records),
+      writeAudit: vi.fn(),
+    })
+
+    expect(createSecurityAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "membership_restored",
+        membershipId: "membership-id",
+      }),
+    )
+    expect(createSecurityAudit).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "membership_assignment_restored" }),
+    )
+  })
+
+  it("does not audit an unchanged active membership lifecycle", async () => {
+    const createSecurityAudit = vi
+      .fn<AdmissionRepositories["createSecurityAudit"]>()
+      .mockResolvedValue(undefined)
+    const records = repositories({
+      createBootstrapAssignment: vi.fn().mockResolvedValue("unchanged"),
+      createOrRestoreMembership: vi.fn().mockResolvedValue({
+        id: "membership-id",
+        transition: "unchanged",
+      }),
+      createSecurityAudit,
+    })
+
+    await admitAuthenticationProof(input(), {
+      createId: randomUUID,
+      runTransaction: (operation) => operation(records),
+      writeAudit: vi.fn(),
+    })
+
+    expect(createSecurityAudit.mock.calls.map(([event]) => event.type)).not.toEqual(
+      expect.arrayContaining(["membership_created", "membership_restored"]),
     )
   })
 

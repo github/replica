@@ -308,6 +308,43 @@ describe("authentication proof migration", () => {
           `SELECT key, revision FROM session_revocation_states`,
         )
         expect(revocation.rows).toEqual([{ key: "global", revision: 0 }])
+        for (const statement of [
+          `DELETE FROM session_revocation_states WHERE key = 'global'`,
+          `UPDATE session_revocation_states SET key = 'replacement', revision = 1, updated_at = clock_timestamp() WHERE key = 'global'`,
+          `UPDATE session_revocation_states SET id = gen_random_uuid(), revision = 1, updated_at = clock_timestamp() WHERE key = 'global'`,
+          `UPDATE session_revocation_states SET created_at = clock_timestamp(), revision = 1, updated_at = clock_timestamp() WHERE key = 'global'`,
+          `UPDATE session_revocation_states SET revision = 2, updated_at = clock_timestamp() WHERE key = 'global'`,
+        ]) {
+          await expect(database.query(statement)).rejects.toThrow()
+        }
+        await database.query(
+          `UPDATE session_revocation_states
+           SET revision = revision + 1, updated_at = clock_timestamp()
+           WHERE key = 'global'`,
+        )
+        await expect(
+          database.query(
+            `UPDATE session_revocation_states
+             SET revision = 0, updated_at = clock_timestamp()
+             WHERE key = 'global'`,
+          ),
+        ).rejects.toThrow("must increment exactly once")
+
+        for (const statement of [
+          `DELETE FROM memberships WHERE id = '${membershipId}'`,
+          `UPDATE memberships SET user_id = '${otherUserId}', lifecycle = 'SUSPENDED', updated_at = clock_timestamp() WHERE id = '${membershipId}'`,
+          `UPDATE memberships SET id = gen_random_uuid(), lifecycle = 'SUSPENDED', updated_at = clock_timestamp() WHERE id = '${membershipId}'`,
+          `UPDATE memberships SET created_at = clock_timestamp(), lifecycle = 'SUSPENDED', updated_at = clock_timestamp() WHERE id = '${membershipId}'`,
+          `UPDATE memberships SET updated_at = clock_timestamp() WHERE id = '${membershipId}'`,
+        ]) {
+          await expect(database.query(statement)).rejects.toThrow()
+        }
+        await database.query(
+          `UPDATE memberships
+           SET lifecycle = 'SUSPENDED', updated_at = clock_timestamp()
+           WHERE id = $1`,
+          [membershipId],
+        )
         await expect(
           database.query(
             `INSERT INTO hub_sessions

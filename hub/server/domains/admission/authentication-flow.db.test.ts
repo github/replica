@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vitest"
 import { createApp } from "../../create-app"
 import { createAuthenticationRouteDependencies } from "../../create-authentication-route-dependencies"
 import { prisma } from "../../integrations/prisma"
+import { lockSessionRevocationState } from "../../repositories/session-revocation-states/lock-session-revocation-state"
 import { restoreHubSession } from "./restore-hub-session"
 import { runSessionRestoreTransaction } from "./run-session-restore-transaction"
 
@@ -225,9 +226,8 @@ describe("Hub admission and session flow", () => {
         where: { id: firstIdentity.user.membership!.id },
         data: { lifecycle: "REMOVED" },
       })
-      await prisma.membershipAssignment.updateMany({
-        where: { membershipId: firstIdentity.user.membership!.id },
-        data: { lifecycle: "REVOKED" },
+      const assignmentRestoreAuditsBefore = await prisma.securityAudit.count({
+        where: { action: "membership.assignment.restored" },
       })
 
       const restoration = await startAuthentication(
@@ -245,6 +245,19 @@ describe("Hub admission and session flow", () => {
         lifecycle: "ACTIVE",
         assignments: [{ lifecycle: "ACTIVE" }],
       })
+      expect(
+        await prisma.securityAudit.count({
+          where: {
+            action: "membership.restored",
+            targetId: firstIdentity.user.membership!.id,
+          },
+        }),
+      ).toBe(1)
+      expect(
+        await prisma.securityAudit.count({
+          where: { action: "membership.assignment.restored" },
+        }),
+      ).toBe(assignmentRestoreAuditsBefore)
     } finally {
       await server.close()
     }
@@ -481,9 +494,6 @@ describe("Hub admission and session flow", () => {
       source: "BOOTSTRAP",
     })
 
-    await prisma.sessionRevocationState.create({
-      data: { id: randomUUID(), key: "global", revision: 0 },
-    })
     const expiredDigest = "f".repeat(64)
     await prisma.hubSession.create({
       data: {
@@ -502,5 +512,33 @@ describe("Hub admission and session flow", () => {
         runTransaction: (operation) => runSessionRestoreTransaction(prisma, operation),
       }),
     ).resolves.toBeNull()
+
+    const liveDigest = "e".repeat(64)
+    await prisma.hubSession.create({
+      data: {
+        id: randomUUID(),
+        userId: user.id,
+        membershipId: membership.id,
+        digest: liveDigest,
+        revocationRevision: 0,
+        expiresAt: new Date(Date.now() + 60_000),
+      },
+    })
+    await prisma.$executeRawUnsafe(
+      `ALTER TABLE "session_revocation_states" DISABLE TRIGGER "session_revocation_states_protected"`,
+    )
+    await prisma.sessionRevocationState.delete({ where: { key: "global" } })
+    await prisma.$executeRawUnsafe(
+      `ALTER TABLE "session_revocation_states" ENABLE TRIGGER "session_revocation_states_protected"`,
+    )
+    await expect(
+      prisma.$transaction((transaction) => lockSessionRevocationState(transaction)),
+    ).resolves.toBeNull()
+    await expect(
+      restoreHubSession(liveDigest, {
+        runTransaction: (operation) => runSessionRestoreTransaction(prisma, operation),
+      }),
+    ).resolves.toBeNull()
+    expect(await prisma.sessionRevocationState.count()).toBe(0)
   })
 })

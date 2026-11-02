@@ -9,7 +9,7 @@ import { createLogger } from "../../../integrations/pino/create-logger"
 import type { AuthenticationRouteDependencies } from "./types"
 
 function routeDependencies() {
-  const checkRateLimit = vi.fn().mockResolvedValue(true)
+  const checkRateLimit = vi.fn().mockResolvedValue({ allowed: true, auditFailed: false })
   const startSignIn = vi.fn()
   const startEnrollment = vi.fn()
   const verifyBootstrapSecret = vi.fn().mockReturnValue(false)
@@ -27,7 +27,6 @@ function routeDependencies() {
       start: startEnrollment,
       verifyBootstrapSecret,
       writeBootstrapDenial: vi.fn().mockResolvedValue(undefined),
-      writeRateLimitDenial: vi.fn().mockResolvedValue(undefined),
     },
     callback: {
       checkRateLimit,
@@ -90,7 +89,7 @@ describe("authenticationRoutes()", () => {
   it("rate-limits an enrollment before parsing its secret", async () => {
     const { dependencies, checkRateLimit, startEnrollment, verifyBootstrapSecret } =
       routeDependencies()
-    checkRateLimit.mockResolvedValue(false)
+    checkRateLimit.mockResolvedValue({ allowed: false, auditFailed: false })
     await withServer(dependencies, async (baseUrl) => {
       const response = await fetch(`${baseUrl}/api/auth/github/admin-enrollment/start`, {
         method: "POST",
@@ -187,10 +186,7 @@ describe("authenticationRoutes()", () => {
 
   it("fails closed when the bootstrap rate-limit denial audit cannot be written", async () => {
     const { dependencies, checkRateLimit, verifyBootstrapSecret } = routeDependencies()
-    checkRateLimit.mockResolvedValue(false)
-    dependencies.administratorEnrollment.writeRateLimitDenial = vi
-      .fn()
-      .mockRejectedValue(new Error("audit unavailable"))
+    checkRateLimit.mockResolvedValue({ allowed: false, auditFailed: true })
     await withServer(dependencies, async (baseUrl) => {
       const response = await fetch(`${baseUrl}/api/auth/github/admin-enrollment/start`, {
         method: "POST",
@@ -201,7 +197,7 @@ describe("authenticationRoutes()", () => {
         body: "bootstrap_secret=never-parsed",
       })
 
-      expect(response.status).toBe(500)
+      expect(response.status).toBe(429)
       expect(verifyBootstrapSecret).not.toHaveBeenCalled()
     })
   })

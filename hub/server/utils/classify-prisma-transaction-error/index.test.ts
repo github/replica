@@ -22,6 +22,18 @@ describe("classifyPrismaTransactionError()", () => {
     ).toBe("retryable")
   })
 
+  it("classifies nested raw-query adapter serialization failures as retryable", () => {
+    expect(
+      classifyPrismaTransactionError(
+        createKnownRequestError("P2010", {
+          driverAdapterError: {
+            cause: { originalCode: "40001", kind: "TransactionWriteConflict" },
+          },
+        }),
+      ),
+    ).toBe("retryable")
+  })
+
   it("classifies other known errors as terminal", () => {
     expect(classifyPrismaTransactionError(createKnownRequestError("P2003"))).toBe("terminal")
   })

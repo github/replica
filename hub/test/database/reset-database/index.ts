@@ -33,6 +33,18 @@ export async function resetDatabase(databaseUrl: string) {
           `${pg.escapeIdentifier(schemaname)}.${pg.escapeIdentifier(tablename)}`,
       )
       await client.query(`TRUNCATE ${names.join(", ")} RESTART IDENTITY CASCADE`)
+      if (
+        tables.rows.some(
+          ({ schemaname, tablename }) =>
+            schemaname === "public" && tablename === "session_revocation_states",
+        )
+      ) {
+        await client.query(
+          `INSERT INTO public.session_revocation_states
+             (id, key, revision, created_at, updated_at)
+           VALUES (gen_random_uuid(), 'global', 0, clock_timestamp(), clock_timestamp())`,
+        )
+      }
     }
   } finally {
     await client.end()

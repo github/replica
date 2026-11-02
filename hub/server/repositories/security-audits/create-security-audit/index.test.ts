@@ -61,6 +61,16 @@ describe("createSecurityAudit()", () => {
     })
     await createSecurityAudit(database, {
       id,
+      type: "membership_created",
+      membershipId: "8a2479e7-3ca4-46f8-9749-c35d8e4eb09e",
+    })
+    await createSecurityAudit(database, {
+      id,
+      type: "membership_restored",
+      membershipId: "8a2479e7-3ca4-46f8-9749-c35d8e4eb09e",
+    })
+    await createSecurityAudit(database, {
+      id,
       type: "membership_assignment_restored",
       membershipId: "8a2479e7-3ca4-46f8-9749-c35d8e4eb09e",
       source: "bootstrap",
@@ -156,6 +166,18 @@ describe("createSecurityAudit()", () => {
         outcome: "SUCCESS",
         targetType: "membership",
         context: { source: "bootstrap", role: "administrator" },
+      }),
+      expect.objectContaining({
+        action: "membership.created",
+        outcome: "SUCCESS",
+        targetType: "membership",
+        context: {},
+      }),
+      expect.objectContaining({
+        action: "membership.restored",
+        outcome: "SUCCESS",
+        targetType: "membership",
+        context: {},
       }),
       expect.objectContaining({
         action: "membership.assignment.restored",
