@@ -38,7 +38,6 @@ class PrototypeManagementController < SuperglueController
   # Checks available branches independently of the workspace and listed prototypes.
   def load_candidates
     @unregistered_prototypes, @candidate_page_count = @repository.prototype_candidates.available_page \
-      Current.user,
       permission: @repository_permission,
       page: @candidate_page,
       configuration: @github_configuration

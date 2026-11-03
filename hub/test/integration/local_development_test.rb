@@ -477,7 +477,7 @@ class LocalDevelopmentTest < ActionDispatch::IntegrationTest
       travel_to observed_at + 12.hours do
         Repository::LocalDiscovery.refresh_all!
         assert_empty repository.reload.prototype_candidates.recently_active_by(user, permission: "admin")
-        assert_equal 1, repository.prototype_candidates.available_page(user, permission: "admin").first.size
+        assert_equal 1, repository.prototype_candidates.available_page(permission: "admin").first.size
         assert_equal observed_at, repository.reviewable_prototypes.sole.local_head_observed_at
       end
 

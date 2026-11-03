@@ -1,245 +1,83 @@
 require "test_helper"
-require "timeout"
 
 class Repository::PrototypeCandidatesTest < ActiveSupport::TestCase
-  test "overlaps branch comparisons within four calls and deduplicates heads before caching on the request thread" do
-    original_cache = Rails.cache
-    Rails.cache = ActiveSupport::Cache::MemoryStore.new
+  setup do
     github_app_configurations.create_installed
-    user = users.create
-    repository = repositories.create
-    heads = { "main" => "a" * 40 }
-    6.times do |index|
-      name = "prototype/branch-#{index}"
-      heads[name] = format("%040x", index + 1)
-      prototypes.create(repository:, branch_name: name)
-    end
-    heads["prototype/shared-head"] = heads.fetch("prototype/branch-0")
-    prototypes.create(repository:, branch_name: "prototype/shared-head")
-    prototypes.create(repository:, branch_name: "prototype/deleted")
     stub_github_installation_token
-    stub_request(:get, "#{GITHUB_API_URL}/repos/#{repository.github_path}/branches")
-      .with(query: { "per_page" => "100", "page" => "1" })
-      .to_return \
-        status: 200,
-        body: JSON.generate(heads.map { |name, sha| { name:, commit: { sha: } } }),
-        headers: { "Content-Type" => "application/json" }
-    started = Queue.new
-    release = Queue.new
-    mutex = Mutex.new
-    active = 0
-    maximum = 0
-    stub_request(:get, %r{/repos/#{repository.github_path}/compare/})
-      .to_return do
-        mutex.synchronize do
-          active += 1
-          maximum = [ maximum, active ].max
-        end
-        started << true
-        release.pop
-        {
-          status: 200,
-          body: JSON.generate(total_commits: 1, commits: [ { author: { id: user.github_id } } ]),
-          headers: { "Content-Type" => "application/json" }
-        }
-      ensure
-        mutex.synchronize { active -= 1 }
-      end
-    coordinator = Thread.new do
-      Timeout.timeout(5) do
-        4.times { started.pop }
-        4.times { release << true }
-        2.times { started.pop }
-        2.times { release << true }
-      end
-    ensure
-      6.times { release << true }
-    end
-    request_thread = Thread.current
-    configuration_reads = []
-    cache_writers = []
-    sql = ->(*arguments) do
-      payload = arguments.last
-      configuration_reads << Thread.current if payload[:sql].include?('FROM "github_app_configurations"')
-    end
-    cache = ->(*) { cache_writers << Thread.current }
-    result = nil
+  end
 
-    ActiveSupport::Notifications.subscribed(sql, "sql.active_record") do
-      ActiveSupport::Notifications.subscribed(cache, "cache_write.active_support") do
-        result = repository.prototype_candidates.available_page(user, permission: "write")
-      end
+  test "writers can list branches at the default head without comparing commits" do
+    repository = repositories.create
+    prototype = prototypes.create(repository:, branch_name: "feature/navigation")
+    stub_branches(repository, "main" => "a" * 40, prototype.branch_name => "a" * 40)
+
+    %w[write admin].each do |permission|
+      branches, page_count = repository.prototype_candidates.available_page(permission:)
+
+      assert_equal [ prototype ], branches, permission
+      assert_equal 1, page_count
+      assert repository.prototype_candidates.eligible?(prototype, permission:), permission
     end
-    coordinator.value
-
-    assert_equal heads.keys.grep(/^prototype/).sort, result.first.map(&:branch_name).sort
-    assert_equal 1, result.last
-    assert_equal 4, maximum
-    assert_equal [ request_thread ], configuration_reads
-    assert_equal [ request_thread ] * 6, cache_writers
-    assert_requested :get, %r{/compare/}, times: 6
-    assert_requested :post, "#{GITHUB_API_URL}/app/installations/456/access_tokens", times: 1
-    WebMock.reset_executed_requests!
-
-    assert_equal result, repository.prototype_candidates.available_page(user, permission: "write")
     assert_not_requested :get, %r{/compare/}
-  ensure
-    6.times { release << true } if release
-    coordinator&.join
-    Rails.cache = original_cache
   end
 
-  test "retains a successful in-flight comparison after another head fails and retries incomplete history" do
-    original_cache = Rails.cache
-    Rails.cache = ActiveSupport::Cache::MemoryStore.new
-    github_app_configurations.create_installed
-    user = users.create
+  test "users without write access cannot list or register branches" do
     repository = repositories.create
-    base = "a" * 40
-    failed_head = "b" * 40
-    successful_head = "c" * 40
-    heads = { "main" => base, "prototype/failed" => failed_head, "prototype/successful" => successful_head }
-    heads.keys.grep(/^prototype/).each { |name| prototypes.create(repository:, branch_name: name) }
-    stub_github_installation_token
+    prototype = prototypes.create(repository:)
+
+    [ "read", "none", nil ].each do |permission|
+      assert_equal [ [], 0 ], repository.prototype_candidates.available_page(permission:)
+      assert_equal "write_access_required",
+        repository.prototype_candidates.registration_ineligibility_reason(prototype, permission:)
+    end
+    assert_not_requested :get, %r{/branches}
+    assert_not_requested :get, %r{/compare/}
+  end
+
+  test "offers writers only live unlisted branches from this repository and explains each exclusion" do
+    repository = repositories.create
+    live = prototypes.create(repository:, branch_name: "feature/live")
+    default = prototypes.create(repository:, branch_name: repository.default_branch)
+    internal = prototypes.create(repository:, branch_name: "previous-default", replica: true)
+    reserved = prototypes.create(repository:, branch_name: "replica/install-workflow")
+    missing = prototypes.create(repository:, branch_name: "feature/missing")
+    retired = prototypes.create(repository:, branch_name: "feature/retired", branch_deleted_at: 1.hour.ago)
+    registered = prototypes.create(repository:, branch_name: "feature/registered")
+    registered.register!(name: "Already listed")
+    other_repository = repositories.create(github_id: 2002, name_with_owner: "github/other")
+    foreign = prototypes.create(repository: other_repository, branch_name: live.branch_name)
+    heads = [ live, default, internal, reserved, retired, registered ].to_h do |prototype|
+      [ prototype.branch_name, "a" * 40 ]
+    end
+    stub_branches(repository, heads)
+
+    branches, page_count = repository.prototype_candidates.available_page(permission: "write")
+
+    assert_equal [ live ], branches
+    assert_equal 1, page_count
+    {
+      foreign => "repository_mismatch",
+      retired => "remote_branch_missing",
+      registered => "already_registered",
+      default => "branch_not_reviewable",
+      internal => "branch_not_reviewable",
+      reserved => "branch_not_reviewable",
+      missing => "remote_branch_missing"
+    }.each do |prototype, reason|
+      assert_equal reason,
+        repository.prototype_candidates.registration_ineligibility_reason(prototype, permission: "write")
+    end
+    assert_not_requested :get, %r{/compare/}
+  end
+
+  private
+
+  def stub_branches(repository, heads)
     stub_request(:get, "#{GITHUB_API_URL}/repos/#{repository.github_path}/branches")
       .with(query: { "per_page" => "100", "page" => "1" })
       .to_return \
         status: 200,
         body: JSON.generate(heads.map { |name, sha| { name:, commit: { sha: } } }),
         headers: { "Content-Type" => "application/json" }
-    response = {
-      status: 200,
-      body: JSON.generate(total_commits: 1, commits: [ { author: { id: user.github_id } } ]),
-      headers: { "Content-Type" => "application/json" }
-    }
-    comparison_url = "#{GITHUB_API_URL}/repos/#{repository.github_path}/compare/#{base}..."
-    incomplete_request = stub_request(:get, "#{comparison_url}#{failed_head}")
-      .with(query: { "per_page" => "100", "page" => "1" })
-      .to_return \
-        status: 200,
-        body: JSON.generate(total_commits: 101, commits: Array.new(100) { { author: { id: user.github_id } } }),
-        headers: { "Content-Type" => "application/json" }
-    successful_started = Queue.new
-    failure_raised = Queue.new
-    failure = GithubClient::Error.new("Comparison temporarily unavailable")
-    stub_request(:get, "#{comparison_url}#{failed_head}")
-      .with(query: { "per_page" => "100", "page" => "2" })
-      .to_return do
-        Timeout.timeout(5) { successful_started.pop }
-        raise failure
-      end
-    successful_request = stub_request(:get, "#{comparison_url}#{successful_head}")
-      .with(query: { "per_page" => "100", "page" => "1" })
-      .to_return do
-        successful_started << true
-        Timeout.timeout(5) { failure_raised.pop }
-        response
-      end
-    # Observe the error itself so the successful HTTP response cannot finish before it is raised.
-    trace = TracePoint.new(:raise) do |event|
-      failure_raised << true if event.raised_exception.equal?(failure)
-    end
-    request_thread = Thread.current
-    cache_writers = []
-    cache = ->(*) { cache_writers << Thread.current }
-
-    trace.enable(target_thread: nil) do
-      ActiveSupport::Notifications.subscribed(cache, "cache_write.active_support") do
-        error = assert_raises(GithubClient::Error) do
-          repository.prototype_candidates.available_page(user, permission: "write")
-        end
-        assert_same failure, error
-      end
-    end
-    successful_request.to_return(response)
-    remaining_request = stub_request(:get, "#{comparison_url}#{failed_head}")
-      .with(query: { "per_page" => "100", "page" => "2" })
-      .to_return(response.merge(body: JSON.generate(total_commits: 101, commits: [ { author: { id: user.github_id } } ])))
-    WebMock.reset_executed_requests!
-
-    branches, page_count = repository.prototype_candidates.available_page(user, permission: "write")
-
-    assert_equal heads.keys.grep(/^prototype/).sort, branches.map(&:branch_name).sort
-    assert_equal 1, page_count
-    assert_requested incomplete_request, times: 1
-    assert_requested remaining_request, times: 1
-    assert_not_requested successful_request
-    assert_equal [ request_thread ], cache_writers
-  ensure
-    trace&.disable
-    successful_started << true if successful_started
-    failure_raised << true if failure_raised
-    Rails.cache = original_cache
-  end
-
-  test "skips queued comparisons after running calls fail and retries every uncached head" do
-    original_cache = Rails.cache
-    Rails.cache = ActiveSupport::Cache::MemoryStore.new
-    github_app_configurations.create_installed
-    user = users.create
-    repository = repositories.create
-    base = "a" * 40
-    heads = { "main" => base }
-    6.times do |index|
-      name = "prototype/branch-#{index}"
-      heads[name] = format("%040x", index + 1)
-      prototypes.create(repository:, branch_name: name)
-    end
-    stub_github_installation_token
-    stub_request(:get, "#{GITHUB_API_URL}/repos/#{repository.github_path}/branches")
-      .with(query: { "per_page" => "100", "page" => "1" })
-      .to_return \
-        status: 200,
-        body: JSON.generate(heads.map { |name, sha| { name:, commit: { sha: } } }),
-        headers: { "Content-Type" => "application/json" }
-    response = {
-      status: 200,
-      body: JSON.generate(total_commits: 1, commits: [ { author: { id: user.github_id } } ]),
-      headers: { "Content-Type" => "application/json" }
-    }
-    started = Queue.new
-    release = Queue.new
-    comparisons = heads.values.drop(1).map.with_index do |head, index|
-      request = stub_request(:get, "#{GITHUB_API_URL}/repos/#{repository.github_path}/compare/#{base}...#{head}")
-        .with(query: { "per_page" => "100", "page" => "1" })
-      if index < 4
-        request.to_return do
-          started << true
-          Timeout.timeout(5) { release.pop }
-          { status: 503, body: "{}" }
-        end
-      else
-        request.to_return(response)
-      end
-      request
-    end
-    coordinator = Thread.new do
-      Timeout.timeout(5) do
-        4.times { started.pop }
-        4.times { release << true }
-      end
-    ensure
-      4.times { release << true }
-    end
-
-    error = assert_raises(GithubClient::Error) do
-      repository.prototype_candidates.available_page(user, permission: "write")
-    end
-    coordinator.value
-
-    assert_equal 503, error.status
-    comparisons.drop(4).each { |request| assert_not_requested request }
-    comparisons.each { |request| request.to_return(response) }
-    WebMock.reset_executed_requests!
-
-    branches, page_count = repository.prototype_candidates.available_page(user, permission: "write")
-
-    assert_equal heads.keys.grep(/^prototype/).sort, branches.map(&:branch_name).sort
-    assert_equal 1, page_count
-    comparisons.each { |request| assert_requested request, times: 1 }
-  ensure
-    4.times { release << true } if release
-    coordinator&.join
-    Rails.cache = original_cache
   end
 end
