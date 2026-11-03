@@ -27,7 +27,7 @@ export function createGitHubAuthenticationContext(
   ) {
     throw new Error("HUB_APPLICATION_ORIGIN must be an exact HTTP origin without a trailing slash.")
   }
-  const loopbackHosts = new Set(["127.0.0.1", "::1", "localhost"])
+  const loopbackHosts = new Set(["127.0.0.1", "::1", "[::1]", "localhost"])
   if (origin.protocol !== "https:" && !loopbackHosts.has(origin.hostname)) {
     throw new Error("HUB_APPLICATION_ORIGIN must use HTTPS outside loopback development.")
   }

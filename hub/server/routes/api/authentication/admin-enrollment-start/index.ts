@@ -23,6 +23,10 @@ export function adminEnrollmentStart(
         next(error)
         return
       }
+      if ((request.get("accept") ?? "").includes("text/html")) {
+        response.redirect(303, "/admin-enrollment?authentication=denied")
+        return
+      }
       response.status(403).json({ error: "Administrator enrollment was denied." })
       return
     }

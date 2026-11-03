@@ -18,13 +18,14 @@ const querySchema = z
     state: z.string().min(32).max(200),
   })
   .strict()
+const browserBindingSchema = z.string().min(32).max(200)
 const sessionCookieName = "hub_session"
 
 export function callback(dependencies: AuthenticationCallbackDependencies): RequestHandler {
   return async (request, response, next) => {
     const query = querySchema.safeParse(request.query)
-    const browserBinding = readCookie(request, browserCookieName)
-    if (!query.success || !browserBinding) {
+    const browserBinding = browserBindingSchema.safeParse(readCookie(request, browserCookieName))
+    if (!query.success || !browserBinding.success) {
       response.setHeader(
         "Set-Cookie",
         clearAuthenticationCookie(browserCookieName, dependencies.secureCookie),
@@ -34,7 +35,7 @@ export function callback(dependencies: AuthenticationCallbackDependencies): Requ
     }
     try {
       const completed = await dependencies.complete({
-        browserBinding,
+        browserBinding: browserBinding.data,
         code: query.data.code,
         state: query.data.state,
       })

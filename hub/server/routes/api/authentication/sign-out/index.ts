@@ -15,6 +15,10 @@ export function signOut(dependencies: SignOutDependencies): RequestHandler {
         "Set-Cookie",
         clearAuthenticationCookie(sessionCookieName, dependencies.secureCookie),
       )
+      if ((request.get("accept") ?? "").includes("text/html")) {
+        response.redirect(303, "/")
+        return
+      }
       response.status(204).end()
     } catch (error) {
       next(error)

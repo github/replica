@@ -12,6 +12,8 @@ function routeDependencies() {
   const checkRateLimit = vi.fn().mockResolvedValue({ allowed: true, auditFailed: false })
   const startSignIn = vi.fn()
   const startEnrollment = vi.fn()
+  const endSession = vi.fn()
+  const completeProof = vi.fn()
   const verifyBootstrapSecret = vi.fn().mockReturnValue(false)
   const dependencies: AuthenticationRouteDependencies = {
     signIn: {
@@ -31,7 +33,7 @@ function routeDependencies() {
     callback: {
       checkRateLimit,
       secureCookie: false,
-      complete: vi.fn(),
+      complete: completeProof,
       admit: vi.fn(),
     },
     currentSession: {
@@ -41,12 +43,14 @@ function routeDependencies() {
     signOut: {
       applicationOrigin: "http://127.0.0.1:5173",
       secureCookie: false,
-      end: vi.fn(),
+      end: endSession,
     },
   }
   return {
     dependencies,
     checkRateLimit,
+    completeProof,
+    endSession,
     startEnrollment,
     startSignIn,
     verifyBootstrapSecret,
@@ -106,6 +110,27 @@ describe("authenticationRoutes()", () => {
     })
   })
 
+  it("redirects a native enrollment form after an invalid secret", async () => {
+    const { dependencies, startEnrollment, verifyBootstrapSecret } = routeDependencies()
+    await withServer(dependencies, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/auth/github/admin-enrollment/start`, {
+        method: "POST",
+        headers: {
+          accept: "text/html,application/xhtml+xml",
+          origin: dependencies.administratorEnrollment.applicationOrigin,
+          "content-type": "application/x-www-form-urlencoded",
+        },
+        body: "bootstrap_secret=wrong-secret",
+        redirect: "manual",
+      })
+
+      expect(response.status).toBe(303)
+      expect(response.headers.get("location")).toBe("/admin-enrollment?authentication=denied")
+      expect(verifyBootstrapSecret).toHaveBeenCalledWith("wrong-secret")
+      expect(startEnrollment).not.toHaveBeenCalled()
+    })
+  })
+
   it("uses the trusted proxy address only when the exact hop count is configured", async () => {
     const { dependencies, checkRateLimit } = routeDependencies()
     await withServer(
@@ -135,6 +160,7 @@ describe("authenticationRoutes()", () => {
     const logger = createLogger({
       destination: { write: (line) => records.push(line) },
     })
+
     await withServer(
       dependencies,
       async (baseUrl) => {
@@ -153,6 +179,62 @@ describe("authenticationRoutes()", () => {
       },
       { logger },
     )
+  })
+
+  it("rejects a malformed browser-binding cookie before proof completion", async () => {
+    const { dependencies, completeProof } = routeDependencies()
+    await withServer(dependencies, async (baseUrl) => {
+      const response = await fetch(
+        `${baseUrl}/api/auth/github/callback?code=provider-code&state=${"s".repeat(32)}`,
+        {
+          headers: { cookie: "hub_auth_browser=x" },
+          redirect: "manual",
+        },
+      )
+
+      expect(response.status).toBe(303)
+      expect(response.headers.get("location")).toBe("/?authentication=denied")
+      expect(response.headers.get("set-cookie")).toContain("Max-Age=0")
+      expect(completeProof).not.toHaveBeenCalled()
+    })
+  })
+
+  it("redirects a native sign-out form after ending and clearing the session", async () => {
+    const { dependencies, endSession } = routeDependencies()
+    await withServer(dependencies, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/auth/session/sign-out`, {
+        method: "POST",
+        headers: {
+          accept: "text/html,application/xhtml+xml",
+          cookie: "hub_session=session-value",
+          origin: dependencies.signOut.applicationOrigin,
+        },
+        redirect: "manual",
+      })
+
+      expect(response.status).toBe(303)
+      expect(response.headers.get("location")).toBe("/")
+      expect(response.headers.get("set-cookie")).toContain("Max-Age=0")
+      expect(endSession).toHaveBeenCalledWith(
+        createHash("sha256").update("session-value").digest("hex"),
+      )
+    })
+  })
+
+  it("keeps API sign-out as an empty response", async () => {
+    const { dependencies, endSession } = routeDependencies()
+    await withServer(dependencies, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/auth/session/sign-out`, {
+        method: "POST",
+        headers: {
+          accept: "application/json",
+          origin: dependencies.signOut.applicationOrigin,
+        },
+      })
+
+      expect(response.status).toBe(204)
+      expect(endSession).not.toHaveBeenCalled()
+    })
   })
 
   it("rate-limits before parsing an oversized enrollment body and suppresses it from logs", async () => {
