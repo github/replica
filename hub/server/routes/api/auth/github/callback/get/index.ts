@@ -6,11 +6,12 @@ import { AdmissionDeniedError } from "../../../../../../domains/admission/errors
 import { AuthenticationProofError } from "../../../../../../domains/authentication/errors.ts"
 import { createOpaqueValue } from "../../../../../../domains/authentication/create-opaque-value/index.ts"
 import { hashAuthenticationValue } from "../../../../../../domains/authentication/hash-authentication-value/index.ts"
+import { browserAuthenticationCookieName } from "../../../../../../integrations/express/browser-authentication-cookie-name/index.ts"
 import { clearAuthenticationCookie } from "../../../../../../integrations/express/clear-authentication-cookie/index.ts"
 import { createAuthenticationCookie } from "../../../../../../integrations/express/create-authentication-cookie/index.ts"
+import { hubSessionCookieName } from "../../../../../../integrations/express/hub-session-cookie-name/index.ts"
 import { readCookie } from "../../../../../../integrations/express/read-cookie/index.ts"
 import type { AuthenticationCallbackDependencies } from "../../../../authentication/types.ts"
-import { browserCookieName } from "../../start/post/index.ts"
 
 const querySchema = z
   .object({
@@ -19,16 +20,17 @@ const querySchema = z
   })
   .strict()
 const browserBindingSchema = z.string().min(32).max(200)
-const sessionCookieName = "hub_session"
 
 export function get(dependencies: AuthenticationCallbackDependencies): RequestHandler {
   return async (request, response, next) => {
     const query = querySchema.safeParse(request.query)
-    const browserBinding = browserBindingSchema.safeParse(readCookie(request, browserCookieName))
+    const browserBinding = browserBindingSchema.safeParse(
+      readCookie(request, browserAuthenticationCookieName),
+    )
     if (!query.success || !browserBinding.success) {
       response.setHeader(
         "Set-Cookie",
-        clearAuthenticationCookie(browserCookieName, dependencies.secureCookie),
+        clearAuthenticationCookie(browserAuthenticationCookieName, dependencies.secureCookie),
       )
       response.redirect(303, "/?authentication=denied")
       return
@@ -46,10 +48,10 @@ export function get(dependencies: AuthenticationCallbackDependencies): RequestHa
         sessionId: randomUUID(),
       })
       response.setHeader("Set-Cookie", [
-        clearAuthenticationCookie(browserCookieName, dependencies.secureCookie),
+        clearAuthenticationCookie(browserAuthenticationCookieName, dependencies.secureCookie),
         createAuthenticationCookie({
           expiresAt: admitted.expiresAt,
-          name: sessionCookieName,
+          name: hubSessionCookieName,
           secure: dependencies.secureCookie,
           value: sessionValue,
         }),
@@ -58,8 +60,8 @@ export function get(dependencies: AuthenticationCallbackDependencies): RequestHa
     } catch (error) {
       if (error instanceof AdmissionDeniedError || error instanceof AuthenticationProofError) {
         response.setHeader("Set-Cookie", [
-          clearAuthenticationCookie(browserCookieName, dependencies.secureCookie),
-          clearAuthenticationCookie(sessionCookieName, dependencies.secureCookie),
+          clearAuthenticationCookie(browserAuthenticationCookieName, dependencies.secureCookie),
+          clearAuthenticationCookie(hubSessionCookieName, dependencies.secureCookie),
         ])
         response.redirect(303, "/?authentication=denied")
         return
@@ -68,5 +70,3 @@ export function get(dependencies: AuthenticationCallbackDependencies): RequestHa
     }
   }
 }
-
-export { sessionCookieName }

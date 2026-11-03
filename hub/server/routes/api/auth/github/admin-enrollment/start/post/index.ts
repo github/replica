@@ -1,8 +1,8 @@
 import type { RequestHandler } from "express"
 import { z } from "zod"
 
+import { startAuthentication } from "../../../../../../../integrations/express/start-authentication/index.ts"
 import type { StartAdministratorEnrollmentDependencies } from "../../../../../authentication/types.ts"
-import { post as startAuthentication } from "../../../start/post/index.ts"
 
 const bodySchema = z
   .object({
