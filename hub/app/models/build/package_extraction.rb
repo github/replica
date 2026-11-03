@@ -12,7 +12,7 @@ class Build::PackageExtraction
   class InvalidPackage < StandardError; end
 
   # Uses provider-neutral storage for one package extraction.
-  def initialize(artifact_store:, maximum_bytes: BuildSetting.current.maximum_bytes)
+  def initialize(artifact_store:, maximum_bytes: Rails.configuration.x.maximum_package_bytes)
     @artifact_store = artifact_store
     @maximum_bytes = maximum_bytes
   end
@@ -81,7 +81,7 @@ class Build::PackageExtraction
 
     total = files.sum(&:size)
     if total > maximum_bytes
-      raise InvalidPackage, BuildSetting.limit_message(maximum_bytes)
+      raise InvalidPackage, BuildPackageLimit.limit_message(maximum_bytes)
     end
 
     files
@@ -187,7 +187,7 @@ class Build::PackageExtraction
 
       @bytes += chunk.bytesize
       raise InvalidPackage, "package contains a file larger than its limit" if @bytes > @maximum_bytes
-      raise InvalidPackage, BuildSetting.limit_message(@total_limit) if @bytes > @remaining_bytes
+      raise InvalidPackage, BuildPackageLimit.limit_message(@total_limit) if @bytes > @remaining_bytes
 
       chunk
     end

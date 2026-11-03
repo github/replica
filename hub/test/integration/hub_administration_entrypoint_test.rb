@@ -40,7 +40,7 @@ class HubAdministrationEntrypointTest < ActionDispatch::IntegrationTest
         assert_response :success
         data = JSON.parse(response.body).fetch("data")
         navigation = data["workspace"] || data
-        assert_equal %w[github copilot admins sharing sessions builds], navigation.fetch("administrationLinks").pluck("section"), path
+        assert_equal %w[github copilot admins sharing sessions], navigation.fetch("administrationLinks").pluck("section"), path
         assert_not navigation.key?("hubAdministrationPath"), path
         assert_not navigation.key?("hubAdministrationLabel"), path
       end
@@ -62,7 +62,7 @@ class HubAdministrationEntrypointTest < ActionDispatch::IntegrationTest
     assert_response :success
     data = JSON.parse(response.body).fetch("data")
     assert_equal security_audit_path, data.fetch("securityAuditPath")
-    assert_equal %w[github copilot admins sharing sessions builds], data.fetch("administrationLinks").pluck("section")
+    assert_equal %w[github copilot admins sharing sessions], data.fetch("administrationLinks").pluck("section")
     assert_nil data.fetch("analyticsPath")
   end
 

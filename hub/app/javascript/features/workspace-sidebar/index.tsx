@@ -9,7 +9,6 @@ import {
   LightBulbIcon,
   LinkIcon,
   MarkGithubIcon,
-  PackageIcon,
   PeopleIcon,
   PlusIcon,
   RepoIcon,
@@ -31,7 +30,6 @@ const administrationIcons = {
   copilot: CopilotIcon,
   admins: PeopleIcon,
   sharing: LinkIcon,
-  builds: PackageIcon,
   sessions: SignOutIcon,
 }
 

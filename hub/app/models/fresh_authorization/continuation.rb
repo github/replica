@@ -8,7 +8,6 @@ class FreshAuthorization::Continuation < ActiveRecord::AssociatedObject
       "destroy" => "analytics_destination"
     },
     "sharing_settings" => { "update" => "sharing_settings" },
-    "build_settings" => { "update" => "build_settings" },
     "session_revocations" => { "create" => "session_revocation" },
     "github_apps" => { "destroy" => "github_app_reset" },
     "github_app_credentials" => { "update" => "github_app_credentials" },
@@ -42,7 +41,6 @@ class FreshAuthorization::Continuation < ActiveRecord::AssociatedObject
     when "github_app_credentials" then %i[confirmed configuration_id expected_version client_secret]
     when "github_apps" then %i[confirmed configuration_id expected_version confirmation]
     when "github_app_webhook_rotations" then %i[confirmed configuration_id expected_version operation]
-    when "build_settings" then %i[confirmed maximum_package_mib]
     else %i[confirmed operation]
     end
     attributes = params.permit(*fields).to_h

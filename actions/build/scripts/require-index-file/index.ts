@@ -1,8 +1,8 @@
 import { lstat } from "node:fs/promises"
 import path from "node:path"
 
-/** Checks that dist/index.html exists and is a file. */
-export async function requireIndexFile(dist: string) {
+/** Checks that the configured output contains an index.html file. */
+export async function requireIndexFile(dist: string, outputDirectory = "dist") {
   let details
 
   try {
@@ -13,7 +13,7 @@ export async function requireIndexFile(dist: string) {
       "code" in error &&
       (error.code === "ENOENT" || error.code === "ENOTDIR")
     ) {
-      throw new Error("Build must contain dist/index.html.", { cause: error })
+      throw new Error(`Build must contain ${outputDirectory}/index.html.`, { cause: error })
     }
 
     throw error
@@ -21,7 +21,7 @@ export async function requireIndexFile(dist: string) {
 
   if (!details.isFile()) {
     throw new Error(
-      "Build dist/index.html must be a file. Symbolic links and directories are not allowed.",
+      `Build ${outputDirectory}/index.html must be a file. Symbolic links and directories are not allowed.`,
     )
   }
 }

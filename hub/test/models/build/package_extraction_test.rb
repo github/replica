@@ -3,6 +3,8 @@ require "zip"
 
 class Build::PackageExtractionTest < ActiveSupport::TestCase
   setup do
+    @original_maximum = Rails.configuration.x.maximum_package_bytes
+    Rails.configuration.x.maximum_package_bytes = 150.megabytes
     @root = Rails.root.join("storage/template-package-test-#{SecureRandom.hex(5)}")
     FileUtils.mkdir_p(@root)
     @store = ArtifactStore.new(adapter: ArtifactStore::Local.new(root: @root.join("artifacts")))
@@ -16,6 +18,7 @@ class Build::PackageExtractionTest < ActiveSupport::TestCase
   end
 
   teardown do
+    Rails.configuration.x.maximum_package_bytes = @original_maximum
     FileUtils.rm_rf(@root)
   end
 
@@ -36,18 +39,18 @@ class Build::PackageExtractionTest < ActiveSupport::TestCase
     end
     assert_match(/limit/i, error.message)
     assert_includes error.message, "MiB"
-    assert_includes error.message, "Hub settings > Build packages"
+    assert_includes error.message, "REPLICA_MAXIMUM_PACKAGE_MIB"
     assert_empty @store.list("builds/1")
   end
 
-  test "uses the saved setting when no extraction override is supplied" do
-    BuildSetting.create!(id: 1, maximum_package_mib: 1)
+  test "uses the deployment configuration when no extraction override is supplied" do
+    Rails.configuration.x.maximum_package_bytes = 1.megabyte
     files = @files.merge("screenshots/desktop.png" => "x" * 1.megabyte)
 
     error = assert_raises(Build::PackageExtraction::InvalidPackage) { extract(files) }
 
     assert_includes error.message, "1 MiB"
-    assert_includes error.message, "Hub settings > Build packages"
+    assert_includes error.message, "REPLICA_MAXIMUM_PACKAGE_MIB"
     assert_empty @store.list("builds/1")
   end
 
@@ -62,7 +65,7 @@ class Build::PackageExtractionTest < ActiveSupport::TestCase
     error = assert_raises(Build::PackageExtraction::InvalidPackage) { source.read(1) }
 
     assert_includes error.message, "1 MiB"
-    assert_includes error.message, "Hub settings > Build packages"
+    assert_includes error.message, "REPLICA_MAXIMUM_PACKAGE_MIB"
   end
 
   test "validates retained Controls before storing any package files" do

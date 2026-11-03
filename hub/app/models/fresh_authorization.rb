@@ -38,7 +38,7 @@
 #
 #  fresh_authorizations_continuation  (continued_at IS NULL OR (verified_at IS NOT NULL AND pending_action IS NULL))
 #  fresh_authorizations_identity      (credential_type IN ('Session', 'CanvasGrant') AND credential_id > 0 AND github_id > 0)
-#  fresh_authorizations_purpose       (purpose IN ('never_expiring_share', 'analytics_destination', 'hub_admin_management', 'sharing_settings', 'session_revocation', 'github_app_reset', 'github_app_credentials', 'github_app_webhook', 'github_app_finish_webhook', 'copilot_connection', 'copilot_disconnection', 'build_settings'))
+#  fresh_authorizations_purpose       (purpose IN ('never_expiring_share', 'analytics_destination', 'hub_admin_management', 'sharing_settings', 'session_revocation', 'github_app_reset', 'github_app_credentials', 'github_app_webhook', 'github_app_finish_webhook', 'copilot_connection', 'copilot_disconnection'))
 #  fresh_authorizations_verification  (verified_at IS NULL OR consumed_at IS NOT NULL)
 #
 # Renews only the credential that requested a one-use GitHub identity check.
@@ -48,11 +48,11 @@ class FreshAuthorization < ApplicationRecord
   PURPOSES = %w[
     never_expiring_share analytics_destination hub_admin_management sharing_settings
     session_revocation github_app_reset github_app_credentials github_app_webhook
-    github_app_finish_webhook copilot_connection copilot_disconnection build_settings
+    github_app_finish_webhook copilot_connection copilot_disconnection
   ].freeze
   ADMIN_PURPOSES = %w[
     hub_admin_management sharing_settings session_revocation github_app_reset github_app_credentials github_app_webhook
-    github_app_finish_webhook copilot_connection copilot_disconnection build_settings
+    github_app_finish_webhook copilot_connection copilot_disconnection
   ].freeze
 
   class Invalid < StandardError; end

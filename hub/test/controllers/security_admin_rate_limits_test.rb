@@ -46,7 +46,6 @@ class SecurityAdminRateLimitsTest < ActionController::TestCase
     operations = {
       "hub_admins" => :update,
       "sharing_settings" => :update,
-      "build_settings" => :update,
       "session_revocations" => :create,
       "github_apps" => :destroy,
       "github_app_credentials" => :update,
@@ -67,7 +66,7 @@ class SecurityAdminRateLimitsTest < ActionController::TestCase
 
   test "reads and lookalike controllers never match the mutation registry" do
     {
-      "hub_admins" => :edit, "sharing_settings" => :show, "build_settings" => :show, "session_revocations" => :show,
+      "hub_admins" => :edit, "sharing_settings" => :show, "session_revocations" => :show,
       "github_apps" => :reset_confirmation, "github_app_credentials" => :edit,
       "github_app_webhook_rotations" => :show, "not_sharing_settings" => :update
     }.each do |controller, action|

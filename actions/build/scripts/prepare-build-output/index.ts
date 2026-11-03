@@ -38,9 +38,28 @@ export async function prepareBuildOutput(
   let directory = workspace
   for (const segment of segments) {
     directory = path.join(directory, segment)
-    const details = await lstat(directory)
+    let details
+    try {
+      details = await lstat(directory)
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        "code" in error &&
+        (error.code === "ENOENT" || error.code === "ENOTDIR")
+      ) {
+        throw new Error(
+          `Build output folder "${outputDirectory}" is missing. Build it first or correct output-directory.`,
+          { cause: error },
+        )
+      }
+
+      throw error
+    }
+
     if (!details.isDirectory()) {
-      throw new Error("output-directory and its parents must be directories, not symbolic links.")
+      throw new Error(
+        `Build output folder "${outputDirectory}" and its parents must be directories, not symbolic links or files.`,
+      )
     }
   }
 

@@ -65,6 +65,22 @@ describe("prepareBuildOutput()", () => {
     )
   })
 
+  it.each(["website", "website/public"])(
+    "explains a missing configured folder when %s is absent without replacing the destination",
+    async (missing) => {
+      const root = await temporaryDirectory()
+      const output = path.join(root, "normalized")
+      await mkdir(output)
+      await writeFile(path.join(output, "keep.txt"), "keep")
+      if (missing === "website/public") await mkdir(path.join(root, "website"))
+
+      await expect(prepareBuildOutput(root, "website/public", output)).rejects.toThrow(
+        'Build output folder "website/public" is missing. Build it first or correct output-directory.',
+      )
+      expect(await readFile(path.join(output, "keep.txt"), "utf8")).toBe("keep")
+    },
+  )
+
   it.each(["dist", "dist/nested", "."])(
     "rejects overlapping destination %s before deleting source files",
     async (destination) => {

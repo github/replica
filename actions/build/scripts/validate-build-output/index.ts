@@ -14,7 +14,7 @@ const DEFAULT_LIMITS = {
   maxPathDepth: MAX_PATH_DEPTH,
 }
 
-/** Checks dist paths and sizes, then returns the files that can be packaged. */
+/** Checks output paths and sizes, then returns the files that can be packaged. */
 export async function validateBuildOutput(
   root: string,
   limits: Partial<BuildFileState["limits"]> = {},
@@ -32,17 +32,19 @@ export async function validateBuildOutput(
       "code" in error &&
       (error.code === "ENOENT" || error.code === "ENOTDIR")
     ) {
-      throw new Error("Build must contain a dist/ directory.", { cause: error })
+      throw new Error(`Build must contain a ${outputDirectory}/ directory.`, { cause: error })
     }
 
     throw error
   }
 
   if (!distDetails.isDirectory()) {
-    throw new Error("Build dist/ must be a directory. Symbolic links and files are not allowed.")
+    throw new Error(
+      `Build ${outputDirectory}/ must be a directory. Symbolic links and files are not allowed.`,
+    )
   }
 
-  await requireIndexFile(dist)
+  await requireIndexFile(dist, outputDirectory)
 
   const state: BuildFileState = {
     entries: 0,

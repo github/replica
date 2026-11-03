@@ -11,6 +11,5 @@ json.administrationLinks(hub_admin ? [
   { section: "copilot", label: t("copilot_connection.heading"), path: copilot_connection_path(**context) },
   { section: "admins", label: t("hub_admins.heading"), path: hub_admins_path(**context) },
   { section: "sharing", label: t("sharing_settings.heading"), path: sharing_settings_path(**context) },
-  { section: "sessions", label: t("session_revocation.heading"), path: session_revocation_path(**context) },
-  { section: "builds", label: t("build_settings.heading"), path: build_settings_path(**context) }
+  { section: "sessions", label: t("session_revocation.heading"), path: session_revocation_path(**context) }
 ] : [])

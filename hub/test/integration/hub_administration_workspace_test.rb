@@ -18,7 +18,6 @@ class HubAdministrationWorkspaceTest < ActionDispatch::IntegrationTest
       hub_admins_path => "admins",
       edit_hub_admin_path(@target) => "admins",
       sharing_settings_path => "sharing",
-      build_settings_path => "builds",
       session_revocation_path => "sessions",
       github_app_path => "github",
       reset_github_app_path => "github",
@@ -37,7 +36,7 @@ class HubAdministrationWorkspaceTest < ActionDispatch::IntegrationTest
         assert_equal I18n.t("repository_workspace.theme_system"), workspace.fetch("systemThemeLabel")
         assert_equal I18n.t("repository_workspace.theme_light"), workspace.fetch("lightThemeLabel")
         assert_equal I18n.t("repository_workspace.theme_dark"), workspace.fetch("darkThemeLabel")
-        assert_equal %w[github copilot admins sharing sessions builds], workspace.fetch("administrationLinks").pluck("section")
+        assert_equal %w[github copilot admins sharing sessions], workspace.fetch("administrationLinks").pluck("section")
         assert_equal security_audit_path, workspace.fetch("securityAuditPath")
         assert_nil workspace.fetch("repository")
         assert_not workspace.key?("selectedRepositoryId")
@@ -61,7 +60,7 @@ class HubAdministrationWorkspaceTest < ActionDispatch::IntegrationTest
 
   test "revocation keeps the safe account shell without administration navigation" do
     @actor.update!(hub_admin: false)
-    [ hub_admins_path, sharing_settings_path, build_settings_path, session_revocation_path, github_app_path, copilot_connection_path ].each do |path|
+    [ hub_admins_path, sharing_settings_path, session_revocation_path, github_app_path, copilot_connection_path ].each do |path|
       get path, as: :json
       assert_response :forbidden
       assert_nil data.fetch("administrationWorkspace")

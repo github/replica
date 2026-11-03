@@ -5,7 +5,7 @@ class HubAdministrationNavigationTest < ActionView::TestCase
     user = users.create(hub_admin: true)
     data = navigation_for(user)
 
-    assert_equal %w[github copilot admins sharing sessions builds], data.fetch("administrationLinks").pluck("section")
+    assert_equal %w[github copilot admins sharing sessions], data.fetch("administrationLinks").pluck("section")
     assert_not data.key?("hubAdministrationPath")
     assert_not data.key?("hubAdministrationLabel")
   end

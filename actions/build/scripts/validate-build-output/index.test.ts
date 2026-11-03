@@ -8,6 +8,25 @@ import { temporaryDirectory } from "../../test/temporary-directory/index.ts"
 import { validateBuildOutput } from "./index.ts"
 
 describe("validateBuildOutput()", () => {
+  it.each(["missing directory", "file directory", "missing index", "directory index"])(
+    "names the configured output for a %s",
+    async (failure) => {
+      const root = await temporaryDirectory()
+      await mkdir(path.join(root, "website"))
+      const output = path.join(root, "website", "public")
+      if (failure === "file directory") {
+        await writeFile(output, "not a directory")
+      } else if (failure !== "missing directory") {
+        await mkdir(output)
+        if (failure === "directory index") await mkdir(path.join(output, "index.html"))
+      }
+
+      await expect(validateBuildOutput(root, {}, "website/public")).rejects.toThrow(
+        failure.endsWith("index") ? /website\/public\/index\.html/ : /website\/public\//,
+      )
+    },
+  )
+
   it("validates the retained Controls asset without trusting source definitions", async () => {
     const root = await temporaryDirectory()
     await mkdir(path.join(root, "dist", "assets"), { recursive: true })
