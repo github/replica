@@ -17,6 +17,8 @@ Each command starts one Node.js process consuming only its assigned queue. The A
 
 `server/workers/configuration.ts` is the composition point for processors and schedules. Its empty registrations are intentional until product domains exist. Worker startup logs readiness after connecting; unknown job names fail permanently rather than disappearing.
 
+Worker readiness confirms initial connection only; it is not continuous consumer-health monitoring. A later connection error is logged but does not clear the combined runtime's worker-initialized signal.
+
 Workers stop accepting work on `SIGINT` or `SIGTERM` and wait for active jobs. After `SHUTDOWN_TIMEOUT_MS` (30000 milliseconds by default), the command exits unsuccessfully rather than waiting forever. Interrupted work can be retried by BullMQ's stalled-job recovery. Deployment stop timeouts must allow this shutdown window. Long-running domain work needs its own bounded execution and interruption policy; a queue lock is not a business lock.
 
 ## Database and setup
