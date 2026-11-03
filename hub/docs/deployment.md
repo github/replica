@@ -1,6 +1,6 @@
 # Deploy Hub
 
-The Hub image runs the frontend, API, and both workers together. It does not yet implement sign-in, artifact import, preview hosting, or reviews. Do not treat the health endpoint as proof of those product flows.
+The Hub image runs the frontend, API, and both workers together. It can expose GitHub sign-in and reusable administrator enrollment when their settings are configured. It does not yet implement artifact import, preview hosting, or reviews. Do not treat the health endpoint as proof of those product flows.
 
 ## Image and runtime
 
@@ -17,6 +17,12 @@ Publishing is an explicit operator step, not a side effect of CI. From the appro
 | `CLIENT_DIRECTORY`                                       | Absolute directory containing built frontend assets and `index.html`; the image uses `/app/dist/client`. Leave unset for the development API.  |
 | `SHUTDOWN_TIMEOUT_MS`                                    | Request and worker drain deadline, default 30000 milliseconds. Allow another five seconds for telemetry flushing.                              |
 | `ON_DEMAND_JOB_CONCURRENCY`, `SCHEDULED_JOB_CONCURRENCY` | Independent worker concurrency, as described in [Background jobs](background-jobs.md).                                                         |
+| `HUB_APPLICATION_ORIGIN`                                 | Exact public HTTP origin. Setting it enables the authentication routes and requires the remaining authentication settings below.                |
+| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`                | GitHub App user-authorization credentials. Keep the secret in protected runtime configuration.                                                 |
+| `GITHUB_PROVIDER_REVISION`                               | Positive configured adapter revision. Hub validates and selects the matching public-configuration digest.                                     |
+| `HUB_AUTHENTICATION_ENCRYPTION_KEY`                      | Base64-encoded 32-byte key used only for short-lived authorization-attempt verifier state.                                                     |
+| `HUB_BOOTSTRAP_SECRET`                                   | Reusable high-entropy secret, at least 32 characters, for administrator enrollment.                                                            |
+| `HUB_TRUSTED_PROXY_HOPS`                                 | Exact protected proxy-chain length, default 0. Configure this for the deployment ingress before enabling authentication.                       |
 
 Configuration errors stop startup without printing credentials. Logging and optional tracing retain their existing [logging](logging.md) and [telemetry](telemetry.md) contracts.
 
@@ -42,6 +48,6 @@ The deployment orchestrator owns serialization of the complete release, includin
 
 CI checks the image against disposable PostgreSQL, including setup, frontend/API serving, readiness, and termination. This is not a supported local-production installation. The existing devcontainer remains the development environment.
 
-The [Azure reference installation](../../infrastructure/README.md) uses Terraform and a serialized maintenance-window release. It consumes the same image and runtime settings without adding Azure deployment logic to Hub.
+The [Azure reference installation](../../infrastructure/README.md) uses Terraform and a serialized maintenance-window release. It consumes the same image but does not yet configure the optional authentication settings. Add those protected settings and the exact Container Apps proxy-chain length before enabling authentication there.
 
 An actual cloud deployment must additionally verify credentials, networking, data survival, backup and restore, domain configuration, and release ordering in an authorized environment. Never commit secrets, tenant-specific parameter files, or generated service addresses.

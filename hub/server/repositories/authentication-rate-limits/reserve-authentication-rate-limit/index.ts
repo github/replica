@@ -47,16 +47,21 @@ export async function reserveAuthenticationRateLimit(
         WHEN "authentication_rate_limits"."count" + 1 > ${input.limit}
           AND ${input.auditFirstDenial}
           AND "authentication_rate_limits"."denial_audited_at" IS NULL
-          THEN (SELECT value FROM reservation_clock)
+          THEN GREATEST(
+            (SELECT value FROM reservation_clock),
+            "authentication_rate_limits"."updated_at" + interval '1 millisecond'
+          )
         ELSE "authentication_rate_limits"."denial_audited_at"
       END,
-      "updated_at" = (SELECT value FROM reservation_clock)
-    RETURNING WITH (OLD AS previous, NEW AS current)
-      current."count" <= ${input.limit} AS "allowed",
-      current."count" > ${input.limit}
+      "updated_at" = GREATEST(
+        (SELECT value FROM reservation_clock),
+        "authentication_rate_limits"."updated_at" + interval '1 millisecond'
+      )
+    RETURNING
+      "count" <= ${input.limit} AS "allowed",
+      "count" > ${input.limit}
         AND ${input.auditFirstDenial}
-        AND current."denial_audited_at" IS NOT NULL
-        AND previous."denial_audited_at" IS NULL AS "auditRequired"
+        AND "denial_audited_at" = "updated_at" AS "auditRequired"
   `
   if (!decision) throw new Error("Authentication rate-limit reservation returned no decision.")
 

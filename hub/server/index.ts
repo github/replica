@@ -20,11 +20,20 @@ try {
   const isStorageReady = storage ? () => storage.isReady() : undefined
   const telemetry = startTelemetry(process.env, logger)
   try {
-    const trustedProxyHops = Number(process.env.HUB_TRUSTED_PROXY_HOPS ?? 0)
-    if (!Number.isInteger(trustedProxyHops) || trustedProxyHops < 0 || trustedProxyHops > 10) {
+    const runsApi = configuration.mode === "api" || configuration.mode === "combined"
+    const configuredTrustedProxyHops = Number(process.env.HUB_TRUSTED_PROXY_HOPS ?? 0)
+    if (
+      runsApi &&
+      (!Number.isInteger(configuredTrustedProxyHops) ||
+        configuredTrustedProxyHops < 0 ||
+        configuredTrustedProxyHops > 10)
+    ) {
       throw new Error("HUB_TRUSTED_PROXY_HOPS must be an integer between 0 and 10.")
     }
-    const authentication = await createOptionalAuthenticationRouteDependencies(process.env)
+    const trustedProxyHops = runsApi ? configuredTrustedProxyHops : 0
+    const authentication = runsApi
+      ? await createOptionalAuthenticationRouteDependencies(process.env)
+      : undefined
     if (configuration.mode === "setup") await setup()
     else if (configuration.mode === "api")
       await runApi({
