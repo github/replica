@@ -153,12 +153,11 @@ describe("Hub admission and session flow", () => {
         /malformed-verification-state|malformed-browser-binding|malformed-code-verifier|unused-provider-code|verification_state_invalid/,
       )
       expect(server.providerRequest).not.toHaveBeenCalled()
-      await expect(
-        prisma.authorizationAttempt.findUnique({
-          where: { id: attemptId },
-          select: { consumedAt: true },
-        }),
-      ).resolves.toEqual({ consumedAt: expect.any(Date) })
+      const consumedAttempt = await prisma.authorizationAttempt.findUnique({
+        where: { id: attemptId },
+        select: { consumedAt: true },
+      })
+      expect(consumedAttempt?.consumedAt).toBeInstanceOf(Date)
       expect(await prisma.user.count()).toBe(0)
       expect(await prisma.externalIdentity.count()).toBe(0)
       expect(await prisma.membership.count()).toBe(0)
