@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto"
+import type * as fs from "node:fs/promises"
 import { mkdir, readFile, rm } from "node:fs/promises"
 import { resolve } from "node:path"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({ unlink: vi.fn() }))
 vi.mock("node:fs/promises", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("node:fs/promises")>()),
+  ...(await importOriginal<typeof fs>()),
   unlink: mocks.unlink,
 }))
 
