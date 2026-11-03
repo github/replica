@@ -39,7 +39,6 @@ export interface AuthenticationCallbackDependencies extends RateLimitDependencie
 }
 
 export interface CurrentSessionDependencies {
-  secureCookie: boolean
   restore(sessionDigest: string): Promise<true | null>
 }
 

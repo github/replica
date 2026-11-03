@@ -40,7 +40,6 @@ function routeDependencies() {
       admit: admitSession,
     },
     currentSession: {
-      secureCookie: false,
       restore: restoreSession,
     },
     signOut: {

@@ -158,7 +158,6 @@ export function createAuthenticationRouteDependencies(
         ),
     },
     currentSession: {
-      secureCookie: context.secureCookie,
       restore: (sessionDigest) =>
         restoreHubSession(sessionDigest, {
           runTransaction: (operation) => runSessionRestoreTransaction(prisma, operation),
