@@ -8,7 +8,7 @@ function repositories(
 ): SessionRestoreRepositories {
   return {
     getRevocation: vi.fn().mockResolvedValue({ revision: 0 }),
-    lockActiveAssignment: vi.fn().mockResolvedValue({ role: "ADMINISTRATOR" }),
+    lockActiveAssignment: vi.fn().mockResolvedValue(true),
     lockMembership: vi.fn().mockResolvedValue({
       id: "membership-id",
       lifecycle: "ACTIVE",
@@ -30,7 +30,7 @@ describe("restoreHubSession()", () => {
       restoreHubSession("a".repeat(64), {
         runTransaction: (operation) => operation(records),
       }),
-    ).resolves.toEqual({ role: "administrator" })
+    ).resolves.toBe(true)
   })
 
   it("fails closed when global revocation authority is missing", async () => {

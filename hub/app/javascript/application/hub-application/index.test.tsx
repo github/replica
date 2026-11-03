@@ -37,10 +37,7 @@ describe("HubApplication()", () => {
 
   it("shows callback success only after restoring the admitted session", async () => {
     window.history.replaceState({}, "", "/?authentication=success")
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(Response.json({ authenticated: true, role: "administrator" })),
-    )
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ authenticated: true })))
 
     renderApplication()
 

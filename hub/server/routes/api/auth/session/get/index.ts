@@ -14,8 +14,8 @@ export function get(dependencies: CurrentSessionDependencies): RequestHandler {
       return
     }
     try {
-      const session = await dependencies.restore(hashAuthenticationValue(value))
-      if (!session) {
+      const authenticated = await dependencies.restore(hashAuthenticationValue(value))
+      if (!authenticated) {
         response.setHeader(
           "Set-Cookie",
           clearAuthenticationCookie(hubSessionCookieName, dependencies.secureCookie),
@@ -23,10 +23,7 @@ export function get(dependencies: CurrentSessionDependencies): RequestHandler {
         response.status(401).json({ authenticated: false })
         return
       }
-      response.json({
-        authenticated: true,
-        role: session.role,
-      })
+      response.json({ authenticated: true })
     } catch (error) {
       next(error)
     }

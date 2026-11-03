@@ -19,7 +19,7 @@ export interface AdmissionRepositories {
     transition: "created" | "restored" | "unchanged"
   }>
   createSecurityAudit(input: CreateSecurityAuditEvent): Promise<unknown>
-  lockActiveAssignment(membershipId: string): Promise<{ role: "ADMINISTRATOR" } | null>
+  lockActiveAssignment(membershipId: string): Promise<boolean>
   lockAttempt(id: string): Promise<{
     consumedAt: Date | null
     providerRevisionId: string

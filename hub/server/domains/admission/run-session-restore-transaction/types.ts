@@ -2,7 +2,7 @@ import type { Prisma } from "../../../generated/prisma/client.ts"
 
 export interface SessionRestoreRepositories {
   getRevocation(): Promise<{ revision: number } | null>
-  lockActiveAssignment(membershipId: string): Promise<{ role: "ADMINISTRATOR" } | null>
+  lockActiveAssignment(membershipId: string): Promise<boolean>
   lockMembership(membershipId: string): Promise<{
     id: string
     lifecycle: "ACTIVE" | "SUSPENDED" | "REMOVED"

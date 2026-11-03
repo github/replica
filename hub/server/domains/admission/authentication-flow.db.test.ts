@@ -255,10 +255,7 @@ describe("Hub admission and session flow", () => {
         headers: { cookie: `hub_session=${encodeURIComponent(firstSession!)}` },
       })
       expect(restored.status).toBe(200)
-      expect(await restored.json()).toMatchObject({
-        authenticated: true,
-        role: "administrator",
-      })
+      expect(await restored.json()).toEqual({ authenticated: true })
       const auditCountBeforeRestores = await prisma.securityAudit.count()
       const repeatedRestores = await Promise.all(
         Array.from({ length: 20 }, () =>

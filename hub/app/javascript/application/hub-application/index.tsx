@@ -8,14 +8,11 @@ import { HubAdminEnrollmentPage } from "@pages/hub-admin-enrollment-page"
 import { SessionLoadingPage } from "@pages/session-loading-page"
 
 type SessionState =
-  | { status: "loading" }
-  | { status: "signed-out"; restoreFailed: boolean }
-  | { status: "signed-in"; role: "administrator" }
+  { status: "loading" } | { status: "signed-out"; restoreFailed: boolean } | { status: "signed-in" }
 
 const currentSessionSchema = z
   .object({
     authenticated: z.literal(true),
-    role: z.literal("administrator"),
   })
   .strict()
 
@@ -38,7 +35,7 @@ export function HubApplication() {
       .then((result) =>
         setSession(
           result.authenticated
-            ? { status: "signed-in", role: result.role }
+            ? { status: "signed-in" }
             : { status: "signed-out", restoreFailed: authentication === "success" },
         ),
       )

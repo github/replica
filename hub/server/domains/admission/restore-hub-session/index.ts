@@ -22,6 +22,6 @@ export async function restoreHubSession(
     if (finalSession?.id !== session.id) return null
     const finalRevocation = await repositories.getRevocation()
     if (!finalRevocation || finalRevocation.revision !== revocation.revision) return null
-    return { role: "administrator" as const }
+    return true
   })
 }

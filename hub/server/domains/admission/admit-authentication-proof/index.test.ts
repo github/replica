@@ -29,7 +29,7 @@ function repositories(overrides: Partial<AdmissionRepositories> = {}) {
       transition: "created",
     }),
     createSecurityAudit: vi.fn().mockResolvedValue(undefined),
-    lockActiveAssignment: vi.fn().mockResolvedValue({ role: "ADMINISTRATOR" }),
+    lockActiveAssignment: vi.fn().mockResolvedValue(true),
     lockAttempt: vi.fn().mockResolvedValue({
       consumedAt: new Date(),
       providerRevisionId: "revision-id",
