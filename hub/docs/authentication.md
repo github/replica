@@ -12,6 +12,8 @@ Completion returns a minimal provider-neutral proof value in memory containing o
 
 A trusted consumer must reread the referenced authoritative records before using the proof.
 
+Consumed attempts remain available as short-lived protocol state for ten minutes after consumption so a trusted same-request consumer can reread them. Cleanup removes expired unconsumed attempts and consumed attempts after that fixed retention window; this is not authentication history.
+
 ## Safety boundaries
 
 GitHub configuration is explicit and revisioned. Only the public github.com authorization, token, and user endpoints are accepted. Provider requests have fixed deadlines, reject redirects, and discard access tokens after the user lookup.

@@ -23,6 +23,7 @@ CREATE TABLE "authorization_attempts" (
 CREATE UNIQUE INDEX "authorization_attempts_state_digest_key"
 ON "authorization_attempts"("state_digest");
 CREATE INDEX "authorization_attempts_expires_at_idx" ON "authorization_attempts"("expires_at");
+CREATE INDEX "authorization_attempts_consumed_at_idx" ON "authorization_attempts"("consumed_at");
 
 ALTER TABLE "authorization_attempts"
 ADD CONSTRAINT "authorization_attempts_provider_revision_id_fkey"
@@ -35,8 +36,12 @@ LANGUAGE plpgsql
 AS $$
 BEGIN
     IF TG_OP = 'DELETE' THEN
-        IF OLD."expires_at" > CURRENT_TIMESTAMP THEN
+        IF OLD."consumed_at" IS NULL AND OLD."expires_at" > CURRENT_TIMESTAMP THEN
             RAISE EXCEPTION 'Unexpired authorization attempts cannot be deleted.';
+        END IF;
+        IF OLD."consumed_at" IS NOT NULL
+           AND OLD."consumed_at" > CURRENT_TIMESTAMP - interval '10 minutes' THEN
+            RAISE EXCEPTION 'Recently consumed authorization attempts cannot be deleted.';
         END IF;
         RETURN OLD;
     END IF;

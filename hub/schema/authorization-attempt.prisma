@@ -18,5 +18,6 @@ model AuthorizationAttempt {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@index([expiresAt])
+  @@index([consumedAt])
   @@map("authorization_attempts")
 }

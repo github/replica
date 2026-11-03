@@ -25,6 +25,62 @@ describe("authentication proof migration", () => {
         const migrationName = "20261029203000_identity_foundation"
         const migrationPath = join(hubRoot, "schema/migrations", migrationName, "migration.sql")
         await database.query(await readFile(migrationPath, "utf8"))
+        const providerId = "00000000-0000-4000-8000-000000000010"
+        const revisionId = "00000000-0000-4000-8000-000000000011"
+        const userId = "00000000-0000-4000-8000-000000000012"
+        const externalIdentityId = "00000000-0000-4000-8000-000000000013"
+        await database.query("BEGIN")
+        await database.query(
+          `INSERT INTO authentication_providers (id, key) VALUES ($1, 'github')`,
+          [providerId],
+        )
+        await database.query(
+          `INSERT INTO authentication_provider_revisions
+             (id, provider_id, revision, configuration_digest)
+           VALUES ($1, $2, 1, $3)`,
+          [revisionId, providerId, "a".repeat(64)],
+        )
+        await database.query(
+          `UPDATE authentication_providers SET selected_revision_id = $1 WHERE id = $2`,
+          [revisionId, providerId],
+        )
+        await database.query(`INSERT INTO users (id) VALUES ($1)`, [userId])
+        await database.query(
+          `INSERT INTO external_identities
+             (id, user_id, provider, issuer, subject)
+           VALUES ($1, $2, 'github', 'https://github.com', '123456')`,
+          [externalIdentityId, userId],
+        )
+        await database.query("COMMIT")
+        const c1Records = await database.query(
+          `SELECT
+             provider.id AS provider_id,
+             provider.key AS provider_key,
+             provider.selected_revision_id,
+             provider.created_at AS provider_created_at,
+             provider.updated_at AS provider_updated_at,
+             revision.id AS revision_id,
+             revision.revision,
+             revision.configuration_digest,
+             revision.created_at AS revision_created_at,
+             revision.updated_at AS revision_updated_at,
+             hub_user.id AS user_id,
+             hub_user.created_at AS user_created_at,
+             hub_user.updated_at AS user_updated_at,
+             identity.id AS external_identity_id,
+             identity.provider AS identity_provider,
+             identity.issuer,
+             identity.subject,
+             identity.created_at AS identity_created_at,
+             identity.updated_at AS identity_updated_at
+           FROM authentication_providers provider
+           JOIN authentication_provider_revisions revision
+             ON revision.id = provider.selected_revision_id
+           JOIN users hub_user ON hub_user.id = $1
+           JOIN external_identities identity ON identity.user_id = hub_user.id
+           WHERE provider.id = $2`,
+          [userId, providerId],
+        )
         const prisma = join(hubRoot, "node_modules/prisma/build/index.js")
         const options = {
           cwd: hubRoot,
@@ -83,25 +139,49 @@ describe("authentication proof migration", () => {
           "created_at",
           "updated_at",
         ])
-
-        const providerId = "00000000-0000-4000-8000-000000000010"
-        const revisionId = "00000000-0000-4000-8000-000000000011"
-        await database.query("BEGIN")
-        await database.query(
-          `INSERT INTO authentication_providers (id, key) VALUES ($1, 'github')`,
-          [providerId],
+        const attemptIndexes = await database.query<{ indexname: string }>(
+          `SELECT indexname
+           FROM pg_indexes
+           WHERE schemaname = 'public'
+             AND tablename = 'authorization_attempts'
+           ORDER BY indexname`,
         )
-        await database.query(
-          `INSERT INTO authentication_provider_revisions
-             (id, provider_id, revision, configuration_digest)
-           VALUES ($1, $2, 1, $3)`,
-          [revisionId, providerId, "a".repeat(64)],
+        expect(attemptIndexes.rows.map(({ indexname }) => indexname)).toEqual([
+          "authorization_attempts_consumed_at_idx",
+          "authorization_attempts_expires_at_idx",
+          "authorization_attempts_pkey",
+          "authorization_attempts_state_digest_key",
+        ])
+        const upgradedRecords = await database.query(
+          `SELECT
+             provider.id AS provider_id,
+             provider.key AS provider_key,
+             provider.selected_revision_id,
+             provider.created_at AS provider_created_at,
+             provider.updated_at AS provider_updated_at,
+             revision.id AS revision_id,
+             revision.revision,
+             revision.configuration_digest,
+             revision.created_at AS revision_created_at,
+             revision.updated_at AS revision_updated_at,
+             hub_user.id AS user_id,
+             hub_user.created_at AS user_created_at,
+             hub_user.updated_at AS user_updated_at,
+             identity.id AS external_identity_id,
+             identity.provider AS identity_provider,
+             identity.issuer,
+             identity.subject,
+             identity.created_at AS identity_created_at,
+             identity.updated_at AS identity_updated_at
+           FROM authentication_providers provider
+           JOIN authentication_provider_revisions revision
+             ON revision.id = provider.selected_revision_id
+           JOIN users hub_user ON hub_user.id = $1
+           JOIN external_identities identity ON identity.user_id = hub_user.id
+           WHERE provider.id = $2`,
+          [userId, providerId],
         )
-        await database.query(
-          `UPDATE authentication_providers SET selected_revision_id = $1 WHERE id = $2`,
-          [revisionId, providerId],
-        )
-        await database.query("COMMIT")
+        expect(upgradedRecords.rows).toEqual(c1Records.rows)
 
         const attemptId = "00000000-0000-4000-8000-000000000014"
         await expect(
