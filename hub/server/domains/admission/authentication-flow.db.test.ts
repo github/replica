@@ -444,7 +444,7 @@ describe("Hub admission and session flow", () => {
       const unknown = await startAuthentication(server.baseUrl, "/api/auth/github/start")
       const denied = await completeAuthentication(server.baseUrl, unknown)
       expect(denied.headers.get("location")).toBe("/?authentication=denied")
-      expect(cookieValue(denied, "hub_session")).toBe("")
+      expect(cookieValue(denied, "hub_session")).toBeNull()
 
       const enrollment = await startAuthentication(
         server.baseUrl,
