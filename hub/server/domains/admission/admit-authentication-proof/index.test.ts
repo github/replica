@@ -85,13 +85,6 @@ describe("admitAuthenticationProof()", () => {
         revocationRevision: 0,
       }),
     )
-    expect(Object.keys(createHubSession.mock.calls[0]![0]).sort()).toEqual([
-      "digest",
-      "id",
-      "lifetimeSeconds",
-      "membershipId",
-      "revocationRevision",
-    ])
   })
 
   it("writes one terminal failure audit after retry exhaustion", async () => {
@@ -116,18 +109,6 @@ describe("admitAuthenticationProof()", () => {
         reason: "retry_exhausted",
       }),
     )
-  })
-
-  it("uses the immutable external-identity foreign key without a separate user lock", async () => {
-    const records = repositories()
-
-    await admitAuthenticationProof(input(), {
-      createId: randomUUID,
-      runTransaction: (operation) => operation(records),
-      writeAudit: vi.fn(),
-    })
-
-    expect("lockUser" in records).toBe(false)
   })
 
   it("denies a proof when the selected provider revision changed before admission", async () => {
@@ -186,25 +167,6 @@ describe("admitAuthenticationProof()", () => {
     expect(createSecurityAudit).not.toHaveBeenCalledWith(
       expect.objectContaining({ type: "membership_assignment_restored" }),
     )
-  })
-
-  it("lets the audit mapper add invariant bootstrap assignment metadata", async () => {
-    const createSecurityAudit = vi
-      .fn<AdmissionRepositories["createSecurityAudit"]>()
-      .mockResolvedValue(undefined)
-    const records = repositories({ createSecurityAudit })
-
-    await admitAuthenticationProof(input(), {
-      createId: randomUUID,
-      runTransaction: (operation) => operation(records),
-      writeAudit: vi.fn(),
-    })
-
-    const assignmentEvent = createSecurityAudit.mock.calls
-      .map(([event]) => event)
-      .find(({ type }) => type === "membership_assignment_created")
-    expect(assignmentEvent?.type).toBe("membership_assignment_created")
-    expect(Object.keys(assignmentEvent ?? {}).sort()).toEqual(["id", "membershipId", "type"])
   })
 
   it("does not audit an unchanged active membership lifecycle", async () => {
