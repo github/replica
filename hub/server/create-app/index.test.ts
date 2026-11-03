@@ -1,8 +1,10 @@
-import { once } from "node:events"
 import { randomUUID } from "node:crypto"
+import { once } from "node:events"
+import { mkdir, rm, writeFile } from "node:fs/promises"
 import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
-import { describe, expect, it, vi } from "vitest"
+import { join } from "node:path"
+import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { createLogger } from "../integrations/pino/create-logger"
 
@@ -19,6 +21,88 @@ function parseRecord(line: string) {
 }
 
 describe("createApp()", () => {
+  it("serves built assets and HTML navigation without masking missing API routes or assets", async () => {
+    const clientDirectory = join(process.cwd(), `runtime-client-test-${randomUUID()}`)
+    await mkdir(join(clientDirectory, "assets"), { recursive: true })
+    onTestFinished(() => rm(clientDirectory, { recursive: true, force: true }))
+    const html = "<!doctype html><title>Built Hub</title>"
+    await writeFile(join(clientDirectory, "index.html"), html)
+    await writeFile(join(clientDirectory, "assets", "app.js"), "export const built = true")
+    const server = createServer(
+      createApp({ clientDirectory, logger: createLogger({ level: "silent" }) }),
+    )
+
+    try {
+      server.listen(0, "127.0.0.1")
+      await once(server, "listening")
+      const { port } = server.address() as AddressInfo
+      const base = `http://127.0.0.1:${port}`
+      const navigation = await fetch(`${base}/projects/example`, {
+        headers: { accept: "text/html" },
+      })
+      expect(navigation.status).toBe(200)
+      expect(navigation.headers.get("content-type")).toMatch(/^text\/html\b/)
+      expect(await navigation.text()).toBe(html)
+      const head = await fetch(`${base}/projects/example`, {
+        method: "HEAD",
+        headers: { accept: "text/html" },
+      })
+      expect(head.status).toBe(200)
+      expect(head.headers.get("content-type")).toMatch(/^text\/html\b/)
+      expect(await head.text()).toBe("")
+      const asset = await fetch(`${base}/assets/app.js`)
+      expect(asset.status).toBe(200)
+      expect(await asset.text()).toBe("export const built = true")
+
+      for (const { path, method, accept } of [
+        { path: "/api/missing", method: "GET", accept: "text/html" },
+        { path: "/assets/missing.js", method: "GET", accept: "text/html" },
+        { path: "/projects/example", method: "POST", accept: "text/html" },
+        { path: "/projects/example", method: "GET", accept: "application/json" },
+        { path: "/projects/example", method: "GET", accept: "*/*" },
+      ]) {
+        const missing = await fetch(`${base}${path}`, { method, headers: { accept } })
+        expect.soft(missing.status, `${method} ${path} accepting ${accept}`).toBe(404)
+        expect.soft(missing.headers.get("content-type")).toMatch(/^application\/json\b/)
+        if (missing.status === 404) {
+          expect(await missing.json()).toEqual({ error: "Not found" })
+        }
+      }
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()))
+      })
+    }
+  })
+
+  it("reports unavailable dependencies safely without making process health fail", async () => {
+    const isReady = vi.fn<() => Promise<boolean>>().mockResolvedValue(false)
+    const server = createServer(createApp({ isReady, logger: createLogger({ level: "silent" }) }))
+
+    try {
+      server.listen(0, "127.0.0.1")
+      await once(server, "listening")
+      const { port } = server.address() as AddressInfo
+      const base = `http://127.0.0.1:${port}`
+      const unavailable = await fetch(`${base}/api/ready`)
+      expect(unavailable.status).toBe(503)
+      const health = await fetch(`${base}/api/health`)
+      expect(health.status).toBe(200)
+      expect(await health.json()).toEqual({ status: "ok" })
+
+      isReady.mockResolvedValue(true)
+      expect((await fetch(`${base}/api/ready`)).status).toBe(200)
+      isReady.mockRejectedValue(new Error("postgresql://test:private-readiness-marker@localhost"))
+      const failed = await fetch(`${base}/api/ready`)
+      expect(failed.status).toBe(503)
+      expect(await failed.text()).not.toContain("private-readiness-marker")
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()))
+      })
+    }
+  })
+
   it("accepts a broadcast dependency without changing HTTP routes", async () => {
     const broadcast = vi.fn()
     const server = createServer(createApp({ broadcast }))

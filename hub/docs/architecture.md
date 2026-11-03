@@ -8,13 +8,15 @@ The team has chosen TypeScript, Express for the API, React and Vite for the fron
 
 The API responds to a health check, and the frontend displays the logo with light and dark themes. Storybook keeps the existing components and pages available for reuse.
 
-Contributors can use PostgreSQL and Prisma locally or in the devcontainer. The database has a provider-neutral identity transaction foundation and internal GitHub authentication proof primitives. No public authentication flow is exposed. Deployment and product APIs have not been built. This app cannot yet find repositories, import Builds, host previews, save product data, or support reviews.
+Contributors can use PostgreSQL and Prisma locally or in the devcontainer. The database has a provider-neutral identity transaction foundation and internal GitHub authentication proof primitives. No public authentication flow is exposed. Product APIs have not been built. This app cannot yet find repositories, import Builds, host previews, save product data, or support reviews.
+
+The [production runtime](deployment.md) serves the built frontend and API and runs both workers in one image. Deployment runs database and job setup separately before starting that image.
 
 ## Backend
 
 API code lives under `server/`. As features are added, route handlers will read requests, call domains, and return responses. The [code conventions](backend-architecture.md) explain repositories, integrations, utilities, domains, and which layers may import others. Put these directories under `server/` when they are needed; do not add empty implementations.
 
-`GET /api/health` returns `{ "status": "ok" }`. Authentication routes are not registered. Unknown paths return a JSON 404 response; invalid JSON is rejected before routing. `createApp()` builds the Express app without starting a server. `server/index.ts` starts it at a local address.
+`GET /api/health` returns `{ "status": "ok" }`; `GET /api/ready` reports operational readiness. Authentication routes are not registered. Unknown API paths return a JSON 404 response; invalid JSON is rejected before routing. `createApp()` builds the Express app without starting a server. `server/index.ts` selects a runtime role and defaults to the local API.
 
 The [database guide](database.md) defines the multi-file Prisma schema and shared client in integrations. The health route remains a process check, not a database readiness check.
 

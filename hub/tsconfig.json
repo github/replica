@@ -28,6 +28,7 @@
   "include": [
     "app/javascript",
     "server",
+    "script/**/*.ts",
     "test",
     ".storybook/**/*.ts",
     ".storybook/**/*.tsx",
