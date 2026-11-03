@@ -60,16 +60,6 @@ export const AuthorizationFailed: Story = {
   },
 }
 
-export const SessionsEnded: Story = {
-  args: {
-    data: {
-      ...data,
-      alert:
-        "A Hub administrator ended all sessions while you were signing in. Start a new GitHub sign-in.",
-    },
-  },
-}
-
 export const SessionRestoreFailed: Story = {
   args: {
     data: {

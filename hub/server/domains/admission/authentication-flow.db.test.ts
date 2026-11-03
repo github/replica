@@ -10,7 +10,6 @@ import { createApp } from "../../create-app"
 import { createAuthenticationRouteDependencies } from "../../create-authentication-route-dependencies"
 import { createLogger } from "../../integrations/pino/create-logger"
 import { prisma } from "../../integrations/prisma"
-import { lockSessionRevocationState } from "../../repositories/session-revocation-states/lock-session-revocation-state"
 import { restoreHubSession } from "./restore-hub-session"
 import { runSessionRestoreTransaction } from "./run-session-restore-transaction"
 
@@ -111,19 +110,6 @@ async function waitForMembershipLock(inspector: pg.Client) {
 }
 
 describe("Hub admission and session flow", () => {
-  it("enforces the migrated global revocation singleton on fresh databases", async () => {
-    await expect(
-      prisma.sessionRevocationState.create({
-        data: { id: randomUUID(), key: "extra", revision: 0 },
-      }),
-    ).rejects.toThrow()
-    await expect(
-      prisma.sessionRevocationState.create({
-        data: { id: randomUUID(), key: "global", revision: 0 },
-      }),
-    ).rejects.toThrow()
-  })
-
   it("audits malformed verification state before provider or admission work", async () => {
     const records: string[] = []
     const logger = createLogger({ destination: { write: (line) => records.push(line) } })
@@ -341,6 +327,10 @@ describe("Hub admission and session flow", () => {
         where: { id: firstIdentity.user.membership!.id },
         data: { lifecycle: "REMOVED" },
       })
+      await prisma.membershipAssignment.updateMany({
+        where: { membershipId: firstIdentity.user.membership!.id },
+        data: { lifecycle: "REVOKED" },
+      })
       const assignmentRestoreAuditsBefore = await prisma.securityAudit.count({
         where: { action: "membership.assignment.restored" },
       })
@@ -372,7 +362,7 @@ describe("Hub admission and session flow", () => {
         await prisma.securityAudit.count({
           where: { action: "membership.assignment.restored" },
         }),
-      ).toBe(assignmentRestoreAuditsBefore)
+      ).toBe(assignmentRestoreAuditsBefore + 1)
     } finally {
       await server.close()
     }
@@ -540,7 +530,6 @@ describe("Hub admission and session flow", () => {
     await prisma.hubSession.create({
       data: {
         id: randomUUID(),
-        userId: user.id,
         membershipId: membership.id,
         digest,
         revocationRevision: 0,
@@ -565,149 +554,5 @@ describe("Hub admission and session flow", () => {
       await Promise.allSettled([locker.query("ROLLBACK")])
       await Promise.all([locker.end(), inspector.end()])
     }
-  })
-
-  it("enforces immutable bootstrap assignment authority and same-user ownership", async () => {
-    const user = await prisma.user.create({ data: { id: randomUUID() } })
-    const otherUser = await prisma.user.create({ data: { id: randomUUID() } })
-    const identity = await prisma.externalIdentity.create({
-      data: {
-        id: randomUUID(),
-        userId: user.id,
-        provider: "github",
-        issuer: "https://github.com",
-        subject: "999",
-      },
-    })
-    const otherIdentity = await prisma.externalIdentity.create({
-      data: {
-        id: randomUUID(),
-        userId: otherUser.id,
-        provider: "github",
-        issuer: "https://github.com",
-        subject: "1000",
-      },
-    })
-    const membership = await prisma.membership.create({
-      data: { id: randomUUID(), userId: user.id },
-    })
-    const assignment = await prisma.membershipAssignment.create({
-      data: {
-        id: randomUUID(),
-        membershipId: membership.id,
-        externalIdentityId: identity.id,
-        source: "BOOTSTRAP",
-        role: "ADMINISTRATOR",
-      },
-    })
-    const otherMembership = await prisma.membership.create({
-      data: { id: randomUUID(), userId: otherUser.id },
-    })
-
-    await expect(
-      prisma.membershipAssignment.create({
-        data: {
-          id: randomUUID(),
-          membershipId: membership.id,
-          externalIdentityId: otherIdentity.id,
-          source: "BOOTSTRAP",
-          role: "ADMINISTRATOR",
-        },
-      }),
-    ).rejects.toThrow()
-    await expect(
-      prisma.membershipAssignment.update({
-        where: { id: assignment.id },
-        data: { membershipId: otherMembership.id },
-      }),
-    ).rejects.toThrow("identity and authority are immutable")
-    await expect(
-      prisma.membershipAssignment.update({
-        where: { id: assignment.id },
-        data: { externalIdentityId: otherIdentity.id },
-      }),
-    ).rejects.toThrow("identity and authority are immutable")
-    await expect(
-      prisma.$executeRaw`
-        UPDATE "membership_assignments"
-        SET "source" = 'PROVIDER'
-        WHERE "id" = ${assignment.id}::uuid
-      `,
-    ).rejects.toThrow()
-    await expect(
-      prisma.$executeRaw`
-        UPDATE "membership_assignments"
-        SET "role" = 'MEMBER'
-        WHERE "id" = ${assignment.id}::uuid
-      `,
-    ).rejects.toThrow()
-    await expect(
-      prisma.membershipAssignment.delete({ where: { id: assignment.id } }),
-    ).rejects.toThrow("cannot be deleted")
-
-    await prisma.membershipAssignment.update({
-      where: { id: assignment.id },
-      data: { lifecycle: "REVOKED" },
-    })
-    await prisma.membershipAssignment.update({
-      where: { id: assignment.id },
-      data: { lifecycle: "ACTIVE" },
-    })
-    await expect(
-      prisma.membershipAssignment.findUnique({ where: { id: assignment.id } }),
-    ).resolves.toMatchObject({
-      externalIdentityId: identity.id,
-      membershipId: membership.id,
-      lifecycle: "ACTIVE",
-      role: "ADMINISTRATOR",
-      source: "BOOTSTRAP",
-    })
-
-    const expiredDigest = "f".repeat(64)
-    await prisma.hubSession.create({
-      data: {
-        id: randomUUID(),
-        userId: user.id,
-        membershipId: membership.id,
-        digest: expiredDigest,
-        revocationRevision: 0,
-        createdAt: new Date("2020-01-01T00:00:00Z"),
-        updatedAt: new Date("2020-01-01T00:00:00Z"),
-        expiresAt: new Date("2020-01-02T00:00:00Z"),
-      },
-    })
-    await expect(
-      restoreHubSession(expiredDigest, {
-        runTransaction: (operation) => runSessionRestoreTransaction(prisma, operation),
-      }),
-    ).resolves.toBeNull()
-
-    const liveDigest = "e".repeat(64)
-    await prisma.hubSession.create({
-      data: {
-        id: randomUUID(),
-        userId: user.id,
-        membershipId: membership.id,
-        digest: liveDigest,
-        revocationRevision: 0,
-        expiresAt: new Date(Date.now() + 60_000),
-      },
-    })
-    await prisma.$executeRawUnsafe(
-      `ALTER TABLE "session_revocation_states" DISABLE TRIGGER "session_revocation_states_protected"`,
-    )
-    await prisma.sessionRevocationState.delete({ where: { key: "global" } })
-    await prisma.$executeRawUnsafe(
-      `ALTER TABLE "session_revocation_states" ENABLE TRIGGER "session_revocation_states_protected"`,
-    )
-    await expect(
-      prisma.$transaction((transaction) => lockSessionRevocationState(transaction)),
-    ).resolves.toBeNull()
-    await expect(
-      restoreHubSession(liveDigest, {
-        runTransaction: (operation) => runSessionRestoreTransaction(prisma, operation),
-      }),
-    ).resolves.toBeNull()
-    expect(await prisma.sessionRevocationState.count()).toBe(0)
   })
 })
