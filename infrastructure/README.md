@@ -24,7 +24,7 @@ The reference uses the PostgreSQL administrator login for both setup and runtime
 
 ## Prepare access and protected state
 
-Use the Terraform version constrained in [`versions.tf`](azure/versions.tf), Python 3, and a current Azure CLI with Container Apps job and revision commands. CI performs formatting, validation, mocked Terraform tests, and release-orchestration tests without cloud credentials. It does not deploy.
+Use the Terraform version constrained in [`versions.tf`](azure/versions.tf), a Node.js version supported by `scripts/package.json`, and a current Azure CLI with Container Apps job and revision commands. CI performs formatting, validation, mocked Terraform tests, and release-orchestration tests without cloud credentials. It does not deploy.
 
 An authorized administrator must first create the **separate** Terraform backend: a dedicated state resource group, Storage account, and private container. Enable TLS, Entra authorization, Blob versioning and soft deletion; restrict network access to deployment runners and grant only the deployment identity `Storage Blob Data Contributor` on the state container. These bootstrap resources are not part of this installation's state or teardown. Never store this state in the app's artifacts account.
 
@@ -47,7 +47,7 @@ Run these commands from the repository root in an authorized environment. They c
 ```sh
 export HUB_SUBSCRIPTION='your-subscription-id'
 export HUB_IMAGE='your-registry/replica-hub@sha256:your-real-64-character-digest'
-python3 infrastructure/azure/deploy.py bootstrap \
+node infrastructure/azure/deploy-hub/index.ts bootstrap \
   --subscription "$HUB_SUBSCRIPTION" \
   --backend infrastructure/azure/backend.hcl \
   --variables infrastructure/azure/installation.tfvars \
@@ -59,7 +59,7 @@ Bootstrap creates infrastructure and the manual setup job with `deploy_hub=false
 Use the same release command for the first installation, subsequent image releases, and infrastructure or secret changes:
 
 ```sh
-python3 infrastructure/azure/deploy.py release \
+node infrastructure/azure/deploy-hub/index.ts release \
   --subscription "$HUB_SUBSCRIPTION" \
   --backend infrastructure/azure/backend.hcl \
   --variables infrastructure/azure/installation.tfvars \
@@ -119,7 +119,7 @@ To move an existing installation, pause writes and workers, export PostgreSQL, c
 Destruction removes database and artifact state. Take verified independent backups first. The default app lifecycle guard intentionally prevents a complete destroy: remove **only** the app's `prevent_destroy` block in a reviewed local change after the owner authorizes permanent deletion. Restore the guard afterward. For a bootstrap that never created the app, no guard edit is needed.
 
 ```sh
-python3 infrastructure/azure/deploy.py destroy \
+node infrastructure/azure/deploy-hub/index.ts destroy \
   --subscription "$HUB_SUBSCRIPTION" \
   --backend infrastructure/azure/backend.hcl \
   --variables infrastructure/azure/installation.tfvars \
@@ -140,7 +140,9 @@ terraform init -backend=false -input=false -lockfile=readonly
 terraform fmt -check -recursive
 terraform validate
 terraform test
-python3 -m unittest discover -s . -p 'test_*.py' -v
+node --test deploy-hub/index.test.ts
 ```
 
 Terraform tests use AzureRM mocks, not an Azure subscription. Orchestration tests replace command execution and HTTPS requests, proving ordering and failure gates rather than Azure behavior. Before production, an authorized tenant exercise must verify provisioning, private PostgreSQL connectivity and TLS, identity-based Blob/ACR access after RBAC propagation, failed setup blocking rollout, maintenance shutdown and revision behavior, HTTPS/readiness, persistence across replacement, custom TLS when configured, backup restoration, and owned-resource teardown. No real-cloud result is implied by these local checks.
+
+The release command and its tests are TypeScript running directly in Node.js. Terraform's own tests use `.tftest.hcl`; neither requires Python. From the repository root, `npm run typecheck --prefix scripts` checks the TypeScript operational scripts as well.

@@ -41,7 +41,7 @@ variable "image" {
 variable "deploy_hub" {
   type        = bool
   default     = false
-  description = "Keep false for bootstrap. Only deploy.py enables Hub after setup succeeds."
+  description = "Keep false for bootstrap. Only deploy-hub enables Hub after setup succeeds."
 }
 
 variable "acr_id" {
