@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest"
 
 import { createApp } from "../../create-app"
 import { createAuthenticationRouteDependencies } from "../../create-authentication-route-dependencies"
+import { createLogger } from "../../integrations/pino/create-logger"
 import { prisma } from "../../integrations/prisma"
 import { lockSessionRevocationState } from "../../repositories/session-revocation-states/lock-session-revocation-state"
 import { restoreHubSession } from "./restore-hub-session"
@@ -31,7 +32,7 @@ function cookieValue(response: Response, name: string) {
   return match ? decodeURIComponent(match[1]!) : null
 }
 
-async function openServer(userIds: number[]) {
+async function openServer(userIds: number[], logger?: ReturnType<typeof createLogger>) {
   let userIndex = 0
   const providerRequest = vi.fn((input: string | URL | Request) => {
     const url = input instanceof Request ? input.url : input.toString()
@@ -46,7 +47,9 @@ async function openServer(userIds: number[]) {
     throw new Error(`Unexpected provider request: ${url}`)
   })
   const dependencies = createAuthenticationRouteDependencies(runtimeEnvironment(), providerRequest)
-  const server = createServer(createApp({ authentication: dependencies }))
+  const server = createServer(
+    createApp({ authentication: dependencies, ...(logger ? { logger } : {}) }),
+  )
   server.listen(0, "127.0.0.1")
   await once(server, "listening")
   const { port } = server.address() as AddressInfo
@@ -101,6 +104,88 @@ describe("Hub admission and session flow", () => {
         data: { id: randomUUID(), key: "global", revision: 0 },
       }),
     ).rejects.toThrow()
+  })
+
+  it("audits malformed verification state before provider or admission work", async () => {
+    const records: string[] = []
+    const logger = createLogger({ destination: { write: (line) => records.push(line) } })
+    const server = await openServer([], logger)
+    const state = `malformed-verification-state-${"s".repeat(32)}`
+    const browserBinding = `malformed-browser-binding-${"b".repeat(32)}`
+    const malformedCiphertext = "malformed-code-verifier-ciphertext"
+    try {
+      await startAuthentication(server.baseUrl, "/api/auth/github/start")
+      records.length = 0
+      const providerRevision = await prisma.authenticationProviderRevision.findFirstOrThrow({
+        select: { id: true },
+      })
+      const attemptId = randomUUID()
+      await prisma.$executeRaw`
+        INSERT INTO "authorization_attempts" (
+          "id", "provider_revision_id", "state_digest", "browser_binding_digest",
+          "purpose", "code_verifier_ciphertext", "expires_at", "created_at", "updated_at"
+        ) VALUES (
+          ${attemptId}::uuid,
+          ${providerRevision.id}::uuid,
+          ${createHash("sha256").update(state).digest("hex")},
+          ${createHash("sha256").update(browserBinding).digest("hex")},
+          'SIGN_IN',
+          ${malformedCiphertext},
+          CURRENT_TIMESTAMP + interval '5 minutes',
+          CURRENT_TIMESTAMP,
+          CURRENT_TIMESTAMP
+        )
+      `
+      const auditCount = await prisma.securityAudit.count()
+
+      const response = await fetch(
+        `${server.baseUrl}/api/auth/github/callback?code=unused-provider-code&state=${state}`,
+        {
+          headers: { cookie: `hub_auth_browser=${encodeURIComponent(browserBinding)}` },
+          redirect: "manual",
+        },
+      )
+
+      expect(response.status).toBe(303)
+      expect(response.headers.get("location")).toBe("/?authentication=denied")
+      expect(response.headers.get("cache-control")).toBe("no-store")
+      expect(await response.text()).not.toMatch(
+        /malformed-verification-state|malformed-browser-binding|malformed-code-verifier|unused-provider-code|verification_state_invalid/,
+      )
+      expect(server.providerRequest).not.toHaveBeenCalled()
+      await expect(
+        prisma.authorizationAttempt.findUnique({
+          where: { id: attemptId },
+          select: { consumedAt: true },
+        }),
+      ).resolves.toEqual({ consumedAt: expect.any(Date) })
+      expect(await prisma.user.count()).toBe(0)
+      expect(await prisma.externalIdentity.count()).toBe(0)
+      expect(await prisma.membership.count()).toBe(0)
+      expect(await prisma.membershipAssignment.count()).toBe(0)
+      expect(await prisma.hubSession.count()).toBe(0)
+      await expect(
+        prisma.securityAudit.findMany({
+          orderBy: { createdAt: "asc" },
+          skip: auditCount,
+        }),
+      ).resolves.toEqual([
+        expect.objectContaining({
+          action: "authentication.attempt.denied",
+          outcome: "DENIED",
+          context: {
+            provider: "github",
+            reason: "verification_state_invalid",
+          },
+        }),
+      ])
+      await vi.waitFor(() => expect(records).toHaveLength(1))
+      expect(records[0]).not.toMatch(
+        /malformed-verification-state|malformed-browser-binding|malformed-code-verifier|unused-provider-code|verification_state_invalid/,
+      )
+    } finally {
+      await server.close()
+    }
   })
 
   it("enrolls an administrator, restores the session, signs out, and signs in again", async () => {
