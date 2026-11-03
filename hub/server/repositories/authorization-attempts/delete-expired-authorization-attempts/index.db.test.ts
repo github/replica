@@ -122,4 +122,32 @@ describe("deleteExpiredAuthorizationAttempts()", () => {
       )
     })
   })
+
+  it("rejects manual deletion before consumed retention elapses", async () => {
+    const providerRevisionId = await createProviderRevision()
+    const id = randomUUID()
+
+    await prisma.$transaction(async (transaction) => {
+      await transaction.$executeRaw`
+        INSERT INTO "authorization_attempts" (
+          "id", "provider_revision_id", "state_digest", "browser_binding_digest",
+          "code_verifier_ciphertext", "expires_at", "consumed_at", "created_at", "updated_at"
+        ) VALUES (
+          ${id}::uuid,
+          ${providerRevisionId}::uuid,
+          ${"9".repeat(64)},
+          ${"a".repeat(64)},
+          'recently-consumed',
+          CURRENT_TIMESTAMP - interval '1 minute',
+          CURRENT_TIMESTAMP - interval '9 minutes',
+          CURRENT_TIMESTAMP - interval '11 minutes',
+          CURRENT_TIMESTAMP - interval '9 minutes'
+        )
+      `
+
+      await expect(transaction.authorizationAttempt.delete({ where: { id } })).rejects.toThrow(
+        "Recently consumed authorization attempts cannot be deleted.",
+      )
+    })
+  })
 })
