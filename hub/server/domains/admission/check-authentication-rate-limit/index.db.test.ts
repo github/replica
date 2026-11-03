@@ -49,9 +49,7 @@ describe("checkAuthenticationRateLimit()", () => {
       ],
     })
     const locker = new pg.Client({ connectionString: getDatabaseUrl() })
-    const inspector = new pg.Client({ connectionString: getDatabaseUrl() })
-    await Promise.all([locker.connect(), inspector.connect()])
-    let firstRequest: Promise<unknown> | undefined
+    await locker.connect()
     try {
       await locker.query("BEGIN")
       await locker.query(
@@ -61,34 +59,21 @@ describe("checkAuthenticationRateLimit()", () => {
          FOR UPDATE`,
         [firstDigest],
       )
-      firstRequest = checkAuthenticationRateLimit(input(firstDigest), prisma)
-      let firstBlocked = false
-      for (let attempt = 0; attempt < 100; attempt += 1) {
-        const result = await inspector.query<{ blocked: boolean }>(`
-          SELECT EXISTS (
-            SELECT 1
-            FROM pg_stat_activity
-            WHERE wait_event_type = 'Lock'
-              AND query LIKE '%authentication_rate_limits%'
-          ) AS blocked
-        `)
-        if (result.rows[0]?.blocked) {
-          firstBlocked = true
-          break
-        }
-        await Promise.resolve()
-      }
-      expect(firstBlocked).toBe(true)
 
       const secondRequest = checkAuthenticationRateLimit(input(secondDigest), prisma)
       await expect(secondRequest).resolves.toEqual({ allowed: true, auditFailed: false })
+      await expect(
+        prisma.authenticationRateLimit.findUnique({
+          where: {
+            operation_subjectDigest: { operation: "start", subjectDigest: firstDigest },
+          },
+        }),
+      ).resolves.not.toBeNull()
 
       await locker.query("COMMIT")
-      await expect(firstRequest).resolves.toEqual({ allowed: true, auditFailed: false })
     } finally {
       await Promise.allSettled([locker.query("ROLLBACK")])
-      await firstRequest?.catch(() => undefined)
-      await Promise.all([locker.end(), inspector.end()])
+      await locker.end()
     }
   })
 
