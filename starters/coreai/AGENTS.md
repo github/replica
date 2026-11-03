@@ -63,15 +63,6 @@ For design-system reference, follow the `coreai-ds-fluentui-react` skill from th
 
 ## Baseline boundaries
 
-- Import product-facing components from `@coreai-ds/react-components`.
-- Import app-owned adapters from `~/components/common`.
-- Import Fluent icons from `@fluentui/react-icons`.
-- Do not import components directly from `@fluentui/react-components`.
-- Keep component styles in colocated `*.module.css` files.
-- Register routes in `app/routes.ts`.
-- Put mock records in `app/data/`.
-- Register prototype options in `app/features.json`; do not build a second feature
-  system.
 - Keep copyright and MIT license headers on source files.
 - Do not commit generated `build/`, `dist/`, or `.react-router/` output.
 
