@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto"
+import pg from "pg"
 import { describe, expect, it } from "vitest"
 
 import { prisma } from "../../../integrations/prisma"
+import { getDatabaseUrl } from "../../../../test/database/get-database-url"
 import { checkAuthenticationRateLimit } from "."
 
 function input(
@@ -19,6 +21,89 @@ function input(
 }
 
 describe("checkAuthenticationRateLimit()", () => {
+  it("locks each request bucket before cleaning another request's expired bucket", async () => {
+    const firstDigest = "0".repeat(64)
+    const secondDigest = "1".repeat(64)
+    const expired = new Date("2020-01-01T00:00:00Z")
+    const started = new Date("2019-12-31T23:59:00Z")
+    await prisma.authenticationRateLimit.createMany({
+      data: [
+        {
+          id: "00000000-0000-0000-0000-000000000001",
+          operation: "start",
+          subjectDigest: firstDigest,
+          windowStartedAt: started,
+          count: 1,
+          expiresAt: expired,
+          createdAt: started,
+          updatedAt: started,
+        },
+        {
+          id: "00000000-0000-0000-0000-000000000002",
+          operation: "start",
+          subjectDigest: secondDigest,
+          windowStartedAt: started,
+          count: 1,
+          expiresAt: expired,
+          createdAt: started,
+          updatedAt: started,
+        },
+      ],
+    })
+    const locker = new pg.Client({ connectionString: getDatabaseUrl() })
+    const inspector = new pg.Client({ connectionString: getDatabaseUrl() })
+    await Promise.all([locker.connect(), inspector.connect()])
+    let firstRequest: Promise<unknown> | undefined
+    try {
+      await locker.query("BEGIN")
+      await locker.query(
+        `SELECT id
+         FROM authentication_rate_limits
+         WHERE operation = 'start' AND subject_digest = $1
+         FOR UPDATE`,
+        [firstDigest],
+      )
+      firstRequest = checkAuthenticationRateLimit(input(firstDigest), prisma)
+      let firstBlocked = false
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        const result = await inspector.query<{ blocked: boolean }>(`
+          SELECT EXISTS (
+            SELECT 1
+            FROM pg_stat_activity
+            WHERE wait_event_type = 'Lock'
+              AND query LIKE '%authentication_rate_limits%'
+          ) AS blocked
+        `)
+        if (result.rows[0]?.blocked) {
+          firstBlocked = true
+          break
+        }
+        await Promise.resolve()
+      }
+      expect(firstBlocked).toBe(true)
+
+      let secondCompleted = false
+      const secondRequest = checkAuthenticationRateLimit(input(secondDigest), prisma).then(
+        (result) => {
+          secondCompleted = true
+          return result
+        },
+      )
+      for (let attempt = 0; attempt < 100 && !secondCompleted; attempt += 1) {
+        await inspector.query(`SELECT 1`)
+      }
+      expect(secondCompleted).toBe(true)
+      await expect(secondRequest).resolves.toEqual({ allowed: true, auditFailed: false })
+
+      await locker.query("COMMIT")
+      await expect(firstRequest).resolves.toEqual({ allowed: true, auditFailed: false })
+    } finally {
+      await Promise.allSettled([locker.query("ROLLBACK")])
+      await firstRequest?.catch(() => undefined)
+      await Promise.all([locker.end(), inspector.end()])
+    }
+  })
+
   it("reserves capacity atomically at the exact threshold", async () => {
     const subjectDigest = "a".repeat(64)
 
