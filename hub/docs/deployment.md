@@ -41,4 +41,6 @@ The deployment orchestrator owns serialization of the complete release, includin
 
 CI checks the image against disposable PostgreSQL, including setup, frontend/API serving, readiness, and termination. This is not a supported local-production installation. The existing devcontainer remains the development environment.
 
+The [Azure reference installation](../../infrastructure/README.md) uses Terraform and a serialized maintenance-window release. It consumes the same image and runtime settings without adding Azure deployment logic to Hub.
+
 An actual cloud deployment must additionally verify credentials, networking, data survival, backup and restore, domain configuration, and release ordering in an authorized environment. Never commit secrets, tenant-specific parameter files, or generated service addresses.

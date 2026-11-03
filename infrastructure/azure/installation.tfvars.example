@@ -1,0 +1,11 @@
+subscription_id = "00000000-0000-0000-0000-000000000000"
+name            = "your-unique-hub"
+location        = "eastus2"
+owner           = "your-team"
+image           = "ghcr.io/your-org/replica-hub@sha256:REPLACE_WITH_REAL_DIGEST"
+
+# Supply postgres_admin_password and runtime_secrets through your secret store,
+# TF_VAR_ environment variables, or an ignored, access-restricted tfvars file.
+# acr_id = "/subscriptions/.../resourceGroups/.../providers/Microsoft.ContainerRegistry/registries/..."
+# custom_hostname = "hub.example.com"
+# certificate_id = "/subscriptions/.../resourceGroups/.../providers/Microsoft.App/managedEnvironments/.../certificates/..."

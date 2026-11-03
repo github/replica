@@ -1,0 +1,9 @@
+.tools/
+**/__pycache__/
+**/.terraform/
+**/*.tfstate*
+**/*.tfplan
+**/*.tfvars
+**/*.tfvars.json
+**/backend.hcl
+**/crash.log
