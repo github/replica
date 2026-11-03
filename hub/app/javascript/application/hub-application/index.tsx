@@ -27,9 +27,11 @@ export function HubApplication() {
   useEffect(() => {
     void fetch("/api/auth/session", { credentials: "same-origin", cache: "no-store" })
       .then(async (response) => {
-        if (!response.ok) return { authenticated: false as const }
+        if (response.status === 401) return { authenticated: false as const }
+        if (!response.ok) throw new Error("Session restoration failed.")
         const parsed = currentSessionSchema.safeParse(await response.json())
-        return parsed.success ? parsed.data : { authenticated: false as const }
+        if (!parsed.success) throw new Error("Session restoration returned an invalid response.")
+        return parsed.data
       })
       .then((result) =>
         setSession(

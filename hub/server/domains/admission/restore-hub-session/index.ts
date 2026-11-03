@@ -18,6 +18,8 @@ export async function restoreHubSession(
     const membership = await repositories.lockMembership(session.userId)
     if (membership?.id !== session.membershipId || membership.lifecycle !== "ACTIVE") return null
     if (!(await repositories.lockActiveAssignment(session.membershipId))) return null
+    const finalSession = await repositories.lockSession(parsedDigest)
+    if (finalSession?.id !== session.id) return null
     const finalRevocation = await repositories.getRevocation()
     if (!finalRevocation || finalRevocation.revision !== revocation.revision) return null
     return {

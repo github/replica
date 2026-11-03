@@ -2,8 +2,10 @@ import { createHash, randomBytes, randomUUID } from "node:crypto"
 import { once } from "node:events"
 import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
+import pg from "pg"
 import { describe, expect, it, vi } from "vitest"
 
+import { getDatabaseUrl } from "../../../test/database/get-database-url"
 import { createApp } from "../../create-app"
 import { createAuthenticationRouteDependencies } from "../../create-authentication-route-dependencies"
 import { createLogger } from "../../integrations/pino/create-logger"
@@ -90,6 +92,22 @@ async function completeAuthentication(
     headers: { cookie: `hub_auth_browser=${encodeURIComponent(attempt.browserCookie)}` },
     redirect: "manual",
   })
+}
+
+async function waitForMembershipLock(inspector: pg.Client) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const result = await inspector.query<{ pid: number }>(`
+      SELECT pid
+      FROM pg_stat_activity
+      WHERE wait_event_type = 'Lock'
+        AND query LIKE '%FROM "memberships"%'
+      ORDER BY query_start DESC
+      LIMIT 1
+    `)
+    if (result.rows[0]) return result.rows[0].pid
+    await Promise.resolve()
+  }
+  return null
 }
 
 describe("Hub admission and session flow", () => {
@@ -492,6 +510,60 @@ describe("Hub admission and session flow", () => {
       expect(injected.headers.get("location")).toBe("/?authentication=denied")
     } finally {
       await server.close()
+    }
+  })
+
+  it("denies a session that expires while membership authority is locked", async () => {
+    const user = await prisma.user.create({ data: { id: randomUUID() } })
+    const identity = await prisma.externalIdentity.create({
+      data: {
+        id: randomUUID(),
+        userId: user.id,
+        provider: "github",
+        issuer: "https://github.com",
+        subject: "restore-expiry",
+      },
+    })
+    const membership = await prisma.membership.create({
+      data: { id: randomUUID(), userId: user.id },
+    })
+    await prisma.membershipAssignment.create({
+      data: {
+        id: randomUUID(),
+        membershipId: membership.id,
+        externalIdentityId: identity.id,
+        source: "BOOTSTRAP",
+        role: "ADMINISTRATOR",
+      },
+    })
+    const digest = "d".repeat(64)
+    await prisma.hubSession.create({
+      data: {
+        id: randomUUID(),
+        userId: user.id,
+        membershipId: membership.id,
+        digest,
+        revocationRevision: 0,
+        expiresAt: new Date(Date.now() + 500),
+      },
+    })
+    const locker = new pg.Client({ connectionString: getDatabaseUrl() })
+    const inspector = new pg.Client({ connectionString: getDatabaseUrl() })
+    await Promise.all([locker.connect(), inspector.connect()])
+    try {
+      await locker.query("BEGIN")
+      await locker.query(`SELECT id FROM memberships WHERE id = $1 FOR UPDATE`, [membership.id])
+      const restoration = restoreHubSession(digest, {
+        runTransaction: (operation) => runSessionRestoreTransaction(prisma, operation),
+      })
+      expect(await waitForMembershipLock(inspector)).not.toBeNull()
+      await locker.query(`SELECT pg_sleep(0.75)`)
+      await locker.query("COMMIT")
+
+      await expect(restoration).resolves.toBeNull()
+    } finally {
+      await Promise.allSettled([locker.query("ROLLBACK")])
+      await Promise.all([locker.end(), inspector.end()])
     }
   })
 

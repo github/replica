@@ -75,4 +75,19 @@ describe("HubApplication()", () => {
     expect(await screen.findByRole("button", { name: "Sign in with GitHub" })).toBeInTheDocument()
     expect(screen.queryByText(/could not restore your session/i)).toBeNull()
   })
+
+  it.each([
+    ["server failure", new Response(null, { status: 500 })],
+    ["invalid success response", Response.json({ authenticated: false })],
+  ])("shows a restore error for %s", async (_description, response) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response))
+
+    renderApplication()
+
+    expect(
+      await screen.findByText(
+        "Replica Hub could not restore your session. Sign in again to continue.",
+      ),
+    ).toBeInTheDocument()
+  })
 })

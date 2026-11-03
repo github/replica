@@ -55,6 +55,24 @@ describe("restoreHubSession()", () => {
     expect(reads).toBe(2)
   })
 
+  it("fails closed when the session expires while authority locks are acquired", async () => {
+    const activeSession = {
+      id: "session-id",
+      membershipId: "membership-id",
+      revocationRevision: 0,
+      userId: "user-id",
+    }
+    const lockSession = vi.fn().mockResolvedValueOnce(activeSession).mockResolvedValueOnce(null)
+    const records = repositories({ lockSession })
+
+    await expect(
+      restoreHubSession("a".repeat(64), {
+        runTransaction: (operation) => operation(records),
+      }),
+    ).resolves.toBeNull()
+    expect(lockSession).toHaveBeenCalledTimes(2)
+  })
+
   it.each(["SUSPENDED", "REMOVED"] as const)(
     "denies a retained session for a %s membership",
     async (lifecycle) => {
