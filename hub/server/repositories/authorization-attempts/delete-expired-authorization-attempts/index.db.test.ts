@@ -37,16 +37,16 @@ describe("deleteExpiredAuthorizationAttempts()", () => {
       await transaction.$executeRaw`
         INSERT INTO "authorization_attempts" (
           "id", "provider_revision_id", "state_digest", "browser_binding_digest",
-          "code_verifier_ciphertext", "expires_at", "consumed_at", "created_at", "updated_at"
+          "purpose", "code_verifier_ciphertext", "expires_at", "consumed_at", "created_at", "updated_at"
         ) VALUES
           (
             ${unconsumedId}::uuid, ${providerRevisionId}::uuid, ${"1".repeat(64)},
-            ${"2".repeat(64)}, 'unconsumed', CURRENT_TIMESTAMP - interval '1 minute',
+            ${"2".repeat(64)}, 'SIGN_IN', 'unconsumed', CURRENT_TIMESTAMP - interval '1 minute',
             NULL, CURRENT_TIMESTAMP - interval '11 minutes', CURRENT_TIMESTAMP - interval '11 minutes'
           ),
           (
             ${consumedId}::uuid, ${providerRevisionId}::uuid, ${"3".repeat(64)},
-            ${"4".repeat(64)}, 'consumed', CURRENT_TIMESTAMP - interval '1 minute',
+            ${"4".repeat(64)}, 'SIGN_IN', 'consumed', CURRENT_TIMESTAMP - interval '1 minute',
             CURRENT_TIMESTAMP - interval '1 minute 1 millisecond',
             CURRENT_TIMESTAMP - interval '11 minutes', CURRENT_TIMESTAMP - interval '1 minute'
           )
@@ -74,12 +74,13 @@ describe("deleteExpiredAuthorizationAttempts()", () => {
       await transaction.$executeRaw`
         INSERT INTO "authorization_attempts" (
           "id", "provider_revision_id", "state_digest", "browser_binding_digest",
-          "code_verifier_ciphertext", "expires_at", "consumed_at", "created_at", "updated_at"
+          "purpose", "code_verifier_ciphertext", "expires_at", "consumed_at", "created_at", "updated_at"
         ) VALUES (
           ${boundaryId}::uuid,
           ${providerRevisionId}::uuid,
           ${"5".repeat(64)},
           ${"6".repeat(64)},
+          'SIGN_IN',
           'boundary',
           CURRENT_TIMESTAMP - interval '11 minutes',
           date_trunc('milliseconds', CURRENT_TIMESTAMP - interval '10 minutes'),
@@ -104,12 +105,13 @@ describe("deleteExpiredAuthorizationAttempts()", () => {
       await transaction.$executeRaw`
         INSERT INTO "authorization_attempts" (
           "id", "provider_revision_id", "state_digest", "browser_binding_digest",
-          "code_verifier_ciphertext", "expires_at", "created_at", "updated_at"
+          "purpose", "code_verifier_ciphertext", "expires_at", "created_at", "updated_at"
         ) VALUES (
           ${id}::uuid,
           ${providerRevisionId}::uuid,
           ${"7".repeat(64)},
           ${"8".repeat(64)},
+          'SIGN_IN',
           'unexpired',
           CURRENT_TIMESTAMP + interval '1 second',
           CURRENT_TIMESTAMP,
@@ -131,12 +133,13 @@ describe("deleteExpiredAuthorizationAttempts()", () => {
       await transaction.$executeRaw`
         INSERT INTO "authorization_attempts" (
           "id", "provider_revision_id", "state_digest", "browser_binding_digest",
-          "code_verifier_ciphertext", "expires_at", "consumed_at", "created_at", "updated_at"
+          "purpose", "code_verifier_ciphertext", "expires_at", "consumed_at", "created_at", "updated_at"
         ) VALUES (
           ${id}::uuid,
           ${providerRevisionId}::uuid,
           ${"9".repeat(64)},
           ${"a".repeat(64)},
+          'SIGN_IN',
           'recently-consumed',
           CURRENT_TIMESTAMP - interval '1 minute',
           CURRENT_TIMESTAMP - interval '9 minutes',
