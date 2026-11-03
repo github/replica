@@ -8,7 +8,7 @@ import { routes } from "../routes/index.ts"
 import type { CreateAppOptions } from "./types.ts"
 
 /** Give every endpoint the same request logging and safe error responses. */
-export function createApp({ logger, broadcast }: CreateAppOptions = {}) {
+export function createApp({ broadcast, logger }: CreateAppOptions = {}) {
   const app = express()
   app.disable("x-powered-by")
   app.use(createRequestLogger(logger))

@@ -7,6 +7,17 @@ export function getSecurityAuditData(
   event: ParsedSecurityAuditEvent,
 ): Prisma.SecurityAuditCreateInput {
   switch (event.type) {
+    case "authentication_attempt_denied":
+      return {
+        id: event.id,
+        action: "authentication.attempt.denied",
+        outcome: SecurityAuditOutcome.DENIED,
+        targetType: "authorization_attempt",
+        context: createSecurityAuditContextWithProviderKey({
+          provider: event.provider,
+          reason: event.reason,
+        }),
+      }
     case "external_identity_created":
       return {
         id: event.id,

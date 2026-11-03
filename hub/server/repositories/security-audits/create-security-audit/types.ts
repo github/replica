@@ -10,6 +10,16 @@ interface SecurityAuditEvent {
   id: string
 }
 
+export interface AuthenticationAttemptDeniedAudit extends SecurityAuditEvent {
+  type: "authentication_attempt_denied"
+  provider: string
+  reason:
+    | "configuration_changed"
+    | "invalid_or_expired"
+    | "provider_failed"
+    | "verification_state_invalid"
+}
+
 export interface ExternalIdentityCreatedAudit extends SecurityAuditEvent {
   type: "external_identity_created"
   externalIdentityId: string
@@ -52,6 +62,7 @@ export interface ProviderRevisionPersistFailedAudit extends SecurityAuditEvent {
 }
 
 export type CreateSecurityAuditEvent =
+  | AuthenticationAttemptDeniedAudit
   | ExternalIdentityCreatedAudit
   | ExternalIdentityCreateFailedAudit
   | ProviderRevisionValidationFailedAudit

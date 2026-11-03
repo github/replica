@@ -1,5 +1,6 @@
 import type { ProviderKey } from "../../../utils/parse-provider-key/types.ts"
 import type {
+  AuthenticationAttemptDeniedAudit,
   ExternalIdentityCreatedAudit,
   ExternalIdentityCreateFailedAudit,
   ProviderRevisionDeniedAudit,
@@ -9,6 +10,7 @@ import type {
 } from "../create-security-audit/types.ts"
 
 export type ParsedSecurityAuditEvent =
+  | (Omit<AuthenticationAttemptDeniedAudit, "provider"> & { provider: ProviderKey })
   | (Omit<ExternalIdentityCreatedAudit, "provider"> & { provider: ProviderKey })
   | (Omit<ExternalIdentityCreateFailedAudit, "provider"> & { provider: ProviderKey })
   | (Omit<ProviderRevisionValidationFailedAudit, "providerKey"> & {

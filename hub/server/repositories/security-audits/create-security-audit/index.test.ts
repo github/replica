@@ -37,6 +37,18 @@ describe("createSecurityAudit()", () => {
 
     await createSecurityAudit(database, {
       id,
+      type: "authentication_attempt_denied",
+      provider: "github",
+      reason: "invalid_or_expired",
+    })
+    await createSecurityAudit(database, {
+      id,
+      type: "authentication_attempt_denied",
+      provider: "github",
+      reason: "verification_state_invalid",
+    })
+    await createSecurityAudit(database, {
+      id,
       type: "external_identity_created",
       externalIdentityId: "e8714e71-52a7-45e8-a639-99ec37f2d85f",
       provider: "workforce",
@@ -78,6 +90,18 @@ describe("createSecurityAudit()", () => {
     })
 
     expect(create.mock.calls.map(([{ data }]) => data)).toEqual([
+      expect.objectContaining({
+        action: "authentication.attempt.denied",
+        outcome: "DENIED",
+        targetType: "authorization_attempt",
+        context: { provider: "github", reason: "invalid_or_expired" },
+      }),
+      expect.objectContaining({
+        action: "authentication.attempt.denied",
+        outcome: "DENIED",
+        targetType: "authorization_attempt",
+        context: { provider: "github", reason: "verification_state_invalid" },
+      }),
       expect.objectContaining({
         action: "identity.external.created",
         outcome: "SUCCESS",

@@ -1,4 +1,5 @@
 import { once } from "node:events"
+import { randomUUID } from "node:crypto"
 import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
 import { describe, expect, it, vi } from "vitest"
@@ -100,6 +101,7 @@ describe("createApp()", () => {
     const logger = createLogger({
       destination: { write: (line) => records.push(parseRecord(line)) },
     })
+
     const server = createServer(createApp({ logger }))
     const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
 
@@ -151,6 +153,30 @@ describe("createApp()", () => {
       const response = await fetch(`http://127.0.0.1:${port}${path}`, {
         method,
         redirect: "manual",
+      })
+
+      expect(response.status).toBe(404)
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()))
+      })
+    }
+  })
+
+  it("does not accept authentication proof from a public callback route", async () => {
+    const server = createServer(createApp())
+    try {
+      server.listen(0, "127.0.0.1")
+      await once(server, "listening")
+      const { port } = server.address() as AddressInfo
+      const response = await fetch(`http://127.0.0.1:${port}/api/auth/github/callback`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          externalIdentityId: randomUUID(),
+          providerKey: "github",
+          subject: "123",
+        }),
       })
 
       expect(response.status).toBe(404)

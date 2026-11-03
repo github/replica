@@ -22,7 +22,13 @@ export async function runApi({
   }
   const server = createServer()
   const realtime = attachRealtimeServer({ server, path: "/api/realtime", logger })
-  server.on("request", createApp({ logger, broadcast: realtime.broadcast }))
+  server.on(
+    "request",
+    createApp({
+      logger,
+      broadcast: realtime.broadcast,
+    }),
+  )
   let finishBinding!: () => void
   const binding = new Promise<void>((resolve) => {
     finishBinding = resolve

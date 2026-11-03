@@ -1,6 +1,6 @@
 # Hub development
 
-Use the Hub devcontainer for Node.js and PostgreSQL, or run Node.js locally with the same database service. Sign-in and production deployment are not configured.
+Use the Hub devcontainer for Node.js and PostgreSQL, or run Node.js locally with the same database service. Production deployment is not configured.
 
 ## Devcontainer
 
@@ -20,7 +20,7 @@ cp .env.example .env
 npm ci --engine-strict
 ```
 
-The example URL connects to PostgreSQL on `127.0.0.1:5432`. To use another development database, set `DATABASE_URL` in `.env` instead. Do not commit credentials. The existing health and frontend routes do not query the database.
+The example URL connects to PostgreSQL on `127.0.0.1:5432`. To use another development database, set `DATABASE_URL` in `.env` instead. Do not commit credentials. The health and frontend routes do not query the database. Authentication routes are not registered.
 
 ## Start the app
 
@@ -36,7 +36,9 @@ In a second terminal, also from `hub/`, start Vite:
 npm run dev
 ```
 
-Open <http://127.0.0.1:5173>. Vite serves the frontend and forwards `/api` requests to Express at <http://127.0.0.1:3001>. `GET /api/health` returns JSON; other API routes have not been built. Both servers accept connections only from this machine. Stop each with Ctrl+C.
+Open <http://127.0.0.1:5173>. Vite serves the frontend and forwards `/api` requests to Express at <http://127.0.0.1:3001>. `GET /api/health` returns JSON. The internal proof primitives described in [Authentication proof](authentication.md) are not registered as routes.
+
+The current API has no public authentication route or authentication environment settings. Both servers accept connections only from this machine. Stop each with Ctrl+C.
 
 Vite also forwards WebSocket upgrades under `/api`. The `/api/realtime` endpoint rejects connections until application access checks are connected; see [WebSocket updates](websockets.md). Stopping the API closes its WebSocket connections as well.
 

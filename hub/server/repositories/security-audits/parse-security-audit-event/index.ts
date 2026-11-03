@@ -7,6 +7,19 @@ const eventSchema = z.discriminatedUnion("type", [
   z
     .object({
       id: z.uuid(),
+      type: z.literal("authentication_attempt_denied"),
+      provider: z.unknown(),
+      reason: z.enum([
+        "configuration_changed",
+        "invalid_or_expired",
+        "provider_failed",
+        "verification_state_invalid",
+      ]),
+    })
+    .strict(),
+  z
+    .object({
+      id: z.uuid(),
       type: z.literal("external_identity_created"),
       externalIdentityId: z.uuid(),
       issuer: z.string().min(1).max(500),
@@ -62,6 +75,7 @@ const eventSchema = z.discriminatedUnion("type", [
 export function parseSecurityAuditEvent(input: unknown): ParsedSecurityAuditEvent {
   const event = eventSchema.parse(input)
   switch (event.type) {
+    case "authentication_attempt_denied":
     case "external_identity_created":
     case "external_identity_create_failed":
       return { ...event, provider: parseProviderKey(event.provider) }
