@@ -23,7 +23,7 @@ export function createApp({
   app.set("trust proxy", trustedProxyHops)
   app.use(createRequestLogger(logger))
   app.use("/api/auth", authenticationSecurity())
-  app.use(/^(?!\/api\/auth(?:\/|$)).*/, express.json())
+  app.use(/^(?!\/api\/auth(?:\/|$)).*/i, express.json())
 
   routes(app, { authentication, broadcast, isReady, logger })
   app.use("/api", respondNotFound)

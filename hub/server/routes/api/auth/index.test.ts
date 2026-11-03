@@ -5,6 +5,7 @@ import type { AddressInfo } from "node:net"
 import { describe, expect, it, vi } from "vitest"
 
 import { createApp } from "../../../create-app"
+import { AuthenticationProofError } from "../../../domains/authentication/errors"
 import { createLogger } from "../../../integrations/pino/create-logger"
 import type { AuthenticationRouteDependencies } from "./types"
 
@@ -14,6 +15,7 @@ function routeDependencies() {
   const startEnrollment = vi.fn()
   const endSession = vi.fn()
   const completeProof = vi.fn()
+  const admitSession = vi.fn()
   const verifyBootstrapSecret = vi.fn().mockReturnValue(false)
   const dependencies: AuthenticationRouteDependencies = {
     signIn: {
@@ -34,7 +36,7 @@ function routeDependencies() {
       checkRateLimit,
       secureCookie: false,
       complete: completeProof,
-      admit: vi.fn(),
+      admit: admitSession,
     },
     currentSession: {
       secureCookie: false,
@@ -48,6 +50,7 @@ function routeDependencies() {
   }
   return {
     dependencies,
+    admitSession,
     checkRateLimit,
     completeProof,
     endSession,
@@ -90,20 +93,26 @@ describe("authenticationRoutes()", () => {
     })
   })
 
-  it("rejects malformed JSON by origin before parsing the authentication body", async () => {
-    const { dependencies, checkRateLimit, startSignIn } = routeDependencies()
-    await withServer(dependencies, async (baseUrl) => {
-      const response = await fetch(`${baseUrl}/api/auth/github/start`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: "{malformed",
-      })
+  it.each([
+    ["uppercase malformed", "/API/AUTH/GITHUB/START", "{malformed"],
+    ["mixed-case oversized", "/Api/Auth/GitHub/Start", JSON.stringify("x".repeat(150_000))],
+  ])(
+    "rejects %s JSON by origin before parsing the authentication body",
+    async (_name, path, body) => {
+      const { dependencies, checkRateLimit, startSignIn } = routeDependencies()
+      await withServer(dependencies, async (baseUrl) => {
+        const response = await fetch(`${baseUrl}${path}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body,
+        })
 
-      expect(response.status).toBe(403)
-      expect(checkRateLimit).not.toHaveBeenCalled()
-      expect(startSignIn).not.toHaveBeenCalled()
-    })
-  })
+        expect(response.status).toBe(403)
+        expect(checkRateLimit).not.toHaveBeenCalled()
+        expect(startSignIn).not.toHaveBeenCalled()
+      })
+    },
+  )
 
   it("rate-limits an enrollment before parsing its secret", async () => {
     const { dependencies, checkRateLimit, startEnrollment, verifyBootstrapSecret } =
@@ -211,6 +220,57 @@ describe("authenticationRoutes()", () => {
       expect(response.headers.get("location")).toBe("/?authentication=denied")
       expect(response.headers.get("set-cookie")).toContain("Max-Age=0")
       expect(completeProof).not.toHaveBeenCalled()
+    })
+  })
+
+  it("preserves a successful Hub session when a replay denial response arrives last", async () => {
+    const { dependencies, completeProof, admitSession } = routeDependencies()
+    completeProof
+      .mockResolvedValueOnce({
+        proof: {
+          authorizationAttemptId: "attempt-id",
+          externalIdentityId: "identity-id",
+        },
+      })
+      .mockRejectedValueOnce(
+        new AuthenticationProofError("attempt_invalid", "The attempt was already consumed."),
+      )
+    admitSession.mockResolvedValue({
+      expiresAt: new Date("2030-01-01T00:00:00Z"),
+      membershipId: "membership-id",
+      role: "administrator",
+      sessionId: "session-id",
+      userId: "user-id",
+    })
+    const state = "s".repeat(32)
+    const browserBinding = "b".repeat(32)
+    let activeSession = "existing-session"
+
+    await withServer(dependencies, async (baseUrl) => {
+      const success = await fetch(
+        `${baseUrl}/api/auth/github/callback?code=provider-code&state=${state}`,
+        {
+          headers: { cookie: `hub_auth_browser=${browserBinding}; hub_session=${activeSession}` },
+          redirect: "manual",
+        },
+      )
+      const issued = success.headers.get("set-cookie")?.match(/hub_session=([^;,]+)/)?.[1]
+      expect(success.headers.get("location")).toBe("/?authentication=success")
+      expect(issued).toBeTruthy()
+      activeSession = issued!
+
+      const denial = await fetch(
+        `${baseUrl}/api/auth/github/callback?code=replayed-code&state=${state}`,
+        {
+          headers: { cookie: `hub_auth_browser=${browserBinding}; hub_session=${activeSession}` },
+          redirect: "manual",
+        },
+      )
+      const denialCookies = denial.headers.get("set-cookie") ?? ""
+      expect(denial.headers.get("location")).toBe("/?authentication=denied")
+      expect(denialCookies).toContain("hub_auth_browser=")
+      expect(denialCookies).not.toContain("hub_session=")
+      expect(activeSession).toBe(issued)
     })
   })
 
