@@ -8,18 +8,20 @@ import { temporaryDirectory } from "../../test/temporary-directory/index.ts"
 
 import { createPackage } from "../create-package/index.ts"
 import { MAX_SCREENSHOT_HEIGHT } from "../constants.ts"
+import { prepareBuildOutput } from "../prepare-build-output/index.ts"
 
 import { captureScreenshots } from "./index.ts"
 
 describe("captureScreenshots()", () => {
-  it("captures and packages both color schemes at both widths for the root and templates", async () => {
+  it("captures normalized output using the original workspace templates in both color schemes and widths", async () => {
     const root = await temporaryDirectory()
+    const normalized = path.join(root, "normalized")
     const screenshots = await temporaryDirectory()
     const output = path.join(await temporaryDirectory(), "package")
-    await mkdir(path.join(root, "dist"))
+    await mkdir(path.join(root, "website", "public"), { recursive: true })
     await mkdir(path.join(root, ".github"))
     await writeFile(
-      path.join(root, "dist/index.html"),
+      path.join(root, "website", "public", "index.html"),
       '<!doctype html><html><head><style>html,body{margin:0;background:white}main{height:1000px}@media(prefers-color-scheme:dark){html,body{background:black}main{height:1200px}}</style></head><body><main></main><script>if(location.pathname==="/settings")document.body.style.background=matchMedia("(prefers-color-scheme:dark)").matches?"blue":"red"</script></body></html>',
     )
     await writeFile(
@@ -38,8 +40,9 @@ describe("captureScreenshots()", () => {
       }),
     )
 
-    await captureScreenshots(root, screenshots)
-    await createPackage(root, screenshots, output)
+    await prepareBuildOutput(root, "website/public", normalized)
+    await captureScreenshots(normalized, screenshots, root)
+    await createPackage(normalized, screenshots, output)
 
     for (const directory of ["", "templates/settings"]) {
       for (const [name, width] of [

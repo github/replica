@@ -3,7 +3,6 @@ require "tempfile"
 # Downloads and retains one completed Build's GitHub Actions package.
 class Build::PackageImport < ActiveRecord::AssociatedObject
   ARTIFACT_NAME = Repository::WorkflowRunDiscoveries::ARTIFACT_NAME
-  MAXIMUM_PACKAGE_BYTES = 155.megabytes
 
   class ArtifactMissing < StandardError; end
   class ArtifactExpired < StandardError; end
@@ -11,6 +10,7 @@ class Build::PackageImport < ActiveRecord::AssociatedObject
 
   # Downloads one Actions package and publishes its dist and screenshots.
   def download!(configuration: GithubAppConfiguration.current, artifact_store: ArtifactStore.current)
+    setting = BuildSetting.current
     build.reload
     return if !importable?
 
@@ -24,7 +24,7 @@ class Build::PackageImport < ActiveRecord::AssociatedObject
     client = configuration.github_client
     token = configuration.tokens.installation
     artifact_id = build.github_artifact_id || select_artifact_id(client, token, repository)
-    import_package(client, token, repository, artifact_id, artifact_store:)
+    import_package(client, token, repository, artifact_id, artifact_store:, setting:)
   rescue ArtifactMissing
     fail!("GitHub Actions did not provide the replica-build-v1 artifact.")
   rescue ArtifactExpired
@@ -34,7 +34,8 @@ class Build::PackageImport < ActiveRecord::AssociatedObject
   rescue Build::PackageExtraction::InvalidPackage => error
     fail!("The replica-build-v1 artifact cannot be stored: #{error.message}")
   rescue GithubClient::DownloadTooLarge
-    fail!("The replica-build-v1 artifact exceeds Hub's 155 MiB download limit.")
+    fail!("The replica-build-v1 archive is too large to download safely. " \
+      "#{BuildSetting.limit_message(setting.maximum_bytes)}")
   rescue GithubClient::Gone
     fail!("The GitHub download expired before Hub could finish it.")
   rescue GithubClient::NotFound
@@ -65,7 +66,7 @@ class Build::PackageImport < ActiveRecord::AssociatedObject
   end
 
   # Downloads the selected package and replaces any incomplete retained prefix.
-  def import_package(client, token, repository, artifact_id, artifact_store:)
+  def import_package(client, token, repository, artifact_id, artifact_store:, setting:)
     prefix = "builds/#{build.id}"
     Tempfile.create([ "replica-build-", ".zip" ], binmode: true) do |package|
       client.actions.download_artifact \
@@ -73,14 +74,14 @@ class Build::PackageImport < ActiveRecord::AssociatedObject
         artifact_id,
         token:,
         destination: package,
-        maximum_bytes: MAXIMUM_PACKAGE_BYTES
+        maximum_bytes: setting.maximum_download_bytes
       package.flush
       build.reload
       return if !importable?
       return if build.github_artifact_id.nil? && !record_artifact!(artifact_id)
 
       artifact_store.delete_prefix(prefix)
-      bytes = Build::PackageExtraction.new(artifact_store:).extract!(package, prefix:)
+      bytes = Build::PackageExtraction.new(artifact_store:, maximum_bytes: setting.maximum_bytes).extract!(package, prefix:)
       publish!(prefix:, bytes:)
     end
   rescue StandardError

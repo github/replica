@@ -1,0 +1,15 @@
+json.partial! partial: "hub_admins/navigation"
+json.pageTitle t("build_settings.heading")
+json.heading t("build_settings.heading")
+json.description t("build_settings.description")
+json.accessDenied !!@access_denied
+json.emptyLabel t("build_settings.no_access")
+if !@access_denied
+  json.maximumPackageMib @setting.maximum_package_mib.to_s
+  json.limitLabel t("build_settings.limit_label")
+  json.limitDescription t("build_settings.limit_description")
+  json.submitPath build_settings_path
+  json.submitLabel t("build_settings.submit")
+  json.confirmLabel t("build_settings.confirm")
+  json.verification t("build_settings.verification")
+end

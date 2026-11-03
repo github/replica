@@ -32,6 +32,7 @@ import HubAdminsView from "../../views/hub_admins"
 import HubAdminConfirmationView from "../../views/hub_admins/edit"
 import SessionRevocationView from "../../views/session_revocations/show"
 import SharingSettingsView from "../../views/sharing_settings/show"
+import BuildSettingsView from "../../views/build_settings/show"
 import FreshAuthorizationView from "../../views/fresh_authorizations/show"
 
 let collapsed = false
@@ -74,6 +75,7 @@ vi.mock("@pages/hub-admins-page", () => ({ HubAdminsPage: HubSidebarPage }))
 vi.mock("@pages/hub-admin-confirmation-page", () => ({ HubAdminConfirmationPage: HubSidebarPage }))
 vi.mock("@pages/session-revocation-page", () => ({ SessionRevocationPage: HubSidebarPage }))
 vi.mock("@pages/sharing-settings-page", () => ({ SharingSettingsPage: HubSidebarPage }))
+vi.mock("@pages/build-settings-page", () => ({ BuildSettingsPage: HubSidebarPage }))
 vi.mock("@pages/fresh-authorization-page", () => ({ FreshAuthorizationPage: HubSidebarPage }))
 vi.mock("@hooks/use-page-data", () => ({
   usePageData: () => {
@@ -171,6 +173,7 @@ describe("Sidebar inbox previews", () => {
       ["admin confirmation", HubAdminConfirmationView, "administrationWorkspace"],
       ["session revocation", SessionRevocationView, "administrationWorkspace"],
       ["sharing settings", SharingSettingsView, "administrationWorkspace"],
+      ["Build settings", BuildSettingsView, "administrationWorkspace"],
       ["fresh authorization", FreshAuthorizationView, "administrationWorkspace"],
       ["denied admin page", HubAdminsView, "authenticatedWorkspace"],
     ].flatMap(([name, View, workspace]) =>

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_29_190000) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_03_190000) do
   create_table "analytics_deliveries", force: :cascade do |t|
     t.integer "attempts", default: 0, null: false
     t.datetime "created_at", null: false
@@ -80,6 +80,14 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_29_190000) do
     t.index ["prototype_id"], name: "index_branch_banner_dismissals_on_prototype_id"
     t.index ["user_id", "prototype_id"], name: "index_branch_banner_dismissals_on_user_id_and_prototype_id", unique: true
     t.index ["user_id"], name: "index_branch_banner_dismissals_on_user_id"
+  end
+
+  create_table "build_settings", force: :cascade do |t|
+    t.integer "maximum_package_mib", default: 150, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.check_constraint "id = 1", name: "build_settings_singleton"
+    t.check_constraint "maximum_package_mib > 0 AND typeof(maximum_package_mib) = 'integer'", name: "build_settings_positive_limit"
   end
 
   create_table "builds", force: :cascade do |t|
@@ -242,7 +250,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_29_190000) do
     t.index ["user_id"], name: "index_fresh_authorizations_on_user_id"
     t.check_constraint "continued_at IS NULL OR (verified_at IS NOT NULL AND pending_action IS NULL)", name: "fresh_authorizations_continuation"
     t.check_constraint "credential_type IN ('Session', 'CanvasGrant') AND credential_id > 0 AND github_id > 0", name: "fresh_authorizations_identity"
-    t.check_constraint "purpose IN ('never_expiring_share', 'analytics_destination', 'hub_admin_management', 'sharing_settings', 'session_revocation', 'github_app_reset', 'github_app_credentials', 'github_app_webhook', 'github_app_finish_webhook', 'copilot_connection', 'copilot_disconnection')", name: "fresh_authorizations_purpose"
+    t.check_constraint "purpose IN ('never_expiring_share', 'analytics_destination', 'hub_admin_management', 'sharing_settings', 'session_revocation', 'github_app_reset', 'github_app_credentials', 'github_app_webhook', 'github_app_finish_webhook', 'copilot_connection', 'copilot_disconnection', 'build_settings')", name: "fresh_authorizations_purpose"
     t.check_constraint "verified_at IS NULL OR consumed_at IS NOT NULL", name: "fresh_authorizations_verification"
   end
 

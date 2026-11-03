@@ -28,7 +28,7 @@ class CombinedSecurityTest < ActionDispatch::IntegrationTest
     assert_equal "idle", @configuration.reload.webhook_rotation_state
     assert Session.exists?(@session.id)
     assert GithubAppConfiguration.exists?(@configuration.id)
-    patch hub_admin_path(@target), params: { confirmed: "1", operation: "revoke" }, as: :json
+    assert_equal 200, BuildSetting.current.maximum_package_mib
     assert_equal 10, Rails.cache.read("rate-limit:security:hub_admin:#{@actor.id}")
     assert_no_difference("FreshAuthorization.count") do
       operations.each do |operation|
@@ -36,7 +36,8 @@ class CombinedSecurityTest < ActionDispatch::IntegrationTest
         assert_security_throttle(60)
       end
     end
-    assert_not @target.reload.hub_admin?
+    assert @target.reload.hub_admin?
+    assert_equal 200, BuildSetting.current.maximum_package_mib
     assert SharingSetting.enabled?
     assert Session.exists?(@session.id)
     assert_equal "idle", @configuration.reload.webhook_rotation_state
@@ -58,7 +59,7 @@ class CombinedSecurityTest < ActionDispatch::IntegrationTest
   end
 
   test "administrator reads use the same nonced Hub policy without spending the mutation budget" do
-    paths = [ hub_admins_path, edit_hub_admin_path(@target), sharing_settings_path,
+    paths = [ hub_admins_path, edit_hub_admin_path(@target), sharing_settings_path, build_settings_path,
       session_revocation_path, github_app_path, reset_github_app_path,
       edit_github_app_credentials_path, github_app_webhook_rotation_path, security_audit_path ]
     nonces = paths.map do |path|
@@ -138,6 +139,7 @@ class CombinedSecurityTest < ActionDispatch::IntegrationTest
     [
       -> { patch hub_admin_path(@target), params: { confirmed: "1", operation: "designate" }, as: :json },
       -> { patch sharing_settings_path, params: { confirmed: "1", operation: "enable" }, as: :json },
+      -> { patch build_settings_path, params: { confirmed: "1", maximum_package_mib: "200" }, as: :json },
       -> { post github_app_webhook_rotation_path, params: confirmation.merge(operation: "start"), as: :json },
       -> { delete github_app_webhook_rotation_path, params: confirmation, as: :json },
       -> { patch github_app_credentials_path, params: confirmation.merge(private_key: "not-an-upload"), as: :json },

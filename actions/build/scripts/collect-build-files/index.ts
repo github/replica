@@ -10,7 +10,6 @@ export type BuildFileState = {
     maxEntries: number
     maxFileBytes: number
     maxPathDepth: number
-    maxTotalBytes: number
   }
   seenPaths: Map<string, string>
   totalBytes: number
@@ -56,12 +55,6 @@ export async function collectBuildFiles(
     }
 
     state.totalBytes += details.size
-
-    if (state.totalBytes > state.limits.maxTotalBytes) {
-      throw new Error(
-        `Build output files must total no more than ${state.limits.maxTotalBytes} bytes; found ${state.totalBytes}.`,
-      )
-    }
 
     state.files.push({ path: relativePath, bytes: details.size })
   }

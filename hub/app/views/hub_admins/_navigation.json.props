@@ -19,6 +19,7 @@ json.notice flash[:notice]
 json.alert flash[:alert]
 section = case controller_path
 when "sharing_settings" then "sharing"
+when "build_settings" then "builds"
 when "github_apps", "github_app_credentials", "github_app_webhook_rotations" then "github"
 when "copilot_connections" then "copilot"
 else "admins"

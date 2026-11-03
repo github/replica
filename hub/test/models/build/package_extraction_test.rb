@@ -25,6 +25,46 @@ class Build::PackageExtractionTest < ActiveSupport::TestCase
     assert_equal files.keys.map { "builds/1/#{_1}" }.sort, @store.list("builds/1")
   end
 
+  test "counts screenshots and template metadata against the configured total before storing files" do
+    files = template_files
+    maximum = files.values.sum(&:bytesize)
+
+    assert_equal maximum, extract(files, maximum_bytes: maximum)
+    @store.delete_prefix("builds/1")
+    error = assert_raises(Build::PackageExtraction::InvalidPackage) do
+      extract(files, maximum_bytes: maximum - 1)
+    end
+    assert_match(/limit/i, error.message)
+    assert_includes error.message, "MiB"
+    assert_includes error.message, "Hub settings > Build packages"
+    assert_empty @store.list("builds/1")
+  end
+
+  test "uses the saved setting when no extraction override is supplied" do
+    BuildSetting.create!(id: 1, maximum_package_mib: 1)
+    files = @files.merge("screenshots/desktop.png" => "x" * 1.megabyte)
+
+    error = assert_raises(Build::PackageExtraction::InvalidPackage) { extract(files) }
+
+    assert_includes error.message, "1 MiB"
+    assert_includes error.message, "Hub settings > Build packages"
+    assert_empty @store.list("builds/1")
+  end
+
+  test "streaming stops before returning bytes above the remaining package budget" do
+    source = Build::PackageExtraction::BoundedSource.new \
+      StringIO.new("screenshot"),
+      maximum_bytes: 25.megabytes,
+      remaining_bytes: 5,
+      total_limit: 1.megabyte
+    assert_equal "scree", source.read(5)
+
+    error = assert_raises(Build::PackageExtraction::InvalidPackage) { source.read(1) }
+
+    assert_includes error.message, "1 MiB"
+    assert_includes error.message, "Hub settings > Build packages"
+  end
+
   test "validates retained Controls before storing any package files" do
     invalid = @files.merge("dist/controls.replica.json" => '{"version":99}')
     error = assert_raises(Build::PackageExtraction::InvalidPackage) { extract(invalid) }
@@ -102,7 +142,7 @@ class Build::PackageExtractionTest < ActiveSupport::TestCase
       "screenshots/templates/welcome/narrow.png" => "template narrow"
   end
 
-  def extract(files)
+  def extract(files, **options)
     path = @root.join("package.zip")
     File.binwrite(path, Zip::OutputStream.write_buffer do |archive|
       files.each do |name, bytes|
@@ -110,6 +150,6 @@ class Build::PackageExtractionTest < ActiveSupport::TestCase
         archive.write(bytes)
       end
     end.string)
-    File.open(path, "rb") { Build::PackageExtraction.new(artifact_store: @store).extract!(_1, prefix: "builds/1") }
+    File.open(path, "rb") { Build::PackageExtraction.new(artifact_store: @store, **options).extract!(_1, prefix: "builds/1") }
   end
 end

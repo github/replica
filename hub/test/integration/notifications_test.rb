@@ -252,7 +252,8 @@ class NotificationsTest < ActionDispatch::IntegrationTest
       copilot_connection_path(repository_github_id: @repository.route_id),
       hub_admins_path(repository_github_id: @repository.route_id),
       sharing_settings_path(repository_github_id: @repository.route_id),
-      session_revocation_path(repository_github_id: @repository.route_id)
+      session_revocation_path(repository_github_id: @repository.route_id),
+      build_settings_path(repository_github_id: @repository.route_id)
     ], data.fetch("administrationLinks").map { _1.fetch("path") }
   end
 
@@ -267,7 +268,7 @@ class NotificationsTest < ActionDispatch::IntegrationTest
     assert_equal I18n.t("hub_admins.repositories"), data.fetch("repositoriesLabel")
     assert_not data.key?("selectedRepositoryId")
     assert_equal security_audit_path, data.fetch("securityAuditPath")
-    assert_equal %w[github copilot admins sharing sessions], data.fetch("administrationLinks").map { _1.fetch("section") }
+    assert_equal %w[github copilot admins sharing sessions builds], data.fetch("administrationLinks").map { _1.fetch("section") }
     assert_equal github_app_path, data.fetch("administrationLinks").first.fetch("path")
   end
 

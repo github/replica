@@ -81,6 +81,8 @@ Use different containers for development and production.
 
 Hub checks the downloaded ZIP, required files, file paths, and size limits before storing a Build. Reviewers cannot open a preview until the complete import succeeds. A package may contain one version-1 `templates.json` manifest of at most 16 KiB with at most 12 template definitions. Each definition needs both desktop and narrow screenshots under its exact ID. Dark captures are optional for compatibility with older build actions; when any declared dark capture is present, both widths must be present for the root and every declared template. Hub rejects partial dark sets, undeclared screenshot files, unsupported metadata, missing captures, and invalid local routes before storing files. Legacy packages without the manifest remain valid. Both storage adapters use the same contract.
 
+The [Hub package limit](github-actions-builds.md#hub-package-limit) defaults to 150 MiB unpacked and includes app files, screenshots, and metadata. Hub administrators can change it under **Build packages**. The download allowance derives from the same saved setting. Changes do not alter previously successful Builds.
+
 Hub automatically retries an import after a temporary network, throttling, or storage failure. Before each retry, Hub deletes the incomplete Build files and imports the same artifact again. Invalid configuration or denied access ends the import and marks the Build as failed.
 
 Successful Builds are immutable. See [GitHub Actions builds](github-actions-builds.md) for artifact rules and [Preview serving](preview-serving.md) for file delivery.

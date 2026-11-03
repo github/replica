@@ -18,10 +18,11 @@ class Build::PackageImportTest < ActiveSupport::TestCase
     temporary_paths = []
     client = fake_client
     package = replica_package
+    download_limit = BuildSetting.current.maximum_download_bytes
     client.actions.define_singleton_method(:download_artifact) do |_repository, artifact_id, token:, destination:, maximum_bytes:|
       raise "wrong artifact" if artifact_id != 8001
       raise "wrong token" if token != "installation-token"
-      raise "wrong package limit" if maximum_bytes != 155.megabytes
+      raise "wrong package limit" if maximum_bytes != download_limit
 
       temporary_paths << destination.path
       destination.write(package)
@@ -157,6 +158,7 @@ class Build::PackageImportTest < ActiveSupport::TestCase
   end
 
   test "fails when the package exceeds its download limit" do
+    BuildSetting.create!(id: 1, maximum_package_mib: 7)
     build = completed_build
     configuration = installed_configuration
     client = fake_client
@@ -168,7 +170,61 @@ class Build::PackageImportTest < ActiveSupport::TestCase
     import_package(build, configuration)
 
     assert_equal "failed", build.reload.state
-    assert_includes build.failure_summary, "155 MiB"
+    assert_includes build.failure_summary, "7 MiB"
+    assert_includes build.failure_summary, "Hub settings > Build packages"
+    assert_empty @artifact_store.list("builds/#{build.id}")
+  end
+
+  test "snapshots one setting for both download and extraction during an import" do
+    setting = BuildSetting.create!(id: 1, maximum_package_mib: 2)
+    download_limit = setting.maximum_download_bytes
+    build = completed_build
+    configuration = installed_configuration
+    package = replica_package(desktop_screenshot: "x" * (1.megabyte + 1))
+    client = fake_client
+    client.actions.define_singleton_method(:download_artifact) do |_repository, _artifact_id, token:, destination:, maximum_bytes:|
+      raise "download ignored setting" if maximum_bytes != download_limit
+
+      BuildSetting.find(1).update!(maximum_package_mib: 1)
+      destination.write(package)
+    end
+    stub_github_client(configuration, client)
+
+    import_package(build, configuration)
+
+    assert_equal 1, BuildSetting.current.maximum_package_mib
+    assert_equal "successful", build.reload.state
+    assert_operator build.artifact_bytes, :>, 1.megabyte
+  end
+
+  test "an oversized unpacked package fails with the saved limit and removes partial storage" do
+    BuildSetting.create!(id: 1, maximum_package_mib: 1)
+    build = completed_build
+    configuration = installed_configuration
+    client = fake_client(package: replica_package(desktop_screenshot: "x" * 1.megabyte))
+    stub_github_client(configuration, client)
+
+    import_package(build, configuration)
+
+    assert_equal "failed", build.reload.state
+    assert_includes build.failure_summary, "1 MiB"
+    assert_includes build.failure_summary, "Hub settings > Build packages"
+    assert_empty @artifact_store.list("builds/#{build.id}")
+  end
+
+  test "changing the limit leaves an already successful Build and its retained files untouched" do
+    build = completed_build
+    configuration = installed_configuration
+    stub_github_client(configuration, fake_client)
+    import_package(build, configuration)
+    original = build.reload.attributes
+    files = @artifact_store.list(build.artifact_prefix)
+    BuildSetting.create!(id: 1, maximum_package_mib: 1)
+
+    import_package(build, configuration)
+
+    assert_equal original, build.reload.attributes
+    assert_equal files, @artifact_store.list(build.artifact_prefix)
   end
 
   test "fails when the package is not a readable ZIP" do

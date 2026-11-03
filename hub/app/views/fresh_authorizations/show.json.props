@@ -17,6 +17,7 @@ if FreshAuthorization::ADMIN_PURPOSES.include?(@challenge.purpose)
   section = case @challenge.purpose
   when "hub_admin_management" then "admins"
   when "sharing_settings" then "sharing"
+  when "build_settings" then "builds"
   when "session_revocation" then "sessions"
   else "github"
   end

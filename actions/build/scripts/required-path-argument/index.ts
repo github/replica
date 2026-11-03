@@ -1,7 +1,7 @@
 import path from "node:path"
 
-/** Reads a named command-line path and returns its absolute path. */
-export function requiredPathArgument(name: string) {
+/** Reads a named path, leaving it relative when the caller must check its workspace boundary. */
+export function requiredPathArgument(name: string, { resolve = true } = {}) {
   const index = process.argv.indexOf(`--${name}`)
   const value = process.argv[index + 1]
 
@@ -9,5 +9,5 @@ export function requiredPathArgument(name: string) {
     throw new Error(`Missing required --${name} path.`)
   }
 
-  return path.resolve(value)
+  return resolve ? path.resolve(value) : value
 }

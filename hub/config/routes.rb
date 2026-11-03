@@ -48,6 +48,7 @@ Rails.application.routes.draw do
       get :candidates, on: :collection
     end
     resource :sharing_settings, only: %i[show update], controller: "sharing_settings"
+    resource :build_settings, only: %i[show update], controller: "build_settings"
     resource :github_app, only: %i[show destroy]
     get "github_app/reset", to: "github_apps#reset_confirmation", as: :reset_github_app
     get "github_app/credentials", to: "github_app_credentials#edit", as: :edit_github_app_credentials

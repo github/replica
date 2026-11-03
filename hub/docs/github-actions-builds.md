@@ -16,7 +16,7 @@ prototype branch is pushed
 
 A repository writer opens the repository in Hub and chooses **Open installation pull request**. Hub creates the reserved `replica/install-workflow` branch, adds `.github/workflows/replica.yml`, opens a pull request, and sends the writer to GitHub for review.
 
-Hub offers an update when a workflow uses an older released build Action pin or exactly matches the previous generated workflow that skipped the default branch. Other changes in a Hub release or custom workflow edits do not trigger a reminder. The pull request replaces the whole workflow with Hub's generated version; a repository writer reviews that replacement on GitHub before merging. A missing workflow still offers an installation pull request. Older Hub-commit pins are left alone until their repositories receive a planned migration pull request.
+Hub offers an update only when a workflow matches Hub's generated file with an older released build Action pin, or its previous generated default-branch exclusion. The pull request replaces that generated file; a repository writer reviews it on GitHub before merging. Customized workflows, including team authentication, earlier build steps, and Action inputs, are left alone. Teams update their Action pin themselves while preserving those changes. A missing workflow still offers an installation pull request. Older Hub-commit pins are left alone until their repositories receive a planned migration pull request.
 
 The generated job builds every pushed branch except `replica/install-workflow`. Existing custom workflows must also build the default branch for Templates to work. Remove their default-branch exclusion, retain the reserved-branch exclusion, and push a default-branch commit to produce the first Build. Hub's normal push, branch poll, and workflow discovery then import it.
 
@@ -30,12 +30,31 @@ The action:
 
 1. Checks for persisted Git authentication settings, then for `package.json`, `package-lock.json`, and a build script.
 2. Runs `npm ci` and `npm run build` in a pinned Node container.
-3. Checks the generated `dist` files and their sizes.
+3. Checks the static output and copies it into the package's `dist` directory.
 4. Opens the prototype in Chromium.
 5. Captures the full page in light and dark browser color schemes at desktop and narrow viewport widths.
 6. Uploads the `dist` files and screenshots as one GitHub Actions artifact.
 
 The build container receives no Hub, GitHub App, or storage credentials. It receives no credentials for any other repository.
+
+### Use an existing build
+
+The default action still runs `npm ci` and `npm run build`, then packages `dist`. Set `output-directory` when your build writes another workspace-relative folder. It must contain a static website with `index.html`. Replica copies that folder into its internal `dist/` layout without moving or deleting your source output. Absolute paths, traversal, symbolic links, and symbolic-link parent directories are rejected.
+
+Set `skip-build: "true"` to package output from earlier steps in the same job. Replica then skips the app's npm-file checks and Docker install/build. Your app does not need `package.json` or `package-lock.json`; it may use any build tool. Replica still checks checkout credentials and output safety, validates Controls and Templates, captures screenshots, and uploads `replica-build-v1`.
+
+Keep your team's authentication and build steps before the Replica action, and give them only the permissions they need. The default Replica Docker build does not receive registry credentials. The example below shows the steps to add after your existing credential-free checkout. Keep your reviewed, pinned Replica Action reference in place of `REVIEWED_ACTION_SHA`.
+
+```yaml
+- name: Build with the team's toolchain
+  run: ./scripts/build-static-site
+- uses: github/replica/actions/build@REVIEWED_ACTION_SHA
+  with:
+    skip-build: "true"
+    output-directory: site/build
+```
+
+Do not pass a workflow size limit. Hub owns the only total package limit, described below. Development-only local mode still runs its offline npm build and reads `dist`; it does not execute team GitHub Actions steps. Its package import uses the same Hub size setting.
 
 ### Checkout credentials
 
@@ -59,7 +78,7 @@ Hub follows `.github/workflows/replica.yml` for connected repositories and match
 
 ## Prototype requirements
 
-The repository needs:
+The default npm build needs:
 
 ```text
 package.json
@@ -67,6 +86,8 @@ package-lock.json
 a non-empty build script
 dist/index.html after the build
 ```
+
+For an earlier team build, only the configured static output folder and its `index.html` are required.
 
 The action rejects symbolic links and file paths that are unsafe or behave differently across supported filesystems.
 
@@ -81,7 +102,6 @@ Before each screenshot, the existing Chromium driver injects that adapter and wa
 | Files and directories | 2,000       |
 | Path depth            | 20 segments |
 | One file              | 25 MiB      |
-| All files             | 100 MiB     |
 
 ## Uploaded artifact
 
@@ -100,7 +120,13 @@ screenshots/templates/{id}/desktop-dark.png
 screenshots/templates/{id}/narrow-dark.png
 ```
 
-Screenshots include the page below the fold at the viewport width, without horizontal overflow. Pages taller than 16,384 pixels fail before capture; each PNG can be up to 25 MiB. The combined uncompressed package can be up to 150 MiB and contain at most 2,090 entries, including at most 2,000 dist files. Hub accepts a ZIP download up to 155 MiB.
+Screenshots include the page below the fold at the viewport width, without horizontal overflow. Pages taller than 16,384 pixels fail before capture; each PNG can be up to 25 MiB. The package can contain at most 2,090 entries, including at most 2,000 dist files. These safety checks remain independent of Hub's configurable total limit.
+
+### Hub package limit
+
+A Hub administrator can change **Hub settings > Build packages**. The saved setting defaults to **150 MiB** and limits the complete unpacked package: app files, screenshots, and package metadata. Enter a positive whole number of MiB, confirm the deployment-wide change, and complete recent GitHub verification when requested. The change applies to future imports only; successful Builds, previews, and review data stay unchanged.
+
+The build action has no total output or package cap. A push and its workflow may succeed before Hub rejects an oversized import. Hub marks that Build failed and names the configured limit, with instructions to reduce output or ask a Hub administrator to change **Build packages**. Hub also derives a bounded ZIP download allowance from this same setting, including archive overhead. Repository metadata cannot override either check. Entry-count, per-file, screenshot, path, and streamed extraction checks remain enforced.
 
 Each capture starts in a fresh browser context with `prefers-color-scheme` set to light or dark before navigation. Prototypes that support that preference render their matching theme; prototypes with fixed colors may look identical in both captures. The action does not operate app-specific theme controls or inject Hub's preview theme bridge. Heights are measured separately for each color scheme, and all captures share the same size limits.
 

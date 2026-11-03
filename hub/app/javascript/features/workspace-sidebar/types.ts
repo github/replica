@@ -37,6 +37,7 @@ export interface WorkspaceSidebarData extends WorkspaceAccountData, RepositoryIn
     | "audit"
     | "admins"
     | "sharing"
+    | "builds"
     | "sessions"
     | "github"
     | "copilot"
@@ -44,7 +45,7 @@ export interface WorkspaceSidebarData extends WorkspaceAccountData, RepositoryIn
   repositoriesLabel?: string
   repositoriesPath?: string
   administrationLinks?: Array<{
-    section: "admins" | "sharing" | "sessions" | "github" | "copilot"
+    section: "admins" | "sharing" | "builds" | "sessions" | "github" | "copilot"
     label: string
     path: string
   }>

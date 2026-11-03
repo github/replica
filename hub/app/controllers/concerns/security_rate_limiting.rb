@@ -20,6 +20,7 @@ module SecurityRateLimiting
   ADMIN_MUTATIONS = {
     "hub_admins" => %w[create update],
     "sharing_settings" => %w[update],
+    "build_settings" => %w[update],
     "session_revocations" => %w[create],
     "github_apps" => %w[destroy],
     "github_app_credentials" => %w[update],

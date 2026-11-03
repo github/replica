@@ -1,0 +1,12 @@
+.build-settings-page__form {
+  display: grid;
+  justify-items: start;
+  gap: var(--base-size-16);
+  max-width: 40rem;
+}
+
+.build-settings-page__confirmation {
+  display: flex;
+  align-items: start;
+  gap: var(--base-size-8);
+}

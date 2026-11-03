@@ -1,0 +1,14 @@
+en:
+  build_settings:
+    heading: Build packages
+    description: Set the maximum unpacked size for future Build imports. Successful Builds and their previews stay unchanged.
+    limit_label: Maximum package size (MiB)
+    limit_description: Includes app files, screenshots, and package metadata. The default is 150 MiB. Raising this limit can increase storage and download usage.
+    submit: Save package limit
+    confirm: I confirm this deployment-wide change for future imports.
+    verification: This change requires recent GitHub verification in this browser. Hub continues your confirmed change after verification.
+    no_access: Only Hub administrators can view or change the Build package limit.
+    errors:
+      not_authorized: Your account is not a current Hub administrator. No Build settings changed.
+      confirmation_required: Confirm the package limit change. No Build settings changed.
+      invalid_limit: Enter a positive whole number of MiB that fits in a signed 64-bit integer. No Build settings changed.
