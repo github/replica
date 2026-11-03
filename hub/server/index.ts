@@ -1,5 +1,6 @@
 import "dotenv/config"
 
+import { createConfiguredArtifactStorage } from "./domains/artifacts/create-configured-artifact-storage/index.ts"
 import { startTelemetry } from "./integrations/opentelemetry/start-telemetry/index.ts"
 import { logger } from "./integrations/pino/index.ts"
 import { runApi } from "./run-api/index.ts"
@@ -11,6 +12,9 @@ import { runJobWorker } from "./workers/run-job-worker/index.ts"
 
 try {
   const configuration = parseRuntimeConfig(process.env)
+  if (configuration.mode !== "setup" && configuration.hasArtifactStorage) {
+    await createConfiguredArtifactStorage(process.env)
+  }
   const telemetry = startTelemetry(process.env, logger)
   try {
     if (configuration.mode === "setup") await setup()

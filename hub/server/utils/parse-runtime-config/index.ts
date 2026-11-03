@@ -39,6 +39,12 @@ export function parseRuntimeConfig(env: NodeJS.ProcessEnv) {
   }
   return {
     mode,
+    hasArtifactStorage: [
+      "ARTIFACT_STORAGE_PROVIDER",
+      "ARTIFACT_STORAGE_DIRECTORY",
+      "AZURE_STORAGE_ACCOUNT",
+      "AZURE_STORAGE_CONTAINER",
+    ].some((name) => env[name] !== undefined),
     port,
     host,
     shutdownTimeoutMs,
