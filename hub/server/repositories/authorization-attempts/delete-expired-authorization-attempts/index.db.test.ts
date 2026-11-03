@@ -66,6 +66,47 @@ describe("deleteExpiredAuthorizationAttempts()", () => {
     })
   })
 
+  it("uses one transaction-stable cutoff for cleanup and deletion protection", async () => {
+    const providerRevisionId = await createProviderRevision()
+    const id = randomUUID()
+
+    await prisma.$transaction(async (transaction) => {
+      await transaction.$executeRaw`
+        INSERT INTO "authorization_attempts" (
+          "id", "provider_revision_id", "state_digest", "browser_binding_digest",
+          "purpose", "code_verifier_ciphertext", "expires_at", "created_at", "updated_at"
+        ) VALUES (
+          ${id}::uuid,
+          ${providerRevisionId}::uuid,
+          ${"b".repeat(64)},
+          ${"c".repeat(64)},
+          'SIGN_IN',
+          'transaction-stable-cutoff',
+          CURRENT_TIMESTAMP + interval '1 millisecond',
+          CURRENT_TIMESTAMP - interval '1 minute',
+          CURRENT_TIMESTAMP - interval '1 minute'
+        )
+      `
+      await transaction.$executeRaw`SELECT pg_sleep(0.05)`
+      const [timing] = await transaction.$queryRaw<Array<{ clockNow: Date; expiresAt: Date }>>`
+        SELECT clock_timestamp() AS "clockNow", "expires_at" AS "expiresAt"
+        FROM "authorization_attempts"
+        WHERE "id" = ${id}::uuid
+      `
+      expect(timing?.clockNow.getTime()).toBeGreaterThan(timing?.expiresAt.getTime() ?? Infinity)
+
+      await deleteExpiredAuthorizationAttempts(transaction)
+
+      await expect(
+        transaction.authorizationAttempt.findUnique({ where: { id } }),
+      ).resolves.toMatchObject({ id })
+    })
+
+    await prisma.$transaction((transaction) => deleteExpiredAuthorizationAttempts(transaction))
+
+    await expect(prisma.authorizationAttempt.findUnique({ where: { id } })).resolves.toBeNull()
+  })
+
   it("deletes consumed attempts at the fixed ten-minute retention boundary", async () => {
     const providerRevisionId = await createProviderRevision()
     const boundaryId = randomUUID()

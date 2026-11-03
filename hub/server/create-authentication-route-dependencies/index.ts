@@ -8,6 +8,7 @@ import { runAdmissionTransaction } from "../domains/admission/run-admission-tran
 import { runSessionRestoreTransaction } from "../domains/admission/run-session-restore-transaction/index.ts"
 import { verifyBootstrapSecret } from "../domains/admission/verify-bootstrap-secret/index.ts"
 import { completeAuthenticationProof } from "../domains/authentication/complete-authentication-proof/index.ts"
+import type { CompleteAuthenticationProofDependencies } from "../domains/authentication/complete-authentication-proof/types.ts"
 import { createOpaqueValue } from "../domains/authentication/create-opaque-value/index.ts"
 import { createGitHubAuthenticationContext } from "../domains/authentication/create-github-authentication-context/index.ts"
 import { decryptAuthenticationValue } from "../domains/authentication/decrypt-authentication-value/index.ts"
@@ -37,7 +38,7 @@ export function createAuthenticationRouteDependencies(
     })
   }
   function writeAuthenticationDenial(
-    reason: "configuration_changed" | "invalid_or_expired" | "provider_failed",
+    reason: Parameters<CompleteAuthenticationProofDependencies["writeDenialAudit"]>[0],
   ) {
     return createSecurityAudit(prisma, {
       id: randomUUID(),
