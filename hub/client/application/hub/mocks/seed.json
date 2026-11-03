@@ -45,9 +45,9 @@
       "createdAt": "2026-10-28T15:00:00Z",
       "startedAt": "2026-10-28T15:00:10Z",
       "finishedAt": "2026-10-28T15:01:00Z",
-      "previewUrl": "/mock-previews/example.html?prototype=Welcome&build=3",
-      "desktopScreenshotUrl": "/mock-previews/desktop.svg",
-      "narrowScreenshotUrl": "/mock-previews/narrow.svg",
+      "previewUrl": "/previews/index.html?prototype=Welcome&build=3",
+      "desktopScreenshotUrl": "/previews/desktop.svg",
+      "narrowScreenshotUrl": "/previews/narrow.svg",
       "failureSummary": null
     },
     {
@@ -75,9 +75,9 @@
       "createdAt": "2026-10-26T15:00:00Z",
       "startedAt": "2026-10-26T15:00:10Z",
       "finishedAt": "2026-10-26T15:01:00Z",
-      "previewUrl": "/mock-previews/example.html?prototype=Welcome&build=1",
-      "desktopScreenshotUrl": "/mock-previews/desktop.svg",
-      "narrowScreenshotUrl": "/mock-previews/narrow.svg",
+      "previewUrl": "/previews/index.html?prototype=Welcome&build=1",
+      "desktopScreenshotUrl": "/previews/desktop.svg",
+      "narrowScreenshotUrl": "/previews/narrow.svg",
       "failureSummary": null
     },
     {

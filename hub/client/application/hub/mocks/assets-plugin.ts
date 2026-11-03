@@ -16,9 +16,16 @@ export function mockAssetsPlugin(): Plugin {
       "/mockServiceWorker.js",
       { path: require.resolve("msw/mockServiceWorker.js"), type: "text/javascript" },
     ],
-    ["/mock-previews/example.html", { path: resolve(root, "example.html"), type: "text/html" }],
-    ["/mock-previews/desktop.svg", { path: resolve(root, "desktop.svg"), type: "image/svg+xml" }],
-    ["/mock-previews/narrow.svg", { path: resolve(root, "narrow.svg"), type: "image/svg+xml" }],
+    ["/previews/index.html", { path: resolve(root, "example.html"), type: "text/html" }],
+    ["/previews/desktop.svg", { path: resolve(root, "desktop.svg"), type: "image/svg+xml" }],
+    ["/previews/narrow.svg", { path: resolve(root, "narrow.svg"), type: "image/svg+xml" }],
+    [
+      "/previews/screenshots.svg",
+      {
+        path: resolve(import.meta.dirname, "create-fixture-seed/previews.svg"),
+        type: "image/svg+xml",
+      },
+    ],
   ])
 
   return {
@@ -28,7 +35,7 @@ export function mockAssetsPlugin(): Plugin {
       server.middlewares.use((request, response, next) => {
         if (!request.url || (request.method !== "GET" && request.method !== "HEAD")) return next()
         const path = new URL(request.url, "http://127.0.0.1").pathname
-        if (path === "/mock-previews/bridge.js") {
+        if (path === "/previews/bridge.js") {
           response.setHeader("Content-Type", "text/javascript; charset=utf-8")
           response.setHeader("Cache-Control", "no-store")
           const origin = new URL(`http://${request.headers.host}`).origin

@@ -27,14 +27,15 @@ export async function startMockApi(): Promise<void> {
   })
   try {
     await worker.start({
+      quiet: true,
       serviceWorker: { url: `${import.meta.env.BASE_URL}mockServiceWorker.js` },
-      onUnhandledRequest(request, print) {
+      onUnhandledRequest(request) {
         const url = new URL(request.url)
         if (url.origin === window.location.origin && url.pathname.startsWith("/api/")) {
           mockDiagnostics.report(
             `No mock response is configured for ${request.method} ${url.pathname}.`,
           )
-          print.error()
+          throw new Error("No local API response is configured for this request.")
         }
       },
     })

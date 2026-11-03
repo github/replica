@@ -6,7 +6,8 @@ import { describe, expect, it, vi } from "vitest"
 
 import { createMockHandlers } from "../mocks/create-handlers"
 import { createMockStore } from "../mocks/create-store"
-import { settingsQuerySchema } from "../settings-contracts"
+import { mockDiagnostics } from "../mocks/diagnostics"
+import { settingsQuerySchema, settingsWorkspaceResponseSchema } from "../settings-contracts"
 import ProductManagementRoute, {
   clientAction as saveManagement,
   clientLoader as loadManagement,
@@ -500,6 +501,73 @@ describe("Hub expanded frontend flows", () => {
     expect(
       within(screen.getByRole("region", { name: "Inbox" })).getByRole("button", { name: "Unread" }),
     ).toHaveAttribute("aria-pressed", "true")
+  })
+
+  it("replaces inbox rows after successful route revalidation and restores them when data returns", async () => {
+    mockDiagnostics.initialize()
+    mockDiagnostics.clear()
+    const store = createMockStore({ origin: window.location.origin })
+    const server = setupServer(...createMockHandlers(store))
+    const loadedCounts: Promise<number>[] = []
+    server.events.on("response:mocked", ({ request, response }) => {
+      if (new URL(request.url).pathname === "/api/settings/workspace") {
+        loadedCounts.push(
+          response
+            .clone()
+            .json()
+            .then(
+              (payload: unknown) =>
+                settingsWorkspaceResponseSchema.parse(payload).notifications.items.length,
+            ),
+        )
+      }
+    })
+    const router = await renderHubFlow(server, "/notifications", {
+      workspaceRoutes,
+      withTools: true,
+    })
+    try {
+      const inbox = screen.getByRole("region", { name: "Inbox" })
+      const first = await within(inbox).findAllByRole<HTMLAnchorElement>("link")
+      expect(first).toHaveLength(50)
+      const expectedIds = first.map((link) => new URL(link.href).searchParams.get("notification"))
+      expect((await Promise.all(loadedCounts)).at(-1)).toBe(50)
+
+      await router.settle(() =>
+        fireEvent.change(screen.getByRole("combobox", { name: "API scenario" }), {
+          target: { value: "empty" },
+        }),
+      )
+
+      expect((await Promise.all(loadedCounts)).at(-1)).toBe(0)
+      await waitFor(() =>
+        expect(
+          within(screen.getByRole("region", { name: "Inbox" })).queryAllByRole("link"),
+        ).toHaveLength(0),
+      )
+      expect(
+        await within(screen.getByRole("region", { name: "Inbox" })).findByText("No activity yet"),
+      ).toBeVisible()
+
+      await router.settle(() =>
+        fireEvent.change(screen.getByRole("combobox", { name: "API scenario" }), {
+          target: { value: "normal" },
+        }),
+      )
+
+      expect((await Promise.all(loadedCounts)).at(-1)).toBe(50)
+      await waitFor(() =>
+        expect(
+          within(screen.getByRole("region", { name: "Inbox" }))
+            .getAllByRole<HTMLAnchorElement>("link")
+            .map((link) => new URL(link.href).searchParams.get("notification")),
+        ).toEqual(expectedIds),
+      )
+    } finally {
+      router.close()
+      mockDiagnostics.selectScenario("normal")
+      mockDiagnostics.clear()
+    }
   })
 
   it("abandons a delayed Welcome dismissal on sign-out without saving hidden navigation", async () => {

@@ -76,8 +76,8 @@ export function createProductStore(context: MockFlowContext) {
       name: "Default",
       description: "Start from the default template.",
       route: "/",
-      previewUrl: new URL("/mock-previews/example.html?prototype=Default", context.origin).href,
-      screenshotUrl: new URL("/mock-previews/desktop.svg", context.origin).href,
+      previewUrl: new URL("/previews/index.html?prototype=Default", context.origin).href,
+      screenshotUrl: new URL("/previews/desktop.svg", context.origin).href,
       buildNumber: null,
     }
     return [
@@ -137,7 +137,7 @@ export function createProductStore(context: MockFlowContext) {
       branchName: branchName ?? `prototype/mock-${id}`,
       authorLogin: viewer.login,
     }
-    const preview = new URL("/mock-previews/example.html", context.origin)
+    const preview = new URL("/previews/index.html", context.origin)
     preview.searchParams.set("prototype", name)
     preview.searchParams.set("build", "1")
     const build: BuildRecord = {
@@ -151,8 +151,8 @@ export function createProductStore(context: MockFlowContext) {
       startedAt: now,
       finishedAt: now,
       previewUrl: preview.href,
-      desktopScreenshotUrl: new URL("/mock-previews/desktop.svg", context.origin).href,
-      narrowScreenshotUrl: new URL("/mock-previews/narrow.svg", context.origin).href,
+      desktopScreenshotUrl: new URL("/previews/desktop.svg", context.origin).href,
+      narrowScreenshotUrl: new URL("/previews/narrow.svg", context.origin).href,
       failureSummary: null,
     }
     resources.prototypes.push(prototype)

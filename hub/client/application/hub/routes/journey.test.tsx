@@ -104,6 +104,9 @@ describe("Hub repository journey", () => {
     expect(router.state.location.pathname).toBe("/repositories/2001")
     await router.settle(() => fireEvent.click(welcome))
     expect(await screen.findByTitle(`Welcome, Build ${latestBuild} preview`)).toBeInTheDocument()
+    expect(
+      screen.getByRole<HTMLInputElement>("textbox", { name: "Preview URL" }).value,
+    ).not.toMatch(/mock|synthetic|simulat(?:ed|ion)/i)
     fireEvent.click(screen.getByRole("button", { name: "More actions" }))
     const history = screen.getByRole("menuitem", { name: "History" }).querySelector("a")
     if (!history) throw new Error("The History action has no link.")

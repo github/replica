@@ -1,6 +1,6 @@
 import seed from "../seed.json"
 
-import screenshotsUrl from "./previews.svg?url"
+const screenshotsUrl = "/previews/screenshots.svg"
 
 const authors = [
   ["avery-chen", "Avery Chen"],
@@ -93,7 +93,7 @@ export function createFixtureSeed() {
           : new Date(created + 45_000 + (number % 5) * 12_000).toISOString(),
       previewUrl:
         state === "successful"
-          ? `/mock-previews/example.html?prototype=${encodeURIComponent(name)}&build=${number}`
+          ? `/previews/index.html?prototype=${encodeURIComponent(name)}&build=${number}`
           : null,
       desktopScreenshotUrl: state === "successful" ? `${screenshotsUrl}#${view}` : null,
       narrowScreenshotUrl: state === "successful" ? `${screenshotsUrl}#${view}-narrow` : null,

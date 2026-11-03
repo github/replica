@@ -8,4 +8,4 @@ Contributors can use PostgreSQL and Prisma locally or in the devcontainer. The d
 
 Use [Development](docs/development.md) to start the API and frontend, and [Routed frontend](docs/frontend.md) for connected routes, mock lifecycle, and the division between simulated UI and backend work. Review [Architecture](docs/architecture.md), [code architecture conventions](docs/backend-architecture.md), and [coding conventions](docs/coding-conventions.md) before adding behavior.
 
-The prototype extension and build action still use the shared canvas and Controls code at its existing paths. They remain separate projects. Their Hub connections will need new API routes before they can work with this branch.
+The prototype extension and build action consume shared canvas and Controls source under [client/](client/). They remain separate projects. Their Hub connections will need new API routes before they can work with this branch.

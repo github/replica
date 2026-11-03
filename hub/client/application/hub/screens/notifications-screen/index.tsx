@@ -23,6 +23,14 @@ export function NotificationsScreen({
     initialUnreadCount: state.notifications.unreadCount,
     initialUnreadOnly: state.notifications.unreadOnly,
   })
+  const previousState = useRef(state)
+  const { onOpen } = inbox
+  useEffect(() => {
+    if (previousState.current === state) return
+    previousState.current = state
+    onOpen()
+  }, [state, onOpen])
 
   return <NotificationsPage data={data} {...inbox} onFilter={onFilter} />
 }
+import { useEffect, useRef } from "react"

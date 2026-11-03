@@ -71,7 +71,7 @@ export function HubNavigation({
     if (
       destination.origin !== current.origin ||
       !["http:", "https:"].includes(destination.protocol) ||
-      /^\/(?:api(?:\/|$)|assets\/|mock-previews\/)/.test(destination.pathname)
+      /^\/(?:api(?:\/|$)|assets\/|previews\/)/.test(destination.pathname)
     )
       return
     event.preventDefault()

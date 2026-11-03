@@ -38,7 +38,7 @@ Start the mock development server before opening these examples. The links use t
 | --- | --- | --- | --- |
 | `/` | Redirects to a repository or mock sign-in, or shows an empty workspace | Selection comes from session and workspace responses | [Home](http://127.0.0.1:5173/) |
 | `/sign-in` | Mock sign-in using the retained home page | Already signed-in viewers return to their workspace | [Sign-in](http://127.0.0.1:5173/sign-in) |
-| `/session` | Mock sign-in/out and profile selection; POST action only, not a page | `profile` comes from the submitted form | [Mock sign-in form](http://127.0.0.1:5173/sign-in); **Mock user** also submits this action |
+| `/session` | Sign-in/out action; POST only, not a page | `intent` selects sign-in or sign-out | [Sign-in form](http://127.0.0.1:5173/sign-in); persona changes use the separate test toolbar |
 | `/repositories/:repositoryId` | Repository prototypes | `q`, `author`, `page`, `view` | [github/prototype](http://127.0.0.1:5173/repositories/2001) |
 | `/repositories/:repositoryId/prototypes/:prototypeId` | Preview, metadata, and review conversations | `build` pins the preview; `comment` opens a conversation | [Welcome review](http://127.0.0.1:5173/repositories/2001/prototypes/1?build=3&comment=1) |
 | `/repositories/:repositoryId/prototypes/:prototypeId/builds` | Build history | `page` | [Welcome build history](http://127.0.0.1:5173/repositories/2001/prototypes/1/builds) |
@@ -80,7 +80,7 @@ These are frontend/mock contracts under [the application contracts](../client/ap
 
 | HTTP interface | Result |
 | --- | --- |
-| `GET`, `POST`, `DELETE /api/session` | Simulated viewer, capabilities, and revision |
+| `GET`, `POST`, `DELETE /api/session` | Viewer and capabilities; no mock profile or revision metadata |
 | `GET /api/workspace` | Viewer and repository navigation |
 | `GET /api/repositories/:repositoryId` | Filtered, paginated prototypes and repository authors |
 | `GET /api/repositories/:repositoryId/authors` | Searchable author choices with a cursor |

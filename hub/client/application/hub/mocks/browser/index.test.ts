@@ -1,5 +1,6 @@
 import { fireEvent, screen, within } from "@testing-library/react"
 import type { RequestHandler } from "msw"
+import type { setupWorker as setupBrowserWorker } from "msw/browser"
 import { setupServer } from "msw/node"
 import { describe, expect, it, vi } from "vitest"
 
@@ -9,7 +10,7 @@ import { renderHubFlow } from "../../routes/test-fixture"
 import { mockDiagnostics } from "../diagnostics"
 
 const { start, stop, setupWorker } = vi.hoisted(() => {
-  const start = vi.fn<() => Promise<ServiceWorkerRegistration | undefined>>()
+  const start = vi.fn<ReturnType<typeof setupBrowserWorker>["start"]>()
   const stop = vi.fn<() => void>()
   const worker = { start, stop, events: { on: vi.fn() } }
   return {
@@ -22,6 +23,55 @@ const { start, stop, setupWorker } = vi.hoisted(() => {
 vi.mock("msw/browser", () => ({ setupWorker }))
 
 describe("startMockApi()", () => {
+  it("starts quietly and rejects unhandled API writes without logging request bodies", async () => {
+    const { mockDiagnostics: diagnostics } = await import("../diagnostics")
+    diagnostics.clear()
+    const { startMockApi } = await import(".")
+    await startMockApi()
+    const options = start.mock.calls[0]?.[0]
+    const unhandled = options?.onUnhandledRequest
+    if (typeof unhandled !== "function") {
+      throw new Error("Startup must configure an unhandled request callback.")
+    }
+    expect.soft(options?.quiet).toBe(true)
+    const canary = "private-request-body-canary"
+    const requests = [
+      new Request(`${window.location.origin}/api/unhandled-write?secret=${canary}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${canary}` },
+        body: JSON.stringify({ draft: canary }),
+      }),
+      new Request(`${window.location.origin}/api/another-write`, {
+        method: "PATCH",
+        body: canary,
+      }),
+    ]
+    const print = { error: vi.fn(), warning: vi.fn() }
+    const failures: Error[] = []
+    for (const request of requests) {
+      let failure: unknown
+      try {
+        unhandled(request, print)
+      } catch (error) {
+        failure = error
+      }
+      expect.soft(failure).toBeInstanceOf(Error)
+      if (failure instanceof Error) {
+        expect.soft(failure.message).toMatch(/\S/)
+        expect.soft(failure.message).not.toContain(canary)
+        failures.push(failure)
+      }
+    }
+    expect.soft(print.error).not.toHaveBeenCalled()
+    expect.soft(print.warning).not.toHaveBeenCalled()
+    if (failures.length === requests.length) {
+      expect(failures[1]?.message).toBe(failures[0]?.message)
+    }
+    const messages = diagnostics.getSnapshot().messages.map(({ message }) => message)
+    expect(messages.length).toBeGreaterThan(0)
+    expect(messages.join("\n")).not.toContain(canary)
+  })
+
   it("stops a partially started worker before surfacing startup failure", async () => {
     const failure = new Error("Service worker registration failed.")
     start.mockRejectedValueOnce(failure)
