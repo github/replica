@@ -447,7 +447,7 @@ describe("Hub admission and session flow", () => {
         headers: { cookie: `hub_session=${encodeURIComponent(session)}` },
       })
       expect(suspended.status).toBe(401)
-      expect(suspended.headers.get("set-cookie")).toContain("Max-Age=0")
+      expect(suspended.headers.get("set-cookie")).toBeNull()
 
       await prisma.membership.updateMany({ data: { lifecycle: "ACTIVE" } })
       const secondSignIn = await startAuthentication(server.baseUrl, "/api/auth/github/start")

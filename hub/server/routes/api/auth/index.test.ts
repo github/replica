@@ -16,6 +16,7 @@ function routeDependencies() {
   const endSession = vi.fn()
   const completeProof = vi.fn()
   const admitSession = vi.fn()
+  const restoreSession = vi.fn()
   const verifyBootstrapSecret = vi.fn().mockReturnValue(false)
   const dependencies: AuthenticationRouteDependencies = {
     signIn: {
@@ -40,7 +41,7 @@ function routeDependencies() {
     },
     currentSession: {
       secureCookie: false,
-      restore: vi.fn(),
+      restore: restoreSession,
     },
     signOut: {
       applicationOrigin: "http://127.0.0.1:5173",
@@ -54,6 +55,7 @@ function routeDependencies() {
     checkRateLimit,
     completeProof,
     endSession,
+    restoreSession,
     startEnrollment,
     startSignIn,
     verifyBootstrapSecret,
@@ -267,6 +269,74 @@ describe("authenticationRoutes()", () => {
       expect(denialCookies).toContain("hub_auth_browser=")
       expect(denialCookies).not.toContain("hub_session=")
       expect(activeSession).toBe(issued)
+    })
+  })
+
+  it("preserves a new session when an older restore denial arrives last", async () => {
+    const { dependencies, completeProof, admitSession, restoreSession } = routeDependencies()
+    let finishOldRestore!: (value: null) => void
+    restoreSession.mockImplementationOnce(
+      () =>
+        new Promise<null>((resolve) => {
+          finishOldRestore = resolve
+        }),
+    )
+    completeProof.mockResolvedValueOnce({
+      proof: {
+        authorizationAttemptId: "attempt-id",
+        externalIdentityId: "identity-id",
+      },
+    })
+    admitSession.mockResolvedValueOnce({ expiresAt: new Date("2030-01-01T00:00:00Z") })
+
+    await withServer(dependencies, async (baseUrl) => {
+      const oldRestore = fetch(`${baseUrl}/api/auth/session`, {
+        headers: { cookie: "hub_session=expired-session" },
+      })
+      await vi.waitFor(() => expect(restoreSession).toHaveBeenCalledOnce())
+
+      const success = await fetch(
+        `${baseUrl}/api/auth/github/callback?code=provider-code&state=${"s".repeat(32)}`,
+        {
+          headers: { cookie: `hub_auth_browser=${"b".repeat(32)}` },
+          redirect: "manual",
+        },
+      )
+      const issued = success.headers.get("set-cookie")?.match(/hub_session=([^;,]+)/)?.[1]
+      expect(issued).toBeTruthy()
+
+      finishOldRestore(null)
+      const staleDenial = await oldRestore
+      expect(staleDenial.status).toBe(401)
+      expect(staleDenial.headers.get("set-cookie")).toBeNull()
+
+      restoreSession.mockResolvedValueOnce(true)
+      const current = await fetch(`${baseUrl}/api/auth/session`, {
+        headers: { cookie: `hub_session=${issued}` },
+      })
+      expect(current.status).toBe(200)
+      expect(await current.json()).toEqual({ authenticated: true })
+      expect(restoreSession).toHaveBeenLastCalledWith(
+        createHash("sha256").update(issued!).digest("hex"),
+      )
+    })
+  })
+
+  it("returns 401 without mutating an invalid retained session cookie", async () => {
+    const { dependencies, restoreSession } = routeDependencies()
+    restoreSession.mockResolvedValueOnce(null)
+
+    await withServer(dependencies, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/auth/session`, {
+        headers: { cookie: "hub_session=invalid-retained-session" },
+      })
+
+      expect(response.status).toBe(401)
+      expect(await response.json()).toEqual({ authenticated: false })
+      expect(response.headers.get("set-cookie")).toBeNull()
+      expect(restoreSession).toHaveBeenCalledWith(
+        createHash("sha256").update("invalid-retained-session").digest("hex"),
+      )
     })
   })
 
