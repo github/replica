@@ -1,5 +1,5 @@
 import { z } from "zod"
-import type { Prisma } from "../../../generated/prisma/client.ts"
+import type { AuthenticationRateLimitDatabase } from "./types.ts"
 
 const inputSchema = z
   .object({
@@ -12,10 +12,43 @@ const inputSchema = z
   .strict()
 
 export async function reserveAuthenticationRateLimit(
-  database: Pick<Prisma.TransactionClient, "$executeRaw" | "$queryRaw">,
+  database: AuthenticationRateLimitDatabase,
   rawInput: z.input<typeof inputSchema>,
 ): Promise<{ allowed: boolean; auditRequired: boolean }> {
   const input = inputSchema.parse(rawInput)
+  const inserted = await database.$queryRaw<Array<{ id: string }>>`
+    INSERT INTO "authentication_rate_limits" (
+      "id", "operation", "subject_digest", "window_started_at", "count", "expires_at",
+      "denial_audited_at", "created_at", "updated_at"
+    ) VALUES (
+      gen_random_uuid(), ${input.operation}, ${input.subjectDigest},
+      clock_timestamp(), 1,
+      clock_timestamp() + make_interval(secs => ${input.windowSeconds}),
+      NULL, clock_timestamp(), clock_timestamp()
+    )
+    ON CONFLICT ("operation", "subject_digest") DO NOTHING
+    RETURNING "id"
+  `
+  const rows = inserted.length
+    ? []
+    : await database.$queryRaw<
+        Array<{
+          count: number
+          denialAuditedAt: Date | null
+          expired: boolean
+          id: string
+        }>
+      >`
+    SELECT
+      "id",
+      "count",
+      "denial_audited_at" AS "denialAuditedAt",
+      "expires_at" <= clock_timestamp() AS "expired"
+    FROM "authentication_rate_limits"
+    WHERE "operation" = ${input.operation}
+      AND "subject_digest" = ${input.subjectDigest}
+    FOR UPDATE
+  `
   await database.$executeRaw`
     DELETE FROM "authentication_rate_limits"
     WHERE "id" IN (
@@ -31,39 +64,8 @@ export async function reserveAuthenticationRateLimit(
       FOR UPDATE SKIP LOCKED
     )
   `
-  const inserted = await database.$queryRaw<Array<{ id: string }>>`
-    INSERT INTO "authentication_rate_limits" (
-      "id", "operation", "subject_digest", "window_started_at", "count", "expires_at",
-      "denial_audited_at", "created_at", "updated_at"
-    ) VALUES (
-      gen_random_uuid(), ${input.operation}, ${input.subjectDigest},
-      clock_timestamp(), 1,
-      clock_timestamp() + make_interval(secs => ${input.windowSeconds}),
-      NULL, clock_timestamp(), clock_timestamp()
-    )
-    ON CONFLICT ("operation", "subject_digest") DO NOTHING
-    RETURNING "id"
-  `
   if (inserted.length) return { allowed: true, auditRequired: false }
 
-  const rows = await database.$queryRaw<
-    Array<{
-      count: number
-      denialAuditedAt: Date | null
-      expired: boolean
-      id: string
-    }>
-  >`
-    SELECT
-      "id",
-      "count",
-      "denial_audited_at" AS "denialAuditedAt",
-      "expires_at" <= clock_timestamp() AS "expired"
-    FROM "authentication_rate_limits"
-    WHERE "operation" = ${input.operation}
-      AND "subject_digest" = ${input.subjectDigest}
-    FOR UPDATE
-  `
   const bucket = rows[0]
   if (!bucket) throw new Error("Authentication rate-limit bucket disappeared after conflict.")
   if (bucket.expired) {
