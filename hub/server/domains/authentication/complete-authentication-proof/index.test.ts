@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import { describe, expect, it, vi } from "vitest"
 
 import { AuthenticationProofError } from "../errors"
@@ -49,16 +50,26 @@ function dependencies() {
 }
 
 describe("completeAuthenticationProof()", () => {
-  it("returns only the bounded internal proof references", async () => {
-    const result = await completeAuthenticationProof(
-      {
-        browserBinding: "browser-binding-value-with-required-length",
-        code: "authorization-code",
-        state: "state-value-with-the-required-minimum-length",
-      },
-      dependencies(),
-    )
+  it("passes exact verification values and returns only bounded internal proof references", async () => {
+    const scoped = dependencies()
+    const browserBinding = "browser-binding-value-with-required-length"
+    const code = "authorization-code"
+    const state = "state-value-with-the-required-minimum-length"
+    const result = await completeAuthenticationProof({ browserBinding, code, state }, scoped)
 
+    expect(scoped.consumeAttempt).toHaveBeenCalledOnce()
+    expect(scoped.consumeAttempt).toHaveBeenCalledWith({
+      browserBindingDigest: createHash("sha256").update(browserBinding).digest("hex"),
+      stateDigest: createHash("sha256").update(state).digest("hex"),
+    })
+    expect(scoped.decryptCodeVerifier).toHaveBeenCalledOnce()
+    expect(scoped.decryptCodeVerifier).toHaveBeenCalledWith("encrypted-verifier")
+    expect(scoped.adapter.completeAuthenticationProof).toHaveBeenCalledOnce()
+    expect(scoped.adapter.completeAuthenticationProof).toHaveBeenCalledWith({
+      callbackUri: "https://hub.example.test/api/auth/github/callback",
+      code,
+      codeVerifier: "pkce-verifier",
+    })
     expect(result.proof).toEqual<AuthenticationProofResult>({
       authorizationAttemptId: "00000000-0000-4000-8000-000000000010",
       externalIdentityId: "00000000-0000-4000-8000-000000000012",
@@ -100,7 +111,7 @@ describe("completeAuthenticationProof()", () => {
     expect(order).toEqual(["consume", "provider"])
   })
 
-  it("fails closed before provider work for replay or configuration drift", async () => {
+  it("records one invalid-or-expired denial for replay", async () => {
     const replay = dependencies()
     replay.consumeAttempt.mockImplementationOnce(() => Promise.resolve(null))
     await expect(
@@ -114,7 +125,11 @@ describe("completeAuthenticationProof()", () => {
       ),
     ).rejects.toMatchObject({ code: "attempt_invalid" })
     expect(replay.adapter.completeAuthenticationProof).not.toHaveBeenCalled()
+    expect(replay.writeDenialAudit).toHaveBeenCalledOnce()
+    expect(replay.writeDenialAudit).toHaveBeenCalledWith("invalid_or_expired")
+  })
 
+  it("fails closed before provider work for configuration drift", async () => {
     const drift = dependencies()
     drift.getSelectedProviderRevision.mockResolvedValueOnce({
       ...revision,
@@ -312,28 +327,6 @@ describe("completeAuthenticationProof()", () => {
     expect(scoped.writeDenialAudit).toHaveBeenCalledOnce()
     expect(scoped.writeDenialAudit).toHaveBeenCalledWith("provider_failed")
     expect(scoped.resolveOrCreateIdentity).not.toHaveBeenCalled()
-  })
-
-  it("supports authoritative record loading through the two proof references", async () => {
-    function loadRecords(proof: AuthenticationProofResult) {
-      return {
-        identity: proof.externalIdentityId,
-        attempt: proof.authorizationAttemptId,
-      }
-    }
-    const result = await completeAuthenticationProof(
-      {
-        browserBinding: "browser-binding-value-with-required-length",
-        code: "authorization-code",
-        state: "state-value-with-the-required-minimum-length",
-      },
-      dependencies(),
-    )
-
-    expect(loadRecords(result.proof)).toEqual({
-      identity: "00000000-0000-4000-8000-000000000012",
-      attempt: "00000000-0000-4000-8000-000000000010",
-    })
   })
 
   it("accepts OIDC-like proof with no presentation attributes", async () => {

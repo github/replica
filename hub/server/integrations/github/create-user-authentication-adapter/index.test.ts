@@ -39,6 +39,9 @@ describe("createGitHubUserAuthenticationAdapter()", () => {
       fetch: request,
     })
 
+    expect(adapter.canonicalPublicConfiguration).toBe(
+      '{"authorizationEndpoint":"https://github.com/login/oauth/authorize","callbackUri":"https://hub.example.test/api/auth/github/callback","clientId":"client-id","tokenEndpoint":"https://github.com/login/oauth/access_token","userEndpoint":"https://api.github.com/user"}',
+    )
     const authorizationUrl = adapter.createAuthorizationUrl({
       callbackUri: publicConfiguration.callbackUri,
       codeChallenge: "c".repeat(43),
@@ -111,6 +114,36 @@ describe("createGitHubUserAuthenticationAdapter()", () => {
         state: "state",
       }),
     ).toThrow("callback URI")
+  })
+
+  it.each([
+    { length: 0, accepted: false },
+    { length: 1, accepted: true },
+    { length: 2_000, accepted: true },
+    { length: 2_001, accepted: false },
+  ])("enforces the client secret boundary at $length characters", ({ length, accepted }) => {
+    const clientSecret = "s".repeat(length)
+    if (accepted) {
+      expect(() =>
+        createGitHubUserAuthenticationAdapter({
+          clientSecret,
+          publicConfiguration,
+        }),
+      ).not.toThrow()
+      return
+    }
+
+    let error: unknown
+    try {
+      createGitHubUserAuthenticationAdapter({ clientSecret, publicConfiguration })
+    } catch (caught) {
+      error = caught
+    }
+    expect(error).toBeInstanceOf(Error)
+    expect((error as Error).message).toBe(
+      "GitHub client secret must be between 1 and 2000 characters.",
+    )
+    if (clientSecret) expect((error as Error).message).not.toContain(clientSecret)
   })
 
   it.each(["authorizationEndpoint", "tokenEndpoint", "userEndpoint"] as const)(

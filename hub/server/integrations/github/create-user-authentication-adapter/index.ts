@@ -36,7 +36,7 @@ export function createGitHubUserAuthenticationAdapter(
     throw new Error("GitHub authentication endpoints must use the approved github.com instance.")
   }
   if (!input.clientSecret || input.clientSecret.length > 2_000) {
-    throw new Error("GitHub client secret must be present and bounded.")
+    throw new Error("GitHub client secret must be between 1 and 2000 characters.")
   }
   const request = input.fetch ?? globalThis.fetch
 
