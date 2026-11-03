@@ -59,10 +59,10 @@ export function get(dependencies: AuthenticationCallbackDependencies): RequestHa
       response.redirect(303, "/?authentication=success")
     } catch (error) {
       if (error instanceof AdmissionDeniedError || error instanceof AuthenticationProofError) {
-        response.setHeader("Set-Cookie", [
+        response.setHeader(
+          "Set-Cookie",
           clearAuthenticationCookie(browserAuthenticationCookieName, dependencies.secureCookie),
-          clearAuthenticationCookie(hubSessionCookieName, dependencies.secureCookie),
-        ])
+        )
         response.redirect(303, "/?authentication=denied")
         return
       }
