@@ -7,7 +7,7 @@ preferences are never read into the post.
 Environment:
   ALCHEMER_API_TOKEN, ALCHEMER_API_SECRET  Alchemer v5 API key and secret
   SURVEY_ID          Alchemer survey id (default 9055055)
-  MIN_RESPONSES      skip posting below this many complete responses (default 5)
+  MIN_RESPONSES      skip posting below this many complete responses (default 10)
   PERIOD_DAYS        length of the "new since last post" window (default 14)
   GITHUB_TOKEN       token with discussions: write
   GITHUB_REPOSITORY  owner/name
@@ -30,7 +30,7 @@ from datetime import datetime, timedelta, timezone
 
 API_BASE = os.environ.get("ALCHEMER_API_BASE", "https://api.alchemer.com/v5")
 SURVEY_ID = os.environ.get("SURVEY_ID", "9055055")
-MIN_RESPONSES = int(os.environ.get("MIN_RESPONSES", "5"))
+MIN_RESPONSES = int(os.environ.get("MIN_RESPONSES", "10"))
 PERIOD_DAYS = int(os.environ.get("PERIOD_DAYS", "14"))
 SURVEY_LINK = "https://gh.io/replica-feedback"
 

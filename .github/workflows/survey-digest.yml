@@ -48,7 +48,7 @@ jobs:
           ALCHEMER_API_TOKEN: ${{ secrets.ALCHEMER_API_TOKEN }}
           ALCHEMER_API_SECRET: ${{ secrets.ALCHEMER_API_SECRET }}
           SURVEY_ID: "9055055"
-          MIN_RESPONSES: "5"
+          MIN_RESPONSES: "10"
           DISCUSSION_CATEGORY: announcements
           GITHUB_TOKEN: ${{ github.token }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
