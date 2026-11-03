@@ -28,7 +28,7 @@ export function createProductStore(context: MockFlowContext) {
       repositoryId: repository.id,
       branchName: `prototype/${name}`,
       name: name === "exploration" ? "Exploration" : "Comparison",
-      description: "An available synthetic branch. No GitHub branch was discovered.",
+      description: "Explore a new direction for this prototype.",
       startPage: null,
     })),
   )
@@ -46,7 +46,12 @@ export function createProductStore(context: MockFlowContext) {
         repositoryId: seedBuild.repositoryId,
         prototypeId: seedBuild.prototypeId,
         buildNumber: seedBuild.number,
-        label: `Mock ${state} preview`,
+        label:
+          state === "active"
+            ? "Team review"
+            : state === "expired"
+              ? "Design review"
+              : "Previous review",
         createdBy:
           resources.prototypes.find(
             (prototype) =>
@@ -69,7 +74,7 @@ export function createProductStore(context: MockFlowContext) {
     const base: ProductTemplate = {
       id: "default",
       name: "Default",
-      description: "Start from a synthetic local starter preview.",
+      description: "Start from the default template.",
       route: "/",
       previewUrl: new URL("/mock-previews/example.html?prototype=Default", context.origin).href,
       screenshotUrl: new URL("/mock-previews/desktop.svg", context.origin).href,
@@ -94,7 +99,7 @@ export function createProductStore(context: MockFlowContext) {
             {
               id: `prototype-${prototype.id}`,
               name: prototype.name,
-              description: prototype.description ?? "Explore this local prototype.",
+              description: prototype.description ?? "Explore this prototype.",
               route: startPages.get(key(repositoryId, prototype.id)) ?? "/",
               previewUrl: build.previewUrl,
               screenshotUrl: build.desktopScreenshotUrl,
@@ -108,7 +113,7 @@ export function createProductStore(context: MockFlowContext) {
   function requireEditable(repositoryId: number, prototypeId: number) {
     const response = context.prototypeResponse(repositoryId, prototypeId)
     if (!response.prototype.canEdit) {
-      throw new MockStoreError(403, "This mock profile cannot edit this prototype.")
+      throw new MockStoreError(403, "You do not have permission to edit this prototype.")
     }
     return response
   }
@@ -192,8 +197,7 @@ export function createProductStore(context: MockFlowContext) {
       )
       return {
         resource,
-        notice:
-          "Mock prototype created with a synthetic Build 1. No code was generated, and no GitHub branch or workflow changed.",
+        notice: "Prototype created.",
       }
     },
 
@@ -231,8 +235,7 @@ export function createProductStore(context: MockFlowContext) {
       prototype.description = parsed.data.description
       startPages.set(key(repositoryId, prototypeId), parsed.data.startPage || null)
       return {
-        notice:
-          "Mock prototype details saved. Start-page metadata is local; synthetic Build contents are unchanged.",
+        notice: "Prototype details saved.",
       }
     },
 
@@ -255,7 +258,7 @@ export function createProductStore(context: MockFlowContext) {
             prototype.branchName === candidate.branchName,
         )
       ) {
-        throw new MockStoreError(409, "This branch is already listed in the mock Hub.")
+        throw new MockStoreError(409, "This branch is already listed in Hub.")
       }
       addPrototype(
         repositoryId,
@@ -266,8 +269,7 @@ export function createProductStore(context: MockFlowContext) {
       )
       candidates.splice(index, 1)
       return {
-        notice:
-          "Synthetic branch added to the mock Hub with a local preview. No GitHub repository or workflow changed.",
+        notice: "Prototype added to Hub.",
       }
     },
 
@@ -297,8 +299,7 @@ export function createProductStore(context: MockFlowContext) {
     createShareLink(repositoryId: number, prototypeId: number, input: ProductShareInput) {
       const viewer = session.requireCapability("manageSharing")
       const resource = requireEditable(repositoryId, prototypeId)
-      if (!sharingEnabled)
-        throw new MockStoreError(409, "Public sharing is disabled in this mock Hub.")
+      if (!sharingEnabled) throw new MockStoreError(409, "Public sharing is disabled.")
       const parsed = productShareInputSchema.safeParse(input)
       if (!parsed.success) {
         throw new MockStoreError(422, parsed.error.issues.map(({ message }) => message).join(" "))
@@ -329,8 +330,7 @@ export function createProductStore(context: MockFlowContext) {
       links.push(link)
       return {
         link: { ...link },
-        notice:
-          "Mock share link created for this fixed Build. It works only in this local mock session; no public hosting or token service was called.",
+        notice: "Share link created.",
       }
     },
 
@@ -345,7 +345,7 @@ export function createProductStore(context: MockFlowContext) {
       )
       if (!link) throw new MockStoreError(404, "Share link not found.")
       if (!link.revokedAt) link.revokedAt = new Date().toISOString()
-      return { notice: "Mock link revoked. Its local shared preview is no longer available." }
+      return { notice: "Share link revoked." }
     },
 
     getSharingSettings() {
@@ -362,7 +362,7 @@ export function createProductStore(context: MockFlowContext) {
     updateSharingSettings(input: ProductSharingSettingsInput) {
       session.requireCapability("administerHub")
       const parsed = productSharingSettingsInputSchema.safeParse(input)
-      if (!parsed.success) throw new MockStoreError(422, "Confirm the mock sharing change.")
+      if (!parsed.success) throw new MockStoreError(422, "Confirm the sharing change.")
       const enabled = parsed.data.operation === "enable"
       if (sharingEnabled === enabled) {
         throw new MockStoreError(
@@ -376,9 +376,7 @@ export function createProductStore(context: MockFlowContext) {
       }
       sharingEnabled = enabled
       return {
-        notice: enabled
-          ? "Public sharing enabled in this mock session. Previously revoked links remain revoked; only new local links can open."
-          : "Public sharing disabled in this mock session. Existing local demo links were revoked for this session only. No real share links, hosting, or deployed Hub changed.",
+        notice: enabled ? "Public sharing enabled." : "Public sharing disabled.",
       }
     },
 

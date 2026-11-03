@@ -1,0 +1,67 @@
+.hub-test-toolbar {
+  --hub-mock-outline: var(--base-color-scale-orange-3);
+  position: fixed;
+  z-index: 10000;
+  inset: auto 1rem 1rem auto;
+  max-inline-size: min(36rem, calc(100vw - 2rem));
+  max-block-size: min(24rem, calc(100dvh - 2rem));
+  overflow: auto;
+  border: 0.125rem solid var(--hub-mock-outline);
+  border-radius: var(--hub-radius-medium);
+  background: var(--hub-canvas-default);
+  color: var(--hub-fg-default);
+  box-shadow: var(--hub-shadow-floating);
+  font-size: 0.8125rem;
+}
+
+.hub-test-toolbar button,
+.hub-test-toolbar select {
+  min-block-size: 2rem;
+  padding: 0.25rem 0.5rem;
+  border: 0.0625rem solid var(--hub-border-default);
+  border-radius: var(--hub-radius-small);
+  background: var(--hub-canvas-default);
+  color: inherit;
+  font: inherit;
+}
+
+.hub-test-toolbar__toggle {
+  inline-size: 100%;
+  text-align: start;
+  font-weight: 600;
+}
+
+.hub-test-toolbar__content {
+  padding: 0.5rem 0.75rem;
+}
+
+.hub-test-toolbar__content p {
+  margin: 0 0 0.5rem;
+}
+
+.hub-test-toolbar__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.5rem;
+}
+
+.hub-test-toolbar__controls label {
+  display: grid;
+  min-inline-size: 0;
+  gap: 0.25rem;
+}
+
+.hub-test-toolbar select {
+  max-inline-size: 100%;
+}
+
+.hub-test-toolbar__diagnostics {
+  margin-block-start: 0.5rem;
+}
+
+.hub-test-toolbar__diagnostics ul {
+  margin: 0 0 0.5rem;
+  padding-inline-start: 1rem;
+  overflow-wrap: anywhere;
+}

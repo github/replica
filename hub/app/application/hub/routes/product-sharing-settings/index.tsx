@@ -44,7 +44,7 @@ export async function clientAction({ request }: Pick<ActionFunctionArgs, "reques
   })
   if (!parsed.success) {
     return data<ProductActionResult>(
-      { saved: false, error: "Confirm the current mock sharing change." },
+      { saved: false, error: "Confirm the current sharing change." },
       { status: 422 },
     )
   }

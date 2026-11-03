@@ -18,13 +18,7 @@ export function GithubAppSetupRegisterPage({ data }: { data: GithubAppSetupRegis
 
       <form action={data.submitPath} method="post">
         <input type="hidden" name="manifest" value={data.manifest} />
-        <Button
-          type="submit"
-          variant="primary"
-          disabled={data.canContinue === false}
-          className={data.simulation ? "setup__register-mock-control" : undefined}
-          block
-        >
+        <Button type="submit" variant="primary" disabled={data.canContinue === false} block>
           {data.submitLabel}
         </Button>
       </form>

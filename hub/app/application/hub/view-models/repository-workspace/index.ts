@@ -29,15 +29,15 @@ export function repositoryWorkspace(
     notificationsUnreadLabel: "Unread notifications",
     welcomeLabel: "Welcome",
     welcomePath: workspace.navigation && !workspace.navigation.welcomeHidden ? "/welcome" : null,
-    settingsNavigationLabel: "Mock settings",
-    securityAuditLabel: "Activity",
+    settingsNavigationLabel: "Security and settings",
+    securityAuditLabel: "Security audit",
     securityAuditPath: resourcePath("/settings/audit", search, { repositoryId: repository.id }),
     administrationLinks: [
       { section: "copilot", label: "Copilot connection", path: "/settings/copilot" },
-      { section: "sessions", label: "Mock sessions", path: "/settings/sessions" },
+      { section: "sessions", label: "End all Hub sessions", path: "/settings/sessions" },
       ...(workspace.capabilities?.administerHub
         ? [
-            { section: "admins" as const, label: "Administrators", path: "/settings/admins" },
+            { section: "admins" as const, label: "Hub administrators", path: "/settings/admins" },
             { section: "sharing" as const, label: "Public sharing", path: "/admin/sharing" },
             { section: "github" as const, label: "GitHub App", path: "/settings/github" },
           ]

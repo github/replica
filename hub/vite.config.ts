@@ -2,7 +2,7 @@ import { reactRouter } from "@react-router/dev/vite"
 import { defineConfig } from "vite"
 
 import { viteAliases } from "./vite-aliases.ts"
-import { mockAssetsPlugin } from "./mock-assets-plugin.ts"
+import { mockAssetsPlugin } from "./app/application/hub/mocks/assets-plugin.ts"
 import {
   controlsValidatorPlugin,
   controlsValidatorModule,

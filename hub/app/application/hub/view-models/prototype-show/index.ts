@@ -3,6 +3,7 @@ import { reviewCommentsCopy } from "@utils/review-comment/en"
 
 import type { PrototypeResponse, WorkspaceResponse } from "../../contracts"
 import { buildStateLabel } from "../build-state-label"
+import { productContinuation } from "../product-continuation"
 import { prototypeWorkspace } from "../prototype-workspace"
 import { resourcePath } from "../resource-path"
 
@@ -48,24 +49,13 @@ export function prototypeShowData(
     branchSubmissionMode: "disabled",
     branchInstructions: "",
     branchPageInstructions: "",
-    branchContinuation: {
-      continuationHeading: "Continue in Copilot app",
-      continueMessage: "Creating prototypes is not connected in this local frontend.",
-      installMessage: "",
-      downloadLabel: "Download the app",
-      downloadUrl: "https://github.com/github/app#install",
-      openAppLabel: "Open Copilot app",
-      closeLabel: "Close Copilot app dialog",
-      copyPromptLabel: "Copy prompt",
-      copiedLabel: "Copied prompt",
-      copyErrorLabel: "Could not copy the prompt.",
-    },
+    branchContinuation: productContinuation(),
     emptyHeading: selectedBuild
       ? `Build ${selectedBuild.number} has no preview`
       : "No preview available",
     emptyLabel: selectedBuild
       ? `${buildStateLabel(selectedBuild.state)}. Build history remains available.`
-      : "This prototype has no preview in the local mock data. Build history remains available.",
+      : "This prototype has no preview yet. Build history remains available.",
     previewUrlLabel: "Preview URL",
     copyPreviewUrlLabel: "Copy preview URL",
     copiedPreviewUrlLabel: "Copied preview URL",

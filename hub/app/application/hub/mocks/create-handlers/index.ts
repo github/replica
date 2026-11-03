@@ -1,11 +1,9 @@
 import { http, HttpResponse } from "msw"
-import { z } from "zod"
 
 import { prototypeDetailsSchema, routeIdentifierSchema, routeQuerySchema } from "../../contracts"
+import { sessionResponseSchema } from "../../session-contracts"
 import type { MockStore } from "../create-store"
 import { MockStoreError } from "../store-error"
-import { mockProfileSchema } from "../../session-contracts"
-import { readMockJson } from "../read-json"
 import { respondMock } from "../respond"
 import { createReviewHandlers } from "../create-review-handlers"
 import { createProductHandlers } from "../create-product-handlers"
@@ -52,28 +50,15 @@ export function createMockHandlers(store: MockStore) {
     ...createReviewHandlers(store.review, store.origin, store.session),
     ...createProductHandlers(store.product, store.origin, store.session),
     ...createSettingsHandlers(store.settings, store.origin, store.session),
-    http.get(api("/session"), ({ request }) =>
-      respondMock(request, () => HttpResponse.json(store.session.read())),
+    http.get(api("/session"), () =>
+      respond(() => HttpResponse.json(sessionResponseSchema.parse(store.session.read()))),
     ),
-    http.post(api("/session"), ({ request }) =>
-      respondMock(
-        request,
-        async (_scenario, assertCurrentSession) => {
-          const { profile } = await readMockJson(
-            request,
-            z.object({ profile: mockProfileSchema }).strict(),
-          )
-          assertCurrentSession()
-          return HttpResponse.json(store.session.select(profile))
-        },
-        store.session,
-      ),
+    http.post(api("/session"), () =>
+      respond(() => HttpResponse.json(sessionResponseSchema.parse(store.session.select("owner")))),
     ),
-    http.delete(api("/session"), ({ request }) =>
-      respondMock(
-        request,
-        () => HttpResponse.json(store.session.select("signed-out")),
-        store.session,
+    http.delete(api("/session"), () =>
+      respond(() =>
+        HttpResponse.json(sessionResponseSchema.parse(store.session.select("signed-out"))),
       ),
     ),
     http.get(api("/workspace"), () => respond(() => HttpResponse.json(store.getWorkspace()))),
@@ -85,7 +70,12 @@ export function createMockHandlers(store: MockStore) {
         if (scenario === "empty") {
           if (filters.page !== 1) throw new MockStoreError(404, "Page not found.")
           response.prototypes = []
-          response.pagination = { page: 1, pageSize: 2, totalCount: 0, pageCount: 1 }
+          response.pagination = {
+            page: 1,
+            pageSize: response.pagination.pageSize,
+            totalCount: 0,
+            pageCount: 1,
+          }
         }
         return HttpResponse.json(response)
       }),
@@ -132,7 +122,12 @@ export function createMockHandlers(store: MockStore) {
           if (scenario === "empty") {
             if (filters.page !== 1) throw new MockStoreError(404, "Page not found.")
             response.builds = []
-            response.pagination = { page: 1, pageSize: 2, totalCount: 0, pageCount: 1 }
+            response.pagination = {
+              page: 1,
+              pageSize: response.pagination.pageSize,
+              totalCount: 0,
+              pageCount: 1,
+            }
           }
           return HttpResponse.json(response)
         }),

@@ -12,6 +12,7 @@ import { ApiContractError } from "../../requests/api-contract-error"
 import { ApiRequestError } from "../../requests/api-request-error"
 import { settingsRequest } from "../../requests/settings-request"
 import { resourcePath } from "../../view-models/resource-path"
+import { reportClientIssue } from "../../report-client-issue"
 import { settingsFormOperation } from "../settings-form-operation"
 import type { SettingsRouteData } from "./types"
 
@@ -25,21 +26,11 @@ export function settingsController(section: SettingsSection, surface: "workspace
     if (!parsed.success) throw new Response("Invalid settings filters.", { status: 400 })
     if (surface === "public") {
       const state = await settingsRequest(request, "public", settingsPublicResponseSchema)
-      if (
-        (section === "github-register" && state.github.state !== "ready") ||
-        (section === "github-installed" &&
-          !["registered", "installed"].includes(state.github.state))
-      ) {
-        const path = ["registered", "installed"].includes(state.github.state)
-          ? "/settings/github/installed"
-          : "/settings/github/setup"
-        throw redirect(resourcePath(path, url.searchParams))
-      }
       return { surface: "public", state, query: parsed.data }
     }
     const state = await settingsRequest(request, "workspace", settingsWorkspaceResponseSchema)
     if (!state.repository && ["analytics", "learnings", "canvas-approval"].includes(section)) {
-      throw new Response("Choose an available mock repository before using this page.", {
+      throw new Response("Choose a repository before using this page.", {
         status: 404,
       })
     }
@@ -48,7 +39,7 @@ export function settingsController(section: SettingsSection, surface: "workspace
         !["1", "2"].includes(params.userId ?? "") ||
         (params.operation !== "designate" && params.operation !== "revoke")
       ) {
-        throw new Response("This synthetic user or role-change operation does not exist.", {
+        throw new Response("This user or role-change operation does not exist.", {
           status: 404,
         })
       }
@@ -82,6 +73,10 @@ export function settingsController(section: SettingsSection, surface: "workspace
         revision: result.revision,
       })
     } catch (error) {
+      if (error instanceof Response && error.status === 501) {
+        reportClientIssue(await error.text())
+        return data<SettingsActionResult>({ saved: false, unavailable: true }, { status: 501 })
+      }
       if (error instanceof Response && error.status >= 400) {
         return data<SettingsActionResult>(
           { saved: false, error: await error.text() },
@@ -98,7 +93,7 @@ export function settingsController(section: SettingsSection, surface: "workspace
         return data<SettingsActionResult>(
           {
             saved: false,
-            error: "The mock API response was invalid. The change could not be confirmed.",
+            error: "The API response was invalid. The change could not be confirmed.",
           },
           { status: 502 },
         )

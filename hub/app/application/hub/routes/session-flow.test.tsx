@@ -1,4 +1,4 @@
-import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
+import { fireEvent, screen, within } from "@testing-library/react"
 import { http, HttpResponse } from "msw"
 import { setupServer } from "msw/node"
 import { describe, expect, it, vi } from "vitest"
@@ -19,7 +19,15 @@ describe("Hub mock session flow", () => {
     server.use(http.get(`${store.origin}/api/workspace`, workspaceReads))
     const router = await renderHubFlow(server, "/sign-in")
 
-    const signIn = await screen.findByRole("button", { name: "Mock sign in as Octocat" })
+    const signIn = await screen.findByRole("button", { name: "Sign in with GitHub" })
+    expect(
+      screen.getByRole("heading", { name: "Build and review prototypes with your team." }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(
+        "Replica Hub turns GitHub branches into shareable prototypes where your team can review changes and leave feedback.",
+      ),
+    ).toBeInTheDocument()
     expect(workspaceReads).not.toHaveBeenCalled()
     expect(screen.queryByRole("button", { name: /Account menu/ })).not.toBeInTheDocument()
 
@@ -38,9 +46,7 @@ describe("Hub mock session flow", () => {
     fireEvent.click(screen.getByRole("button", { name: "Account menu for @octocat" }))
     await router.settle(() => fireEvent.click(screen.getByRole("menuitem", { name: "Sign out" })))
 
-    expect(
-      await screen.findByRole("button", { name: "Mock sign in as Octocat" }),
-    ).toBeInTheDocument()
+    expect(await screen.findByRole("button", { name: "Sign in with GitHub" })).toBeInTheDocument()
     expect(router.state.location.pathname).toBe("/sign-in")
     expect(store.session.read().viewer).toBeNull()
     expect(screen.queryByRole("button", { name: /Account menu/ })).not.toBeInTheDocument()
@@ -53,15 +59,13 @@ describe("Hub mock session flow", () => {
 
     const router = await renderHubFlow(server, "/repositories/2001")
 
-    expect(
-      await screen.findByRole("button", { name: "Mock sign in as Octocat" }),
-    ).toBeInTheDocument()
+    expect(await screen.findByRole("button", { name: "Sign in with GitHub" })).toBeInTheDocument()
     expect(router.state.location.pathname).toBe("/sign-in")
     expect(screen.queryByRole("link", { name: "Welcome" })).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: /Account menu/ })).not.toBeInTheDocument()
   })
 
-  it("clears an unsaved editor when the session revision changes even for the same viewer", async () => {
+  it("clears a private editor on sign-out and does not restore its abandoned draft after sign-in", async () => {
     const store = createMockStore({ origin: window.location.origin })
     store.session.select("admin")
     const server = setupServer(...createMockHandlers(store))
@@ -71,22 +75,23 @@ describe("Hub mock session flow", () => {
     fireEvent.change(within(originalDialog).getByRole("textbox", { name: "Name" }), {
       target: { value: "Only the previous session's draft" },
     })
-    const previousRevision = store.session.read().revision
+    const signOut = new FormData()
+    signOut.set("intent", "sign-out")
+    await router.settle(() =>
+      router.navigate("/session", {
+        formMethod: "post",
+        formData: signOut,
+      }),
+    )
+    expect(originalDialog).not.toBeInTheDocument()
+    expect(await screen.findByRole("button", { name: "Sign in with GitHub" })).toBeVisible()
+    expect(store.session.read().viewer).toBeNull()
+    await router.settle(() =>
+      fireEvent.click(screen.getByRole("button", { name: "Sign in with GitHub" })),
+    )
+    await router.settle(() => router.navigate("/repositories/2001/prototypes/1"))
 
-    const response = await fetch(`${store.origin}/api/session`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ profile: "owner" }),
-    })
-    expect(response.status).toBe(200)
-    await act(async () => router.revalidate())
-
-    await waitFor(() => expect(originalDialog).not.toBeInTheDocument())
-    expect(store.session.read()).toMatchObject({
-      profile: "owner",
-      revision: previousRevision + 1,
-      viewer: { login: "octocat" },
-    })
+    expect(store.session.read().viewer?.login).toBe("octocat")
     expect(router.state.location.pathname).toBe("/repositories/2001/prototypes/1")
     fireEvent.click(screen.getByRole("button", { name: "Edit details" }))
     expect(within(screen.getByRole("dialog")).getByRole("textbox", { name: "Name" })).toHaveValue(

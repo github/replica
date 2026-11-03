@@ -6,20 +6,20 @@ export function settingsMeta(section: SettingsSection, loaderData?: SettingsRout
   const labels: Record<SettingsSection, string> = {
     analytics: "Analytics",
     canvas: "Canvas connections",
-    "canvas-approval": "Approve mock canvas connection",
+    "canvas-approval": "Connect Replica canvas",
     copilot: "Copilot connection",
-    authorize: "Mock confirmation",
+    authorize: "Fresh GitHub authorization required",
     github: "GitHub App",
-    "github-setup": "Mock GitHub App setup",
-    "github-register": "Register mock GitHub App",
-    "github-installed": "Mock GitHub App installation",
-    "admin-confirmation": "Confirm mock administrator change",
-    enrollment: "Mock administrator enrollment",
+    "github-setup": "Set up Replica Hub",
+    "github-register": "Create GitHub App",
+    "github-installed": "Install GitHub App",
+    "admin-confirmation": "Confirm Hub administrator role change",
+    enrollment: "Enroll a Hub operator",
     admins: "Hub administrators",
     learnings: "Learnings",
     notifications: "Inbox",
     audit: "Security audit",
-    sessions: "Mock browser session",
+    sessions: "End all Hub sessions",
     welcome: "Welcome",
   }
   let title = labels[section]
@@ -28,26 +28,26 @@ export function settingsMeta(section: SettingsSection, loaderData?: SettingsRout
       title += ` - ${loaderData.state.repository.nameWithOwner}`
     } else if (section === "github" && loaderData.query.change) {
       title = {
-        credentials: "Simulate replacement credentials",
-        rotation: "Simulate webhook rotation",
-        reset: "Reset mock App configuration",
+        credentials: "Replace App credentials",
+        rotation: "Webhook secret rotation",
+        reset: "Reset local GitHub App?",
       }[loaderData.query.change]
     } else if (section === "admin-confirmation" && loaderData.confirmation) {
       title =
         loaderData.confirmation.operation === "designate"
-          ? "Add mock administrator"
-          : "Remove mock administrator"
+          ? "Designate Hub administrator?"
+          : "Remove Hub administrator?"
     } else if (section === "notifications" && loaderData.state.notifications.unreadCount) {
       title += ` (${loaderData.state.notifications.unreadCount} unread)`
     }
   } else if (section === "sessions" && !loaderData.state.session.viewer) {
     title = loaderData.state.sessionRevoked
-      ? "Mock browser session ended"
-      : "Mock browser signed out"
+      ? "All existing Hub sessions ended"
+      : "Sign in to continue"
   } else if (section === "authorize" && !loaderData.state.continuation) {
-    title = "No pending mock confirmation"
+    title = "Nothing to authorize"
   } else if (section === "github-installed" && loaderData.state.github.state === "installed") {
-    title = "Mock GitHub App installed"
+    title = "GitHub connected"
   }
   return [{ title: `${title} - Replica Hub` }]
 }

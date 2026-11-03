@@ -34,21 +34,18 @@ export function PrototypeScreen({
   const { resolvedColorMode } = useHubTheme()
   const session = useRouteLoaderData<SessionResponse>("root")
   const pageData = prototypeShowData(workspace, data, new URLSearchParams(location.search))
-  pageData.reviewReadOnly = session?.profile === "reader"
+  pageData.reviewReadOnly = !session?.capabilities.reviewPrototypes
   if (pageData.reviewReadOnly) {
     pageData.reviewComments = {
       ...pageData.reviewComments,
       copy: {
         ...pageData.reviewComments.copy,
-        selectionBlockedLabel: "This mock profile can read reviews but cannot change them.",
+        selectionBlockedLabel: "You do not have permission to add review comments.",
       },
     }
   }
   const routeUrl = `${window.location.origin}${location.pathname}`
-  const transport = useMemo(
-    () => createReviewTransport(routeUrl, () => window.location.href),
-    [routeUrl],
-  )
+  const transport = useMemo(() => createReviewTransport(routeUrl), [routeUrl])
   const selectThread = useCallback(
     (id: number | null) => {
       setParams((current) => {

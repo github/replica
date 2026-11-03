@@ -10,12 +10,12 @@ type Props = ComponentProps<typeof FlowFormBoundary> & { feedback?: ReactNode }
 export function ProductFormBoundary({ children, feedback, ...props }: Props) {
   const submit = useSubmit()
   return (
-    <div className="hub-product-flow" data-mock-notice={Boolean(props.notice && !props.error)}>
+    <div className="hub-product-flow">
       <FlowFormBoundary
         {...props}
         onSubmit={(input) => {
           if (input.get("_action") === "/session" && input.get("_method") === "delete") {
-            void submit({ profile: "signed-out" }, { method: "post", action: "/session" })
+            void submit({ intent: "sign-out" }, { method: "post", action: "/session" })
             return
           }
           props.onSubmit(input)

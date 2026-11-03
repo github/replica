@@ -87,17 +87,6 @@ export const Hidden: Story = {
     },
   },
 }
-export const HiddenSimulation: Story = {
-  args: {
-    data: {
-      ...meta.args.data,
-      workspace: { ...meta.args.data.workspace, welcomePath: null },
-      hidePath: null,
-      notice: null,
-      mockNotice: "Welcome is hidden in this mock session.",
-    },
-  },
-}
 
 export const NoRepository: Story = {
   args: {

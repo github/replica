@@ -5,16 +5,36 @@ import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { createMockHandlers } from "../mocks/create-handlers"
 import { createMockStore } from "../mocks/create-store"
+import seedData from "../mocks/seed.json"
 import { renderHubFlow } from "./test-fixture"
 
 describe("Hub repository journey", () => {
   it("restores applied search, author, page and view state through back navigation", async () => {
-    const store = createMockStore({ origin: window.location.origin })
+    const seed = structuredClone(seedData)
+    const welcome = seed.prototypes.find(({ id }) => id === 1)
+    const navigation = seed.prototypes.find(({ id }) => id === 2)
+    const settings = seed.prototypes.find(({ id }) => id === 3)
+    if (!welcome || !navigation || !settings)
+      throw new Error("The local journey needs three prototypes.")
+    seed.prototypes = [
+      { ...welcome, description: "A journey prototype." },
+      { ...navigation, description: "A journey prototype." },
+      ...Array.from({ length: 22 }, (_, index) => ({
+        ...welcome,
+        id: index + 4,
+        name: `Journey option ${index + 1}`,
+        branchName: `prototype/journey-${index + 1}`,
+        authorLogin: index % 2 ? "octocat" : "mona",
+        description: "A journey prototype.",
+      })),
+      { ...settings, description: "A journey prototype." },
+    ]
+    const store = createMockStore({ origin: window.location.origin, seed })
     const server = setupServer(...createMockHandlers(store))
-    const router = await renderHubFlow(server, "/repositories/2001?q=prototype&page=2&view=list")
+    const router = await renderHubFlow(server, "/repositories/2001?q=journey&page=2&view=list")
     const results = await screen.findByRole("region", { name: "Prototypes" })
     expect(within(results).getByRole("link", { name: "Settings" })).toBeInTheDocument()
-    expect(screen.getByRole("searchbox", { name: "Search prototypes" })).toHaveValue("prototype")
+    expect(screen.getByRole("searchbox", { name: "Search prototypes" })).toHaveValue("journey")
     expect(screen.getByRole("radio", { name: "List view" })).toBeChecked()
 
     await router.settle(() => fireEvent.click(screen.getByRole("button", { name: "Page 1" })))
@@ -37,7 +57,7 @@ describe("Hub repository journey", () => {
     expect(within(results).queryByRole("link", { name: "Welcome" })).not.toBeInTheDocument()
     const search = screen.getByRole("searchbox", { name: "Search prototypes" })
     fireEvent.change(search, { target: { value: "navigation" } })
-    expect(new URLSearchParams(router.state.location.search).get("q")).toBe("prototype")
+    expect(new URLSearchParams(router.state.location.search).get("q")).toBe("journey")
     await router.settle(() => fireEvent.keyDown(search, { key: "Enter" }))
     await waitFor(() =>
       expect(new URLSearchParams(router.state.location.search).get("q")).toBe("navigation"),
@@ -46,7 +66,7 @@ describe("Hub repository journey", () => {
 
     await router.go(-1)
     await waitFor(() =>
-      expect(screen.getByRole("searchbox", { name: "Search prototypes" })).toHaveValue("prototype"),
+      expect(screen.getByRole("searchbox", { name: "Search prototypes" })).toHaveValue("journey"),
     )
     expect(screen.getByRole("button", { name: "Author: @mona" })).toBeInTheDocument()
     await router.go(-1)
@@ -62,6 +82,9 @@ describe("Hub repository journey", () => {
 
   it("opens retained prototype, history and Build pages without hijacking modified links", async () => {
     const store = createMockStore({ origin: window.location.origin })
+    const latestBuild = store.getPrototype(2001, 1).selectedBuild?.number
+    const historyPageCount = store.getBuildHistory(2001, 1).pagination.pageCount
+    const failedBuild = store.getBuild(2001, 1, 2).build
     const server = setupServer(...createMockHandlers(store))
     const router = await renderHubFlow(server, "/repositories/2001")
     const results = await screen.findByRole("region", { name: "Prototypes" })
@@ -80,21 +103,23 @@ describe("Hub repository journey", () => {
     expect(nativeClick).toHaveBeenCalledExactlyOnceWith(false)
     expect(router.state.location.pathname).toBe("/repositories/2001")
     await router.settle(() => fireEvent.click(welcome))
-    expect(await screen.findByTitle("Welcome, Build 3 preview")).toBeInTheDocument()
+    expect(await screen.findByTitle(`Welcome, Build ${latestBuild} preview`)).toBeInTheDocument()
     fireEvent.click(screen.getByRole("button", { name: "More actions" }))
     const history = screen.getByRole("menuitem", { name: "History" }).querySelector("a")
     if (!history) throw new Error("The History action has no link.")
     await router.settle(() => fireEvent.click(history))
     expect(await screen.findByRole("heading", { name: "History", level: 2 })).toBeInTheDocument()
-    await router.settle(() => fireEvent.click(screen.getByRole("link", { name: "Older Builds" })))
+    for (let page = 2; page <= historyPageCount; page += 1) {
+      await router.settle(() => fireEvent.click(screen.getByRole("link", { name: "Older Builds" })))
+      expect(new URLSearchParams(router.state.location.search).get("page")).toBe(String(page))
+    }
     expect(await screen.findByRole("link", { name: "Build 1" })).toBeInTheDocument()
-    expect(screen.queryByRole("link", { name: "Build 3" })).not.toBeInTheDocument()
-    await router.go(-1)
     await router.settle(() => fireEvent.click(screen.getByRole("link", { name: "Build 2" })))
 
     expect(await screen.findByRole("heading", { name: "Build 2", level: 2 })).toBeInTheDocument()
     expect(screen.getByText("Failed")).toBeInTheDocument()
-    expect(screen.getByText("The synthetic build command exited with code 1.")).toBeInTheDocument()
+    if (!failedBuild.failureSummary) throw new Error("The failed Build needs an explanation.")
+    expect(screen.getByText(failedBuild.failureSummary)).toBeInTheDocument()
     expect(router.state.location.pathname).toBe("/repositories/2001/prototypes/1/builds/2")
   }, 15_000)
 
@@ -239,11 +264,14 @@ describe("Hub repository journey", () => {
         HttpResponse.json({ error: "The repository service is unavailable." }, { status: 503 }),
       ),
     )
-    await renderHubFlow(server, "/repositories/2001")
+    await renderHubFlow(server, "/repositories/2001", { withTools: true })
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(
+    expect(within(await screen.findByRole("main")).getByRole("alert")).toHaveTextContent(
       "The repository service is unavailable.",
     )
+    expect(
+      screen.getByRole("complementary", { name: "Frontend test controls" }),
+    ).not.toHaveTextContent("The repository service is unavailable.")
     expect(screen.queryByRole("link", { name: "Welcome" })).not.toBeInTheDocument()
   })
 })

@@ -8,7 +8,6 @@ import { GithubAppPage } from "@pages/github-app-page"
 import { HubAdminConfirmationPage } from "@pages/hub-admin-confirmation-page"
 import { HubAdminsPage } from "@pages/hub-admins-page"
 import { LearningsPage } from "@pages/learnings-page"
-import { NotificationsPage } from "@pages/notifications-page"
 import { SecurityAuditPage } from "@pages/security-audit-page"
 import { WelcomePage } from "@pages/welcome-page"
 
@@ -25,23 +24,17 @@ import { settingsCanvas } from "../../view-models/settings-canvas"
 import { settingsCopilot } from "../../view-models/settings-copilot"
 import { settingsGithub } from "../../view-models/settings-github"
 import { settingsLearnings } from "../../view-models/settings-learnings"
-import { settingsNotifications } from "../../view-models/settings-notifications"
+import { NotificationsScreen } from "../notifications-screen"
 import { settingsWelcome } from "../../view-models/settings-welcome"
 
 export function SettingsWorkspaceScreen({
   section,
   data,
   busy,
-  failed,
-  onSubmit,
-  onRetry,
 }: {
   section: SettingsSection
   data: Extract<SettingsRouteData, { surface: "workspace" }>
   busy: boolean
-  failed: boolean
-  onSubmit: (input: FormData) => void
-  onRetry: () => void
 }) {
   const workspace = workspaceResponseSchema.parse(useOutletContext<unknown>())
   const location = useLocation()
@@ -83,7 +76,7 @@ export function SettingsWorkspaceScreen({
       )
     case "admin-confirmation": {
       if (!data.confirmation)
-        throw new Error("A mock administrator confirmation is missing its validated target.")
+        throw new Error("An administrator confirmation is missing its validated target.")
       return (
         <HubAdminConfirmationPage
           data={settingsAdminConfirmation(
@@ -100,29 +93,12 @@ export function SettingsWorkspaceScreen({
       return <LearningsPage data={settingsLearnings(workspace, state, search)} />
     case "notifications":
       return (
-        <NotificationsPage
-          data={settingsNotifications(workspace, state, search)}
-          notifications={state.notifications.items}
-          unreadCount={state.notifications.unreadCount}
-          unreadOnly={state.notifications.unreadOnly}
-          loading={busy}
-          failed={failed}
-          hasMore={state.notifications.hasMore}
-          onFilter={(unread) => changeInbox({ unread: String(unread), limit: "2" })}
-          onToggleRead={(id) => {
-            const notification = state.notifications.items.find((entry) => entry.id === id)
-            if (!notification) throw new Error("An unrendered notification cannot be changed.")
-            const input = new FormData()
-            input.set("_action", "/notifications")
-            input.set("notificationId", String(id))
-            input.set("version", String(notification.version))
-            input.set("read", String(!notification.read))
-            onSubmit(input)
-          }}
-          onLoadMore={() =>
-            changeInbox({ limit: String(Math.min(50, state.notifications.limit + 2)) })
-          }
-          onRetry={onRetry}
+        <NotificationsScreen
+          key={`${query.repositoryId ?? ""}:${query.unread}`}
+          workspace={workspace}
+          state={state}
+          search={search}
+          onFilter={(unread) => changeInbox({ unread: String(unread), page: "1" })}
         />
       )
     case "audit":

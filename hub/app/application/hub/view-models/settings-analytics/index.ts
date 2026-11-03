@@ -29,9 +29,13 @@ export function settingsAnalytics(
         name: configuration.name,
         customConfig: {
           version: 1,
-          endpoint: "https://events.example.invalid/collect",
+          endpoint: "https://events.example.com/collect",
           headers: {},
-          template: { mock: true },
+          template: {
+            event: { $field: "event_name" },
+            event_id: { $field: "event_id" },
+            properties: { $field: "properties" },
+          },
           success_pointer: "",
           success_value: null,
           secret_names: [],
@@ -39,7 +43,7 @@ export function settingsAnalytics(
       }
     }
     if (configuration.region === "custom") {
-      throw new Error("A provider fixture returned an invalid custom region.")
+      throw new Error("The analytics provider returned an invalid custom region.")
     }
     return {
       ...common,
@@ -49,79 +53,87 @@ export function settingsAnalytics(
   })
   return {
     ...settingsRepositoryWorkspace(workspace, state, search, "analytics"),
-    simulation: true,
     readOnly: !state.session.capabilities.manageSharing,
-    pageTitle: "Mock analytics",
+    pageTitle: "Analytics",
     alert: null,
     notice: !state.session.capabilities.manageSharing
-      ? "This fixture is read-only for Mona."
+      ? "You can view analytics destinations, but you do not have permission to change them."
       : null,
     createPath: resourcePath("/settings/analytics", search, { repositoryId }),
     destinations,
-    authenticationHeaders: [],
+    authenticationHeaders: ["authorization", "x-api-key", "x-auth-token", "api-key"],
     eventTypes: [
-      { value: "prototype_registered", label: "Prototype added" },
-      { value: "build_published", label: "Build published" },
-      { value: "review_comment_created", label: "Review comment" },
+      { value: "prototype_registered", label: "Prototype added to gallery" },
+      { value: "build_published", label: "Subsequent successful Build published" },
+      { value: "review_comment_created", label: "Review conversation started" },
     ],
     copy: {
       heading: "Analytics",
       description:
-        "Configure simulated destinations for this repository. No analytics service is connected.",
-      privacy: "This mock never collects credentials, sends events, or tracks your activity.",
-      destinations: "Mock destinations",
-      empty: "No mock destinations. Add one to try configuration, pause and disconnect.",
-      add: "Add mock destination",
+        "Hub records repository activity for 90 days, even without a destination. Send selected events to your analytics provider.",
+      privacy:
+        "Events contain identifiers and timestamps, never comment text or prototype content. Opaque person identifiers are consistent across this Hub. No offline or local editing activity is tracked.",
+      destinations: "Destinations",
+      empty: "No destinations configured. Hub is still recording events.",
+      add: "Add destination",
       cancel: "Cancel",
-      provider: "Provider simulation",
+      provider: "Provider",
       segment: "Segment",
       mixpanel: "Mixpanel",
-      custom: "Custom HTTP simulation",
-      region: "Fixture region",
+      custom: "Custom HTTP",
+      region: "Region",
       us: "United States",
       eu: "European Union",
       in: "India",
-      writeKey: "Not collected in this simulation",
-      serviceAccountUsername: "Not collected",
-      serviceAccountSecret: "Not collected",
-      projectId: "Not collected",
-      mixpanelHelp: "The Mixpanel fixture needs no account or credentials.",
-      rotation: "This mock configuration contains no credentials.",
-      eventTypes: "Sample event types",
-      history: "Sample history choice",
-      newEvents: "New sample events",
-      retainedEvents: "Include sample history",
-      historyWarning: "This choice is saved locally. No history is sent.",
-      save: "Save mock configuration",
-      configured: "Simulated",
+      writeKey: "Source write key",
+      serviceAccountUsername: "Service account username",
+      serviceAccountSecret: "Service account secret",
+      projectId: "Project ID",
+      mixpanelHelp:
+        "Use a Mixpanel Owner or Admin service account authorized for this project. Hub sends one event at a time through the strict import API.",
+      rotation:
+        "Credentials are never displayed. Leave a field blank to keep its saved value, or enter a replacement.",
+      eventTypes: "Events to send",
+      history: "When should delivery begin?",
+      newEvents: "New events only",
+      retainedEvents: "Include retained events from the last 90 days",
+      historyWarning:
+        "Including retained events sends this repository's selected event types to the provider. They may appear in reports.",
+      save: "Save configuration",
+      configured: "Configured",
       paused: "Paused",
       failed: "Needs attention",
       pause: "Pause",
       resume: "Resume",
       disconnect: "Disconnect",
-      failureHelp: "The simulated destination needs attention.",
-      customName: "Mock destination name",
-      customEndpoint: "Synthetic endpoint",
+      failureHelp: "Hub couldn't send some activity. Check your provider settings below.",
+      customName: "Destination name",
+      customEndpoint: "Public HTTPS URL",
       customEndpointHelp:
-        "The fixed endpoint is events.example.invalid. No HTTP request or secret input is available.",
-      customHeaders: "No custom headers in this simulation",
-      customHeaderRetention: "No headers are stored.",
-      customTemplate: "Synthetic body",
-      customSecrets: "No secrets are collected",
-      customSecretName: "Not collected",
-      customSecretValue: "Not collected",
-      customAddSecret: "Unavailable in mock mode",
-      customSuccessPointer: "Not used",
-      customSuccessValue: "Not used",
-      customPreview: "Synthetic preview",
-      customPreviewHelp: "No request is sent.",
-      customPreviewInvalid: "Invalid sample",
-      customKeepPending: "No delivery queue exists",
-      customBacklogWarning: "This simulation has no delivery queue.",
-      customRetryWarning: "This simulation sends no requests.",
-      customEndpointExample: "https://events.example.invalid/collect",
-      customTemplateExample: '{"mock":true}',
-      customHeadersExample: "{}",
+        "Use a public DNS name on port 443. Query settings are visible and cannot hold credentials. Hub never follows redirects.",
+      customHeaders: "Headers (JSON object)",
+      customHeaderRetention:
+        'A saved static header appears as {"$keep":true}. Leave it unchanged to keep its value for that header name; the saved value is never shown.',
+      customTemplate: "Request body (JSON template)",
+      customSecrets: "Encrypted secrets",
+      customSecretName: "Secret name",
+      customSecretValue: "Secret value",
+      customAddSecret: "Add secret",
+      customSuccessPointer: "Success response field (JSON Pointer, optional)",
+      customSuccessValue: "Expected JSON value",
+      customPreview: "Redacted sample request body",
+      customPreviewHelp:
+        "Sample identifiers are made up; no request is sent. Secret references appear as redacted values.",
+      customPreviewInvalid: "Preview unavailable. Check the JSON body.",
+      customKeepPending: "Same recipient; keep pending events after changing authentication",
+      customBacklogWarning:
+        "Changing the URL or request body cancels unsent events. Changing authentication also cancels them unless you confirm the same recipient. To resend retained history, disconnect and add a new destination with retained events selected.",
+      customRetryWarning:
+        "Hub retries some failures with the same event ID in a header. A successful HTTP response does not prove an event appeared in reports, and the receiving service may not deduplicate retries.",
+      customEndpointExample: "https://events.example.com/collect?version=1",
+      customTemplateExample:
+        '{"event":{"$field":"event_name"},"event_id":{"$field":"event_id"},"properties":{"$field":"properties"}}',
+      customHeadersExample: '{"Authorization":{"$secret":"api_token"}}',
     },
   }
 }

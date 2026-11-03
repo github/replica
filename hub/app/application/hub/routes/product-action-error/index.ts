@@ -15,7 +15,7 @@ export function productActionError(error: unknown) {
     return data<ProductActionResult>(
       {
         saved: false,
-        error: "The API response was invalid. The mock change could not be confirmed.",
+        error: "The API response was invalid. The change could not be confirmed.",
       },
       { status: 502 },
     )

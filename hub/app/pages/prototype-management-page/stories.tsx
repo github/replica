@@ -253,7 +253,7 @@ export const Local: Story = {
 }
 
 export const SaveFailed: Story = {
-  args: { saveError: "The mock API could not save these details. Your draft is unchanged." },
+  args: { saveError: "Hub could not save these details. Your draft is unchanged." },
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: "Edit details: prototype/welcome" }))
     await userEvent.type(canvas.getByRole("textbox", { name: data.management.nameLabel }), " draft")
@@ -265,7 +265,7 @@ export const ReadOnly: Story = {
     readOnly: true,
     data: {
       ...data,
-      alert: "This mock profile can read prototype details but cannot change them.",
+      alert: "You can view prototype details, but you do not have permission to change them.",
     },
   },
 }

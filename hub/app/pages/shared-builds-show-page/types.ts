@@ -5,7 +5,6 @@ interface SharedBuildBase {
   productName: string
   controlsIdentity?: string
   controlsOrigin?: string
-  mockNotice?: string
 }
 
 export type SharedBuildsShowPageData = SharedBuildBase &

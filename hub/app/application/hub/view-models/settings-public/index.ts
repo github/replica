@@ -12,115 +12,107 @@ export function settingsPublic(state: SettingsPublicResponse, search: URLSearchP
   const shared = { productName: "Replica Hub", authenticityToken: "" }
   const allowed = state.session.capabilities.administerHub
   const signedOut = !state.session.viewer
-  const needAdmin = allowed
-    ? ""
-    : " Select the Admin mock profile to try this local change. No real sign-in is involved."
   const setup: GithubAppSetupShowPageData = {
     ...shared,
-    simulation: true,
-    canContinue: allowed && ["not-configured", "ready"].includes(state.github.state),
-    pageTitle: "Mock App setup",
-    heading: "Simulate GitHub App setup",
-    description: `This flow creates a synthetic App record only. No bootstrap secret, account or provider connection is used.${needAdmin}`,
-    organizationLabel: "Synthetic organization",
-    organizationHint: "github is a fixed fixture identifier, not a connected organization.",
-    secretLabel: "Not collected",
-    submitLabel: "Continue mock setup",
+    canContinue: allowed,
+    pageTitle: "Set up Replica Hub",
+    heading: "Connect GitHub",
+    description: "Connect a private GitHub App owned by your organization or personal account.",
+    organizationLabel: "Organization",
+    organizationHint: "Leave blank to create the App for your personal account.",
+    secretLabel: "Bootstrap secret",
+    submitLabel: "Continue",
     submitPath: resourcePath("/settings/github/setup", search),
   }
   const register: GithubAppSetupRegisterPageData = {
     ...shared,
-    simulation: true,
     canContinue: allowed,
-    pageTitle: "Register mock App",
-    heading: "Register the mock App",
-    description: `No App is created on GitHub. This advances one local fixture record.${needAdmin}`,
-    access:
-      "The fixture refers to github/prototype and github/empty. No repository access is requested or granted.",
-    manifest: '{"name":"Replica Hub mock","mock":true}',
-    submitLabel: "Register simulation",
+    pageTitle: "Create GitHub App",
+    heading: "Create the GitHub App",
+    description: "Replica Hub uses a private GitHub App to discover and authorize prototypes.",
+    access: "You choose whether the App can access github/prototype, github/empty, or both.",
+    manifest: '{"name":"Replica Hub"}',
+    submitLabel: "Create the App on GitHub",
     submitPath: resourcePath("/settings/github/register", search),
   }
   const installed = state.github.state === "installed"
   const install: GithubAppSetupInstallPageData = {
     ...shared,
-    simulation: true,
-    pageTitle: installed ? "Mock App installed" : "Mock App installation",
-    heading: installed ? "Mock installation complete" : "Simulate App installation",
-    description: `The App and installation identifiers are synthetic. No external App or repository changed.${needAdmin}`,
+    pageTitle: installed ? "GitHub connected" : "Install GitHub App",
+    heading: installed ? "Replica Hub is connected" : "Install the GitHub App",
+    description: "The private GitHub App is ready to install on prototype repositories.",
     canContinue: allowed,
     submitPath: installed ? undefined : resourcePath("/settings/github/installed", search),
-    submitLabel: installed ? undefined : "Simulate installation",
+    submitLabel: installed ? undefined : "Install GitHub App",
     nextPath: resourcePath("/settings/github", search),
-    nextLabel: "Review mock App",
+    nextLabel: "GitHub App",
   }
   const enrollment: HubAdminEnrollmentPageData = {
     ...shared,
-    simulation: true,
     canContinue: allowed,
-    pageTitle: "Mock administrator enrollment",
-    heading: "Try administrator enrollment",
-    description: `Continue as the synthetic Octocat user, then confirm a local continuation. No secret or provider identity is requested.${needAdmin}`,
-    secretLabel: "Not collected",
-    submitLabel: "Start mock enrollment example",
+    pageTitle: "Enroll a Hub operator",
+    heading: "Enroll a Hub operator",
+    description:
+      "Enter the deployment's bootstrap secret, then verify your own GitHub account. This grants deployment administration, not access to private repositories.",
+    secretLabel: "Bootstrap secret",
+    submitLabel: "Verify with GitHub",
     submitPath: resourcePath("/settings/enroll", search),
   }
   const authorization: FreshAuthorizationPageData = {
     ...shared,
-    simulation: true,
     canContinue: !!state.continuation && allowed,
-    pageTitle: "Mock confirmation",
-    heading: state.continuation ? "Confirm the simulated continuation" : "Nothing to confirm",
+    pageTitle: "Fresh GitHub authorization required",
+    heading: state.continuation ? "Fresh GitHub authorization required" : "Nothing to authorize",
     description: state.continuation
-      ? `Confirm ${state.continuation.operation} for @${state.continuation.viewerLogin}. This is not a GitHub, password or MFA check.`
-      : "No pending mock continuation belongs to this profile. Start a Copilot or enrollment simulation first.",
-    submitLabel: "Confirm simulation",
+      ? "Verify the same GitHub account to continue your confirmed action. GitHub may reuse your signed-in browser; this is not a guaranteed password or MFA challenge."
+      : "There is no pending action to authorize. Return to the action and try again.",
+    submitLabel: "Verify with GitHub",
     submitPath: resourcePath("/settings/authorize", search),
-    cancelLabel: "Cancel simulation",
+    cancelLabel: "Cancel",
     cancelPath: state.continuation ? resourcePath("/settings/authorize", search) : undefined,
     continuation: state.continuation ? { id: state.continuation.id, method: "post" } : undefined,
   }
   const sessions: SessionRevocationPageData = {
-    simulation: true,
     heading: signedOut
       ? state.sessionRevoked
-        ? "Mock browser session ended"
-        : "Mock browser is signed out"
-      : "End this mock browser session?",
+        ? "All existing Hub sessions ended"
+        : "Sign in to continue"
+      : "End all Hub sessions",
     description:
-      "This simulation affects only this tab's in-memory profile. Real sessions, other browsers and share links are untouched.",
-    pageTitle: "Mock browser session",
+      signedOut && state.sessionRevoked
+        ? "Your session has ended. Existing browser sessions, canvas access and refresh credentials, pending approvals, and signed-in preview handoffs no longer authorize access. Sign in again to continue."
+        : "Sign everyone out of this Hub and disconnect existing Copilot canvas connections. People can sign in and approve new connections afterward.",
+    pageTitle: "End all Hub sessions",
     auditLabel: "Security audit",
     auditPath: allowed ? resourcePath("/settings/audit", search) : null,
     repositoriesLabel: "Repositories",
     repositoriesPath: "/",
-    signOutLabel: "Sign out of mock session",
+    signOutLabel: "Sign out",
     signOutPath: "/session",
     authenticityToken: "",
     signedOut,
-    notice:
-      signedOut && state.sessionRevoked
-        ? "The mock session ended. Use the mock profile controls to start again."
-        : null,
+    notice: null,
     alert:
       !signedOut && !allowed
-        ? "This mock profile cannot run the administrator session-ending example."
+        ? "Only a current Hub administrator can end all sessions. No sessions were ended."
         : null,
     canRevoke: allowed,
     scope:
-      "The current synthetic browser profile signs out. No credentials or external connections exist.",
+      signedOut && state.sessionRevoked
+        ? "Public share links and public previews have not changed. People can sign in and approve new canvas connections."
+        : "Existing browser sessions, canvas access and refresh credentials, pending canvas approvals, preview handoffs, and signed-in preview access will end. Public share links and public previews will not change.",
     ownSession: allowed
-      ? `@${state.session.viewer?.login ?? "octocat"} will be signed out of this simulation.`
+      ? `Your own session (@${state.session.viewer?.login}) will end too. This browser will show the result without requiring another sign-in.`
       : null,
     verification:
-      "This deliberately changes mock session state without contacting an identity provider.",
-    counts: allowed ? "1 mock browser session. No real sessions are counted." : null,
+      "GitHub must have verified this browser's account within the last five minutes. If verification is required, Hub ends the sessions after it succeeds.",
+    counts: null,
     emptyLabel: null,
-    confirmLabel: "I understand this ends only the current mock browser session.",
-    submitLabel: "End mock browser session",
+    confirmLabel: "I understand this will end everyone's sessions, including my own.",
+    submitLabel: "End all sessions",
     cancelLabel: "Cancel",
     submitPath: resourcePath("/settings/sessions", search),
-    signInLabel: "Return to mock sign-in",
+    signInLabel: "Return to sign-in",
     signInPath: "/",
   }
   return { setup, register, install, enrollment, authorization, sessions }

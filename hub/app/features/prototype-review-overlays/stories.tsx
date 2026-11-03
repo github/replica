@@ -19,7 +19,7 @@ const meta = {
     (Story) => (
       <div style={{ height: "100vh", position: "relative", width: "100%" }}>
         <iframe
-          title="Synthetic prototype preview"
+          title="Prototype preview"
           src="/prototype-preview/index.html"
           style={{ height: "100%", width: "100%", border: 0 }}
         />

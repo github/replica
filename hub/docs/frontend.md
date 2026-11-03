@@ -14,17 +14,19 @@ From `hub/`, with dependencies installed:
 npm run dev:mock
 ```
 
-Open <http://127.0.0.1:5173/repositories/2001>. No API server, database, GitHub App, or credentials are needed. **Mock flow** opens the connected page groups. **Mock API scenario** selects slow, empty, forbidden, server-error, invalid-response, or save-error behavior.
+Open <http://127.0.0.1:5173/repositories/2001>. No API server, database, GitHub App, or credentials are needed. The bottom-right **Test data** toolbar opens connected pages, selects a persona, resets records, and selects slow, empty, forbidden, server-error, invalid-response, or save-error responses.
 
 If port 5173 is occupied, leave that server running and use `npm run dev:mock -- --port 0`. Open the URL printed by the CLI; the operating system assigns a free port.
 
-The dataset uses `octocat`, `mona`, `github/prototype`, and `github/empty`. Every page reads the same in-memory records. A successful name or description edit is visible when navigating back to the repository; it changes metadata, not build contents. A full reload or **Reset mock data** creates a fresh store from the JSON fixture. Closing the tab discards its store. There is no browser-storage persistence, and reset never changes a real Hub.
+The dataset includes `octocat`, `mona`, additional fictional collaborators, `github/prototype`, and `github/empty`. Every page reads the same in-memory records. A successful name or description edit is visible when navigating back to the repository; it changes metadata, not build contents. A full reload or **Reset data** creates fresh records. Closing the tab discards the records; only the selected persona and API scenario are retained in tab-local session storage. Reset never changes a real Hub.
 
-**Mock user** selects an owner, a read-only user, an administrator, or a signed-out state. Owner and administrator use Octocat; the read-only profile uses Mona. These are fixture-defined UI capabilities, not production access policies. Signing in requires no credentials. Switching profiles removes the previous viewer's displayed data and drafts without resetting the shared synthetic records. Delayed writes are bound to their initiating mock session revision and are rejected if the viewer changes.
+**Persona** selects an owner, a read-only user, an administrator, or a signed-out state. Owner and administrator use Octocat; the read-only profile uses Mona. These are fixture-defined UI capabilities, not production access policies. Signing in requires no credentials. Selecting another persona reloads the document and resets the complete world, including edits and drafts. Application requests carry no mock persona or revision headers.
 
 The neutral root reads the simulated session. Private pages load their workspace in a separate layout; public shared previews and signed-out pages do not load a private workspace. Replacing these contracts with real identity and authorization is outside this frontend work.
 
-Mock-only UI and temporary integration notices have a 2px orange outline. Ordinary product UI does not get this outline just because it displays mock records. Mock controls occupy their own row on narrow screens so they do not cover page controls. On wider screens they float separately from the page.
+Product screens retain product-facing copy from the retained pages and their original fixtures. They do not describe mock data, simulations, or synthetic accounts. The bottom-right test toolbar is the only orange development surface and the only place for mock-only warnings, request diagnostics, and explanations of local actions. It can be collapsed on any viewport. Normal product validation, access-denied, and failure feedback remain in the product UI.
+
+Collections use the retained Hub's normal sizes: 24 prototypes, 25 Builds, 20 author results, 50 inbox items, and 50 audit records per page. The default repository has 57 prototypes and Welcome has 57 Builds, including partial last pages. Inbox and activity fixtures also span multiple pages; `github/empty` and the empty-response scenario remain available.
 
 Local preview HTML and representative SVG images are synthetic assets, not published builds or captured build evidence. They are served only by the mock development server.
 
@@ -56,15 +58,15 @@ Other seeded page states:
 
 Review filters also live in the URL: `commentSearch`, `commentParticipant`, and the `commentBuild`, `commentPage`, `commentResolved`, `commentUnread`, and `commentMine` flags. A flag value of `1` enables it. Closing a conversation removes `comment`; browser back/forward restores the selection and filters.
 
-Application code adapts internal links and same-origin GET forms to SPA navigation while preserving modified clicks, external links, downloads, and new tabs. Explicit adapters handle the connected mutations and mock sign-out. Unknown non-GET forms display a warning rather than submitting to removed server actions.
+Application code adapts internal links and same-origin GET forms to SPA navigation while preserving modified clicks, external links, downloads, and new tabs. Explicit adapters handle the connected mutations and sign-out. Unknown non-GET forms are blocked and reported through the test toolbar rather than submitting to removed server actions.
 
 ## Connected mock flows
 
 - **Create and manage:** create a synthetic prototype and Build, start from a template, register a synthetic branch, or edit gallery metadata and start-page metadata. These actions change canonical local records, not GitHub, source code, workflows, or immutable Build contents.
 - **Review:** the existing preview bridge supports element and area selection. Comments, replies, edits, deletion, resolution, reactions, and read positions share a mock review store. Failed saves retain the draft; recovery can retry it. The read-only profile can inspect conversations but cannot change them. This is not a live multi-user review service.
 - **Share:** create and revoke local links pinned to successful Builds. `demo-active`, `demo-expired`, and `demo-revoked` exercise public states. New links open in the same tab because another document receives a fresh mock store. Disabling mock sharing revokes existing local links; re-enabling permits new links. This is provisional demo behavior, not an accepted production sharing policy.
-- **Account and setup:** simulate sign-in/out, welcome dismissal, connection approval/revocation, GitHub App setup, confirmation, enrollment, and ending sessions. Do not enter real credentials or secrets. No provider authorization, installation, key rotation, or real session revocation occurs.
-- **Administration and activity:** exercise synthetic administrator changes, notifications, activity filters, analytics destinations, and learning actions. No real telemetry export, durable security audit, model run, or background job is performed.
+- **Account and setup:** inspect normal sign-in/out, welcome, connection, GitHub App setup, confirmation, enrollment, and session screens with canned API state. Do not enter real credentials or secrets. No provider authorization, installation, key rotation, or real session revocation occurs.
+- **Administration and activity:** inspect administrator changes, notifications, activity filters, analytics destinations, and learning actions. A learning request returns a completed fixture run and suggestion rather than implementing a background-job simulator. No real telemetry export, durable security audit, model run, or background job is performed.
 
 Use the administrator mock profile for administrative mutation states. Other profiles demonstrate the existing read-only and access-denied presentation. Profile changes and error scenarios are test controls, not security boundaries.
 
@@ -99,7 +101,13 @@ These are frontend/mock contracts under [the application contracts](../app/appli
 
 Errors use an HTTP status and `{ "error": "..." }`. Request schemas and the same response schemas check the JSON fixtures and HTTP boundary. Server-side input validation and authorization remain separate backend responsibilities.
 
-The [product contracts](../app/application/hub/product-contracts/index.ts), [settings contracts](../app/application/hub/settings-contracts/index.ts), and [session contracts](../app/application/hub/session-contracts/index.ts) define those provisional records. The review adapter injects this request boundary into the retained review hooks without changing their default consumers. Mock handlers use the shared response helper and check the initiating session revision immediately before mutations, including after asynchronous body parsing.
+The [product contracts](../app/application/hub/product-contracts/index.ts), [settings contracts](../app/application/hub/settings-contracts/index.ts), and [session contracts](../app/application/hub/session-contracts/index.ts) define those provisional records. The review adapter injects this request boundary into the retained review hooks without changing their default consumers. Persona selection, scenarios, diagnostics, fixture generation, and local mutation rules belong to the mock runtime, not these contracts.
+
+## Removing mocks
+
+The [mock folder](../app/application/hub/mocks/) owns fixtures, handlers, local state, the toolbar, diagnostics, and development assets. The application starts it through the small [bootstrap hook](../app/application/hub/bootstrap/index.ts) and displays its toolbar through [DevelopmentTools](../app/application/hub/development-tools/index.tsx). Vite enables its asset plugin only in mock mode.
+
+When the backend is ready, remove that folder and its two application hooks, the Vite mock-plugin import and registration, and the `dev:mock` script. Replace mock-backed test fixtures with the ported API's test support; remove tests that only exercised discarded fake workflows. Remove MSW when no remaining tests need it. Keep product copy, route modules, response contracts, request functions, and presentation adapters. A real API failure must never reactivate mock responses.
 
 There is no shared query cache or automatic retry loop. Requests use `cache: "no-store"`; React Router owns route data and action revalidation. Manual retries revalidate the route. TanStack Query can be added later if shared caching, deduplication, or background refresh warrants it without switching routers.
 
@@ -126,9 +134,9 @@ The migration started from commit `3254a642c9bb2dbf635915892475fa37d7bf2f00`. It
 
 All page modules below have a mock route. This demonstrates frontend navigation and local behavior, not backend feature parity or evidence that every retained design shipped previously.
 
-Examples use seeded identifiers. A fresh document starts with the Owner mock profile; use **Mock user** and **Mock flow** in the same tab to explore other profiles without reloading. Choose the signed-out profile for sign-in and the administrator profile for administrative actions.
+Examples use seeded identifiers. A new tab starts with the Owner persona; use **Persona** and **Open page** in the test toolbar to explore other states. Changing personas reloads and resets the data. Choose the signed-out persona for sign-in and the administrator persona for administrative actions.
 
-GitHub App registration and installation redirect to setup until their preceding mock steps are complete. Start with the setup example and follow its buttons in the same tab. Fresh authorization needs a pending continuation from the Copilot connection or administrator enrollment flow.
+GitHub App setup, registration, and installation pages can be opened directly without reproducing a provider protocol first. The default fixture has an installed GitHub App and a connected Copilot service, so their normal settings are available to the administrator persona. Credential and file submissions are not processed; their unavailable-action diagnostics appear in the test toolbar. Fresh authorization uses a pending continuation from a connection change or enrollment action.
 
 | Page module | Intent and current connection | Open an example |
 | --- | --- | --- |

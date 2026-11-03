@@ -1,4 +1,4 @@
-import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
+import { fireEvent, screen, waitFor, within } from "@testing-library/react"
 import { http, HttpResponse } from "msw"
 import { setupServer } from "msw/node"
 import { useLoaderData, type RouteObject } from "react-router"
@@ -21,6 +21,7 @@ import ProductShareLinksRoute, {
   clientLoader as loadShareLinks,
 } from "./product-share-links"
 import SettingsAuditRoute, { clientLoader as loadAudit } from "./settings-audit"
+import SettingsCopilotRoute, { clientLoader as loadCopilot } from "./settings-copilot"
 import SettingsLearningsRoute, {
   clientAction as saveLearnings,
   clientLoader as loadLearnings,
@@ -61,6 +62,10 @@ function LearningsComponent() {
 
 function AuditComponent() {
   return <SettingsAuditRoute loaderData={useLoaderData<typeof loadAudit>()} />
+}
+
+function CopilotComponent() {
+  return <SettingsCopilotRoute loaderData={useLoaderData<typeof loadCopilot>()} />
 }
 
 function NotificationsComponent() {
@@ -110,6 +115,11 @@ const workspaceRoutes: RouteObject[] = [
     Component: AuditComponent,
   },
   {
+    path: "/settings/copilot",
+    loader: (args) => loadCopilot({ ...args, serverLoader: unavailableServerRoute }),
+    Component: CopilotComponent,
+  },
+  {
     path: "/notifications",
     loader: (args) => loadNotifications({ ...args, serverLoader: unavailableServerRoute }),
     action: (args) => saveNotifications({ ...args, serverAction: unavailableServerRoute }),
@@ -138,6 +148,23 @@ const publicRoutes: RouteObject[] = [
 ]
 
 describe("Hub expanded frontend flows", () => {
+  it("shows connected Copilot with its owner and required disconnect consent as normal product UI", async () => {
+    const store = createMockStore({ origin: window.location.origin })
+    store.session.select("admin")
+    const server = setupServer(...createMockHandlers(store))
+    await renderHubFlow(server, "/settings/copilot", { workspaceRoutes })
+
+    expect(await screen.findByRole("heading", { name: "Copilot is connected" })).toBeInTheDocument()
+    expect(screen.getByText(/connected Copilot\./)).toBeVisible()
+    expect(
+      screen.getByRole("checkbox", {
+        name: "I understand and confirm disconnecting Copilot for this Hub.",
+      }),
+    ).toBeRequired()
+    expect(screen.getByRole("button", { name: "Disconnect Copilot" })).toBeVisible()
+    expect(screen.getByRole("main")).not.toHaveTextContent(/\b(mock|synthetic|simulated)\b/i)
+  })
+
   // This four-page flow measured 8.6s on Windows, beyond the default 5s case budget.
   it("creates a local prototype and shares management edits with its preview and repository", async () => {
     const store = createMockStore({ origin: window.location.origin })
@@ -146,9 +173,9 @@ describe("Hub expanded frontend flows", () => {
     const brief = screen.getByRole("textbox", { name: "What should we create?" })
     fireEvent.change(brief, { target: { value: "A simpler onboarding flow" } })
     await router.settle(() =>
-      fireEvent.click(screen.getByRole("button", { name: "Create mock prototype" })),
+      fireEvent.click(screen.getByRole("button", { name: "Create prototype" })),
     )
-    const open = screen.getByRole("link", { name: "Open created mock prototype" })
+    const open = screen.getByRole("link", { name: "Open prototype" })
     const prototypePath = new URL((open as HTMLAnchorElement).href).pathname
     const prototypeId = Number(prototypePath.split("/").at(-1))
     await router.settle(() => fireEvent.click(open))
@@ -247,12 +274,12 @@ describe("Hub expanded frontend flows", () => {
       target: { value: "Stakeholder review" },
     })
     await router.settle(() =>
-      fireEvent.click(screen.getByRole("button", { name: "Create mock share link" })),
+      fireEvent.click(screen.getByRole("button", { name: "Create share link" })),
     )
     const heading = await screen.findByRole("heading", { name: "Stakeholder review" })
     const row = heading.closest("li")
     if (!row) throw new Error("The created link must be listed with its controls.")
-    const open = within(row).getByRole("link", { name: "Open local preview" })
+    const open = within(row).getByRole("link", { name: "Open" })
     expect(open).not.toHaveAttribute("target", "_blank")
     const sharedPath = new URL((open as HTMLAnchorElement).href).pathname
     const privateReads = vi.fn(() =>
@@ -261,7 +288,7 @@ describe("Hub expanded frontend flows", () => {
     server.use(http.get(`${store.origin}/api/workspace`, privateReads))
     fireEvent.click(screen.getByRole("button", { name: "Account menu for @octocat" }))
     await router.settle(() => fireEvent.click(screen.getByRole("menuitem", { name: "Sign out" })))
-    await screen.findByRole("button", { name: "Mock sign in as Octocat" })
+    await screen.findByRole("button", { name: "Sign in with GitHub" })
 
     await router.settle(() => router.navigate(sharedPath))
 
@@ -293,7 +320,7 @@ describe("Hub expanded frontend flows", () => {
     },
   )
 
-  it("retains a failed learning edit and shares a successful decision with recall, audit and the reader", async () => {
+  it("retains a failed learning edit and keeps the accepted wording in recall and audit across navigation", async () => {
     const store = createMockStore({ origin: window.location.origin })
     const server = setupServer(...createMockHandlers(store))
     const router = await renderHubFlow(server, "/settings/learnings?repositoryId=2001", {
@@ -303,7 +330,7 @@ describe("Hub expanded frontend flows", () => {
       name: "Keep a visible label above every form field.",
     })
     fireEvent.click(within(suggestion).getByRole("button", { name: "Edit and accept" }))
-    const wording = within(suggestion).getByRole("textbox", { name: "Mock guidance wording" })
+    const wording = within(suggestion).getByRole("textbox", { name: "Wording agents get" })
     fireEvent.change(wording, { target: { value: "Use a visible label on every field." } })
     const failedReads = vi.fn(() =>
       HttpResponse.json({ error: "Loaded settings are unavailable." }, { status: 503 }),
@@ -333,23 +360,36 @@ describe("Hub expanded frontend flows", () => {
     ).toBeInTheDocument()
     expect(
       screen
-        .getAllByRole("region", { name: "Mock recall preview" })
+        .getAllByRole("region", { name: "What an agent gets" })
         .map((region) => region.textContent)
         .join("\n"),
     ).toContain("Use a visible label on every field.")
     await router.settle(() => router.navigate("/settings/audit?repositoryId=2001"))
-    expect(await screen.findByRole("cell", { name: "learning-decide" })).toBeInTheDocument()
-    const profileForm = new FormData()
-    profileForm.set("profile", "reader")
-    await act(async () =>
-      router.fetch("reader-profile", "root", "/session", {
-        formMethod: "post",
-        formData: profileForm,
-      }),
-    )
+    const audit = await screen.findByRole("table", { name: "Security audit" })
+    const latest = within(audit).getAllByRole("row")[1]
+    if (!latest) throw new Error("The new learning decision must have an audit row.")
+    expect(within(latest).getByRole("cell", { name: "learning-decide" })).toBeInTheDocument()
     await router.settle(() => router.navigate("/settings/learnings?repositoryId=2001"))
     expect(
       await screen.findByRole("article", { name: "Use a visible label on every field." }),
+    ).toBeInTheDocument()
+    expect(screen.getAllByRole("button", { name: "Retire" }).length).toBeGreaterThan(0)
+  })
+
+  it("lets a reader inspect learnings without offering decisions or accepting a forged decision", async () => {
+    const store = createMockStore({ origin: window.location.origin })
+    store.session.select("reader")
+    const query = settingsQuerySchema.parse({ repositoryId: 2001 })
+    const learning = store.settings
+      .getWorkspace(query)
+      .learnings.find((item) => item.state === "suggested")
+    if (!learning) throw new Error("The reader must have a suggested learning to inspect.")
+    const server = setupServer(...createMockHandlers(store))
+    await renderHubFlow(server, "/settings/learnings?repositoryId=2001", { workspaceRoutes })
+    expect(
+      await screen.findByRole("article", {
+        name: learning.content,
+      }),
     ).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "Retire" })).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "Accept" })).not.toBeInTheDocument()
@@ -359,53 +399,111 @@ describe("Hub expanded frontend flows", () => {
       body: JSON.stringify({
         operation: "learning-decide",
         repositoryId: 2001,
-        learningId: "mock-learning-2",
+        learningId: learning.id,
         decision: "accept",
-        digest: "mock:v1",
+        digest: learning.digest,
       }),
     })
     expect(forbidden.status).toBe(403)
     expect(
-      store.settings
-        .getWorkspace(settingsQuerySchema.parse({ repositoryId: 2001 }))
-        .learnings.find((item) => item.id === "mock-learning-2"),
-    ).toMatchObject({ state: "suggested", version: 1 })
+      store.settings.getWorkspace(query).learnings.find((item) => item.id === learning.id),
+    ).toEqual(learning)
   })
 
   it("keeps inbox read state when opening its real seeded conversation and returning", async () => {
     const store = createMockStore({ origin: window.location.origin })
     const server = setupServer(...createMockHandlers(store))
     const router = await renderHubFlow(server, "/notifications", { workspaceRoutes })
-    const message = within(screen.getByRole("region", { name: "Inbox" })).getByRole("link", {
-      name: /A visible label would make this field easier to use\./,
-    })
+    const notification = store.settings
+      .getWorkspace(settingsQuerySchema.parse({}))
+      .notifications.items.find((item) => !item.read)
+    if (!notification) throw new Error("The inbox needs an unread activity.")
+    const message = (
+      await within(screen.getByRole("region", { name: "Inbox" })).findAllByRole("link")
+    ).find(
+      (link) =>
+        new URL((link as HTMLAnchorElement).href).searchParams.get("notification") ===
+        String(notification.id),
+    )
+    if (!message) throw new Error("The unread activity must have its conversation link.")
     const row = message.closest("li")
     if (!row) throw new Error("An inbox item must have its own read-state control.")
     await router.settle(() =>
-      fireEvent.click(within(row).getByRole("button", { name: "Mark as read: mona" })),
+      fireEvent.click(
+        within(row).getByRole("button", { name: `Mark as read: ${notification.actor.login}` }),
+      ),
     )
-    expect(within(row).getByRole("button", { name: "Mark as unread: mona" })).toBeEnabled()
+    expect(
+      within(row).getByRole("button", { name: `Mark as unread: ${notification.actor.login}` }),
+    ).toBeEnabled()
 
     await router.settle(() => fireEvent.click(within(row).getByRole("link")))
 
     const conversation = screen.getByRole("dialog", { name: "Conversation" })
-    expect(
-      within(conversation).getByText("Could we make the welcome heading clearer?"),
-    ).toBeVisible()
-    expect(new URLSearchParams(router.state.location.search).get("build")).toBe("3")
-    expect(new URLSearchParams(router.state.location.search).get("comment")).toBe("1")
+    expect(conversation).toBeVisible()
+    const target = new URL(notification.path, store.origin)
+    expect(router.state.location.pathname).toBe(target.pathname)
+    expect(new URLSearchParams(router.state.location.search).get("build")).toBe(
+      target.searchParams.get("build"),
+    )
+    expect(new URLSearchParams(router.state.location.search).get("comment")).toBe(
+      String(notification.target.threadId),
+    )
     await router.go(-1)
-    const returned = within(screen.getByRole("region", { name: "Inbox" })).getByRole("link", {
-      name: /A visible label would make this field easier to use\./,
-    })
+    const returned = (
+      await within(screen.getByRole("region", { name: "Inbox" })).findAllByRole("link")
+    ).find(
+      (link) =>
+        new URL((link as HTMLAnchorElement).href).searchParams.get("notification") ===
+        String(notification.id),
+    )
+    if (!returned) throw new Error("The returned inbox must contain the same activity.")
     const returnedRow = returned.closest("li")
     if (!returnedRow) throw new Error("The returned inbox item must retain its controls.")
-    expect(within(returnedRow).getByRole("button", { name: "Mark as unread: mona" })).toBeEnabled()
+    expect(
+      within(returnedRow).getByRole("button", {
+        name: `Mark as unread: ${notification.actor.login}`,
+      }),
+    ).toBeEnabled()
   })
 
-  it("abandons a delayed Welcome dismissal without changing either viewer's saved navigation", async () => {
+  it("loads the remaining inbox page without duplicate activity and resets pagination for unread filtering", async () => {
     const store = createMockStore({ origin: window.location.origin })
-    const initiatingRevision = store.session.read().revision
+    const server = setupServer(...createMockHandlers(store))
+    const first = store.settings.getWorkspace(settingsQuerySchema.parse({}))
+    const second = store.settings.getWorkspace(settingsQuerySchema.parse({ page: 2 }))
+    const unread = store.settings.getWorkspace(settingsQuerySchema.parse({ unread: "true" }))
+    const router = await renderHubFlow(server, "/notifications", { workspaceRoutes })
+    const inbox = screen.getByRole("region", { name: "Inbox" })
+    expect(await within(inbox).findAllByRole("link")).toHaveLength(50)
+
+    await router.settle(() => fireEvent.click(screen.getByRole("button", { name: "Load more" })))
+
+    const links = within(inbox).getAllByRole<HTMLAnchorElement>("link")
+    const ids = links.map((link) => new URL(link.href).searchParams.get("notification"))
+    const expected = [...first.notifications.items, ...second.notifications.items]
+    expect(ids).toEqual(expected.map(({ id }) => String(id)))
+    expect(new Set(ids).size).toBe(ids.length)
+    expect(screen.queryByRole("button", { name: "Load more" })).not.toBeInTheDocument()
+
+    await router.settle(() =>
+      fireEvent.click(within(inbox).getByRole("button", { name: "Unread" })),
+    )
+
+    expect(
+      (
+        await within(
+          screen.getByRole("region", { name: "Inbox" }),
+        ).findAllByRole<HTMLAnchorElement>("link")
+      ).map((link) => new URL(link.href).searchParams.get("notification")),
+    ).toEqual(unread.notifications.items.map(({ id }) => String(id)))
+    expect(
+      within(screen.getByRole("region", { name: "Inbox" })).getByRole("button", { name: "Unread" }),
+    ).toHaveAttribute("aria-pressed", "true")
+  })
+
+  it("abandons a delayed Welcome dismissal on sign-out without saving hidden navigation", async () => {
+    const store = createMockStore({ origin: window.location.origin })
     const server = setupServer(...createMockHandlers(store))
     const mutationStarted = vi.fn()
     server.events.on("request:start", ({ request }) => {
@@ -413,7 +511,7 @@ describe("Hub expanded frontend flows", () => {
         mutationStarted()
       }
     })
-    const router = await renderHubFlow(server, "/welcome?mockScenario=loading", { workspaceRoutes })
+    const router = await renderHubFlow(server, "/welcome", { workspaceRoutes })
     const hide = await screen.findByRole("button", { name: "Hide welcome" })
     const nativeFetch = globalThis.fetch
     vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
@@ -431,41 +529,22 @@ describe("Hub expanded frontend flows", () => {
     fireEvent.click(hide)
     await waitFor(() => expect(mutationStarted).toHaveBeenCalledOnce())
     expect(store.settings.getNavigationState().welcomeHidden).toBe(false)
-    const readerForm = new FormData()
-    readerForm.set("profile", "reader")
-
-    await act(async () =>
-      router.fetch("reader-profile", "root", "/session", {
+    const signOut = new FormData()
+    signOut.set("intent", "sign-out")
+    await router.settle(() =>
+      router.navigate("/session", {
         formMethod: "post",
-        formData: readerForm,
+        formData: signOut,
       }),
     )
-    await screen.findByRole("button", { name: "Account menu for @mona" })
+    await screen.findByRole("button", { name: "Sign in with GitHub" })
     await new Promise((resolve) => window.setTimeout(resolve, 1600))
-    const queuedWrite = await nativeFetch(`${store.origin}/api/settings/actions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Replica-Mock-Session-Revision": String(initiatingRevision),
-      },
-      body: JSON.stringify({ operation: "welcome-hide" }),
-    })
-    expect(queuedWrite.status).toBe(409)
-    const readerHidden = store.settings.getNavigationState().welcomeHidden
-    const ownerForm = new FormData()
-    ownerForm.set("profile", "owner")
-    await act(async () =>
-      router.fetch("owner-profile", "root", "/session", {
-        formMethod: "post",
-        formData: ownerForm,
-      }),
+    await router.settle(() =>
+      fireEvent.click(screen.getByRole("button", { name: "Sign in with GitHub" })),
     )
     await screen.findByRole("button", { name: "Account menu for @octocat" })
 
-    expect({
-      reader: readerHidden,
-      owner: store.settings.getNavigationState().welcomeHidden,
-    }).toEqual({ reader: false, owner: false })
+    expect(store.settings.getNavigationState().welcomeHidden).toBe(false)
   }, 15_000)
 
   it.each(["/settings/learnings?repositoryId=2001", "/settings/sessions"])(
@@ -475,19 +554,16 @@ describe("Hub expanded frontend flows", () => {
       const server = setupServer(...createMockHandlers(store))
       const router = await renderHubFlow(server, path, { workspaceRoutes, publicRoutes })
       if (path === "/settings/sessions") {
-        fireEvent.click(await screen.findByRole("button", { name: "Sign out of mock session" }))
+        fireEvent.click(await screen.findByRole("button", { name: "Sign out" }))
       } else {
         fireEvent.click(await screen.findByRole("button", { name: "Account menu for @octocat" }))
         fireEvent.click(screen.getByRole("menuitem", { name: "Sign out" }))
       }
       await router.settle()
 
-      expect(
-        await screen.findByRole("button", { name: "Mock sign in as Octocat" }),
-      ).toBeInTheDocument()
+      expect(await screen.findByRole("button", { name: "Sign in with GitHub" })).toBeInTheDocument()
       expect(router.state.location.pathname).toBe("/sign-in")
       expect(store.session.read().viewer).toBeNull()
-      expect(screen.queryByText("Choose a known mock profile.")).not.toBeInTheDocument()
     },
   )
 
@@ -502,22 +578,20 @@ describe("Hub expanded frontend flows", () => {
     const router = await renderHubFlow(server, "/settings/sessions", { publicRoutes })
     fireEvent.click(
       await screen.findByRole("checkbox", {
-        name: "I understand this ends only the current mock browser session.",
+        name: "I understand this will end everyone's sessions, including my own.",
       }),
     )
     await router.settle(() =>
-      fireEvent.click(screen.getByRole("button", { name: "End mock browser session" })),
+      fireEvent.click(screen.getByRole("button", { name: "End all sessions" })),
     )
 
     expect(
-      await screen.findByRole("heading", { name: "Mock browser session ended" }),
+      await screen.findByRole("heading", { name: "All existing Hub sessions ended" }),
     ).toBeInTheDocument()
     expect(router.state.location.pathname).toBe("/settings/sessions")
     expect(store.session.read().viewer).toBeNull()
     expect(privateReads).not.toHaveBeenCalled()
     expect(store.product.getPublicShare("demo-active").state).toBe("active")
-    expect(
-      screen.queryByRole("button", { name: "End mock browser session" }),
-    ).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "End all sessions" })).not.toBeInTheDocument()
   })
 })

@@ -16,8 +16,6 @@ import { createPreviewPrototypePrompt } from "@utils/create-preview-prototype-pr
 
 import type { ReplicaBrowsePageProps } from "./types"
 
-import "./styles.css"
-
 export function ReplicaBrowsePage({
   data,
   iframeRef,
@@ -31,7 +29,6 @@ export function ReplicaBrowsePage({
   onOpenApp,
   onCreate,
   busy = false,
-  mockNotice,
 }: ReplicaBrowsePageProps) {
   const [localMinimized, setLocalMinimized] = useState(initialMinimized)
   const [controlsToolbar, setControlsToolbar] = useState<HTMLSpanElement | null>(null)
@@ -129,13 +126,6 @@ export function ReplicaBrowsePage({
               : undefined
           }
         >
-          {mockNotice ? (
-            <HubAlert
-              className="replica-browse__mock-notice"
-              title={mockNotice}
-              variant="success"
-            />
-          ) : null}
           <div className={`review-page${minimized ? " review-page--minimized" : ""}`}>
             <Stack gap="none" className="review-shell" padding="none">
               {data.selectedBuild ? (

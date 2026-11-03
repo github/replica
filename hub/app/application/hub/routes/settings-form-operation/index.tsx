@@ -10,14 +10,18 @@ export function settingsFormOperation(
   function field(name: string) {
     const value = form.get(name)
     if (value !== null && typeof value !== "string") {
-      throw new Response("File uploads are not accepted by this mock flow.", { status: 422 })
+      throw new Response("File submission is not connected yet. No request was sent.", {
+        status: 501,
+      })
     }
     return value ?? ""
   }
 
   for (const name of form.keys()) {
     if (/secret|credentials|private_key/.test(name)) {
-      throw new Response("This simulation does not accept credentials.", { status: 422 })
+      throw new Response("Credential submission is not connected yet. No request was sent.", {
+        status: 501,
+      })
     }
   }
   function numberField(name: string) {
@@ -107,9 +111,6 @@ export function settingsFormOperation(
       break
     case "github-register":
       requirePath("/settings/github/register", ["post"])
-      if (field("manifest") !== '{"name":"Replica Hub mock","mock":true}') {
-        throw new Response("Only the synthetic App manifest is accepted.", { status: 422 })
-      }
       input = { operation: "github-register" }
       break
     case "github-installed":
@@ -137,7 +138,7 @@ export function settingsFormOperation(
           confirmation: field("confirmation"),
         }
       } else {
-        throw new Response("Choose an explicit simulated App change.", { status: 422 })
+        throw new Response("Choose an App change.", { status: 422 })
       }
       break
     }
@@ -178,9 +179,9 @@ export function settingsFormOperation(
       requirePath("/settings/learnings", ["post"])
       const operation = source.searchParams.get("operation")
       input =
-        operation === "run" || operation === "advance"
+        operation === "run"
           ? {
-              operation: operation === "run" ? "learning-run" : "learning-advance",
+              operation: "learning-run",
               repositoryId,
             }
           : {
@@ -192,7 +193,7 @@ export function settingsFormOperation(
               content: form.has("content") ? field("content") : undefined,
               reason: form.has("reason") ? field("reason") : undefined,
             }
-      if (operation && operation !== "run" && operation !== "advance") {
+      if (operation && operation !== "run") {
         throw new Response("Unknown learning operation.", { status: 422 })
       }
       break
@@ -217,7 +218,7 @@ export function settingsFormOperation(
           : { operation: "session-revoke", confirmed }
       break
     case "audit":
-      throw new Response("The mock audit is read-only.", { status: 405 })
+      throw new Response("The security audit is read-only.", { status: 405 })
   }
   const parsed = settingsOperationSchema.safeParse(input)
   if (!parsed.success) {

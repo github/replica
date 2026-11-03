@@ -1,5 +1,4 @@
 type SharedData = {
-  simulation?: boolean
   pageTitle: string
   productName: string
   heading: string

@@ -44,20 +44,11 @@ export function AnalyticsPage({ data }: { data: AnalyticsPageData }) {
           <Text as="p" className="analytics-page__description">
             {copy.description}
           </Text>
-          <Text
-            as="p"
-            className={`analytics-page__privacy${data.simulation ? " analytics-page__mock-notice" : ""}`}
-          >
+          <Text as="p" className="analytics-page__privacy">
             {copy.privacy}
           </Text>
           {data.alert ? <HubAlert title={data.alert} variant="critical" /> : null}
-          {data.notice ? (
-            <HubAlert
-              title={data.notice}
-              variant="success"
-              className={data.simulation ? "analytics-page__mock-notice" : undefined}
-            />
-          ) : null}
+          {data.notice ? <HubAlert title={data.notice} variant="success" /> : null}
           <div className="analytics-page__section-header">
             <Heading as="h2" size="5">
               {copy.destinations}
@@ -151,27 +142,14 @@ export function AnalyticsPage({ data }: { data: AnalyticsPageData }) {
                       ))}
                     </Select>
                   </FormControl>
-                  {provider === "custom" && data.simulation ? (
-                    <>
-                      <FormControl id={`${prefix}-name`} required fullWidth>
-                        <FormControl.Label>{copy.customName}</FormControl.Label>
-                        <TextInput
-                          name="destination[name]"
-                          defaultValue={destination?.provider === "custom" ? destination.name : ""}
-                          maxLength={64}
-                          disabled={data.readOnly}
-                          required
-                        />
-                      </FormControl>
-                      <Text as="p">{copy.customEndpointHelp}</Text>
-                    </>
-                  ) : provider === "custom" ? (
+                  {provider === "custom" ? (
                     <CustomFields
                       key={destination?.id ?? "new-custom"}
                       destination={destination?.provider === "custom" ? destination : undefined}
                       prefix={prefix}
                       copy={copy}
                       authenticationHeaders={data.authenticationHeaders}
+                      disabled={data.readOnly}
                     />
                   ) : (
                     <>
@@ -193,35 +171,35 @@ export function AnalyticsPage({ data }: { data: AnalyticsPageData }) {
                       </FormControl>
                       {destination ? <Text as="p">{copy.rotation}</Text> : null}
                       {provider === "mixpanel" ? <Text as="p">{copy.mixpanelHelp}</Text> : null}
-                      {!data.simulation &&
-                        (provider === "segment"
-                          ? [{ key: "write_key", label: copy.writeKey }]
-                          : [
-                              {
-                                key: "service_account_username",
-                                label: copy.serviceAccountUsername,
-                              },
-                              { key: "service_account_secret", label: copy.serviceAccountSecret },
-                              { key: "project_id", label: copy.projectId },
-                            ]
-                        ).map(({ key, label }) => (
-                          <FormControl
-                            key={key}
-                            id={`${prefix}-${key}`}
+                      {(provider === "segment"
+                        ? [{ key: "write_key", label: copy.writeKey }]
+                        : [
+                            {
+                              key: "service_account_username",
+                              label: copy.serviceAccountUsername,
+                            },
+                            { key: "service_account_secret", label: copy.serviceAccountSecret },
+                            { key: "project_id", label: copy.projectId },
+                          ]
+                      ).map(({ key, label }) => (
+                        <FormControl
+                          key={key}
+                          id={`${prefix}-${key}`}
+                          required={!destination}
+                          fullWidth
+                        >
+                          <FormControl.Label>{label}</FormControl.Label>
+                          <TextInput
+                            aria-label={label}
+                            type="password"
+                            autoComplete="new-password"
+                            name={`destination[credentials][${key}]`}
+                            maxLength={1024}
                             required={!destination}
-                            fullWidth
-                          >
-                            <FormControl.Label>{label}</FormControl.Label>
-                            <TextInput
-                              aria-label={label}
-                              type="password"
-                              autoComplete="new-password"
-                              name={`destination[credentials][${key}]`}
-                              maxLength={1024}
-                              required={!destination}
-                            />
-                          </FormControl>
-                        ))}
+                            disabled={data.readOnly}
+                          />
+                        </FormControl>
+                      ))}
                     </>
                   )}
                   <fieldset className="analytics-page__events">

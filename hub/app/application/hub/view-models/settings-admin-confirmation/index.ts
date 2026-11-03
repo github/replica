@@ -12,18 +12,17 @@ export function settingsAdminConfirmation(
   userId: number,
   operation: "designate" | "revoke",
 ): HubAdminConfirmationPageData {
-  if (userId !== 1 && userId !== 2)
-    throw new Error("An unknown synthetic administrator reached this presentation.")
+  if (userId !== 1 && userId !== 2) throw new Error("The requested Hub user is unavailable.")
   const login = userId === 1 ? "octocat" : "mona"
   const user = state.administrators.users.find((entry) => entry.id === userId)
   const heading =
-    operation === "designate" ? "Add mock administrator?" : "Remove mock administrator?"
+    operation === "designate" ? "Designate Hub administrator?" : "Remove Hub administrator?"
   const blockedLabel = !state.session.capabilities.administerHub
-    ? "This mock profile cannot change the roster."
+    ? "Only a current Hub administrator can change administrator roles."
     : operation === "revoke" && state.administrators.users.length === 1 && user
-      ? "Keep one administrator in this demonstration fixture. This is not a production permission policy."
+      ? "The final Hub administrator cannot be removed. Designate another existing Hub user first."
       : (operation === "designate") === !!user
-        ? "The mock roster already changed. Return to the roster and review the current state."
+        ? "This user's role already changed. Review their current role and confirm again. No role changes were made."
         : null
   return {
     ...settingsAdministration(
@@ -32,24 +31,24 @@ export function settingsAdminConfirmation(
       search,
       "admins",
       heading,
-      "Confirm this synthetic user's local roster change. Real roles and repository access stay unchanged.",
+      operation === "designate"
+        ? "This user will be able to designate and remove Hub administrators and read deployment security records. Their GitHub repository permissions will not change."
+        : "This user will lose Hub administrator controls and deployment security records. Their GitHub repository permissions will not change. Removing your own role takes effect immediately.",
     ),
     pageTitle: heading,
     target: {
       login,
       name: user?.name ?? (userId === 1 ? "The Octocat" : "Mona Lisa"),
-      identity: `Synthetic Hub user ${userId}; no GitHub identity check`,
+      identity: `Hub user ${userId}`,
     },
     operation,
     submitPath: resourcePath(`/settings/admins/${userId}/${operation}`, search),
-    submitLabel: operation === "designate" ? "Add mock administrator" : "Remove mock administrator",
-    confirmLabel: "I confirm this local mock roster change.",
+    submitLabel: operation === "designate" ? "Designate administrator" : "Remove administrator",
+    confirmLabel: "I confirm this Hub administrator role change.",
     cancelLabel: "Cancel",
     cancelPath: resourcePath("/settings/admins", search),
     verification:
-      login === workspace.viewer.login && operation === "revoke"
-        ? "Removing Octocat returns this browser to the Owner mock profile."
-        : "This confirmation does not contact an identity provider.",
+      "A role change requires GitHub to have verified this browser's account within the last five minutes. If verification is required, Hub continues your confirmed change after it succeeds.",
     blockedLabel,
   }
 }

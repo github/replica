@@ -2,7 +2,6 @@ import type { GithubAppSetupHeaderData } from "@features/github-app-setup-header
 import type { HubAdministrationWorkspaceData } from "@features/hub-administration-workspace/types"
 
 export interface FreshAuthorizationPageData extends GithubAppSetupHeaderData {
-  simulation?: boolean
   canContinue?: boolean
   administrationWorkspace?: HubAdministrationWorkspaceData | null
   pageTitle: string

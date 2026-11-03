@@ -1,7 +1,5 @@
 import type { z } from "zod"
 
-import { readRouteQuery } from "../../read-route-query"
-import { mockScenarioHeaders } from "../../requests/mock-scenario-headers"
 import { requestJson } from "../../requests/request-json"
 
 export function requestProductJson<T>(
@@ -14,6 +12,5 @@ export function requestProductJson<T>(
     method: mutation?.method ?? "GET",
     body: mutation?.body === undefined ? undefined : JSON.stringify(mutation.body),
     signal: request.signal,
-    headers: mockScenarioHeaders(readRouteQuery(request).mockScenario),
   })
 }

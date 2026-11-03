@@ -2,22 +2,21 @@ import { z } from "zod"
 
 import { NOTIFICATION_SCHEMA } from "@utils/notification/schemas"
 
-import { mockScenarioSchema, repositorySchema, userSchema } from "../contracts"
+import { repositorySchema, userSchema } from "../contracts"
 import { sessionResponseSchema } from "../session-contracts"
 
 const identifier = z.number().int().positive()
-const confirmed = z.literal(true, { error: "Confirm the simulated change before continuing." })
+const confirmed = z.literal(true, { error: "Confirm the change before continuing." })
 const timestamp = z.iso.datetime({ offset: true })
 
 export const settingsQuerySchema = z.object({
   repositoryId: z.coerce.number().int().positive().optional(),
   unread: z.enum(["true", "false"]).default("false"),
-  limit: z.coerce.number().int().min(1).max(50).default(2),
+  limit: z.coerce.number().int().min(1).max(50).default(50),
   page: z.coerce.number().int().min(1).max(1000).default(1),
   scope: z.enum(["repository", "hub"]).default("repository"),
   q: z.string().trim().max(100).default(""),
   change: z.enum(["credentials", "rotation", "reset"]).optional(),
-  mockScenario: mockScenarioSchema.default("normal"),
 })
 
 export const analyticsEventSchema = z.enum([
@@ -31,7 +30,7 @@ export const analyticsConfigurationSchema = z
     provider: z.enum(["segment", "mixpanel", "custom"]),
     region: z.enum(["us", "eu", "in", "custom"]),
     name: z.string().trim().max(64).default(""),
-    eventTypes: z.array(analyticsEventSchema).min(1, "Choose at least one sample event.").max(3),
+    eventTypes: z.array(analyticsEventSchema).min(1, "Choose at least one event.").max(3),
     history: z.enum(["new", "retained"]),
   })
   .strict()
@@ -39,7 +38,7 @@ export const analyticsConfigurationSchema = z
     if (value.provider === "custom" && (!value.name || value.region !== "custom")) {
       context.addIssue({
         code: "custom",
-        message: "Give the custom simulation a name and use the custom region.",
+        message: "Give the custom destination a name and use the custom region.",
       })
     }
     if (value.provider !== "custom" && value.region === "custom") {
@@ -67,27 +66,29 @@ export const canvasGrantSchema = z.object({
 
 export const githubConfigurationSchema = z.object({
   state: z.enum(["not-configured", "ready", "registered", "installed"]),
-  organization: z.literal("github"),
+  organization: z.string().trim().min(1).max(100),
   version: z.number().int().nonnegative(),
   rotation: z.enum(["idle", "pending", "confirmed"]),
   credentialRevision: z.number().int().nonnegative(),
 })
 
-export const mockAdministratorSchema = z.object({
+export const administratorSchema = z.object({
   id: identifier,
-  login: z.enum(["octocat", "mona"]),
+  login: z.string().min(1),
   name: z.string().nullable(),
 })
 
 export const settingsCandidateResponseSchema = z.object({
-  users: z.array(mockAdministratorSchema),
+  users: z.array(administratorSchema),
   more: z.boolean(),
 })
 
 export const learningRecordSchema = z.object({
-  id: z.string().regex(/^mock-learning-\d+$/),
+  id: z.string().min(1),
   repositoryId: identifier,
   content: z.string().trim().min(1).max(2000),
+  digest: z.string().min(1),
+  evidenceId: z.string().min(1),
   version: identifier,
   state: z.enum(["suggested", "accepted", "rejected", "retired"]),
   decidedBy: z.string().nullable(),
@@ -112,10 +113,9 @@ export const settingsAuditEventSchema = z.object({
 })
 
 export const authorizationContinuationSchema = z.object({
-  id: z.string().regex(/^mock-continuation-\d+$/),
+  id: z.string().min(1),
   operation: z.enum(["copilot-connect", "copilot-disconnect", "enroll"]),
   viewerLogin: z.string().min(1),
-  sessionRevision: z.number().int().nonnegative(),
 })
 
 export const settingsPublicResponseSchema = z.object({
@@ -132,10 +132,14 @@ export const settingsWorkspaceResponseSchema = settingsPublicResponseSchema.exte
   welcomeHidden: z.boolean(),
   analytics: z.array(analyticsDestinationSchema),
   grants: z.array(canvasGrantSchema),
+  canvasApproval: z.object({
+    code: z.string().min(1),
+    consentVersion: z.string().min(1),
+  }),
   copilot: z.object({ connected: z.boolean(), connectedBy: z.string().nullable() }),
   administrators: z.object({
     accessDenied: z.boolean(),
-    users: z.array(mockAdministratorSchema),
+    users: z.array(administratorSchema),
   }),
   learnings: z.array(learningRecordSchema),
   learningRuns: z.array(learningRunSchema),
@@ -178,13 +182,18 @@ export const settingsOperationSchema = z.discriminatedUnion("operation", [
     .object({
       operation: z.literal("canvas-approve"),
       repositoryId: identifier,
-      consentVersion: z.literal("mock-v1"),
+      consentVersion: z.string().min(1),
     })
     .strict(),
   z.object({ operation: z.literal("canvas-revoke"), grantId: identifier }).strict(),
   z.object({ operation: z.literal("copilot-connect"), confirmed }).strict(),
   z.object({ operation: z.literal("copilot-disconnect"), confirmed }).strict(),
-  z.object({ operation: z.literal("github-setup"), organization: z.literal("github") }).strict(),
+  z
+    .object({
+      operation: z.literal("github-setup"),
+      organization: z.string().trim().min(1).max(100),
+    })
+    .strict(),
   z.object({ operation: z.literal("github-register") }).strict(),
   z.object({ operation: z.literal("github-install") }).strict(),
   z
@@ -206,9 +215,7 @@ export const settingsOperationSchema = z.discriminatedUnion("operation", [
     .object({
       operation: z.literal("github-reset"),
       expectedVersion: z.number().int().nonnegative(),
-      confirmation: z.literal("delete mock GitHub App configuration", {
-        error: "Type delete mock GitHub App configuration to reset the fixture.",
-      }),
+      confirmation: z.string().min(1, "Enter the confirmation phrase."),
       confirmed,
     })
     .strict(),
@@ -252,7 +259,6 @@ export const settingsOperationSchema = z.discriminatedUnion("operation", [
     })
     .strict(),
   z.object({ operation: z.literal("learning-run"), repositoryId: identifier }).strict(),
-  z.object({ operation: z.literal("learning-advance"), repositoryId: identifier }).strict(),
   z
     .object({
       operation: z.literal("notification-read"),
@@ -286,7 +292,9 @@ export type LearningRecord = z.infer<typeof learningRecordSchema>
 export type LearningRunRecord = z.infer<typeof learningRunSchema>
 export type SettingsAuditEvent = z.infer<typeof settingsAuditEventSchema>
 export type SettingsActionResult =
-  { saved: true; notice: string; revision: number } | { saved: false; error: string }
+  | { saved: true; notice: string; revision: number }
+  | { saved: false; error: string }
+  | { saved: false; unavailable: true }
 
 export type SettingsSection =
   | "analytics"

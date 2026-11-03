@@ -1,4 +1,4 @@
-import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
+import { fireEvent, screen, waitFor, within } from "@testing-library/react"
 import { http, HttpResponse } from "msw"
 import { setupServer } from "msw/node"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
@@ -69,14 +69,11 @@ describe("Hub prototype review flow", () => {
     expect(await within(reopened).findByRole("textbox", { name: "Reply" })).toBeEnabled()
   }, 20_000)
 
-  // Failure, scenario navigation and retry have exceeded the 5s Windows case budget.
+  // Failure and retry have exceeded the 5s Windows case budget.
   it("retains a failed reply draft and permits a retry without destructive loader revalidation", async () => {
     const store = createMockStore({ origin: window.location.origin })
     const server = setupServer(...createMockHandlers(store))
-    const router = await renderHubFlow(
-      server,
-      "/repositories/2001/prototypes/1?mockScenario=save-error",
-    )
+    const router = await renderHubFlow(server, "/repositories/2001/prototypes/1?build=3")
     fireEvent.click(screen.getByRole("button", { name: /^Comments, 1/ }))
     await router.settle(() =>
       fireEvent.click(
@@ -127,11 +124,6 @@ describe("Hub prototype review flow", () => {
     expect(failedReads).not.toHaveBeenCalled()
     expect(screen.getByTitle("Welcome, Build 3 preview")).toBeInTheDocument()
     server.resetHandlers()
-    const normal = new URLSearchParams(router.state.location.search)
-    normal.delete("mockScenario")
-    await router.settle(() =>
-      router.navigate(`${router.state.location.pathname}?${normal.toString()}`),
-    )
     expect(screen.getByRole("dialog", { name: "Conversation" })).toBe(conversation)
     expect(reply).toHaveValue("Keep this review draft.")
     await router.settle(() =>
@@ -256,7 +248,7 @@ describe("Hub prototype review flow", () => {
     expect(reviewReads).toHaveBeenCalledTimes(readsBeforeFiltering)
   })
 
-  it("cancels a delayed reply on a profile change before it can change the next session's records", async () => {
+  it("cancels a delayed reply when its review screen is left before saving", async () => {
     const store = createMockStore({ origin: window.location.origin })
     const server = setupServer(...createMockHandlers(store))
     const replyStarted = vi.fn()
@@ -303,21 +295,13 @@ describe("Hub prototype review flow", () => {
     fireEvent.click(within(conversation).getByRole("button", { name: "Reply" }))
     await waitFor(() => expect(replyStarted).toHaveBeenCalledOnce())
 
-    const profileForm = new FormData()
-    profileForm.set("profile", "admin")
-    await act(async () =>
-      router.fetch("session-change", "root", "/session", {
-        formMethod: "post",
-        formData: profileForm,
-      }),
-    )
+    await router.settle(() => router.navigate("/repositories/2001"))
     expect(
       within(await screen.findByRole("region", { name: "Prototypes" })).getByRole("link", {
         name: "Welcome",
       }),
     ).toBeInTheDocument()
     await waitFor(() => expect(replySignal?.aborted).toBe(true))
-    expect(store.session.read().profile).toBe("admin")
     expect(conversation).not.toBeInTheDocument()
     await new Promise((resolve) => window.setTimeout(resolve, 1600))
     expect(commitReply).not.toHaveBeenCalled()

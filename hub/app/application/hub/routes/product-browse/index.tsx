@@ -121,7 +121,7 @@ export default function ProductBrowseRoute({
       notice={result?.saved ? result.notice : null}
       feedback={
         result?.saved && result.prototypePath ? (
-          <a href={result.prototypePath}>Open created mock prototype</a>
+          <a href={result.prototypePath}>Open prototype</a>
         ) : null
       }
       onSubmit={(input) => {

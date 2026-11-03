@@ -1,7 +1,6 @@
 import type { HubWorkspaceData } from "@features/hub-workspace/types"
 
 export interface WelcomePageData {
-  mockNotice?: string | null
   workspace: HubWorkspaceData
   heading: string
   description: string

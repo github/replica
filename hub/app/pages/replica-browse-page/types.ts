@@ -46,5 +46,4 @@ export interface ReplicaBrowsePageProps {
   onOpenApp?: (url: string) => void
   onCreate?: (brief: string) => void
   busy?: boolean
-  mockNotice?: string
 }

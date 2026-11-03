@@ -34,21 +34,11 @@ type Story = StoryObj<typeof meta>
 
 export const Default: Story = { name: "Full viewport" }
 
-export const MockPreview: Story = {
-  args: {
-    data: {
-      ...meta.args.data,
-      mockNotice: "Synthetic local shared preview. No Build was hosted or published.",
-    },
-  },
-}
-
 const unavailableData = {
-  frameTitle: "Expired local preview",
-  label: "Expired mock review",
+  frameTitle: "Shared preview unavailable",
+  label: "Partner review",
   pageTitle: "Expired shared preview",
   productName: "Replica Hub",
-  mockNotice: "Synthetic local shared preview. No Build was hosted or published.",
 }
 
 export const Expired: Story = {
@@ -57,7 +47,7 @@ export const Expired: Story = {
       ...unavailableData,
       unavailable: {
         heading: "This link has expired",
-        description: "Ask the prototype owner for a new local share link.",
+        description: "Ask the prototype owner for a new share link.",
       },
     },
   },
@@ -69,7 +59,7 @@ export const Revoked: Story = {
       ...unavailableData,
       unavailable: {
         heading: "This link was revoked",
-        description: "This local link cannot be restored. Ask the owner for a new link.",
+        description: "This link cannot be restored. Ask the owner for a new link.",
       },
     },
   },
@@ -81,7 +71,7 @@ export const SharingDisabled: Story = {
       ...unavailableData,
       unavailable: {
         heading: "Public sharing is disabled",
-        description: "This mock Hub does not currently allow shared previews.",
+        description: "This Hub does not currently allow shared previews.",
       },
     },
   },

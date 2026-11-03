@@ -26,14 +26,12 @@ export function NewPrototypePage({
   onCreate,
   busy = false,
   submissionDisabled = false,
-  mockNotice,
 }: {
   data: NewPrototypePageData
   onOpenApp?: (url: string) => void
   onCreate?: (input: { brief: string; description: string; templateId: string }) => void
   busy?: boolean
   submissionDisabled?: boolean
-  mockNotice?: string
 }) {
   const headingId = useId()
   const detailsHeadingId = useId()
@@ -171,9 +169,6 @@ export function NewPrototypePage({
     <RepositoryWorkspace data={data}>
       <div className="new-prototype">
         <div className="new-prototype__content">
-          {mockNotice ? (
-            <HubAlert className="new-prototype__mock-notice" title={mockNotice} variant="success" />
-          ) : null}
           <Heading
             as="h1"
             size="5"

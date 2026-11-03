@@ -12,6 +12,7 @@ import { onTestFailed, onTestFinished, vi } from "vitest"
 import { HubThemeProvider } from "@hooks/use-hub-theme"
 
 import HubRoot, { clientLoader as loadSession, ErrorBoundary, HydrateFallback } from "../../root"
+import MockToolbar from "../../mocks/toolbar"
 import BuildRoute, { clientLoader as loadBuild } from "../build"
 import BuildHistoryRoute, { clientLoader as loadBuildHistory } from "../build-history"
 import HomeRoute, { clientLoader as loadHome } from "../home"
@@ -24,8 +25,23 @@ import { clientAction as changeSession } from "../session"
 import SignInRoute, { clientLoader as loadSignIn } from "../sign-in"
 import WorkspaceRoute, { clientLoader as loadWorkspace } from "../workspace"
 
-function RootComponent() {
-  return <HubRoot loaderData={useLoaderData<typeof loadSession>()} />
+function RootComponent({ withTools = false }: { withTools?: boolean }) {
+  const session = useLoaderData<typeof loadSession>()
+  return (
+    <>
+      {withTools ? <MockToolbar /> : null}
+      <HubRoot loaderData={session} />
+    </>
+  )
+}
+
+function ErrorWithTools() {
+  return (
+    <>
+      <MockToolbar />
+      <ErrorBoundary />
+    </>
+  )
 }
 
 function WorkspaceComponent() {
@@ -60,23 +76,40 @@ export async function renderHubFlow(
   {
     publicRoutes = [],
     workspaceRoutes = [],
-  }: { publicRoutes?: RouteObject[]; workspaceRoutes?: RouteObject[] } = {},
+    withTools = false,
+  }: { publicRoutes?: RouteObject[]; workspaceRoutes?: RouteObject[]; withTools?: boolean } = {},
 ) {
   vi.stubEnv("MODE", "development")
   server.listen({ onUnhandledRequest: "error" })
   const pendingRequests = new Map<string, string>()
+  const pendingAbortListeners = new Map<string, { signal: AbortSignal; abort: () => void }>()
   const idleListeners = new Set<() => void>()
   let disposed = false
   function notify() {
     idleListeners.forEach((listener) => listener())
   }
+  function finishRequest(requestId: string) {
+    const pending = pendingAbortListeners.get(requestId)
+    if (pending) pending.signal.removeEventListener("abort", pending.abort)
+    pendingAbortListeners.delete(requestId)
+    pendingRequests.delete(requestId)
+    notify()
+  }
   server.events.on("request:start", ({ request, requestId }) => {
     pendingRequests.set(requestId, `${request.method} ${request.url}`)
+    if (request.signal.aborted) {
+      finishRequest(requestId)
+      return
+    }
+    function abort() {
+      finishRequest(requestId)
+    }
+    pendingAbortListeners.set(requestId, { signal: request.signal, abort })
+    request.signal.addEventListener("abort", abort, { once: true })
     notify()
   })
   server.events.on("request:end", ({ requestId }) => {
-    pendingRequests.delete(requestId)
-    notify()
+    finishRequest(requestId)
   })
   window.history.replaceState(null, "", initialEntry)
   const router = createBrowserRouter(
@@ -84,8 +117,8 @@ export async function renderHubFlow(
       {
         id: "root",
         loader: loadSession,
-        Component: RootComponent,
-        ErrorBoundary,
+        Component: () => <RootComponent withTools={withTools} />,
+        ErrorBoundary: withTools ? ErrorWithTools : ErrorBoundary,
         HydrateFallback,
         children: [
           { index: true, loader: loadHome, Component: HomeRoute },
@@ -225,14 +258,19 @@ export async function renderHubFlow(
     )
   })
   const view = render(<RouterProvider router={router} />, { wrapper: HubThemeProvider })
-  onTestFinished(() => {
+  function close() {
+    if (disposed) return
     view.unmount()
     router.dispose()
     unsubscribe()
     disposed = true
+    pendingAbortListeners.forEach(({ signal, abort }) => signal.removeEventListener("abort", abort))
+    pendingAbortListeners.clear()
+    pendingRequests.clear()
     notify()
     server.close()
-  })
+  }
+  onTestFinished(close)
   await settle()
-  return Object.assign(router, { settle, go })
+  return Object.assign(router, { settle, go, close })
 }

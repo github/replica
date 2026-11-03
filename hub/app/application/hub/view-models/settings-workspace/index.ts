@@ -30,11 +30,11 @@ export function settingsWorkspace(
     lightThemeLabel: "Light",
     productName: "Replica Hub",
     navigationLabel: "Hub navigation",
-    settingsNavigationLabel: "Mock Hub settings",
+    settingsNavigationLabel: "Security and settings",
     selectedSection,
     repositoriesLabel: "Repositories",
     repositoriesPath: "/",
-    signOutLabel: "Sign out of mock session",
+    signOutLabel: "Sign out",
     signOutPath: "/session",
     systemThemeLabel: "System",
     welcomeLabel: "Welcome",
@@ -61,7 +61,7 @@ export function settingsWorkspace(
       ? [
           { section: "admins", label: "Hub administrators", path: path("/settings/admins") },
           { section: "sharing", label: "Public sharing", path: path("/admin/sharing") },
-          { section: "sessions", label: "Mock browser session", path: path("/settings/sessions") },
+          { section: "sessions", label: "End all Hub sessions", path: path("/settings/sessions") },
           { section: "github", label: "GitHub App", path: path("/settings/github") },
           { section: "copilot", label: "Copilot", path: path("/settings/copilot") },
         ]

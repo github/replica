@@ -59,6 +59,7 @@ export const paginationSchema = z.object({
 
 export const workspaceCapabilitiesSchema = z.object({
   createPrototypes: z.boolean(),
+  reviewPrototypes: z.boolean(),
   manageSharing: z.boolean(),
   administerHub: z.boolean(),
 })
@@ -123,25 +124,12 @@ export const prototypeDetailsSchema = z
 
 export const apiErrorSchema = z.object({ error: z.string().min(1) })
 
-export const mockScenarios = [
-  "normal",
-  "loading",
-  "empty",
-  "forbidden",
-  "server-error",
-  "invalid-response",
-  "save-error",
-] as const
-
-export const mockScenarioSchema = z.enum(mockScenarios)
-
 export const routeQuerySchema = z.object({
   q: z.string().trim().max(200).default(""),
   author: z.string().trim().max(100).default(""),
   page: z.coerce.number().int().positive().default(1),
   view: z.enum(["gallery", "list"]).default("gallery"),
   build: z.coerce.number().int().positive().optional(),
-  mockScenario: mockScenarioSchema.default("normal"),
 })
 
 export type UserRecord = z.infer<typeof userSchema>
@@ -157,6 +145,4 @@ export type BuildHistoryResponse = z.infer<typeof buildHistoryResponseSchema>
 export type AuthorResults = z.infer<typeof authorResultsSchema>
 export type PrototypeDetails = z.infer<typeof prototypeDetailsSchema>
 export type RouteQuery = z.infer<typeof routeQuerySchema>
-export type MockScenario = (typeof mockScenarios)[number]
-
 export type PrototypeActionResult = { saved: true } | { saved: false; error: string }

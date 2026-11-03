@@ -20,11 +20,13 @@ export function CustomFields({
   prefix,
   copy,
   authenticationHeaders,
+  disabled = false,
 }: {
   destination?: Extract<AnalyticsDestination, { provider: "custom" }>
   prefix: string
   copy: AnalyticsPageData["copy"]
   authenticationHeaders: AnalyticsPageData["authenticationHeaders"]
+  disabled?: boolean
 }) {
   const config = destination?.customConfig
   const [name, setName] = useState(destination?.name ?? "")
@@ -100,6 +102,7 @@ export function CustomFields({
           onChange={(event) => setName(event.target.value)}
           maxLength={64}
           required
+          disabled={disabled}
         />
       </FormControl>
       <FormControl id={`${prefix}-endpoint`} required fullWidth>
@@ -116,6 +119,7 @@ export function CustomFields({
           placeholder={copy.customEndpointExample}
           maxLength={2048}
           required
+          disabled={disabled}
         />
       </FormControl>
       <Text as="p">{copy.customEndpointHelp}</Text>
@@ -133,6 +137,7 @@ export function CustomFields({
           maxLength={8192}
           rows={4}
           required
+          disabled={disabled}
         />
       </FormControl>
       <Text as="p" className="analytics-page__hint">
@@ -158,6 +163,7 @@ export function CustomFields({
           maxLength={16384}
           rows={8}
           required
+          disabled={disabled}
         />
       </FormControl>
       <div className="analytics-page__preview">
@@ -165,7 +171,7 @@ export function CustomFields({
         <Text as="p">{copy.customPreviewHelp}</Text>
         <pre aria-label={copy.customPreview}>{preview ?? copy.customPreviewInvalid}</pre>
       </div>
-      <fieldset className="analytics-page__events">
+      <fieldset className="analytics-page__events" disabled={disabled}>
         <legend>{copy.customSecrets}</legend>
         {secrets.map((secret, index) => (
           <div className="analytics-page__secret" key={secret.id}>
@@ -246,6 +252,7 @@ export function CustomFields({
             setKeepPending(false)
           }}
           maxLength={128}
+          disabled={disabled}
         />
       </FormControl>
       {pointer ? (
@@ -261,6 +268,7 @@ export function CustomFields({
             }}
             maxLength={512}
             required
+            disabled={disabled}
           />
         </FormControl>
       ) : null}
@@ -273,6 +281,7 @@ export function CustomFields({
                 name="destination[keep_pending]"
                 value="1"
                 checked={keepPending}
+                disabled={disabled}
                 onChange={(event) => setKeepPending(event.target.checked)}
               />
               <FormControl.Label>{copy.customKeepPending}</FormControl.Label>

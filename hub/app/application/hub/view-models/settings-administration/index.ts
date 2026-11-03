@@ -25,13 +25,11 @@ export function settingsAdministration(
     auditPath: resourcePath("/settings/audit", search),
     repositoriesLabel: "Repositories",
     repositoriesPath: "/",
-    signOutLabel: "Sign out of mock session",
+    signOutLabel: "Sign out",
     signOutPath: "/session",
     authenticityToken: "",
     notice: null,
-    alert: admin
-      ? null
-      : "This mock profile does not include Hub administrator controls. No production permission policy is implied.",
+    alert: admin ? null : "Your account is not a current Hub administrator.",
     hubAdminsLabel: "Hub administrators",
     hubAdminsPath: resourcePath("/settings/admins", search),
     sharingSettingsLabel: "Public sharing",
@@ -40,7 +38,7 @@ export function settingsAdministration(
     githubAppPath: resourcePath("/settings/github", search),
     copilotConnectionLabel: "Copilot",
     copilotConnectionPath: resourcePath("/settings/copilot", search),
-    sessionRevocationLabel: "Mock browser session",
+    sessionRevocationLabel: "End all Hub sessions",
     sessionRevocationPath: resourcePath("/settings/sessions", search),
   }
 }

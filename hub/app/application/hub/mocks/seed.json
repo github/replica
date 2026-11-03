@@ -63,7 +63,7 @@
       "previewUrl": null,
       "desktopScreenshotUrl": null,
       "narrowScreenshotUrl": null,
-      "failureSummary": "The synthetic build command exited with code 1."
+      "failureSummary": "Type checking failed in src/components/welcome-form.tsx."
     },
     {
       "number": 1,

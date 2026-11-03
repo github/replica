@@ -145,21 +145,17 @@ export const LocalEmpty: Story = {
   },
 }
 
-export const MockForkCreated: Story = {
+export const CreatingFromTemplate: Story = {
   args: Template.args,
-  render: function MockForkStory(args) {
+  render: function CreatingFromTemplateStory(args) {
     const { resolvedColorMode } = useHubTheme()
-    const [created, setCreated] = useState(false)
+    const [creating, setCreating] = useState(false)
     return (
       <ReplicaBrowsePage
         {...args}
         previewTheme={resolvedColorMode}
-        mockNotice={
-          created
-            ? "Mock prototype created from this template. No GitHub operation ran."
-            : undefined
-        }
-        onCreate={() => setCreated(true)}
+        busy={creating}
+        onCreate={() => setCreating(true)}
       />
     )
   },

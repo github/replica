@@ -1,6 +1,5 @@
 import { useRef } from "react"
 
-import { HubAlert } from "@components/hub-alert"
 import { HubEmptyState } from "@components/hub-empty-state"
 import { BuildControls } from "@features/build-controls"
 
@@ -12,8 +11,7 @@ import "./styles.css"
 export function SharedBuildsShowPage({ data }: { data: SharedBuildsShowPageData }) {
   const frame = useRef<HTMLIFrameElement>(null)
   return (
-    <main className="shared-build" data-notice={Boolean(data.mockNotice)}>
-      {data.mockNotice ? <HubAlert title={data.mockNotice} variant="warning" /> : null}
+    <main className="shared-build">
       {data.unavailable ? (
         <div className="shared-build__unavailable">
           <HubEmptyState

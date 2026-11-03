@@ -203,27 +203,16 @@ export const ClearedDetails: Story = {
   },
 }
 
-export const MockCreated: Story = {
-  args: { data: { ...data, copy: { ...data.copy, submitLabel: "Create mock prototype" } } },
-  render: function MockCreatedStory(args) {
-    const [created, setCreated] = useState(false)
-    return (
-      <NewPrototypePage
-        {...args}
-        mockNotice={
-          created
-            ? "Mock prototype created locally. No code, branch, or workflow changed."
-            : undefined
-        }
-        onCreate={() => setCreated(true)}
-      />
-    )
+export const Creating: Story = {
+  render: function CreatingStory(args) {
+    const [creating, setCreating] = useState(false)
+    return <NewPrototypePage {...args} busy={creating} onCreate={() => setCreating(true)} />
   },
   play: async ({ canvas, userEvent }) => {
     await userEvent.type(
       canvas.getByRole("textbox", { name: data.copy.heading }),
       "Compare two build layouts",
     )
-    await userEvent.click(canvas.getByRole("button", { name: "Create mock prototype" }))
+    await userEvent.click(canvas.getByRole("button", { name: data.copy.submitLabel }))
   },
 }

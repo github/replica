@@ -69,12 +69,7 @@ export function CanvasPairingsPage({ data }: { data: CanvasPairingsPageData }) {
             <>
               {data.notice ? <HubAlert title={data.notice} variant="success" /> : null}
               {data.createPath && data.createLabel ? (
-                <Button
-                  as="a"
-                  href={data.createPath}
-                  variant="primary"
-                  className={data.simulation ? "canvas-pairings__mock-control" : undefined}
-                >
+                <Button as="a" href={data.createPath} variant="primary">
                   {data.createLabel}
                 </Button>
               ) : null}

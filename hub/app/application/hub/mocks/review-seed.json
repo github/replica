@@ -6,5 +6,61 @@
     "authorLogin": "mona",
     "body": "Could we make the welcome heading clearer?",
     "reply": "I will try a shorter heading."
+  },
+  {
+    "repositoryId": 2001,
+    "prototypeId": 4,
+    "buildNumber": 1,
+    "authorLogin": "avery-chen",
+    "body": "The project status should remain visible while scrolling the summary.",
+    "reply": "I moved the status beside the project name."
+  },
+  {
+    "repositoryId": 2001,
+    "prototypeId": 7,
+    "buildNumber": 1,
+    "authorLogin": "jordan-ellis",
+    "body": "Can we group pinned repositories before the rest of the list?",
+    "reply": "Pinned repositories now appear in their own section."
+  },
+  {
+    "repositoryId": 2001,
+    "prototypeId": 10,
+    "buildNumber": 1,
+    "authorLogin": "riley-patel",
+    "body": "The review status needs a text label as well as a color.",
+    "reply": "Each pull request now includes a review status label."
+  },
+  {
+    "repositoryId": 2001,
+    "prototypeId": 13,
+    "buildNumber": 1,
+    "authorLogin": "sam-rivera",
+    "body": "Could the issue summary show the assignee and milestone together?",
+    "reply": "Both fields now appear below the issue title."
+  },
+  {
+    "repositoryId": 2001,
+    "prototypeId": 16,
+    "buildNumber": 1,
+    "authorLogin": "taylor-brooks",
+    "body": "Keep the accepted answer easy to find in a long discussion.",
+    "reply": "The accepted answer is linked from the discussion header."
+  },
+  {
+    "repositoryId": 2001,
+    "prototypeId": 19,
+    "buildNumber": 1,
+    "authorLogin": "morgan-reed",
+    "body": "The team overview could use a clearer ownership summary.",
+    "reply": "I added the team owners and a link to their responsibilities."
+  },
+  {
+    "repositoryId": 2001,
+    "prototypeId": 25,
+    "buildNumber": 1,
+    "authorLogin": "casey-wong",
+    "body": "Please include the release date beside the version.",
+    "reply": "Release dates are now shown in the list and details."
   }
 ]

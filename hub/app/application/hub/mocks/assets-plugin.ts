@@ -6,9 +6,9 @@ import type { Plugin } from "vite"
 const require = createRequire(import.meta.url)
 
 export function mockAssetsPlugin(): Plugin {
-  const root = resolve(import.meta.dirname, "app/application/hub/mocks/assets")
+  const root = resolve(import.meta.dirname, "assets")
   const bridgeSource = readFileSync(
-    resolve(import.meta.dirname, "app/features/install-replica-preview-bridge/index.js"),
+    resolve(import.meta.dirname, "../../../features/install-replica-preview-bridge/index.js"),
     "utf8",
   )
   const assets = new Map([

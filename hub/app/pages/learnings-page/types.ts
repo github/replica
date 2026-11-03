@@ -45,7 +45,6 @@ export interface LearningRun {
 }
 
 export interface LearningsPageData extends RepositoryWorkspaceData {
-  simulationRun?: boolean
   canDecide?: boolean
   pageTitle: string
   alert: string | null

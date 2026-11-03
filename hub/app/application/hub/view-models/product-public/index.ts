@@ -8,7 +8,6 @@ export function productPublicData(response: ProductPublicResponse): SharedBuilds
     label: response.label,
     pageTitle: `${response.label} · Shared prototype`,
     productName: "Replica Hub",
-    mockNotice: "Synthetic local shared preview. No Build was hosted or published.",
   }
   if (response.state === "active") {
     return {
@@ -20,15 +19,15 @@ export function productPublicData(response: ProductPublicResponse): SharedBuilds
   const feedback = {
     expired: {
       heading: "This link has expired",
-      description: "Ask the prototype owner for a new local share link.",
+      description: "Ask the prototype owner for a new share link.",
     },
     revoked: {
       heading: "This link was revoked",
-      description: "This local link cannot be restored. Ask the owner for a new link.",
+      description: "This link cannot be restored. Ask the owner for a new link.",
     },
     disabled: {
       heading: "Public sharing is disabled",
-      description: "This mock Hub does not currently allow shared previews.",
+      description: "This Hub does not currently allow shared previews.",
     },
   }
   return { ...common, unavailable: feedback[response.state] }

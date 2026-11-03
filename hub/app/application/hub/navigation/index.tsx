@@ -5,6 +5,8 @@ import { Button } from "@primer/react-brand"
 
 import { HubAlert } from "@components/hub-alert"
 
+import { reportClientIssue } from "../report-client-issue"
+
 import "./styles.css"
 
 export function HubNavigation({
@@ -103,7 +105,7 @@ export function HubNavigation({
       onSignOut()
       return
     }
-    setBlockedAction("This action is not connected in the frontend yet. No request was sent.")
+    reportClientIssue("This action is not connected yet. No request was sent.")
   }
 
   return (

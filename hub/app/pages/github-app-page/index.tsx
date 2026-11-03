@@ -19,13 +19,7 @@ export function GithubAppPage({ data }: { data: GithubAppPageData }) {
           {paragraph}
         </Text>
       ))}
-      {data.busyLabel ? (
-        <HubAlert
-          variant="warning"
-          title={data.busyLabel}
-          className={form?.simulation ? "github-app-page__mock-notice" : undefined}
-        />
-      ) : null}
+      {data.busyLabel ? <HubAlert variant="warning" title={data.busyLabel} /> : null}
 
       {data.links.length ? (
         <div className="hub-administration-page__actions">
@@ -59,11 +53,7 @@ export function GithubAppPage({ data }: { data: GithubAppPageData }) {
               <input type="hidden" name="operation" value={form.operation} />
             ) : null}
 
-            {form.credentials && form.simulation ? (
-              <Text as="p" className="github-app-page__mock-notice">
-                {form.credentials.limits}
-              </Text>
-            ) : form.credentials ? (
+            {form.credentials ? (
               <>
                 <FormControl id="github-app-client-secret" required fullWidth>
                   <FormControl.Label>{form.credentials.secretLabel}</FormControl.Label>
@@ -114,12 +104,7 @@ export function GithubAppPage({ data }: { data: GithubAppPageData }) {
             </label>
 
             <div className="hub-administration-page__actions">
-              <Button
-                type="submit"
-                variant="primary"
-                disabled={form.disabled}
-                className={form.simulation ? "github-app-page__mock-control" : undefined}
-              >
+              <Button type="submit" variant="primary" disabled={form.disabled}>
                 {form.submitLabel}
               </Button>
             </div>

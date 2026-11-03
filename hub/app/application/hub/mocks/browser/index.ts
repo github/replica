@@ -2,23 +2,48 @@ import { setupWorker } from "msw/browser"
 
 import { createMockHandlers } from "../create-handlers"
 import { createMockStore } from "../create-store"
+import { mockDiagnostics } from "../diagnostics"
 
 export async function startMockApi(): Promise<void> {
+  mockDiagnostics.initialize()
   const store = createMockStore({ origin: window.location.origin })
+  store.session.select(mockDiagnostics.getSnapshot().profile)
   const worker = setupWorker(...createMockHandlers(store))
+  worker.events.on("response:mocked", ({ request, response }) => {
+    const url = new URL(request.url)
+    if (
+      url.origin !== store.origin ||
+      (!url.pathname.startsWith("/api/") && !/^\/notifications\/\d+$/.test(url.pathname))
+    )
+      return
+    if (url.pathname === "/api/session" && response.ok) {
+      mockDiagnostics.selectProfile(store.session.read().profile)
+    }
+    if (!["GET", "HEAD"].includes(request.method) || response.status >= 400) {
+      mockDiagnostics.report(
+        `${request.method} ${url.pathname}: HTTP ${response.status}. Local data only.`,
+      )
+    }
+  })
   try {
     await worker.start({
       serviceWorker: { url: `${import.meta.env.BASE_URL}mockServiceWorker.js` },
       onUnhandledRequest(request, print) {
         const url = new URL(request.url)
         if (url.origin === window.location.origin && url.pathname.startsWith("/api/")) {
+          mockDiagnostics.report(
+            `No mock response is configured for ${request.method} ${url.pathname}.`,
+          )
           print.error()
         }
       },
     })
   } catch (error) {
     worker.stop()
+    mockDiagnostics.report("The local API could not start. Check the browser console and retry.")
     throw error
   }
-  import.meta.hot?.dispose(() => worker.stop())
+  import.meta.hot?.dispose(() => {
+    worker.stop()
+  })
 }

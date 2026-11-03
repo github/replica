@@ -182,8 +182,8 @@ export const InactiveLinks: Story = {
     data: {
       ...data,
       inactiveShareLinks: [
-        { id: 2, label: "Expired mock review", stateLabel: "Expired", url: "/shared/demo-expired" },
-        { id: 3, label: "Revoked mock review", stateLabel: "Revoked", url: "/shared/demo-revoked" },
+        { id: 2, label: "Expired review", stateLabel: "Expired", url: "/shared/demo-expired" },
+        { id: 3, label: "Previous review", stateLabel: "Revoked", url: "/shared/demo-revoked" },
       ],
     },
   },
@@ -194,20 +194,20 @@ export const ReadOnly: Story = {
     data: {
       ...data,
       canManage: false,
-      readOnlyLabel: "This mock profile can view links but cannot create or revoke them.",
+      readOnlyLabel:
+        "You can view share links, but you do not have permission to create or delete them.",
       shareLinks: [shareLink],
     },
   },
 }
 
-export const MockCreated: Story = {
+export const Created: Story = {
   args: {
     data: {
       ...data,
       openInNewTab: false,
-      mockNotice:
-        "Mock share link created for Build 1. This link works only in the current local mock session.",
-      shareLinks: [{ ...shareLink, url: "/shared/local-4" }],
+      notice: "Share link created.",
+      shareLinks: [shareLink],
     },
   },
 }

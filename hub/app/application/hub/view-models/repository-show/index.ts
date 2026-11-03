@@ -31,7 +31,7 @@ export function repositoryShowData(
     alert: null,
     clearSearchLabel: "Clear search",
     emptyHeading: "No prototypes yet",
-    emptyLabel: "This repository has no prototypes in the local mock data.",
+    emptyLabel: "No prototypes have been added to Hub yet.",
     buildPrototypeLabel: "Build prototype",
     galleryViewLabel: "Gallery view",
     listViewLabel: "List view",

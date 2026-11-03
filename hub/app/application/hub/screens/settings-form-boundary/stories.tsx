@@ -11,7 +11,6 @@ const meta = {
   parameters: { layout: "fullscreen" },
   args: {
     busy: false,
-    mock: true,
     onSubmit: () => {},
     children: <LearningsPage data={learningsStory.args.data} />,
   },
@@ -21,9 +20,9 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Error: Story = {
-  args: { error: "The mock settings could not be saved. Retry with the controls below." },
+  args: { error: "The settings could not be saved. Try again." },
 }
 
 export const Success: Story = {
-  args: { notice: "Mock settings saved. No external service was contacted." },
+  args: { notice: "Settings saved." },
 }

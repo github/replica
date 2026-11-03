@@ -1,6 +1,5 @@
 import { prototypeResponseSchema } from "../../contracts"
 import { readRouteQuery } from "../../read-route-query"
-import { mockScenarioHeaders } from "../mock-scenario-headers"
 import { requestJson } from "../request-json"
 
 export function getPrototype(request: Request, repositoryId: number, prototypeId: number) {
@@ -10,6 +9,5 @@ export function getPrototype(request: Request, repositoryId: number, prototypeId
 
   return requestJson(url, prototypeResponseSchema, {
     signal: request.signal,
-    headers: mockScenarioHeaders(query.mockScenario),
   })
 }

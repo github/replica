@@ -20,19 +20,20 @@ export function settingsAudit(
       !hubScope && state.repository
         ? settingsRepositoryWorkspace(workspace, state, search, "audit")
         : undefined,
-    pageTitle: "Mock security audit",
+    pageTitle: "Security audit",
     heading: "Security audit",
-    description:
-      "Inspect local mock settings transitions. No external log, network address or real security event is collected.",
+    description: hubScope
+      ? "Deployment security actions. Repository records require that repository's GitHub admin permission."
+      : `Security actions for ${state.repository?.nameWithOwner ?? "this repository"}. Global setup and operator records are not included.`,
     notice: null,
-    scopeLabel: "Mock audit scope",
+    scopeLabel: "Audit scope",
     selectedScopeId: hubScope ? "hub" : String(state.repository?.id ?? "none"),
     scopes: [
       ...(state.session.capabilities.administerHub
         ? [
             {
               id: "hub",
-              label: "Hub fixture",
+              label: "Hub",
               path: resourcePath("/settings/audit", search, { scope: "hub" }),
             },
           ]
@@ -47,14 +48,13 @@ export function settingsAudit(
       })),
     ],
     scopesUnavailableMessage: state.audit.accessDenied
-      ? "This mock profile cannot read the selected audit fixture. No authorized records were returned."
+      ? "You do not have permission to view security records for this scope."
       : null,
-    retention:
-      "Records exist only in this browser's in-memory mock store. A reset or full reload discards them.",
+    retention: "Records are kept for 90 days and are never sent to analytics destinations.",
     emptyLabel: state.audit.accessDenied
-      ? "Mock audit access denied."
-      : "No mock settings changes in this scope.",
-    nextLabel: "Older mock changes",
+      ? "Security audit access denied."
+      : "No retained security actions.",
+    nextLabel: "Older actions",
     nextPath: state.audit.nextPage
       ? resourcePath("/settings/audit", search, {
           scope: state.audit.scope,
@@ -64,25 +64,25 @@ export function settingsAudit(
       : null,
     repositoriesLabel: "Repositories",
     repositoriesPath: "/",
-    signOutLabel: "Sign out of mock session",
+    signOutLabel: "Sign out",
     signOutPath: "/session",
     authenticityToken: "",
     columns: {
-      time: "Time",
-      action: "Mock action",
-      actor: "Synthetic user",
+      time: "Time (UTC)",
+      action: "Action",
+      actor: "Actor",
       ip: "Source IP",
-      context: "Mock outcome",
-      outcome: "Result",
+      context: "Device and connection",
+      outcome: "Outcome",
     },
     events: state.audit.events.map((event) => ({
       id: event.id,
       time: event.createdAt,
       action: event.operation,
       actor: event.actor,
-      ip: "Not collected",
+      ip: "Not available",
       context: event.context,
-      outcome: "Local fixture changed",
+      outcome: "Succeeded",
     })),
   }
 }

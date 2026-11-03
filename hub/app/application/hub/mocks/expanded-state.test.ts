@@ -132,28 +132,30 @@ describe("expanded mock state", () => {
     })
   })
 
-  it("rejects a previous session's confirmation and allows the next session to start afresh", () => {
+  it("rejects a discarded document's confirmation and lets the fresh world confirm its own change", () => {
     const store = createMockStore({ origin: window.location.origin })
     store.session.select("admin")
-    store.settings.mutate({ operation: "copilot-connect", confirmed: true })
+    store.settings.mutate({ operation: "copilot-disconnect", confirmed: true })
     const previous = store.settings.getPublic().continuation
-    if (!previous) throw new Error("Connecting the simulation must require a confirmation.")
-    store.session.select("reader")
-    store.session.select("admin")
+    if (!previous) throw new Error("The change must require a confirmation.")
+    const fresh = createMockStore({ origin: window.location.origin })
+    fresh.session.select("admin")
 
-    expect(store.settings.getPublic().continuation).toBeNull()
+    expect(fresh.settings.getPublic().continuation).toBeNull()
     expect(() =>
-      store.settings.mutate({ operation: "authorize", continuationId: previous.id }),
+      fresh.settings.mutate({ operation: "authorize", continuationId: previous.id }),
     ).toThrow(expect.objectContaining({ status: 409 }))
-    expect(store.settings.getWorkspace(settingsQuerySchema.parse({})).copilot.connected).toBe(false)
-    store.settings.mutate({ operation: "copilot-connect", confirmed: true })
+    expect(fresh.settings.getWorkspace(settingsQuerySchema.parse({})).copilot.connected).toBe(true)
+    fresh.settings.mutate({ operation: "copilot-disconnect", confirmed: true })
 
-    const current = store.settings.getPublic().continuation
+    const current = fresh.settings.getPublic().continuation
     expect(current).toMatchObject({
       viewerLogin: "octocat",
-      sessionRevision: store.session.read().revision,
+      operation: "copilot-disconnect",
     })
-    expect(current?.id).not.toBe(previous.id)
+    if (!current) throw new Error("The new change must have its own active confirmation.")
+    fresh.settings.mutate({ operation: "authorize", continuationId: current.id })
+    expect(fresh.settings.getWorkspace(settingsQuerySchema.parse({})).copilot.connected).toBe(false)
   })
 
   it("reseeds product, review, settings and viewer state for a new mock document", () => {
@@ -176,7 +178,7 @@ describe("expanded mock state", () => {
       state: "paused",
     })
     store.session.select("admin")
-    store.settings.mutate({ operation: "copilot-connect", confirmed: true })
+    store.settings.mutate({ operation: "copilot-disconnect", confirmed: true })
     store.session.select("reader")
 
     const fresh = createMockStore({ origin: window.location.origin })

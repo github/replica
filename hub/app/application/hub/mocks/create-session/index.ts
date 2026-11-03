@@ -1,12 +1,13 @@
 import type { UserRecord } from "../../contracts"
-import type { MockCapability, MockProfile, SessionResponse } from "../../session-contracts"
+import type { SessionResponse } from "../../session-contracts"
+import type { MockProfile } from "../contracts"
 import { MockStoreError } from "../store-error"
 
 export function createMockSession(users: UserRecord[], initialLogin: string) {
   let profile: MockProfile = "owner"
   let revision = 0
 
-  function read(): SessionResponse {
+  function read(): SessionResponse & { profile: MockProfile; revision: number } {
     const login = profile === "reader" ? "mona" : initialLogin
     const viewer = profile === "signed-out" ? null : users.find((user) => user.login === login)
     if (viewer === undefined) throw new Error("The selected mock user is missing from the fixture.")
@@ -16,6 +17,7 @@ export function createMockSession(users: UserRecord[], initialLogin: string) {
       revision,
       capabilities: {
         createPrototypes: profile === "owner" || profile === "admin",
+        reviewPrototypes: profile === "owner" || profile === "admin",
         manageSharing: profile === "owner" || profile === "admin",
         administerHub: profile === "admin",
       },
@@ -31,14 +33,14 @@ export function createMockSession(users: UserRecord[], initialLogin: string) {
     },
     requireViewer() {
       const viewer = read().viewer
-      if (!viewer) throw new MockStoreError(401, "Sign in with a mock user to continue.")
+      if (!viewer) throw new MockStoreError(401, "Sign in to continue.")
       return viewer
     },
-    requireCapability(capability: MockCapability) {
+    requireCapability(capability: keyof SessionResponse["capabilities"]) {
       const session = read()
-      if (!session.viewer) throw new MockStoreError(401, "Sign in with a mock user to continue.")
+      if (!session.viewer) throw new MockStoreError(401, "Sign in to continue.")
       if (!session.capabilities[capability]) {
-        throw new MockStoreError(403, "This mock profile cannot make that change.")
+        throw new MockStoreError(403, "You do not have permission to make that change.")
       }
       return session.viewer
     },

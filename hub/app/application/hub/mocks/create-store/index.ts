@@ -20,11 +20,11 @@ import type {
   WorkspaceResponse,
 } from "../../contracts"
 import { createMockSession } from "../create-session"
+import { createFixtureSeed } from "../create-fixture-seed"
 import type { MockFlowContext } from "../flow-context/types"
 import { createReviewStore } from "../create-review-store"
 import { createProductStore } from "../create-product-store"
 import { createSettingsStore } from "../create-settings-store"
-import seedData from "../seed.json"
 import { MockStoreError } from "../store-error"
 
 const seedSchema = z.object({
@@ -46,7 +46,7 @@ interface Options {
   seed?: unknown
 }
 
-export function createMockStore({ origin, seed = seedData }: Options) {
+export function createMockStore({ origin, seed = createFixtureSeed() }: Options) {
   const parsedOrigin = new URL(origin)
   if (!["http:", "https:"].includes(parsedOrigin.protocol)) {
     throw new Error("The mock API origin must use HTTP or HTTPS.")
@@ -125,8 +125,11 @@ export function createMockStore({ origin, seed = seedData }: Options) {
     }
   }
 
-  function paginate<T>(records: T[], page: number): { records: T[]; pagination: Pagination } {
-    const pageSize = 2
+  function paginate<T>(
+    records: T[],
+    page: number,
+    pageSize: number,
+  ): { records: T[]; pagination: Pagination } {
     const pageCount = Math.max(1, Math.ceil(records.length / pageSize))
     if (!Number.isInteger(page) || page < 1 || page > pageCount) {
       throw new MockStoreError(404, "Page not found.")
@@ -206,7 +209,7 @@ export function createMockStore({ origin, seed = seedData }: Options) {
           ),
         )
         .map(({ id }) => prototypeRecord(repositoryId, id))
-      const page = paginate(matches, query.page)
+      const page = paginate(matches, query.page, 24)
       return {
         repository,
         prototypes: page.records,
@@ -234,7 +237,7 @@ export function createMockStore({ origin, seed = seedData }: Options) {
     getBuildHistory(repositoryId: number, prototypeId: number, page = 1): BuildHistoryResponse {
       session.requireViewer()
       const prototype = prototypeRecord(repositoryId, prototypeId)
-      const selected = paginate(prototype.builds, page)
+      const selected = paginate(prototype.builds, page, 25)
       return {
         repository: repositoryRecord(repositoryId),
         prototype,
@@ -255,8 +258,9 @@ export function createMockStore({ origin, seed = seedData }: Options) {
       if (cursor !== null && previousIndex === -1) {
         throw new MockStoreError(400, "Unknown author cursor.")
       }
-      const page = authors.slice(previousIndex + 1, previousIndex + 3)
-      const next = authors.length > previousIndex + 3 ? page.at(-1) : undefined
+      const pageSize = 20
+      const page = authors.slice(previousIndex + 1, previousIndex + 1 + pageSize)
+      const next = authors.length > previousIndex + 1 + pageSize ? page.at(-1) : undefined
       return { authors: page, nextCursor: next?.id ?? null }
     },
 

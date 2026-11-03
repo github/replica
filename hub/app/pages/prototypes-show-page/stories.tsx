@@ -257,7 +257,7 @@ function PreviewOnlyStory(props: PrototypesShowPageProps | PrototypePreviewOnlyP
       review={undefined}
       previewBridge={bridge}
       previewTheme={resolvedColorMode}
-      reviewUnavailableLabel="Preview only. Reviews are not connected in this local frontend."
+      reviewUnavailableLabel="Review conversations are unavailable. Try reloading the page."
     />
   )
 }

@@ -18,12 +18,6 @@
   flex: none;
 }
 
-.settings-form-boundary--mock > [aria-busy] > [role="status"],
-.settings-form-boundary--mock > [aria-busy] > [role="alert"] {
-  outline: 2px solid var(--hub-mock-outline);
-  outline-offset: -2px;
-}
-
 .settings-form-boundary__content {
   position: relative;
   min-block-size: 0;

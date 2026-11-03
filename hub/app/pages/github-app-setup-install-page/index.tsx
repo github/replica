@@ -1,7 +1,8 @@
+import { Button, Stack } from "@primer/react-brand"
+
 import { GithubAppSetupHeader } from "@features/github-app-setup-header"
 import { GithubAppSetupPage } from "@features/github-app-setup-page"
 import type { GithubAppSetupInstallPageData } from "./types"
-import "./styles.css"
 
 /** Confirms that GitHub App creation and installation succeeded. */
 export function GithubAppSetupInstallPage({ data }: { data: GithubAppSetupInstallPageData }) {
@@ -12,13 +13,7 @@ export function GithubAppSetupInstallPage({ data }: { data: GithubAppSetupInstal
         <Stack direction="vertical" gap="normal">
           {data.submitPath && data.submitLabel ? (
             <form action={data.submitPath} method="post">
-              <Button
-                type="submit"
-                variant="primary"
-                disabled={data.canContinue === false}
-                className={data.simulation ? "setup-install__mock-control" : undefined}
-                block
-              >
+              <Button type="submit" variant="primary" disabled={data.canContinue === false} block>
                 {data.submitLabel}
               </Button>
             </form>
@@ -33,4 +28,3 @@ export function GithubAppSetupInstallPage({ data }: { data: GithubAppSetupInstal
     </GithubAppSetupPage>
   )
 }
-import { Button, Stack } from "@primer/react-brand"

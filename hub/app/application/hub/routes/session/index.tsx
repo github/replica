@@ -1,7 +1,8 @@
 import { redirect } from "react-router"
+import { z } from "zod"
 
 import type { Route } from "./+types/index"
-import { mockProfileSchema, sessionResponseSchema } from "../../session-contracts"
+import { sessionResponseSchema } from "../../session-contracts"
 import { requestJson } from "../../requests/request-json"
 
 export async function clientAction({ request }: Pick<Route.ClientActionArgs, "request">) {
@@ -9,14 +10,13 @@ export async function clientAction({ request }: Pick<Route.ClientActionArgs, "re
     throw new Response("Method not allowed.", { status: 405, headers: { Allow: "POST" } })
   }
   const form = await request.formData()
-  const profile = mockProfileSchema.safeParse(form.get("profile"))
-  if (!profile.success) throw new Response("Choose a known mock profile.", { status: 422 })
+  const intent = z.enum(["sign-in", "sign-out"]).safeParse(form.get("intent"))
+  if (!intent.success) throw new Response("Choose a valid session action.", { status: 422 })
   await requestJson(new URL("/api/session", request.url), sessionResponseSchema, {
-    method: "POST",
-    body: JSON.stringify({ profile: profile.data }),
+    method: intent.data === "sign-out" ? "DELETE" : "POST",
     signal: request.signal,
   })
-  return redirect(profile.data === "signed-out" ? "/sign-in" : "/")
+  return redirect(intent.data === "sign-out" ? "/sign-in" : "/")
 }
 
 export default function SessionRoute() {

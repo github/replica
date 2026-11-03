@@ -8,8 +8,6 @@ import { ShareControlSettings } from "@features/prototype-canvas-share-links/sha
 import { withControlQuery } from "@utils/prototype-controls-url/with-control-query"
 import type { useShareControlSettings } from "@hooks/use-prototype-share-control-settings"
 
-import "./styles.css"
-
 /** Creates and lists the active public links for one Prototype. */
 export function ShareLinksIndexPage({
   data,
@@ -22,7 +20,6 @@ export function ShareLinksIndexPage({
   controlSettings?: ReturnType<typeof useShareControlSettings>
   busy?: boolean
 }) {
-  const notice = data.mockNotice ?? data.notice
   return (
     <PrototypeWorkspace data={data}>
       <ShareLinksContent
@@ -32,13 +29,8 @@ export function ShareLinksIndexPage({
             {data.alert ? (
               <HubAlert title={data.alert} variant="critical" layout="compact" />
             ) : null}
-            {notice ? (
-              <HubAlert
-                className={data.mockNotice ? "share-links-index__mock-notice" : undefined}
-                title={notice}
-                variant="success"
-                layout="compact"
-              />
+            {data.notice ? (
+              <HubAlert title={data.notice} variant="success" layout="compact" />
             ) : null}
             {!data.publicSharingEnabled ? (
               <HubAlert title={data.disabledLabel} variant="warning" layout="compact" />

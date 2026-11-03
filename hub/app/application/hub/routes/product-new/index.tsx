@@ -105,10 +105,10 @@ export default function ProductNewRoute({ loaderData }: { loaderData: ProductCat
       feedback={
         createdPath || !loaderData.canCreate ? (
           <>
-            {createdPath ? <a href={createdPath}>Open created mock prototype</a> : null}
+            {createdPath ? <a href={createdPath}>Open prototype</a> : null}
             {!loaderData.canCreate ? (
               <HubAlert
-                title="This mock profile can browse templates but cannot create prototypes."
+                title="You do not have permission to create prototypes in this repository."
                 variant="warning"
               />
             ) : null}

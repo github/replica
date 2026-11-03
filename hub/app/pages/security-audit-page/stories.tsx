@@ -24,8 +24,7 @@ const data: SecurityAuditPageData = {
     { id: "2001", label: "github/prototype", path: "/repositories/2001/security_audit" },
     { id: "2002", label: "github/empty", path: "/repositories/2002/security_audit" },
   ],
-  retention:
-    "Records are kept for 90 days and are never sent to analytics destinations. Security acceptance of this retention period is pending.",
+  retention: "Records are kept for 90 days and are never sent to analytics destinations.",
   emptyLabel: "No retained security actions.",
   nextLabel: "Older actions",
   nextPath: null,

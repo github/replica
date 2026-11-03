@@ -14,7 +14,7 @@ export async function clientLoader({ request }: Pick<Route.ClientLoaderArgs, "re
 }
 
 export function meta() {
-  return [{ title: "Mock sign-in - Replica Hub" }]
+  return [{ title: "Replica Hub" }]
 }
 
 export default function SignInRoute() {
@@ -24,7 +24,7 @@ export default function SignInRoute() {
     <FlowFormBoundary
       busy={fetcher.state !== "idle"}
       onSubmit={() => {
-        void fetcher.submit({ profile: "owner" }, { method: "post", action: "/session" })
+        void fetcher.submit({ intent: "sign-in" }, { method: "post", action: "/session" })
       }}
     >
       <HomeIndexPage
@@ -33,15 +33,16 @@ export default function SignInRoute() {
           authenticityToken: "",
           alert: null,
           notice: null,
-          badge: "Local mock frontend",
-          badgeAlternate: "Explore with synthetic data",
-          heading: "Try Replica",
-          description: "Sign in as a synthetic user to explore this local frontend.",
-          signInLabel: "Mock sign in as Octocat",
+          badge: "Collaborative prototyping",
+          badgeAlternate: "Built for feedback",
+          heading: "Build and review prototypes with your team.",
+          description:
+            "Replica Hub turns GitHub branches into shareable prototypes where your team can review changes and leave feedback.",
+          signInLabel: "Sign in with GitHub",
           signInPath: "/session",
-          localMode: true,
-          pageTitle: "Mock sign-in - Replica Hub",
-          footerNote: "No credentials or real authentication. Reload resets the mock environment.",
+          localMode: false,
+          pageTitle: "Replica Hub",
+          footerNote: "\u00a9 2026 GitHub, Inc.",
           pauseAnimationLabel: "Pause animation",
           resumeAnimationLabel: "Resume animation",
         }}

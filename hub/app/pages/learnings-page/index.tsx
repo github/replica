@@ -28,11 +28,7 @@ export function LearningsPage({ data }: { data: LearningsPageData }) {
             data.run.available ? (
               <form action={data.run.path} method="post">
                 <input type="hidden" name="authenticity_token" value={data.authenticityToken} />
-                <Button
-                  type="submit"
-                  variant="secondary"
-                  className={data.simulationRun ? "learnings-page__mock-control" : undefined}
-                >
+                <Button type="submit" variant="secondary">
                   {copy.runLabel}
                 </Button>
               </form>

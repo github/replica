@@ -39,7 +39,7 @@ export function buildShowData(
     finishedLabel: build.finishedAt ? `Finished ${formatBuildTime(build.finishedAt)}` : undefined,
     heading: `Build ${build.number}`,
     pageTitle: `Build ${build.number} · ${data.prototype.name}`,
-    publicationHeading: build.previewUrl ? "Local preview" : undefined,
+    publicationHeading: build.previewUrl ? "Stored build output" : undefined,
     previewLabel: build.previewUrl ? "View prototype" : undefined,
     previewPath: build.previewUrl
       ? resourcePath(
@@ -47,9 +47,6 @@ export function buildShowData(
           search,
           { build: build.number },
         )
-      : undefined,
-    retainedSizeLabel: build.previewUrl
-      ? "Synthetic preview. No Build artifact is stored by this frontend."
       : undefined,
     screenshotsHeading: hasScreenshots ? "Screenshots" : undefined,
     desktopScreenshot: build.desktopScreenshotUrl

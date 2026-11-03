@@ -31,7 +31,7 @@ export function productSharingSettingsData(
     administrationLinks: [
       { section: "admins", label: "Hub administrators", path: "/settings/admins" },
       { section: "sharing", label: "Public sharing", path: "/admin/sharing" },
-      { section: "sessions", label: "Session revocation", path: "/settings/sessions" },
+      { section: "sessions", label: "End all Hub sessions", path: "/settings/sessions" },
       { section: "github", label: "GitHub App", path: "/settings/github" },
       { section: "copilot", label: "Copilot connection", path: "/settings/copilot" },
     ],
@@ -41,7 +41,7 @@ export function productSharingSettingsData(
   const common = {
     heading: "Public sharing",
     description:
-      "Control signed-out access to synthetic local previews. This is a mock setting, not production authorization or hosting.",
+      "Control anonymous access to shared prototype Builds. This setting does not grant repository access.",
     auditLabel: "Security audit",
     auditPath: "/settings/audit",
     sharingSettingsLabel: "Public sharing",
@@ -59,26 +59,24 @@ export function productSharingSettingsData(
       ...common,
       accessDenied: true,
       authenticatedWorkspace: navigation,
-      emptyLabel:
-        "Only the mock administrator profile can change sharing settings. Select Administrator in the mock controls.",
+      emptyLabel: "Only Hub administrators can view or change deployment sharing settings.",
     }
   }
   return {
     ...common,
     administrationWorkspace: navigation,
     accessDenied: false,
-    emptyLabel: "New local share links cannot be created until mock sharing is enabled.",
-    statusLabel: response.enabled
-      ? "Mock public sharing is enabled"
-      : "Mock public sharing is disabled",
+    emptyLabel:
+      "No public access is permitted until a Hub administrator explicitly enables sharing.",
+    statusLabel: response.enabled ? "Public sharing is enabled" : "Public sharing is disabled",
     operation: response.enabled ? "disable" : "enable",
     submitPath: "/admin/sharing",
-    submitLabel: response.enabled ? "Disable mock public sharing" : "Enable mock public sharing",
+    submitLabel: response.enabled ? "Disable public sharing" : "Enable public sharing",
     consequence: response.enabled
-      ? `All existing local share links will be permanently revoked (${response.activeLinkCount} currently active). Enabling later permits new links only.`
-      : "Anyone using a new local link in this mock session can view its fixed synthetic Build without signing in. Previously revoked links stay revoked.",
-    confirmLabel: "I understand and confirm this mock sharing change.",
+      ? "All existing share links will be permanently revoked, including open previews and pending handoffs. Enabling later permits new links only."
+      : "Anyone with a new share link can view its fixed Build without signing in. Previously revoked links stay revoked.",
+    confirmLabel: "I understand and confirm this deployment-wide change.",
     verification:
-      "This is a local mock confirmation. No GitHub verification, authentication, deployment, or token service is called.",
+      "This change requires GitHub verification within the last five minutes on this browser. If verification is required, Hub continues your confirmed change after it succeeds.",
   }
 }

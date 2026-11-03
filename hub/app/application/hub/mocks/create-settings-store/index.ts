@@ -1,6 +1,5 @@
-import type { InboxNotification } from "@utils/notification/types"
-
-import type { MockScenario } from "../../contracts"
+import type { MockScenario } from "../contracts"
+import { NOTIFICATION_SCHEMA } from "@utils/notification/schemas"
 import {
   settingsPublicResponseSchema,
   settingsWorkspaceResponseSchema,
@@ -10,7 +9,6 @@ import type {
   CanvasGrantRecord,
   LearningRecord,
   LearningRunRecord,
-  SettingsAuditEvent,
   SettingsMutationResponse,
   SettingsOperation,
   SettingsPublicResponse,
@@ -18,11 +16,11 @@ import type {
   SettingsWorkspaceResponse,
 } from "../../settings-contracts"
 import type { MockFlowContext } from "../flow-context/types"
+import { createSettingsFixtures } from "../create-settings-fixtures"
 import { MockStoreError } from "../store-error"
 
 export function createSettingsStore(context: MockFlowContext) {
   let revision = 0
-  let nextId = 10
   const hiddenWelcome = new Set<string>()
   const administrators = new Set(["octocat"])
   const candidates = (["octocat", "mona"] as const).map((login, index) => {
@@ -31,17 +29,6 @@ export function createSettingsStore(context: MockFlowContext) {
     return { id: index + 1, login, name: user.name }
   })
   const firstRepository = context.resources.repositories[0]
-  const firstPrototype = context.resources.prototypes.find(
-    (prototype) => prototype.repositoryId === firstRepository?.id,
-  )
-  const notificationBuild = context.resources.builds
-    .filter(
-      (build) =>
-        build.repositoryId === firstRepository?.id &&
-        build.prototypeId === firstPrototype?.id &&
-        build.state === "successful",
-    )
-    .sort((first, second) => second.number - first.number)[0]
   const destinations: AnalyticsDestinationRecord[] = firstRepository
     ? [
         {
@@ -62,27 +49,33 @@ export function createSettingsStore(context: MockFlowContext) {
   const learningRecords: LearningRecord[] = firstRepository
     ? [
         {
-          id: "mock-learning-1",
+          id: "learning-1",
           repositoryId: firstRepository.id,
           content: "Keep a visible label above every form field.",
+          digest: "1".padStart(64, "0"),
+          evidenceId: "review-event-1",
           version: 1,
           state: "suggested",
           decidedBy: null,
           reason: null,
         },
         {
-          id: "mock-learning-2",
+          id: "learning-2",
           repositoryId: firstRepository.id,
           content: "Explain the next step beside the primary action.",
+          digest: "2".padStart(64, "0"),
+          evidenceId: "review-event-2",
           version: 1,
           state: "suggested",
           decidedBy: null,
           reason: null,
         },
         {
-          id: "mock-learning-3",
+          id: "learning-3",
           repositoryId: firstRepository.id,
           content: "Use one primary action per form.",
+          digest: "3".padStart(64, "0"),
+          evidenceId: "review-event-3",
           version: 1,
           state: "accepted",
           decidedBy: "mona",
@@ -91,70 +84,30 @@ export function createSettingsStore(context: MockFlowContext) {
       ]
     : []
   const runs: LearningRunRecord[] = []
-  const auditEvents: SettingsAuditEvent[] = [
-    {
-      id: 1,
-      createdAt: "2026-10-30T12:00:00Z",
-      actor: "octocat",
-      operation: "mock-settings-created",
-      repositoryId: firstRepository?.id ?? null,
-      context: "Synthetic fixture initialized; no external service was contacted.",
-    },
-  ]
-  const notifications: Array<InboxNotification & { recipientLogin: string }> = []
-  if (firstRepository && firstPrototype) {
-    for (const [index, kind] of (["mention", "reply", "comment", "resolved"] as const).entries()) {
-      const id = index + 1
-      notifications.push({
-        id,
-        version: 0,
-        recipientLogin: "octocat",
-        actor: { login: "mona", name: "Mona Lisa", avatarUrl: null },
-        kind,
-        excerpt:
-          kind === "mention"
-            ? "Could you review the primary action, @octocat?"
-            : kind === "reply"
-              ? "The label now describes the next step."
-              : kind === "resolved"
-                ? "The mock review conversation is resolved."
-                : "A visible label would make this field easier to use.",
-        createdAt: `2026-10-30T12:0${index}:00Z`,
-        read: index === 3,
-        repository: firstRepository.nameWithOwner,
-        prototype: firstPrototype.name,
-        path: `/repositories/${firstRepository.id}/prototypes/${firstPrototype.id}?${notificationBuild ? `build=${notificationBuild.number}&` : ""}comment=1&notification=${id}`,
-        updatePath: `/notifications/${id}`,
-        target: { prototypeId: firstPrototype.id, threadId: 1, commentId: 1 },
-      })
-    }
-  }
+  const { auditEvents, notifications } = createSettingsFixtures(context)
+  let nextId =
+    Math.max(9, ...auditEvents.map(({ id }) => id), ...notifications.map(({ id }) => id)) + 1
   let github: SettingsPublicResponse["github"] = {
-    state: "not-configured",
+    state: "installed",
     organization: "github",
     version: 0,
     rotation: "idle",
     credentialRevision: 0,
   }
-  let copilot: SettingsWorkspaceResponse["copilot"] = { connected: false, connectedBy: null }
+  let copilot: SettingsWorkspaceResponse["copilot"] = { connected: true, connectedBy: "octocat" }
   let continuation: SettingsPublicResponse["continuation"] = null
   let enrollmentComplete = false
   let sessionRevoked = false
 
   function getPublic(): SettingsPublicResponse {
     const session = context.session.read()
-    const activeContinuation =
-      continuation?.viewerLogin === session.viewer?.login &&
-      continuation?.sessionRevision === session.revision
-        ? continuation
-        : null
     return settingsPublicResponseSchema.parse({
       revision,
       session,
       github,
       enrollmentComplete,
       sessionRevoked,
-      continuation: activeContinuation,
+      continuation,
     })
   }
 
@@ -178,7 +131,7 @@ export function createSettingsStore(context: MockFlowContext) {
       : auditEvents
           .filter((entry) => query.scope === "hub" || entry.repositoryId === repository?.id)
           .sort((first, second) => second.id - first.id)
-    const pageSize = 5
+    const pageSize = 50
     const prototype = context.resources.prototypes.find(
       (entry) => entry.repositoryId === repository?.id,
     )
@@ -189,9 +142,13 @@ export function createSettingsStore(context: MockFlowContext) {
       welcomeHidden: hiddenWelcome.has(viewer.login),
       analytics: empty ? [] : destinations.filter((entry) => entry.repositoryId === repository?.id),
       grants: empty ? [] : grants.filter((entry) => entry.viewerLogin === viewer.login),
-      copilot: session.capabilities.administerHub
-        ? copilot
-        : { connected: copilot.connected, connectedBy: null },
+      canvasApproval: { code: "ABCDEF1234", consentVersion: "2026-10-01" },
+      copilot:
+        scenario === "empty"
+          ? { connected: false, connectedBy: null }
+          : session.capabilities.administerHub
+            ? copilot
+            : { connected: copilot.connected, connectedBy: null },
       administrators: {
         accessDenied: !session.capabilities.administerHub,
         users:
@@ -204,9 +161,11 @@ export function createSettingsStore(context: MockFlowContext) {
         : learningRecords.filter((entry) => entry.repositoryId === repository?.id),
       learningRuns: empty ? [] : runs.filter((entry) => entry.repositoryId === repository?.id),
       notifications: {
-        items: empty ? [] : filteredNotifications.slice(0, query.limit),
+        items: empty
+          ? []
+          : filteredNotifications.slice((query.page - 1) * query.limit, query.page * query.limit),
         unreadCount: empty ? 0 : ownNotifications.filter((entry) => !entry.read).length,
-        hasMore: !empty && filteredNotifications.length > query.limit,
+        hasMore: !empty && filteredNotifications.length > query.page * query.limit,
         unreadOnly: query.unread === "true",
         limit: query.limit,
       },
@@ -233,7 +192,7 @@ export function createSettingsStore(context: MockFlowContext) {
     auditEvents.push({
       id: nextId++,
       createdAt: new Date().toISOString(),
-      actor: context.session.read().viewer?.login ?? "octocat (mock session ended)",
+      actor: context.session.read().viewer?.login ?? "octocat",
       operation,
       repositoryId,
       context: notice,
@@ -248,49 +207,39 @@ export function createSettingsStore(context: MockFlowContext) {
 
   function requireInstalledGithub(expectedVersion: number) {
     context.session.requireCapability("administerHub")
-    if (github.state !== "installed") {
-      throw new MockStoreError(409, "Complete the mock App setup before changing its fixture.")
-    }
     if (github.version !== expectedVersion) {
-      throw new MockStoreError(409, "The mock App changed. Reload and confirm the current version.")
+      throw new MockStoreError(
+        409,
+        "The GitHub App changed. Reload and confirm the current version.",
+      )
     }
   }
 
   function beginAuthorization(operation: NonNullable<typeof continuation>["operation"]) {
     const viewer = context.session.requireCapability("administerHub")
-    if (continuation && !getPublic().continuation) continuation = null
-    if (continuation) {
-      throw new MockStoreError(409, "Finish or cancel the pending mock confirmation first.")
-    }
     continuation = {
       id: `mock-continuation-${nextId++}`,
       operation,
       viewerLogin: viewer.login,
-      sessionRevision: context.session.read().revision,
     }
-    return record(
-      operation,
-      "A simulated confirmation is pending. No provider authorization has started.",
-      null,
-      "/settings/authorize",
-    )
+    return record(operation, "Verify your identity to continue.", null, "/settings/authorize")
   }
 
   function changeAdministrator(userId: number, change: "designate" | "revoke") {
     const viewer = context.session.requireCapability("administerHub")
     const candidate = candidates.find((entry) => entry.id === userId)
-    if (!candidate) throw new MockStoreError(404, "That synthetic Hub user does not exist.")
+    if (!candidate) throw new MockStoreError(404, "That Hub user does not exist.")
     if (change === "designate") {
       if (administrators.has(candidate.login)) {
-        throw new MockStoreError(409, "That synthetic user is already a mock administrator.")
+        throw new MockStoreError(409, "That user is already a Hub administrator.")
       }
       administrators.add(candidate.login)
     } else {
       if (!administrators.has(candidate.login)) {
-        throw new MockStoreError(409, "That synthetic user is not a mock administrator.")
+        throw new MockStoreError(409, "That user is not a Hub administrator.")
       }
       if (administrators.size === 1) {
-        throw new MockStoreError(409, "Keep one administrator in this demonstration fixture.")
+        throw new MockStoreError(409, "Hub must have at least one administrator.")
       }
       administrators.delete(candidate.login)
       if (viewer.login === candidate.login) context.session.select("owner")
@@ -303,7 +252,7 @@ export function createSettingsStore(context: MockFlowContext) {
       case "welcome-hide": {
         const viewer = context.session.requireViewer()
         hiddenWelcome.add(viewer.login)
-        return record(input.operation, "Welcome is hidden in this mock browser session.")
+        return record(input.operation, "Welcome dismissed.")
       }
       case "analytics-save": {
         requireRepository(input.repositoryId)
@@ -311,7 +260,7 @@ export function createSettingsStore(context: MockFlowContext) {
           (entry) => entry.id === input.destinationId && entry.repositoryId === input.repositoryId,
         )
         if (input.destinationId !== undefined && !existing) {
-          throw new MockStoreError(404, "That mock destination no longer exists.")
+          throw new MockStoreError(404, "That destination no longer exists.")
         }
         if (
           input.configuration.provider !== "custom" &&
@@ -322,10 +271,10 @@ export function createSettingsStore(context: MockFlowContext) {
               entry.id !== input.destinationId,
           )
         ) {
-          throw new MockStoreError(409, "That provider already has a destination in this fixture.")
+          throw new MockStoreError(409, "That provider already has a destination.")
         }
         if (existing && existing.configuration.provider !== input.configuration.provider) {
-          throw new MockStoreError(422, "A saved mock destination cannot change providers.")
+          throw new MockStoreError(422, "A saved destination cannot change providers.")
         }
         if (existing) {
           existing.configuration = {
@@ -340,25 +289,17 @@ export function createSettingsStore(context: MockFlowContext) {
             enabled: true,
           })
         }
-        return record(
-          input.operation,
-          "Mock destination saved. No credentials were collected and no events were sent.",
-          input.repositoryId,
-        )
+        return record(input.operation, "Analytics destination saved.", input.repositoryId)
       }
       case "analytics-state": {
         requireRepository(input.repositoryId)
         const index = destinations.findIndex(
           (entry) => entry.id === input.destinationId && entry.repositoryId === input.repositoryId,
         )
-        if (index < 0) throw new MockStoreError(404, "That mock destination no longer exists.")
+        if (index < 0) throw new MockStoreError(404, "That destination no longer exists.")
         if (input.state === "disconnected") destinations.splice(index, 1)
         else destinations[index]!.enabled = input.state === "enabled"
-        return record(
-          input.operation,
-          `Mock destination ${input.state}. No external destination changed.`,
-          input.repositoryId,
-        )
+        return record(input.operation, `Analytics destination ${input.state}.`, input.repositoryId)
       }
       case "canvas-approve": {
         const repository = requireRepository(input.repositoryId)
@@ -368,7 +309,7 @@ export function createSettingsStore(context: MockFlowContext) {
             (entry) => entry.repositoryId === repository.id && entry.viewerLogin === viewer.login,
           )
         ) {
-          throw new MockStoreError(409, "This mock repository already has a simulated connection.")
+          throw new MockStoreError(409, "This repository already has a canvas connection.")
         }
         grants.push({
           id: nextId++,
@@ -379,7 +320,7 @@ export function createSettingsStore(context: MockFlowContext) {
         })
         return record(
           input.operation,
-          "Mock canvas connection approved. No canvas or external account was connected.",
+          "Canvas connection approved.",
           repository.id,
           "/settings/canvas",
         )
@@ -389,51 +330,34 @@ export function createSettingsStore(context: MockFlowContext) {
         const index = grants.findIndex(
           (entry) => entry.id === input.grantId && entry.viewerLogin === viewer.login,
         )
-        if (index < 0) throw new MockStoreError(404, "That mock canvas connection was not found.")
+        if (index < 0) throw new MockStoreError(404, "That canvas connection was not found.")
         const grant = grants.splice(index, 1)[0]!
-        return record(input.operation, "Mock canvas connection revoked.", grant.repositoryId)
+        return record(input.operation, "Canvas connection revoked.", grant.repositoryId)
       }
       case "copilot-connect":
       case "copilot-disconnect": {
         context.session.requireCapability("administerHub")
-        if ((input.operation === "copilot-connect") === copilot.connected) {
-          throw new MockStoreError(409, "The mock Copilot connection already changed.")
-        }
         return beginAuthorization(input.operation)
       }
       case "github-setup": {
         context.session.requireCapability("administerHub")
-        if (github.state !== "not-configured" && github.state !== "ready") {
-          throw new MockStoreError(409, "The mock App is already registered. Review its settings.")
-        }
         github = { ...github, state: "ready", organization: input.organization }
         return record(
           input.operation,
-          "Mock setup is ready. No bootstrap secret was requested.",
+          "GitHub App setup is ready.",
           null,
           "/settings/github/register",
         )
       }
       case "github-register": {
         context.session.requireCapability("administerHub")
-        if (github.state !== "ready") {
-          throw new MockStoreError(409, "Start the mock setup before registering its fixture.")
-        }
         github = { ...github, state: "registered", version: github.version + 1 }
-        return record(
-          input.operation,
-          "Synthetic App registered locally. GitHub was not contacted.",
-          null,
-          "/settings/github/installed",
-        )
+        return record(input.operation, "GitHub App registered.", null, "/settings/github/installed")
       }
       case "github-install": {
         context.session.requireCapability("administerHub")
-        if (github.state !== "registered") {
-          throw new MockStoreError(409, "Register the mock App before simulating installation.")
-        }
         github = { ...github, state: "installed", version: github.version + 1 }
-        return record(input.operation, "Mock installation complete. No repository access changed.")
+        return record(input.operation, "GitHub App installation complete.")
       }
       case "github-credentials": {
         requireInstalledGithub(input.expectedVersion)
@@ -442,13 +366,13 @@ export function createSettingsStore(context: MockFlowContext) {
           credentialRevision: github.credentialRevision + 1,
           version: github.version + 1,
         }
-        return record(input.operation, "Fake credential revision advanced. No secrets exist.")
+        return record(input.operation, "GitHub App credentials updated.")
       }
       case "github-rotation": {
         requireInstalledGithub(input.expectedVersion)
         const expected = { start: "idle", retry: "pending", finish: "confirmed" } as const
         if (github.rotation !== expected[input.phase]) {
-          throw new MockStoreError(409, "The simulated rotation changed. Review its current step.")
+          throw new MockStoreError(409, "The webhook rotation changed. Review its current step.")
         }
         github = {
           ...github,
@@ -456,10 +380,7 @@ export function createSettingsStore(context: MockFlowContext) {
             input.phase === "start" ? "pending" : input.phase === "retry" ? "confirmed" : "idle",
           version: github.version + 1,
         }
-        return record(
-          input.operation,
-          `Mock webhook rotation is ${github.rotation}. No webhook or secret was changed.`,
-        )
+        return record(input.operation, `Webhook rotation is ${github.rotation}.`)
       }
       case "github-reset": {
         requireInstalledGithub(input.expectedVersion)
@@ -470,31 +391,26 @@ export function createSettingsStore(context: MockFlowContext) {
           rotation: "idle",
           credentialRevision: 0,
         }
-        return record(
-          input.operation,
-          "Mock App configuration reset. Real Apps, sessions and repositories are untouched.",
-          null,
-          "/settings/github",
-        )
+        return record(input.operation, "GitHub App configuration reset.", null, "/settings/github")
       }
       case "admin-add": {
         context.session.requireCapability("administerHub")
         const selected = [...new Set(input.userIds)].map((id) => {
           const candidate = candidates.find((entry) => entry.id === id)
-          if (!candidate) throw new MockStoreError(404, "That synthetic Hub user does not exist.")
+          if (!candidate) throw new MockStoreError(404, "That Hub user does not exist.")
           if (administrators.has(candidate.login)) {
-            throw new MockStoreError(409, "A selected user is already a mock administrator.")
+            throw new MockStoreError(409, "A selected user is already a Hub administrator.")
           }
           return candidate
         })
         selected.forEach((candidate) => administrators.add(candidate.login))
-        return record(input.operation, "Selected synthetic users added to the mock roster.")
+        return record(input.operation, "Hub administrators added.")
       }
       case "admin-change": {
         const candidate = changeAdministrator(input.userId, input.change)
         return record(
           input.operation,
-          `@${candidate.login} ${input.change === "designate" ? "added to" : "removed from"} the mock administrator roster.`,
+          `@${candidate.login} ${input.change === "designate" ? "added to" : "removed from"} Hub administrators.`,
           null,
           "/settings/admins",
         )
@@ -506,28 +422,18 @@ export function createSettingsStore(context: MockFlowContext) {
         const viewer = context.session.requireCapability("administerHub")
         const pending = getPublic().continuation
         if (!pending || input.continuationId !== pending.id) {
-          throw new MockStoreError(409, "This simulated confirmation expired or already finished.")
+          throw new MockStoreError(409, "This confirmation expired or already finished.")
         }
         continuation = null
         const destination =
           pending.operation === "enroll" ? "/settings/admins" : "/settings/copilot"
         if (input.operation === "authorization-cancel") {
-          return record(
-            input.operation,
-            "Simulated confirmation cancelled. Nothing was connected.",
-            null,
-            destination,
-          )
+          return record(input.operation, "Confirmation cancelled.", null, destination)
         }
         if (pending.operation === "enroll") {
           administrators.add("octocat")
           enrollmentComplete = true
-          return record(
-            input.operation,
-            "Octocat's mock enrollment example is complete. No provider identity was checked.",
-            null,
-            destination,
-          )
+          return record(input.operation, "Administrator enrollment complete.", null, destination)
         }
         copilot = {
           connected: pending.operation === "copilot-connect",
@@ -535,7 +441,7 @@ export function createSettingsStore(context: MockFlowContext) {
         }
         return record(
           input.operation,
-          `Copilot simulation ${copilot.connected ? "connected" : "disconnected"}. No token or provider request exists.`,
+          `Copilot ${copilot.connected ? "connected" : "disconnected"}.`,
           null,
           destination,
         )
@@ -545,16 +451,13 @@ export function createSettingsStore(context: MockFlowContext) {
         const learning = learningRecords.find(
           (entry) => entry.id === input.learningId && entry.repositoryId === repository.id,
         )
-        if (!learning) throw new MockStoreError(404, "That mock learning does not exist.")
+        if (!learning) throw new MockStoreError(404, "That learning does not exist.")
         const retiring = input.decision === "retire"
         if (learning.state !== (retiring ? "accepted" : "suggested")) {
-          throw new MockStoreError(409, "This mock learning already has a different decision.")
-        }
-        if (!retiring && input.digest !== `mock:v${learning.version}`) {
-          throw new MockStoreError(409, "This suggestion changed. Review it before deciding.")
+          throw new MockStoreError(409, "This learning already has a different decision.")
         }
         if (input.decision !== "accept" && !input.reason) {
-          throw new MockStoreError(422, "Explain this mock rejection or retirement.")
+          throw new MockStoreError(422, "Explain this rejection or retirement.")
         }
         if (
           (input.decision !== "accept" && input.content !== undefined) ||
@@ -572,65 +475,40 @@ export function createSettingsStore(context: MockFlowContext) {
         learning.reason = input.reason ?? null
         learning.decidedBy = context.session.requireViewer().login
         learning.version += 1
-        return record(
-          input.operation,
-          `Mock learning ${learning.state}. No agent or learning provider receives this content.`,
-          repository.id,
-        )
+        learning.digest = String(learning.version).padStart(64, "0")
+        return record(input.operation, `Learning ${learning.state}.`, repository.id)
       }
-      case "learning-run":
-      case "learning-advance": {
+      case "learning-run": {
         const repository = requireRepository(input.repositoryId)
         if (!copilot.connected) {
-          throw new MockStoreError(
-            409,
-            "Connect the Copilot simulation before advancing a fake run.",
-          )
+          throw new MockStoreError(409, "Connect Copilot before looking for learnings.")
         }
-        const pending = runs.find(
-          (entry) => entry.repositoryId === repository.id && entry.state !== "succeeded",
-        )
-        if (input.operation === "learning-run") {
-          if (pending)
-            throw new MockStoreError(409, "This repository already has a pending fake run.")
-          runs.unshift({
-            id: nextId++,
-            repositoryId: repository.id,
-            startedAt: new Date().toISOString(),
-            startedBy: context.session.requireViewer().login,
-            state: "queued",
-          })
-          return record(
-            input.operation,
-            "Fake learning run queued. No learning work was started.",
-            repository.id,
-          )
-        }
-        if (!pending) throw new MockStoreError(409, "There is no pending fake run to advance.")
-        pending.state = pending.state === "queued" ? "running" : "succeeded"
-        if (pending.state === "succeeded") {
-          learningRecords.push({
-            id: `mock-learning-${nextId++}`,
-            repositoryId: repository.id,
-            content: "Keep recovery actions beside the error they resolve.",
-            version: 1,
-            state: "suggested",
-            decidedBy: null,
-            reason: null,
-          })
-        }
-        return record(
-          input.operation,
-          `Fake learning run ${pending.state}. No provider was called.`,
-          repository.id,
-        )
+        runs.unshift({
+          id: nextId++,
+          repositoryId: repository.id,
+          startedAt: new Date().toISOString(),
+          startedBy: context.session.requireViewer().login,
+          state: "succeeded",
+        })
+        learningRecords.push({
+          id: `learning-${nextId++}`,
+          repositoryId: repository.id,
+          content: "Keep recovery actions beside the error they resolve.",
+          digest: String(nextId).padStart(64, "0"),
+          evidenceId: `review-event-${nextId}`,
+          version: 1,
+          state: "suggested",
+          decidedBy: null,
+          reason: null,
+        })
+        return record(input.operation, "Finished looking for learnings.", repository.id)
       }
       case "notification-read": {
         const viewer = context.session.requireViewer()
         const notification = notifications.find(
           (entry) => entry.id === input.notificationId && entry.recipientLogin === viewer.login,
         )
-        if (!notification) throw new MockStoreError(404, "That mock notification was not found.")
+        if (!notification) throw new MockStoreError(404, "That notification was not found.")
         if (notification.version !== input.version) {
           throw new MockStoreError(
             409,
@@ -639,28 +517,20 @@ export function createSettingsStore(context: MockFlowContext) {
         }
         notification.read = input.read
         notification.version += 1
-        return record(
-          input.operation,
-          `Mock notification marked ${input.read ? "read" : "unread"}.`,
-        )
+        return record(input.operation, `Notification marked ${input.read ? "read" : "unread"}.`)
       }
       case "session-revoke": {
         context.session.requireCapability("administerHub")
         continuation = null
         sessionRevoked = true
         context.session.select("signed-out")
-        return record(
-          input.operation,
-          "This mock browser session ended. No real sessions or credentials changed.",
-          null,
-          "/settings/sessions",
-        )
+        return record(input.operation, "Sessions ended.", null, "/settings/sessions")
       }
       case "session-cancel":
         context.session.requireCapability("administerHub")
         return {
           revision,
-          notice: "Mock session revocation cancelled.",
+          notice: "Session revocation cancelled.",
           redirect: "/settings/audit",
         }
     }
@@ -670,6 +540,35 @@ export function createSettingsStore(context: MockFlowContext) {
     getPublic,
     getWorkspace,
     mutate,
+    getNotificationPage(unreadOnly: boolean, limit: number, before?: number) {
+      const viewer = context.session.requireViewer()
+      const owned = notifications.filter((entry) => entry.recipientLogin === viewer.login)
+      const matching = owned
+        .filter(
+          (entry) => (!unreadOnly || !entry.read) && (before === undefined || entry.id < before),
+        )
+        .sort((first, second) => second.id - first.id)
+      const page = matching.slice(0, limit)
+      return {
+        notifications: page.map((notification) => NOTIFICATION_SCHEMA.parse(notification)),
+        unreadCount: owned.filter((entry) => !entry.read).length,
+        nextBefore: matching.length > limit ? page.at(-1)!.id : null,
+      }
+    },
+    getNotificationRead(id: number) {
+      const viewer = context.session.requireViewer()
+      const notification = notifications.find(
+        (entry) => entry.id === id && entry.recipientLogin === viewer.login,
+      )
+      if (!notification) throw new MockStoreError(404, "Notification not found.")
+      return {
+        version: notification.version,
+        read: notification.read,
+        unreadCount: notifications.filter(
+          (entry) => entry.recipientLogin === viewer.login && !entry.read,
+        ).length,
+      }
+    },
     getWelcomeHidden() {
       const viewer = context.session.read().viewer
       return viewer ? hiddenWelcome.has(viewer.login) : false

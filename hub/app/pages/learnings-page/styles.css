@@ -138,7 +138,3 @@
 .learnings-page__run-state {
   font-weight: 600;
 }
-.learnings-page__mock-control {
-  outline: 2px solid var(--hub-mock-outline);
-  outline-offset: -2px;
-}

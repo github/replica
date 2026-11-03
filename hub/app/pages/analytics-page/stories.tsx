@@ -158,29 +158,13 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Empty: Story = {}
-export const Simulation: Story = {
+export const ReadOnly: Story = {
   args: {
     data: {
       ...data,
-      simulation: true,
       destinations: [destination, customDestination],
-      copy: {
-        ...data.copy,
-        description: "Configure local mock destinations. No analytics service is connected.",
-        privacy: "No credentials are collected, no events are sent, and no activity is tracked.",
-        customEndpointHelp:
-          "The fixed endpoint is events.example.invalid. No HTTP request or secret input is available.",
-        rotation: "This mock configuration contains no credentials.",
-      },
-    },
-  },
-}
-export const ReadOnlySimulation: Story = {
-  args: {
-    data: {
-      ...Simulation.args!.data!,
       readOnly: true,
-      notice: "This fixture is read-only for Mona.",
+      notice: "You can view analytics destinations, but you do not have permission to change them.",
     },
   },
 }

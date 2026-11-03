@@ -38,7 +38,6 @@ export type AnalyticsDestination =
     })
 
 export interface AnalyticsPageData extends RepositoryWorkspaceData {
-  simulation?: boolean
   readOnly?: boolean
   pageTitle: string
   alert: string | null

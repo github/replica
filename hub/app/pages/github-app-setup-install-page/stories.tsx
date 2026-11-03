@@ -11,6 +11,8 @@ const meta = {
       heading: "Replica Hub is connected",
       pageTitle: "GitHub connected",
       productName: "Replica Hub",
+      nextPath: "/settings/github",
+      nextLabel: "GitHub App",
     },
   },
   parameters: { layout: "fullscreen" },
@@ -20,28 +22,14 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Default: Story = {}
-export const SimulationPending: Story = {
+export const InstallationRequired: Story = {
   args: {
     data: {
       ...meta.args.data,
-      simulation: true,
-      heading: "Simulate App installation",
-      description:
-        "The App and installation identifiers are synthetic. No external App or repository changed.",
+      pageTitle: "Install GitHub App",
+      heading: "Install the GitHub App",
       submitPath: "/settings/github/installed",
-      submitLabel: "Simulate installation",
-      nextPath: "/settings/github",
-      nextLabel: "Review mock App",
-    },
-  },
-}
-export const SimulationComplete: Story = {
-  args: {
-    data: {
-      ...SimulationPending.args!.data!,
-      heading: "Mock installation complete",
-      submitPath: undefined,
-      submitLabel: undefined,
+      submitLabel: "Install GitHub App",
     },
   },
 }

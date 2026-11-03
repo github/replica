@@ -1,6 +1,5 @@
 import { buildHistoryResponseSchema } from "../../contracts"
 import { readRouteQuery } from "../../read-route-query"
-import { mockScenarioHeaders } from "../mock-scenario-headers"
 import { requestJson } from "../request-json"
 
 export function getBuildHistory(request: Request, repositoryId: number, prototypeId: number) {
@@ -13,6 +12,5 @@ export function getBuildHistory(request: Request, repositoryId: number, prototyp
 
   return requestJson(url, buildHistoryResponseSchema, {
     signal: request.signal,
-    headers: mockScenarioHeaders(query.mockScenario),
   })
 }

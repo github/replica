@@ -42,15 +42,15 @@ export function productShareLinksData(
     closeLabel: "Return to prototype",
     alert: null,
     notice: null,
-    copyErrorLabel: "Could not copy the link.",
+    copyErrorLabel: "Copy failed",
     copiedLabel: "Copied",
     copyLabel: "Copy link",
-    deleteLabel: "Revoke link",
-    openLabel: "Open local preview",
+    deleteLabel: "Delete link",
+    openLabel: "Open",
     description:
-      "Create a synthetic link to one fixed successful Build. Links work only inside this local mock session, not on another browser or device.",
-    emptyHeading: "No active local share links",
-    emptyLabel: "Create a local link to explore signed-out preview behavior.",
+      "Anyone with a link can view this Build without signing in. The prototype may expose sensitive or customer information. Check its content before creating a public link.",
+    emptyHeading: "No active share links",
+    emptyLabel: "Create a link when someone needs signed-out access.",
     form: {
       buildLabel: selected ? `Build ${selected.number}` : null,
       createPath: resourcePath(`${base}/share-links`, search),
@@ -62,11 +62,11 @@ export function productShareLinksData(
       labelLabel: "Label",
       labelMaximumBytes: 100,
       labelPlaceholder: "Usability review",
-      submitLabel: "Create mock share link",
+      submitLabel: "Create share link",
     },
     heading: "Share links",
-    noBuildHeading: "No successful Build selected",
-    noBuildLabel: "Choose a successful Build with a preview before creating a link.",
+    noBuildHeading: "No successful Build",
+    noBuildLabel: "A successful Build is required before creating a share link.",
     pageTitle: `${prototype.name} share links`,
     shareLinksLabel: "Share links",
     shareLinksPath: resourcePath(`${base}/share-links`, search, {
@@ -75,10 +75,11 @@ export function productShareLinksData(
     managementBuildNumber: selected?.number,
     publicSharingEnabled: response.enabled,
     disabledLabel:
-      "Public sharing is disabled in this mock Hub. Only a mock Hub administrator can enable new links.",
+      "Public sharing is disabled for this Hub. No public links can be created or opened. A Hub administrator must explicitly enable sharing; previously revoked links never return.",
     canManage: response.canManage,
     openInNewTab: false,
-    readOnlyLabel: "This mock profile can view links but cannot create or revoke them.",
+    readOnlyLabel:
+      "You can view share links, but you do not have permission to create or delete them.",
     shareLinks: active.map((link) => ({
       id: link.id,
       label: link.label,
@@ -89,7 +90,7 @@ export function productShareLinksData(
       expiresLabel: `Expires ${new Date(link.expiresAt).toLocaleDateString()}`,
       url: new URL(`/shared/${link.shareId}`, origin).href,
       deletePath: resourcePath(`${base}/share-links/${link.shareId}`, search),
-      deletePrompt: `Revoke the local link “${link.label}”?`,
+      deletePrompt: `Delete “${link.label}”?`,
     })),
     inactiveShareLinks: response.links
       .filter((link) => !active.some((entry) => entry.id === link.id))

@@ -97,7 +97,7 @@ export const ReadOnlyProfile: Story = {
     readOnly: true,
     copy: {
       ...reviewCommentsCopy,
-      selectionBlockedLabel: "This mock profile can read reviews but cannot change them.",
+      selectionBlockedLabel: "You can view reviews, but you do not have permission to change them.",
     },
     thread: {
       ...repliedReviewThread,

@@ -119,7 +119,7 @@ export function createReviewStore(context: MockFlowContext) {
   function writable() {
     const viewer = context.session.requireViewer()
     if (context.session.read().profile === "reader") {
-      throw new MockStoreError(403, "This mock profile can read reviews but cannot change them.")
+      throw new MockStoreError(403, "You do not have permission to change review comments.")
     }
     return viewer
   }
@@ -221,7 +221,7 @@ export function createReviewStore(context: MockFlowContext) {
       const viewer = writable()
       const { comment, root } = find(repositoryId, prototypeId, commentId)
       if (comment.author.login !== viewer.login || comment.deletedAt) {
-        throw new MockStoreError(403, "You cannot change this mock comment.")
+        throw new MockStoreError(403, "You do not have permission to change this comment.")
       }
       comment.body = body
       comment.updatedAt = new Date().toISOString()
