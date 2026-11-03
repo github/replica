@@ -2,7 +2,7 @@
 
 ## Shared defaults
 
-Use `@coreai-ds/react-components` for product-facing components and `~/components/common` for app-owned adapters. Use `@fluentui/react-icons` for icons. Do not import components directly from `@fluentui/react-components`. Keep component styles in colocated CSS Modules and preserve the app-owned Griffel renderer.
+Keep component styles in colocated CSS Modules and preserve the app-owned Griffel renderer.
 
 Follow the [CoreAI documentation skill](../skills/coreai-ds-fluentui-react/SKILL.md) from the [current documentation index](https://microsoft.github.io/coreai-design-system/index.md). Discover relevant current Markdown and example-source links rather than assuming a fixed site structure. Compare the documented version with the installed package and verify unfamiliar APIs against its actual exports and types.
 

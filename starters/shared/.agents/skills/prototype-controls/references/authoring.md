@@ -43,7 +43,7 @@ Every control has a unique `id` within its set, a readable `label`, a supported 
 
 Keep labels short and use flat, one-level `groups`: `{ "id": "content", "label": "Content" }`. A control's `group` references one of those IDs. Groups are shown where their first field occurs in the controls array and are automatically collapsible. Keep each group's fields together. The app authors definitions, not panel components, CSS or folding flags.
 
-Controls and groups can use `when: { "control": "variant", "equals": "A" }`. Conditions also support `in`, `includes`, `all`, `any` and `not`. References stay within the same set and must form an acyclic dependency graph. A hidden value returns to its default and loses its URL override. Showing it again uses its default; ordinary page unmount and return preserves cached values.
+Controls and groups can use `when: { "control": "variant", "equals": "A" }`. Conditions also support `in`, `includes`, `all` and `any`. References stay within the same set and must form an acyclic dependency graph. A hidden value returns to its default and loses its URL override. Showing it again uses its default; ordinary page unmount and return preserves cached values.
 
 ## Bind ordinary app behavior
 

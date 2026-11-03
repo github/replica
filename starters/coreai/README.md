@@ -39,9 +39,7 @@ Vitest runs automated hook tests in jsdom with React Testing Library. Chat tests
 Use [app/features.json](app/features.json) to register prototype features and design
 variants. The file starts with an empty feature list.
 
-Each feature has a unique `id`, a `label`, and one or more matching `routes`. A feature
-can also define `variants`, a `defaultRoute`, and route parameters. Components read the
-active selection with `useFeature`:
+Each feature has a unique `id`, a `label`, and one or more matching `routes`. A feature must define a `defaultRoute` and can also define `variants` and route parameters. Components read the active selection with `useFeature`:
 
 ```tsx
 import { useFeature } from '~/features/FeatureContext';

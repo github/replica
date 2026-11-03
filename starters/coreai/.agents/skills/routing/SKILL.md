@@ -18,8 +18,8 @@ Paths below are relative to this app's directory.
   - Build section: `/build/agents`, `/build/tools`
   - Operate section: `/operate/dashboard`, `/operate/agents`
   - Docs: `/docs`
-- Layout wrapper: `components/shell/NavLayout.tsx` provides top/left nav
-- Export `topNavRoutes` and `getLeftNavRoutes(pathname)` from `routes.ts` for navigation components
+- Layout wrapper: `app/components/shell/NavLayout.tsx` provides top/left nav
+- Export `topNavRoutes` and `getLeftNavRoutes(pathname)` from `app/routes.ts` for navigation components
 - Type-safe routes via auto-generated types in `.react-router/types/`
 
 ## Adding a Route
