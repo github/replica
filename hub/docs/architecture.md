@@ -24,6 +24,8 @@ The [Pino integration](logging.md) writes structured application and HTTP logs t
 
 The [background-job foundation](background-jobs.md) uses BullMQ with PostgreSQL and separate on-demand and scheduled worker processes. Setup migrates BullMQ's own schema independently of Prisma. Product processors and schedules are not registered yet.
 
+The [artifact storage domain](artifact-storage.md) selects filesystem or managed-identity Azure Blob storage behind one immutable-byte contract. Future product domains call this provider-neutral API, not SDK integrations directly. Startup validates explicitly configured storage, but no product route or processor consumes artifact bytes yet.
+
 The [telemetry integration](telemetry.md) provides explicit server-side OpenTelemetry spans with optional operator-configured OTLP export. API and worker entrypoints own startup and flush telemetry after draining active work. Automatic instrumentation and product analytics are not implemented.
 
 The [WebSocket foundation](websockets.md) attaches to the API's HTTP server and broadcasts to local channel subscribers without persistence. The application rejects upgrades until access checks are supplied. Product channels, client recovery, and communication between processes are not implemented.

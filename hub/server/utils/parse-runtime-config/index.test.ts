@@ -8,6 +8,7 @@ describe("parseRuntimeConfig()", () => {
       mode: "api",
       host: "127.0.0.1",
       port: 3001,
+      hasArtifactStorage: false,
     })
     expect(
       parseRuntimeConfig({
@@ -30,6 +31,18 @@ describe("parseRuntimeConfig()", () => {
       onDemandConcurrency: 4,
       scheduledConcurrency: 2,
     })
+  })
+
+  it("detects explicit or incomplete storage configuration without choosing a provider", () => {
+    for (const env of [
+      { ARTIFACT_STORAGE_PROVIDER: "azure" },
+      { ARTIFACT_STORAGE_PROVIDER: "" },
+      { ARTIFACT_STORAGE_DIRECTORY: "/srv/artifacts" },
+      { AZURE_STORAGE_ACCOUNT: "example" },
+      { AZURE_STORAGE_CONTAINER: "artifacts" },
+    ]) {
+      expect(parseRuntimeConfig(env).hasArtifactStorage).toBe(true)
+    }
   })
 
   it.each([
