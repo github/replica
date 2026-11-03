@@ -1,4 +1,6 @@
+import { access } from "node:fs/promises"
 import { createServer } from "node:http"
+import { resolve } from "node:path"
 import type { Logger } from "pino"
 
 import { createApp } from "../create-app/index.ts"
@@ -9,10 +11,18 @@ export async function runApi({
   port,
   logger,
   shutdownTimeoutMs = 30_000,
+  host = "127.0.0.1",
+  clientDirectory,
+  signal,
+  isReady,
 }: {
   port: number
   logger: Logger
   shutdownTimeoutMs?: number
+  host?: string
+  clientDirectory?: string
+  signal?: AbortSignal
+  isReady?: () => Promise<boolean>
 }) {
   if (!Number.isInteger(port) || port < 0 || port > 65535) {
     throw new Error("API port must be an integer between 0 and 65535.")
@@ -20,13 +30,18 @@ export async function runApi({
   if (!Number.isInteger(shutdownTimeoutMs) || shutdownTimeoutMs < 1) {
     throw new Error("API shutdown timeout must be a positive integer.")
   }
+  if (clientDirectory) await access(resolve(clientDirectory, "index.html"))
   const server = createServer()
+  let bindingStarted = false
   const realtime = attachRealtimeServer({ server, path: "/api/realtime", logger })
+  let stoppingRequested = false
   server.on(
     "request",
     createApp({
       logger,
       broadcast: realtime.broadcast,
+      clientDirectory,
+      isReady: async () => !stoppingRequested && (isReady ? await isReady() : true),
     }),
   )
   let finishBinding!: () => void
@@ -37,16 +52,24 @@ export async function runApi({
   server.once("error", finishBinding)
   let stop!: () => void
   const stopping = new Promise<void>((resolve, reject) => {
-    stop = resolve
+    stop = () => {
+      stoppingRequested = true
+      resolve()
+    }
     server.once("error", reject)
   })
-  process.once("SIGINT", stop)
-  process.once("SIGTERM", stop)
+  if (signal) signal.addEventListener("abort", stop, { once: true })
+  else {
+    process.once("SIGINT", stop)
+    process.once("SIGTERM", stop)
+  }
   try {
-    server.listen(port, "127.0.0.1", () => {
+    if (signal?.aborted) return
+    bindingStarted = true
+    server.listen(port, host, () => {
       const address = server.address()
       logger.info(
-        { host: "127.0.0.1", port: typeof address === "object" ? address?.port : port },
+        { host, port: typeof address === "object" ? address?.port : port },
         "Hub API listening",
       )
     })
@@ -54,10 +77,11 @@ export async function runApi({
   } finally {
     process.removeListener("SIGINT", stop)
     process.removeListener("SIGTERM", stop)
+    signal?.removeEventListener("abort", stop)
     let timer: ReturnType<typeof setTimeout> | undefined
     async function drain() {
       // A stop signal can arrive before listen() has opened its socket.
-      await binding
+      if (bindingStarted) await binding
       await shutdownServer(server, realtime)
     }
     try {

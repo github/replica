@@ -6,9 +6,9 @@ Hub uses BullMQ's PostgreSQL backend for internal background work. The foundatio
 
 Two stable queue names separate execution capacity:
 
-| Queue | Work | Command from `hub/` |
-| --- | --- | --- |
-| `on-demand` | Work requested by an application action | `npm run worker:on-demand` |
+| Queue       | Work                                                | Command from `hub/`        |
+| ----------- | --------------------------------------------------- | -------------------------- |
+| `on-demand` | Work requested by an application action             | `npm run worker:on-demand` |
 | `scheduled` | Recurring work and work spawned by recurring sweeps | `npm run worker:scheduled` |
 
 Each command starts one Node.js process consuming only its assigned queue. The API starts neither worker. Multiple processes may consume the same queue when more capacity is needed. Separate queues do not isolate PostgreSQL, CPU, or external service quotas.
@@ -17,7 +17,9 @@ Each command starts one Node.js process consuming only its assigned queue. The A
 
 `server/workers/configuration.ts` is the composition point for processors and schedules. Its empty registrations are intentional until product domains exist. Worker startup logs readiness after connecting; unknown job names fail permanently rather than disappearing.
 
-Workers stop accepting work on `SIGINT` or `SIGTERM` and wait for active jobs. After 30 seconds, the command exits unsuccessfully rather than waiting forever. Interrupted work can be retried by BullMQ's stalled-job recovery. Deployment stop timeouts must allow this shutdown window. Long-running domain work needs its own bounded execution and interruption policy; a queue lock is not a business lock.
+Worker readiness confirms initial connection only; it is not continuous consumer-health monitoring. A later connection error is logged but does not clear the combined runtime's worker-initialized signal.
+
+Workers stop accepting work on `SIGINT` or `SIGTERM` and wait for active jobs. After `SHUTDOWN_TIMEOUT_MS` (30000 milliseconds by default), the command exits unsuccessfully rather than waiting forever. Interrupted work can be retried by BullMQ's stalled-job recovery. Deployment stop timeouts must allow this shutdown window. Long-running domain work needs its own bounded execution and interruption policy; a queue lock is not a business lock.
 
 ## Database and setup
 
@@ -42,7 +44,7 @@ npm run start:worker:on-demand
 npm run start:worker:scheduled
 ```
 
-Run the last three commands as separate services, not sequential commands in one shell. These roles can use one application image in a future Compose deployment, with PostgreSQL shared and only the web service exposed. Production frontend hosting, an application image, service health checks, and release orchestration are not implemented by this foundation.
+Run the last three commands as separate services, not sequential commands in one shell. The [production image](deployment.md) instead defaults to a combined process that runs the API and both workers and coordinates their shutdown.
 
 Each queue or worker owns a small query pool and BullMQ's additional notification connections. The query pool is limited to two connections; concurrency does not increase that limit. Budget database connections across all API, producer, and worker instances. Creation functions require an explicit URL so tests and other callers cannot accidentally inherit a previously imported database client.
 
@@ -52,14 +54,14 @@ Keep stable names, a Zod payload schema, and retry options in a job definition. 
 
 Use the functions under `server/integrations/bullmq/`:
 
-| Function | Contract |
-| --- | --- |
-| `migrateJobDatabase(databaseUrl)` | Explicitly migrate BullMQ's schema and close the migration connection. |
-| `createJobQueue(options)` | Open a client for one named PostgreSQL queue. The caller must close it. |
-| `enqueueJob(queue, definition, payload, options)` | Validate JSON payload data and enqueue work with job-specific retries and optional delay, priority, or job ID. Failure rejects the call. |
-| `createJobProcessor(definition, process, shouldRetry)` | Bind typed execution to runtime payload validation. Invalid stored payloads fail permanently. |
-| `createJobWorker(options)` | Construct a stopped consumer for registered processors. The caller starts and closes it. Duplicate processor names are rejected. |
-| `upsertJobSchedule(queue, schedule)` | Validate and register an interval or timezone-explicit cron schedule on `scheduled`. |
+| Function                                               | Contract                                                                                                                                 |
+| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `migrateJobDatabase(databaseUrl)`                      | Explicitly migrate BullMQ's schema and close the migration connection.                                                                   |
+| `createJobQueue(options)`                              | Open a client for one named PostgreSQL queue. The caller must close it.                                                                  |
+| `enqueueJob(queue, definition, payload, options)`      | Validate JSON payload data and enqueue work with job-specific retries and optional delay, priority, or job ID. Failure rejects the call. |
+| `createJobProcessor(definition, process, shouldRetry)` | Bind typed execution to runtime payload validation. Invalid stored payloads fail permanently.                                            |
+| `createJobWorker(options)`                             | Construct a stopped consumer for registered processors. The caller starts and closes it. Duplicate processor names are rejected.         |
+| `upsertJobSchedule(queue, schedule)`                   | Validate and register an interval or timezone-explicit cron schedule on `scheduled`.                                                     |
 
 `runJobWorker()` owns process signals and consumer lifetime outside the integration. Integration code does not import domains, repositories, or the shared logger; worker composition injects processors and logging.
 

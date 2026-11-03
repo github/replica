@@ -5,11 +5,15 @@ import type { JobConnection, JobProcessor } from "../../integrations/bullmq/type
 
 export async function runJobWorker({
   shutdownTimeoutMs = 30_000,
+  signal,
+  onReady,
   ...options
 }: JobConnection & {
   processors: JobProcessor[]
   concurrency?: number
   shutdownTimeoutMs?: number
+  signal?: AbortSignal
+  onReady?: () => void
 }) {
   z.number().int().positive().parse(shutdownTimeoutMs)
   const worker = createJobWorker(options)
@@ -22,19 +26,25 @@ export async function runJobWorker({
   const stopping = new Promise<void>((resolve) => {
     resolveStop = resolve
   })
-  process.once("SIGINT", stop)
-  process.once("SIGTERM", stop)
+  if (signal) signal.addEventListener("abort", stop, { once: true })
+  else {
+    process.once("SIGINT", stop)
+    process.once("SIGTERM", stop)
+  }
 
   let running: Promise<void> | undefined
   try {
+    if (signal?.aborted) return
     await Promise.race([worker.waitUntilReady(), stopping])
     if (stopped) return
     running = worker.run()
     options.logger.info({ queue: options.name }, "Job worker ready")
+    onReady?.()
     await Promise.race([running, stopping])
   } finally {
     process.removeListener("SIGINT", stop)
     process.removeListener("SIGTERM", stop)
+    signal?.removeEventListener("abort", stop)
     options.logger.info({ queue: options.name }, "Job worker stopping")
     let timer: ReturnType<typeof setTimeout> | undefined
     async function drain() {

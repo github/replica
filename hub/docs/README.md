@@ -6,6 +6,7 @@ Hub is being rebuilt. The [Hub overview](../README.md) describes what the baseli
 - [Code architecture conventions](backend-architecture.md): repositories, integrations, utilities, and domains.
 - [Coding conventions](coding-conventions.md): frontend layers and interface rules.
 - [Development](development.md): local API and frontend setup.
+- [Deployment](deployment.md): production image, runtime roles, setup, and health.
 - [Database](database.md): Prisma schema conventions, migrations, and the shared client.
 - [Authentication proof](authentication.md): internal provider proof and one-use authorization attempts.
 - [Logging](logging.md): application events, automatic request records, and payload safety.
