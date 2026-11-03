@@ -31,7 +31,7 @@ cp .env.example .env
 npm ci --engine-strict
 ```
 
-The example URL connects to PostgreSQL on `127.0.0.1:5432`. To use another development database, set `DATABASE_URL` in `.env` instead. Do not commit credentials. The existing health and frontend routes do not query the database.
+The example URL connects to PostgreSQL on `127.0.0.1:5432`. To use another development database, set `DATABASE_URL` in `.env` instead. Do not commit credentials. The health and frontend routes do not query the database. Authentication routes are not registered.
 
 ## Start with the real API
 
@@ -47,9 +47,15 @@ In a second terminal, also from `hub/`, start Vite:
 npm run dev
 ```
 
-Open <http://127.0.0.1:5173>. React Router's Vite development server forwards `/api` requests to Express at <http://127.0.0.1:3001>. `GET /api/health` returns JSON; other API routes have not been built, so product pages display API errors in real mode rather than falling back to fixtures. Both servers accept connections only from this machine. Stop each with Ctrl+C.
+Open <http://127.0.0.1:5173>. React Router's Vite development server forwards `/api` requests to Express at <http://127.0.0.1:3001>. `GET /api/health` returns JSON; other API routes have not been built, so product pages display API errors in real mode rather than falling back to fixtures. The internal proof primitives described in [Authentication proof](authentication.md) are not registered as routes.
+
+The current API has no public authentication route or authentication environment settings. Both servers accept connections only from this machine. Stop each with Ctrl+C.
+
+Vite also forwards WebSocket upgrades under `/api`. The `/api/realtime` endpoint rejects connections until application access checks are connected; see [WebSocket updates](websockets.md). Stopping the API closes its WebSocket connections as well.
 
 The API reads an optional `PORT` environment variable, defaulting to 3001. If you change it, update the local Vite proxy target to match. The editor forwards ports 3001, 5173, and 6006 from the devcontainer. API startup reads `.env` when present; Compose's environment takes precedence.
+
+On `SIGINT` or `SIGTERM`, the API stops accepting requests and allows active requests up to 30 seconds to finish, then flushes [optional telemetry](telemetry.md) within five seconds. No automatic request tracing is installed.
 
 ## Background workers
 

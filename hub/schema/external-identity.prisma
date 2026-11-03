@@ -1,0 +1,21 @@
+model ExternalIdentity {
+  // ID columns
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @map("user_id") @db.Uuid
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  // Attribute columns
+  provider String @db.VarChar(100)
+  issuer   String @db.VarChar(500)
+  subject  String @db.VarChar(500)
+
+  // Timestamp columns
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([provider, issuer, subject])
+  @@index([userId])
+  @@map("external_identities")
+}

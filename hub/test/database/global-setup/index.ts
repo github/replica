@@ -55,8 +55,8 @@ export default async function setup(project: TestProject) {
       process.execPath,
       [
         join(hubRoot, "node_modules/prisma/build/index.js"),
-        "db",
-        "push",
+        "migrate",
+        "deploy",
         "--config",
         join(hubRoot, "prisma7.config.ts"),
       ],

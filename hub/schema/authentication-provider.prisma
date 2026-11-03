@@ -1,0 +1,18 @@
+model AuthenticationProvider {
+  // ID columns
+  id                 String  @id @default(uuid()) @db.Uuid
+  selectedRevisionId String? @unique @map("selected_revision_id") @db.Uuid
+
+  // Relations
+  revisions        AuthenticationProviderRevision[] @relation("AuthenticationProviderRevisions")
+  selectedRevision AuthenticationProviderRevision?  @relation("SelectedAuthenticationProviderRevision", fields: [selectedRevisionId], references: [id], onDelete: Restrict)
+
+  // Attribute columns
+  key String @unique @db.VarChar(100)
+
+  // Timestamp columns
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("authentication_providers")
+}

@@ -112,6 +112,8 @@ npm run dev
 
 Run those in separate terminals. Real mode proxies `/api` to Express and never starts MSW or falls back to fixtures. Express currently implements only the health endpoint, so product routes show explicit API failures until their real endpoints exist.
 
+The backend's [authentication proof](authentication.md), [telemetry](telemetry.md), and [WebSocket](websockets.md) foundations do not change the mock contracts. Authentication proof is internal-only, WebSocket upgrades are denied until application access checks are supplied, and the frontend does not consume either foundation yet. Mock sign-in and review actions remain local simulations.
+
 `npm run lint` and `npm run typecheck` generate Framework route types before their typed checks, including independent CI jobs. `npm run build` produces the static SPA under `dist/client/` and the separate API under `dist/server/`. Framework SPA Mode disables runtime SSR but still renders the root fallback at build time, so imported modules and the root remain safe outside a browser.
 
 The worker and local preview assets are development-only and are not written into the production frontend. A deployment host needs SPA fallback for page URLs while routing `/api` separately; unknown API routes still return JSON 404 responses, not the SPA HTML.

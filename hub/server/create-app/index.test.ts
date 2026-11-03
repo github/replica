@@ -1,4 +1,5 @@
 import { once } from "node:events"
+import { randomUUID } from "node:crypto"
 import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
 import { describe, expect, it, vi } from "vitest"
@@ -18,6 +19,28 @@ function parseRecord(line: string) {
 }
 
 describe("createApp()", () => {
+  it("accepts a broadcast dependency without changing HTTP routes", async () => {
+    const broadcast = vi.fn()
+    const server = createServer(createApp({ broadcast }))
+
+    try {
+      server.listen(0, "127.0.0.1")
+      await once(server, "listening")
+      const { port } = server.address() as AddressInfo
+      const health = await fetch(`http://127.0.0.1:${port}/api/health`)
+      const missing = await fetch(`http://127.0.0.1:${port}/api/realtime`)
+
+      expect(health.status).toBe(200)
+      expect(await health.json()).toEqual({ status: "ok" })
+      expect(missing.status).toBe(404)
+      expect(broadcast).not.toHaveBeenCalled()
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()))
+      })
+    }
+  })
+
   it("automatically logs health and not-found responses with the injected logger", async () => {
     const records: Record<string, unknown>[] = []
     const logger = createLogger({
@@ -78,6 +101,7 @@ describe("createApp()", () => {
     const logger = createLogger({
       destination: { write: (line) => records.push(parseRecord(line)) },
     })
+
     const server = createServer(createApp({ logger }))
     const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true)
 
@@ -129,6 +153,30 @@ describe("createApp()", () => {
       const response = await fetch(`http://127.0.0.1:${port}${path}`, {
         method,
         redirect: "manual",
+      })
+
+      expect(response.status).toBe(404)
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()))
+      })
+    }
+  })
+
+  it("does not accept authentication proof from a public callback route", async () => {
+    const server = createServer(createApp())
+    try {
+      server.listen(0, "127.0.0.1")
+      await once(server, "listening")
+      const { port } = server.address() as AddressInfo
+      const response = await fetch(`http://127.0.0.1:${port}/api/auth/github/callback`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          externalIdentityId: randomUUID(),
+          providerKey: "github",
+          subject: "123",
+        }),
       })
 
       expect(response.status).toBe(404)
