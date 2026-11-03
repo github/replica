@@ -13,7 +13,7 @@ vi.mock("../integrations/postgres/open-database", () => ({ openDatabase: vi.fn()
 vi.mock("../run-api", () => ({ runApi: vi.fn() }))
 vi.mock("../workers/run-job-worker", () => ({ runJobWorker: vi.fn() }))
 
-function arrangeRuntime() {
+function arrangeRuntime(isStorageReady?: () => Promise<boolean>) {
   const query = vi.fn().mockResolvedValue({
     command: "SELECT",
     rowCount: 1,
@@ -45,6 +45,7 @@ function arrangeRuntime() {
     logger: createLogger({ level: "silent" }),
     onDemandConcurrency: 2,
     scheduledConcurrency: 1,
+    isStorageReady,
   })
   void running.catch(() => {})
   function stop() {
@@ -59,6 +60,24 @@ function arrangeRuntime() {
 }
 
 describe("startServerProcesses()", () => {
+  it("requires configured storage as well as initialized workers and a live database", async () => {
+    const isStorageReady = vi.fn().mockResolvedValue(false)
+    const { query } = arrangeRuntime(isStorageReady)
+    await vi.waitFor(() => expect(runApi).toHaveBeenCalledTimes(1))
+    const api = vi.mocked(runApi).mock.calls[0]![0]
+    const workers = vi.mocked(runJobWorker).mock.calls.map(([options]) => options)
+    expect(await api.isReady?.()).toBe(false)
+    expect(isStorageReady).not.toHaveBeenCalled()
+    workers.forEach((worker) => worker.onReady?.())
+
+    expect(await api.isReady?.()).toBe(false)
+    isStorageReady.mockResolvedValue(true)
+    expect(await api.isReady?.()).toBe(true)
+    query.mockRejectedValueOnce(new Error("Database unavailable"))
+    await expect(api.isReady?.()).rejects.toThrow("Database unavailable")
+    expect(isStorageReady).toHaveBeenCalledTimes(2)
+  })
+
   it("reports readiness only after both workers and the database are ready", async () => {
     const { query, end, running, stop } = arrangeRuntime()
     await vi.waitFor(() => expect(runApi).toHaveBeenCalledTimes(1))

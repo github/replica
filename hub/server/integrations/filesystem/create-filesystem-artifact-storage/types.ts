@@ -1,4 +1,5 @@
 export interface FilesystemArtifactStorage {
+  isReady(signal: AbortSignal): Promise<boolean>
   read(
     key: string,
   ): Promise<

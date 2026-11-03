@@ -1,11 +1,35 @@
 import { randomUUID } from "node:crypto"
 import { mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { resolve } from "node:path"
-import { describe, expect, it, onTestFinished } from "vitest"
+import { describe, expect, it, onTestFinished, vi } from "vitest"
+
+import { createAzureBlobArtifactStorage } from "../../../integrations/azure-blob/create-azure-blob-artifact-storage"
 
 import { artifactMaxBytes, createArtifactStorage } from "."
 
+vi.mock("../../../integrations/azure-blob/create-azure-blob-artifact-storage", () => ({
+  createAzureBlobArtifactStorage: vi.fn(),
+}))
+
 describe("createArtifactStorage()", () => {
+  it("bounds readiness even when the provider ignores its abort signal", async () => {
+    const isReady = vi.fn<(signal: AbortSignal) => Promise<boolean>>(() => new Promise(() => {}))
+    vi.mocked(createAzureBlobArtifactStorage).mockReturnValue({
+      isReady,
+      read: vi.fn(),
+      write: vi.fn(),
+      delete: vi.fn(),
+    })
+    const storage = await createArtifactStorage({
+      provider: "azure-blob",
+      accountUrl: "https://example.blob.core.windows.net",
+      container: "artifacts",
+    })
+
+    await expect(storage.isReady()).rejects.toThrow("Artifact storage readiness timed out.")
+    expect(isReady.mock.calls[0]![0].aborted).toBe(true)
+  }, 3_000)
+
   it("publishes complete immutable bytes and explicitly reports missing reads and deletes", async () => {
     const directory = resolve(`server/domains/artifacts/.storage-test-${randomUUID()}`)
     await mkdir(directory)
@@ -110,8 +134,10 @@ describe("createArtifactStorage()", () => {
     await mkdir(directory)
     onTestFinished(() => rm(directory, { recursive: true, force: true }))
     const storage = await createArtifactStorage({ provider: "filesystem", directory })
+    expect(await storage.isReady()).toBe(true)
     await rm(directory, { recursive: true })
 
+    await expect(storage.isReady()).rejects.toThrow("Artifact storage is unavailable.")
     expect(await storage.read("key")).toEqual({ status: "unavailable" })
     expect(await storage.write("key", Uint8Array.of(1))).toEqual({ status: "unavailable" })
     expect(await storage.delete("key")).toEqual({ status: "unavailable" })

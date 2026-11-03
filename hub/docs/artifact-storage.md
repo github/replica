@@ -4,7 +4,7 @@ The artifact storage foundation saves immutable bytes behind a provider-neutral 
 
 ## Composition
 
-Call `createArtifactStorage(settings)` from `server/domains/artifacts/create-artifact-storage/index.ts` during startup. The asynchronous factory validates settings and returns `read(key)`, `write(key, bytes)`, and `delete(key)`. `parseArtifactStorageSettings(input)` validates unknown configuration separately when startup needs a typed selection before composition.
+Call `createArtifactStorage(settings)` from `server/domains/artifacts/create-artifact-storage/index.ts` during startup. The asynchronous factory validates settings and returns `isReady()`, `read(key)`, `write(key, bytes)`, and `delete(key)`. `parseArtifactStorageSettings(input)` validates unknown configuration separately when startup needs a typed selection before composition.
 
 Choose exactly one settings shape:
 
@@ -35,11 +35,13 @@ Alternatively, startup can call `createConfiguredArtifactStorage(environment)` f
 
 The wrapper constructs the public-cloud HTTPS account URL and calls the typed factory. Missing or invalid providers, incomplete configuration, and mixed-provider settings fail with a safe error. An empty value still counts as a supplied setting when checking mixed providers. Unrelated environment variables are ignored. Startup may leave storage uncomposed when artifact storage is not configured; calling the wrapper without a provider always rejects.
 
-API, combined, and independent worker entry points validate and construct configured storage before startup. Any supplied provider, directory, account, or container setting opts in, so incomplete settings fail rather than being ignored. Setup does not need storage. Without storage settings, development keeps working unchanged. This startup check does not read or write artifacts, prove Azure access, or connect an unimplemented product flow.
+API, combined, and independent worker entry points validate and construct configured storage before startup. Any supplied provider, directory, account, or container setting opts in, so incomplete settings fail rather than being ignored. Setup does not need storage. Without storage settings, development keeps working unchanged. Construction alone does not prove Azure access or connect an unimplemented product flow.
 
 Unknown typed settings, relative directories, account credentials, URL query strings, and unsupported endpoints fail validation with a safe error. Azure selection never falls back to local storage.
 
-The Azure endpoint accepts public-cloud HTTPS account URLs only. The adapter uses `ManagedIdentityCredential`, with either the system-assigned identity or the explicitly selected user-assigned identity. It never uses account keys, connection strings, developer credentials, or `DefaultAzureCredential`. Operators provision the account and container and grant the runtime identity `Storage Blob Data Contributor` at the intended container scope. Construction does not contact Azure; missing identity, permissions, or container availability is reported when an operation runs.
+The Azure endpoint accepts public-cloud HTTPS account URLs only. The adapter uses `ManagedIdentityCredential`, with either the system-assigned identity or the explicitly selected user-assigned identity. It never uses account keys, connection strings, developer credentials, or `DefaultAzureCredential`. Operators provision the account and container and grant the runtime identity `Storage Blob Data Contributor` at the intended container scope.
+
+The API's `/api/ready` includes configured storage. `isReady()` has a two-second deadline and makes a non-writing container-properties request through the selected managed identity, or verifies the filesystem directory. Provider failure or timeout fails readiness with a safe diagnostic. The Azure check verifies container read access, not write/delete permission, available capacity, or product operations. It never creates or deletes a probe artifact. Standalone workers have no readiness endpoint.
 
 ## Bytes and results
 

@@ -4,6 +4,8 @@ import { describe, expect, it, vi } from "vitest"
 const mocks = vi.hoisted(() => ({
   credential: vi.fn(),
   service: vi.fn(),
+  container: vi.fn(),
+  getProperties: vi.fn(),
   download: vi.fn(),
   uploadData: vi.fn(),
   delete: vi.fn(),
@@ -20,8 +22,9 @@ vi.mock("@azure/storage-blob", () => ({
     constructor(...args: unknown[]) {
       mocks.service(...args)
     }
-    getContainerClient() {
-      return { getBlockBlobClient: () => mocks }
+    getContainerClient(name: string) {
+      mocks.container(name)
+      return { getProperties: mocks.getProperties, getBlockBlobClient: () => mocks }
     }
   },
 }))
@@ -29,6 +32,42 @@ vi.mock("@azure/storage-blob", () => ({
 import { createAzureBlobArtifactStorage } from "."
 
 describe("createAzureBlobArtifactStorage()", () => {
+  it("checks the configured container with the supplied abort signal without touching blobs", async () => {
+    const storage = createAzureBlobArtifactStorage(
+      { accountUrl: "https://example.blob.core.windows.net", container: "artifacts" },
+      3,
+    )
+    const signal = new AbortController().signal
+    let succeed!: () => void
+    mocks.getProperties.mockReturnValue(new Promise<void>((resolve) => (succeed = resolve)))
+    let settled = false
+    const ready = storage.isReady(signal).then((result) => {
+      settled = true
+      return result
+    })
+    await Promise.resolve()
+    expect(settled).toBe(false)
+
+    succeed()
+
+    expect(await ready).toBe(true)
+    expect(mocks.container).toHaveBeenCalledExactlyOnceWith("artifacts")
+    expect(mocks.getProperties).toHaveBeenCalledExactlyOnceWith({ abortSignal: signal })
+    expect(mocks.download).not.toHaveBeenCalled()
+    expect(mocks.uploadData).not.toHaveBeenCalled()
+    expect(mocks.delete).not.toHaveBeenCalled()
+  })
+
+  it("reports unavailable storage when the authenticated container check fails", async () => {
+    const storage = createAzureBlobArtifactStorage(
+      { accountUrl: "https://example.blob.core.windows.net", container: "artifacts" },
+      3,
+    )
+    mocks.getProperties.mockRejectedValue(new Error("Private provider diagnostics"))
+
+    expect(await storage.isReady(new AbortController().signal)).toBe(false)
+  })
+
   it("uses only managed identity and conditional writes with bounded binary reads", async () => {
     const clientId = "ee5eeebb-74e0-4b79-8030-c325e50fec43"
     const storage = createAzureBlobArtifactStorage(

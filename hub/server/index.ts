@@ -12,18 +12,26 @@ import { runJobWorker } from "./workers/run-job-worker/index.ts"
 
 try {
   const configuration = parseRuntimeConfig(process.env)
-  if (configuration.mode !== "setup" && configuration.hasArtifactStorage) {
-    await createConfiguredArtifactStorage(process.env)
-  }
+  const storage =
+    configuration.mode !== "setup" && configuration.hasArtifactStorage
+      ? await createConfiguredArtifactStorage(process.env)
+      : undefined
+  const isStorageReady = storage ? () => storage.isReady() : undefined
   const telemetry = startTelemetry(process.env, logger)
   try {
     if (configuration.mode === "setup") await setup()
-    else if (configuration.mode === "api") await runApi({ ...configuration, logger })
+    else if (configuration.mode === "api")
+      await runApi({ ...configuration, logger, isReady: isStorageReady })
     else {
       const databaseUrl = configuration.databaseUrl
       if (!databaseUrl) throw new Error("This runtime mode requires DATABASE_URL.")
       if (configuration.mode === "combined") {
-        await startServerProcesses({ ...configuration, databaseUrl, logger })
+        await startServerProcesses({
+          ...configuration,
+          databaseUrl,
+          logger,
+          isStorageReady,
+        })
       } else {
         const name = configuration.mode
         await runJobWorker({

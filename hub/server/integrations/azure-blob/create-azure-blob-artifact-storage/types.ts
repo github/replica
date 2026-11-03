@@ -5,6 +5,7 @@ export interface AzureBlobArtifactSettings {
 }
 
 export interface AzureBlobArtifactStorage {
+  isReady(signal: AbortSignal): Promise<boolean>
   read(
     key: string,
   ): Promise<

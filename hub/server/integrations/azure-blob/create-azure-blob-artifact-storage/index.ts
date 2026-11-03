@@ -15,6 +15,14 @@ export function createAzureBlobArtifactStorage(
   )
 
   return {
+    async isReady(signal) {
+      try {
+        await container.getProperties({ abortSignal: signal })
+        return true
+      } catch {
+        return false
+      }
+    },
     async read(key) {
       try {
         const response = await container.getBlockBlobClient(key).download()
