@@ -242,26 +242,29 @@ describe("authentication proof migration", () => {
           ),
         ).rejects.toThrow("first consumption")
 
-        const userId = "00000000-0000-4000-8000-000000000020"
+        const membershipUserId = "00000000-0000-4000-8000-000000000020"
         const otherUserId = "00000000-0000-4000-8000-000000000021"
         const identityId = "00000000-0000-4000-8000-000000000022"
         const otherIdentityId = "00000000-0000-4000-8000-000000000023"
         const membershipId = "00000000-0000-4000-8000-000000000024"
         const otherMembershipId = "00000000-0000-4000-8000-000000000025"
         const assignmentId = "00000000-0000-4000-8000-000000000026"
-        await database.query(`INSERT INTO users (id) VALUES ($1), ($2)`, [userId, otherUserId])
+        await database.query(`INSERT INTO users (id) VALUES ($1), ($2)`, [
+          membershipUserId,
+          otherUserId,
+        ])
         await database.query(
           `INSERT INTO external_identities
              (id, user_id, provider, issuer, subject)
            VALUES
              ($1, $2, 'github', 'https://github.com', '20'),
              ($3, $4, 'github', 'https://github.com', '21')`,
-          [identityId, userId, otherIdentityId, otherUserId],
+          [identityId, membershipUserId, otherIdentityId, otherUserId],
         )
         await database.query(
           `INSERT INTO memberships (id, user_id)
            VALUES ($1, $2), ($3, $4)`,
-          [membershipId, userId, otherMembershipId, otherUserId],
+          [membershipId, membershipUserId, otherMembershipId, otherUserId],
         )
         await database.query(
           `INSERT INTO membership_assignments
@@ -367,7 +370,7 @@ describe("authentication proof migration", () => {
                gen_random_uuid(), $1, $2, 'bad', 0,
                clock_timestamp() + interval '1 hour'
              )`,
-            [userId, membershipId],
+            [membershipUserId, membershipId],
           ),
         ).rejects.toThrow()
         await expect(

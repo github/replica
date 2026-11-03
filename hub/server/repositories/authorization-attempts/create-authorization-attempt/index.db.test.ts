@@ -44,6 +44,7 @@ describe("createAuthorizationAttempt()", () => {
         browserBindingDigest: "b".repeat(64),
         codeVerifierCiphertext: "encrypted-verifier",
         lifetimeSeconds: 600,
+        purpose: "SIGN_IN",
       })
       const afterRows = await transaction.$queryRaw<Array<{ value: Date }>>`
         SELECT clock_timestamp()::timestamptz(3) AS value
