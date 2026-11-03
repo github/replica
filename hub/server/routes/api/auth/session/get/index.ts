@@ -4,7 +4,7 @@ import { hashAuthenticationValue } from "../../../../../domains/authentication/h
 import { clearAuthenticationCookie } from "../../../../../integrations/express/clear-authentication-cookie/index.ts"
 import { hubSessionCookieName } from "../../../../../integrations/express/hub-session-cookie-name/index.ts"
 import { readCookie } from "../../../../../integrations/express/read-cookie/index.ts"
-import type { CurrentSessionDependencies } from "../../../authentication/types.ts"
+import type { CurrentSessionDependencies } from "../../types.ts"
 
 export function get(dependencies: CurrentSessionDependencies): RequestHandler {
   return async (request, response, next) => {

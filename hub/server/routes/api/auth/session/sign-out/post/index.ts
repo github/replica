@@ -4,7 +4,7 @@ import { hashAuthenticationValue } from "../../../../../../domains/authenticatio
 import { clearAuthenticationCookie } from "../../../../../../integrations/express/clear-authentication-cookie/index.ts"
 import { hubSessionCookieName } from "../../../../../../integrations/express/hub-session-cookie-name/index.ts"
 import { readCookie } from "../../../../../../integrations/express/read-cookie/index.ts"
-import type { SignOutDependencies } from "../../../../authentication/types.ts"
+import type { SignOutDependencies } from "../../../types.ts"
 
 export function post(dependencies: SignOutDependencies): RequestHandler {
   return async (request, response, next) => {

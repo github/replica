@@ -1,7 +1,16 @@
 import { createHash } from "node:crypto"
-import type { RequestHandler } from "express"
+import type { Request, RequestHandler } from "express"
 
-import type { AuthenticationRequest, RateLimitDependencies } from "../types.ts"
+interface RateLimitDependencies {
+  checkRateLimit(
+    operation: "start" | "callback",
+    subjectDigest: string,
+  ): Promise<{ allowed: boolean; auditFailed: boolean }>
+}
+
+interface AuthenticationRequest extends Request {
+  authenticationRateLimitAllowed?: boolean
+}
 
 export function rateLimit(
   dependencies: RateLimitDependencies,

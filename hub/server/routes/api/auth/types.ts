@@ -1,5 +1,3 @@
-import type { Request } from "express"
-
 import type { AuthenticationProofResult } from "../../../domains/authentication/types.ts"
 
 export interface RateLimitDependencies {
@@ -66,8 +64,4 @@ export interface AuthenticationRouteDependencies {
   signIn: StartAuthenticationDependencies
   signOut: SignOutDependencies
   administratorEnrollment: StartAdministratorEnrollmentDependencies
-}
-
-export interface AuthenticationRequest extends Request {
-  authenticationRateLimitAllowed?: boolean
 }

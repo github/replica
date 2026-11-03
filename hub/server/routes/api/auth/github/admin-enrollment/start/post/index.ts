@@ -1,8 +1,8 @@
 import type { RequestHandler } from "express"
 import { z } from "zod"
 
-import { startAuthentication } from "../../../../../../../integrations/express/start-authentication/index.ts"
-import type { StartAdministratorEnrollmentDependencies } from "../../../../../authentication/types.ts"
+import { redirectAuthenticationStart } from "../../../../../../../integrations/express/redirect-authentication-start/index.ts"
+import type { StartAdministratorEnrollmentDependencies } from "../../../../types.ts"
 
 const bodySchema = z
   .object({
@@ -11,7 +11,6 @@ const bodySchema = z
   .strict()
 
 export function post(dependencies: StartAdministratorEnrollmentDependencies): RequestHandler {
-  const startEnrollment = startAuthentication(dependencies)
   return async (request, response, next) => {
     const body = bodySchema.safeParse(request.body)
     if (!body.success || !dependencies.verifyBootstrapSecret(body.data.bootstrap_secret)) {
@@ -28,6 +27,10 @@ export function post(dependencies: StartAdministratorEnrollmentDependencies): Re
       response.status(403).json({ error: "Administrator enrollment was denied." })
       return
     }
-    startEnrollment(request, response, next)
+    try {
+      redirectAuthenticationStart(response, dependencies.secureCookie, await dependencies.start())
+    } catch (error) {
+      next(error)
+    }
   }
 }

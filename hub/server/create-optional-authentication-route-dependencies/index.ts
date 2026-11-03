@@ -1,4 +1,4 @@
-import type { AuthenticationRouteDependencies } from "../routes/api/authentication/types.ts"
+import type { AuthenticationRouteDependencies } from "../routes/api/auth/types.ts"
 
 export async function createOptionalAuthenticationRouteDependencies(
   environment: NodeJS.ProcessEnv,

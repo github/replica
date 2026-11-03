@@ -90,6 +90,21 @@ describe("authenticationRoutes()", () => {
     })
   })
 
+  it("rejects malformed JSON by origin before parsing the authentication body", async () => {
+    const { dependencies, checkRateLimit, startSignIn } = routeDependencies()
+    await withServer(dependencies, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/auth/github/start`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{malformed",
+      })
+
+      expect(response.status).toBe(403)
+      expect(checkRateLimit).not.toHaveBeenCalled()
+      expect(startSignIn).not.toHaveBeenCalled()
+    })
+  })
+
   it("rate-limits an enrollment before parsing its secret", async () => {
     const { dependencies, checkRateLimit, startEnrollment, verifyBootstrapSecret } =
       routeDependencies()

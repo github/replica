@@ -11,7 +11,7 @@ import { clearAuthenticationCookie } from "../../../../../../integrations/expres
 import { createAuthenticationCookie } from "../../../../../../integrations/express/create-authentication-cookie/index.ts"
 import { hubSessionCookieName } from "../../../../../../integrations/express/hub-session-cookie-name/index.ts"
 import { readCookie } from "../../../../../../integrations/express/read-cookie/index.ts"
-import type { AuthenticationCallbackDependencies } from "../../../../authentication/types.ts"
+import type { AuthenticationCallbackDependencies } from "../../../types.ts"
 
 const querySchema = z
   .object({

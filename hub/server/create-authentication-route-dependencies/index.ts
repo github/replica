@@ -25,7 +25,7 @@ import { consumeAuthorizationAttempt } from "../repositories/authorization-attem
 import { createAuthorizationAttempt } from "../repositories/authorization-attempts/create-authorization-attempt/index.ts"
 import { deleteExpiredAuthorizationAttempts } from "../repositories/authorization-attempts/delete-expired-authorization-attempts/index.ts"
 import { createSecurityAudit } from "../repositories/security-audits/create-security-audit/index.ts"
-import type { AuthenticationRouteDependencies } from "../routes/api/authentication/types.ts"
+import type { AuthenticationRouteDependencies } from "../routes/api/auth/types.ts"
 
 export function createAuthenticationRouteDependencies(
   environment: NodeJS.ProcessEnv,

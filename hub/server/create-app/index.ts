@@ -1,10 +1,10 @@
 import express from "express"
 import { resolve } from "node:path"
 
+import { authenticationSecurity } from "../integrations/express/authentication-security/index.ts"
 import { handleError } from "../integrations/express/handle-error/index.ts"
 import { respondNotFound } from "../integrations/express/respond-not-found/index.ts"
 import { createRequestLogger } from "../integrations/pino/create-request-logger/index.ts"
-import { authenticationSecurity } from "../routes/api/authentication/security/index.ts"
 import { routes } from "../routes/index.ts"
 
 import type { CreateAppOptions } from "./types.ts"
@@ -23,7 +23,7 @@ export function createApp({
   app.set("trust proxy", trustedProxyHops)
   app.use(createRequestLogger(logger))
   app.use("/api/auth", authenticationSecurity())
-  app.use(express.json())
+  app.use(/^(?!\/api\/auth(?:\/|$)).*/, express.json())
 
   routes(app, { authentication, broadcast, isReady, logger })
   app.use("/api", respondNotFound)

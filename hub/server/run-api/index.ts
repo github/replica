@@ -4,7 +4,7 @@ import { resolve } from "node:path"
 import type { Logger } from "pino"
 
 import { createApp } from "../create-app/index.ts"
-import type { AuthenticationRouteDependencies } from "../routes/api/authentication/types.ts"
+import type { AuthenticationRouteDependencies } from "../routes/api/auth/types.ts"
 import { attachRealtimeServer } from "../integrations/ws/attach-realtime-server/index.ts"
 import { shutdownServer } from "../shutdown-server/index.ts"
 
