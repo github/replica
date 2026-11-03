@@ -15,8 +15,8 @@ export async function restoreHubSession(
     if (!session || !revocation || session.revocationRevision !== revocation.revision) {
       return null
     }
-    const membership = await repositories.lockMembership(session.userId)
-    if (membership?.id !== session.membershipId || membership.lifecycle !== "ACTIVE") return null
+    const membership = await repositories.lockMembership(session.membershipId)
+    if (!membership || membership.lifecycle !== "ACTIVE") return null
     if (!(await repositories.lockActiveAssignment(session.membershipId))) return null
     const finalSession = await repositories.lockSession(parsedDigest)
     if (finalSession?.id !== session.id) return null
@@ -26,7 +26,7 @@ export async function restoreHubSession(
       membershipId: session.membershipId,
       role: "administrator" as const,
       sessionId: session.id,
-      userId: session.userId,
+      userId: membership.userId,
     }
   })
 }

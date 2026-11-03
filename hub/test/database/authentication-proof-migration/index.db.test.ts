@@ -168,6 +168,34 @@ describe("authentication proof migration", () => {
           "authorization_attempts_pkey",
           "authorization_attempts_state_digest_key",
         ])
+        const admissionColumns = await database.query<{
+          column_name: string
+          table_name: string
+        }>(
+          `SELECT table_name, column_name
+           FROM information_schema.columns
+           WHERE table_schema = 'public'
+             AND table_name IN ('authentication_rate_limits', 'hub_sessions')
+           ORDER BY table_name, ordinal_position`,
+        )
+        expect(admissionColumns.rows).toEqual([
+          { table_name: "authentication_rate_limits", column_name: "id" },
+          { table_name: "authentication_rate_limits", column_name: "operation" },
+          { table_name: "authentication_rate_limits", column_name: "subject_digest" },
+          { table_name: "authentication_rate_limits", column_name: "count" },
+          { table_name: "authentication_rate_limits", column_name: "expires_at" },
+          { table_name: "authentication_rate_limits", column_name: "denial_audited_at" },
+          { table_name: "authentication_rate_limits", column_name: "created_at" },
+          { table_name: "authentication_rate_limits", column_name: "updated_at" },
+          { table_name: "hub_sessions", column_name: "id" },
+          { table_name: "hub_sessions", column_name: "membership_id" },
+          { table_name: "hub_sessions", column_name: "digest" },
+          { table_name: "hub_sessions", column_name: "revocation_revision" },
+          { table_name: "hub_sessions", column_name: "expires_at" },
+          { table_name: "hub_sessions", column_name: "ended_at" },
+          { table_name: "hub_sessions", column_name: "created_at" },
+          { table_name: "hub_sessions", column_name: "updated_at" },
+        ])
         const upgradedRecords = await database.query(
           `SELECT
              provider.id AS provider_id,
@@ -365,20 +393,20 @@ describe("authentication proof migration", () => {
         await expect(
           database.query(
             `INSERT INTO hub_sessions
-               (id, user_id, membership_id, digest, revocation_revision, expires_at)
+               (id, membership_id, digest, revocation_revision, expires_at)
              VALUES (
-               gen_random_uuid(), $1, $2, 'bad', 0,
+               gen_random_uuid(), $1, 'bad', 0,
                clock_timestamp() + interval '1 hour'
              )`,
-            [membershipUserId, membershipId],
+            [membershipId],
           ),
         ).rejects.toThrow()
         await expect(
           database.query(
             `INSERT INTO authentication_rate_limits
-               (id, operation, subject_digest, window_started_at, count, expires_at)
+               (id, operation, subject_digest, count, expires_at)
              VALUES (
-               gen_random_uuid(), 'start', $1, clock_timestamp(), 0,
+               gen_random_uuid(), 'start', $1, 0,
                clock_timestamp() + interval '1 minute'
              )`,
             ["a".repeat(64)],

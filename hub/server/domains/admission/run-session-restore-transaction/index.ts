@@ -2,7 +2,7 @@ import { Prisma } from "../../../generated/prisma/client.ts"
 
 import { lockRestorableHubSession } from "../../../repositories/hub-sessions/lock-restorable-hub-session/index.ts"
 import { lockActiveMembershipAssignment } from "../../../repositories/membership-assignments/lock-active-membership-assignment/index.ts"
-import { lockMembership } from "../../../repositories/memberships/lock-membership/index.ts"
+import { lockMembershipById } from "../../../repositories/memberships/lock-membership-by-id/index.ts"
 import { getSessionRevocationState } from "../../../repositories/session-revocation-states/get-session-revocation-state/index.ts"
 import type { SessionRestoreDatabaseClient, SessionRestoreRepositories } from "./types.ts"
 
@@ -16,7 +16,7 @@ export function runSessionRestoreTransaction<Result>(
         getRevocation: () => getSessionRevocationState(transaction),
         lockActiveAssignment: (membershipId) =>
           lockActiveMembershipAssignment(transaction, membershipId),
-        lockMembership: (userId) => lockMembership(transaction, userId),
+        lockMembership: (membershipId) => lockMembershipById(transaction, membershipId),
         lockSession: (digest) => lockRestorableHubSession(transaction, digest),
       }),
     { isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted },

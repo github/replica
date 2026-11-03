@@ -47,7 +47,6 @@ CREATE TABLE "session_revocation_states" (
 
 CREATE TABLE "hub_sessions" (
     "id" UUID NOT NULL,
-    "user_id" UUID NOT NULL,
     "membership_id" UUID NOT NULL,
     "digest" VARCHAR(64) NOT NULL,
     "revocation_revision" INTEGER NOT NULL,
@@ -66,7 +65,6 @@ CREATE TABLE "authentication_rate_limits" (
     "id" UUID NOT NULL,
     "operation" VARCHAR(50) NOT NULL,
     "subject_digest" VARCHAR(64) NOT NULL,
-    "window_started_at" TIMESTAMPTZ(3) NOT NULL,
     "count" INTEGER NOT NULL,
     "expires_at" TIMESTAMPTZ(3) NOT NULL,
     "denial_audited_at" TIMESTAMPTZ(3),
@@ -75,7 +73,7 @@ CREATE TABLE "authentication_rate_limits" (
     CONSTRAINT "authentication_rate_limits_pkey" PRIMARY KEY ("id"),
     CONSTRAINT "authentication_rate_limits_digest" CHECK ("subject_digest" ~ '^[0-9a-f]{64}$'),
     CONSTRAINT "authentication_rate_limits_count" CHECK ("count" > 0),
-    CONSTRAINT "authentication_rate_limits_expiry" CHECK ("expires_at" > "window_started_at")
+    CONSTRAINT "authentication_rate_limits_expiry" CHECK ("expires_at" > "created_at")
 );
 
 CREATE UNIQUE INDEX "memberships_user_id_key" ON "memberships"("user_id");
@@ -89,7 +87,6 @@ ON "session_revocation_states"("key");
 CREATE UNIQUE INDEX "hub_sessions_digest_key" ON "hub_sessions"("digest");
 CREATE INDEX "hub_sessions_membership_id_expires_at_idx"
 ON "hub_sessions"("membership_id", "expires_at");
-CREATE INDEX "hub_sessions_user_id_idx" ON "hub_sessions"("user_id");
 CREATE UNIQUE INDEX "authentication_rate_limits_operation_subject_digest_key"
 ON "authentication_rate_limits"("operation", "subject_digest");
 CREATE INDEX "authentication_rate_limits_expires_at_idx"
@@ -108,11 +105,6 @@ ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE "membership_assignments"
 ADD CONSTRAINT "membership_assignments_external_identity_id_fkey"
 FOREIGN KEY ("external_identity_id") REFERENCES "external_identities"("id")
-ON DELETE RESTRICT ON UPDATE CASCADE;
-
-ALTER TABLE "hub_sessions"
-ADD CONSTRAINT "hub_sessions_user_id_fkey"
-FOREIGN KEY ("user_id") REFERENCES "users"("id")
 ON DELETE RESTRICT ON UPDATE CASCADE;
 
 ALTER TABLE "hub_sessions"
@@ -250,7 +242,6 @@ BEGIN
         RAISE EXCEPTION 'Hub session history cannot be deleted.';
     END IF;
     IF NEW."id" <> OLD."id"
-       OR NEW."user_id" <> OLD."user_id"
        OR NEW."membership_id" <> OLD."membership_id"
        OR NEW."digest" <> OLD."digest"
        OR NEW."revocation_revision" <> OLD."revocation_revision"

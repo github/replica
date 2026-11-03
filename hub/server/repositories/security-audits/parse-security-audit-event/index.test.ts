@@ -38,4 +38,37 @@ describe("parseSecurityAuditEvent()", () => {
 
     expect(parseSecurityAuditEvent(event)).toEqual(event)
   })
+
+  it("accepts bootstrap assignment events without caller-supplied invariant metadata", () => {
+    const event = {
+      id: "5dd31031-6f1c-4c16-87c2-aee5342145cc",
+      type: "membership_assignment_created",
+      membershipId: "8a2479e7-3ca4-46f8-9749-c35d8e4eb09e",
+    }
+
+    expect(parseSecurityAuditEvent(event)).toEqual(event)
+  })
+
+  it("rejects the unreachable provider-revoked admission reason", () => {
+    expect(() =>
+      parseSecurityAuditEvent({
+        id: "5dd31031-6f1c-4c16-87c2-aee5342145cc",
+        type: "admission_denied",
+        externalIdentityId: "e8714e71-52a7-45e8-a639-99ec37f2d85f",
+        reason: "provider_revoked",
+      }),
+    ).toThrow()
+  })
+
+  it("rejects the removed assignment-revoked audit event", () => {
+    expect(() =>
+      parseSecurityAuditEvent({
+        id: "5dd31031-6f1c-4c16-87c2-aee5342145cc",
+        type: "membership_assignment_revoked",
+        membershipId: "8a2479e7-3ca4-46f8-9749-c35d8e4eb09e",
+        source: "bootstrap",
+        role: "administrator",
+      }),
+    ).toThrow()
+  })
 })

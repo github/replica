@@ -19,7 +19,7 @@ function input() {
   }
 }
 
-function repositories(overrides: Partial<AdmissionRepositories> = {}): AdmissionRepositories {
+function repositories(overrides: Partial<AdmissionRepositories> = {}) {
   const membershipId = randomUUID()
   return {
     createBootstrapAssignment: vi.fn().mockResolvedValue("created"),
@@ -35,7 +35,7 @@ function repositories(overrides: Partial<AdmissionRepositories> = {}): Admission
       providerRevisionId: "revision-id",
       purpose: "ADMIN_ENROLLMENT",
     }),
-    lockExternalIdentity: vi.fn().mockResolvedValue({
+    getExternalIdentity: vi.fn().mockResolvedValue({
       provider: "github",
       userId: "user-id",
     }),
@@ -45,14 +45,18 @@ function repositories(overrides: Partial<AdmissionRepositories> = {}): Admission
     }),
     lockProvider: vi.fn().mockResolvedValue({ selectedRevisionId: "revision-id" }),
     lockRevocation: vi.fn().mockResolvedValue({ revision: 0 }),
-    lockUser: vi.fn().mockResolvedValue({ id: "user-id" }),
     ...overrides,
-  }
+  } satisfies AdmissionRepositories
 }
 
 describe("admitAuthenticationProof()", () => {
   it("retries the complete transaction with the kernel policy before succeeding", async () => {
-    const records = repositories()
+    const expiresAt = new Date("2030-01-01")
+    const createHubSession = vi
+      .fn<AdmissionRepositories["createHubSession"]>()
+      .mockResolvedValue({ expiresAt })
+    const records = repositories({ createHubSession })
+    const request = input()
     let transactionCalls = 0
     async function runTransaction<Result>(
       operation: (repositories: AdmissionRepositories) => Promise<Result>,
@@ -64,15 +68,30 @@ describe("admitAuthenticationProof()", () => {
     const writeAudit = vi.fn()
 
     await expect(
-      admitAuthenticationProof(input(), {
+      admitAuthenticationProof(request, {
         createId: randomUUID,
         runTransaction,
         writeAudit,
       }),
-    ).resolves.toMatchObject({ role: "administrator" })
+    ).resolves.toEqual({ expiresAt })
 
     expect(transactionCalls).toBe(3)
     expect(writeAudit).not.toHaveBeenCalled()
+    expect(createHubSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        digest: request.sessionDigest,
+        id: request.sessionId,
+        lifetimeSeconds: request.sessionLifetimeSeconds,
+        revocationRevision: 0,
+      }),
+    )
+    expect(Object.keys(createHubSession.mock.calls[0]![0]).sort()).toEqual([
+      "digest",
+      "id",
+      "lifetimeSeconds",
+      "membershipId",
+      "revocationRevision",
+    ])
   })
 
   it("writes one terminal failure audit after retry exhaustion", async () => {
@@ -99,38 +118,16 @@ describe("admitAuthenticationProof()", () => {
     )
   })
 
-  it("fails closed when the authoritative user reread is missing", async () => {
-    const createOrRestoreMembership = vi.fn().mockResolvedValue({
-      id: randomUUID(),
-      transition: "created",
-    })
-    const createHubSession = vi.fn().mockResolvedValue({ expiresAt: new Date("2030-01-01") })
-    const records = repositories({
-      createHubSession,
-      createOrRestoreMembership,
-      lockUser: vi.fn().mockResolvedValue(null),
-    })
-    const writeAudit = vi.fn().mockResolvedValue(undefined)
-    const request = input()
+  it("uses the immutable external-identity foreign key without a separate user lock", async () => {
+    const records = repositories()
 
-    await expect(
-      admitAuthenticationProof(request, {
-        createId: randomUUID,
-        runTransaction: (operation) => operation(records),
-        writeAudit,
-      }),
-    ).rejects.toMatchObject<Partial<AdmissionDeniedError>>({
-      reason: "identity_mismatch",
+    await admitAuthenticationProof(input(), {
+      createId: randomUUID,
+      runTransaction: (operation) => operation(records),
+      writeAudit: vi.fn(),
     })
 
-    expect(createOrRestoreMembership).not.toHaveBeenCalled()
-    expect(createHubSession).not.toHaveBeenCalled()
-    expect(writeAudit).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: "admission_denied",
-        reason: "identity_mismatch",
-      }),
-    )
+    expect("lockUser" in records).toBe(false)
   })
 
   it("denies a proof when the selected provider revision changed before admission", async () => {
@@ -189,6 +186,25 @@ describe("admitAuthenticationProof()", () => {
     expect(createSecurityAudit).not.toHaveBeenCalledWith(
       expect.objectContaining({ type: "membership_assignment_restored" }),
     )
+  })
+
+  it("lets the audit mapper add invariant bootstrap assignment metadata", async () => {
+    const createSecurityAudit = vi
+      .fn<AdmissionRepositories["createSecurityAudit"]>()
+      .mockResolvedValue(undefined)
+    const records = repositories({ createSecurityAudit })
+
+    await admitAuthenticationProof(input(), {
+      createId: randomUUID,
+      runTransaction: (operation) => operation(records),
+      writeAudit: vi.fn(),
+    })
+
+    const assignmentEvent = createSecurityAudit.mock.calls
+      .map(([event]) => event)
+      .find(({ type }) => type === "membership_assignment_created")
+    expect(assignmentEvent?.type).toBe("membership_assignment_created")
+    expect(Object.keys(assignmentEvent ?? {}).sort()).toEqual(["id", "membershipId", "type"])
   })
 
   it("does not audit an unchanged active membership lifecycle", async () => {

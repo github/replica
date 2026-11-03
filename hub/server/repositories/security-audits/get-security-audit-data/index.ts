@@ -17,19 +17,16 @@ export function getSecurityAuditData(
       }
     case "membership_assignment_created":
     case "membership_assignment_restored":
-    case "membership_assignment_revoked":
       return {
         id: event.id,
         action:
           event.type === "membership_assignment_created"
             ? "membership.assignment.created"
-            : event.type === "membership_assignment_restored"
-              ? "membership.assignment.restored"
-              : "membership.assignment.revoked",
+            : "membership.assignment.restored",
         outcome: SecurityAuditOutcome.SUCCESS,
         targetType: "membership",
         targetId: event.membershipId,
-        context: { source: event.source, role: event.role },
+        context: { source: "bootstrap", role: "administrator" },
       }
     case "membership_created":
     case "membership_restored":

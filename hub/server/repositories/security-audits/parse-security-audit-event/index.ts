@@ -29,8 +29,6 @@ const eventSchema = z.discriminatedUnion("type", [
       id: z.uuid(),
       type: z.literal("membership_assignment_created"),
       membershipId: z.uuid(),
-      source: z.literal("bootstrap"),
-      role: z.literal("administrator"),
     })
     .strict(),
   z
@@ -38,17 +36,6 @@ const eventSchema = z.discriminatedUnion("type", [
       id: z.uuid(),
       type: z.literal("membership_assignment_restored"),
       membershipId: z.uuid(),
-      source: z.literal("bootstrap"),
-      role: z.literal("administrator"),
-    })
-    .strict(),
-  z
-    .object({
-      id: z.uuid(),
-      type: z.literal("membership_assignment_revoked"),
-      membershipId: z.uuid(),
-      source: z.literal("bootstrap"),
-      role: z.literal("administrator"),
     })
     .strict(),
   z
@@ -92,7 +79,6 @@ const eventSchema = z.discriminatedUnion("type", [
         "identity_mismatch",
         "membership_inactive",
         "membership_missing",
-        "provider_revoked",
       ]),
     })
     .strict(),

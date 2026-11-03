@@ -1,11 +1,9 @@
 model HubSession {
   // ID columns
   id           String @id @default(uuid()) @db.Uuid
-  userId       String @map("user_id") @db.Uuid
   membershipId String @map("membership_id") @db.Uuid
 
   // Relations
-  user       User       @relation(fields: [userId], references: [id], onDelete: Restrict)
   membership Membership @relation(fields: [membershipId], references: [id], onDelete: Restrict)
 
   // Attribute columns
@@ -19,6 +17,5 @@ model HubSession {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@index([membershipId, expiresAt])
-  @@index([userId])
   @@map("hub_sessions")
 }

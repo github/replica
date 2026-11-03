@@ -28,8 +28,6 @@ export interface BootstrapAttemptDeniedAudit extends SecurityAuditEvent {
 export interface MembershipAssignmentCreatedAudit extends SecurityAuditEvent {
   type: "membership_assignment_created"
   membershipId: string
-  source: "bootstrap"
-  role: "administrator"
 }
 
 export interface MembershipCreatedAudit extends SecurityAuditEvent {
@@ -45,15 +43,6 @@ export interface MembershipRestoredAudit extends SecurityAuditEvent {
 export interface MembershipAssignmentRestoredAudit extends SecurityAuditEvent {
   type: "membership_assignment_restored"
   membershipId: string
-  source: "bootstrap"
-  role: "administrator"
-}
-
-export interface MembershipAssignmentRevokedAudit extends SecurityAuditEvent {
-  type: "membership_assignment_revoked"
-  membershipId: string
-  source: "bootstrap"
-  role: "administrator"
 }
 
 export interface SessionCreatedAudit extends SecurityAuditEvent {
@@ -77,7 +66,6 @@ export interface AdmissionDeniedAudit extends SecurityAuditEvent {
     | "identity_mismatch"
     | "membership_inactive"
     | "membership_missing"
-    | "provider_revoked"
 }
 
 export interface AdmissionFailedAudit extends SecurityAuditEvent {
@@ -132,7 +120,6 @@ export type CreateSecurityAuditEvent =
   | BootstrapAttemptDeniedAudit
   | MembershipAssignmentCreatedAudit
   | MembershipAssignmentRestoredAudit
-  | MembershipAssignmentRevokedAudit
   | MembershipCreatedAudit
   | MembershipRestoredAudit
   | SessionCreatedAudit

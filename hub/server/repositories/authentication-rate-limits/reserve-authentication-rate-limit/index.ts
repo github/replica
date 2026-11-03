@@ -11,46 +11,56 @@ const inputSchema = z
   })
   .strict()
 
-type Input = z.output<typeof inputSchema>
-type Bucket = {
-  count: number
-  denialAuditedAt: Date | null
-  expired: boolean
-  id: string
-}
-
-function insertBucket(database: AuthenticationRateLimitDatabase, input: Input) {
-  return database.$queryRaw<Array<{ id: string }>>`
-    INSERT INTO "authentication_rate_limits" (
-      "id", "operation", "subject_digest", "window_started_at", "count", "expires_at",
-      "denial_audited_at", "created_at", "updated_at"
-    ) VALUES (
-      gen_random_uuid(), ${input.operation}, ${input.subjectDigest},
-      clock_timestamp(), 1,
-      clock_timestamp() + make_interval(secs => ${input.windowSeconds}),
-      NULL, clock_timestamp(), clock_timestamp()
+export async function reserveAuthenticationRateLimit(
+  database: AuthenticationRateLimitDatabase,
+  rawInput: z.input<typeof inputSchema>,
+): Promise<{ allowed: boolean; auditRequired: boolean }> {
+  const input = inputSchema.parse(rawInput)
+  const [decision] = await database.$queryRaw<Array<{ allowed: boolean; auditRequired: boolean }>>`
+    WITH reservation_clock AS (
+      SELECT clock_timestamp() AS value
     )
-    ON CONFLICT ("operation", "subject_digest") DO NOTHING
-    RETURNING "id"
-  `
-}
-
-function lockBucket(database: AuthenticationRateLimitDatabase, input: Input) {
-  return database.$queryRaw<Bucket[]>`
+    INSERT INTO "authentication_rate_limits" (
+      "id", "operation", "subject_digest", "count", "expires_at",
+      "denial_audited_at", "created_at", "updated_at"
+    )
     SELECT
-      "id",
-      "count",
-      "denial_audited_at" AS "denialAuditedAt",
-      "expires_at" <= clock_timestamp() AS "expired"
-    FROM "authentication_rate_limits"
-    WHERE "operation" = ${input.operation}
-      AND "subject_digest" = ${input.subjectDigest}
-    FOR UPDATE
+      gen_random_uuid(), ${input.operation}, ${input.subjectDigest}, 1,
+      value + make_interval(secs => ${input.windowSeconds}),
+      NULL, value, value
+    FROM reservation_clock
+    ON CONFLICT ("operation", "subject_digest") DO UPDATE
+    SET
+      "count" = CASE
+        WHEN "authentication_rate_limits"."expires_at" <= (SELECT value FROM reservation_clock)
+          THEN 1
+        ELSE "authentication_rate_limits"."count" + 1
+      END,
+      "expires_at" = CASE
+        WHEN "authentication_rate_limits"."expires_at" <= (SELECT value FROM reservation_clock)
+          THEN (SELECT value FROM reservation_clock) + make_interval(secs => ${input.windowSeconds})
+        ELSE "authentication_rate_limits"."expires_at"
+      END,
+      "denial_audited_at" = CASE
+        WHEN "authentication_rate_limits"."expires_at" <= (SELECT value FROM reservation_clock)
+          THEN NULL
+        WHEN "authentication_rate_limits"."count" + 1 > ${input.limit}
+          AND ${input.auditFirstDenial}
+          AND "authentication_rate_limits"."denial_audited_at" IS NULL
+          THEN (SELECT value FROM reservation_clock)
+        ELSE "authentication_rate_limits"."denial_audited_at"
+      END,
+      "updated_at" = (SELECT value FROM reservation_clock)
+    RETURNING WITH (OLD AS previous, NEW AS current)
+      current."count" <= ${input.limit} AS "allowed",
+      current."count" > ${input.limit}
+        AND ${input.auditFirstDenial}
+        AND current."denial_audited_at" IS NOT NULL
+        AND previous."denial_audited_at" IS NULL AS "auditRequired"
   `
-}
+  if (!decision) throw new Error("Authentication rate-limit reservation returned no decision.")
 
-function deleteExpiredBuckets(database: AuthenticationRateLimitDatabase, input: Input) {
-  return database.$executeRaw`
+  await database.$executeRaw`
     DELETE FROM "authentication_rate_limits"
     WHERE "id" IN (
       SELECT "id"
@@ -65,48 +75,5 @@ function deleteExpiredBuckets(database: AuthenticationRateLimitDatabase, input: 
       FOR UPDATE SKIP LOCKED
     )
   `
-}
-
-export async function reserveAuthenticationRateLimit(
-  database: AuthenticationRateLimitDatabase,
-  rawInput: z.input<typeof inputSchema>,
-): Promise<{ allowed: boolean; auditRequired: boolean }> {
-  const input = inputSchema.parse(rawInput)
-  let bucket: Bucket | undefined
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    if ((await insertBucket(database, input)).length) {
-      await deleteExpiredBuckets(database, input)
-      return { allowed: true, auditRequired: false }
-    }
-    bucket = (await lockBucket(database, input))[0]
-    if (bucket) break
-  }
-  if (!bucket) throw new Error("Authentication rate-limit bucket disappeared after conflict.")
-  await deleteExpiredBuckets(database, input)
-  if (bucket.expired) {
-    await database.$executeRaw`
-      UPDATE "authentication_rate_limits"
-      SET "window_started_at" = clock_timestamp(),
-          "count" = 1,
-          "expires_at" = clock_timestamp() + make_interval(secs => ${input.windowSeconds}),
-          "denial_audited_at" = NULL,
-          "updated_at" = clock_timestamp()
-      WHERE "id" = ${bucket.id}::uuid
-    `
-    return { allowed: true, auditRequired: false }
-  }
-  const count = bucket.count + 1
-  const allowed = count <= input.limit
-  const auditRequired = !allowed && input.auditFirstDenial && bucket.denialAuditedAt === null
-  await database.$executeRaw`
-    UPDATE "authentication_rate_limits"
-    SET "count" = ${count},
-        "denial_audited_at" = CASE
-          WHEN ${auditRequired} THEN clock_timestamp()
-          ELSE "denial_audited_at"
-        END,
-        "updated_at" = clock_timestamp()
-    WHERE "id" = ${bucket.id}::uuid
-  `
-  return { allowed, auditRequired }
+  return decision
 }

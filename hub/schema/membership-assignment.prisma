@@ -1,8 +1,8 @@
 model MembershipAssignment {
   // ID columns
-  id                 String  @id @default(uuid()) @db.Uuid
-  membershipId       String  @map("membership_id") @db.Uuid
-  externalIdentityId String  @unique @map("external_identity_id") @db.Uuid
+  id                 String @id @default(uuid()) @db.Uuid
+  membershipId       String @map("membership_id") @db.Uuid
+  externalIdentityId String @unique @map("external_identity_id") @db.Uuid
 
   // Relations
   membership       Membership       @relation(fields: [membershipId], references: [id], onDelete: Restrict)

@@ -3,11 +3,10 @@ model AuthenticationRateLimit {
   id String @id @default(uuid()) @db.Uuid
 
   // Attribute columns
-  operation   String   @db.VarChar(50)
-  subjectDigest String @map("subject_digest") @db.VarChar(64)
-  windowStartedAt DateTime @map("window_started_at") @db.Timestamptz(3)
-  count       Int
-  expiresAt   DateTime @map("expires_at") @db.Timestamptz(3)
+  operation       String    @db.VarChar(50)
+  subjectDigest   String    @map("subject_digest") @db.VarChar(64)
+  count           Int
+  expiresAt       DateTime  @map("expires_at") @db.Timestamptz(3)
   denialAuditedAt DateTime? @map("denial_audited_at") @db.Timestamptz(3)
 
   // Timestamp columns

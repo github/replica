@@ -35,10 +35,6 @@ export interface AuthenticationCallbackDependencies extends RateLimitDependencie
     sessionId: string
   }): Promise<{
     expiresAt: Date
-    membershipId: string
-    role: "administrator"
-    sessionId: string
-    userId: string
   }>
 }
 

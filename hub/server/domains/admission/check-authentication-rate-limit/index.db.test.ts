@@ -21,32 +21,30 @@ function input(
 }
 
 describe("checkAuthenticationRateLimit()", () => {
-  it("locks each request bucket before cleaning another request's expired bucket", async () => {
+  it("acquires each request bucket before cleaning another request's expired bucket", async () => {
     const firstDigest = "0".repeat(64)
     const secondDigest = "1".repeat(64)
     const expired = new Date("2020-01-01T00:00:00Z")
-    const started = new Date("2019-12-31T23:59:00Z")
+    const created = new Date("2019-12-31T23:59:00Z")
     await prisma.authenticationRateLimit.createMany({
       data: [
         {
           id: "00000000-0000-0000-0000-000000000001",
           operation: "start",
           subjectDigest: firstDigest,
-          windowStartedAt: started,
           count: 1,
           expiresAt: expired,
-          createdAt: started,
-          updatedAt: started,
+          createdAt: created,
+          updatedAt: created,
         },
         {
           id: "00000000-0000-0000-0000-000000000002",
           operation: "start",
           subjectDigest: secondDigest,
-          windowStartedAt: started,
           count: 1,
           expiresAt: expired,
-          createdAt: started,
-          updatedAt: started,
+          createdAt: created,
+          updatedAt: created,
         },
       ],
     })
@@ -145,7 +143,7 @@ describe("checkAuthenticationRateLimit()", () => {
         operation_subjectDigest: { operation: "start", subjectDigest },
       },
       data: {
-        windowStartedAt: new Date("2020-01-01T00:00:00Z"),
+        createdAt: new Date("2020-01-01T00:00:00Z"),
         expiresAt: new Date("2020-01-01T00:01:00Z"),
       },
     })
@@ -216,7 +214,6 @@ describe("checkAuthenticationRateLimit()", () => {
         id: randomUUID(),
         operation: "callback",
         subjectDigest: index.toString(16).padStart(64, "0"),
-        windowStartedAt: createdAt,
         count: 1,
         expiresAt: new Date("2020-01-01T00:01:00Z"),
         createdAt,

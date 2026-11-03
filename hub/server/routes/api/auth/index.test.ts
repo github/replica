@@ -237,10 +237,6 @@ describe("authenticationRoutes()", () => {
       )
     admitSession.mockResolvedValue({
       expiresAt: new Date("2030-01-01T00:00:00Z"),
-      membershipId: "membership-id",
-      role: "administrator",
-      sessionId: "session-id",
-      userId: "user-id",
     })
     const state = "s".repeat(32)
     const browserBinding = "b".repeat(32)

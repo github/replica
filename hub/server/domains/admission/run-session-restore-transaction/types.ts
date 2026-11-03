@@ -3,14 +3,15 @@ import type { Prisma } from "../../../generated/prisma/client.ts"
 export interface SessionRestoreRepositories {
   getRevocation(): Promise<{ revision: number } | null>
   lockActiveAssignment(membershipId: string): Promise<{ role: "ADMINISTRATOR" } | null>
-  lockMembership(
-    userId: string,
-  ): Promise<{ id: string; lifecycle: "ACTIVE" | "SUSPENDED" | "REMOVED" } | null>
+  lockMembership(membershipId: string): Promise<{
+    id: string
+    lifecycle: "ACTIVE" | "SUSPENDED" | "REMOVED"
+    userId: string
+  } | null>
   lockSession(digest: string): Promise<{
     id: string
     membershipId: string
     revocationRevision: number
-    userId: string
   } | null>
 }
 

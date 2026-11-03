@@ -4,7 +4,6 @@ export type AdmissionDenialReason =
   | "identity_mismatch"
   | "membership_inactive"
   | "membership_missing"
-  | "provider_revoked"
 
 export class AdmissionDeniedError extends Error {
   readonly reason: AdmissionDenialReason

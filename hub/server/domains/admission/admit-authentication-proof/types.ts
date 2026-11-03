@@ -18,8 +18,4 @@ export interface AdmitAuthenticationProofDependencies {
 
 export interface AdmittedHubSession {
   expiresAt: Date
-  membershipId: string
-  role: "administrator"
-  sessionId: string
-  userId: string
 }

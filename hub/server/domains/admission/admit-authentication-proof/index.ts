@@ -62,8 +62,6 @@ async function ensureBootstrapMembership(
           ? "membership_assignment_created"
           : "membership_assignment_restored",
       membershipId: membership.id,
-      source: "bootstrap",
-      role: "administrator",
     })
   }
   return membership.id
@@ -93,15 +91,11 @@ async function admitWithinTransaction(
   const provider = await repositories.lockProvider(input.providerKey)
   const revocation = await repositories.lockRevocation()
   const attempt = await repositories.lockAttempt(input.proof.authorizationAttemptId)
-  const identity = await repositories.lockExternalIdentity(input.proof.externalIdentityId)
+  const identity = await repositories.getExternalIdentity(input.proof.externalIdentityId)
   if (!provider || !revocation || !attempt) {
     throw new AdmissionDeniedError("attempt_mismatch", input.proof.externalIdentityId)
   }
   if (!identity) {
-    throw new AdmissionDeniedError("identity_mismatch", input.proof.externalIdentityId)
-  }
-  const user = await repositories.lockUser(identity.userId)
-  if (!user || user.id !== identity.userId) {
     throw new AdmissionDeniedError("identity_mismatch", input.proof.externalIdentityId)
   }
   if (!attempt.consumedAt || provider.selectedRevisionId !== attempt.providerRevisionId) {
@@ -112,15 +106,14 @@ async function admitWithinTransaction(
   }
   const membershipId =
     attempt.purpose === "ADMIN_ENROLLMENT"
-      ? await ensureBootstrapMembership(repositories, input, user.id, createId)
-      : await requireActiveMembership(repositories, user.id, input.proof.externalIdentityId)
+      ? await ensureBootstrapMembership(repositories, input, identity.userId, createId)
+      : await requireActiveMembership(repositories, identity.userId, input.proof.externalIdentityId)
   const session = await repositories.createHubSession({
     digest: input.sessionDigest,
     id: input.sessionId,
     lifetimeSeconds: input.sessionLifetimeSeconds,
     membershipId,
     revocationRevision: revocation.revision,
-    userId: user.id,
   })
   await repositories.createSecurityAudit({
     id: createId(),
@@ -130,10 +123,6 @@ async function admitWithinTransaction(
   })
   return {
     expiresAt: session.expiresAt,
-    membershipId,
-    role: "administrator",
-    sessionId: input.sessionId,
-    userId: user.id,
   }
 }
 

@@ -13,7 +13,6 @@ export interface AdmissionRepositories {
     lifetimeSeconds: number
     membershipId: string
     revocationRevision: number
-    userId: string
   }): Promise<{ expiresAt: Date }>
   createOrRestoreMembership(input: { id: string; userId: string }): Promise<{
     id: string
@@ -26,13 +25,12 @@ export interface AdmissionRepositories {
     providerRevisionId: string
     purpose: "SIGN_IN" | "ADMIN_ENROLLMENT"
   } | null>
-  lockExternalIdentity(id: string): Promise<{ provider: string; userId: string } | null>
+  getExternalIdentity(id: string): Promise<{ provider: string; userId: string } | null>
   lockMembership(
     userId: string,
   ): Promise<{ id: string; lifecycle: "ACTIVE" | "SUSPENDED" | "REMOVED" } | null>
   lockProvider(key: string): Promise<{ selectedRevisionId: string | null } | null>
   lockRevocation(): Promise<{ revision: number } | null>
-  lockUser(id: string): Promise<{ id: string } | null>
 }
 
 export type AdmissionTransaction = <Result>(

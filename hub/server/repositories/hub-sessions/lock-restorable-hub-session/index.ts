@@ -9,14 +9,12 @@ export async function lockRestorableHubSession(
       id: string
       membershipId: string
       revocationRevision: number
-      userId: string
     }>
   >`
     SELECT
       "id",
       "membership_id" AS "membershipId",
-      "revocation_revision" AS "revocationRevision",
-      "user_id" AS "userId"
+      "revocation_revision" AS "revocationRevision"
     FROM "hub_sessions"
     WHERE "digest" = ${digest}
       AND "ended_at" IS NULL

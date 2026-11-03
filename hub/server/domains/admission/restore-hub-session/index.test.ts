@@ -17,13 +17,46 @@ function repositories(
       id: "session-id",
       membershipId: "membership-id",
       revocationRevision: 0,
-      userId: "user-id",
     }),
     ...overrides,
   }
 }
 
 describe("restoreHubSession()", () => {
+  it("restores through the session's immutable membership authority", async () => {
+    const lockMembership = vi.fn().mockResolvedValue({
+      id: "membership-id",
+      lifecycle: "ACTIVE",
+    })
+    const records = repositories({ lockMembership })
+
+    await expect(
+      restoreHubSession("a".repeat(64), {
+        runTransaction: (operation) => operation(records),
+      }),
+    ).resolves.toEqual({
+      membershipId: "membership-id",
+      role: "administrator",
+      sessionId: "session-id",
+    })
+    expect(lockMembership).toHaveBeenCalledWith("membership-id")
+  })
+
+  it("fails closed when global revocation authority is missing", async () => {
+    const lockMembership = vi.fn()
+    const records = repositories({
+      getRevocation: vi.fn().mockResolvedValue(null),
+      lockMembership,
+    })
+
+    await expect(
+      restoreHubSession("a".repeat(64), {
+        runTransaction: (operation) => operation(records),
+      }),
+    ).resolves.toBeNull()
+    expect(lockMembership).not.toHaveBeenCalled()
+  })
+
   it("fails closed when revocation changes before the final reread", async () => {
     let rereadRevision = 0
     let firstReadComplete!: () => void
@@ -60,7 +93,6 @@ describe("restoreHubSession()", () => {
       id: "session-id",
       membershipId: "membership-id",
       revocationRevision: 0,
-      userId: "user-id",
     }
     const lockSession = vi.fn().mockResolvedValueOnce(activeSession).mockResolvedValueOnce(null)
     const records = repositories({ lockSession })
