@@ -1,70 +1,16 @@
-resource "azurerm_container_app_job" "setup" {
-  name                         = "${var.name}-setup"
-  location                     = var.location
-  resource_group_name          = azurerm_resource_group.hub.name
-  container_app_environment_id = azurerm_container_app_environment.hub.id
-  workload_profile_name        = "Consumption"
-  replica_timeout_in_seconds   = 1800
-  replica_retry_limit          = 0
-  tags                         = local.tags
-
-  manual_trigger_config {
-    parallelism              = 1
-    replica_completion_count = 1
+locals {
+  runtime_environment = {
+    NODE_ENV                  = "production"
+    RUNTIME_MODE              = "combined"
+    HOST                      = "0.0.0.0"
+    PORT                      = "3001"
+    CLIENT_DIRECTORY          = "/app/dist/client"
+    SHUTDOWN_TIMEOUT_MS       = "30000"
+    ARTIFACT_STORAGE_PROVIDER = "azure"
+    AZURE_STORAGE_ACCOUNT     = azurerm_storage_account.artifacts.name
+    AZURE_STORAGE_CONTAINER   = azurerm_storage_container.artifacts.name
+    AZURE_CLIENT_ID           = azurerm_user_assigned_identity.hub.client_id
   }
-
-  identity {
-    type         = "UserAssigned"
-    identity_ids = [azurerm_user_assigned_identity.setup.id]
-  }
-
-  dynamic "registry" {
-    for_each = var.acr_id == null ? [] : [var.acr_id]
-    content {
-      server   = split("/", var.image)[0]
-      identity = azurerm_user_assigned_identity.setup.id
-    }
-  }
-
-  secret {
-    name                = "database-url"
-    key_vault_secret_id = var.setup_database_secret.secret_id
-    identity            = azurerm_user_assigned_identity.setup.id
-  }
-
-  template {
-    container {
-      name    = "setup"
-      image   = var.image
-      cpu     = 0.5
-      memory  = "1Gi"
-      command = ["node", "dist/server/scripts/setup/index.js"]
-
-      dynamic "env" {
-        for_each = {
-          NODE_ENV              = "production"
-          RUNTIME_MODE          = "setup"
-          DATABASE_RUNTIME_ROLE = "replica_runtime"
-        }
-        content {
-          name  = env.key
-          value = env.value
-        }
-      }
-
-      env {
-        name        = "DATABASE_URL"
-        secret_name = "database-url"
-      }
-    }
-  }
-
-  depends_on = [
-    azurerm_postgresql_flexible_server_database.hub,
-    azurerm_postgresql_flexible_server_configuration.tls,
-    azurerm_role_assignment.setup_secrets,
-    azurerm_role_assignment.setup_image_pull,
-  ]
 }
 
 resource "azurerm_container_app" "hub" {
