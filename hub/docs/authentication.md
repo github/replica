@@ -12,7 +12,7 @@ The completion primitive consumes the browser-bound attempt before provider work
 
 Completion returns a minimal provider-neutral proof value in memory containing only the consumed authorization attempt ID and resolved external identity ID. This value is internal-only, is not a session or authority, and is never reconstructed from browser request data.
 
-The callback passes that value directly to admission in the same process. Admission locks and rereads the consumed attempt, selected provider revision, external identity, global session revocation state, membership, and active assignments before creating a session.
+The callback passes that value directly to admission in the same process. Admission rereads the immutable external identity and locks the consumed attempt, selected provider revision, global session revocation state, membership, and active assignments before creating a session.
 
 ## Admission
 
