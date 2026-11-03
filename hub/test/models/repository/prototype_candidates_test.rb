@@ -34,7 +34,7 @@ class Repository::PrototypeCandidatesTest < ActiveSupport::TestCase
     assert_not_requested :get, %r{/compare/}
   end
 
-  test "write access retains branch identity lifecycle and registration boundaries" do
+  test "offers writers only live unlisted branches from this repository and explains each exclusion" do
     repository = repositories.create
     live = prototypes.create(repository:, branch_name: "feature/live")
     default = prototypes.create(repository:, branch_name: repository.default_branch)

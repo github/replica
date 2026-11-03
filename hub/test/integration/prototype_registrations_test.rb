@@ -157,6 +157,12 @@ class PrototypeRegistrationsTest < ActionDispatch::IntegrationTest
     assert_includes response.body, '"candidateCheckFailed":true'
     assert_not_includes response.body, '"branchName":"prototype/retry"'
 
+    patch \
+      repository_prototype_registration_path(repository.route_id, prototype),
+      params: { prototype: { name: "Retry" } }
+    assert_response :service_unavailable
+    assert_not prototype.reload.registered?
+
     stub_branches(repository, "main" => "a" * 40, prototype.branch_name => "b" * 40)
     get_management(repository)
     assert_response :success
