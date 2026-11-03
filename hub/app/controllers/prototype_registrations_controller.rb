@@ -13,7 +13,7 @@ class PrototypeRegistrationsController < ApplicationController
 
     prototype = repository.reviewable_prototypes.find(params[:prototype_id])
     if !prototype.registered? &&
-        !repository.prototype_candidates.eligible?(prototype, Current.user, permission:, fresh: true)
+        !repository.prototype_candidates.eligible?(prototype, permission:)
       return head :not_found
     end
 

@@ -222,7 +222,9 @@ unknown failure as branch ineligibility.
 The Hub prototype API returns nullable `registrationReason` alongside `canRegister`.
 Registration error responses can also include this code. Eligibility codes are
 `write_access_required`, `repository_mismatch`, `already_registered`,
-`branch_not_reviewable`, `remote_branch_missing`, and `branch_authorship_required`.
+`branch_not_reviewable`, and `remote_branch_missing`.
+Repository writers can register eligible branches regardless of commit authorship.
+The canvas still recognizes `branch_authorship_required` from older Hub versions.
 `successful_build_required` is a separate automatic-registration failure, not an
 eligibility rule. Display polls cache the eligibility result for one minute; writes
 recheck it fresh. This adds no new automatic registration requests or activity assertions.
@@ -233,7 +235,7 @@ can establish missing write access, and an independently verified absent remote 
 can explain a false `canRegister`. An excluded default branch is never inferred to
 have been deleted. Reasons from a different checkout are not reused. Specific
 server-side reasons require deployment of the updated Hub API; updating canvas assets
-alone cannot make an older Hub report authorship or exclusion reasons.
+alone cannot change an older Hub's registration policy or reported reasons.
 
 Remote checks are cached for one minute during the existing 15-second display polling.
 Explicit refresh and window focus refresh the evidence; checkout changes invalidate it.

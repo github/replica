@@ -122,7 +122,9 @@ IMAGE_VERSION=0.0.0-REPLACE_WITH_LOCAL_VERSION
 
 The named `learning` build context is required. The production Dockerfile owns runtime and dependency versions; do not override its pins or modify lockfiles to work around connectivity. The image builds frontend assets and installs locked dependencies, so source and release builds both need registry access.
 
-`bin/devcontainer up --use-npm-proxy URL` configures the development environment only. It is not a production Docker build flag and does not automatically configure the production image. Resolve failed registry access through your approved network/proxy configuration; do not disable TLS or substitute an unapproved registry.
+If your network requires an npm registry proxy, add `--build-arg NPM_CONFIG_REGISTRY=https://npm-proxy.example.com/npm/` to the build command. Use an approved URL without credentials. The argument selects the registry for both npm installs in the build stage; it is not saved as a runtime environment setting. Without it, npm keeps its default registry configuration.
+
+`bin/devcontainer up --use-npm-proxy URL` configures the development environment only; it does not automatically configure production builds. Do not disable TLS or substitute an unapproved registry.
 
 ## Smoke-check the candidate
 

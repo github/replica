@@ -36,6 +36,8 @@ FROM docker.io/library/node:24-bookworm-slim@sha256:a5f4366e834695d5f363b920c104
 FROM base AS build
 WORKDIR /rails/hub
 
+ARG NPM_CONFIG_REGISTRY
+
 # Install packages needed to build gems
 RUN apt-get update -qq && \
     apt-get install --no-install-recommends -y build-essential git libyaml-dev pkg-config && \
