@@ -1,6 +1,6 @@
 # Deploy Hub
 
-The rewrite image runs the frontend, API, and both workers together. It does not yet implement sign-in, artifact import, preview hosting, or reviews. Do not treat the health endpoint as proof of those product flows.
+The Hub image runs the frontend, API, and both workers together. It does not yet implement sign-in, artifact import, preview hosting, or reviews. Do not treat the health endpoint as proof of those product flows.
 
 ## Image and runtime
 

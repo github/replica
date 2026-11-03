@@ -7,7 +7,7 @@ import { openDatabase } from "../integrations/postgres/open-database"
 import { runApi } from "../run-api"
 import { runJobWorker } from "../workers/run-job-worker"
 
-import { runCombined } from "."
+import { startServerProcesses } from "."
 
 vi.mock("../integrations/postgres/open-database", () => ({ openDatabase: vi.fn() }))
 vi.mock("../run-api", () => ({ runApi: vi.fn() }))
@@ -37,7 +37,7 @@ function arrangeRuntime() {
       }),
   )
   const existing = process.listeners("SIGTERM")
-  const running = runCombined({
+  const running = startServerProcesses({
     port: 3001,
     host: "127.0.0.1",
     databaseUrl: "postgresql://test:test@localhost/runtime_test",
@@ -58,7 +58,7 @@ function arrangeRuntime() {
   return { database, query, end, running, stop }
 }
 
-describe("runCombined()", () => {
+describe("startServerProcesses()", () => {
   it("reports readiness only after both workers and the database are ready", async () => {
     const { query, end, running, stop } = arrangeRuntime()
     await vi.waitFor(() => expect(runApi).toHaveBeenCalledTimes(1))

@@ -6,7 +6,7 @@ import { pathToFileURL } from "node:url"
 import { logger } from "../../integrations/pino/index.ts"
 import { withSetupLock } from "../../integrations/postgres/with-setup-lock/index.ts"
 
-export async function runSetup() {
+export async function setup() {
   const databaseUrl = process.env.DATABASE_URL
   if (!databaseUrl) throw new Error("Setup requires DATABASE_URL.")
   const controller = new AbortController()
@@ -63,7 +63,7 @@ export async function runSetup() {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   try {
-    await runSetup()
+    await setup()
   } catch (error) {
     logger.fatal(
       { errorType: error instanceof Error ? error.name : "UnknownError" },

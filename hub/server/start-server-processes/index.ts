@@ -5,7 +5,7 @@ import { runApi } from "../run-api/index.ts"
 import { jobProcessors } from "../workers/configuration.ts"
 import { runJobWorker } from "../workers/run-job-worker/index.ts"
 
-export async function runCombined(options: {
+export async function startServerProcesses(options: {
   port: number
   host: string
   databaseUrl: string
