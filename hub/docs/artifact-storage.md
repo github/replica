@@ -17,9 +17,11 @@ Choose exactly one settings shape:
   provider: "azure-blob",
   accountUrl: "https://example.blob.core.windows.net",
   container: "artifacts",
-  managedIdentityClientId: "ee5eeebb-74e0-4b79-8030-c325e50fec43", // Optional user-assigned identity.
+  managedIdentityClientId: "<your-user-assigned-managed-identity-client-id>",
 }
 ```
+
+Replace the placeholder with your user-assigned identity's actual client ID UUID, not its object ID or Azure resource ID. Omit `managedIdentityClientId` when using a system-assigned identity.
 
 Alternatively, startup can call `createConfiguredArtifactStorage(environment)` from `server/domains/artifacts/create-configured-artifact-storage/index.ts`, supplying a read-only environment record explicitly. Neither domain factory reads `process.env`.
 
