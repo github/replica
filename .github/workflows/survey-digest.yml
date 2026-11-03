@@ -1,0 +1,55 @@
+name: Survey digest
+
+# Posts a totals-only summary of the Replica feedback survey to Discussions.
+# GitHub cron can't express "every two weeks", so this runs every Monday and
+# skips odd ISO weeks. Manual runs always go ahead.
+on:
+  schedule:
+    - cron: "0 15 * * 1"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Print the post in the log instead of creating it"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  discussions: write
+
+concurrency:
+  group: survey-digest
+  cancel-in-progress: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Skip odd weeks
+        id: week
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ] && [ $(( 10#$(date -u +%V) % 2 )) -ne 0 ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "Odd ISO week, skipping."
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.week.outputs.run == 'true'
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+
+      - name: Post survey digest
+        if: steps.week.outputs.run == 'true'
+        env:
+          ALCHEMER_API_TOKEN: ${{ secrets.ALCHEMER_API_TOKEN }}
+          ALCHEMER_API_SECRET: ${{ secrets.ALCHEMER_API_SECRET }}
+          SURVEY_ID: "9055055"
+          MIN_RESPONSES: "5"
+          DISCUSSION_CATEGORY: announcements
+          GITHUB_TOKEN: ${{ github.token }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
+        run: python3 .github/scripts/survey_digest.py
