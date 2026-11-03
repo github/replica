@@ -16,6 +16,15 @@ export async function createFilesystemArtifactStorage(
     throw new Error("Artifact directory is unavailable.")
   }
   return {
+    async isReady(signal) {
+      signal.throwIfAborted()
+      try {
+        await withArtifactDirectory(directory, () => Promise.resolve(undefined))
+        return true
+      } catch {
+        return false
+      }
+    },
     async read(key) {
       if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(key)) return { status: "unavailable" }
       try {

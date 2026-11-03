@@ -4,8 +4,23 @@ location        = "eastus2"
 owner           = "your-team"
 image           = "ghcr.io/your-org/replica-hub@sha256:REPLACE_WITH_REAL_DIGEST"
 
-# Supply postgres_admin_password and runtime_secrets through your secret store,
-# TF_VAR_ environment variables, or an ignored, access-restricted tfvars file.
+runtime_database_secret = {
+  key_vault_id = "/subscriptions/YOUR_SUBSCRIPTION/resourceGroups/YOUR_SECRETS_GROUP/providers/Microsoft.KeyVault/vaults/YOUR_VAULT"
+  secret_id    = "https://YOUR-VAULT.vault.azure.net/secrets/hub-runtime-database"
+}
+setup_database_secret = {
+  key_vault_id = "/subscriptions/YOUR_SUBSCRIPTION/resourceGroups/YOUR_SECRETS_GROUP/providers/Microsoft.KeyVault/vaults/YOUR_VAULT"
+  secret_id    = "https://YOUR-VAULT.vault.azure.net/secrets/hub-migration-database"
+}
+
+# Supply postgres_admin_password through a secret manager as TF_VAR_postgres_admin_password.
+# Application secrets stay in Key Vault. Optional references, never values:
+# runtime_secret_references = {
+#   EXAMPLE_API_TOKEN = {
+#     key_vault_id = "/subscriptions/.../resourceGroups/.../providers/Microsoft.KeyVault/vaults/..."
+#     secret_id    = "https://YOUR-VAULT.vault.azure.net/secrets/example-api-token"
+#   }
+# }
 # acr_id = "/subscriptions/.../resourceGroups/.../providers/Microsoft.ContainerRegistry/registries/..."
 # custom_hostname = "hub.example.com"
 # certificate_id = "/subscriptions/.../resourceGroups/.../providers/Microsoft.App/managedEnvironments/.../certificates/..."

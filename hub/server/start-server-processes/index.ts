@@ -14,6 +14,7 @@ export async function startServerProcesses(options: {
   logger: Logger
   onDemandConcurrency: number
   scheduledConcurrency: number
+  isStorageReady?: () => Promise<boolean>
 }) {
   const controller = new AbortController()
   function stop() {
@@ -52,6 +53,7 @@ export async function startServerProcesses(options: {
           isReady: async () => {
             if (controller.signal.aborted || ready.size !== 2) return false
             await database.query("SELECT 1")
+            if (options.isStorageReady && !(await options.isStorageReady())) return false
             return true
           },
         }),

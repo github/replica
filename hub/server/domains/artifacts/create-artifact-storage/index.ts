@@ -19,6 +19,21 @@ export async function createArtifactStorage(
       : createAzureBlobArtifactStorage(settings, artifactMaxBytes)
 
   return {
+    async isReady() {
+      const signal = AbortSignal.timeout(2_000)
+      let abort!: () => void
+      const timeout = new Promise<never>((_resolve, reject) => {
+        abort = () => reject(new Error("Artifact storage readiness timed out."))
+        signal.addEventListener("abort", abort, { once: true })
+      })
+      try {
+        const ready = await Promise.race([adapter.isReady(signal), timeout])
+        if (!ready) throw new Error("Artifact storage is unavailable.")
+        return true
+      } finally {
+        signal.removeEventListener("abort", abort)
+      }
+    },
     async read(key) {
       if (typeof key !== "string" || !keyPattern.test(key)) return { status: "invalid-key" }
       return adapter.read(key)

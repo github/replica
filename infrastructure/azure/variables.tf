@@ -84,19 +84,67 @@ variable "backup_retention_days" {
   }
 }
 
-variable "runtime_secrets" {
-  type        = map(string)
-  sensitive   = true
+variable "runtime_database_secret" {
+  type = object({
+    key_vault_id = string
+    secret_id    = string
+  })
+  description = "Existing RBAC Key Vault and HTTPS secret URL containing the replica_runtime database URL with sslmode=verify-full. Never supply the administrator URL."
+
+  validation {
+    condition = (
+      can(regex("^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft.KeyVault/vaults/[^/]+$", var.runtime_database_secret.key_vault_id)) &&
+      can(regex("^https://[a-zA-Z0-9-]+\\.vault\\.azure\\.net/secrets/[a-zA-Z0-9-]+(/[a-fA-F0-9]{32})?$", var.runtime_database_secret.secret_id)) &&
+      lower(try(split("/", var.runtime_database_secret.secret_id)[2], "")) == "${lower(try(split("/", var.runtime_database_secret.key_vault_id)[8], ""))}.vault.azure.net"
+    )
+    error_message = "Supply a Key Vault resource ID and a public-cloud HTTPS secret URL, not a secret value."
+  }
+}
+
+variable "setup_database_secret" {
+  type = object({
+    key_vault_id = string
+    secret_id    = string
+  })
+  description = "Existing RBAC Key Vault and HTTPS secret URL containing the replica_migration database URL with sslmode=verify-full."
+
+  validation {
+    condition = (
+      can(regex("^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft.KeyVault/vaults/[^/]+$", var.setup_database_secret.key_vault_id)) &&
+      can(regex("^https://[a-zA-Z0-9-]+\\.vault\\.azure\\.net/secrets/[a-zA-Z0-9-]+(/[a-fA-F0-9]{32})?$", var.setup_database_secret.secret_id)) &&
+      lower(try(split("/", var.setup_database_secret.secret_id)[2], "")) == "${lower(try(split("/", var.setup_database_secret.key_vault_id)[8], ""))}.vault.azure.net" &&
+      lower("${var.setup_database_secret.key_vault_id}/secrets/${try(split("/", var.setup_database_secret.secret_id)[4], "")}") != lower("${var.runtime_database_secret.key_vault_id}/secrets/${try(split("/", var.runtime_database_secret.secret_id)[4], "")}")
+    )
+    error_message = "Supply a separate migration secret URL and its Key Vault resource ID."
+  }
+}
+
+variable "runtime_secret_references" {
+  type = map(object({
+    key_vault_id = string
+    secret_id    = string
+  }))
   default     = {}
-  description = "Explicit additional runtime secret values keyed by uppercase environment name."
+  description = "Existing RBAC Key Vault secret references keyed by uppercase runtime environment name. Values remain outside Terraform."
 
   validation {
     condition = alltrue([
-      for name in keys(var.runtime_secrets) :
+      for name in keys(var.runtime_secret_references) :
       can(regex("^[A-Z][A-Z0-9_]{0,40}$", name)) &&
-      !contains(["DATABASE_URL", "NODE_ENV", "RUNTIME_MODE", "HOST", "PORT", "CLIENT_DIRECTORY", "SHUTDOWN_TIMEOUT_MS", "ARTIFACT_STORAGE_PROVIDER", "ARTIFACT_STORAGE_DIRECTORY", "AZURE_STORAGE_ACCOUNT", "AZURE_STORAGE_CONTAINER", "AZURE_CLIENT_ID"], name)
+      !contains(["DATABASE_URL", "DATABASE_RUNTIME_ROLE", "NODE_ENV", "RUNTIME_MODE", "HOST", "PORT", "CLIENT_DIRECTORY", "SHUTDOWN_TIMEOUT_MS", "ARTIFACT_STORAGE_PROVIDER", "ARTIFACT_STORAGE_DIRECTORY", "AZURE_STORAGE_ACCOUNT", "AZURE_STORAGE_CONTAINER", "AZURE_CLIENT_ID"], name)
     ])
     error_message = "Use uppercase environment names of at most 41 characters; deployment-owned settings cannot be overridden."
+  }
+
+  validation {
+    condition = alltrue([
+      for secret in values(var.runtime_secret_references) :
+      can(regex("^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft.KeyVault/vaults/[^/]+$", secret.key_vault_id)) &&
+      can(regex("^https://[a-zA-Z0-9-]+\\.vault\\.azure\\.net/secrets/[a-zA-Z0-9-]+(/[a-fA-F0-9]{32})?$", secret.secret_id)) &&
+      lower(try(split("/", secret.secret_id)[2], "")) == "${lower(try(split("/", secret.key_vault_id)[8], ""))}.vault.azure.net" &&
+      lower("${secret.key_vault_id}/secrets/${try(split("/", secret.secret_id)[4], "")}") != lower("${var.setup_database_secret.key_vault_id}/secrets/${try(split("/", var.setup_database_secret.secret_id)[4], "")}")
+    ])
+    error_message = "Supply Key Vault resource IDs and HTTPS secret URLs, not secret values."
   }
 }
 

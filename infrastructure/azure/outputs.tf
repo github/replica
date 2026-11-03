@@ -15,6 +15,7 @@ output "installation" {
     postgres_host              = azurerm_postgresql_flexible_server.database.fqdn
     managed_identity_id        = azurerm_user_assigned_identity.hub.id
     managed_identity_client_id = azurerm_user_assigned_identity.hub.client_id
+    setup_identity_id          = azurerm_user_assigned_identity.setup.id
     app_created                = var.deploy_hub
     url                        = var.deploy_hub ? "https://${azurerm_container_app.hub[0].ingress[0].fqdn}" : null
   }

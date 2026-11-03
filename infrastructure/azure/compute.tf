@@ -15,28 +15,21 @@ resource "azurerm_container_app_job" "setup" {
 
   identity {
     type         = "UserAssigned"
-    identity_ids = [azurerm_user_assigned_identity.hub.id]
+    identity_ids = [azurerm_user_assigned_identity.setup.id]
   }
 
   dynamic "registry" {
     for_each = var.acr_id == null ? [] : [var.acr_id]
     content {
       server   = split("/", var.image)[0]
-      identity = azurerm_user_assigned_identity.hub.id
+      identity = azurerm_user_assigned_identity.setup.id
     }
   }
 
   secret {
-    name  = "database-url"
-    value = local.database_url
-  }
-
-  dynamic "secret" {
-    for_each = local.secret_names
-    content {
-      name  = "runtime-${substr(sha256(secret.value), 0, 12)}"
-      value = var.runtime_secrets[secret.value]
-    }
+    name                = "database-url"
+    key_vault_secret_id = var.setup_database_secret.secret_id
+    identity            = azurerm_user_assigned_identity.setup.id
   }
 
   template {
@@ -48,7 +41,11 @@ resource "azurerm_container_app_job" "setup" {
       command = ["node", "dist/server/scripts/setup/index.js"]
 
       dynamic "env" {
-        for_each = merge(local.runtime_environment, { RUNTIME_MODE = "setup" })
+        for_each = {
+          NODE_ENV              = "production"
+          RUNTIME_MODE          = "setup"
+          DATABASE_RUNTIME_ROLE = "replica_runtime"
+        }
         content {
           name  = env.key
           value = env.value
@@ -59,22 +56,14 @@ resource "azurerm_container_app_job" "setup" {
         name        = "DATABASE_URL"
         secret_name = "database-url"
       }
-
-      dynamic "env" {
-        for_each = local.secret_names
-        content {
-          name        = env.value
-          secret_name = "runtime-${substr(sha256(env.value), 0, 12)}"
-        }
-      }
     }
   }
 
   depends_on = [
     azurerm_postgresql_flexible_server_database.hub,
     azurerm_postgresql_flexible_server_configuration.tls,
-    azurerm_role_assignment.artifacts,
-    azurerm_role_assignment.image_pull,
+    azurerm_role_assignment.setup_secrets,
+    azurerm_role_assignment.setup_image_pull,
   ]
 }
 
@@ -101,15 +90,17 @@ resource "azurerm_container_app" "hub" {
   }
 
   secret {
-    name  = "database-url"
-    value = local.database_url
+    name                = "database-url"
+    key_vault_secret_id = var.runtime_database_secret.secret_id
+    identity            = azurerm_user_assigned_identity.hub.id
   }
 
   dynamic "secret" {
-    for_each = local.secret_names
+    for_each = var.runtime_secret_references
     content {
-      name  = "runtime-${substr(sha256(secret.value), 0, 12)}"
-      value = var.runtime_secrets[secret.value]
+      name                = "runtime-${substr(sha256(secret.key), 0, 12)}"
+      key_vault_secret_id = secret.value.secret_id
+      identity            = azurerm_user_assigned_identity.hub.id
     }
   }
 
@@ -149,10 +140,10 @@ resource "azurerm_container_app" "hub" {
       }
 
       dynamic "env" {
-        for_each = local.secret_names
+        for_each = var.runtime_secret_references
         content {
-          name        = env.value
-          secret_name = "runtime-${substr(sha256(env.value), 0, 12)}"
+          name        = env.key
+          secret_name = "runtime-${substr(sha256(env.key), 0, 12)}"
         }
       }
 
@@ -185,7 +176,12 @@ resource "azurerm_container_app" "hub" {
     prevent_destroy = true
   }
 
-  depends_on = [azurerm_container_app_job.setup]
+  depends_on = [
+    azurerm_container_app_job.setup,
+    azurerm_role_assignment.artifacts,
+    azurerm_role_assignment.image_pull,
+    azurerm_role_assignment.runtime_secrets,
+  ]
 }
 
 resource "azurerm_container_app_custom_domain" "hub" {

@@ -45,6 +45,26 @@ mock_provider "azurerm" {
   }
 }
 
+override_resource {
+  target          = azurerm_user_assigned_identity.hub
+  override_during = plan
+  values = {
+    id           = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/test-hub/providers/Microsoft.ManagedIdentity/userAssignedIdentities/hub"
+    client_id    = "00000000-0000-0000-0000-000000000001"
+    principal_id = "00000000-0000-0000-0000-000000000002"
+  }
+}
+
+override_resource {
+  target          = azurerm_user_assigned_identity.setup
+  override_during = plan
+  values = {
+    id           = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/test-hub/providers/Microsoft.ManagedIdentity/userAssignedIdentities/setup"
+    client_id    = "00000000-0000-0000-0000-000000000003"
+    principal_id = "00000000-0000-0000-0000-000000000004"
+  }
+}
+
 variables {
   subscription_id         = "00000000-0000-0000-0000-000000000000"
   name                    = "test-hub"
@@ -52,6 +72,14 @@ variables {
   location                = "eastus2"
   image                   = "example.azurecr.io/hub@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
   postgres_admin_password = "NotARealPassword-12345"
+  runtime_database_secret = {
+    key_vault_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/database"
+    secret_id    = "https://database.vault.azure.net/secrets/runtime-database/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  }
+  setup_database_secret = {
+    key_vault_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/database"
+    secret_id    = "https://database.vault.azure.net/secrets/setup-database/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  }
 }
 
 run "bootstrap_keeps_hub_stopped" {
@@ -78,7 +106,6 @@ run "durable_state_requires_private_authenticated_access" {
     condition = (
       !azurerm_postgresql_flexible_server.database.public_network_access_enabled &&
       azurerm_postgresql_flexible_server_configuration.tls.value == "on" &&
-      endswith(nonsensitive(local.database_url), "?sslmode=verify-full") &&
       azurerm_postgresql_flexible_server.database.backup_retention_days >= 7
     )
     error_message = "PostgreSQL must be private, TLS-only, and retain recoverable backups."
@@ -130,12 +157,101 @@ run "combined_release_uses_one_image_and_bounded_shutdown" {
   }
 }
 
+run "setup_and_runtime_have_separate_secret_access" {
+  command = plan
+
+  variables {
+    deploy_hub = true
+    acr_id     = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/existing/providers/Microsoft.ContainerRegistry/registries/existing"
+    runtime_secret_references = {
+      SERVICE_API_KEY = {
+        key_vault_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/service"
+        secret_id    = "https://service.vault.azure.net/secrets/api-key/cccccccccccccccccccccccccccccccc"
+      }
+    }
+  }
+
+  assert {
+    condition = (
+      azurerm_user_assigned_identity.hub.principal_id != azurerm_user_assigned_identity.setup.principal_id &&
+      azurerm_container_app.hub[0].identity[0].identity_ids == toset([azurerm_user_assigned_identity.hub.id]) &&
+      azurerm_container_app_job.setup.identity[0].identity_ids == toset([azurerm_user_assigned_identity.setup.id]) &&
+      azurerm_role_assignment.artifacts.principal_id == azurerm_user_assigned_identity.hub.principal_id &&
+      azurerm_role_assignment.image_pull[0].principal_id == azurerm_user_assigned_identity.hub.principal_id &&
+      azurerm_role_assignment.setup_image_pull[0].principal_id == azurerm_user_assigned_identity.setup.principal_id &&
+      azurerm_role_assignment.setup_image_pull[0].scope == var.acr_id &&
+      azurerm_role_assignment.setup_image_pull[0].role_definition_name == "AcrPull"
+    )
+    error_message = "Setup and Hub need separate identities; only Hub receives artifact access and each pulls its own image."
+  }
+  assert {
+    condition = (
+      toset([for grant in azurerm_role_assignment.runtime_secrets : grant.scope]) == toset([
+        "${var.runtime_database_secret.key_vault_id}/secrets/runtime-database",
+        "${var.runtime_secret_references.SERVICE_API_KEY.key_vault_id}/secrets/api-key",
+      ]) &&
+      alltrue([for grant in azurerm_role_assignment.runtime_secrets :
+        grant.principal_id == azurerm_user_assigned_identity.hub.principal_id &&
+        grant.role_definition_name == "Key Vault Secrets User"
+      ]) &&
+      azurerm_role_assignment.setup_secrets.scope == "${var.setup_database_secret.key_vault_id}/secrets/setup-database" &&
+      azurerm_role_assignment.setup_secrets.principal_id == azurerm_user_assigned_identity.setup.principal_id &&
+      azurerm_role_assignment.setup_secrets.role_definition_name == "Key Vault Secrets User"
+    )
+    error_message = "Each identity may read only its own individual secrets, even when database secrets share a vault."
+  }
+  assert {
+    condition = (
+      length(azurerm_container_app.hub[0].secret) == 2 &&
+      toset([for secret in azurerm_container_app.hub[0].secret : secret.key_vault_secret_id]) == toset([
+        var.runtime_database_secret.secret_id,
+        var.runtime_secret_references.SERVICE_API_KEY.secret_id,
+      ]) &&
+      alltrue([for secret in azurerm_container_app.hub[0].secret :
+        secret.identity == azurerm_user_assigned_identity.hub.id &&
+        (secret.value == null || secret.value == "")
+      ]) &&
+      length(azurerm_container_app_job.setup.secret) == 1 &&
+      one(azurerm_container_app_job.setup.secret).key_vault_secret_id == var.setup_database_secret.secret_id &&
+      one(azurerm_container_app_job.setup.secret).identity == azurerm_user_assigned_identity.setup.id &&
+      (one(azurerm_container_app_job.setup.secret).value == null || one(azurerm_container_app_job.setup.secret).value == "")
+    )
+    error_message = "Containers must resolve only their own Key Vault references without raw secret values."
+  }
+  assert {
+    condition = (
+      length(azurerm_container_app_job.setup.template[0].container[0].env) == 4 &&
+      alltrue([for name, value in {
+        NODE_ENV              = "production"
+        RUNTIME_MODE          = "setup"
+        DATABASE_RUNTIME_ROLE = "replica_runtime"
+        } : one([for env in azurerm_container_app_job.setup.template[0].container[0].env : env.value if env.name == name]) == value
+      ]) &&
+      one([for env in azurerm_container_app_job.setup.template[0].container[0].env : env.secret_name if env.name == "DATABASE_URL"]) == one(azurerm_container_app_job.setup.secret).name
+    )
+    error_message = "Setup must receive only its migration URL, production mode, setup mode, and fixed runtime grant target."
+  }
+}
+
 run "mutable_image_is_rejected" {
   command = plan
   variables {
     image = "example.azurecr.io/hub:latest"
   }
   expect_failures = [var.image]
+}
+
+run "runtime_cannot_receive_the_migration_secret" {
+  command = plan
+  variables {
+    runtime_secret_references = {
+      EXTRA_DATABASE_URL = {
+        key_vault_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/database"
+        secret_id    = "https://database.vault.azure.net/secrets/setup-database"
+      }
+    }
+  }
+  expect_failures = [var.runtime_secret_references]
 }
 
 run "hostname_without_certificate_is_rejected" {

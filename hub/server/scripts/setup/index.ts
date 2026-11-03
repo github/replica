@@ -9,6 +9,13 @@ import { withSetupLock } from "../../integrations/postgres/with-setup-lock/index
 export async function setup() {
   const databaseUrl = process.env.DATABASE_URL
   if (!databaseUrl) throw new Error("Setup requires DATABASE_URL.")
+  if (
+    process.env.DATABASE_RUNTIME_ROLE !== undefined &&
+    (process.env.DATABASE_RUNTIME_ROLE !== "replica_runtime" ||
+      new URL(databaseUrl).username !== "replica_migration")
+  ) {
+    throw new Error("Separate roles require replica_runtime and a replica_migration database URL.")
+  }
   const controller = new AbortController()
   function stop() {
     controller.abort()
@@ -22,13 +29,21 @@ export async function setup() {
       run: async (signal) => {
         const extension = import.meta.url.endsWith(".js") ? "js" : "ts"
         const jobScript = new URL(`../setup-jobs/index.${extension}`, import.meta.url)
+        const grantScript = new URL(
+          `../grant-runtime-database-access/index.${extension}`,
+          import.meta.url,
+        )
         const steps = [
           [resolve("node_modules/prisma/build/index.js"), "migrate", "deploy"],
           [jobScript.pathname],
+          ...(process.env.DATABASE_RUNTIME_ROLE ? [[grantScript.pathname]] : []),
         ]
         for (const [index, args] of steps.entries()) {
           signal.throwIfAborted()
-          logger.info({ step: index === 0 ? "prisma" : "jobs" }, "Hub setup step started")
+          logger.info(
+            { step: ["prisma", "jobs", "runtime-grants"][index] },
+            "Hub setup step started",
+          )
           // Migration tools can include database URLs in diagnostics; keep their output private.
           const child = spawn(process.execPath, args, { stdio: "ignore" })
           let timeout: ReturnType<typeof setTimeout> | undefined

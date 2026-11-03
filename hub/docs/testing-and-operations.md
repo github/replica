@@ -18,7 +18,7 @@ npm run storybook:build
 
 The API health check proves only that Express responds. Product API routes that have not been built must return 404 rather than pretending to work.
 
-Run `npm run image:check` with a Docker-compatible daemon to build the production image and exercise setup, readiness, serving, and shutdown against disposable PostgreSQL. It creates uniquely named resources and removes them afterward. The image compiles the Hub runtime only; the normal `build` command also checks the frontend, test tooling, and shared extension.
+Run `npm run image:check` with a Docker-compatible daemon to build the production image and exercise role provisioning, repeated setup, runtime data access and denied schema changes, queue processing, readiness, serving, and shutdown against disposable PostgreSQL. It creates uniquely named resources and removes them afterward. The image compiles the Hub runtime only; the normal `build` command also checks the frontend, test tooling, and shared extension.
 
 Installation generates Prisma Client without a database connection. Client tests check reuse across development reloads, production behavior, and errors for missing configuration.
 

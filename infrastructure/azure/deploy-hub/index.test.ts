@@ -13,6 +13,12 @@ function installationScenario({
   appCreated = true,
   setupStatus = "Succeeded",
   lockAvailable = true,
+  releaseError,
+}: {
+  appCreated?: boolean
+  setupStatus?: string
+  lockAvailable?: boolean
+  releaseError?: Error
 } = {}) {
   const installation = {
     name: "test-hub",
@@ -28,11 +34,17 @@ function installationScenario({
     url: "https://hub.example.com",
   }
   const events: string[][] = []
+  const commandOptions: childProcess.ExecFileSyncOptions[] = []
   const replicaReads = new Map<string, number>()
   let targeted = false
-  mock.method(childProcess, "execFileSync", (file: string, args: readonly string[]) => {
+  function execute(
+    file: string,
+    args: readonly string[],
+    options: childProcess.ExecFileSyncOptions,
+  ) {
     const command: string[] = [file, ...args]
     events.push(command)
+    commandOptions.push(options)
     if (file === "terraform") {
       switch (args[1]) {
         case "output":
@@ -80,6 +92,7 @@ function installationScenario({
           if (!lockAvailable) throw new Error("Release lease is already held")
           return JSON.stringify("lease-id")
         }
+        if (args.includes("release") && releaseError) throw releaseError
         return "null"
       case "containerapp revision list":
         return JSON.stringify([
@@ -102,12 +115,16 @@ function installationScenario({
       default:
         if (args.slice(0, 2).join(" ") === "containerapp show") {
           return JSON.stringify({
-            properties: { latestRevisionName: "new", latestReadyRevisionName: "new" },
+            properties: {
+              latestRevisionName: "new",
+              latestReadyRevisionName: "new",
+            },
           })
         }
         throw new Error(`Unexpected Azure command: ${command.join(" ")}`)
     }
-  })
+  }
+  mock.method(childProcess, "execFileSync", execute)
   mock.method(timers, "setTimeout", async () => undefined)
   mock.method(globalThis, "fetch", async (url: Parameters<typeof fetch>[0]) => {
     events.push(["HTTPS", String(url)])
@@ -125,12 +142,12 @@ function installationScenario({
     `example.azurecr.io/hub@sha256:${"a".repeat(64)}`,
     "--accept-maintenance",
   ]
-  return { args, events, replicaReads }
+  return { args, events, replicaReads, commandOptions }
 }
 
 describe("deployHub()", () => {
   it("drains all old revisions and completes setup before rollout, readiness, and lease release", async () => {
-    const { args, events, replicaReads } = installationScenario()
+    const { args, events, replicaReads, commandOptions } = installationScenario()
 
     await deployHub(args)
 
@@ -171,6 +188,12 @@ describe("deployHub()", () => {
     assert.deepEqual(events[ready], ["HTTPS", "https://hub.example.com/api/ready"])
     assert.ok(ready > rolloutApplied)
     assert.ok(release > ready)
+    assert.ok(
+      commandOptions.every(
+        ({ stdio }) =>
+          stdio === "pipe" || (Array.isArray(stdio) && stdio[1] === "pipe" && stdio[2] === "pipe"),
+      ),
+    )
   })
 
   it("leaves Hub stopped and retains its lease when setup fails", async () => {
@@ -208,7 +231,7 @@ describe("deployHub()", () => {
   it("does not stop Hub or run setup while another release holds the lease", async () => {
     const { args, events } = installationScenario({ lockAvailable: false })
 
-    await assert.rejects(deployHub(args), /Release lease is already held/)
+    await assert.rejects(deployHub(args), /Azure command failed/)
 
     assert.ok(
       events.some((event) => event.slice(0, 5).join(" ") === "az storage blob lease acquire"),
@@ -216,6 +239,35 @@ describe("deployHub()", () => {
     assert.ok(!events.some((event) => event.includes("deactivate")))
     assert.ok(!events.some((event) => event.slice(0, 4).join(" ") === "az containerapp job start"))
     assert.ok(!events.some((event) => event[0] === "terraform" && event[2] === "apply"))
+  })
+
+  it("redacts child diagnostics and retains the lock warning when lease release fails", async () => {
+    const leaseId = "lease-id"
+    const privateOutput = `private-credential ${leaseId}`
+    const releaseError = Object.assign(new Error(`az --lease-id ${privateOutput}`), {
+      stdout: Buffer.from(privateOutput),
+      stderr: Buffer.from(privateOutput),
+      cause: new Error(privateOutput),
+    })
+    const { args, events } = installationScenario({ releaseError })
+    const output: unknown[][] = []
+    mock.method(console, "error", (...args: unknown[]) => output.push(args))
+    mock.method(console, "log", (...args: unknown[]) => output.push(args))
+
+    await assert.rejects(deployHub(args), (error: unknown) => {
+      assert.ok(error instanceof Error)
+      assert.match(error.message, /Azure command failed/)
+      assert.equal(error.cause, undefined)
+      const rendered = `${error.stack} ${JSON.stringify(error)} ${JSON.stringify(output)}`
+      assert.ok(!rendered.includes(leaseId))
+      assert.ok(!rendered.includes("private-credential"))
+      return true
+    })
+
+    assert.ok(events.some((event) => event[0] === "HTTPS"))
+    assert.ok(events.some((event) => event.includes("--lease-id") && event.includes(leaseId)))
+    assert.match(JSON.stringify(output), /lease is retained/)
+    assert.ok(!JSON.stringify(output).includes("maintenance window is complete"))
   })
 
   it("refuses bootstrap when Terraform state already contains resources", async () => {

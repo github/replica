@@ -57,32 +57,45 @@ export async function deployHub(args: string[] = process.argv.slice(2)): Promise
   let lease: string | undefined
 
   function command(executable: string, arguments_: string[], capture = false): string {
-    return (
-      childProcess
-        .execFileSync(executable, arguments_, {
-          encoding: "utf8",
-          stdio: capture ? ["ignore", "pipe", "inherit"] : "inherit",
-          maxBuffer: 32 * 1024 * 1024,
-        })
-        ?.trim() ?? ""
-    )
+    try {
+      const output = childProcess.execFileSync(executable, arguments_, {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+        maxBuffer: 32 * 1024 * 1024,
+      })
+      return capture ? (output?.trim() ?? "") : ""
+    } catch {
+      // Child errors and output can contain credentials and release lease arguments.
+      throw new Error(
+        executable === "terraform"
+          ? "Terraform command failed; inspect the installation through authorized tooling."
+          : "Azure command failed; inspect the installation through authorized tooling.",
+      )
+    }
   }
   function terraform(arguments_: string[], capture = false): string {
     return command("terraform", [`-chdir=${root}`, ...arguments_], capture)
   }
+  function parseOutput<T>(output: string): T {
+    try {
+      return JSON.parse(output) as T
+    } catch {
+      throw new Error("Deployment tooling returned an invalid response.")
+    }
+  }
   function azure<T>(...arguments_: string[]): T {
-    return JSON.parse(
+    return parseOutput<T>(
       command(
         "az",
         [...arguments_, "--subscription", subscriptionId, "--only-show-errors", "--output", "json"],
         true,
       ),
-    ) as T
+    )
   }
   function readInstallation(): Installation {
-    const installation = JSON.parse(
+    const installation = parseOutput<Installation>(
       terraform(["output", "-json", "installation"], true),
-    ) as Installation
+    )
     if (installation.subscription_id !== subscription) {
       throw new Error("The selected subscription does not match this Terraform state.")
     }
@@ -141,7 +154,7 @@ export async function deployHub(args: string[] = process.argv.slice(2)): Promise
     if (target) arguments_.push(`-target=${target}`)
     if (destroy) arguments_.push("-destroy")
     terraform(arguments_)
-    const planned = JSON.parse(terraform(["show", "-json", planPath], true)) as DeploymentPlan
+    const planned = parseOutput<DeploymentPlan>(terraform(["show", "-json", planPath], true))
     if (!destroy) {
       if (planned.resource_changes?.some(({ change }) => change.actions.includes("delete"))) {
         throw new Error(
