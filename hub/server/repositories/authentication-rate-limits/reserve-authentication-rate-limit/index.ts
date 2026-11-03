@@ -11,12 +11,16 @@ const inputSchema = z
   })
   .strict()
 
-export async function reserveAuthenticationRateLimit(
-  database: AuthenticationRateLimitDatabase,
-  rawInput: z.input<typeof inputSchema>,
-): Promise<{ allowed: boolean; auditRequired: boolean }> {
-  const input = inputSchema.parse(rawInput)
-  const inserted = await database.$queryRaw<Array<{ id: string }>>`
+type Input = z.output<typeof inputSchema>
+type Bucket = {
+  count: number
+  denialAuditedAt: Date | null
+  expired: boolean
+  id: string
+}
+
+function insertBucket(database: AuthenticationRateLimitDatabase, input: Input) {
+  return database.$queryRaw<Array<{ id: string }>>`
     INSERT INTO "authentication_rate_limits" (
       "id", "operation", "subject_digest", "window_started_at", "count", "expires_at",
       "denial_audited_at", "created_at", "updated_at"
@@ -29,16 +33,10 @@ export async function reserveAuthenticationRateLimit(
     ON CONFLICT ("operation", "subject_digest") DO NOTHING
     RETURNING "id"
   `
-  const rows = inserted.length
-    ? []
-    : await database.$queryRaw<
-        Array<{
-          count: number
-          denialAuditedAt: Date | null
-          expired: boolean
-          id: string
-        }>
-      >`
+}
+
+function lockBucket(database: AuthenticationRateLimitDatabase, input: Input) {
+  return database.$queryRaw<Bucket[]>`
     SELECT
       "id",
       "count",
@@ -49,7 +47,10 @@ export async function reserveAuthenticationRateLimit(
       AND "subject_digest" = ${input.subjectDigest}
     FOR UPDATE
   `
-  await database.$executeRaw`
+}
+
+function deleteExpiredBuckets(database: AuthenticationRateLimitDatabase, input: Input) {
+  return database.$executeRaw`
     DELETE FROM "authentication_rate_limits"
     WHERE "id" IN (
       SELECT "id"
@@ -64,10 +65,24 @@ export async function reserveAuthenticationRateLimit(
       FOR UPDATE SKIP LOCKED
     )
   `
-  if (inserted.length) return { allowed: true, auditRequired: false }
+}
 
-  const bucket = rows[0]
+export async function reserveAuthenticationRateLimit(
+  database: AuthenticationRateLimitDatabase,
+  rawInput: z.input<typeof inputSchema>,
+): Promise<{ allowed: boolean; auditRequired: boolean }> {
+  const input = inputSchema.parse(rawInput)
+  let bucket: Bucket | undefined
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    if ((await insertBucket(database, input)).length) {
+      await deleteExpiredBuckets(database, input)
+      return { allowed: true, auditRequired: false }
+    }
+    bucket = (await lockBucket(database, input))[0]
+    if (bucket) break
+  }
   if (!bucket) throw new Error("Authentication rate-limit bucket disappeared after conflict.")
+  await deleteExpiredBuckets(database, input)
   if (bucket.expired) {
     await database.$executeRaw`
       UPDATE "authentication_rate_limits"
