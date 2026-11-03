@@ -18,4 +18,4 @@ Keep the top-level `HubThemeProvider` around Hub and Storybook content. It synch
 
 Keep product copy and presentation independent of mock data. Mock-only controls, notices, and diagnostics belong exclusively in the bottom-right test toolbar. The [frontend guide](docs/frontend.md) owns fixture sizes, persona resets, and the removable mock boundary.
 
-Keep shared canvas and Controls source under `app/`; the prototype extension and build action consume it independently of the Hub API. Update those consumers when source paths change.
+Keep shared canvas and Controls source under `client/`; the prototype extension and build action consume it independently of the Hub API. Update those consumers when source paths change.

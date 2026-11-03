@@ -14,7 +14,7 @@ export default defineConfig({
     cssCodeSplit: false,
     outDir: "../.github/extensions/replica-prototype/assets",
     rollupOptions: {
-      input: "app/application/start-prototype-canvas/index.tsx",
+      input: "client/application/start-prototype-canvas/index.tsx",
       output: {
         assetFileNames: (asset) =>
           asset.names.some((name) => name.endsWith(".woff2"))

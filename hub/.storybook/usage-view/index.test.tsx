@@ -9,23 +9,23 @@ describe("UsageView()", () => {
       <UsageView
         entries={[
           {
-            path: "app/components/example/index.tsx",
+            path: "client/components/example/index.tsx",
             usage: {
               consumers: [
                 {
-                  path: "app/features/example/index.tsx",
+                  path: "client/features/example/index.tsx",
                   lines: [12],
                 },
               ],
-              surfaces: ["app/pages/example/index.tsx"],
+              surfaces: ["client/pages/example/index.tsx"],
             },
           },
         ]}
         storyLinks={{
-          "app/features/example/index.tsx": [
+          "client/features/example/index.tsx": [
             { id: "components-example--default", title: "Example component" },
           ],
-          "app/pages/example/index.tsx": [
+          "client/pages/example/index.tsx": [
             { id: "hub-pages-example--default", title: "Example page" },
           ],
         }}

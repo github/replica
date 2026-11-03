@@ -11,13 +11,13 @@
     "noEmit": true,
     "noUncheckedIndexedAccess": true,
     "paths": {
-      "@/*": ["./app/*"],
-      "@application/*": ["./app/application/*"],
-      "@components/*": ["./app/components/*"],
-      "@features/*": ["./app/features/*"],
-      "@hooks/*": ["./app/hooks/*"],
-      "@pages/*": ["./app/pages/*"],
-      "@utils/*": ["./app/utils/*"]
+      "@/*": ["./client/*"],
+      "@application/*": ["./client/application/*"],
+      "@components/*": ["./client/components/*"],
+      "@features/*": ["./client/features/*"],
+      "@hooks/*": ["./client/hooks/*"],
+      "@pages/*": ["./client/pages/*"],
+      "@utils/*": ["./client/utils/*"]
     },
     "resolveJsonModule": true,
     "rootDirs": [".", "./.react-router/types"],
@@ -27,7 +27,7 @@
     "types": ["node", "vite/client", "vitest/globals"]
   },
   "include": [
-    "app",
+    "client",
     ".react-router/types/**/*",
     "server",
     "test",
@@ -37,7 +37,6 @@
     "prisma7.config.ts",
     "vite-aliases.ts",
     "controls-validator-plugin.ts",
-    "mock-assets-plugin.ts",
     "react-router.config.ts",
     "vite.config.ts",
     "vitest.config.ts"

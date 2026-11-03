@@ -12,7 +12,10 @@ import { viteAliases } from "../../vite-aliases.ts"
 const root = fileURLToPath(new URL("../../", import.meta.url))
 const declaration = JSON.parse(
   await readFile(
-    new URL("../../app/utils/prototype-controls/fixtures/controls.replica.json", import.meta.url),
+    new URL(
+      "../../client/utils/prototype-controls/fixtures/controls.replica.json",
+      import.meta.url,
+    ),
     "utf8",
   ),
 )
@@ -59,7 +62,7 @@ const sources = {
     import { createRoot } from "react-dom/client"
     import { ThemeProvider } from "@primer/react-brand"
     import { createRef } from "react"
-    import { BuildControls } from "${root}app/features/build-controls/index.tsx"
+    import { BuildControls } from "${root}client/features/build-controls/index.tsx"
     const frame = createRef()
     frame.current = document.querySelector("iframe")
     const root = createRoot(document.getElementById("controls"))
@@ -144,7 +147,7 @@ const [hostBundle, appBundle, bridge] = await Promise.all([
   bundle(hostEntry),
   bundle(appEntry),
   readFile(
-    new URL("../../app/features/install-replica-controls-bridge/bridge.js", import.meta.url),
+    new URL("../../client/features/install-replica-controls-bridge/bridge.js", import.meta.url),
     "utf8",
   ),
 ])

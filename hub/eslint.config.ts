@@ -56,7 +56,7 @@ export default defineConfig(
     rules: { "@typescript-eslint/no-base-to-string": "off" },
   },
   {
-    files: ["app/pages/**/*.{ts,tsx}"],
+    files: ["client/pages/**/*.{ts,tsx}"],
     rules: {
       "no-restricted-imports": [
         "error",
@@ -72,28 +72,28 @@ export default defineConfig(
     },
   },
   {
-    files: ["app/**/stories.tsx"],
+    files: ["client/**/stories.tsx"],
     rules: {
       "react-refresh/only-export-components": "off",
     },
   },
   {
-    files: ["app/application/start-prototype-canvas/index.tsx"],
+    files: ["client/application/start-prototype-canvas/index.tsx"],
     rules: {
       "react-refresh/only-export-components": "off",
     },
   },
   {
-    files: ["app/application/hub/root.tsx", "app/application/hub/routes/**/index.tsx"],
+    files: ["client/application/hub/root.tsx", "client/application/hub/routes/**/index.tsx"],
     rules: {
       "react-refresh/only-export-components": "off",
     },
   },
   {
     files: [
-      "app/application/hub/routes/**/index.tsx",
-      "app/application/hub/read-route-identifier/index.ts",
-      "app/application/hub/read-route-query/index.ts",
+      "client/application/hub/routes/**/index.tsx",
+      "client/application/hub/read-route-identifier/index.ts",
+      "client/application/hub/read-route-query/index.ts",
     ],
     rules: {
       "@typescript-eslint/only-throw-error": [
@@ -103,7 +103,7 @@ export default defineConfig(
     },
   },
   {
-    files: ["app/{components,hooks,utils}/**/*.{ts,tsx}"],
+    files: ["client/{components,hooks,utils}/**/*.{ts,tsx}"],
     rules: {
       "no-restricted-imports": [
         "error",
@@ -127,8 +127,8 @@ export default defineConfig(
       "../.github/extensions/replica-prototype/**/*.mjs",
       "../.github/extensions/replica-prototype/**/*.d.mts",
       "../.github/extensions/replica-prototype/**/*.d.ts",
-      "app/utils/prototype-controls/**/*.mjs",
-      "app/utils/prototype-controls/**/*.d.mts",
+      "client/utils/prototype-controls/**/*.mjs",
+      "client/utils/prototype-controls/**/*.d.mts",
       "../packages/learning/**/*.mjs",
       "../packages/learning/**/*.d.mts",
     ],

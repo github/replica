@@ -17,11 +17,11 @@ const config = {
     { from: "./preview-fixtures/build-controls-definitions", to: "/" },
   ],
   stories: [
-    "../app/application/**/stories.tsx",
-    "../app/components/**/stories.tsx",
-    "../app/features/**/stories.tsx",
-    "../app/pages/**/stories.tsx",
-    "../app/storybook/**/stories.tsx",
+    "../client/application/**/stories.tsx",
+    "../client/components/**/stories.tsx",
+    "../client/features/**/stories.tsx",
+    "../client/pages/**/stories.tsx",
+    "../client/storybook/**/stories.tsx",
   ],
   addons: ["@storybook/addon-docs", "@storybook/addon-a11y"],
   framework: {

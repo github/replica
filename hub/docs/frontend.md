@@ -4,7 +4,7 @@ The Hub frontend uses React Router Framework Mode as a browser-rendered SPA. All
 
 This is an evolving frontend implementation, not a restored production Hub. Real authentication, authorization, product APIs, persistence, external integrations, build hosting, and publishing remain separate work.
 
-Browser source lives directly under [app/](../app/). The routed Hub entry is [application/hub/](../app/application/hub/); pages, features, components, hooks, utilities, Storybook fixtures, and theme tokens are sibling directories. The Express API stays separate under [server/](../server/).
+Browser source lives directly under [client/](../client/). The routed Hub entry is [application/hub/](../client/application/hub/); pages, features, components, hooks, utilities, Storybook fixtures, and theme tokens are sibling directories. The Express API stays separate under [server/](../server/).
 
 ## Start with mock data
 
@@ -76,7 +76,7 @@ Route modules export `clientLoader`, `clientAction`, and their default component
 
 The shared JSON client awaits mock startup before sending any API request. It forwards cancellation, checks HTTP status, parses JSON, and validates the result with Zod. API, JSON, schema, and startup failures remain errors. Expected details-save failures appear in the still-open editor with its draft intact.
 
-These are frontend/mock contracts under [the application contracts](../app/application/hub/contracts/index.ts), not Prisma models or already-implemented Express endpoints. The mock identifiers preserve the retained presentation; coordinate real identifiers and contracts with backend work.
+These are frontend/mock contracts under [the application contracts](../client/application/hub/contracts/index.ts), not Prisma models or already-implemented Express endpoints. The mock identifiers preserve the retained presentation; coordinate real identifiers and contracts with backend work.
 
 | HTTP interface | Result |
 | --- | --- |
@@ -101,11 +101,11 @@ These are frontend/mock contracts under [the application contracts](../app/appli
 
 Errors use an HTTP status and `{ "error": "..." }`. Request schemas and the same response schemas check the JSON fixtures and HTTP boundary. Server-side input validation and authorization remain separate backend responsibilities.
 
-The [product contracts](../app/application/hub/product-contracts/index.ts), [settings contracts](../app/application/hub/settings-contracts/index.ts), and [session contracts](../app/application/hub/session-contracts/index.ts) define those provisional records. The review adapter injects this request boundary into the retained review hooks without changing their default consumers. Persona selection, scenarios, diagnostics, fixture generation, and local mutation rules belong to the mock runtime, not these contracts.
+The [product contracts](../client/application/hub/product-contracts/index.ts), [settings contracts](../client/application/hub/settings-contracts/index.ts), and [session contracts](../client/application/hub/session-contracts/index.ts) define those provisional records. The review adapter injects this request boundary into the retained review hooks without changing their default consumers. Persona selection, scenarios, diagnostics, fixture generation, and local mutation rules belong to the mock runtime, not these contracts.
 
 ## Removing mocks
 
-The [mock folder](../app/application/hub/mocks/) owns fixtures, handlers, local state, the toolbar, diagnostics, and development assets. The application starts it through the small [bootstrap hook](../app/application/hub/bootstrap/index.ts) and displays its toolbar through [DevelopmentTools](../app/application/hub/development-tools/index.tsx). Vite enables its asset plugin only in mock mode.
+The [mock folder](../client/application/hub/mocks/) owns fixtures, handlers, local state, the toolbar, diagnostics, and development assets. The application starts it through the small [bootstrap hook](../client/application/hub/bootstrap/index.ts) and displays its toolbar through [DevelopmentTools](../client/application/hub/development-tools/index.tsx). Vite enables its asset plugin only in mock mode.
 
 When the backend is ready, remove that folder and its two application hooks, the Vite mock-plugin import and registration, and the `dev:mock` script. Replace mock-backed test fixtures with the ported API's test support; remove tests that only exercised discarded fake workflows. Remove MSW when no remaining tests need it. Keep product copy, route modules, response contracts, request functions, and presentation adapters. A real API failure must never reactivate mock responses.
 
@@ -140,32 +140,32 @@ GitHub App setup, registration, and installation pages can be opened directly wi
 
 | Page module | Intent and current connection | Open an example |
 | --- | --- | --- |
-| [Repositories show](../app/pages/repositories-show-page/) | Connected repository listing, filters, and pagination | [github/prototype](http://127.0.0.1:5173/repositories/2001) |
-| [Prototypes show](../app/pages/prototypes-show-page/) | Preview, metadata, and mock review conversations | [Welcome review](http://127.0.0.1:5173/repositories/2001/prototypes/1?build=3&comment=1) |
-| [Builds index](../app/pages/builds-index-page/) | Connected build history | [Welcome history](http://127.0.0.1:5173/repositories/2001/prototypes/1/builds) |
-| [Builds show](../app/pages/builds-show-page/) | Connected build details | [Successful Build 3](http://127.0.0.1:5173/repositories/2001/prototypes/1/builds/3) |
-| [Home](../app/pages/home-index-page/) | `/sign-in` | [Mock sign-in](http://127.0.0.1:5173/sign-in) |
-| [Analytics](../app/pages/analytics-page/) | `/settings/analytics` | [Repository analytics](http://127.0.0.1:5173/settings/analytics?repositoryId=2001) |
-| [Canvas pairings](../app/pages/canvas-pairings-page/) | `/settings/canvas` and `/settings/canvas/approve` | [Connections](http://127.0.0.1:5173/settings/canvas?repositoryId=2001) and [approval](http://127.0.0.1:5173/settings/canvas/approve?repositoryId=2001) |
-| [Copilot connection](../app/pages/copilot-connection-page/) | `/settings/copilot` | [Mock Copilot connection](http://127.0.0.1:5173/settings/copilot) |
-| [Fresh authorization](../app/pages/fresh-authorization-page/) | `/settings/authorize` | [Confirmation after starting a continuation](http://127.0.0.1:5173/settings/authorize) |
-| [GitHub App](../app/pages/github-app-page/) | `/settings/github` | [Mock App settings](http://127.0.0.1:5173/settings/github) |
-| [GitHub App install](../app/pages/github-app-setup-install-page/) | `/settings/github/installed` | [Installation after registration](http://127.0.0.1:5173/settings/github/installed) |
-| [GitHub App register](../app/pages/github-app-setup-register-page/) | `/settings/github/register` | [Registration after setup](http://127.0.0.1:5173/settings/github/register) |
-| [GitHub App setup](../app/pages/github-app-setup-show-page/) | `/settings/github/setup` | [Start mock App setup](http://127.0.0.1:5173/settings/github/setup) |
-| [Admin confirmation](../app/pages/hub-admin-confirmation-page/) | `/settings/admins/:userId/:operation` | [Add Mona](http://127.0.0.1:5173/settings/admins/2/designate) and [remove Octocat after adding Mona](http://127.0.0.1:5173/settings/admins/1/revoke) |
-| [Admin enrollment](../app/pages/hub-admin-enrollment-page/) | `/settings/enroll` | [Mock enrollment](http://127.0.0.1:5173/settings/enroll) |
-| [Admins](../app/pages/hub-admins-page/) | `/settings/admins` | [Administrator roster](http://127.0.0.1:5173/settings/admins) |
-| [Learnings](../app/pages/learnings-page/) | `/settings/learnings` | [Repository learnings](http://127.0.0.1:5173/settings/learnings?repositoryId=2001) |
-| [New prototype](../app/pages/new-prototype-page/) | `/repositories/:repositoryId/new` | [Create a prototype](http://127.0.0.1:5173/repositories/2001/new) |
-| [Notifications](../app/pages/notifications-page/) | `/notifications` | [Mock inbox](http://127.0.0.1:5173/notifications) |
-| [Prototype management](../app/pages/prototype-management-page/) | `/repositories/:repositoryId/prototypes/manage` | [Manage prototypes](http://127.0.0.1:5173/repositories/2001/prototypes/manage) |
-| [Replica browse](../app/pages/replica-browse-page/) | `/repositories/:repositoryId/templates/:templateId` | [Browse the default template](http://127.0.0.1:5173/repositories/2001/templates/default) |
-| [Security audit](../app/pages/security-audit-page/) | `/settings/audit` | [Mock activity](http://127.0.0.1:5173/settings/audit?repositoryId=2001) |
-| [Session revocation](../app/pages/session-revocation-page/) | `/settings/sessions` | [Mock browser session](http://127.0.0.1:5173/settings/sessions) |
-| [Share links](../app/pages/share-links-index-page/) | `/repositories/:repositoryId/prototypes/:prototypeId/share-links` | [Welcome share links](http://127.0.0.1:5173/repositories/2001/prototypes/1/share-links) |
-| [Shared build](../app/pages/shared-builds-show-page/) | `/shared/:shareId` | [Active shared preview](http://127.0.0.1:5173/shared/demo-active) |
-| [Sharing settings](../app/pages/sharing-settings-page/) | `/admin/sharing` | [Mock sharing controls](http://127.0.0.1:5173/admin/sharing) |
-| [Welcome](../app/pages/welcome-page/) | `/welcome` | [Welcome page](http://127.0.0.1:5173/welcome) |
+| [Repositories show](../client/pages/repositories-show-page/) | Connected repository listing, filters, and pagination | [github/prototype](http://127.0.0.1:5173/repositories/2001) |
+| [Prototypes show](../client/pages/prototypes-show-page/) | Preview, metadata, and mock review conversations | [Welcome review](http://127.0.0.1:5173/repositories/2001/prototypes/1?build=3&comment=1) |
+| [Builds index](../client/pages/builds-index-page/) | Connected build history | [Welcome history](http://127.0.0.1:5173/repositories/2001/prototypes/1/builds) |
+| [Builds show](../client/pages/builds-show-page/) | Connected build details | [Successful Build 3](http://127.0.0.1:5173/repositories/2001/prototypes/1/builds/3) |
+| [Home](../client/pages/home-index-page/) | `/sign-in` | [Mock sign-in](http://127.0.0.1:5173/sign-in) |
+| [Analytics](../client/pages/analytics-page/) | `/settings/analytics` | [Repository analytics](http://127.0.0.1:5173/settings/analytics?repositoryId=2001) |
+| [Canvas pairings](../client/pages/canvas-pairings-page/) | `/settings/canvas` and `/settings/canvas/approve` | [Connections](http://127.0.0.1:5173/settings/canvas?repositoryId=2001) and [approval](http://127.0.0.1:5173/settings/canvas/approve?repositoryId=2001) |
+| [Copilot connection](../client/pages/copilot-connection-page/) | `/settings/copilot` | [Mock Copilot connection](http://127.0.0.1:5173/settings/copilot) |
+| [Fresh authorization](../client/pages/fresh-authorization-page/) | `/settings/authorize` | [Confirmation after starting a continuation](http://127.0.0.1:5173/settings/authorize) |
+| [GitHub App](../client/pages/github-app-page/) | `/settings/github` | [Mock App settings](http://127.0.0.1:5173/settings/github) |
+| [GitHub App install](../client/pages/github-app-setup-install-page/) | `/settings/github/installed` | [Installation after registration](http://127.0.0.1:5173/settings/github/installed) |
+| [GitHub App register](../client/pages/github-app-setup-register-page/) | `/settings/github/register` | [Registration after setup](http://127.0.0.1:5173/settings/github/register) |
+| [GitHub App setup](../client/pages/github-app-setup-show-page/) | `/settings/github/setup` | [Start mock App setup](http://127.0.0.1:5173/settings/github/setup) |
+| [Admin confirmation](../client/pages/hub-admin-confirmation-page/) | `/settings/admins/:userId/:operation` | [Add Mona](http://127.0.0.1:5173/settings/admins/2/designate) and [remove Octocat after adding Mona](http://127.0.0.1:5173/settings/admins/1/revoke) |
+| [Admin enrollment](../client/pages/hub-admin-enrollment-page/) | `/settings/enroll` | [Mock enrollment](http://127.0.0.1:5173/settings/enroll) |
+| [Admins](../client/pages/hub-admins-page/) | `/settings/admins` | [Administrator roster](http://127.0.0.1:5173/settings/admins) |
+| [Learnings](../client/pages/learnings-page/) | `/settings/learnings` | [Repository learnings](http://127.0.0.1:5173/settings/learnings?repositoryId=2001) |
+| [New prototype](../client/pages/new-prototype-page/) | `/repositories/:repositoryId/new` | [Create a prototype](http://127.0.0.1:5173/repositories/2001/new) |
+| [Notifications](../client/pages/notifications-page/) | `/notifications` | [Mock inbox](http://127.0.0.1:5173/notifications) |
+| [Prototype management](../client/pages/prototype-management-page/) | `/repositories/:repositoryId/prototypes/manage` | [Manage prototypes](http://127.0.0.1:5173/repositories/2001/prototypes/manage) |
+| [Replica browse](../client/pages/replica-browse-page/) | `/repositories/:repositoryId/templates/:templateId` | [Browse the default template](http://127.0.0.1:5173/repositories/2001/templates/default) |
+| [Security audit](../client/pages/security-audit-page/) | `/settings/audit` | [Mock activity](http://127.0.0.1:5173/settings/audit?repositoryId=2001) |
+| [Session revocation](../client/pages/session-revocation-page/) | `/settings/sessions` | [Mock browser session](http://127.0.0.1:5173/settings/sessions) |
+| [Share links](../client/pages/share-links-index-page/) | `/repositories/:repositoryId/prototypes/:prototypeId/share-links` | [Welcome share links](http://127.0.0.1:5173/repositories/2001/prototypes/1/share-links) |
+| [Shared build](../client/pages/shared-builds-show-page/) | `/shared/:shareId` | [Active shared preview](http://127.0.0.1:5173/shared/demo-active) |
+| [Sharing settings](../client/pages/sharing-settings-page/) | `/admin/sharing` | [Mock sharing controls](http://127.0.0.1:5173/admin/sharing) |
+| [Welcome](../client/pages/welcome-page/) | `/welcome` | [Welcome page](http://127.0.0.1:5173/welcome) |
 
 Settings collection filters use the URL, including `repositoryId` where a repository is selected. Use focused request/store/route tests for cross-page behavior and existing page tests for local interactions. Review visual changes in Storybook and capture affected stories following the [Storybook guide](storybook.md#ui-changes-and-pull-request-evidence). Do not freeze whole DOM trees, incidental copy, or provisional APIs as the migration's ground truth.
