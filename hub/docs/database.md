@@ -6,7 +6,7 @@ Hub uses PostgreSQL and Prisma.
 
 [Compose](../.devcontainer/compose.yaml) pins the development database image. [package.json](../package.json) pins the Prisma packages to the same version. Dependency updates must follow the [seven-day dependency policy](../../docs/testing-and-review.md#update-dependencies).
 
-Choose the newest stable PostgreSQL major available from both Azure Database for PostgreSQL and Amazon RDS or Aurora. Managed services can offer different patch releases; the local image tracks a stable patch of that shared major. Check provider availability again when changing the major, rather than assuming that an upstream release is available everywhere.
+Hub currently requires PostgreSQL 18. Choose a stable PostgreSQL 18 patch available from both Azure Database for PostgreSQL and Amazon RDS or Aurora. Managed services can offer different patch releases; the local image tracks a stable patch of that shared major. Check provider availability again before changing the major, rather than assuming that an upstream release is available everywhere.
 
 ## Schema conventions
 

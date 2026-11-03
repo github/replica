@@ -1,6 +1,6 @@
 # Hub development
 
-Use the Hub devcontainer for Node.js and PostgreSQL, or run Node.js locally with the same database service. Hub can expose GitHub sign-in and reusable administrator enrollment when every authentication setting is configured. See [Deployment](deployment.md) for the production runtime.
+Use the Hub devcontainer for Node.js and PostgreSQL 18, or run Node.js locally with the same database major. Hub can expose GitHub sign-in and reusable administrator enrollment when every authentication setting is configured. See [Deployment](deployment.md) for the production runtime.
 
 ## Devcontainer
 

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import type { Request, RequestHandler } from "express"
+import type { RequestHandler } from "express"
 
 interface RateLimitDependencies {
   checkRateLimit(
@@ -8,15 +8,11 @@ interface RateLimitDependencies {
   ): Promise<{ allowed: boolean; auditFailed: boolean }>
 }
 
-interface AuthenticationRequest extends Request {
-  authenticationRateLimitAllowed?: boolean
-}
-
 export function rateLimit(
   dependencies: RateLimitDependencies,
   operation: "start" | "callback",
 ): RequestHandler {
-  return async (request: AuthenticationRequest, response, next) => {
+  return async (request, response, next) => {
     const subjectDigest = createHash("sha256")
       .update([operation, request.ip ?? request.socket.remoteAddress ?? "unknown"].join(":"))
       .digest("hex")

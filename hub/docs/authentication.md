@@ -32,6 +32,8 @@ Hub creates a fresh opaque session value only after admission succeeds. The brow
 
 Every current-session restore rereads the global revocation revision, session expiry and termination state, membership lifecycle, and active assignment. A retained cookie stops authorizing access after sign-out, expiry, suspension, removal, assignment revocation, or a global revision change.
 
+Suspension, removal, assignment revocation, and global revision changes are enforced when read, but this version does not expose runtime operations that initiate them.
+
 The migration owns the single global revocation row. Its identity and history are immutable, its revision can only increment by one, and runtime code never recreates a missing row. Admission and restoration fail closed when that authority is missing. Admissions use shared locks for provider selection and revocation authority so unrelated users can proceed concurrently while authority mutations wait.
 
 `GET /api/auth/session` restores the current session. `POST /api/auth/session/sign-out` ends it and clears the cookie. Hub does not issue refresh tokens, perform provider logout, or support step-up authentication.
@@ -41,6 +43,8 @@ The migration owns the single global revocation row. Its identity and history ar
 `POST /api/auth/github/start` begins normal sign-in. `POST /api/auth/github/admin-enrollment/start` verifies the reusable bootstrap secret before beginning administrator enrollment. `GET /api/auth/github/callback` consumes GitHub's callback and redirects with a generic success or denial result.
 
 Start and sign-out requests require the exact configured application origin. Authentication routes use database-backed per-address-digest rate limits, disable response storage, and omit query, form, and cookie payloads from request completion logs. Callback rate limiting runs before callback parsing.
+
+The address digest uses the trusted client address. Behind a protected proxy, configure `HUB_TRUSTED_PROXY_HOPS` to the exact proxy-chain length; leaving it at zero intentionally treats the proxy as the client and shares one rate-limit budget across traffic from that proxy.
 
 Consumed attempts remain available as short-lived protocol state for ten minutes after consumption so a trusted same-request consumer can reread them. Cleanup removes expired unconsumed attempts and consumed attempts after that fixed retention window; this is not authentication history.
 
