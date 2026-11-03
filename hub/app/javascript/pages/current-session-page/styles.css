@@ -5,7 +5,7 @@
   justify-items: center;
   gap: 2rem;
   padding: 2rem;
-  background: var(--hub-background-default);
+  background: var(--hub-canvas-default);
 }
 
 .current-session-page__card {
@@ -15,5 +15,5 @@
   padding: 2rem;
   border: 1px solid var(--hub-border-default);
   border-radius: 1rem;
-  background: var(--hub-background-overlay);
+  background: var(--hub-canvas-subtle);
 }

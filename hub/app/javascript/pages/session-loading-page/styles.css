@@ -5,7 +5,7 @@
   justify-items: center;
   gap: 2rem;
   padding: 2rem;
-  background: var(--hub-background-default);
+  background: var(--hub-canvas-default);
 }
 
 .session-loading-page__status {
