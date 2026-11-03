@@ -1,5 +1,6 @@
 import { createAzureBlobArtifactStorage } from "../../../integrations/azure-blob/create-azure-blob-artifact-storage/index.ts"
 import { createFilesystemArtifactStorage } from "../../../integrations/filesystem/create-filesystem-artifact-storage/index.ts"
+import { log } from "../../../integrations/pino/log/index.ts"
 import { parseArtifactStorageSettings } from "../parse-artifact-storage-settings/index.ts"
 import type { ArtifactStorage, ArtifactStorageSettings } from "./types.ts"
 
@@ -12,7 +13,9 @@ export async function createArtifactStorage(
   const settings = parseArtifactStorageSettings(input)
   const adapter =
     settings.provider === "filesystem"
-      ? await createFilesystemArtifactStorage(settings.directory, artifactMaxBytes)
+      ? await createFilesystemArtifactStorage(settings.directory, artifactMaxBytes, () =>
+          log("warn", "Artifact staging cleanup failed"),
+        )
       : createAzureBlobArtifactStorage(settings, artifactMaxBytes)
 
   return {

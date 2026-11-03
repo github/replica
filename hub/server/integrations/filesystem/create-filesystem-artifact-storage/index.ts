@@ -8,6 +8,7 @@ import type { FilesystemArtifactStorage } from "./types.ts"
 export async function createFilesystemArtifactStorage(
   directory: string,
   maxBytes: number,
+  reportCleanupFailure: () => void,
 ): Promise<FilesystemArtifactStorage> {
   try {
     await withArtifactDirectory(directory, () => Promise.resolve(undefined))
@@ -66,8 +67,16 @@ export async function createFilesystemArtifactStorage(
             await link(staging, `${path}/${key}`)
             return { status: "ok" } as const
           } finally {
-            await handle.close()
-            await unlink(staging)
+            try {
+              await handle.close()
+            } catch {
+              reportCleanupFailure()
+            }
+            try {
+              await unlink(staging)
+            } catch {
+              reportCleanupFailure()
+            }
           }
         })
       } catch (error) {

@@ -7,12 +7,20 @@ export type ArtifactStorageSettings =
       managedIdentityClientId?: string
     }
 
-export type ArtifactFailure = {
-  status: "invalid-key" | "too-large" | "not-found" | "already-exists" | "unavailable"
+export type ArtifactReadResult =
+  | { status: "ok"; bytes: Uint8Array }
+  | { status: "invalid-key" | "too-large" | "not-found" | "unavailable" }
+
+export type ArtifactWriteResult = {
+  status: "ok" | "invalid-key" | "too-large" | "already-exists" | "unavailable"
+}
+
+export type ArtifactDeleteResult = {
+  status: "ok" | "invalid-key" | "not-found" | "unavailable"
 }
 
 export interface ArtifactStorage {
-  read(key: string): Promise<{ status: "ok"; bytes: Uint8Array } | ArtifactFailure>
-  write(key: string, bytes: Uint8Array): Promise<{ status: "ok" } | ArtifactFailure>
-  delete(key: string): Promise<{ status: "ok" } | ArtifactFailure>
+  read(key: string): Promise<ArtifactReadResult>
+  write(key: string, bytes: Uint8Array): Promise<ArtifactWriteResult>
+  delete(key: string): Promise<ArtifactDeleteResult>
 }
