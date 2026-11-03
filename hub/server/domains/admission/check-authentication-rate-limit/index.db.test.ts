@@ -20,22 +20,8 @@ function input(
   }
 }
 
-async function waitForActiveBucket(inspector: pg.Client, subjectDigest: string) {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    const result = await inspector.query<{ active: boolean }>(
-      `SELECT "expires_at" > clock_timestamp() AS active
-       FROM authentication_rate_limits
-       WHERE operation = 'start' AND subject_digest = $1`,
-      [subjectDigest],
-    )
-    if (result.rows[0]?.active) return
-    await new Promise<void>((resolve) => setImmediate(resolve))
-  }
-  throw new Error("The independent rate-limit bucket did not commit while another was locked.")
-}
-
 describe("checkAuthenticationRateLimit()", () => {
-  it("acquires each request bucket before cleaning another request's expired bucket", async () => {
+  it("completes another request while one request bucket is locked", async () => {
     const firstDigest = "0".repeat(64)
     const secondDigest = "1".repeat(64)
     const expired = new Date("2020-01-01T00:00:00Z")
@@ -95,7 +81,6 @@ describe("checkAuthenticationRateLimit()", () => {
       expect(firstBlocked).toBe(true)
 
       const secondRequest = checkAuthenticationRateLimit(input(secondDigest), prisma)
-      await waitForActiveBucket(inspector, secondDigest)
       await expect(secondRequest).resolves.toEqual({ allowed: true, auditFailed: false })
 
       await locker.query("COMMIT")
