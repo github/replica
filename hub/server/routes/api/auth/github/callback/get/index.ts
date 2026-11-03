@@ -2,15 +2,15 @@ import { randomUUID } from "node:crypto"
 import type { RequestHandler } from "express"
 import { z } from "zod"
 
-import { AdmissionDeniedError } from "../../../../domains/admission/errors.ts"
-import { AuthenticationProofError } from "../../../../domains/authentication/errors.ts"
-import { createOpaqueValue } from "../../../../domains/authentication/create-opaque-value/index.ts"
-import { hashAuthenticationValue } from "../../../../domains/authentication/hash-authentication-value/index.ts"
-import { clearAuthenticationCookie } from "../../../../integrations/express/clear-authentication-cookie/index.ts"
-import { createAuthenticationCookie } from "../../../../integrations/express/create-authentication-cookie/index.ts"
-import { readCookie } from "../../../../integrations/express/read-cookie/index.ts"
-import { browserCookieName } from "../start/index.ts"
-import type { AuthenticationCallbackDependencies } from "../types.ts"
+import { AdmissionDeniedError } from "../../../../../../domains/admission/errors.ts"
+import { AuthenticationProofError } from "../../../../../../domains/authentication/errors.ts"
+import { createOpaqueValue } from "../../../../../../domains/authentication/create-opaque-value/index.ts"
+import { hashAuthenticationValue } from "../../../../../../domains/authentication/hash-authentication-value/index.ts"
+import { clearAuthenticationCookie } from "../../../../../../integrations/express/clear-authentication-cookie/index.ts"
+import { createAuthenticationCookie } from "../../../../../../integrations/express/create-authentication-cookie/index.ts"
+import { readCookie } from "../../../../../../integrations/express/read-cookie/index.ts"
+import type { AuthenticationCallbackDependencies } from "../../../../authentication/types.ts"
+import { browserCookieName } from "../../start/post/index.ts"
 
 const querySchema = z
   .object({
@@ -21,7 +21,7 @@ const querySchema = z
 const browserBindingSchema = z.string().min(32).max(200)
 const sessionCookieName = "hub_session"
 
-export function callback(dependencies: AuthenticationCallbackDependencies): RequestHandler {
+export function get(dependencies: AuthenticationCallbackDependencies): RequestHandler {
   return async (request, response, next) => {
     const query = querySchema.safeParse(request.query)
     const browserBinding = browserBindingSchema.safeParse(readCookie(request, browserCookieName))

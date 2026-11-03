@@ -1,8 +1,8 @@
 import type { RequestHandler } from "express"
 import { z } from "zod"
 
-import type { StartAdministratorEnrollmentDependencies } from "../types.ts"
-import { start } from "../start/index.ts"
+import type { StartAdministratorEnrollmentDependencies } from "../../../../../authentication/types.ts"
+import { post as startAuthentication } from "../../../start/post/index.ts"
 
 const bodySchema = z
   .object({
@@ -10,10 +10,8 @@ const bodySchema = z
   })
   .strict()
 
-export function adminEnrollmentStart(
-  dependencies: StartAdministratorEnrollmentDependencies,
-): RequestHandler {
-  const startEnrollment = start(dependencies)
+export function post(dependencies: StartAdministratorEnrollmentDependencies): RequestHandler {
+  const startEnrollment = startAuthentication(dependencies)
   return async (request, response, next) => {
     const body = bodySchema.safeParse(request.body)
     if (!body.success || !dependencies.verifyBootstrapSecret(body.data.bootstrap_secret)) {

@@ -4,7 +4,6 @@ import { resolve } from "node:path"
 import { handleError } from "../integrations/express/handle-error/index.ts"
 import { respondNotFound } from "../integrations/express/respond-not-found/index.ts"
 import { createRequestLogger } from "../integrations/pino/create-request-logger/index.ts"
-import { authenticationRoutes } from "../routes/api/authentication/index.ts"
 import { authenticationSecurity } from "../routes/api/authentication/security/index.ts"
 import { routes } from "../routes/index.ts"
 
@@ -24,10 +23,9 @@ export function createApp({
   app.set("trust proxy", trustedProxyHops)
   app.use(createRequestLogger(logger))
   app.use("/api/auth", authenticationSecurity())
-  if (authentication) authenticationRoutes(app, authentication)
   app.use(express.json())
 
-  routes(app, { broadcast, isReady, logger })
+  routes(app, { authentication, broadcast, isReady, logger })
   app.use("/api", respondNotFound)
   if (clientDirectory) {
     const directory = resolve(clientDirectory)

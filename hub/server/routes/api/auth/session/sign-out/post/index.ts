@@ -1,12 +1,12 @@
 import type { RequestHandler } from "express"
 
-import { hashAuthenticationValue } from "../../../../domains/authentication/hash-authentication-value/index.ts"
-import { clearAuthenticationCookie } from "../../../../integrations/express/clear-authentication-cookie/index.ts"
-import { readCookie } from "../../../../integrations/express/read-cookie/index.ts"
-import { sessionCookieName } from "../callback/index.ts"
-import type { SignOutDependencies } from "../types.ts"
+import { hashAuthenticationValue } from "../../../../../../domains/authentication/hash-authentication-value/index.ts"
+import { clearAuthenticationCookie } from "../../../../../../integrations/express/clear-authentication-cookie/index.ts"
+import { readCookie } from "../../../../../../integrations/express/read-cookie/index.ts"
+import type { SignOutDependencies } from "../../../../authentication/types.ts"
+import { sessionCookieName } from "../../../github/callback/get/index.ts"
 
-export function signOut(dependencies: SignOutDependencies): RequestHandler {
+export function post(dependencies: SignOutDependencies): RequestHandler {
   return async (request, response, next) => {
     const value = readCookie(request, sessionCookieName)
     try {

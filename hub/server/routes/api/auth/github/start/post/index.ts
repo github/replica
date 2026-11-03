@@ -1,11 +1,11 @@
 import type { RequestHandler } from "express"
 
-import { createAuthenticationCookie } from "../../../../integrations/express/create-authentication-cookie/index.ts"
-import type { StartAuthenticationDependencies } from "../types.ts"
+import { createAuthenticationCookie } from "../../../../../../integrations/express/create-authentication-cookie/index.ts"
+import type { StartAuthenticationDependencies } from "../../../../authentication/types.ts"
 
 const browserCookieName = "hub_auth_browser"
 
-export function start(dependencies: StartAuthenticationDependencies): RequestHandler {
+export function post(dependencies: StartAuthenticationDependencies): RequestHandler {
   return async (_request, response, next) => {
     try {
       const result = await dependencies.start()
