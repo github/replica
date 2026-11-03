@@ -35,7 +35,7 @@ describe("createAuthorizationAttempt()", () => {
 
     const timing = await prisma.$transaction(async (transaction) => {
       const beforeRows = await transaction.$queryRaw<Array<{ value: Date }>>`
-        SELECT clock_timestamp() AS value
+        SELECT clock_timestamp()::timestamptz(3) AS value
       `
       const result = await createAuthorizationAttempt(transaction, {
         id,
@@ -46,7 +46,7 @@ describe("createAuthorizationAttempt()", () => {
         lifetimeSeconds: 600,
       })
       const afterRows = await transaction.$queryRaw<Array<{ value: Date }>>`
-        SELECT clock_timestamp() AS value
+        SELECT clock_timestamp()::timestamptz(3) AS value
       `
       const attempt = await transaction.authorizationAttempt.findUniqueOrThrow({
         where: { id },
