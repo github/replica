@@ -67,14 +67,17 @@ describe("HubApplication()", () => {
     ).toBeNull()
   })
 
-  it("shows the ordinary signed-out state without a restore error", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 401 })))
+  it.each([401, 404])(
+    "shows the ordinary signed-out state without a restore error for %s",
+    async (status) => {
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status })))
 
-    renderApplication()
+      renderApplication()
 
-    expect(await screen.findByRole("button", { name: "Sign in with GitHub" })).toBeInTheDocument()
-    expect(screen.queryByText(/could not restore your session/i)).toBeNull()
-  })
+      expect(await screen.findByRole("button", { name: "Sign in with GitHub" })).toBeInTheDocument()
+      expect(screen.queryByText(/could not restore your session/i)).toBeNull()
+    },
+  )
 
   it.each([
     ["server failure", new Response(null, { status: 500 })],
