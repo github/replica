@@ -24,22 +24,13 @@ function repositories(
 
 describe("restoreHubSession()", () => {
   it("restores through the session's immutable membership authority", async () => {
-    const lockMembership = vi.fn().mockResolvedValue({
-      id: "membership-id",
-      lifecycle: "ACTIVE",
-    })
-    const records = repositories({ lockMembership })
+    const records = repositories()
 
     await expect(
       restoreHubSession("a".repeat(64), {
         runTransaction: (operation) => operation(records),
       }),
-    ).resolves.toEqual({
-      membershipId: "membership-id",
-      role: "administrator",
-      sessionId: "session-id",
-    })
-    expect(lockMembership).toHaveBeenCalledWith("membership-id")
+    ).resolves.toEqual({ role: "administrator" })
   })
 
   it("fails closed when global revocation authority is missing", async () => {

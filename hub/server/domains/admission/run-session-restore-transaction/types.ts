@@ -6,7 +6,6 @@ export interface SessionRestoreRepositories {
   lockMembership(membershipId: string): Promise<{
     id: string
     lifecycle: "ACTIVE" | "SUSPENDED" | "REMOVED"
-    userId: string
   } | null>
   lockSession(digest: string): Promise<{
     id: string

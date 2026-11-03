@@ -8,10 +8,9 @@ export async function lockMembershipById(
     Array<{
       id: string
       lifecycle: "ACTIVE" | "SUSPENDED" | "REMOVED"
-      userId: string
     }>
   >`
-    SELECT "id", "lifecycle"::text, "user_id" AS "userId"
+    SELECT "id", "lifecycle"::text
     FROM "memberships"
     WHERE "id" = ${id}::uuid
     FOR UPDATE
