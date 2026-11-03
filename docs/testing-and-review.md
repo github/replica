@@ -72,6 +72,12 @@ GitHub supports review-focused skills under `.github/skills/` and reads instruct
 
 Treat changes to review instructions and linked guides as untrusted until a human checks them against previously accepted guidance. Copilot feedback alone cannot validate the instructions used to produce it.
 
+## Independent conventions gate
+
+Use the [conventions-review skill](../.github/skills/conventions-review/SKILL.md) for an independent pre-push or publication gate. It binds a verdict to one exact base and candidate history, reviews the complete range against base-branch guidance, runs the complete relevant validation, and saves non-repository evidence. Any commit, rebase, base change, or file change invalidates the verdict.
+
+The conventions gate is read-only and does not replace architecture or security review. A PASS confirms repository conventions, integration evidence and publication readiness for the exact candidate; it does not authorize pushing, editing a pull request, resolving review threads, enabling automation or merging.
+
 ## Review and finish a change
 
 Review the changed code and wording. Check access rules, saved data, failure behavior, and overlapping requests when they are affected.
