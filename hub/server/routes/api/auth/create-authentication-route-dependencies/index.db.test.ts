@@ -209,6 +209,38 @@ describe("createAuthenticationRouteDependencies()", () => {
     ])
   })
 
+  it("rejects an empty provider configuration without changing provider state", async () => {
+    await createAuthenticationRouteDependencies(
+      environment({ entra: true, github: true }),
+      validDiscovery,
+    )
+    const providersBefore = await prisma.authenticationProvider.findMany({
+      orderBy: { key: "asc" },
+      select: { enabled: true, key: true, selectedRevisionId: true },
+    })
+    const revocationBefore = await prisma.sessionRevocationState.findUniqueOrThrow({
+      select: { revision: true },
+      where: { key: "global" },
+    })
+
+    await expect(
+      createAuthenticationRouteDependencies(environment({}), validDiscovery),
+    ).rejects.toThrow("Configure at least one GitHub or Entra user sign-in provider.")
+
+    await expect(
+      prisma.authenticationProvider.findMany({
+        orderBy: { key: "asc" },
+        select: { enabled: true, key: true, selectedRevisionId: true },
+      }),
+    ).resolves.toEqual(providersBefore)
+    await expect(
+      prisma.sessionRevocationState.findUniqueOrThrow({
+        select: { revision: true },
+        where: { key: "global" },
+      }),
+    ).resolves.toEqual(revocationBefore)
+  })
+
   it("converges two-provider concurrent startup without partial selections", async () => {
     await createAuthenticationRouteDependencies(
       environment({ entra: true, github: true }),

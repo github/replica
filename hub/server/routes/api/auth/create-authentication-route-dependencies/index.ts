@@ -108,6 +108,9 @@ export async function createAuthenticationRouteDependencies(
       }
     }),
   )
+  if (!contexts.length) {
+    throw new Error("Configure at least one GitHub or Entra user sign-in provider.")
+  }
   await reconcileAuthenticationProviders(
     contexts.map((context) => ({
       canonicalPublicConfiguration: context.adapter.canonicalPublicConfiguration,
@@ -120,9 +123,6 @@ export async function createAuthenticationRouteDependencies(
       writeAudit: (event) => createSecurityAudit(prisma, event),
     },
   )
-  if (!contexts.length) {
-    throw new Error("Configure at least one GitHub or Entra user sign-in provider.")
-  }
 
   function createProviderDependencies(
     context: AuthenticationContext,

@@ -20,7 +20,11 @@ export function post(dependencies: StartAdministratorEnrollmentDependencies): Re
         next(error)
         return
       }
-      response.redirect(303, "/admin-enrollment?authentication=denied")
+      if ((request.get("accept") ?? "").includes("text/html")) {
+        response.redirect(303, "/admin-enrollment?authentication=denied")
+        return
+      }
+      response.status(403).json({ error: "Administrator enrollment was denied." })
       return
     }
     try {

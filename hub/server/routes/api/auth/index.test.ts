@@ -149,26 +149,56 @@ describe("authenticationRoutes()", () => {
     })
   })
 
-  it("redirects a native enrollment form after an invalid secret", async () => {
-    const { dependencies, startEnrollment, verifyBootstrapSecret } = routeDependencies()
-    await withServer(dependencies, async (baseUrl) => {
-      const response = await fetch(`${baseUrl}/api/auth/github/admin-enrollment/start`, {
-        method: "POST",
-        headers: {
-          accept: "text/html,application/xhtml+xml",
-          origin: dependencies.github!.administratorEnrollment.applicationOrigin,
-          "content-type": "application/x-www-form-urlencoded",
-        },
-        body: "bootstrap_secret=wrong-secret",
-        redirect: "manual",
-      })
+  it.each(["github", "entra"] as const)(
+    "redirects a native %s enrollment form after an invalid secret",
+    async (provider) => {
+      const { dependencies, startEnrollment, verifyBootstrapSecret } = routeDependencies()
+      dependencies.entra = dependencies.github
+      await withServer(dependencies, async (baseUrl) => {
+        const response = await fetch(`${baseUrl}/api/auth/${provider}/admin-enrollment/start`, {
+          method: "POST",
+          headers: {
+            accept: "text/html,application/xhtml+xml",
+            origin: dependencies[provider]!.administratorEnrollment.applicationOrigin,
+            "content-type": "application/x-www-form-urlencoded",
+          },
+          body: "bootstrap_secret=wrong-secret",
+          redirect: "manual",
+        })
 
-      expect(response.status).toBe(303)
-      expect(response.headers.get("location")).toBe("/admin-enrollment?authentication=denied")
-      expect(verifyBootstrapSecret).toHaveBeenCalledWith("wrong-secret")
-      expect(startEnrollment).not.toHaveBeenCalled()
-    })
-  })
+        expect(response.status).toBe(303)
+        expect(response.headers.get("location")).toBe("/admin-enrollment?authentication=denied")
+        expect(verifyBootstrapSecret).toHaveBeenCalledWith("wrong-secret")
+        expect(startEnrollment).not.toHaveBeenCalled()
+      })
+    },
+  )
+
+  it.each(["github", "entra"] as const)(
+    "returns a JSON denial for an invalid %s enrollment secret",
+    async (provider) => {
+      const { dependencies, startEnrollment, verifyBootstrapSecret } = routeDependencies()
+      dependencies.entra = dependencies.github
+      await withServer(dependencies, async (baseUrl) => {
+        const response = await fetch(`${baseUrl}/api/auth/${provider}/admin-enrollment/start`, {
+          method: "POST",
+          headers: {
+            accept: "application/json",
+            origin: dependencies[provider]!.administratorEnrollment.applicationOrigin,
+            "content-type": "application/x-www-form-urlencoded",
+          },
+          body: "bootstrap_secret=wrong-secret",
+        })
+
+        expect(response.status).toBe(403)
+        expect(await response.json()).toEqual({
+          error: "Administrator enrollment was denied.",
+        })
+        expect(verifyBootstrapSecret).toHaveBeenCalledWith("wrong-secret")
+        expect(startEnrollment).not.toHaveBeenCalled()
+      })
+    },
+  )
 
   it("uses the trusted proxy address only when the exact hop count is configured", async () => {
     const { dependencies, checkRateLimit } = routeDependencies()
