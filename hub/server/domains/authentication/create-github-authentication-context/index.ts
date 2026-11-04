@@ -39,6 +39,5 @@ export function createGitHubAuthenticationContext(
       .digest("hex"),
     providerRevision: parsed.GITHUB_PROVIDER_REVISION,
     requiresProviderAssignmentEvidence: false,
-    requiresFreshAdministratorEnrollment: false,
   }
 }

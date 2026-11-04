@@ -135,7 +135,7 @@ describe("Hub admission and session flow", () => {
         INSERT INTO "authorization_attempts" (
           "id", "provider_revision_id", "state_digest", "browser_binding_digest",
           "purpose", "code_verifier_ciphertext", "nonce_ciphertext",
-          "requires_fresh_authentication", "expires_at", "created_at", "updated_at"
+          "expires_at", "created_at", "updated_at"
         ) VALUES (
           ${attemptId}::uuid,
           ${providerRevision.id}::uuid,
@@ -144,7 +144,6 @@ describe("Hub admission and session flow", () => {
           'SIGN_IN',
           ${malformedCiphertext},
           'encrypted-nonce',
-          false,
           CURRENT_TIMESTAMP + interval '5 minutes',
           CURRENT_TIMESTAMP,
           CURRENT_TIMESTAMP

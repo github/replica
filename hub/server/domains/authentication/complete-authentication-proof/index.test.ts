@@ -29,7 +29,7 @@ function dependencies() {
       codeVerifierCiphertext: "encrypted-verifier",
       nonceCiphertext: "encrypted-nonce",
       createdAt: new Date("2026-11-04T18:00:00Z"),
-      requiresFreshAuthentication: false,
+      purpose: "SIGN_IN",
     }),
   )
   return {
@@ -90,7 +90,7 @@ describe("completeAuthenticationProof()", () => {
     ])
   })
 
-  it("passes the saved attempt start only when fresh authentication was required", async () => {
+  it("passes the saved attempt start only for administrator enrollment", async () => {
     const scoped = dependencies()
     scoped.consumeAttempt.mockResolvedValueOnce({
       id: "00000000-0000-4000-8000-000000000010",
@@ -98,7 +98,7 @@ describe("completeAuthenticationProof()", () => {
       codeVerifierCiphertext: "encrypted-verifier",
       nonceCiphertext: "encrypted-nonce",
       createdAt: new Date("2026-11-04T18:00:00Z"),
-      requiresFreshAuthentication: true,
+      purpose: "ADMIN_ENROLLMENT",
     })
 
     await completeAuthenticationProof(input, scoped)
@@ -152,7 +152,7 @@ describe("completeAuthenticationProof()", () => {
         codeVerifierCiphertext: "encrypted-verifier",
         nonceCiphertext: "encrypted-nonce",
         createdAt: new Date(),
-        requiresFreshAuthentication: false,
+        purpose: "SIGN_IN",
       })
     })
     scoped.adapter.completeAuthenticationProof.mockImplementation(() => {
@@ -190,7 +190,7 @@ describe("completeAuthenticationProof()", () => {
       codeVerifierCiphertext: "encrypted-verifier",
       nonceCiphertext: null,
       createdAt: new Date(),
-      requiresFreshAuthentication: false,
+      purpose: "SIGN_IN",
     })
 
     await expect(completeAuthenticationProof(input, scoped)).rejects.toMatchObject({

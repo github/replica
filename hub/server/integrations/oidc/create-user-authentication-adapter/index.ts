@@ -11,7 +11,6 @@ const publicConfigurationSchema = z
     callbackUri: z.url().max(500),
     clientId: z.uuid(),
     issuer: z.url().max(500),
-    scopes: z.array(z.string().min(1).max(200)).min(2).max(10),
   })
   .strict()
 const discoverySchema = z.looseObject({
@@ -30,6 +29,7 @@ const providerRequestTimeoutMs = 10_000
 const maximumResponseBytes = 1_000_000
 const discoveryCacheMs = 5 * 60_000
 const acceptedSigningAlgorithms = new Set(["RS256"])
+const authorizationScope = "openid profile"
 const assignmentSubjectSchema = z
   .string()
   .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i)
@@ -64,16 +64,6 @@ export function createEntraOidcUserAuthenticationAdapter(
   if (!issuerMatch || configuration.issuer.endsWith("/")) {
     throw new Error(
       "Entra OIDC issuer must use the tenant UUID at login.microsoftonline.com with /v2.0.",
-    )
-  }
-  if (
-    !configuration.scopes.includes("openid") ||
-    !configuration.scopes.includes("profile") ||
-    configuration.scopes.includes("offline_access") ||
-    new Set(configuration.scopes).size !== configuration.scopes.length
-  ) {
-    throw new Error(
-      "Entra OIDC scopes must be unique, include openid and profile, and omit offline_access.",
     )
   }
   const issuer = configuration.issuer.toLowerCase()
@@ -168,7 +158,7 @@ export function createEntraOidcUserAuthenticationAdapter(
       clientAuthentication: input.clientAuthentication.canonicalPublicConfiguration,
       clientId: configuration.clientId,
       issuer,
-      scopes: configuration.scopes,
+      scope: authorizationScope,
     }),
     async validateConfiguration() {
       await discover()
@@ -193,7 +183,7 @@ export function createEntraOidcUserAuthenticationAdapter(
         redirect_uri: callbackUri,
         response_mode: "query",
         response_type: "code",
-        scope: configuration.scopes.join(" "),
+        scope: authorizationScope,
         state,
       }).toString()
       if (freshAuthentication) {

@@ -11,6 +11,5 @@ export interface CreateAuthorizationAttemptInput {
   nonceCiphertext: string
   purpose: "SIGN_IN" | "ADMIN_ENROLLMENT"
   providerRevisionId: string
-  requiresFreshAuthentication: boolean
   stateDigest: string
 }

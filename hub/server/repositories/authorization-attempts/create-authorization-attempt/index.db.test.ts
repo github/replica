@@ -47,7 +47,6 @@ describe("createAuthorizationAttempt()", () => {
         nonceCiphertext: "encrypted-nonce",
         lifetimeSeconds: 600,
         purpose: "SIGN_IN",
-        requiresFreshAuthentication: false,
       })
       const afterRows = await transaction.$queryRaw<Array<{ value: Date }>>`
         SELECT clock_timestamp()::timestamptz(3) AS value

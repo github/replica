@@ -49,6 +49,13 @@ describe("createGitHubUserAuthenticationAdapter()", () => {
       nonce: "unused-by-github",
       state: "state-value",
     })
+    const freshAuthorizationUrl = adapter.createAuthorizationUrl({
+      callbackUri: publicConfiguration.callbackUri,
+      codeChallenge: "c".repeat(43),
+      freshAuthentication: true,
+      nonce: "unused-by-github",
+      state: "state-value",
+    })
     expect(Object.fromEntries(authorizationUrl.searchParams)).toEqual({
       client_id: "client-id",
       redirect_uri: publicConfiguration.callbackUri,
@@ -56,6 +63,9 @@ describe("createGitHubUserAuthenticationAdapter()", () => {
       code_challenge: "c".repeat(43),
       code_challenge_method: "S256",
     })
+    expect(Object.fromEntries(freshAuthorizationUrl.searchParams)).toEqual(
+      Object.fromEntries(authorizationUrl.searchParams),
+    )
 
     const evidence = await adapter.completeAuthenticationProof({
       callbackUri: publicConfiguration.callbackUri,

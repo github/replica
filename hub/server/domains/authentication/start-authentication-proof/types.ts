@@ -17,8 +17,8 @@ export interface StartAuthenticationProofDependencies {
     id: string
     lifetimeSeconds: number
     nonceCiphertext: string
+    purpose: "SIGN_IN" | "ADMIN_ENROLLMENT"
     providerRevisionId: string
-    requiresFreshAuthentication: boolean
     stateDigest: string
   }): Promise<{ expiresAt: Date }>
   createId(): string
@@ -27,11 +27,12 @@ export interface StartAuthenticationProofDependencies {
   encryptCodeVerifier(value: string): string
   encryptNonce(value: string): string
   getSelectedProviderRevision(): Promise<SelectedProviderRevision | null>
-  requiresFreshAuthentication: boolean
   writeDenialAudit(reason: "configuration_changed"): Promise<unknown>
 }
 
-export type StartAuthenticationProofInput = Record<string, never>
+export interface StartAuthenticationProofInput {
+  purpose: "SIGN_IN" | "ADMIN_ENROLLMENT"
+}
 
 export interface StartAuthenticationProofResult {
   authorizationUrl: string

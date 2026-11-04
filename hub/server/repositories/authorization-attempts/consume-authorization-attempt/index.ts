@@ -33,8 +33,8 @@ export async function consumeAuthorizationAttempt(
           code_verifier_ciphertext: string
           created_at: Date
           nonce_ciphertext: string | null
+          purpose: "SIGN_IN" | "ADMIN_ENROLLMENT"
           provider_revision_id: string
-          requires_fresh_authentication: boolean
         }>
       >`
         UPDATE "authorization_attempts"
@@ -48,8 +48,8 @@ export async function consumeAuthorizationAttempt(
           "code_verifier_ciphertext",
           "created_at",
           "nonce_ciphertext",
-          "provider_revision_id",
-          "requires_fresh_authentication"
+          "purpose"::text,
+          "provider_revision_id"
       `
       const attempt = consumed[0]
       return attempt
@@ -58,8 +58,8 @@ export async function consumeAuthorizationAttempt(
             codeVerifierCiphertext: attempt.code_verifier_ciphertext,
             createdAt: attempt.created_at,
             nonceCiphertext: attempt.nonce_ciphertext,
+            purpose: attempt.purpose,
             providerRevisionId: attempt.provider_revision_id,
-            requiresFreshAuthentication: attempt.requires_fresh_authentication,
           }
         : null
     },

@@ -72,7 +72,6 @@ async function protocolFixture(
         callbackUri,
         clientId,
         issuer,
-        scopes: ["openid", "profile"],
       },
     }),
     request,
@@ -80,7 +79,7 @@ async function protocolFixture(
 }
 
 describe("createEntraOidcUserAuthenticationAdapter()", () => {
-  it("uses authorization code, S256 PKCE, nonce, and fresh-login controls only when requested", async () => {
+  it("uses the fixed openid profile scope without fresh-login controls for normal sign-in", async () => {
     const { adapter } = await protocolFixture()
 
     const normal = await adapter.createAuthorizationUrl({
@@ -90,14 +89,10 @@ describe("createEntraOidcUserAuthenticationAdapter()", () => {
       nonce: "attempt-nonce",
       state: "attempt-state",
     })
-    const fresh = await adapter.createAuthorizationUrl({
-      callbackUri,
-      codeChallenge: "c".repeat(43),
-      freshAuthentication: true,
-      nonce: "attempt-nonce",
-      state: "attempt-state",
-    })
 
+    expect(adapter.canonicalPublicConfiguration).toBe(
+      `{"callbackUri":"${callbackUri}","clientAuthentication":{"mode":"client_secret","reference":"ENTRA_OIDC_CLIENT_SECRET"},"clientId":"${clientId}","issuer":"${issuer}","scope":"openid profile"}`,
+    )
     expect(Object.fromEntries(normal.searchParams)).toEqual({
       client_id: clientId,
       code_challenge: "c".repeat(43),
@@ -109,8 +104,22 @@ describe("createEntraOidcUserAuthenticationAdapter()", () => {
       scope: "openid profile",
       state: "attempt-state",
     })
+  })
+
+  it("adds prompt=login and max_age=0 for fresh administrator enrollment", async () => {
+    const { adapter } = await protocolFixture()
+
+    const fresh = await adapter.createAuthorizationUrl({
+      callbackUri,
+      codeChallenge: "c".repeat(43),
+      freshAuthentication: true,
+      nonce: "attempt-nonce",
+      state: "attempt-state",
+    })
+
     expect(fresh.searchParams.get("prompt")).toBe("login")
     expect(fresh.searchParams.get("max_age")).toBe("0")
+    expect(fresh.searchParams.get("scope")).toBe("openid profile")
   })
 
   it("verifies the signed token and separates immutable identity from assignment provenance", async () => {
@@ -255,7 +264,6 @@ describe("createEntraOidcUserAuthenticationAdapter()", () => {
         callbackUri,
         clientId,
         issuer,
-        scopes: ["openid", "profile"],
       },
     })
     const input = {
@@ -362,7 +370,6 @@ describe("createEntraOidcUserAuthenticationAdapter()", () => {
         callbackUri,
         clientId,
         issuer,
-        scopes: ["openid", "profile"],
       },
     })
 

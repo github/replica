@@ -45,7 +45,6 @@ interface AuthenticationContext {
   configurationDigest: string
   encryptionKey: Buffer
   providerRevision: number
-  requiresFreshAdministratorEnrollment: boolean
   requiresProviderAssignmentEvidence: boolean
   secureCookie: boolean
 }
@@ -62,7 +61,9 @@ function entraConfigured(environment: NodeJS.ProcessEnv) {
   return Boolean(
     environment.ENTRA_OIDC_CLIENT_AUTHENTICATION ||
     environment.ENTRA_OIDC_CLIENT_ID ||
+    environment.ENTRA_OIDC_CLIENT_SECRET ||
     environment.ENTRA_OIDC_ISSUER ||
+    environment.ENTRA_OIDC_MANAGED_IDENTITY_CLIENT_ID ||
     environment.ENTRA_OIDC_PROVIDER_REVISION,
   )
 }
@@ -127,7 +128,7 @@ export async function createAuthenticationRouteDependencies(
     function start(purpose: "SIGN_IN" | "ADMIN_ENROLLMENT") {
       return () =>
         startAuthenticationProof(
-          {},
+          { purpose },
           {
             adapter: context.adapter,
             callbackUri: context.callbackUri,
@@ -137,10 +138,9 @@ export async function createAuthenticationRouteDependencies(
               createAuthorizationAttempt(prisma, {
                 ...input,
                 bootstrapSecretDigest:
-                  purpose === "ADMIN_ENROLLMENT"
+                  input.purpose === "ADMIN_ENROLLMENT"
                     ? hashAuthenticationValue(context.bootstrapSecret)
                     : null,
-                purpose,
               }),
             createId: randomUUID,
             createOpaqueValue,
@@ -149,8 +149,6 @@ export async function createAuthenticationRouteDependencies(
               encryptAuthenticationValue(value, context.encryptionKey),
             encryptNonce: (value) => encryptAuthenticationValue(value, context.encryptionKey),
             getSelectedProviderRevision: selectedRevision,
-            requiresFreshAuthentication:
-              purpose === "ADMIN_ENROLLMENT" && context.requiresFreshAdministratorEnrollment,
             writeDenialAudit: writeAuthenticationDenial,
           },
         )

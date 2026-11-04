@@ -49,7 +49,6 @@ export function createEntraAuthenticationContext(
       callbackUri,
       clientId: parsed.ENTRA_OIDC_CLIENT_ID,
       issuer: parsed.ENTRA_OIDC_ISSUER,
-      scopes: ["openid", "profile"],
     },
   })
   return {
@@ -62,6 +61,5 @@ export function createEntraAuthenticationContext(
       .digest("hex"),
     providerRevision: parsed.ENTRA_OIDC_PROVIDER_REVISION,
     requiresProviderAssignmentEvidence: true,
-    requiresFreshAdministratorEnrollment: true,
   }
 }

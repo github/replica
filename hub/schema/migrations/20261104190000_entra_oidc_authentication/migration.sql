@@ -2,8 +2,7 @@ ALTER TYPE "MembershipAssignmentSource" ADD VALUE 'AUTHENTICATION_PROVIDER';
 ALTER TYPE "MembershipAssignmentLifecycle" ADD VALUE 'SUPERSEDED' BEFORE 'REVOKED';
 
 ALTER TABLE "authorization_attempts"
-ADD COLUMN "nonce_ciphertext" VARCHAR(500),
-ADD COLUMN "requires_fresh_authentication" BOOLEAN NOT NULL DEFAULT false;
+ADD COLUMN "nonce_ciphertext" VARCHAR(500);
 
 ALTER TABLE "membership_assignments"
 ADD COLUMN "provider_revision_id" UUID,
@@ -53,8 +52,7 @@ LANGUAGE plpgsql
 AS $$
 BEGIN
     IF NEW."purpose" <> OLD."purpose"
-       OR NEW."nonce_ciphertext" IS DISTINCT FROM OLD."nonce_ciphertext"
-       OR NEW."requires_fresh_authentication" <> OLD."requires_fresh_authentication" THEN
+       OR NEW."nonce_ciphertext" IS DISTINCT FROM OLD."nonce_ciphertext" THEN
         RAISE EXCEPTION 'Authorization attempt purpose and verification requirements are immutable.';
     END IF;
     RETURN NEW;

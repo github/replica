@@ -27,7 +27,7 @@ describe("startAuthenticationProof()", () => {
     )
 
     const result = await startAuthenticationProof(
-      {},
+      { purpose: "SIGN_IN" },
       {
         adapter: {
           providerKey: "github",
@@ -49,7 +49,6 @@ describe("startAuthenticationProof()", () => {
             revision: 1,
             configurationDigest: "a".repeat(64),
           }),
-        requiresFreshAuthentication: false,
         writeDenialAudit: vi.fn(),
       },
     )
@@ -80,12 +79,53 @@ describe("startAuthenticationProof()", () => {
       codeVerifierCiphertext: expectedCiphertext,
       lifetimeSeconds: 600,
       nonceCiphertext: "encrypted:nonce-secret",
-      requiresFreshAuthentication: false,
+      purpose: "SIGN_IN",
     })
     expect(encryptCodeVerifier).toHaveBeenCalledOnce()
     expect(encryptCodeVerifier).toHaveBeenCalledWith("verifier-secret")
     expect(JSON.stringify(createAttempt.mock.calls)).not.toMatch(
       /state-secret|browser-secret|verifier-secret/,
+    )
+  })
+
+  it("requests fresh authentication only for administrator enrollment", async () => {
+    const createAuthorizationUrl = vi.fn(() => new URL("https://provider.test/authorize"))
+    const createAttempt = vi.fn(() =>
+      Promise.resolve({ expiresAt: new Date("2026-10-30T16:10:00Z") }),
+    )
+
+    await startAuthenticationProof(
+      { purpose: "ADMIN_ENROLLMENT" },
+      {
+        adapter: {
+          providerKey: "entra",
+          createAuthorizationUrl,
+          completeAuthenticationProof: vi.fn(),
+        },
+        callbackUri: "https://hub.test/callback",
+        configurationDigest: "a".repeat(64),
+        expectedRevision: 1,
+        createAttempt,
+        createId: () => "00000000-0000-4000-8000-000000000010",
+        createOpaqueValue: () => "opaque-value-with-required-length",
+        deleteExpiredArtifacts: vi.fn(),
+        encryptCodeVerifier: vi.fn(() => "encrypted-verifier"),
+        encryptNonce: vi.fn(() => "encrypted-nonce"),
+        getSelectedProviderRevision: () =>
+          Promise.resolve({
+            id: "00000000-0000-4000-8000-000000000011",
+            revision: 1,
+            configurationDigest: "a".repeat(64),
+          }),
+        writeDenialAudit: vi.fn(),
+      },
+    )
+
+    expect(createAttempt).toHaveBeenCalledWith(
+      expect.objectContaining({ purpose: "ADMIN_ENROLLMENT" }),
+    )
+    expect(createAuthorizationUrl).toHaveBeenCalledWith(
+      expect.objectContaining({ freshAuthentication: true }),
     )
   })
 
@@ -113,11 +153,12 @@ describe("startAuthenticationProof()", () => {
           configurationDigest: "a".repeat(64),
         }),
       now: () => new Date("2026-10-30T16:00:00Z"),
-      requiresFreshAuthentication: false,
       writeDenialAudit: vi.fn(),
     }
 
-    await expect(startAuthenticationProof({}, dependencies)).rejects.toMatchObject({
+    await expect(
+      startAuthenticationProof({ purpose: "SIGN_IN" }, dependencies),
+    ).rejects.toMatchObject({
       code: "configuration_changed",
     })
     expect(createAttempt).not.toHaveBeenCalled()
@@ -128,7 +169,7 @@ describe("startAuthenticationProof()", () => {
     const auditFailure = new Error("audit unavailable")
 
     const error = await startAuthenticationProof(
-      {},
+      { purpose: "SIGN_IN" },
       {
         adapter: {
           providerKey: "github",
@@ -150,7 +191,6 @@ describe("startAuthenticationProof()", () => {
             revision: 1,
             configurationDigest: "a".repeat(64),
           }),
-        requiresFreshAuthentication: false,
         writeDenialAudit: () => Promise.reject(auditFailure),
       },
     ).catch((caught: unknown) => caught)

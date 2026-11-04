@@ -21,9 +21,11 @@ describe("createEntraAuthenticationContext()", () => {
     expect(context.callbackUri).toBe("https://hub.example.test/api/auth/entra/callback")
     expect(context.providerRevision).toBe(3)
     expect(context.requiresProviderAssignmentEvidence).toBe(true)
-    expect(context.requiresFreshAdministratorEnrollment).toBe(true)
     expect(context.secureCookie).toBe(true)
     expect(context.adapter.canonicalPublicConfiguration).not.toContain("client-secret-value")
+    expect(context.adapter.canonicalPublicConfiguration).toBe(
+      `{"callbackUri":"https://hub.example.test/api/auth/entra/callback","clientAuthentication":{"mode":"client_secret","reference":"ENTRA_OIDC_CLIENT_SECRET"},"clientId":"22222222-2222-4222-8222-222222222222","issuer":"${issuer}","scope":"openid profile"}`,
+    )
     expect(context.configurationDigest).toBe(
       createHash("sha256").update(context.adapter.canonicalPublicConfiguration).digest("hex"),
     )

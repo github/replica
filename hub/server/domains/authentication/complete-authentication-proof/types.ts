@@ -10,8 +10,8 @@ export interface ConsumedAuthorizationAttempt {
   codeVerifierCiphertext: string
   createdAt: Date
   nonceCiphertext: string | null
+  purpose: "SIGN_IN" | "ADMIN_ENROLLMENT"
   providerRevisionId: string
-  requiresFreshAuthentication: boolean
 }
 
 export interface CompleteAuthenticationProofDependencies {

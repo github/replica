@@ -76,7 +76,7 @@ export async function completeAuthenticationProof(
   let evidence
   try {
     const completed = await dependencies.adapter.completeAuthenticationProof({
-      authenticatedAfter: attempt.requiresFreshAuthentication ? attempt.createdAt : undefined,
+      authenticatedAfter: attempt.purpose === "ADMIN_ENROLLMENT" ? attempt.createdAt : undefined,
       callbackUri: dependencies.callbackUri,
       code: parsed.code,
       codeVerifier,

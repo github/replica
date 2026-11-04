@@ -4,7 +4,6 @@ export interface EntraOidcPublicConfiguration {
   callbackUri: string
   clientId: string
   issuer: string
-  scopes: string[]
 }
 
 export interface CreateEntraOidcUserAuthenticationAdapterInput {

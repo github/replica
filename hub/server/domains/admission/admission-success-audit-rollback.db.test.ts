@@ -83,7 +83,6 @@ describe("admission success audit rollback", () => {
           browserBindingDigest: "c".repeat(64),
           codeVerifierCiphertext: "encrypted",
           nonceCiphertext: "encrypted-nonce",
-          requiresFreshAuthentication: true,
           createdAt: new Date("2020-01-01T00:00:00Z"),
           updatedAt: new Date("2020-01-01T00:00:00Z"),
           expiresAt: new Date("2030-01-01T00:00:00Z"),

@@ -10,14 +10,18 @@ import type {
   StartAuthenticationProofResult,
 } from "./types.ts"
 
-const inputSchema = z.object({}).strict()
+const inputSchema = z
+  .object({
+    purpose: z.enum(["SIGN_IN", "ADMIN_ENROLLMENT"]),
+  })
+  .strict()
 const ATTEMPT_LIFETIME_MS = 10 * 60 * 1_000
 
 export async function startAuthenticationProof(
   input: StartAuthenticationProofInput,
   dependencies: StartAuthenticationProofDependencies,
 ): Promise<StartAuthenticationProofResult> {
-  inputSchema.parse(input)
+  const parsed = inputSchema.parse(input)
   await dependencies.deleteExpiredArtifacts()
   const selectedRevision = await dependencies.getSelectedProviderRevision()
   if (
@@ -48,13 +52,13 @@ export async function startAuthenticationProof(
     codeVerifierCiphertext: dependencies.encryptCodeVerifier(codeVerifier),
     lifetimeSeconds: ATTEMPT_LIFETIME_MS / 1_000,
     nonceCiphertext: dependencies.encryptNonce(nonce),
-    requiresFreshAuthentication: dependencies.requiresFreshAuthentication,
+    purpose: parsed.purpose,
   })
 
   const authorizationUrl = await dependencies.adapter.createAuthorizationUrl({
     callbackUri: dependencies.callbackUri,
     codeChallenge,
-    freshAuthentication: dependencies.requiresFreshAuthentication,
+    freshAuthentication: parsed.purpose === "ADMIN_ENROLLMENT",
     nonce,
     state,
   })
