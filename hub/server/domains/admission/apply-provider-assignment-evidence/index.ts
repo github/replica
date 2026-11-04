@@ -69,14 +69,12 @@ export async function applyProviderAssignmentEvidence(
     return {
       denied: true,
       reason: "membership_inactive",
-      stateChanged: parsed.role === null && Boolean(activeProviderAssignment),
     }
   }
   if (!existingMembership && parsed.role === null) {
     return {
       denied: true,
       reason: "membership_missing",
-      stateChanged: false,
     }
   }
   let membershipId = existingMembership?.id
@@ -145,12 +143,7 @@ export async function applyProviderAssignmentEvidence(
       role: parsed.role,
       type: "provider_membership_assignment_created",
     })
-    authorityChanged =
-      activeProviderAssignment !== null &&
-      (activeProviderAssignment.role !== parsed.role ||
-        activeProviderAssignment.providerRevisionId !== parsed.providerRevisionId ||
-        activeProviderAssignment.providerAssignmentSubject !==
-          parsed.assignmentSubject?.toLowerCase())
+    authorityChanged = activeProviderAssignment !== null
   }
   if (authorityChanged) {
     await endMembershipSessions(membershipId, dependencies)
@@ -160,7 +153,6 @@ export async function applyProviderAssignmentEvidence(
     return {
       denied: true,
       reason: "authority_missing",
-      stateChanged: authorityChanged,
     }
   }
   return {

@@ -22,5 +22,4 @@ export type ApplyProviderAssignmentEvidenceResult =
   | {
       denied: true
       reason: "authority_missing" | "membership_inactive" | "membership_missing"
-      stateChanged: boolean
     }

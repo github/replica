@@ -139,7 +139,6 @@ async function admitWithinTransaction(
   | { admitted: AdmittedHubSession }
   | {
       denied: true
-      denialAudited: boolean
       reason: "authority_missing" | "membership_inactive" | "membership_missing"
     }
 > {
@@ -168,7 +167,6 @@ async function admitWithinTransaction(
   if (input.requiresProviderAssignmentEvidence && !input.providerAssignment) {
     throw new AdmissionDeniedError("provider_evidence_missing", input.proof.externalIdentityId)
   }
-  let providerEvidenceAdvanced = false
   if (input.providerAssignment) {
     const claim = await repositories.claimProviderEvidence({
       externalIdentityId: input.proof.externalIdentityId,
@@ -179,7 +177,6 @@ async function admitWithinTransaction(
     if (claim === "stale") {
       throw new AdmissionDeniedError("provider_evidence_stale", input.proof.externalIdentityId)
     }
-    providerEvidenceAdvanced = true
   }
   let membershipId: string
   let role: "MEMBER" | "ADMINISTRATOR"
@@ -229,16 +226,13 @@ async function admitWithinTransaction(
     )
     if (applied.denied) {
       const reason = applied.reason
-      const denialAudited = providerEvidenceAdvanced || applied.stateChanged
-      if (denialAudited) {
-        await repositories.createSecurityAudit({
-          id: createId(),
-          type: "admission_denied",
-          externalIdentityId: input.proof.externalIdentityId,
-          reason,
-        })
-      }
-      return { denied: true, denialAudited, reason }
+      await repositories.createSecurityAudit({
+        id: createId(),
+        type: "admission_denied",
+        externalIdentityId: input.proof.externalIdentityId,
+        reason,
+      })
+      return { denied: true, reason }
     }
     membershipId = applied.membershipId
     role = applied.role
@@ -276,9 +270,9 @@ export async function admitAuthenticationProof(
     ...parsedInput,
     providerKey: parseProviderKey(parsedInput.providerKey),
   }
-  let denialAuditWritten = false
+  let result: Awaited<ReturnType<typeof admitWithinTransaction>>
   try {
-    const result = await runWithBoundedRetries(
+    result = await runWithBoundedRetries(
       () =>
         dependencies.runTransaction((repositories) =>
           admitWithinTransaction(
@@ -290,22 +284,7 @@ export async function admitAuthenticationProof(
         ),
       (error) => error instanceof AdmissionTransactionConflictError,
     )
-    if ("admitted" in result) return result.admitted
-    const denial = new AdmissionDeniedError(result.reason, input.proof.externalIdentityId)
-    if (!result.denialAudited) {
-      await dependencies.writeAudit({
-        id: dependencies.createId(),
-        type: "admission_denied",
-        externalIdentityId: input.proof.externalIdentityId,
-        reason: result.reason,
-      })
-    }
-    denialAuditWritten = true
-    throw denial
   } catch (error) {
-    if (denialAuditWritten && error instanceof AdmissionDeniedError) {
-      throw error
-    }
     const denial = error instanceof AdmissionDeniedError
     const primary = denial ? error : new AdmissionPersistenceError({ cause: error })
     try {
@@ -336,4 +315,6 @@ export async function admitAuthenticationProof(
     }
     throw primary
   }
+  if ("admitted" in result) return result.admitted
+  throw new AdmissionDeniedError(result.reason, input.proof.externalIdentityId)
 }
