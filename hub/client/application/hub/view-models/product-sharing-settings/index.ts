@@ -1,51 +1,57 @@
-import type { HubAdministrationWorkspaceData } from "@features/hub-administration-workspace/types"
 import type { SharingSettingsPageData } from "@pages/sharing-settings-page/types"
 
 import type { WorkspaceResponse } from "../../contracts"
+import { routeIdentifierSchema } from "../../contracts"
 import type { ProductSharingSettings } from "../../product-contracts"
+import { ApiRequestError } from "../../requests/api-request-error"
+import { resourcePath } from "../resource-path"
+import { settingsWorkspace } from "../settings-workspace"
 
 export function productSharingSettingsData(
   workspace: WorkspaceResponse,
   response: ProductSharingSettings,
+  search: URLSearchParams,
 ): SharingSettingsPageData {
-  const navigation: HubAdministrationWorkspaceData = {
-    accountMenuLabel: `Account menu for @${workspace.viewer.login}`,
-    authenticityToken: "",
-    collapseNavigationLabel: "Collapse sidebar",
-    currentUser: workspace.viewer,
-    darkThemeLabel: "Dark",
-    expandNavigationLabel: "Expand sidebar",
-    feedbackLabel: "Feedback",
-    lightThemeLabel: "Light",
-    navigationLabel: "Hub administration",
-    productName: "Replica Hub",
-    repositoriesLabel: "Repositories",
-    repositoriesPath: "/",
-    selectedSection: "sharing",
-    signOutLabel: "Sign out",
-    signOutPath: "/session",
-    systemThemeLabel: "System",
-    welcomeLabel: "Welcome",
-    welcomePath: "/welcome",
-    notificationsPath: "/notifications",
-    administrationLinks: [
-      { section: "admins", label: "Hub administrators", path: "/settings/admins" },
-      { section: "sharing", label: "Public sharing", path: "/admin/sharing" },
-      { section: "sessions", label: "End all Hub sessions", path: "/settings/sessions" },
-      { section: "github", label: "GitHub App", path: "/settings/github" },
-      { section: "copilot", label: "Copilot connection", path: "/settings/copilot" },
-    ],
-    securityAuditLabel: "Security audit",
-    securityAuditPath: "/settings/audit",
+  const context = search.get("repositoryId")
+  const parsed = context === null ? null : routeIdentifierSchema.safeParse(context)
+  if (parsed && !parsed.success) {
+    throw new ApiRequestError(400, "Invalid repository context.")
   }
+  const repository = parsed?.success
+    ? workspace.repositories.find(({ id }) => id === parsed.data)
+    : workspace.repositories[0]
+  if (context !== null && !repository) {
+    throw new ApiRequestError(404, "Repository context not found.")
+  }
+  const navigation = settingsWorkspace(
+    workspace,
+    {
+      repository: repository ?? null,
+      session: {
+        capabilities: workspace.capabilities
+          ? {
+              ...workspace.capabilities,
+              administerHub: workspace.capabilities.administerHub && response.canAdminister,
+            }
+          : undefined,
+      },
+      welcomeHidden: workspace.navigation?.welcomeHidden ?? false,
+      notifications: { unreadCount: workspace.navigation?.notificationsUnreadCount ?? 0 },
+    },
+    search,
+    "sharing",
+  )
+  const sharingPath = resourcePath("/admin/sharing", search, {
+    repositoryId: repository?.id ?? null,
+  })
   const common = {
     heading: "Public sharing",
     description:
       "Control anonymous access to shared prototype Builds. This setting does not grant repository access.",
     auditLabel: "Security audit",
-    auditPath: "/settings/audit",
+    auditPath: navigation.securityAuditPath ?? null,
     sharingSettingsLabel: "Public sharing",
-    sharingSettingsPath: "/admin/sharing",
+    sharingSettingsPath: sharingPath,
     repositoriesLabel: "Repositories",
     repositoriesPath: "/",
     signOutLabel: "Sign out",
@@ -64,13 +70,13 @@ export function productSharingSettingsData(
   }
   return {
     ...common,
-    administrationWorkspace: navigation,
+    administrationWorkspace: { ...navigation, selectedSection: "sharing" },
     accessDenied: false,
     emptyLabel:
       "No public access is permitted until a Hub administrator explicitly enables sharing.",
     statusLabel: response.enabled ? "Public sharing is enabled" : "Public sharing is disabled",
     operation: response.enabled ? "disable" : "enable",
-    submitPath: "/admin/sharing",
+    submitPath: sharingPath,
     submitLabel: response.enabled ? "Disable public sharing" : "Enable public sharing",
     consequence: response.enabled
       ? "All existing share links will be permanently revoked, including open previews and pending handoffs. Enabling later permits new links only."

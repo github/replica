@@ -8,6 +8,10 @@ export function repositoryWorkspace(
   repository: RepositoryRecord,
   search: URLSearchParams,
 ): RepositoryWorkspaceData {
+  function hubPath(pathname: string) {
+    return resourcePath(pathname, search, { repositoryId: repository.id })
+  }
+
   return {
     accountMenuLabel: `Account menu for @${workspace.viewer.login}`,
     authenticityToken: "",
@@ -23,23 +27,32 @@ export function repositoryWorkspace(
     lightThemeLabel: "Light",
     navigationLabel: "Repository navigation",
     notificationsLabel: "Notifications",
-    notificationsPath: "/notifications",
+    notificationsPath: hubPath("/notifications"),
     notificationsUnread: (workspace.navigation?.notificationsUnreadCount ?? 0) > 0,
     notificationsUnreadCount: workspace.navigation?.notificationsUnreadCount,
     notificationsUnreadLabel: "Unread notifications",
     welcomeLabel: "Welcome",
-    welcomePath: workspace.navigation && !workspace.navigation.welcomeHidden ? "/welcome" : null,
+    welcomePath:
+      workspace.navigation && !workspace.navigation.welcomeHidden ? hubPath("/welcome") : null,
     settingsNavigationLabel: "Security and settings",
     securityAuditLabel: "Security audit",
     securityAuditPath: resourcePath("/settings/audit", search, { repositoryId: repository.id }),
     administrationLinks: [
-      { section: "copilot", label: "Copilot connection", path: "/settings/copilot" },
-      { section: "sessions", label: "End all Hub sessions", path: "/settings/sessions" },
+      { section: "copilot", label: "Copilot connection", path: hubPath("/settings/copilot") },
+      { section: "sessions", label: "End all Hub sessions", path: hubPath("/settings/sessions") },
       ...(workspace.capabilities?.administerHub
         ? [
-            { section: "admins" as const, label: "Hub administrators", path: "/settings/admins" },
-            { section: "sharing" as const, label: "Public sharing", path: "/admin/sharing" },
-            { section: "github" as const, label: "GitHub App", path: "/settings/github" },
+            {
+              section: "admins" as const,
+              label: "Hub administrators",
+              path: hubPath("/settings/admins"),
+            },
+            {
+              section: "sharing" as const,
+              label: "Public sharing",
+              path: hubPath("/admin/sharing"),
+            },
+            { section: "github" as const, label: "GitHub App", path: hubPath("/settings/github") },
           ]
         : []),
     ],

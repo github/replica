@@ -5,19 +5,28 @@ import type { SettingsWorkspaceResponse } from "../../settings-contracts"
 import { repositoryWorkspace } from "../repository-workspace"
 import { resourcePath } from "../resource-path"
 
+type NavigationState = Pick<SettingsWorkspaceResponse, "repository" | "welcomeHidden"> & {
+  session: { capabilities: WorkspaceResponse["capabilities"] }
+  notifications: Pick<SettingsWorkspaceResponse["notifications"], "unreadCount">
+}
+
 export function settingsWorkspace(
   workspace: WorkspaceResponse,
-  state: SettingsWorkspaceResponse,
+  state: NavigationState,
   search: URLSearchParams,
   selectedSection: HubWorkspaceData["selectedSection"],
 ): HubWorkspaceData {
   const repository = state.repository
-    ? repositoryWorkspace(workspace, state.repository, search)
+    ? repositoryWorkspace(
+        { ...workspace, capabilities: state.session.capabilities },
+        state.repository,
+        search,
+      )
     : null
   const repositoryId = state.repository?.id
-  const admin = state.session.capabilities.administerHub
+  const admin = state.session.capabilities?.administerHub
   function path(pathname: string) {
-    return resourcePath(pathname, search)
+    return resourcePath(pathname, search, { repositoryId: repositoryId ?? null })
   }
   return {
     accountMenuLabel: `Account menu for @${workspace.viewer.login}`,
@@ -48,8 +57,8 @@ export function settingsWorkspace(
       repository && repositoryId
         ? {
             ...repository,
-            newPrototypePath: state.session.capabilities.createPrototypes
-              ? path(`/repositories/${repositoryId}/new`)
+            newPrototypePath: state.session.capabilities?.createPrototypes
+              ? resourcePath(`/repositories/${repositoryId}/new`, search)
               : null,
             analyticsLabel: "Analytics",
             analyticsPath: resourcePath("/settings/analytics", search, { repositoryId }),

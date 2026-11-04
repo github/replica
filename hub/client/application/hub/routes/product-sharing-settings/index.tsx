@@ -1,4 +1,4 @@
-import { data, useFetcher, useOutletContext } from "react-router"
+import { data, useFetcher, useLocation, useOutletContext } from "react-router"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 
 import { SharingSettingsPage } from "@pages/sharing-settings-page"
@@ -71,6 +71,7 @@ export default function ProductSharingSettingsRoute({
   loaderData: ProductSharingSettings
 }) {
   const workspace = useOutletContext<WorkspaceResponse>()
+  const location = useLocation()
   const fetcher = useFetcher<ProductActionResult>()
   const busy = fetcher.state !== "idle"
   const result = busy ? undefined : fetcher.data
@@ -83,7 +84,14 @@ export default function ProductSharingSettingsRoute({
         void fetcher.submit(input, { method: "post" })
       }}
     >
-      <SharingSettingsPage data={productSharingSettingsData(workspace, loaderData)} busy={busy} />
+      <SharingSettingsPage
+        data={productSharingSettingsData(
+          workspace,
+          loaderData,
+          new URLSearchParams(location.search),
+        )}
+        busy={busy}
+      />
     </ProductFormBoundary>
   )
 }

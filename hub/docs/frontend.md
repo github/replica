@@ -58,6 +58,8 @@ Other seeded page states:
 
 Review filters also live in the URL: `commentSearch`, `commentParticipant`, and the `commentBuild`, `commentPage`, `commentResolved`, `commentUnread`, and `commentMine` flags. A flag value of `1` enables it. Closing a conversation removes `comment`; browser back/forward restores the selection and filters.
 
+Hub settings and Public sharing reuse the same workspace navigation adapter. Links to Hub-wide pages carry `repositoryId` to preserve the selected repository; direct Public sharing visits use the first available repository. Users without repository access retain global navigation without an empty selector, and administrator links remain permission-dependent. Public and signed-out layouts remain separate.
+
 Application code adapts internal links and same-origin GET forms to SPA navigation while preserving modified clicks, external links, downloads, and new tabs. Explicit adapters handle the connected mutations and sign-out. Unknown non-GET forms are blocked and reported through the test toolbar rather than submitting to removed server actions.
 
 ## Connected mock flows
