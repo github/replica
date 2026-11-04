@@ -23,14 +23,23 @@ export interface StartAdministratorEnrollmentDependencies extends StartAuthentic
 }
 
 export interface AuthenticationCallbackDependencies extends RateLimitDependencies {
+  callbackIssuer?: string
   secureCookie: boolean
-  complete(input: {
-    browserBinding: string
-    code: string
-    state: string
-  }): Promise<{ proof: AuthenticationProofResult }>
+  complete(input: { browserBinding: string; code: string; state: string }): Promise<{
+    proof: AuthenticationProofResult
+    providerAssignment?: {
+      assignmentSubject: string | null
+      providerRevisionId: string
+      role: "MEMBER" | "ADMINISTRATOR" | null
+    }
+  }>
   admit(input: {
     proof: AuthenticationProofResult
+    providerAssignment?: {
+      assignmentSubject: string | null
+      providerRevisionId: string
+      role: "MEMBER" | "ADMINISTRATOR" | null
+    }
     sessionDigest: string
     sessionId: string
   }): Promise<{
@@ -39,7 +48,7 @@ export interface AuthenticationCallbackDependencies extends RateLimitDependencie
 }
 
 export interface CurrentSessionDependencies {
-  restore(sessionDigest: string): Promise<true | null>
+  restore(sessionDigest: string): Promise<{ role: "MEMBER" | "ADMINISTRATOR" } | null>
 }
 
 export interface SignOutDependencies {
@@ -49,9 +58,14 @@ export interface SignOutDependencies {
 }
 
 export interface AuthenticationRouteDependencies {
-  callback: AuthenticationCallbackDependencies
   currentSession: CurrentSessionDependencies
-  signIn: StartAuthenticationDependencies
+  entra?: ProviderAuthenticationRouteDependencies
+  github?: ProviderAuthenticationRouteDependencies
   signOut: SignOutDependencies
+}
+
+export interface ProviderAuthenticationRouteDependencies {
   administratorEnrollment: StartAdministratorEnrollmentDependencies
+  callback: AuthenticationCallbackDependencies
+  signIn: StartAuthenticationDependencies
 }

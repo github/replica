@@ -51,6 +51,7 @@ export function createGitHubAuthenticationContext(
     adapter,
     applicationOrigin: origin.origin,
     bootstrapSecret: parsed.HUB_BOOTSTRAP_SECRET,
+    callbackIssuer: "https://github.com/login/oauth",
     callbackUri,
     configurationDigest: createHash("sha256")
       .update(adapter.canonicalPublicConfiguration)

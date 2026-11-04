@@ -11,14 +11,18 @@ const PAGE_DATA: HomeIndexPageData = {
   badgeAlternate: "Built for feedback",
   description: "Turn GitHub branches into shareable prototypes.",
   heading: "Build and review prototypes with your team.",
-  localMode: false,
   notice: null,
   footerNote: "\u00a9 2026 GitHub, Inc.",
   pageTitle: "Replica Hub",
   pauseAnimationLabel: "Pause animation",
   resumeAnimationLabel: "Resume animation",
-  signInLabel: "Sign in with GitHub",
-  signInPath: "/auth/github",
+  signInActions: [
+    {
+      label: "Sign in with GitHub",
+      path: "/api/auth/github/start",
+      provider: "github",
+    },
+  ],
 }
 
 function renderHome(data = PAGE_DATA) {
@@ -120,7 +124,6 @@ describe("HomeIndexPage()", () => {
     expect(screen.getByText("Turn GitHub branches into shareable prototypes.")).toBeInTheDocument()
     expect(screen.getByText("Collaborative prototyping")).toBeInTheDocument()
     expect(screen.getByRole("img", { name: "Replica" })).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Sign in with GitHub" })).toBeInTheDocument()
     expect(screen.getByText("\u00a9 2026 GitHub, Inc.")).toBeInTheDocument()
   })
 
@@ -160,17 +163,21 @@ describe("HomeIndexPage()", () => {
     )
   })
 
-  it("preserves the GitHub sign-in action and CSRF token", () => {
-    renderHome()
+  it("renders each explicitly configured provider with no fallback action", () => {
+    renderHome({
+      ...PAGE_DATA,
+      signInActions: [
+        ...PAGE_DATA.signInActions,
+        {
+          label: "Sign in with Microsoft Entra",
+          path: "/api/auth/entra/start",
+          provider: "entra",
+        },
+      ],
+    })
 
-    const signIn = screen.getByRole("button", { name: "Sign in with GitHub" })
-    const form = signIn.closest("form")
-
-    expect(signIn).toHaveAttribute("type", "submit")
-    expect(signIn.querySelector(".octicon-mark-github")).toBeInTheDocument()
-    expect(form).toHaveAttribute("action", "/auth/github")
-    expect(form).toHaveAttribute("method", "post")
-    expect(form?.querySelector('input[name="authenticity_token"]')).toHaveValue("token")
+    expect(screen.getByRole("button", { name: "Sign in with GitHub" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Sign in with Microsoft Entra" })).toBeInTheDocument()
   })
 
   it("shows the canvas verification result without submitting another action", () => {
@@ -179,20 +186,15 @@ describe("HomeIndexPage()", () => {
     renderHome({ ...PAGE_DATA, notice })
 
     expect(screen.getByRole("status")).toHaveTextContent(notice)
-    expect(screen.getByRole("button", { name: "Sign in with GitHub" })).toBeInTheDocument()
   })
 
-  it("offers local sign-in without a GitHub action", () => {
+  it("shows no sign-in fallback when no provider is configured", () => {
     renderHome({
       ...PAGE_DATA,
-      localMode: true,
-      signInLabel: "Open local Hub",
-      signInPath: "/auth/local",
+      signInActions: [],
     })
 
-    const signIn = screen.getByRole("button", { name: "Open local Hub" })
-    expect(signIn.closest("form")).toHaveAttribute("action", "/auth/local")
-    expect(screen.queryByRole("button", { name: "Sign in with GitHub" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: /sign in/i })).not.toBeInTheDocument()
     expect(screen.getByRole("img", { name: "Replica" })).toBeInTheDocument()
   })
 

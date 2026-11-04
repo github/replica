@@ -4,7 +4,10 @@ export interface HubAdminEnrollmentPageData extends GithubAppSetupHeaderData {
   canContinue?: boolean
   alert?: string | null
   pageTitle: string
+  providerActions: Array<{
+    label: string
+    path: string
+    provider: "github" | "entra"
+  }>
   secretLabel: string
-  submitLabel: string
-  submitPath: string
 }

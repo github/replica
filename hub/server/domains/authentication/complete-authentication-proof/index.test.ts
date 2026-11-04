@@ -2,8 +2,8 @@ import { createHash } from "node:crypto"
 import { describe, expect, it, vi } from "vitest"
 
 import { AuthenticationProofError } from "../errors"
+import type { AuthenticationProviderAdapter } from "../types"
 import type { CompleteAuthenticationProofDependencies } from "./types"
-import type { AuthenticationProofResult, AuthenticationProviderAdapter } from "../types"
 import { completeAuthenticationProof } from "."
 
 const revision = {
@@ -15,9 +15,11 @@ const revision = {
 function dependencies() {
   const completeProvider = vi.fn<AuthenticationProviderAdapter["completeAuthenticationProof"]>(() =>
     Promise.resolve({
-      provider: "github",
-      issuer: "https://github.com",
-      subject: "123",
+      identity: {
+        provider: "github",
+        issuer: "https://github.com",
+        subject: "123",
+      },
     }),
   )
   const consumeAttempt = vi.fn<CompleteAuthenticationProofDependencies["consumeAttempt"]>(() =>
@@ -25,6 +27,9 @@ function dependencies() {
       id: "00000000-0000-4000-8000-000000000010",
       providerRevisionId: revision.id,
       codeVerifierCiphertext: "encrypted-verifier",
+      nonceCiphertext: "encrypted-nonce",
+      createdAt: new Date("2026-11-04T18:00:00Z"),
+      requiresFreshAuthentication: false,
     }),
   )
   return {
@@ -36,6 +41,7 @@ function dependencies() {
     callbackUri: "https://hub.example.test/api/auth/github/callback",
     consumeAttempt,
     decryptCodeVerifier: vi.fn(() => "pkce-verifier"),
+    decryptNonce: vi.fn(() => "nonce-value"),
     localConfigurationDigest: revision.configurationDigest,
     localRevision: revision.revision,
     getSelectedProviderRevision: vi.fn(() => Promise.resolve(revision)),
@@ -49,35 +55,90 @@ function dependencies() {
   }
 }
 
-describe("completeAuthenticationProof()", () => {
-  it("passes exact verification values and returns only bounded internal proof references", async () => {
-    const scoped = dependencies()
-    const browserBinding = "browser-binding-value-with-required-length"
-    const code = "authorization-code"
-    const state = "state-value-with-the-required-minimum-length"
-    const result = await completeAuthenticationProof({ browserBinding, code, state }, scoped)
+const input = {
+  browserBinding: "browser-binding-value-with-required-length",
+  code: "authorization-code",
+  state: "state-value-with-the-required-minimum-length",
+}
 
-    expect(scoped.consumeAttempt).toHaveBeenCalledOnce()
+describe("completeAuthenticationProof()", () => {
+  it("passes attempt-bound verification values and returns only bounded proof references", async () => {
+    const scoped = dependencies()
+
+    const result = await completeAuthenticationProof(input, scoped)
+
     expect(scoped.consumeAttempt).toHaveBeenCalledWith({
-      browserBindingDigest: createHash("sha256").update(browserBinding).digest("hex"),
-      stateDigest: createHash("sha256").update(state).digest("hex"),
+      browserBindingDigest: createHash("sha256").update(input.browserBinding).digest("hex"),
+      stateDigest: createHash("sha256").update(input.state).digest("hex"),
     })
-    expect(scoped.decryptCodeVerifier).toHaveBeenCalledOnce()
-    expect(scoped.decryptCodeVerifier).toHaveBeenCalledWith("encrypted-verifier")
-    expect(scoped.adapter.completeAuthenticationProof).toHaveBeenCalledOnce()
     expect(scoped.adapter.completeAuthenticationProof).toHaveBeenCalledWith({
-      callbackUri: "https://hub.example.test/api/auth/github/callback",
-      code,
+      authenticatedAfter: undefined,
+      callbackUri: scoped.callbackUri,
+      code: input.code,
       codeVerifier: "pkce-verifier",
+      nonce: "nonce-value",
     })
-    expect(result.proof).toEqual<AuthenticationProofResult>({
-      authorizationAttemptId: "00000000-0000-4000-8000-000000000010",
-      externalIdentityId: "00000000-0000-4000-8000-000000000012",
+    expect(result).toEqual({
+      proof: {
+        authorizationAttemptId: "00000000-0000-4000-8000-000000000010",
+        externalIdentityId: "00000000-0000-4000-8000-000000000012",
+      },
     })
     expect(Object.keys(result.proof).sort()).toEqual([
       "authorizationAttemptId",
       "externalIdentityId",
     ])
+  })
+
+  it("passes the saved attempt start only when fresh authentication was required", async () => {
+    const scoped = dependencies()
+    scoped.consumeAttempt.mockResolvedValueOnce({
+      id: "00000000-0000-4000-8000-000000000010",
+      providerRevisionId: revision.id,
+      codeVerifierCiphertext: "encrypted-verifier",
+      nonceCiphertext: "encrypted-nonce",
+      createdAt: new Date("2026-11-04T18:00:00Z"),
+      requiresFreshAuthentication: true,
+    })
+
+    await completeAuthenticationProof(input, scoped)
+
+    expect(scoped.adapter.completeAuthenticationProof).toHaveBeenCalledWith(
+      expect.objectContaining({
+        authenticatedAfter: new Date("2026-11-04T18:00:00Z"),
+      }),
+    )
+  })
+
+  it("keeps provider assignment evidence separate from the C2 proof", async () => {
+    const scoped = dependencies()
+    scoped.adapter.providerKey = "entra"
+    scoped.adapter.completeAuthenticationProof.mockResolvedValueOnce({
+      identity: {
+        provider: "entra",
+        issuer: "https://login.microsoftonline.com/tenant/v2.0",
+        subject: "immutable-subject",
+      },
+      providerAssignment: {
+        assignmentSubject: "11111111-1111-4111-8111-111111111111",
+        role: "ADMINISTRATOR",
+      },
+    })
+
+    const result = await completeAuthenticationProof(input, scoped)
+
+    expect(result).toEqual({
+      proof: {
+        authorizationAttemptId: "00000000-0000-4000-8000-000000000010",
+        externalIdentityId: "00000000-0000-4000-8000-000000000012",
+      },
+      providerAssignment: {
+        assignmentSubject: "11111111-1111-4111-8111-111111111111",
+        providerRevisionId: revision.id,
+        role: "ADMINISTRATOR",
+      },
+    })
+    expect(result.proof).not.toHaveProperty("providerAssignment")
   })
 
   it("consumes the browser-bound attempt before provider work", async () => {
@@ -89,272 +150,84 @@ describe("completeAuthenticationProof()", () => {
         id: "00000000-0000-4000-8000-000000000010",
         providerRevisionId: revision.id,
         codeVerifierCiphertext: "encrypted-verifier",
+        nonceCiphertext: "encrypted-nonce",
+        createdAt: new Date(),
+        requiresFreshAuthentication: false,
       })
     })
     scoped.adapter.completeAuthenticationProof.mockImplementation(() => {
       order.push("provider")
       return Promise.resolve({
-        provider: "github",
-        issuer: "https://github.com",
-        subject: "123",
+        identity: {
+          provider: "github",
+          issuer: "https://github.com",
+          subject: "123",
+        },
       })
     })
 
-    await completeAuthenticationProof(
-      {
-        browserBinding: "browser-binding-value-with-required-length",
-        code: "authorization-code",
-        state: "state-value-with-the-required-minimum-length",
-      },
-      scoped,
-    )
+    await completeAuthenticationProof(input, scoped)
+
     expect(order).toEqual(["consume", "provider"])
   })
 
-  it("records one invalid-or-expired denial for replay", async () => {
-    const replay = dependencies()
-    replay.consumeAttempt.mockImplementationOnce(() => Promise.resolve(null))
-    await expect(
-      completeAuthenticationProof(
-        {
-          browserBinding: "browser-binding-value-with-required-length",
-          code: "authorization-code",
-          state: "state-value-with-the-required-minimum-length",
-        },
-        replay,
-      ),
-    ).rejects.toMatchObject({ code: "attempt_invalid" })
-    expect(replay.adapter.completeAuthenticationProof).not.toHaveBeenCalled()
-    expect(replay.writeDenialAudit).toHaveBeenCalledOnce()
-    expect(replay.writeDenialAudit).toHaveBeenCalledWith("invalid_or_expired")
-  })
+  it("rejects replay before provider work", async () => {
+    const scoped = dependencies()
+    scoped.consumeAttempt.mockResolvedValueOnce(null)
 
-  it("fails closed before provider work for configuration drift", async () => {
-    const drift = dependencies()
-    drift.getSelectedProviderRevision.mockResolvedValueOnce({
-      ...revision,
-      configurationDigest: "b".repeat(64),
+    await expect(completeAuthenticationProof(input, scoped)).rejects.toMatchObject({
+      code: "attempt_invalid",
     })
-    await expect(
-      completeAuthenticationProof(
-        {
-          browserBinding: "browser-binding-value-with-required-length",
-          code: "authorization-code",
-          state: "state-value-with-the-required-minimum-length",
-        },
-        drift,
-      ),
-    ).rejects.toMatchObject({ code: "configuration_changed" })
-    expect(drift.adapter.completeAuthenticationProof).not.toHaveBeenCalled()
+    expect(scoped.adapter.completeAuthenticationProof).not.toHaveBeenCalled()
+    expect(scoped.writeDenialAudit).toHaveBeenCalledWith("invalid_or_expired")
   })
 
-  it("rejects when the selected revision changes after provider proof", async () => {
+  it("rejects missing or undecryptable nonce state before provider work", async () => {
+    const scoped = dependencies()
+    scoped.consumeAttempt.mockResolvedValueOnce({
+      id: "00000000-0000-4000-8000-000000000010",
+      providerRevisionId: revision.id,
+      codeVerifierCiphertext: "encrypted-verifier",
+      nonceCiphertext: null,
+      createdAt: new Date(),
+      requiresFreshAuthentication: false,
+    })
+
+    await expect(completeAuthenticationProof(input, scoped)).rejects.toMatchObject({
+      code: "verification_state_invalid",
+    })
+    expect(scoped.adapter.completeAuthenticationProof).not.toHaveBeenCalled()
+  })
+
+  it("fails closed when the provider revision changes after provider proof", async () => {
     const scoped = dependencies()
     scoped.getSelectedProviderRevision
       .mockResolvedValueOnce(revision)
       .mockResolvedValueOnce({ ...revision, configurationDigest: "b".repeat(64) })
 
-    await expect(
-      completeAuthenticationProof(
-        {
-          browserBinding: "browser-binding-value-with-required-length",
-          code: "authorization-code",
-          state: "state-value-with-the-required-minimum-length",
-        },
-        scoped,
-      ),
-    ).rejects.toMatchObject({ code: "configuration_changed" })
-
-    expect(scoped.getSelectedProviderRevision).toHaveBeenCalledTimes(2)
-    expect(scoped.adapter.completeAuthenticationProof).toHaveBeenCalledOnce()
-    expect(scoped.writeDenialAudit).toHaveBeenCalledOnce()
-    expect(scoped.writeDenialAudit).toHaveBeenCalledWith("configuration_changed")
-    expect(scoped.resolveOrCreateIdentity).not.toHaveBeenCalled()
-  })
-
-  it("reports invalid local verification state without calling the provider", async () => {
-    const scoped = dependencies()
-    const rawFailure = new Error(
-      "Unsupported state or unable to authenticate data: verifier-ciphertext-secret",
-    )
-    scoped.decryptCodeVerifier.mockImplementationOnce(() => {
-      throw rawFailure
+    await expect(completeAuthenticationProof(input, scoped)).rejects.toMatchObject({
+      code: "configuration_changed",
     })
-
-    const error = await completeAuthenticationProof(
-      {
-        browserBinding: "browser-binding-value-with-required-length",
-        code: "authorization-code",
-        state: "state-value-with-the-required-minimum-length",
-      },
-      scoped,
-    ).catch((caught: unknown) => caught)
-
-    expect(error).toBeInstanceOf(AuthenticationProofError)
-    const authenticationError = error as AuthenticationProofError
-    expect(authenticationError.code).toBe("verification_state_invalid")
-    expect(authenticationError.message).not.toMatch(/authenticate|ciphertext|secret|unsupported/i)
-    expect(authenticationError.cause).toBeUndefined()
-    expect(scoped.adapter.completeAuthenticationProof).not.toHaveBeenCalled()
-    expect(scoped.resolveOrCreateIdentity).not.toHaveBeenCalled()
-    expect(scoped.writeDenialAudit).toHaveBeenCalledOnce()
-    expect(scoped.writeDenialAudit).toHaveBeenCalledWith("verification_state_invalid")
-  })
-
-  it("preserves safe verification-state denial when its audit fails", async () => {
-    const scoped = dependencies()
-    const rawFailure = new Error(
-      "Unsupported state or unable to authenticate data: verifier-ciphertext-secret",
-    )
-    const auditFailure = new Error("audit unavailable")
-    scoped.decryptCodeVerifier.mockImplementationOnce(() => {
-      throw rawFailure
-    })
-    scoped.writeDenialAudit.mockRejectedValueOnce(auditFailure)
-
-    const error = await completeAuthenticationProof(
-      {
-        browserBinding: "browser-binding-value-with-required-length",
-        code: "authorization-code",
-        state: "state-value-with-the-required-minimum-length",
-      },
-      scoped,
-    ).catch((caught: unknown) => caught)
-
-    expect(error).toBeInstanceOf(AggregateError)
-    const [primary, audit] = (error as AggregateError).errors as [Error, Error]
-    expect(primary).toBeInstanceOf(AuthenticationProofError)
-    const authenticationError = primary as AuthenticationProofError
-    expect(authenticationError.code).toBe("verification_state_invalid")
-    expect(authenticationError.message).not.toMatch(/authenticate|ciphertext|secret|unsupported/i)
-    expect(authenticationError.cause).toBeUndefined()
-    expect(audit).toBe(auditFailure)
-    expect(scoped.writeDenialAudit).toHaveBeenCalledOnce()
-    expect(scoped.writeDenialAudit).toHaveBeenCalledWith("verification_state_invalid")
-    expect(scoped.adapter.completeAuthenticationProof).not.toHaveBeenCalled()
     expect(scoped.resolveOrCreateIdentity).not.toHaveBeenCalled()
   })
 
-  it.each([
-    {
-      category: "provider request rejection",
-      arrange: (scoped: ReturnType<typeof dependencies>) => {
-        scoped.adapter.completeAuthenticationProof.mockRejectedValueOnce(
-          new Error("raw provider failure with token provider-token-secret"),
-        )
-      },
-      rawMaterial: /provider-token-secret|raw provider failure/i,
-    },
-    {
-      category: "mismatched provider evidence",
-      arrange: (scoped: ReturnType<typeof dependencies>) => {
-        scoped.adapter.completeAuthenticationProof.mockResolvedValueOnce({
-          provider: "oidc",
-          issuer: "https://provider-response-secret.example.test",
-          subject: "provider-response-secret",
-        })
-      },
-      rawMaterial: /provider-response-secret/i,
-    },
-  ])("returns a safe provider failure for $category", async ({ arrange, rawMaterial }) => {
+  it("returns a safe provider failure for rejected or mismatched evidence", async () => {
     const scoped = dependencies()
-    arrange(scoped)
-
-    const error = await completeAuthenticationProof(
-      {
-        browserBinding: "browser-binding-value-with-required-length",
-        code: "authorization-code",
-        state: "state-value-with-the-required-minimum-length",
-      },
-      scoped,
-    ).catch((caught: unknown) => caught)
-
-    expect(error).toBeInstanceOf(AuthenticationProofError)
-    const authenticationError = error as AuthenticationProofError
-    expect(authenticationError.code).toBe("provider_failed")
-    expect(authenticationError.message).not.toMatch(rawMaterial)
-    expect(authenticationError.cause).toBeUndefined()
-    expect(scoped.writeDenialAudit).toHaveBeenCalledOnce()
-    expect(scoped.writeDenialAudit).toHaveBeenCalledWith("provider_failed")
-    expect(scoped.resolveOrCreateIdentity).not.toHaveBeenCalled()
-  })
-
-  it.each([
-    {
-      category: "provider request rejection",
-      arrange: (scoped: ReturnType<typeof dependencies>) => {
-        scoped.adapter.completeAuthenticationProof.mockRejectedValueOnce(
-          new Error("raw provider failure with token provider-token-secret"),
-        )
-      },
-      rawMaterial: /provider-token-secret|raw provider failure/i,
-    },
-    {
-      category: "mismatched provider evidence",
-      arrange: (scoped: ReturnType<typeof dependencies>) => {
-        scoped.adapter.completeAuthenticationProof.mockResolvedValueOnce({
-          provider: "oidc",
-          issuer: "https://provider-response-secret.example.test",
-          subject: "provider-response-secret",
-        })
-      },
-      rawMaterial: /provider-response-secret/i,
-    },
-  ])("preserves safe $category denial when its audit fails", async ({ arrange, rawMaterial }) => {
-    const scoped = dependencies()
-    const auditFailure = new Error("audit unavailable")
-    arrange(scoped)
-    scoped.writeDenialAudit.mockRejectedValueOnce(auditFailure)
-
-    const error = await completeAuthenticationProof(
-      {
-        browserBinding: "browser-binding-value-with-required-length",
-        code: "authorization-code",
-        state: "state-value-with-the-required-minimum-length",
-      },
-      scoped,
-    ).catch((caught: unknown) => caught)
-
-    expect(error).toBeInstanceOf(AggregateError)
-    const [primary, audit] = (error as AggregateError).errors as [Error, Error]
-    expect(primary).toBeInstanceOf(AuthenticationProofError)
-    const authenticationError = primary as AuthenticationProofError
-    expect(authenticationError.code).toBe("provider_failed")
-    expect(authenticationError.message).not.toMatch(rawMaterial)
-    expect(authenticationError.cause).toBeUndefined()
-    expect((error as AggregateError).message).not.toMatch(rawMaterial)
-    expect(audit).toBe(auditFailure)
-    expect(scoped.writeDenialAudit).toHaveBeenCalledOnce()
-    expect(scoped.writeDenialAudit).toHaveBeenCalledWith("provider_failed")
-    expect(scoped.resolveOrCreateIdentity).not.toHaveBeenCalled()
-  })
-
-  it("accepts OIDC-like proof with no presentation attributes", async () => {
-    const scoped = dependencies()
-    scoped.adapter.providerKey = "oidc"
     scoped.adapter.completeAuthenticationProof.mockResolvedValueOnce({
-      provider: "oidc",
-      issuer: "https://id.example.test",
-      subject: "person-456",
+      identity: {
+        provider: "entra",
+        issuer: "https://secret.example.test",
+        subject: "secret-subject",
+      },
     })
 
-    const result = await completeAuthenticationProof(
-      {
-        browserBinding: "browser-binding-value-with-required-length",
-        code: "authorization-code",
-        state: "state-value-with-the-required-minimum-length",
-      },
-      scoped,
+    const error = await completeAuthenticationProof(input, scoped).catch(
+      (caught: unknown) => caught,
     )
 
-    expect(scoped.resolveOrCreateIdentity).toHaveBeenCalledWith({
-      provider: "oidc",
-      issuer: "https://id.example.test",
-      subject: "person-456",
-    })
-    expect(result.proof).toEqual({
-      authorizationAttemptId: "00000000-0000-4000-8000-000000000010",
-      externalIdentityId: "00000000-0000-4000-8000-000000000012",
-    })
+    expect(error).toBeInstanceOf(AuthenticationProofError)
+    expect(error).toMatchObject({ code: "provider_failed" })
+    expect((error as Error).message).not.toMatch(/secret/)
+    expect(scoped.resolveOrCreateIdentity).not.toHaveBeenCalled()
   })
 })

@@ -38,6 +38,7 @@ export async function startAuthenticationProof(
   const state = dependencies.createOpaqueValue()
   const browserBinding = dependencies.createOpaqueValue()
   const codeVerifier = dependencies.createOpaqueValue()
+  const nonce = dependencies.createOpaqueValue()
   const codeChallenge = createHash("sha256").update(codeVerifier).digest("base64url")
   const { expiresAt } = await dependencies.createAttempt({
     id: dependencies.createId(),
@@ -46,16 +47,19 @@ export async function startAuthenticationProof(
     browserBindingDigest: hashAuthenticationValue(browserBinding),
     codeVerifierCiphertext: dependencies.encryptCodeVerifier(codeVerifier),
     lifetimeSeconds: ATTEMPT_LIFETIME_MS / 1_000,
+    nonceCiphertext: dependencies.encryptNonce(nonce),
+    requiresFreshAuthentication: dependencies.requiresFreshAuthentication,
   })
 
+  const authorizationUrl = await dependencies.adapter.createAuthorizationUrl({
+    callbackUri: dependencies.callbackUri,
+    codeChallenge,
+    freshAuthentication: dependencies.requiresFreshAuthentication,
+    nonce,
+    state,
+  })
   return {
-    authorizationUrl: dependencies.adapter
-      .createAuthorizationUrl({
-        callbackUri: dependencies.callbackUri,
-        codeChallenge,
-        state,
-      })
-      .toString(),
+    authorizationUrl: authorizationUrl.toString(),
     browserBinding,
     expiresAt,
   }

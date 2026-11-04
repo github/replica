@@ -45,6 +45,8 @@ describe("createGitHubUserAuthenticationAdapter()", () => {
     const authorizationUrl = adapter.createAuthorizationUrl({
       callbackUri: publicConfiguration.callbackUri,
       codeChallenge: "c".repeat(43),
+      freshAuthentication: false,
+      nonce: "unused-by-github",
       state: "state-value",
     })
     expect(Object.fromEntries(authorizationUrl.searchParams)).toEqual({
@@ -59,12 +61,15 @@ describe("createGitHubUserAuthenticationAdapter()", () => {
       callbackUri: publicConfiguration.callbackUri,
       code: "authorization-code",
       codeVerifier: "verifier-value",
+      nonce: "unused-by-github",
     })
 
     expect(evidence).toEqual({
-      provider: "github",
-      issuer: "https://github.com",
-      subject: "123456",
+      identity: {
+        provider: "github",
+        issuer: "https://github.com",
+        subject: "123456",
+      },
     })
     const tokenRequest = request.mock.calls[0]!
     expect(tokenRequest[0]).toBe(publicConfiguration.tokenEndpoint)
@@ -111,6 +116,8 @@ describe("createGitHubUserAuthenticationAdapter()", () => {
       adapter.createAuthorizationUrl({
         callbackUri: "https://attacker.example.test/callback",
         codeChallenge: "c".repeat(43),
+        freshAuthentication: false,
+        nonce: "unused-by-github",
         state: "state",
       }),
     ).toThrow("callback URI")
@@ -190,6 +197,7 @@ describe("createGitHubUserAuthenticationAdapter()", () => {
           callbackUri: publicConfiguration.callbackUri,
           code: "authorization-code",
           codeVerifier: "verifier-value",
+          nonce: "unused-by-github",
         }),
       ).rejects.toBeInstanceOf(GitHubProviderRequestError)
       expect(request).toHaveBeenCalledTimes(stage === "token exchange" ? 1 : 2)

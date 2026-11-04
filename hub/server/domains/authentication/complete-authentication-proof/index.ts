@@ -13,7 +13,7 @@ import type {
 const inputSchema = z
   .object({
     browserBinding: z.string().min(32).max(200),
-    code: z.string().min(1).max(1_000),
+    code: z.string().min(1).max(2_048),
     state: z.string().min(32).max(200),
   })
   .strict()
@@ -57,8 +57,11 @@ export async function completeAuthenticationProof(
   }
 
   let codeVerifier
+  let nonce
   try {
     codeVerifier = dependencies.decryptCodeVerifier(attempt.codeVerifierCiphertext)
+    if (!attempt.nonceCiphertext) throw new Error("Missing nonce state.")
+    nonce = dependencies.decryptNonce(attempt.nonceCiphertext)
   } catch {
     const error = new AuthenticationProofError(
       "verification_state_invalid",
@@ -72,13 +75,17 @@ export async function completeAuthenticationProof(
 
   let evidence
   try {
-    evidence = parseImmutableIdentityEvidence(
-      await dependencies.adapter.completeAuthenticationProof({
-        callbackUri: dependencies.callbackUri,
-        code: parsed.code,
-        codeVerifier,
-      }),
-    )
+    const completed = await dependencies.adapter.completeAuthenticationProof({
+      authenticatedAfter: attempt.requiresFreshAuthentication ? attempt.createdAt : undefined,
+      callbackUri: dependencies.callbackUri,
+      code: parsed.code,
+      codeVerifier,
+      nonce,
+    })
+    evidence = {
+      ...completed,
+      identity: parseImmutableIdentityEvidence(completed.identity),
+    }
   } catch {
     const primaryError = new AuthenticationProofError(
       "provider_failed",
@@ -89,7 +96,7 @@ export async function completeAuthenticationProof(
     )
     throw primaryError
   }
-  if (evidence.provider !== dependencies.adapter.providerKey) {
+  if (evidence.identity.provider !== dependencies.adapter.providerKey) {
     const error = new AuthenticationProofError(
       "provider_failed",
       "The authentication provider returned mismatched identity evidence.",
@@ -115,11 +122,17 @@ export async function completeAuthenticationProof(
     throw error
   }
   const identity = await dependencies.resolveOrCreateIdentity({
-    provider: evidence.provider,
-    issuer: evidence.issuer,
-    subject: evidence.subject,
+    provider: evidence.identity.provider,
+    issuer: evidence.identity.issuer,
+    subject: evidence.identity.subject,
   })
   return {
+    providerAssignment: evidence.providerAssignment
+      ? {
+          ...evidence.providerAssignment,
+          providerRevisionId: attempt.providerRevisionId,
+        }
+      : undefined,
     proof: {
       authorizationAttemptId: attempt.id,
       externalIdentityId: identity.externalIdentityId,

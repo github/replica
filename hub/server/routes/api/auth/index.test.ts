@@ -19,25 +19,28 @@ function routeDependencies() {
   const restoreSession = vi.fn()
   const verifyBootstrapSecret = vi.fn().mockReturnValue(false)
   const dependencies: AuthenticationRouteDependencies = {
-    signIn: {
-      applicationOrigin: "http://127.0.0.1:5173",
-      checkRateLimit,
-      secureCookie: false,
-      start: startSignIn,
-    },
-    administratorEnrollment: {
-      applicationOrigin: "http://127.0.0.1:5173",
-      checkRateLimit,
-      secureCookie: false,
-      start: startEnrollment,
-      verifyBootstrapSecret,
-      writeBootstrapDenial: vi.fn().mockResolvedValue(undefined),
-    },
-    callback: {
-      checkRateLimit,
-      secureCookie: false,
-      complete: completeProof,
-      admit: admitSession,
+    github: {
+      signIn: {
+        applicationOrigin: "http://127.0.0.1:5173",
+        checkRateLimit,
+        secureCookie: false,
+        start: startSignIn,
+      },
+      administratorEnrollment: {
+        applicationOrigin: "http://127.0.0.1:5173",
+        checkRateLimit,
+        secureCookie: false,
+        start: startEnrollment,
+        verifyBootstrapSecret,
+        writeBootstrapDenial: vi.fn().mockResolvedValue(undefined),
+      },
+      callback: {
+        callbackIssuer: "https://github.com/login/oauth",
+        checkRateLimit,
+        secureCookie: false,
+        complete: completeProof,
+        admit: admitSession,
+      },
     },
     currentSession: {
       restore: restoreSession,
@@ -80,6 +83,17 @@ async function withServer(
 }
 
 describe("authenticationRoutes()", () => {
+  it("reports only the explicitly configured provider routes", async () => {
+    const { dependencies } = routeDependencies()
+    dependencies.entra = dependencies.github
+    await withServer(dependencies, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/auth/providers`)
+
+      expect(response.status).toBe(200)
+      expect(await response.json()).toEqual({ providers: ["github", "entra"] })
+    })
+  })
+
   it("rejects a start from a different origin before provider work", async () => {
     const { dependencies, checkRateLimit, startSignIn } = routeDependencies()
     await withServer(dependencies, async (baseUrl) => {
@@ -123,7 +137,7 @@ describe("authenticationRoutes()", () => {
       const response = await fetch(`${baseUrl}/api/auth/github/admin-enrollment/start`, {
         method: "POST",
         headers: {
-          origin: dependencies.administratorEnrollment.applicationOrigin,
+          origin: dependencies.github!.administratorEnrollment.applicationOrigin,
           "content-type": "application/x-www-form-urlencoded",
         },
         body: "bootstrap_secret=payload-secret",
@@ -142,7 +156,7 @@ describe("authenticationRoutes()", () => {
         method: "POST",
         headers: {
           accept: "text/html,application/xhtml+xml",
-          origin: dependencies.administratorEnrollment.applicationOrigin,
+          origin: dependencies.github!.administratorEnrollment.applicationOrigin,
           "content-type": "application/x-www-form-urlencoded",
         },
         body: "bootstrap_secret=wrong-secret",
@@ -164,7 +178,7 @@ describe("authenticationRoutes()", () => {
         await fetch(`${baseUrl}/api/auth/github/start`, {
           method: "POST",
           headers: {
-            origin: dependencies.signIn.applicationOrigin,
+            origin: dependencies.github!.signIn.applicationOrigin,
             "x-forwarded-for": "203.0.113.7",
           },
           redirect: "manual",
@@ -357,12 +371,15 @@ describe("authenticationRoutes()", () => {
       expect(staleDenial.status).toBe(401)
       expect(staleDenial.headers.get("set-cookie")).toBeNull()
 
-      restoreSession.mockResolvedValueOnce(true)
+      restoreSession.mockResolvedValueOnce({ role: "ADMINISTRATOR" })
       const current = await fetch(`${baseUrl}/api/auth/session`, {
         headers: { cookie: `hub_session=${issued}` },
       })
       expect(current.status).toBe(200)
-      expect(await current.json()).toEqual({ authenticated: true })
+      expect(await current.json()).toEqual({
+        authenticated: true,
+        role: "ADMINISTRATOR",
+      })
       expect(restoreSession).toHaveBeenLastCalledWith(
         createHash("sha256").update(issued!).digest("hex"),
       )
@@ -437,7 +454,7 @@ describe("authenticationRoutes()", () => {
         const response = await fetch(`${baseUrl}/api/auth/github/admin-enrollment/start`, {
           method: "POST",
           headers: {
-            origin: dependencies.administratorEnrollment.applicationOrigin,
+            origin: dependencies.github!.administratorEnrollment.applicationOrigin,
             "content-type": "application/x-www-form-urlencoded",
           },
           body: `bootstrap_secret=oversized-secret-${"x".repeat(5_000)}`,
@@ -461,7 +478,7 @@ describe("authenticationRoutes()", () => {
       const response = await fetch(`${baseUrl}/api/auth/github/admin-enrollment/start`, {
         method: "POST",
         headers: {
-          origin: dependencies.administratorEnrollment.applicationOrigin,
+          origin: dependencies.github!.administratorEnrollment.applicationOrigin,
           "content-type": "application/x-www-form-urlencoded",
         },
         body: "bootstrap_secret=never-parsed",

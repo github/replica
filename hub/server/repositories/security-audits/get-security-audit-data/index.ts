@@ -38,6 +38,21 @@ export function getSecurityAuditData(
         targetId: event.membershipId,
         context: {},
       }
+    case "provider_membership_assignment_created":
+    case "provider_membership_assignment_revoked":
+    case "provider_membership_assignment_superseded":
+      return {
+        id: event.id,
+        action: event.type.replaceAll("_", "."),
+        outcome: SecurityAuditOutcome.SUCCESS,
+        targetType: "membership_assignment",
+        targetId: event.assignmentId,
+        context: {
+          membershipId: event.membershipId,
+          role: event.role.toLowerCase(),
+          source: "authentication_provider",
+        },
+      }
     case "session_created":
     case "session_ended":
       return {

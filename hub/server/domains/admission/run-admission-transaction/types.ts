@@ -2,6 +2,15 @@ import type { Prisma } from "../../../generated/prisma/client.ts"
 import type { CreateSecurityAuditEvent } from "../../../repositories/security-audits/create-security-audit/types.ts"
 
 export interface AdmissionRepositories {
+  createMembership(input: { id: string; userId: string }): Promise<boolean>
+  createProviderAssignment(input: {
+    externalIdentityId: string
+    id: string
+    membershipId: string
+    providerAssignmentSubject: string
+    providerRevisionId: string
+    role: "MEMBER" | "ADMINISTRATOR"
+  }): Promise<void>
   createBootstrapAssignment(input: {
     externalIdentityId: string
     id: string
@@ -19,8 +28,21 @@ export interface AdmissionRepositories {
     transition: "created" | "restored" | "unchanged"
   }>
   createSecurityAudit(input: CreateSecurityAuditEvent): Promise<unknown>
+  endProviderAssignment(input: { id: string; lifecycle: "SUPERSEDED" | "REVOKED" }): Promise<void>
   endOpenHubSessionsForMembership(membershipId: string): Promise<Array<{ id: string }>>
-  lockActiveAssignment(membershipId: string): Promise<boolean>
+  lockActiveAssignments(membershipId: string): Promise<
+    Array<{
+      id: string
+      role: "MEMBER" | "ADMINISTRATOR"
+      source: "BOOTSTRAP" | "AUTHENTICATION_PROVIDER"
+    }>
+  >
+  lockActiveProviderAssignment(externalIdentityId: string): Promise<{
+    id: string
+    providerAssignmentSubject: string
+    providerRevisionId: string
+    role: "MEMBER" | "ADMINISTRATOR"
+  } | null>
   lockAttempt(id: string): Promise<{
     bootstrapSecretDigest: string | null
     consumedAt: Date | null

@@ -54,6 +54,19 @@ const eventSchema = z.discriminatedUnion("type", [
     .strict(),
   z
     .object({
+      assignmentId: z.uuid(),
+      id: z.uuid(),
+      membershipId: z.uuid(),
+      role: z.enum(["MEMBER", "ADMINISTRATOR"]),
+      type: z.enum([
+        "provider_membership_assignment_created",
+        "provider_membership_assignment_revoked",
+        "provider_membership_assignment_superseded",
+      ]),
+    })
+    .strict(),
+  z
+    .object({
       id: z.uuid(),
       type: z.literal("session_created"),
       sessionId: z.uuid(),
@@ -74,6 +87,7 @@ const eventSchema = z.discriminatedUnion("type", [
       type: z.literal("admission_denied"),
       externalIdentityId: z.uuid(),
       reason: z.enum([
+        "authority_missing",
         "attempt_mismatch",
         "configuration_changed",
         "identity_mismatch",

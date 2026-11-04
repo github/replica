@@ -7,7 +7,13 @@ export interface SessionRestoreRepositories {
     revocationRevision: number
   } | null>
   getRevocation(): Promise<{ revision: number } | null>
-  lockActiveAssignment(membershipId: string): Promise<boolean>
+  lockActiveAssignments(membershipId: string): Promise<
+    Array<{
+      id: string
+      role: "MEMBER" | "ADMINISTRATOR"
+      source: "BOOTSTRAP" | "AUTHENTICATION_PROVIDER"
+    }>
+  >
   lockMembership(membershipId: string): Promise<{
     id: string
     lifecycle: "ACTIVE" | "SUSPENDED" | "REMOVED"

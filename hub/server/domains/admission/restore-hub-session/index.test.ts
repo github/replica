@@ -14,7 +14,11 @@ function repositories(
   return {
     findSession: vi.fn().mockResolvedValue(session),
     getRevocation: vi.fn().mockResolvedValue({ revision: 0 }),
-    lockActiveAssignment: vi.fn().mockResolvedValue(true),
+    lockActiveAssignments: vi
+      .fn()
+      .mockResolvedValue([
+        { id: "assignment-id", role: "MEMBER", source: "AUTHENTICATION_PROVIDER" },
+      ]),
     lockMembership: vi.fn().mockResolvedValue({
       id: "membership-id",
       lifecycle: "ACTIVE",
@@ -32,7 +36,7 @@ describe("restoreHubSession()", () => {
       restoreHubSession("a".repeat(64), {
         runTransaction: (operation) => operation(records),
       }),
-    ).resolves.toBe(true)
+    ).resolves.toEqual({ role: "MEMBER" })
   })
 
   it("fails closed when global revocation authority is missing", async () => {
@@ -110,4 +114,19 @@ describe("restoreHubSession()", () => {
       ).resolves.toBeNull()
     },
   )
+
+  it("returns administrator when any active assignment grants administrator authority", async () => {
+    const records = repositories({
+      lockActiveAssignments: vi.fn().mockResolvedValue([
+        { id: "provider-assignment", role: "MEMBER", source: "AUTHENTICATION_PROVIDER" },
+        { id: "bootstrap-assignment", role: "ADMINISTRATOR", source: "BOOTSTRAP" },
+      ]),
+    })
+
+    await expect(
+      restoreHubSession("a".repeat(64), {
+        runTransaction: (operation) => operation(records),
+      }),
+    ).resolves.toEqual({ role: "ADMINISTRATOR" })
+  })
 })

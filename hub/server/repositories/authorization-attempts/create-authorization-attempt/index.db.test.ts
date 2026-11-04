@@ -44,8 +44,10 @@ describe("createAuthorizationAttempt()", () => {
         stateDigest: "a".repeat(64),
         browserBindingDigest: "b".repeat(64),
         codeVerifierCiphertext: "encrypted-verifier",
+        nonceCiphertext: "encrypted-nonce",
         lifetimeSeconds: 600,
         purpose: "SIGN_IN",
+        requiresFreshAuthentication: false,
       })
       const afterRows = await transaction.$queryRaw<Array<{ value: Date }>>`
         SELECT clock_timestamp()::timestamptz(3) AS value

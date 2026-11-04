@@ -1,4 +1,5 @@
 export type AdmissionDenialReason =
+  | "authority_missing"
   | "attempt_mismatch"
   | "configuration_changed"
   | "identity_mismatch"

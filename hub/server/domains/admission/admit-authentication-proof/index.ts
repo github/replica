@@ -3,6 +3,7 @@ import { z } from "zod"
 
 import { parseProviderKey } from "../../../utils/parse-provider-key/index.ts"
 import { runWithBoundedRetries } from "../../identity/run-with-bounded-retries/index.ts"
+import { applyProviderAssignmentEvidence } from "../apply-provider-assignment-evidence/index.ts"
 import {
   AdmissionDeniedError,
   AdmissionPersistenceError,
@@ -23,20 +24,28 @@ const inputSchema = z
         externalIdentityId: z.uuid(),
       })
       .strict(),
+    providerAssignment: z
+      .object({
+        assignmentSubject: z.uuid().nullable(),
+        providerRevisionId: z.uuid(),
+        role: z.enum(["MEMBER", "ADMINISTRATOR"]).nullable(),
+      })
+      .strict()
+const authenticationDigestSchema = z.string().regex(/^[0-9a-f]{64}$/)
+
+function matchesAuthenticationDigest(storedDigest: string | null, currentDigest: string): boolean {
+      const stored = authenticationDigestSchema.safeParse(storedDigest)
+      const current = authenticationDigestSchema.safeParse(currentDigest)
+      if (!stored.success || !current.success) return false
+      return timingSafeEqual(Buffer.from(stored.data, "hex"), Buffer.from(current.data, "hex"))
+}
+      .optional(),
     providerKey: z.unknown(),
     sessionDigest: z.string().regex(/^[0-9a-f]{64}$/),
     sessionId: z.uuid(),
     sessionLifetimeSeconds: z.number().int().min(60).max(86_400),
   })
   .strict()
-const authenticationDigestSchema = z.string().regex(/^[0-9a-f]{64}$/)
-
-function matchesAuthenticationDigest(storedDigest: string | null, currentDigest: string): boolean {
-  const stored = authenticationDigestSchema.safeParse(storedDigest)
-  const current = authenticationDigestSchema.safeParse(currentDigest)
-  if (!stored.success || !current.success) return false
-  return timingSafeEqual(Buffer.from(stored.data, "hex"), Buffer.from(current.data, "hex"))
-}
 
 async function ensureBootstrapMembership(
   repositories: AdmissionRepositories,
@@ -89,10 +98,32 @@ async function requireActiveMembership(
   if (membership.lifecycle !== "ACTIVE") {
     throw new AdmissionDeniedError("membership_inactive", externalIdentityId)
   }
-  if (!(await repositories.lockActiveAssignment(membership.id))) {
-    throw new AdmissionDeniedError("membership_inactive", externalIdentityId)
+  const assignments = await repositories.lockActiveAssignments(membership.id)
+  if (!assignments.length) {
+    throw new AdmissionDeniedError("authority_missing", externalIdentityId)
   }
-  return membership.id
+  return {
+    membershipId: membership.id,
+    role: assignments.some((assignment) => assignment.role === "ADMINISTRATOR")
+      ? ("ADMINISTRATOR" as const)
+      : ("MEMBER" as const),
+  }
+}
+
+async function endMembershipSessions(
+  repositories: AdmissionRepositories,
+  membershipId: string,
+  createId: () => string,
+) {
+  const endedSessions = await repositories.endOpenHubSessionsForMembership(membershipId)
+  for (const endedSession of endedSessions) {
+    await repositories.createSecurityAudit({
+      id: createId(),
+      type: "session_ended",
+      sessionId: endedSession.id,
+      membershipId,
+    })
+  }
 }
 
 async function admitWithinTransaction(
@@ -100,7 +131,14 @@ async function admitWithinTransaction(
   input: z.infer<typeof inputSchema> & { providerKey: string },
   createId: () => string,
   getBootstrapSecretDigest: () => string,
-): Promise<AdmittedHubSession> {
+): Promise<
+  | { admitted: AdmittedHubSession }
+  | {
+      denied: true
+      denialAudited: boolean
+      reason: "authority_missing" | "membership_inactive" | "membership_missing"
+    }
+> {
   const provider = await repositories.lockProvider(input.providerKey)
   const revocation = await repositories.lockRevocation()
   const attempt = await repositories.lockAttempt(input.proof.authorizationAttemptId)
@@ -124,6 +162,7 @@ async function admitWithinTransaction(
     throw new AdmissionDeniedError("configuration_changed", input.proof.externalIdentityId)
   }
   let membershipId: string
+  let role: "MEMBER" | "ADMINISTRATOR"
   if (attempt.purpose === "ADMIN_ENROLLMENT") {
     const enrollment = await ensureBootstrapMembership(
       repositories,
@@ -132,23 +171,45 @@ async function admitWithinTransaction(
       createId,
     )
     membershipId = enrollment.membershipId
+    role = "ADMINISTRATOR"
     if (enrollment.authorityRestored) {
-      const endedSessions = await repositories.endOpenHubSessionsForMembership(membershipId)
-      for (const endedSession of endedSessions) {
+      await endMembershipSessions(repositories, membershipId, createId)
+    }
+  } else if (input.providerAssignment) {
+    if (input.providerAssignment.providerRevisionId !== attempt.providerRevisionId) {
+      throw new AdmissionDeniedError("configuration_changed", input.proof.externalIdentityId)
+    }
+    const applied = await applyProviderAssignmentEvidence(
+      {
+        ...input.providerAssignment,
+        externalIdentityId: input.proof.externalIdentityId,
+        userId: identity.userId,
+      },
+      { createId, repositories },
+    )
+    if (applied.denied) {
+      const reason = applied.reason
+      const denialAudited = applied.stateChanged
+      if (denialAudited) {
         await repositories.createSecurityAudit({
           id: createId(),
-          type: "session_ended",
-          sessionId: endedSession.id,
-          membershipId,
+          type: "admission_denied",
+          externalIdentityId: input.proof.externalIdentityId,
+          reason,
         })
       }
+      return { denied: true, denialAudited, reason }
     }
+    membershipId = applied.membershipId
+    role = applied.role
   } else {
-    membershipId = await requireActiveMembership(
+    const active = await requireActiveMembership(
       repositories,
       identity.userId,
       input.proof.externalIdentityId,
     )
+    membershipId = active.membershipId
+    role = active.role
   }
   const session = await repositories.createHubSession({
     digest: input.sessionDigest,
@@ -163,9 +224,7 @@ async function admitWithinTransaction(
     sessionId: input.sessionId,
     membershipId,
   })
-  return {
-    expiresAt: session.expiresAt,
-  }
+  return { admitted: { expiresAt: session.expiresAt, role } }
 }
 
 export async function admitAuthenticationProof(
@@ -177,8 +236,9 @@ export async function admitAuthenticationProof(
     ...parsedInput,
     providerKey: parseProviderKey(parsedInput.providerKey),
   }
+  let denialAuditWritten = false
   try {
-    return await runWithBoundedRetries(
+    const result = await runWithBoundedRetries(
       () =>
         dependencies.runTransaction((repositories) =>
           admitWithinTransaction(
@@ -190,7 +250,22 @@ export async function admitAuthenticationProof(
         ),
       (error) => error instanceof AdmissionTransactionConflictError,
     )
+    if ("admitted" in result) return result.admitted
+    const denial = new AdmissionDeniedError(result.reason, input.proof.externalIdentityId)
+    if (!result.denialAudited) {
+      await dependencies.writeAudit({
+        id: dependencies.createId(),
+        type: "admission_denied",
+        externalIdentityId: input.proof.externalIdentityId,
+        reason: result.reason,
+      })
+    }
+    denialAuditWritten = true
+    throw denial
   } catch (error) {
+    if (denialAuditWritten && error instanceof AdmissionDeniedError) {
+      throw error
+    }
     const denial = error instanceof AdmissionDeniedError
     const primary = denial ? error : new AdmissionPersistenceError({ cause: error })
     try {

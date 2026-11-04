@@ -23,11 +23,20 @@ type Story = StoryObj<typeof meta>
 
 export const Administrator: Story = {}
 
+export const Member: Story = {
+  args: {
+    data: {
+      ...meta.args.data,
+      roleLabel: "Member",
+    },
+  },
+}
+
 export const CallbackSucceeded: Story = {
   args: {
     data: {
       ...meta.args.data,
-      notice: "GitHub sign-in succeeded and Replica Hub restored your active session.",
+      notice: "Sign-in succeeded and Replica Hub restored your active session.",
     },
   },
 }

@@ -51,7 +51,10 @@ async function openServer(
     }
     throw new Error(`Unexpected provider request: ${url}`)
   })
-  const dependencies = createAuthenticationRouteDependencies(environment, providerRequest)
+  const dependencies = await createAuthenticationRouteDependencies(
+    environment,
+    providerRequest,
+  )
   const server = createServer(
     createApp({ authentication: dependencies, ...(logger ? { logger } : {}) }),
   )
@@ -131,7 +134,8 @@ describe("Hub admission and session flow", () => {
       await prisma.$executeRaw`
         INSERT INTO "authorization_attempts" (
           "id", "provider_revision_id", "state_digest", "browser_binding_digest",
-          "purpose", "code_verifier_ciphertext", "expires_at", "created_at", "updated_at"
+          "purpose", "code_verifier_ciphertext", "nonce_ciphertext",
+          "requires_fresh_authentication", "expires_at", "created_at", "updated_at"
         ) VALUES (
           ${attemptId}::uuid,
           ${providerRevision.id}::uuid,
@@ -139,6 +143,8 @@ describe("Hub admission and session flow", () => {
           ${createHash("sha256").update(browserBinding).digest("hex")},
           'SIGN_IN',
           ${malformedCiphertext},
+          'encrypted-nonce',
+          false,
           CURRENT_TIMESTAMP + interval '5 minutes',
           CURRENT_TIMESTAMP,
           CURRENT_TIMESTAMP
@@ -259,7 +265,10 @@ describe("Hub admission and session flow", () => {
         headers: { cookie: `hub_session=${encodeURIComponent(firstSession!)}` },
       })
       expect(restored.status).toBe(200)
-      expect(await restored.json()).toEqual({ authenticated: true })
+      expect(await restored.json()).toEqual({
+        authenticated: true,
+        role: "ADMINISTRATOR",
+      })
       const auditCountBeforeRestores = await prisma.securityAudit.count()
       const repeatedRestores = await Promise.all(
         Array.from({ length: 20 }, () =>
@@ -426,20 +435,22 @@ describe("Hub admission and session flow", () => {
       expect(oldSessions).toHaveLength(3)
 
       const alreadyEndedSession = oldSessions[0]!
-      const alreadyEndedAt = new Date()
+      const alreadyEndedAt = new Date(Date.now() + 1_000)
       await prisma.hubSession.update({
         where: { id: alreadyEndedSession.id },
         data: { endedAt: alreadyEndedAt },
       })
 
-      await prisma.membership.update({
-        where: { id: firstMembershipId },
-        data: { lifecycle: "REMOVED" },
-      })
-      await prisma.membershipAssignment.updateMany({
-        where: { membershipId: firstMembershipId },
-        data: { lifecycle: "REVOKED" },
-      })
+      await prisma.$executeRaw`
+        UPDATE "memberships"
+        SET "lifecycle" = 'REMOVED', "updated_at" = clock_timestamp()
+        WHERE "id" = ${firstMembershipId}::uuid
+      `
+      await prisma.$executeRaw`
+        UPDATE "membership_assignments"
+        SET "lifecycle" = 'REVOKED', "updated_at" = clock_timestamp()
+        WHERE "membership_id" = ${firstMembershipId}::uuid
+      `
       const assignmentRestoreAuditsBefore = await prisma.securityAudit.count({
         where: { action: "membership.assignment.restored" },
       })
@@ -659,29 +670,44 @@ describe("Hub admission and session flow", () => {
       )
       const enrolled = await completeAuthentication(server.baseUrl, enrollment)
       const session = cookieValue(enrolled, "hub_session")!
-      await prisma.membership.updateMany({ data: { lifecycle: "SUSPENDED" } })
+      await prisma.$executeRaw`
+        UPDATE "memberships"
+        SET "lifecycle" = 'SUSPENDED', "updated_at" = clock_timestamp()
+      `
       const suspended = await fetch(`${server.baseUrl}/api/auth/session`, {
         headers: { cookie: `hub_session=${encodeURIComponent(session)}` },
       })
       expect(suspended.status).toBe(401)
       expect(suspended.headers.get("set-cookie")).toBeNull()
 
-      await prisma.membership.updateMany({ data: { lifecycle: "ACTIVE" } })
+      await prisma.$executeRaw`
+        UPDATE "memberships"
+        SET "lifecycle" = 'ACTIVE', "updated_at" = clock_timestamp()
+      `
       const secondSignIn = await startAuthentication(server.baseUrl, "/api/auth/github/start")
       const secondSignedIn = await completeAuthentication(server.baseUrl, secondSignIn)
       const secondSession = cookieValue(secondSignedIn, "hub_session")!
-      await prisma.membershipAssignment.updateMany({ data: { lifecycle: "REVOKED" } })
+      await prisma.$executeRaw`
+        UPDATE "membership_assignments"
+        SET "lifecycle" = 'REVOKED', "updated_at" = clock_timestamp()
+      `
       expect(
         await fetch(`${server.baseUrl}/api/auth/session`, {
           headers: { cookie: `hub_session=${encodeURIComponent(secondSession)}` },
         }),
       ).toMatchObject({ status: 401 })
 
-      await prisma.membershipAssignment.updateMany({ data: { lifecycle: "ACTIVE" } })
+      await prisma.$executeRaw`
+        UPDATE "membership_assignments"
+        SET "lifecycle" = 'ACTIVE', "updated_at" = clock_timestamp()
+      `
       const thirdSignIn = await startAuthentication(server.baseUrl, "/api/auth/github/start")
       const thirdSignedIn = await completeAuthentication(server.baseUrl, thirdSignIn)
       const thirdSession = cookieValue(thirdSignedIn, "hub_session")!
-      await prisma.membership.updateMany({ data: { lifecycle: "REMOVED" } })
+      await prisma.$executeRaw`
+        UPDATE "memberships"
+        SET "lifecycle" = 'REMOVED', "updated_at" = clock_timestamp()
+      `
       expect(
         await fetch(`${server.baseUrl}/api/auth/session`, {
           headers: { cookie: `hub_session=${encodeURIComponent(thirdSession)}` },

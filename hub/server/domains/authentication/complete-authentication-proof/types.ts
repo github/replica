@@ -1,10 +1,17 @@
-import type { AuthenticationProofResult, AuthenticationProviderAdapter } from "../types.ts"
+import type {
+  AuthenticationProofResult,
+  AuthenticationProviderAdapter,
+  ProviderAssignmentEvidence,
+} from "../types.ts"
 import type { SelectedProviderRevision } from "../start-authentication-proof/types.ts"
 
 export interface ConsumedAuthorizationAttempt {
   id: string
   codeVerifierCiphertext: string
+  createdAt: Date
+  nonceCiphertext: string | null
   providerRevisionId: string
+  requiresFreshAuthentication: boolean
 }
 
 export interface CompleteAuthenticationProofDependencies {
@@ -15,6 +22,7 @@ export interface CompleteAuthenticationProofDependencies {
     stateDigest: string
   }): Promise<ConsumedAuthorizationAttempt | null>
   decryptCodeVerifier(value: string): string
+  decryptNonce(value: string): string
   localConfigurationDigest: string
   localRevision: number
   getSelectedProviderRevision(): Promise<SelectedProviderRevision | null>
@@ -39,5 +47,6 @@ export interface CompleteAuthenticationProofInput {
 }
 
 export interface CompleteAuthenticationProofResult {
+  providerAssignment?: ProviderAssignmentEvidence & { providerRevisionId: string }
   proof: AuthenticationProofResult
 }

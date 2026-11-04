@@ -2,21 +2,22 @@ import { randomUUID } from "node:crypto"
 import type { RequestHandler } from "express"
 import { z } from "zod"
 
-import { AdmissionDeniedError } from "../../../../../../domains/admission/errors.ts"
-import { AuthenticationProofError } from "../../../../../../domains/authentication/errors.ts"
-import { createOpaqueValue } from "../../../../../../domains/authentication/create-opaque-value/index.ts"
-import { hashAuthenticationValue } from "../../../../../../domains/authentication/hash-authentication-value/index.ts"
-import { browserAuthenticationCookieName } from "../../../../../../integrations/express/browser-authentication-cookie-name/index.ts"
-import { clearAuthenticationCookie } from "../../../../../../integrations/express/clear-authentication-cookie/index.ts"
-import { createAuthenticationCookie } from "../../../../../../integrations/express/create-authentication-cookie/index.ts"
-import { hubSessionCookieName } from "../../../../../../integrations/express/hub-session-cookie-name/index.ts"
-import { readCookie } from "../../../../../../integrations/express/read-cookie/index.ts"
-import type { AuthenticationCallbackDependencies } from "../../../types.ts"
+import { AdmissionDeniedError } from "../../../../../domains/admission/errors.ts"
+import { AuthenticationProofError } from "../../../../../domains/authentication/errors.ts"
+import { createOpaqueValue } from "../../../../../domains/authentication/create-opaque-value/index.ts"
+import { hashAuthenticationValue } from "../../../../../domains/authentication/hash-authentication-value/index.ts"
+import { browserAuthenticationCookieName } from "../../../../../integrations/express/browser-authentication-cookie-name/index.ts"
+import { clearAuthenticationCookie } from "../../../../../integrations/express/clear-authentication-cookie/index.ts"
+import { createAuthenticationCookie } from "../../../../../integrations/express/create-authentication-cookie/index.ts"
+import { hubSessionCookieName } from "../../../../../integrations/express/hub-session-cookie-name/index.ts"
+import { readCookie } from "../../../../../integrations/express/read-cookie/index.ts"
+import type { AuthenticationCallbackDependencies } from "../../types.ts"
 
 const querySchema = z
   .object({
-    code: z.string().min(1).max(1_000),
-    iss: z.literal("https://github.com/login/oauth").optional(),
+    code: z.string().min(1).max(2_048),
+    iss: z.string().min(1).max(500).optional(),
+    session_state: z.string().min(1).max(500).optional(),
     state: z.string().min(32).max(200),
   })
   .strict()
@@ -28,7 +29,11 @@ export function get(dependencies: AuthenticationCallbackDependencies): RequestHa
     const browserBinding = browserBindingSchema.safeParse(
       readCookie(request, browserAuthenticationCookieName),
     )
-    if (!query.success || !browserBinding.success) {
+    if (
+      !query.success ||
+      !browserBinding.success ||
+      (query.data.iss !== undefined && query.data.iss !== dependencies.callbackIssuer)
+    ) {
       response.setHeader(
         "Set-Cookie",
         clearAuthenticationCookie(browserAuthenticationCookieName, dependencies.secureCookie),
@@ -45,6 +50,7 @@ export function get(dependencies: AuthenticationCallbackDependencies): RequestHa
       const sessionValue = createOpaqueValue()
       const admitted = await dependencies.admit({
         proof: completed.proof,
+        providerAssignment: completed.providerAssignment,
         sessionDigest: hashAuthenticationValue(sessionValue),
         sessionId: randomUUID(),
       })

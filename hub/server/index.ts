@@ -35,7 +35,7 @@ try {
     if (runsApi && process.env.HUB_APPLICATION_ORIGIN) {
       const { createAuthenticationRouteDependencies } =
         await import("./routes/api/auth/create-authentication-route-dependencies/index.ts")
-      authentication = createAuthenticationRouteDependencies(process.env)
+      authentication = await createAuthenticationRouteDependencies(process.env)
     }
     if (configuration.mode === "setup") await setup()
     else if (configuration.mode === "api")

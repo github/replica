@@ -1,22 +1,25 @@
 model MembershipAssignment {
   // ID columns
-  id                 String @id @default(uuid()) @db.Uuid
-  membershipId       String @map("membership_id") @db.Uuid
-  externalIdentityId String @unique @map("external_identity_id") @db.Uuid
+  id                 String  @id @default(uuid()) @db.Uuid
+  membershipId       String  @map("membership_id") @db.Uuid
+  externalIdentityId String  @map("external_identity_id") @db.Uuid
+  providerRevisionId String? @map("provider_revision_id") @db.Uuid
 
   // Relations
-  membership       Membership       @relation(fields: [membershipId], references: [id], onDelete: Restrict)
-  externalIdentity ExternalIdentity @relation(fields: [externalIdentityId], references: [id], onDelete: Restrict)
+  membership       Membership                      @relation(fields: [membershipId], references: [id], onDelete: Restrict)
+  externalIdentity ExternalIdentity                @relation(fields: [externalIdentityId], references: [id], onDelete: Restrict)
+  providerRevision AuthenticationProviderRevision? @relation(fields: [providerRevisionId], references: [id], onDelete: Restrict)
 
   // Attribute columns
-  source    MembershipAssignmentSource
-  role      MembershipRole
-  lifecycle MembershipAssignmentLifecycle @default(ACTIVE)
+  source                    MembershipAssignmentSource
+  role                      MembershipRole
+  lifecycle                 MembershipAssignmentLifecycle @default(ACTIVE)
+  providerAssignmentSubject String?                       @map("provider_assignment_subject") @db.VarChar(100)
 
   // Timestamp columns
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  @@unique([membershipId, source, role])
+  @@index([providerRevisionId])
   @@map("membership_assignments")
 }

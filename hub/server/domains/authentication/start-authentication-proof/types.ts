@@ -16,14 +16,18 @@ export interface StartAuthenticationProofDependencies {
     codeVerifierCiphertext: string
     id: string
     lifetimeSeconds: number
+    nonceCiphertext: string
     providerRevisionId: string
+    requiresFreshAuthentication: boolean
     stateDigest: string
   }): Promise<{ expiresAt: Date }>
   createId(): string
   createOpaqueValue(): string
   deleteExpiredArtifacts(): Promise<void>
   encryptCodeVerifier(value: string): string
+  encryptNonce(value: string): string
   getSelectedProviderRevision(): Promise<SelectedProviderRevision | null>
+  requiresFreshAuthentication: boolean
   writeDenialAudit(reason: "configuration_changed"): Promise<unknown>
 }
 

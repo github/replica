@@ -19,7 +19,9 @@ describe("startAuthenticationProof()", () => {
         return url
       },
     )
-    const opaqueValues = ["state-secret", "browser-secret", "verifier-secret"][Symbol.iterator]()
+    const opaqueValues = ["state-secret", "browser-secret", "verifier-secret", "nonce-secret"][
+      Symbol.iterator
+    ]()
     const encryptCodeVerifier = vi.fn(
       (value: string) => `encrypted:${createHash("sha256").update(value).digest("hex")}`,
     )
@@ -40,12 +42,14 @@ describe("startAuthenticationProof()", () => {
         createOpaqueValue: () => opaqueValues.next().value!,
         deleteExpiredArtifacts: vi.fn(),
         encryptCodeVerifier,
+        encryptNonce: vi.fn((value: string) => `encrypted:${value}`),
         getSelectedProviderRevision: () =>
           Promise.resolve({
             id: "00000000-0000-4000-8000-000000000011",
             revision: 1,
             configurationDigest: "a".repeat(64),
           }),
+        requiresFreshAuthentication: false,
         writeDenialAudit: vi.fn(),
       },
     )
@@ -59,6 +63,8 @@ describe("startAuthenticationProof()", () => {
     expect(createAuthorizationUrl).toHaveBeenCalledWith({
       callbackUri: "https://hub.test/callback",
       codeChallenge: expectedChallenge,
+      freshAuthentication: false,
+      nonce: "nonce-secret",
       state: "state-secret",
     })
     const authorizationUrl = new URL(result.authorizationUrl)
@@ -73,6 +79,8 @@ describe("startAuthenticationProof()", () => {
       browserBindingDigest: createHash("sha256").update("browser-secret").digest("hex"),
       codeVerifierCiphertext: expectedCiphertext,
       lifetimeSeconds: 600,
+      nonceCiphertext: "encrypted:nonce-secret",
+      requiresFreshAuthentication: false,
     })
     expect(encryptCodeVerifier).toHaveBeenCalledOnce()
     expect(encryptCodeVerifier).toHaveBeenCalledWith("verifier-secret")
@@ -97,6 +105,7 @@ describe("startAuthenticationProof()", () => {
       createOpaqueValue: vi.fn(),
       deleteExpiredArtifacts: vi.fn(),
       encryptCodeVerifier: vi.fn(),
+      encryptNonce: vi.fn(),
       getSelectedProviderRevision: () =>
         Promise.resolve({
           id: "00000000-0000-4000-8000-000000000011",
@@ -104,6 +113,7 @@ describe("startAuthenticationProof()", () => {
           configurationDigest: "a".repeat(64),
         }),
       now: () => new Date("2026-10-30T16:00:00Z"),
+      requiresFreshAuthentication: false,
       writeDenialAudit: vi.fn(),
     }
 
@@ -133,12 +143,14 @@ describe("startAuthenticationProof()", () => {
         createOpaqueValue: vi.fn(),
         deleteExpiredArtifacts: vi.fn(),
         encryptCodeVerifier: vi.fn(),
+        encryptNonce: vi.fn(),
         getSelectedProviderRevision: () =>
           Promise.resolve({
             id: "00000000-0000-4000-8000-000000000011",
             revision: 1,
             configurationDigest: "a".repeat(64),
           }),
+        requiresFreshAuthentication: false,
         writeDenialAudit: () => Promise.reject(auditFailure),
       },
     ).catch((caught: unknown) => caught)

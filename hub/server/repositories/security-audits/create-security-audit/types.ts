@@ -45,6 +45,16 @@ export interface MembershipAssignmentRestoredAudit extends SecurityAuditEvent {
   membershipId: string
 }
 
+export interface ProviderMembershipAssignmentAudit extends SecurityAuditEvent {
+  type:
+    | "provider_membership_assignment_created"
+    | "provider_membership_assignment_revoked"
+    | "provider_membership_assignment_superseded"
+  assignmentId: string
+  membershipId: string
+  role: "MEMBER" | "ADMINISTRATOR"
+}
+
 export interface SessionCreatedAudit extends SecurityAuditEvent {
   type: "session_created"
   sessionId: string
@@ -61,6 +71,7 @@ export interface AdmissionDeniedAudit extends SecurityAuditEvent {
   type: "admission_denied"
   externalIdentityId: string
   reason:
+    | "authority_missing"
     | "attempt_mismatch"
     | "configuration_changed"
     | "identity_mismatch"
@@ -120,6 +131,7 @@ export type CreateSecurityAuditEvent =
   | BootstrapAttemptDeniedAudit
   | MembershipAssignmentCreatedAudit
   | MembershipAssignmentRestoredAudit
+  | ProviderMembershipAssignmentAudit
   | MembershipCreatedAudit
   | MembershipRestoredAudit
   | SessionCreatedAudit
