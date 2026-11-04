@@ -68,4 +68,20 @@ npm run db:generate
 
 Use `db:migrate` only with a local development database. It needs permission to create a shadow database to calculate migrations. `npm run db:deploy` applies committed migrations without creating new ones; database tests use this command so constraints in committed migrations are exercised. It is not a production deployment setup. `npm run db:studio` opens Prisma's database editor and should be used only with an intended development database.
 
+## Deployment database roles
+
+The Azure installation separates database provisioning, migrations, and normal data access:
+
+| Principal           | Access                                                                                                                                                                                                                                                                                                               |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Administrator       | One-time database and role provisioning; never passed to Hub or its setup job.                                                                                                                                                                                                                                       |
+| `replica_migration` | Can create schemas in this database and owns `public`, `bullmq`, and their migration-created objects. Runs setup, not the long-running app.                                                                                                                                                                          |
+| `replica_runtime`   | Uses both schemas, reads/writes application and queue data, uses sequences and executes queue functions. Cannot create schemas, change permanent schema objects, create roles, truncate tables, or change migration ledgers. BullMQ requires read access to its ledger and temporary-table permission for bulk jobs. |
+
+`server/scripts/provision-database-access/` creates the two login roles and schema ownership on a fresh database. It requires administrator access over the private database network and separate passwords of at least 16 characters. Existing roles, public tables, or a pre-existing BullMQ schema cause failure and rollback rather than adopting unknown permissions. Use a reviewed ownership migration for existing installations.
+
+When `DATABASE_RUNTIME_ROLE=replica_runtime`, setup runs `server/scripts/grant-runtime-database-access/` after Prisma and BullMQ setup. That script initializes the two queues' lazy ID sequences before granting data access, so runtime never needs permanent schema creation rights. It refreshes grants for newly migrated tables, sequences, and functions, excludes the Prisma ledger, and permits only reading BullMQ's ledger. Product additions that need other database capabilities must explicitly update and verify this contract.
+
+Local development keeps its existing database user and leaves `DATABASE_RUNTIME_ROLE` unset. See the [Azure installation guide](../../infrastructure/README.md) for private-network provisioning, secret references, release ordering, and recovery.
+
 The [database-enabled test projects](testing-and-operations.md#parallel-database-tests) use separate databases for every project, worker, and test run. Setup deploys the committed migrations and clears records before each case. Tests do not use the development database for records.

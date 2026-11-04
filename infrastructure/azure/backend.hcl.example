@@ -1,0 +1,6 @@
+resource_group_name  = "your-existing-terraform-state-group"
+storage_account_name = "youruniquestateaccount"
+container_name      = "terraform"
+key                 = "replica-hub.tfstate"
+use_azuread_auth     = true
+use_oidc            = true

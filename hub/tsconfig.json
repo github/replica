@@ -30,6 +30,7 @@
     "client",
     ".react-router/types/**/*",
     "server",
+    "script/**/*.ts",
     "test",
     ".storybook/**/*.ts",
     ".storybook/**/*.tsx",

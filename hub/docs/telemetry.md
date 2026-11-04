@@ -19,16 +19,16 @@ OTEL_TRACES_SAMPLER_ARG=1
 
 The recipient can be a provider that accepts OTLP over HTTP/protobuf or an operator-managed OpenTelemetry Collector that forwards to other platforms. Use HTTPS for remote recipients. This integration does not include provider-specific SDKs, configure a Collector, or prove that a provider displays accepted traces.
 
-| Variable | Contract |
-| --- | --- |
-| `OTEL_TRACES_EXPORTER` | `none` is the default; `otlp` enables export. Other values fail startup. |
-| `OTEL_SDK_DISABLED` | `true`, ignoring case, disables telemetry regardless of other settings. With export enabled, other nonempty values must be `false`. |
-| `OTEL_SERVICE_NAME` | Defaults to `replica-hub`. Use a static service label of at most 100 printable characters, not secrets or personal data. |
-| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | Explicit absolute HTTP(S) URL with a request path. Credentials, query strings, and fragments are rejected. |
-| `OTEL_EXPORTER_OTLP_TRACES_PROTOCOL` | Only `http/protobuf` is supported. |
-| `OTEL_EXPORTER_OTLP_TRACES_HEADERS` | Optional comma-separated URL-encoded `key=value` authentication headers. For example, `Authorization=Bearer%20example`. Keep real values private. |
-| `OTEL_TRACES_SAMPLER` | `parentbased_traceidratio` is the default. `always_on` and `always_off` are also supported. Other samplers fail startup. |
-| `OTEL_TRACES_SAMPLER_ARG` | A finite fraction from `0` through `1`, defaulting to `1`, controls the root sampling ratio. It is validated but has no effect for `always_on` and `always_off`. |
+| Variable                             | Contract                                                                                                                                                         |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OTEL_TRACES_EXPORTER`               | `none` is the default; `otlp` enables export. Other values fail startup.                                                                                         |
+| `OTEL_SDK_DISABLED`                  | `true`, ignoring case, disables telemetry regardless of other settings. With export enabled, other nonempty values must be `false`.                              |
+| `OTEL_SERVICE_NAME`                  | Defaults to `replica-hub`. Use a static service label of at most 100 printable characters, not secrets or personal data.                                         |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | Explicit absolute HTTP(S) URL with a request path. Credentials, query strings, and fragments are rejected.                                                       |
+| `OTEL_EXPORTER_OTLP_TRACES_PROTOCOL` | Only `http/protobuf` is supported.                                                                                                                               |
+| `OTEL_EXPORTER_OTLP_TRACES_HEADERS`  | Optional comma-separated URL-encoded `key=value` authentication headers. For example, `Authorization=Bearer%20example`. Keep real values private.                |
+| `OTEL_TRACES_SAMPLER`                | `parentbased_traceidratio` is the default. `always_on` and `always_off` are also supported. Other samplers fail startup.                                         |
+| `OTEL_TRACES_SAMPLER_ARG`            | A finite fraction from `0` through `1`, defaulting to `1`, controls the root sampling ratio. It is validated but has no effect for `always_on` and `always_off`. |
 
 Common `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_PROTOCOL`, and `OTEL_EXPORTER_OTLP_HEADERS` settings are also accepted. Trace-specific settings take precedence, even when empty. The common endpoint is a base URL; Hub appends `/v1/traces` to its path. Enabled export requires an explicit endpoint. Disabled telemetry does not validate unused export settings or create an exporter.
 
@@ -40,7 +40,7 @@ Hub sets its own resource, sampler, batching, and context policies rather than l
 
 The API and worker entrypoints already call it before accepting requests or starting consumers. Static imports are sufficient because this foundation does not patch dependencies. `createApp()` does not initialize global telemetry or install signal handlers.
 
-The returned `{ shutdown() }` belongs to the entrypoint, not to domains or request handlers. The entrypoint waits for API requests and WebSockets, or active worker jobs, to drain, then awaits shutdown in `finally`. API and worker drain limits are 30 seconds; telemetry shutdown adds at most five seconds. Operators must allow both windows before terminating a process. Startup failures and shutdown timeouts exit unsuccessfully.
+The returned `{ shutdown() }` belongs to the entrypoint, not to domains or request handlers. The entrypoint waits for API requests and WebSockets, or active worker jobs, to drain, then awaits shutdown in `finally`. API and worker drain limits use `SHUTDOWN_TIMEOUT_MS` (30000 milliseconds by default); telemetry shutdown adds at most five seconds. Operators must allow both windows before terminating a process. Startup failures and shutdown timeouts exit unsuccessfully.
 
 Shutdown flushes queued spans and closes the SDK. It is idempotent, including when telemetry is disabled. Normal batching holds at most 256 spans, exports at most 64 per batch, and attempts export at one-second intervals with a two-second export timeout. Queue saturation or failed delivery can lose spans. Export failures produce safe static logs, not errors in the feature being traced. Shutdown failure is reported separately and rejects the shutdown call.
 
@@ -51,10 +51,8 @@ Call `withTelemetrySpan()` around one meaningful operation in a route or domain.
 ```ts
 import { withTelemetrySpan } from "../../../integrations/opentelemetry/with-telemetry-span/index.ts"
 
-return withTelemetrySpan(
-  "build.import",
-  { "replica.build.id": buildId },
-  () => importBuild(buildId),
+return withTelemetrySpan("build.import", { "replica.build.id": buildId }, () =>
+  importBuild(buildId),
 )
 ```
 

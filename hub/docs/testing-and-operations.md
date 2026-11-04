@@ -16,7 +16,9 @@ npm run storybook:build
 
 `npm test` runs API and utility tests in Node.js and frontend tests in jsdom, which provides a browser-like environment. Neither requires PostgreSQL. To run a focused API check, use `npm test -- server/create-app/index.test.ts`. HTTP tests listen on temporary loopback ports and close their servers afterward.
 
-The API health check proves only that Express responds. Routes that have not been built must return 404 rather than pretending to work.
+The API health check proves only that Express responds. Product API routes that have not been built must return 404 rather than pretending to work.
+
+Run `npm run image:check` with a Docker-compatible daemon to build the production image and exercise role provisioning, repeated setup, runtime data access and denied schema changes, queue processing, readiness, serving, and shutdown against disposable PostgreSQL. It creates uniquely named resources and removes them afterward. The image compiles the Hub runtime only; the normal `build` command also checks the frontend, test tooling, and shared extension.
 
 Installation generates Prisma Client without a database connection. Client tests check reuse across development reloads, production behavior, and errors for missing configuration.
 

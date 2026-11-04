@@ -2,13 +2,13 @@
 
 Organize backend functions into routes, repositories, integrations, utilities, and domains. Each layer has a clear job and rules for which other layers it may use.
 
-| Layer | Responsibility | Directory example |
-| --- | --- | --- |
-| Routes | Parse HTTP requests, call backend functions, and send responses. Directories follow URL paths and HTTP methods. | `routes/api/health/get/index.ts` |
-| Repositories | Functions that interact with the database. Each repository directory represents one RESTful resource. | `repositories/user/get-user/index.ts` |
-| Integrations | Functions that interact with an API or SDK. Each integration directory represents one API or SDK service. | `integrations/github/get-user/index.ts` |
-| Utilities | General functions reusable elsewhere in the codebase. | `utils/format-timestamp/index.ts` |
-| Domains | Business logic functions that may compose repositories, integrations, and utilities. | `domains/user/get-user-profile/index.ts` |
+| Layer        | Responsibility                                                                                                  | Directory example                        |
+| ------------ | --------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| Routes       | Parse HTTP requests, call backend functions, and send responses. Directories follow URL paths and HTTP methods. | `routes/api/health/get/index.ts`         |
+| Repositories | Functions that interact with the database. Each repository directory represents one RESTful resource.           | `repositories/user/get-user/index.ts`    |
+| Integrations | Functions that interact with an API or SDK. Each integration directory represents one API or SDK service.       | `integrations/github/get-user/index.ts`  |
+| Utilities    | General functions reusable elsewhere in the codebase.                                                           | `utils/format-timestamp/index.ts`        |
+| Domains      | Business logic functions that may compose repositories, integrations, and utilities.                            | `domains/user/get-user-profile/index.ts` |
 
 ## Import boundaries
 
@@ -36,6 +36,8 @@ Put each function in a directory named with lowercase words and hyphens, such as
 Export route handlers by HTTP method, such as `get()`, and alias them to descriptive `handle*` names in `routes/index.ts`. Its `routes()` function registers endpoints; `createApp()` installs shared middleware and error handling. Express-specific helpers belong in `integrations/express`, not utilities.
 
 Add directories when their functions are needed. Do not add empty implementations just to fill out the structure.
+
+Operational entry points belong under `server/scripts/`. They may compose backend functions and run deployment tools, but routes and domains must not import them. Setup runs separately from the API and workers.
 
 ## Database access
 

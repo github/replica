@@ -1,6 +1,6 @@
 # Hub development
 
-Use the Hub devcontainer for Node.js and PostgreSQL, or run Node.js locally. The mock frontend needs no database or API server. Sign-in and production deployment are not configured.
+Use the Hub devcontainer for Node.js and PostgreSQL, or run Node.js locally. The mock frontend needs no database or API server. Sign-in is not configured. See [Deployment](deployment.md) for the production runtime.
 
 ## Frontend without a backend
 
@@ -11,7 +11,7 @@ npm ci --engine-strict
 npm run dev:mock
 ```
 
-Open <http://127.0.0.1:5173/repositories/2001>. This connects the first repository/prototype/build journey to local synthetic data, not GitHub or the real API. Reloading resets mock edits. See [Routed frontend](frontend.md) for scenarios, contracts, and the remaining pages.
+Open <http://127.0.0.1:5173/repositories/2001>. Explore the retained product pages using local mock data, not GitHub or the real API. Reloading resets mock edits. See [Routed frontend](frontend.md) for scenarios, contracts, and the page inventory.
 
 ## Devcontainer
 
@@ -47,7 +47,7 @@ In a second terminal, also from `hub/`, start Vite:
 npm run dev
 ```
 
-Open <http://127.0.0.1:5173>. React Router's Vite development server forwards `/api` requests to Express at <http://127.0.0.1:3001>. `GET /api/health` returns JSON; other API routes have not been built, so product pages display API errors in real mode rather than falling back to fixtures. The internal proof primitives described in [Authentication proof](authentication.md) are not registered as routes.
+Open <http://127.0.0.1:5173>. React Router's Vite development server forwards `/api` requests to Express at <http://127.0.0.1:3001>. `GET /api/health` and `GET /api/ready` return JSON. Product API routes have not been built, so product pages display API errors in real mode rather than falling back to fixtures. The internal proof primitives described in [Authentication proof](authentication.md) are not registered as routes.
 
 The current API has no public authentication route or authentication environment settings. Both servers accept connections only from this machine. Stop each with Ctrl+C.
 
@@ -55,7 +55,7 @@ Vite also forwards WebSocket upgrades under `/api`. The `/api/realtime` endpoint
 
 The API reads an optional `PORT` environment variable, defaulting to 3001. If you change it, update the local Vite proxy target to match. The editor forwards ports 3001, 5173, and 6006 from the devcontainer. API startup reads `.env` when present; Compose's environment takes precedence.
 
-On `SIGINT` or `SIGTERM`, the API stops accepting requests and allows active requests up to 30 seconds to finish, then flushes [optional telemetry](telemetry.md) within five seconds. No automatic request tracing is installed.
+On `SIGINT` or `SIGTERM`, the API stops accepting requests and allows active requests up to `SHUTDOWN_TIMEOUT_MS` (30000 milliseconds by default) to finish, then flushes [optional telemetry](telemetry.md) within five seconds. No automatic request tracing is installed.
 
 ## Background workers
 
@@ -80,7 +80,7 @@ npm run build
 npm start
 ```
 
-The build generates Framework route types and produces `dist/client/` and `dist/server/`. `npm start` runs only the compiled API. In a separate terminal, `npm run preview` serves the built frontend in real mode for local inspection. Mock workers and preview assets are development-only. Production frontend hosting, API routing, and deployment are not configured; page fallback must not replace JSON API 404 responses.
+The build generates Framework route types and produces `dist/client/` and `dist/server/`. `npm start` runs only the compiled API by default. In a separate terminal, `npm run preview` serves the built frontend in real mode for local inspection. Mock workers and preview assets are development-only. The [production image](deployment.md) serves the frontend and API on one port and runs both workers; unknown API routes remain JSON 404 responses rather than returning the frontend document.
 
 Use `npm run storybook` to view the existing components and pages at <http://localhost:6006>. They use sample data, not the new API.
 

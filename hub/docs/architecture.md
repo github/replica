@@ -8,19 +8,23 @@ The team has chosen TypeScript, Express for the API, React and Vite for the fron
 
 The API responds to a health check. The frontend connects all retained pages through an explicit local mock mode, including prototype creation, reviews, sharing, account/setup, and administrative flows. Storybook remains the presentation workbench. These simulations do not implement real authentication, permission enforcement, publishing, or backend product services.
 
-Contributors can use PostgreSQL and Prisma locally or in the devcontainer. The database has a provider-neutral identity transaction foundation and internal GitHub authentication proof primitives. No public authentication flow is exposed. Production sign-in, deployment, and product APIs have not been built. The app cannot yet discover real repositories, import Builds, host published previews, persist product data, or support live multi-user reviews.
+Contributors can use PostgreSQL and Prisma locally or in the devcontainer. The database has a provider-neutral identity transaction foundation and internal GitHub authentication proof primitives. No public authentication flow is exposed. Production sign-in and product APIs have not been built. The app cannot yet discover real repositories, import Builds, host published previews, persist product data, or support live multi-user reviews.
+
+The [production runtime](deployment.md) serves the built frontend and API and runs both workers in one image. Deployment runs database and job setup separately before starting that image.
 
 ## Backend
 
 API code lives under `server/`. As features are added, route handlers will read requests, call domains, and return responses. The [code conventions](backend-architecture.md) explain repositories, integrations, utilities, domains, and which layers may import others. Put these directories under `server/` when they are needed; do not add empty implementations.
 
-`GET /api/health` returns `{ "status": "ok" }`. Authentication routes are not registered. Unknown paths return a JSON 404 response; invalid JSON is rejected before routing. `createApp()` builds the Express app without starting a server. `server/index.ts` starts it at a local address.
+`GET /api/health` returns `{ "status": "ok" }`; `GET /api/ready` reports operational readiness. Authentication routes are not registered. Unknown API paths return a JSON 404 response; invalid JSON is rejected before routing. `createApp()` builds the Express app without starting a server. `server/index.ts` selects a runtime role and defaults to the local API.
 
 The [database guide](database.md) defines the multi-file Prisma schema and shared client in integrations. The health route remains a process check, not a database readiness check.
 
 The [Pino integration](logging.md) writes structured application and HTTP logs to stdout. `createApp()` installs request logging and JSON parsing before routes, so new endpoints inherit completion records and server-generated request IDs without explicit logging calls.
 
 The [background-job foundation](background-jobs.md) uses BullMQ with PostgreSQL and separate on-demand and scheduled worker processes. Setup migrates BullMQ's own schema independently of Prisma. Product processors and schedules are not registered yet.
+
+The [artifact storage domain](artifact-storage.md) selects filesystem or managed-identity Azure Blob storage behind one immutable-byte contract. Future product domains call this provider-neutral API, not SDK integrations directly. Startup validates explicitly configured storage, but no product route or processor consumes artifact bytes yet.
 
 The [telemetry integration](telemetry.md) provides explicit server-side OpenTelemetry spans with optional operator-configured OTLP export. API and worker entrypoints own startup and flush telemetry after draining active work. Automatic instrumentation and product analytics are not implemented.
 
