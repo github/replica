@@ -61,6 +61,10 @@ Decide per page:
 Each URL appears once. A login dialog, menu or panel that opens on a page is
 not its own row: note it on that page's row.
 
+`stub-auth`, `stub-download` and `deferred` rows also get a local `route` and a
+`status`, because Build renders a local boundary page for each. `stub-external`
+rows link to the original URL and need neither.
+
 `decision` is coverage scope and does not change by phase. A page you are
 capturing now but building later is still `build`, with `status: planned`.
 
@@ -81,6 +85,13 @@ Write `reference/coverage.json`:
       "representative": true,
       "decision": "build",
       "route": "/cards",
+      "status": "planned"
+    },
+    {
+      "url": "https://example.com/login",
+      "foundIn": ["header"],
+      "decision": "stub-auth",
+      "route": "/login",
       "status": "planned"
     }
   ]

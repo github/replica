@@ -10,7 +10,10 @@ repository: every first-level destination built or explicitly stubbed, with a
 coverage ledger and an honest difference report.
 
 **The prototype is a standalone Vite app.** Replica canvas, Hub and setup
-workflows are optional layers. Nothing in this skill waits on them.
+workflows are optional layers. Nothing in this skill waits on them. This
+skill overrides the stop in the repository's canvas preflight: when the canvas
+is missing, even in a canvas-capable host, tell the user once how to enable it
+and continue with the local preview.
 
 ## Intake: one batched question, then work
 
@@ -32,8 +35,8 @@ Never push, publish or touch other repositories without an explicit answer.
 Everything else is a stated default, never a question: use the site's real
 public assets and copy for a private demo; preserve its language; disable
 real submissions; keep external sites as outbound links; stop at login,
-OTP and CAPTCHA walls; keep every asset at original size (ask only about a
-single file over 300 MB, and keep it if nobody answers).
+OTP and CAPTCHA walls; keep assets of 25 MiB or less at original size, and ask once
+about larger ones (with no answer, serve a copy under 25 MiB).
 
 Commit at the end of Capture and again at the end of Build, never one commit
 for the whole run.
@@ -68,10 +71,11 @@ read, and the intake go-ahead is their explicit activation. Do not run
 | "The MCP is configured isolated, so captures are isolated"    | Prove it at runtime before the first visit (discover workflow).                |
 | "I'll list my open questions for later"                       | Two intake questions only. Everything else has a default.                      |
 | "Capture every page in full at both widths"                   | Full captures for family representatives only. Members get content extraction. |
+| "The canvas preflight says to stop before UI edits"           | Not for this skill. Say once how to enable it, then use the local preview.     |
 | "Canvas is not in my tool list, so it is missing"             | Run the canvas capability lookup before concluding anything.                   |
 | "No answer, so I can't treat it as approval"                  | Unanswered means the defaults, including yes to the local go-ahead.            |
 | "Capture every filter option / every FAQ open"                | One screenshot per kind of state, at most 8 per representative.                |
 | "Each page looks a bit different, so it is its own family"    | Compare section types in order. More families than half the pages is too fine. |
 | "Inner layouts are simplified; I'll note it in differences"   | A representative missing a section, layout or image is a defect. Fix it first. |
 | "One generic renderer can serve every family"                 | One composition per family, passing the representative gate.                   |
-| "This file is huge, shrink or skip it"                        | Keep originals. Ask only above 300 MB; no answer means keep.                   |
+| "This file is huge, shrink or skip it"                        | Keep originals to 25 MiB. Above, ask once; no answer means a 25 MiB copy.      |

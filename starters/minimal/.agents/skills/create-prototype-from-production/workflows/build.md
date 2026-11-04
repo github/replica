@@ -1,12 +1,15 @@
 # Build
 
-## Canvas preflight
+## Canvas
 
-Before the first UI edit, complete the repository's canvas preflight. In a
-canvas-capable host, call the canvas capability lookup (for example
-`list_canvas_capabilities`) instead of judging from the advertised tool list.
-Only a failed lookup means the canvas is missing. Hosts without canvas support
-use the local preview.
+Before the first UI edit, in a canvas-capable host, call the canvas capability
+lookup (for example `list_canvas_capabilities`) instead of judging from the
+advertised tool list. Only a failed lookup means the canvas is missing. If the
+Replica canvas is available, use it for previews. If it is missing, tell the
+user once how to enable it, using the steps in the repository's canvas
+preflight, and continue with the local preview. Do not stop or wait: this
+skill overrides that preflight's stop. Hosts without canvas support use the
+local preview.
 
 ## Implement
 
@@ -19,11 +22,12 @@ with the generated context. Order:
    every family is not a composition.
 3. Every `build` page as a route using its own `content.json` as seed data.
 4. Stubs: outbound links stay outbound; `stub-auth`, `stub-download` and
-   `deferred` pages render a local boundary that names the original URL.
+   `deferred` pages render a local boundary at their ledger route that names
+   the original URL.
 
 Every link in the shell must resolve to a built route or a stub. Real
-submissions stay disabled. Update each ledger row's `status` to `built` as
-routes land.
+submissions stay disabled. Update the `status` of each row with a local route,
+boundaries included, to `built` as routes land.
 
 ## Representative gate
 

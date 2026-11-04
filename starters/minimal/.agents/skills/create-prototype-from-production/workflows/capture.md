@@ -49,9 +49,16 @@ Download only assets that built pages use, from URLs observed in the browser
 evidence. Use plain HTTP first; if an asset origin denies it, read the bytes
 through the browser. Name files by detected type (magic bytes), not URL
 extension. Record each in `reference/assets.json` with source URL and hash.
-Keep every asset at its original size: never shrink, recompress or skip one
-for size. List files over 1 MB in the handoff. If a single file is over
-300 MB, ask whether to keep it; with no answer, keep it.
+Keep every asset of 25 MiB or less at its original size: never shrink,
+recompress or skip one for size. List files over 1 MB in the handoff.
+
+Replica Build rejects any served file over 25 MiB, and GitHub rejects any file
+over 100 MiB. Before committing, ask once, listing every asset over 25 MiB,
+whether to serve a copy under 25 MiB (the default, and the answer when nobody
+replies) or the original. Keep each replaced original under
+`reference/originals/` and record both hashes in `assets.json`. Never commit a
+file over 100 MiB, served or not: add it to `.gitignore` and record its source
+URL and hash so it can be downloaded again.
 
 ## Write the context documents
 
