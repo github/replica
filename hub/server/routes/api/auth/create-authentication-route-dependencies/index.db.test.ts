@@ -144,22 +144,32 @@ describe("createAuthenticationRouteDependencies()", () => {
       .filter(({ purpose }) => purpose === "ADMIN_ENROLLMENT")
       .map(({ bootstrapSecretDigest }) => bootstrapSecretDigest)
 
-    expect(evidence).toEqual(
-      expect.arrayContaining([
-        { bootstrapSecretDigest: null, provider: "github", purpose: "SIGN_IN" },
-        { bootstrapSecretDigest: null, provider: "entra", purpose: "SIGN_IN" },
-        {
-          bootstrapSecretDigest: expect.stringMatching(/^[0-9a-f]{64}$/),
-          provider: "github",
-          purpose: "ADMIN_ENROLLMENT",
-        },
-        {
-          bootstrapSecretDigest: expect.stringMatching(/^[0-9a-f]{64}$/),
-          provider: "entra",
-          purpose: "ADMIN_ENROLLMENT",
-        },
-      ]),
-    )
+    expect(evidence).toContainEqual({
+      bootstrapSecretDigest: null,
+      provider: "github",
+      purpose: "SIGN_IN",
+    })
+    expect(evidence).toContainEqual({
+      bootstrapSecretDigest: null,
+      provider: "entra",
+      purpose: "SIGN_IN",
+    })
+    expect(
+      evidence.some(
+        ({ bootstrapSecretDigest, provider, purpose }) =>
+          provider === "github" &&
+          purpose === "ADMIN_ENROLLMENT" &&
+          /^[0-9a-f]{64}$/.test(bootstrapSecretDigest ?? ""),
+      ),
+    ).toBe(true)
+    expect(
+      evidence.some(
+        ({ bootstrapSecretDigest, provider, purpose }) =>
+          provider === "entra" &&
+          purpose === "ADMIN_ENROLLMENT" &&
+          /^[0-9a-f]{64}$/.test(bootstrapSecretDigest ?? ""),
+      ),
+    ).toBe(true)
     expect(new Set(enrollmentDigests).size).toBe(1)
   })
 
@@ -240,18 +250,9 @@ describe("createAuthenticationRouteDependencies()", () => {
   })
 
   it.each([
-    [
-      "timeout",
-      () => Promise.reject(new Error("timeout with entra-secret and private cause")),
-    ],
-    [
-      "issuer mismatch",
-      () => Promise.resolve(discovery({ issuer: `${issuer}/different` })),
-    ],
-    [
-      "schema failure",
-      () => Promise.resolve(discovery({ token_endpoint: 42 })),
-    ],
+    ["timeout", () => Promise.reject(new Error("timeout with entra-secret and private cause"))],
+    ["issuer mismatch", () => Promise.resolve(discovery({ issuer: `${issuer}/different` }))],
+    ["schema failure", () => Promise.resolve(discovery({ token_endpoint: 42 }))],
   ] as const)(
     "audits a sanitized %s discovery preflight failure without changing selections",
     async (_name, response) => {
@@ -319,21 +320,19 @@ describe("createAuthenticationRouteDependencies()", () => {
       await expect(dependencies.currentSession.restore(retainedDigest)).resolves.toBeNull()
       const retainedProvider = dependencies[retained]
       expect(retainedProvider).toBeDefined()
-      await expect(retainedProvider!.signIn.start()).resolves.toMatchObject({
-        authorizationUrl: expect.stringContaining(
-          retained === "github" ? "github.com/login/oauth/authorize" : `${issuer}/oauth2/v2.0/authorize`,
-        ),
-      })
+      const retainedAttempt = await retainedProvider!.signIn.start()
+      expect(retainedAttempt.authorizationUrl).toContain(
+        retained === "github"
+          ? "github.com/login/oauth/authorize"
+          : `${issuer}/oauth2/v2.0/authorize`,
+      )
       await expect(
         prisma.securityAudit.findMany({
           orderBy: { action: "asc" },
           select: { action: true, context: true },
           where: {
             action: {
-              in: [
-                "identity.authentication_provider.disabled",
-                "session.revocation.advanced",
-              ],
+              in: ["identity.authentication_provider.disabled", "session.revocation.advanced"],
             },
           },
         }),

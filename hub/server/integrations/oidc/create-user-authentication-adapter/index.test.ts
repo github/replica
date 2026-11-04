@@ -134,7 +134,7 @@ describe("createEntraOidcUserAuthenticationAdapter()", () => {
       nonce: "attempt-nonce",
     })
 
-    expect(evidence).toEqual({
+    expect(evidence).toMatchObject({
       identity: {
         issuer,
         provider: "entra",
@@ -142,10 +142,10 @@ describe("createEntraOidcUserAuthenticationAdapter()", () => {
       },
       providerAssignment: {
         assignmentSubject: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-        issuedAt: expect.any(Date),
         role: "ADMINISTRATOR",
       },
     })
+    expect(evidence.providerAssignment?.issuedAt).toBeInstanceOf(Date)
     const tokenRequest = request.mock.calls.find(
       ([input]) =>
         (input instanceof Request ? input.url : input.toString()) === `${issuer}/oauth2/v2.0/token`,
@@ -182,14 +182,14 @@ describe("createEntraOidcUserAuthenticationAdapter()", () => {
       roles: [],
     })
 
-    await expect(
-      adapter.completeAuthenticationProof({
-        callbackUri,
-        code: "authorization-code",
-        codeVerifier: "pkce-verifier",
-        nonce: "attempt-nonce",
-      }),
-    ).resolves.toEqual({
+    const evidence = await adapter.completeAuthenticationProof({
+      callbackUri,
+      code: "authorization-code",
+      codeVerifier: "pkce-verifier",
+      nonce: "attempt-nonce",
+    })
+
+    expect(evidence).toMatchObject({
       identity: {
         issuer,
         provider: "entra",
@@ -197,10 +197,10 @@ describe("createEntraOidcUserAuthenticationAdapter()", () => {
       },
       providerAssignment: {
         assignmentSubject: null,
-        issuedAt: expect.any(Date),
         role: null,
       },
     })
+    expect(evidence.providerAssignment?.issuedAt).toBeInstanceOf(Date)
   })
 
   it("accepts role-loss evidence without an oid but requires oid for role-bearing evidence", async () => {

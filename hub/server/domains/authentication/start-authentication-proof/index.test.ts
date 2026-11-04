@@ -45,7 +45,7 @@ function dependencies(overrides: Partial<StartAuthenticationProofDependencies> =
   } satisfies StartAuthenticationProofDependencies
   return {
     createAttempt: vi.mocked(values.createAttempt),
-    createAuthorizationUrl: vi.mocked(values.adapter.createAuthorizationUrl),
+    createAuthorizationUrl,
     values,
   }
 }

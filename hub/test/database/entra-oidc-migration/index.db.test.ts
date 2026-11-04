@@ -210,30 +210,20 @@ describe("Entra OIDC migration compatibility", () => {
            WHERE schemaname = 'public' AND tablename = 'membership_assignments'
            ORDER BY indexname`,
         )
-        expect(indexes.rows).toEqual([
-          {
-            indexdef: expect.stringContaining("(membership_id)"),
-            indexname: "membership_assignments_active_bootstrap_key",
-          },
-          {
-            indexdef: expect.stringContaining("(external_identity_id)"),
-            indexname: "membership_assignments_active_provider_identity_key",
-          },
-          {
-            indexdef: expect.stringMatching(
-              /CREATE INDEX .* ON public\.membership_assignments USING btree \(membership_id/,
-            ),
-            indexname: "membership_assignments_active_provider_membership_idx",
-          },
-          {
-            indexdef: expect.stringContaining("(id)"),
-            indexname: "membership_assignments_pkey",
-          },
-          {
-            indexdef: expect.stringContaining("(provider_revision_id)"),
-            indexname: "membership_assignments_provider_revision_id_idx",
-          },
+        expect(indexes.rows.map(({ indexname }) => indexname)).toEqual([
+          "membership_assignments_active_bootstrap_key",
+          "membership_assignments_active_provider_identity_key",
+          "membership_assignments_active_provider_membership_idx",
+          "membership_assignments_pkey",
+          "membership_assignments_provider_revision_id_idx",
         ])
+        expect(indexes.rows[0]?.indexdef).toContain("(membership_id)")
+        expect(indexes.rows[1]?.indexdef).toContain("(external_identity_id)")
+        expect(indexes.rows[2]?.indexdef).toMatch(
+          /CREATE INDEX .* ON public\.membership_assignments USING btree \(membership_id/,
+        )
+        expect(indexes.rows[3]?.indexdef).toContain("(id)")
+        expect(indexes.rows[4]?.indexdef).toContain("(provider_revision_id)")
 
         await database.query("SET enable_seqscan = off")
         const providerAssignmentPlan = await database.query<{ "QUERY PLAN": string }>(
@@ -296,16 +286,12 @@ describe("Entra OIDC migration compatibility", () => {
            WHERE schemaname = 'public' AND tablename = 'provider_evidence_states'
            ORDER BY indexname`,
         )
-        expect(evidenceIndexes.rows).toEqual([
-          {
-            indexdef: expect.stringContaining("UNIQUE INDEX"),
-            indexname: "provider_evidence_states_external_identity_id_key",
-          },
-          {
-            indexdef: expect.stringMatching(/UNIQUE INDEX .* \(id\)$/),
-            indexname: "provider_evidence_states_pkey",
-          },
+        expect(evidenceIndexes.rows.map(({ indexname }) => indexname)).toEqual([
+          "provider_evidence_states_external_identity_id_key",
+          "provider_evidence_states_pkey",
         ])
+        expect(evidenceIndexes.rows[0]?.indexdef).toContain("UNIQUE INDEX")
+        expect(evidenceIndexes.rows[1]?.indexdef).toMatch(/UNIQUE INDEX .* \(id\)$/)
         const evidenceTrigger = await database.query<{ definition: string; name: string }>(
           `SELECT trigger_record.tgname AS name,
                   pg_get_triggerdef(trigger_record.oid) AS definition
@@ -316,14 +302,12 @@ describe("Entra OIDC migration compatibility", () => {
              AND table_record.relname = 'provider_evidence_states'
              AND NOT trigger_record.tgisinternal`,
         )
-        expect(evidenceTrigger.rows).toEqual([
-          {
-            definition: expect.stringMatching(
-              /BEFORE (?:UPDATE OR DELETE|DELETE OR UPDATE) ON public\.provider_evidence_states .* protect_provider_evidence_state\(\)/,
-            ),
-            name: "provider_evidence_states_protected",
-          },
+        expect(evidenceTrigger.rows.map(({ name }) => name)).toEqual([
+          "provider_evidence_states_protected",
         ])
+        expect(evidenceTrigger.rows[0]?.definition).toMatch(
+          /BEFORE (?:UPDATE OR DELETE|DELETE OR UPDATE) ON public\.provider_evidence_states .* protect_provider_evidence_state\(\)/,
+        )
 
         await expect(
           database.query(`SELECT nonce_ciphertext FROM authorization_attempts WHERE id = $1`, [
@@ -346,12 +330,7 @@ describe("Entra OIDC migration compatibility", () => {
                (id, membership_id, external_identity_id, provider_revision_id, source, role,
                 provider_assignment_subject)
              VALUES ($1, $2, $3, $4, 'AUTHENTICATION_PROVIDER', 'MEMBER', NULL)`,
-            [
-              "00000000-0000-4000-8000-000000000017",
-              membershipId,
-              identityId,
-              revisionId,
-            ],
+            ["00000000-0000-4000-8000-000000000017", membershipId, identityId, revisionId],
           ),
         ).rejects.toThrow()
       } finally {

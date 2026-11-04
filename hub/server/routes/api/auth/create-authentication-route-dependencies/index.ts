@@ -124,9 +124,9 @@ export async function createAuthenticationRouteDependencies(
     throw new Error("Configure at least one GitHub or Entra user sign-in provider.")
   }
 
-  async function createProviderDependencies(
+  function createProviderDependencies(
     context: AuthenticationContext,
-  ): Promise<ProviderAuthenticationRouteDependencies> {
+  ): ProviderAuthenticationRouteDependencies {
     async function selectedRevision() {
       const provider = await findAuthenticationProvider(prisma, context.adapter.providerKey)
       if (!provider?.enabled) return null
@@ -259,8 +259,8 @@ export async function createAuthenticationRouteDependencies(
           runTransaction: (operation) => runSessionRestoreTransaction(prisma, operation),
         }),
     },
-    entra: entraContext ? await createProviderDependencies(entraContext) : undefined,
-    github: githubContext ? await createProviderDependencies(githubContext) : undefined,
+    entra: entraContext ? createProviderDependencies(entraContext) : undefined,
+    github: githubContext ? createProviderDependencies(githubContext) : undefined,
     signOut: {
       applicationOrigin: sharedContext.applicationOrigin,
       secureCookie: sharedContext.secureCookie,
