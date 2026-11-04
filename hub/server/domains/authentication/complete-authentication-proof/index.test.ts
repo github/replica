@@ -121,6 +121,7 @@ describe("completeAuthenticationProof()", () => {
       },
       providerAssignment: {
         assignmentSubject: "11111111-1111-4111-8111-111111111111",
+        issuedAt: new Date("2026-11-04T18:00:00Z"),
         role: "ADMINISTRATOR",
       },
     })
@@ -134,6 +135,7 @@ describe("completeAuthenticationProof()", () => {
       },
       providerAssignment: {
         assignmentSubject: "11111111-1111-4111-8111-111111111111",
+        issuedAt: new Date("2026-11-04T18:00:00Z"),
         providerRevisionId: revision.id,
         role: "ADMINISTRATOR",
       },
@@ -182,7 +184,7 @@ describe("completeAuthenticationProof()", () => {
     expect(scoped.writeDenialAudit).toHaveBeenCalledWith("invalid_or_expired")
   })
 
-  it("rejects missing or undecryptable nonce state before provider work", async () => {
+  it("rejects missing nonce state before provider work", async () => {
     const scoped = dependencies()
     scoped.consumeAttempt.mockResolvedValueOnce({
       id: "00000000-0000-4000-8000-000000000010",
@@ -197,6 +199,39 @@ describe("completeAuthenticationProof()", () => {
       code: "verification_state_invalid",
     })
     expect(scoped.adapter.completeAuthenticationProof).not.toHaveBeenCalled()
+    expect(scoped.writeDenialAudit).toHaveBeenCalledWith("verification_state_invalid")
+  })
+
+  it("rejects nonce decryption failure before provider work", async () => {
+    const scoped = dependencies()
+    scoped.decryptNonce.mockImplementationOnce(() => {
+      throw new Error("encrypted nonce marker")
+    })
+
+    const error = await completeAuthenticationProof(input, scoped).catch(
+      (caught: unknown) => caught,
+    )
+
+    expect(error).toBeInstanceOf(AuthenticationProofError)
+    expect(error).toMatchObject({ code: "verification_state_invalid" })
+    expect(error).not.toHaveProperty("cause")
+    expect((error as Error).message).not.toContain("encrypted nonce marker")
+    expect(scoped.adapter.completeAuthenticationProof).not.toHaveBeenCalled()
+    expect(scoped.writeDenialAudit).toHaveBeenCalledWith("verification_state_invalid")
+  })
+
+  it("fails closed before provider work for local configuration drift", async () => {
+    const scoped = dependencies()
+    scoped.localConfigurationDigest = "b".repeat(64)
+
+    await expect(completeAuthenticationProof(input, scoped)).rejects.toMatchObject({
+      code: "configuration_changed",
+    })
+    expect(scoped.decryptCodeVerifier).not.toHaveBeenCalled()
+    expect(scoped.decryptNonce).not.toHaveBeenCalled()
+    expect(scoped.adapter.completeAuthenticationProof).not.toHaveBeenCalled()
+    expect(scoped.resolveOrCreateIdentity).not.toHaveBeenCalled()
+    expect(scoped.writeDenialAudit).toHaveBeenCalledWith("configuration_changed")
   })
 
   it("fails closed when the provider revision changes after provider proof", async () => {
@@ -229,5 +264,23 @@ describe("completeAuthenticationProof()", () => {
     expect(error).toMatchObject({ code: "provider_failed" })
     expect((error as Error).message).not.toMatch(/secret/)
     expect(scoped.resolveOrCreateIdentity).not.toHaveBeenCalled()
+  })
+
+  it("returns an audited safe provider failure when the adapter throws", async () => {
+    const scoped = dependencies()
+    scoped.adapter.completeAuthenticationProof.mockRejectedValueOnce(
+      new Error("provider token secret-marker"),
+    )
+
+    const error = await completeAuthenticationProof(input, scoped).catch(
+      (caught: unknown) => caught,
+    )
+
+    expect(error).toBeInstanceOf(AuthenticationProofError)
+    expect(error).toMatchObject({ code: "provider_failed" })
+    expect(error).not.toHaveProperty("cause")
+    expect((error as Error).message).not.toMatch(/provider token|secret-marker/)
+    expect(scoped.resolveOrCreateIdentity).not.toHaveBeenCalled()
+    expect(scoped.writeDenialAudit).toHaveBeenCalledWith("provider_failed")
   })
 })
