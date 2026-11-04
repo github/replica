@@ -100,6 +100,7 @@ export function createMockHandlers(store: MockStore) {
           identifier(params.repositoryId),
           identifier(params.prototypeId),
           query(request).build,
+          new URL(request.url).searchParams.get("view") === "minimized",
         )
         if (scenario === "empty") {
           response.prototype.builds = []

@@ -7,10 +7,22 @@ const require = createRequire(import.meta.url)
 
 export function mockAssetsPlugin(): Plugin {
   const root = resolve(import.meta.dirname, "assets")
-  const bridgeSource = readFileSync(
-    resolve(import.meta.dirname, "../../../features/install-replica-preview-bridge/index.js"),
-    "utf8",
-  )
+  const bridges = new Map([
+    [
+      "/previews/bridge.js",
+      readFileSync(
+        resolve(import.meta.dirname, "../../../features/install-replica-preview-bridge/index.js"),
+        "utf8",
+      ),
+    ],
+    [
+      "/previews/controls-bridge.js",
+      readFileSync(
+        resolve(import.meta.dirname, "../../../features/install-replica-controls-bridge/bridge.js"),
+        "utf8",
+      ),
+    ],
+  ])
   const assets = new Map([
     [
       "/mockServiceWorker.js",
@@ -19,6 +31,10 @@ export function mockAssetsPlugin(): Plugin {
     ["/previews/index.html", { path: resolve(root, "example.html"), type: "text/html" }],
     ["/previews/desktop.svg", { path: resolve(root, "desktop.svg"), type: "image/svg+xml" }],
     ["/previews/narrow.svg", { path: resolve(root, "narrow.svg"), type: "image/svg+xml" }],
+    [
+      "/controls.replica.json",
+      { path: resolve(root, "controls.replica.json"), type: "application/json" },
+    ],
     [
       "/previews/screenshots.svg",
       {
@@ -35,14 +51,18 @@ export function mockAssetsPlugin(): Plugin {
       server.middlewares.use((request, response, next) => {
         if (!request.url || (request.method !== "GET" && request.method !== "HEAD")) return next()
         const path = new URL(request.url, "http://127.0.0.1").pathname
-        if (path === "/previews/bridge.js") {
+        const bridge = bridges.get(path)
+        if (bridge) {
           response.setHeader("Content-Type", "text/javascript; charset=utf-8")
           response.setHeader("Cache-Control", "no-store")
           const origin = new URL(`http://${request.headers.host}`).origin
           response.end(
             request.method === "HEAD"
               ? undefined
-              : bridgeSource.replace('"__REPLICA_HUB_ORIGIN__"', JSON.stringify(origin)),
+              : bridge.replace(
+                  /(["'`])__(?:REPLICA_HUB_ORIGIN|REPLICA_CONTROLS_PARENT_ORIGIN)__\1/g,
+                  JSON.stringify(origin),
+                ),
           )
           return
         }

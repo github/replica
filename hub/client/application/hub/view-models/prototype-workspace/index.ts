@@ -28,6 +28,7 @@ export function prototypeWorkspace({
   const path = `/repositories/${repository.id}/prototypes/${prototype.id}`
   const builds = [...prototype.builds].sort((first, second) => second.number - first.number)
   const latestBuild = builds[0]
+  const pinnedBuild = search.has("build") ? (selectedBuild?.number ?? null) : null
   const author = workspace.viewer.login === prototype.authorLogin ? workspace.viewer : null
   const previewPath = resourcePath(path, search, {
     build: selectedBuild?.previewUrl ? selectedBuild.number : null,
@@ -58,7 +59,7 @@ export function prototypeWorkspace({
     closePath: surface === "preview" ? undefined : previewPath,
     historyLabel: "History",
     historyPath: resourcePath(`${path}/builds`, search, {
-      build: selectedBuild?.number ?? null,
+      build: pinnedBuild,
     }),
     latestBuild: latestBuild
       ? {
@@ -67,10 +68,16 @@ export function prototypeWorkspace({
           stateLabel: buildStateLabel(latestBuild.state),
         }
       : undefined,
+    newerBuildLabel:
+      latestBuild?.state === "failed" &&
+      selectedBuild &&
+      latestBuild.number !== selectedBuild.number
+        ? "The latest update failed. You're viewing an earlier version."
+        : undefined,
     moreActionsLabel: "More actions",
     shareLinksLabel: "Share links",
     shareLinksPath: resourcePath(`${path}/share-links`, search, {
-      build: selectedBuild?.number ?? null,
+      build: pinnedBuild,
     }),
     prototypeInfoLabel: "About this prototype",
     repositoryPath: resourcePath(`/repositories/${repository.id}`, search),

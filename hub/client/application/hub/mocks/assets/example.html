@@ -33,9 +33,10 @@
         margin-block: 2rem 1rem;
       }
       .cards {
+        --card-spacing: 1;
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
-        gap: 1rem;
+        gap: calc(var(--card-spacing) * 1rem);
         margin-block: 2rem;
       }
       article {
@@ -57,7 +58,7 @@
     <main>
       <p class="notice">Your team's workspace</p>
       <h1 id="name">Welcome to the prototype</h1>
-      <p>Bring your projects, conversations, and next steps together.</p>
+      <p id="description">Bring your projects, conversations, and next steps together.</p>
       <div class="cards" id="details">
         <article>
           <h2>Explore</h2>
@@ -76,7 +77,16 @@
     <script>
       const name = new URLSearchParams(location.search).get("prototype")
       if (name) document.getElementById("name").textContent = name
+      window.prototypePreview = {
+        readDescription() {
+          return !document.getElementById("description").hidden
+        },
+        writeDescription(visible) {
+          document.getElementById("description").hidden = !visible
+        },
+      }
     </script>
+    <script src="/previews/controls-bridge.js"></script>
     <script src="/previews/bridge.js"></script>
   </body>
 </html>

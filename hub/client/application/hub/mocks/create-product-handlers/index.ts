@@ -2,7 +2,6 @@ import { http, HttpResponse } from "msw"
 
 import { routeIdentifierSchema, routeQuerySchema } from "../../contracts"
 import {
-  productCreateInputSchema,
   productMetadataInputSchema,
   productShareIdSchema,
   productShareInputSchema,
@@ -55,18 +54,6 @@ export function createProductHandlers(
           const parsed = productTemplateIdSchema.safeParse(params.templateId)
           if (!parsed.success) throw new MockStoreError(400, "Invalid template identifier.")
           return HttpResponse.json(store.getTemplate(identifier(params.repositoryId), parsed.data))
-        },
-        session,
-      ),
-    ),
-    http.post(api("/repositories/:repositoryId/prototypes"), ({ request, params }) =>
-      respondMock(
-        request,
-        async (_scenario, assertCurrentSession) => {
-          const input = await readMockJson(request, productCreateInputSchema)
-          const repositoryId = identifier(params.repositoryId)
-          assertCurrentSession()
-          return HttpResponse.json(store.createPrototype(repositoryId, input))
         },
         session,
       ),

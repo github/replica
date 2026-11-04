@@ -1,5 +1,4 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { useState } from "react"
 
 import { authenticatedHeaderData } from "@/storybook/fixtures/authenticated-header"
 import { githubEmpty, githubPrototype } from "@/storybook/fixtures/repositories"
@@ -203,16 +202,14 @@ export const ClearedDetails: Story = {
   },
 }
 
-export const Creating: Story = {
-  render: function CreatingStory(args) {
-    const [creating, setCreating] = useState(false)
-    return <NewPrototypePage {...args} busy={creating} onCreate={() => setCreating(true)} />
-  },
-  play: async ({ canvas, userEvent }) => {
-    await userEvent.type(
-      canvas.getByRole("textbox", { name: data.copy.heading }),
-      "Compare two build layouts",
-    )
-    await userEvent.click(canvas.getByRole("button", { name: data.copy.submitLabel }))
+export const ReadOnly: Story = {
+  args: {
+    submissionDisabled: true,
+    data: {
+      ...data,
+      newPrototypePath: null,
+      submissionDisabledReason:
+        "You do not have permission to create prototypes in this repository.",
+    },
   },
 }

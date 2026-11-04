@@ -44,6 +44,4 @@ export interface ReplicaBrowsePageProps {
   onMinimizedChange?: (minimized: boolean) => void
   onFrameLoad?: () => void
   onOpenApp?: (url: string) => void
-  onCreate?: (brief: string) => void
-  busy?: boolean
 }

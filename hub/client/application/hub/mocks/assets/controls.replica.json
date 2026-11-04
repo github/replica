@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "sets": [
+    {
+      "version": 1,
+      "scope": "workspace",
+      "label": "Workspace",
+      "role": "page",
+      "controls": [
+        {
+          "id": "showDescription",
+          "label": "Show description",
+          "type": "boolean",
+          "default": true,
+          "binding": {
+            "type": "api",
+            "object": "prototypePreview",
+            "read": "readDescription",
+            "write": "writeDescription",
+            "pollMs": 250
+          }
+        },
+        {
+          "id": "cardSpacing",
+          "label": "Card spacing",
+          "type": "slider",
+          "min": 0.5,
+          "max": 3,
+          "step": 0.5,
+          "default": 1,
+          "binding": {
+            "type": "style",
+            "selector": ".cards",
+            "property": "--card-spacing"
+          }
+        }
+      ]
+    }
+  ]
+}

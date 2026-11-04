@@ -56,6 +56,8 @@ export function createMockStore({ origin, seed = createFixtureSeed() }: Options)
   const viewerRecord = data.users.find((user) => user.login === data.viewerLogin)
   if (!viewerRecord) throw new Error("The mock viewer is missing from the fixture users.")
   const session = createMockSession(data.users, viewerRecord.login)
+  const controlsIdentities = new Map<string, string>()
+  const introductions = new Set<string>()
 
   const repositories = new Set(data.repositories.map(({ id }) => id))
   const prototypeKeys = new Set(
@@ -105,6 +107,16 @@ export function createMockStore({ origin, seed = createFixtureSeed() }: Options)
     const repository = data.repositories.find(({ id }) => id === repositoryId)
     if (!repository) throw new MockStoreError(404, "Repository not found.")
     return { ...repository }
+  }
+
+  function controlsIdentity(context: (string | number)[]) {
+    const key = JSON.stringify([session.requireViewer().id, ...context])
+    let identity = controlsIdentities.get(key)
+    if (!identity) {
+      identity = crypto.randomUUID()
+      controlsIdentities.set(key, identity)
+    }
+    return identity
   }
 
   function prototypeRecord(repositoryId: number, prototypeId: number): PrototypeRecord {
@@ -158,7 +170,7 @@ export function createMockStore({ origin, seed = createFixtureSeed() }: Options)
     const prototype = prototypeRecord(repositoryId, prototypeId)
     const selectedBuild =
       buildNumber === undefined
-        ? (prototype.builds[0] ?? null)
+        ? (prototype.builds.find((build) => build.state === "successful") ?? null)
         : prototype.builds.find(({ number }) => number === buildNumber)
     if (selectedBuild === undefined) throw new MockStoreError(404, "Build not found.")
     return { repository: repositoryRecord(repositoryId), prototype, selectedBuild }
@@ -168,6 +180,7 @@ export function createMockStore({ origin, seed = createFixtureSeed() }: Options)
     origin: apiOrigin,
     session,
     resources: { ...data, builds },
+    controlsIdentity,
     repositoryRecord,
     prototypeResponse,
   }
@@ -218,9 +231,30 @@ export function createMockStore({ origin, seed = createFixtureSeed() }: Options)
       }
     },
 
-    getPrototype(repositoryId: number, prototypeId: number, buildNumber?: number) {
-      session.requireViewer()
-      return prototypeResponse(repositoryId, prototypeId, buildNumber)
+    getPrototype(
+      repositoryId: number,
+      prototypeId: number,
+      buildNumber?: number,
+      minimized = false,
+    ): PrototypeResponse {
+      const viewer = session.requireViewer()
+      const response = prototypeResponse(repositoryId, prototypeId, buildNumber)
+      if (response.selectedBuild && response.selectedBuild.state !== "successful") {
+        throw new MockStoreError(404, "Successful Build not found.")
+      }
+      const introduction = JSON.stringify([viewer.id, repositoryId, prototypeId])
+      const showPrototypeInfo = !minimized && !introductions.has(introduction)
+      if (!minimized) introductions.add(introduction)
+      return {
+        ...response,
+        controlsIdentity: controlsIdentity([
+          "prototype",
+          repositoryId,
+          prototypeId,
+          response.prototype.branchName,
+        ]),
+        showPrototypeInfo,
+      }
     },
 
     getBuild(repositoryId: number, prototypeId: number, buildNumber: number): BuildResponse {

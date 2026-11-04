@@ -16,6 +16,7 @@ export interface MockFlowContext {
     prototypes: Omit<PrototypeRecord, "builds" | "canEdit">[]
     builds: BuildRecord[]
   }
+  controlsIdentity: (context: (string | number)[]) => string
   repositoryRecord: (repositoryId: number) => RepositoryRecord
   prototypeResponse: (
     repositoryId: number,

@@ -1,4 +1,4 @@
-import { createRef, useState } from "react"
+import { createRef } from "react"
 import type { Meta, StoryObj } from "@storybook/react-vite"
 
 import { useHubTheme } from "@hooks/use-hub-theme"
@@ -145,20 +145,8 @@ export const LocalEmpty: Story = {
   },
 }
 
-export const CreatingFromTemplate: Story = {
+export const TemplateHandoff: Story = {
   args: Template.args,
-  render: function CreatingFromTemplateStory(args) {
-    const { resolvedColorMode } = useHubTheme()
-    const [creating, setCreating] = useState(false)
-    return (
-      <ReplicaBrowsePage
-        {...args}
-        previewTheme={resolvedColorMode}
-        busy={creating}
-        onCreate={() => setCreating(true)}
-      />
-    )
-  },
   play: async ({ canvas, userEvent }) => {
     await userEvent.click(canvas.getByRole("button", { name: data.forkLabel }))
     await userEvent.type(
@@ -171,4 +159,8 @@ export const CreatingFromTemplate: Story = {
         .find((button) => !button.hasAttribute("disabled"))!,
     )
   },
+}
+
+export const ReadOnly: Story = {
+  args: { data: { ...data, newPrototypePath: null } },
 }

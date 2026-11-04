@@ -336,6 +336,14 @@ export const HubToolbarControls: Story = {
   },
 }
 
+export const HubToolbarControlsOpen: Story = {
+  args: HubToolbarControls.args,
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: "Controls" }))
+    await canvas.findByRole("checkbox", { name: "Show description" })
+  },
+}
+
 export const MinimizedHubToolbarControls: Story = {
   ...HubToolbarControls,
   args: { ...HubToolbarControls.args, initialMinimized: true },
@@ -376,6 +384,20 @@ export const BranchHandoff: Story = {
       "Simplify the first screen and make the primary action easier to find.",
     )
     await userEvent.click(canvas.getByRole("button", { name: data.branchSubmitLabel }))
+  },
+}
+
+export const ReadOnly: Story = {
+  args: {
+    ...HubToolbarControls.args,
+    data: {
+      ...HubToolbarControls.args!.data!,
+      branchSubmissionMode: "disabled",
+      detailsEditPath: undefined,
+      newPrototypePath: null,
+      shareLinksPath: undefined,
+      reviewReadOnly: true,
+    },
   },
 }
 

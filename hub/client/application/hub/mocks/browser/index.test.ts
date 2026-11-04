@@ -94,6 +94,7 @@ describe("startMockApi()", () => {
     const router = await renderHubFlow(server, "/repositories/2001/prototypes/1", {
       withTools: true,
     })
+    fireEvent.click(screen.getByRole("button", { name: "View prototype" }))
     const request = new Request(`${window.location.origin}/repositories/2001/prototypes/1`)
     const original = await getPrototype(request, 2001, 1)
     fireEvent.click(screen.getByRole("button", { name: "Edit details" }))
@@ -137,6 +138,7 @@ describe("startMockApi()", () => {
     if (!nextHandlers) throw new Error("The new document must register a fresh API.")
     const freshServer = setupServer(...nextHandlers)
     await renderHubFlow(freshServer, "/repositories/2001/prototypes/1")
+    fireEvent.click(screen.getByRole("button", { name: "View prototype" }))
 
     expect(screen.getByRole("button", { name: "Account menu for @octocat" })).toBeVisible()
     expect((await getSession(request)).capabilities.administerHub).toBe(true)

@@ -6,6 +6,7 @@ import type { KeyboardEvent, SubmitEvent } from "react"
 import { CopilotAppContinuationDialog } from "@components/copilot-app-continuation-dialog"
 import type { CopilotAppSubmission } from "@components/copilot-app-continuation/types"
 import { HubAlert } from "@components/hub-alert"
+import { HubToast } from "@components/hub-toast"
 import { PrototypeBriefComposer } from "@components/prototype-brief-composer"
 import { TemplatePicker } from "@components/template-picker"
 import { RepositoryWorkspace } from "@features/repository-workspace"
@@ -23,14 +24,10 @@ const EMPTY_DETAILS: PrototypeDetails = { change: "", audience: "", outcome: "" 
 export function NewPrototypePage({
   data,
   onOpenApp,
-  onCreate,
-  busy = false,
   submissionDisabled = false,
 }: {
   data: NewPrototypePageData
   onOpenApp?: (url: string) => void
-  onCreate?: (input: { brief: string; description: string; templateId: string }) => void
-  busy?: boolean
   submissionDisabled?: boolean
 }) {
   const headingId = useId()
@@ -136,16 +133,7 @@ export function NewPrototypePage({
 
   async function submit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!brief.trim() || busy || submissionDisabled) return
-
-    if (onCreate) {
-      onCreate({
-        brief: brief.trim(),
-        description: [brief.trim(), ...fields].join("\n\n"),
-        templateId,
-      })
-      return
-    }
+    if (!brief.trim() || submissionDisabled) return
 
     if (data.submissionMode === "copy") {
       setCopyResult(null)
@@ -169,6 +157,10 @@ export function NewPrototypePage({
     <RepositoryWorkspace data={data}>
       <div className="new-prototype">
         <div className="new-prototype__content">
+          {submissionDisabled && data.submissionDisabledReason ? (
+            <HubAlert title={data.submissionDisabledReason} variant="warning" />
+          ) : null}
+
           <Heading
             as="h1"
             size="5"
@@ -182,8 +174,7 @@ export function NewPrototypePage({
           <form
             className="new-prototype__form"
             onSubmit={(event) => void submit(event)}
-            inert={busy || submissionDisabled}
-            aria-busy={busy}
+            inert={submissionDisabled}
           >
             <PrototypeBriefComposer
               label={copy.heading}
@@ -212,12 +203,15 @@ export function NewPrototypePage({
             />
           </form>
 
-          {data.submissionMode === "copy" && copyStatus ? (
+          {data.submissionMode === "copy" && copyStatus === "copied" ? (
+            <HubToast title={copy.copiedLabel} />
+          ) : null}
+          {data.submissionMode === "copy" && copyStatus === "error" ? (
             <HubAlert
               className="new-prototype__copy-status"
-              variant={copyStatus === "copied" ? "success" : "critical"}
+              variant="critical"
               layout="compact"
-              title={copyStatus === "copied" ? copy.copiedLabel : copy.copyErrorLabel}
+              title={copy.copyErrorLabel}
             />
           ) : null}
 

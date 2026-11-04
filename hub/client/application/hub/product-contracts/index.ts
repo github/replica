@@ -54,15 +54,8 @@ export const productTemplateResponseSchema = z.object({
   repository: repositorySchema,
   template: productTemplateSchema,
   canCreate: z.boolean(),
+  controlsIdentity: z.string().min(1).max(128).optional(),
 })
-
-export const productCreateInputSchema = z
-  .object({
-    brief: z.string().trim().min(1, "Describe the prototype.").max(4000),
-    description: z.string().trim().max(4000),
-    templateId: productTemplateIdSchema,
-  })
-  .strict()
 
 export const productMetadataInputSchema = prototypeDetailsSchema
   .extend({ startPage: productStartPageSchema })
@@ -137,9 +130,6 @@ export const productPublicResponseSchema = z.discriminatedUnion("state", [
 ])
 
 export const productMutationResponseSchema = z.object({ notice: z.string().min(1) })
-export const productCreatedResponseSchema = productMutationResponseSchema.extend({
-  resource: prototypeResponseSchema,
-})
 export const productLinkCreatedResponseSchema = productMutationResponseSchema.extend({
   link: productShareLinkSchema,
 })
@@ -147,7 +137,6 @@ export const productLinkCreatedResponseSchema = productMutationResponseSchema.ex
 export type ProductTemplate = z.infer<typeof productTemplateSchema>
 export type ProductCatalogResponse = z.infer<typeof productCatalogResponseSchema>
 export type ProductTemplateResponse = z.infer<typeof productTemplateResponseSchema>
-export type ProductCreateInput = z.infer<typeof productCreateInputSchema>
 export type ProductMetadataInput = z.infer<typeof productMetadataInputSchema>
 export type ProductManagementResponse = z.infer<typeof productManagementResponseSchema>
 export type ProductShareLink = z.infer<typeof productShareLinkSchema>
@@ -156,5 +145,4 @@ export type ProductSharingResponse = z.infer<typeof productSharingResponseSchema
 export type ProductSharingSettings = z.infer<typeof productSharingSettingsSchema>
 export type ProductSharingSettingsInput = z.infer<typeof productSharingSettingsInputSchema>
 export type ProductPublicResponse = z.infer<typeof productPublicResponseSchema>
-export type ProductActionResult =
-  { saved: true; notice: string; prototypePath?: string } | { saved: false; error: string }
+export type ProductActionResult = { saved: true; notice: string } | { saved: false; error: string }

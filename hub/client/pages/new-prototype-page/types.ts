@@ -9,6 +9,7 @@ export interface NewPrototypePageData extends RepositoryWorkspaceData {
   templatePageInstructions: string
   templateLandingPageInstructions: string
   submissionMode: "copy" | "copilot"
+  submissionDisabledReason?: string
   templates: TemplateCatalogData["templates"]
   catalog: Omit<TemplateCatalogData, "templates">
   copy: CopilotAppContinuationCopy & {

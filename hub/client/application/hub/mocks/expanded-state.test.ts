@@ -160,12 +160,12 @@ describe("expanded mock state", () => {
 
   it("reseeds product, review, settings and viewer state for a new mock document", () => {
     const store = createMockStore({ origin: window.location.origin })
-    const created = store.product.createPrototype(2001, {
-      brief: "Only this document",
-      description: "A synthetic prototype that must not become seed data.",
-      templateId: "default",
+    const originalName = store.getPrototype(2001, 1).prototype.name
+    store.updatePrototype(2001, 1, {
+      name: "Only this document",
+      description: "A prototype edit that must not become seed data.",
     })
-    const link = store.product.createShareLink(2001, created.resource.prototype.id, {
+    const link = store.product.createShareLink(2001, 1, {
       label: "Only this document's link",
       expiration: "seven_days",
       buildNumber: 1,
@@ -188,9 +188,7 @@ describe("expanded mock state", () => {
       revision: 0,
       viewer: { login: "octocat" },
     })
-    expect(() => fresh.getPrototype(2001, created.resource.prototype.id)).toThrow(
-      expect.objectContaining({ status: 404 }),
-    )
+    expect(fresh.getPrototype(2001, 1).prototype.name).toBe(originalName)
     expect(() => fresh.product.getPublicShare(link.shareId)).toThrow(
       expect.objectContaining({ status: 404 }),
     )

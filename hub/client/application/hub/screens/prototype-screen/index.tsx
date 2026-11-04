@@ -97,6 +97,7 @@ export function PrototypeScreen({
       iframeRef={iframeRef}
       previewTheme={resolvedColorMode}
       review={review}
+      initialMinimized={pageData.minimizedPreview}
       onSaveDetails={data.prototype.canEdit ? onSaveDetails : undefined}
       savingDetails={savingDetails}
       detailsError={detailsError}

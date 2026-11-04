@@ -12,10 +12,7 @@ import ProductManagementRoute, {
   clientAction as saveManagement,
   clientLoader as loadManagement,
 } from "./product-management"
-import ProductNewRoute, {
-  clientAction as createPrototype,
-  clientLoader as loadCatalog,
-} from "./product-new"
+import ProductNewRoute, { clientLoader as loadCatalog } from "./product-new"
 import ProductPublicRoute, { clientLoader as loadPublicShare } from "./product-public"
 import ProductShareLinksRoute, {
   clientAction as saveShareLinks,
@@ -89,7 +86,6 @@ const workspaceRoutes: RouteObject[] = [
   {
     path: "/repositories/:repositoryId/new",
     loader: loadCatalog,
-    action: createPrototype,
     Component: ProductNewComponent,
   },
   {
@@ -190,24 +186,82 @@ describe("Hub expanded frontend flows", () => {
     expect(screen.getByRole("main")).not.toHaveTextContent(/\b(mock|synthetic|simulated)\b/i)
   })
 
-  // This four-page flow measured 8.6s on Windows, beyond the default 5s case budget.
-  it("creates a local prototype and shares management edits with its preview and repository", async () => {
+  it("continues a prototype brief in Copilot without creating a local prototype or Build", async () => {
     const store = createMockStore({ origin: window.location.origin })
+    const templateRoute = "/welcome?step=2#intro"
+    store.product.updateMetadata(2001, 1, {
+      name: "Welcome",
+      description: null,
+      startPage: templateRoute,
+    })
+    const prototypeCount = store.flowContext.resources.prototypes.length
+    const buildCount = store.flowContext.resources.builds.length
     const server = setupServer(...createMockHandlers(store))
+    const creates = vi.fn()
+    server.events.on("request:start", ({ request }) => {
+      if (
+        request.method === "POST" &&
+        new URL(request.url).pathname === "/api/repositories/2001/prototypes"
+      )
+        creates()
+    })
     const router = await renderHubFlow(server, "/repositories/2001/new", { workspaceRoutes })
-    const brief = screen.getByRole("textbox", { name: "What should we create?" })
-    fireEvent.change(brief, { target: { value: "A simpler onboarding flow" } })
+    fireEvent.change(screen.getByRole("textbox", { name: "What should we create?" }), {
+      target: { value: "A simpler onboarding flow" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "Template: Default" }))
+    fireEvent.click(screen.getByRole("option", { name: `Welcome ${templateRoute}` }))
     await router.settle(() =>
       fireEvent.click(screen.getByRole("button", { name: "Create prototype" })),
     )
-    const open = screen.getByRole("link", { name: "Open prototype" })
-    const prototypePath = new URL((open as HTMLAnchorElement).href).pathname
-    const prototypeId = Number(prototypePath.split("/").at(-1))
-    await router.settle(() => fireEvent.click(open))
-    expect(screen.getByTitle("A simpler onboarding flow, Build 1 preview")).toBeVisible()
 
-    await router.settle(() => router.navigate("/repositories/2001/prototypes/manage"))
-    const branch = store.getPrototype(2001, prototypeId).prototype.branchName
+    const dialog = screen.getByRole("dialog", { name: "Continue in Copilot app" })
+    const openApp = within(dialog).getByRole<HTMLAnchorElement>("link", {
+      name: /open copilot app/i,
+    })
+    const launcher = new URL(openApp.href)
+    const open = launcher.searchParams.get("open")
+    if (!open) throw new Error("The Copilot link must contain its app destination.")
+    const session = new URL(open)
+    expect(launcher.origin + launcher.pathname).toBe("https://github.com/copilot/app/launch")
+    expect(session.searchParams.get("repo")).toBe("github/prototype")
+    expect(session.searchParams.get("prompt")).toContain("A simpler onboarding flow")
+    expect(session.searchParams.get("prompt")).toContain(encodeURIComponent(templateRoute))
+    expect(session.searchParams.get("prompt")).toContain("startPage")
+    expect(creates).not.toHaveBeenCalled()
+    expect(store.flowContext.resources.prototypes).toHaveLength(prototypeCount)
+    expect(store.flowContext.resources.builds).toHaveLength(buildCount)
+    expect(screen.queryByRole("link", { name: "Open prototype" })).not.toBeInTheDocument()
+    expect(router.state.location.pathname).toBe("/repositories/2001/new")
+  })
+
+  it("keeps prototype creation and management unavailable to a reader", async () => {
+    const store = createMockStore({ origin: window.location.origin })
+    store.session.select("reader")
+    const server = setupServer(...createMockHandlers(store))
+    const router = await renderHubFlow(server, "/repositories/2001", { workspaceRoutes })
+    expect(screen.queryByRole("link", { name: "Manage prototypes" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("link", { name: "Create" })).not.toBeInTheDocument()
+
+    await router.settle(() => router.navigate("/repositories/2001/new"))
+
+    expect(screen.getByRole("button", { name: "Create prototype" })).toBeDisabled()
+    expect(screen.getByRole("main")).toHaveTextContent(/do not have permission to create/i)
+    expect(
+      screen.queryByRole("dialog", { name: "Continue in Copilot app" }),
+    ).not.toBeInTheDocument()
+  })
+
+  it("shares management edits with the existing preview and repository", async () => {
+    const store = createMockStore({ origin: window.location.origin })
+    const selectedBuild = store.getPrototype(2001, 1).selectedBuild?.number
+    const server = setupServer(...createMockHandlers(store))
+    const router = await renderHubFlow(server, "/repositories/2001", { workspaceRoutes })
+    const manage = screen.getByRole("link", { name: "Manage prototypes" })
+    expect(manage).toHaveAttribute("href", "/repositories/2001/prototypes/manage")
+    await router.settle(() => fireEvent.click(manage))
+    expect(router.state.location.pathname).toBe("/repositories/2001/prototypes/manage")
+    const branch = store.getPrototype(2001, 1).prototype.branchName
     fireEvent.click(screen.getByRole("button", { name: `Edit details: ${branch}` }))
     const editor = screen.getByRole("dialog", { name: "Edit prototype details" })
     fireEvent.change(within(editor).getByRole("textbox", { name: "Name" }), {
@@ -224,8 +278,11 @@ describe("Hub expanded frontend flows", () => {
     )
     expect(editor).not.toBeVisible()
 
+    const prototypePath = "/repositories/2001/prototypes/1"
     await router.settle(() => router.navigate(prototypePath))
-    expect(screen.getByTitle("Refined onboarding, Build 1 preview")).toBeInTheDocument()
+    expect(
+      screen.getByTitle(`Refined onboarding, Build ${selectedBuild} preview`),
+    ).toBeInTheDocument()
     fireEvent.click(screen.getByRole("button", { name: "Edit details" }))
     expect(
       within(screen.getByRole("dialog")).getByRole("textbox", { name: "Description" }),

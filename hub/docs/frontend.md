@@ -1,6 +1,6 @@
 # Routed frontend
 
-The Hub frontend uses React Router Framework Mode as a browser-rendered SPA. All 27 retained page modules are connected to local mock flows: repositories, prototypes, reviews, sharing, setup, account controls, administration, analytics, and learning. The application reuses those pages rather than implementing a second set of screens.
+The Hub frontend uses React Router Framework Mode as a browser-rendered SPA. All 27 retained page modules are connected: repositories, prototype handoffs and previews, reviews, sharing, setup, account controls, administration, analytics, and learning. Product data uses local mocks; creation and branching reuse the original Copilot app handoff. The application reuses those pages rather than implementing a second set of screens.
 
 This is an evolving frontend implementation, not a restored production Hub. Real authentication, authorization, product APIs, persistence, external integrations, build hosting, and publishing remain separate work.
 
@@ -71,6 +71,12 @@ Old `/settings/analytics` and `/settings/learnings` links redirect to the select
 
 Application code adapts internal links and same-origin GET forms to SPA navigation while preserving modified clicks, external links, downloads, and new tabs. Explicit adapters handle the connected mutations and sign-out. Unknown non-GET forms are blocked and reported through the test toolbar rather than submitting to removed server actions.
 
+### Loading and notifications
+
+Pending page navigation shows a thin green pulse moving to the right, with a screen-reader loading announcement and a static bar for reduced-motion preferences. Loading feedback does not move page content.
+
+Routine notices and successful form results appear as dismissible toasts stacked in the bottom-right corner. They do not take focus, expire on a timer, or occupy space in the page layout. Dismissing a toast hides that message until it changes or its owning page or result remounts. Validation failures, access restrictions, action choices and consequential warnings remain inline beside the affected content.
+
 ### Rails conversion route map
 
 Use this map to find the frontend destination when converting a Rails page. The Rails reference is [the route file at commit `0e8bdbd9`](https://github.com/github/replica/blob/0e8bdbd952ce0d93c8976876fa59e9f119614ae8/hub/config/routes.rb). Current routes are registered in the [root route configuration](../client/application/hub/routes.ts), [product routes](../client/application/hub/routes/product-routes.ts), and [settings routes](../client/application/hub/routes/settings-routes.ts). Update this map when a canonical page URL changes.
@@ -124,7 +130,10 @@ These redirects retain other query parameters. The repository-settings redirects
 
 ## Connected mock flows
 
-- **Create and manage:** create a synthetic prototype and Build, start from a template, register a synthetic branch, or edit gallery metadata and start-page metadata. These actions change canonical local records, not GitHub, source code, workflows, or immutable Build contents.
+- **Create:** write a brief or start from a template, then open the original continuation dialog. Only its explicit **Open Copilot App** link launches the app; submitting the brief does not create a mock prototype or Build or send a creation request to Hub. Closing the dialog retains the brief. Readers cannot submit a creation handoff.
+- **Preview and branch:** the first visit opens the prototype information dialog; dismissing it is retained during the mock session. **Branch from here** opens the retained composer for users who can create prototypes. Its Copilot prompt names the source branch and includes the live preview route when available. It does not change the pinned Build or create a local record. Prototypes without a Build can still be branching starting points.
+- **Controls:** a successful preview exposes the original Controls button and in-preview toolbar, including for readers. Failed, running and absent previews do not show Controls. The mock preview supplies an isolated Controls fixture so changes such as **Show description** and **Card spacing** affect the rendered preview without implementing hosted Builds.
+- **Manage:** the gear beside the Prototypes heading opens the existing management route for users who can create prototypes. Gallery metadata, start-page metadata and fixture-branch registration change canonical local records, not GitHub, source code, workflows, or immutable Build contents.
 - **Review:** the existing preview bridge supports element and area selection. Comments, replies, edits, deletion, resolution, reactions, and read positions share a mock review store. Failed saves retain the draft; recovery can retry it. The read-only profile can inspect conversations but cannot change them. This is not a live multi-user review service.
 - **Share:** create and revoke local links pinned to successful Builds. `demo-active`, `demo-expired`, and `demo-revoked` exercise public states. New links open in the same tab because another document receives a fresh mock store. Disabling mock sharing revokes existing local links; re-enabling permits new links. This is provisional demo behavior, not an accepted production sharing policy.
 - **Account and setup:** inspect normal sign-in/out, welcome, connection, GitHub App setup, confirmation, enrollment, and session screens with canned API state. Do not enter real credentials or secrets. No provider authorization, installation, key rotation, or real session revocation occurs.
@@ -152,7 +161,6 @@ These are frontend/mock contracts under [the application contracts](../client/ap
 | `PATCH /api/repositories/:repositoryId/prototypes/:prototypeId` | Updated name/description and prototype data |
 | `/api/repositories/:repositoryId/prototypes/:prototypeId/review-comments` and its comment actions | Review collections, changes, reactions, and read positions |
 | `GET /api/repositories/:repositoryId/templates` and `/api/repositories/:repositoryId/templates/:templateId` | Template browsing |
-| `POST /api/repositories/:repositoryId/prototypes` | Synthetic prototype and Build creation |
 | `GET /api/repositories/:repositoryId/prototype-management`, `PATCH /api/repositories/:repositoryId/prototype-management/:prototypeId` | Management records and metadata changes |
 | `POST /api/repositories/:repositoryId/prototype-candidates/:candidateId` | Synthetic branch registration |
 | `/api/repositories/:repositoryId/prototypes/:prototypeId/share-links` | Build-pinned local links and revocation |

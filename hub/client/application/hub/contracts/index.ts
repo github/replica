@@ -87,6 +87,8 @@ export const prototypeResponseSchema = z.object({
   repository: repositorySchema,
   prototype: prototypeSchema,
   selectedBuild: buildSchema.nullable(),
+  controlsIdentity: z.string().min(1).max(128).optional(),
+  showPrototypeInfo: z.boolean().optional(),
 })
 
 export const buildResponseSchema = z.object({

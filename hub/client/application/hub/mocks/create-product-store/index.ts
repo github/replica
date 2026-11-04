@@ -1,12 +1,10 @@
 import type { BuildRecord, PrototypeResponse } from "../../contracts"
 import {
-  productCreateInputSchema,
   productMetadataInputSchema,
   productShareInputSchema,
   productSharingSettingsInputSchema,
 } from "../../product-contracts"
 import type {
-  ProductCreateInput,
   ProductManagementResponse,
   ProductMetadataInput,
   ProductPublicResponse,
@@ -179,25 +177,12 @@ export function createProductStore(context: MockFlowContext) {
         repository: context.repositoryRecord(repositoryId),
         template,
         canCreate: session.read().capabilities.createPrototypes,
-      }
-    },
-
-    createPrototype(repositoryId: number, input: ProductCreateInput) {
-      session.requireCapability("createPrototypes")
-      const parsed = productCreateInputSchema.safeParse(input)
-      if (!parsed.success) throw new MockStoreError(422, "Check the prototype brief and template.")
-      const template = templates(repositoryId).find((entry) => entry.id === parsed.data.templateId)
-      if (!template) throw new MockStoreError(404, "Template not found.")
-      const resource = addPrototype(
-        repositoryId,
-        parsed.data.brief.split(/\r?\n/)[0]!.slice(0, 120),
-        parsed.data.description || parsed.data.brief,
-        null,
-        template.route,
-      )
-      return {
-        resource,
-        notice: "Prototype created.",
+        controlsIdentity: context.controlsIdentity([
+          "template",
+          repositoryId,
+          context.repositoryRecord(repositoryId).defaultBranch,
+          template.id,
+        ]),
       }
     },
 

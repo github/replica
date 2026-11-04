@@ -7,6 +7,7 @@ import type { CopilotAppSubmission } from "@components/copilot-app-continuation/
 import { CopilotAppContinuationDialog } from "@components/copilot-app-continuation-dialog"
 import { HubAlert } from "@components/hub-alert"
 import { HubEmptyState } from "@components/hub-empty-state"
+import { HubToast } from "@components/hub-toast"
 import { PrototypeBriefComposer } from "@components/prototype-brief-composer"
 import { MinimizedReviewToolbar } from "@features/minimized-review-toolbar"
 import { PrototypePreview } from "@features/prototype-preview"
@@ -27,8 +28,6 @@ export function ReplicaBrowsePage({
   onMinimizedChange,
   onFrameLoad,
   onOpenApp,
-  onCreate,
-  busy = false,
 }: ReplicaBrowsePageProps) {
   const [localMinimized, setLocalMinimized] = useState(initialMinimized)
   const [controlsToolbar, setControlsToolbar] = useState<HTMLSpanElement | null>(null)
@@ -84,12 +83,7 @@ export function ReplicaBrowsePage({
 
   async function submit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!brief.trim() || busy) return
-
-    if (onCreate) {
-      onCreate(brief.trim())
-      return
-    }
+    if (!brief.trim()) return
 
     if (copyPrompt) {
       setCopyResult(null)
@@ -157,7 +151,7 @@ export function ReplicaBrowsePage({
 
             {copyPrompt || data.newPrototypePath ? (
               <div className="review-branch-composer">
-                <form onSubmit={(event) => void submit(event)} inert={busy} aria-busy={busy}>
+                <form onSubmit={(event) => void submit(event)}>
                   <PrototypeBriefComposer
                     inputRef={briefInput}
                     variant="branch"
@@ -173,15 +167,14 @@ export function ReplicaBrowsePage({
                   />
                 </form>
 
-                {copyPrompt && copyStatus ? (
+                {copyPrompt && copyStatus === "copied" ? (
+                  <HubToast title={data.branchContinuation.copiedLabel} />
+                ) : null}
+                {copyPrompt && copyStatus === "error" ? (
                   <HubAlert
-                    variant={copyStatus === "copied" ? "success" : "critical"}
+                    variant="critical"
                     layout="compact"
-                    title={
-                      copyStatus === "copied"
-                        ? data.branchContinuation.copiedLabel
-                        : data.branchContinuation.copyErrorLabel
-                    }
+                    title={data.branchContinuation.copyErrorLabel}
                   />
                 ) : null}
               </div>

@@ -143,6 +143,7 @@ describe("Hub repository journey", () => {
       }),
     )
     const router = await renderHubFlow(server, "/repositories/2001/prototypes/1?build=1")
+    fireEvent.click(screen.getByRole("button", { name: "View prototype" }))
     fireEvent.click(await screen.findByRole("button", { name: "Edit details" }))
     const dialog = screen.getByRole("dialog")
     const heading = within(dialog).getByRole("heading", { level: 2 })
@@ -201,6 +202,7 @@ describe("Hub repository journey", () => {
       if (request.method === "PATCH") patchRequests()
     })
     const router = await renderHubFlow(server, "/repositories/2001/prototypes/1")
+    fireEvent.click(screen.getByRole("button", { name: "View prototype" }))
     fireEvent.click(await screen.findByRole("button", { name: "Edit details" }))
     const dialog = screen.getByRole("dialog", { name: "Edit prototype details" })
     const name = within(dialog).getByRole("textbox", { name: "Name" })
@@ -223,6 +225,7 @@ describe("Hub repository journey", () => {
     const store = createMockStore({ origin: window.location.origin })
     const server = setupServer(...createMockHandlers(store))
     const router = await renderHubFlow(server, "/repositories/2001/prototypes/1")
+    fireEvent.click(screen.getByRole("button", { name: "View prototype" }))
     fireEvent.click(await screen.findByRole("button", { name: "Edit details" }))
     const dialog = screen.getByRole("dialog")
     const name = within(dialog).getByRole("textbox", { name: "Name" })

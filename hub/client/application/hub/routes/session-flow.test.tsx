@@ -70,6 +70,7 @@ describe("Hub mock session flow", () => {
     store.session.select("admin")
     const server = setupServer(...createMockHandlers(store))
     const router = await renderHubFlow(server, "/repositories/2001/prototypes/1")
+    fireEvent.click(screen.getByRole("button", { name: "View prototype" }))
     fireEvent.click(await screen.findByRole("button", { name: "Edit details" }))
     const originalDialog = screen.getByRole("dialog", { name: "Edit prototype details" })
     fireEvent.change(within(originalDialog).getByRole("textbox", { name: "Name" }), {
@@ -107,7 +108,9 @@ describe("Hub mock session flow", () => {
     await renderHubFlow(server, "/repositories/2001/prototypes/2")
 
     expect(await screen.findByRole("button", { name: "Account menu for @mona" })).toBeVisible()
+    fireEvent.click(screen.getByRole("button", { name: "View prototype" }))
     expect(screen.queryByRole("button", { name: "Edit details" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Branch from here" })).not.toBeInTheDocument()
     const response = await fetch(`${store.origin}/api/repositories/2001/prototypes/2`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
