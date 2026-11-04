@@ -6,6 +6,8 @@ import { createSecurityAudit } from "../../repositories/security-audits/create-s
 import { admitAuthenticationProof } from "./admit-authentication-proof"
 import { runAdmissionTransaction } from "./run-admission-transaction"
 
+const bootstrapSecretDigest = "f".repeat(64)
+
 async function createBootstrapAttempt(input: { existingMember: boolean }) {
   const providerId = randomUUID()
   const providerRevisionId = randomUUID()
@@ -93,6 +95,7 @@ async function createBootstrapAttempt(input: { existingMember: boolean }) {
     }
     await transaction.authorizationAttempt.create({
       data: {
+        bootstrapSecretDigest,
         browserBindingDigest: "c".repeat(64),
         codeVerifierCiphertext: "encrypted-verifier",
         consumedAt: new Date("2026-11-04T20:01:00Z"),
@@ -125,6 +128,7 @@ async function enroll(records: Awaited<ReturnType<typeof createBootstrapAttempt>
     },
     {
       createId: randomUUID,
+      getBootstrapSecretDigest: () => bootstrapSecretDigest,
       runTransaction: (operation) => runAdmissionTransaction(prisma, operation),
       writeAudit: (event) => createSecurityAudit(prisma, event),
     },

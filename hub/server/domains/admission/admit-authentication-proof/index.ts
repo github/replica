@@ -32,14 +32,6 @@ const inputSchema = z
         role: z.enum(["MEMBER", "ADMINISTRATOR"]).nullable(),
       })
       .strict()
-const authenticationDigestSchema = z.string().regex(/^[0-9a-f]{64}$/)
-
-function matchesAuthenticationDigest(storedDigest: string | null, currentDigest: string): boolean {
-      const stored = authenticationDigestSchema.safeParse(storedDigest)
-      const current = authenticationDigestSchema.safeParse(currentDigest)
-      if (!stored.success || !current.success) return false
-      return timingSafeEqual(Buffer.from(stored.data, "hex"), Buffer.from(current.data, "hex"))
-}
       .optional(),
     providerKey: z.unknown(),
     requiresProviderAssignmentEvidence: z.boolean(),
@@ -48,6 +40,14 @@ function matchesAuthenticationDigest(storedDigest: string | null, currentDigest:
     sessionLifetimeSeconds: z.number().int().min(60).max(86_400),
   })
   .strict()
+const authenticationDigestSchema = z.string().regex(/^[0-9a-f]{64}$/)
+
+function matchesAuthenticationDigest(storedDigest: string | null, currentDigest: string): boolean {
+  const stored = authenticationDigestSchema.safeParse(storedDigest)
+  const current = authenticationDigestSchema.safeParse(currentDigest)
+  if (!stored.success || !current.success) return false
+  return timingSafeEqual(Buffer.from(stored.data, "hex"), Buffer.from(current.data, "hex"))
+}
 
 async function ensureBootstrapMembership(
   repositories: AdmissionRepositories,

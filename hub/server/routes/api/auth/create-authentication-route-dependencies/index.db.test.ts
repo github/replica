@@ -107,6 +107,62 @@ async function createProviderSession(providerKey: "entra" | "github", digest: st
 }
 
 describe("createAuthenticationRouteDependencies()", () => {
+  it("binds both provider enrollment attempts to one bootstrap digest while sign-in remains unbound", async () => {
+    const dependencies = await createAuthenticationRouteDependencies(
+      environment({ entra: true, github: true }),
+      validDiscovery,
+    )
+
+    await Promise.all([
+      dependencies.github!.administratorEnrollment.start(),
+      dependencies.github!.signIn.start(),
+      dependencies.entra!.administratorEnrollment.start(),
+      dependencies.entra!.signIn.start(),
+    ])
+
+    const providers = await prisma.authenticationProvider.findMany({
+      include: { selectedRevision: true },
+      orderBy: { key: "asc" },
+    })
+    const attempts = await prisma.authorizationAttempt.findMany({
+      orderBy: [{ providerRevisionId: "asc" }, { purpose: "asc" }],
+      select: {
+        bootstrapSecretDigest: true,
+        providerRevisionId: true,
+        purpose: true,
+      },
+    })
+    const providerKeyByRevision = new Map(
+      providers.map((provider) => [provider.selectedRevision!.id, provider.key]),
+    )
+    const evidence = attempts.map((attempt) => ({
+      bootstrapSecretDigest: attempt.bootstrapSecretDigest,
+      provider: providerKeyByRevision.get(attempt.providerRevisionId),
+      purpose: attempt.purpose,
+    }))
+    const enrollmentDigests = evidence
+      .filter(({ purpose }) => purpose === "ADMIN_ENROLLMENT")
+      .map(({ bootstrapSecretDigest }) => bootstrapSecretDigest)
+
+    expect(evidence).toEqual(
+      expect.arrayContaining([
+        { bootstrapSecretDigest: null, provider: "github", purpose: "SIGN_IN" },
+        { bootstrapSecretDigest: null, provider: "entra", purpose: "SIGN_IN" },
+        {
+          bootstrapSecretDigest: expect.stringMatching(/^[0-9a-f]{64}$/),
+          provider: "github",
+          purpose: "ADMIN_ENROLLMENT",
+        },
+        {
+          bootstrapSecretDigest: expect.stringMatching(/^[0-9a-f]{64}$/),
+          provider: "entra",
+          purpose: "ADMIN_ENROLLMENT",
+        },
+      ]),
+    )
+    expect(new Set(enrollmentDigests).size).toBe(1)
+  })
+
   it("rolls back every provider selection when the later reconciliation fails", async () => {
     await createAuthenticationRouteDependencies(
       environment({ entra: true, github: true }),

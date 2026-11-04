@@ -171,7 +171,10 @@ describe("admitAuthenticationProof()", () => {
         runTransaction: (operation) => operation(records),
         writeAudit: vi.fn(),
       }),
-    ).resolves.toEqual({ expiresAt: new Date("2030-01-01") })
+    ).resolves.toEqual({
+      expiresAt: new Date("2030-01-01"),
+      role: "ADMINISTRATOR",
+    })
 
     expect(getBootstrapSecretDigest).toHaveBeenCalledOnce()
     expect(records.createOrRestoreMembership).toHaveBeenCalledOnce()
@@ -237,13 +240,16 @@ describe("admitAuthenticationProof()", () => {
         runTransaction: (operation) => operation(records),
         writeAudit: vi.fn(),
       }),
-    ).resolves.toEqual({ expiresAt: new Date("2030-01-01") })
+    ).resolves.toEqual({
+      expiresAt: new Date("2030-01-01"),
+      role: "ADMINISTRATOR",
+    })
 
     expect(getBootstrapSecretDigest).not.toHaveBeenCalled()
     expect(records.createOrRestoreMembership).not.toHaveBeenCalled()
     expect(records.createBootstrapAssignment).not.toHaveBeenCalled()
     expect(records.lockMembership).toHaveBeenCalledOnce()
-    expect(records.lockActiveAssignment).toHaveBeenCalledOnce()
+    expect(records.lockActiveAssignments).toHaveBeenCalledOnce()
     expect(records.createHubSession).toHaveBeenCalledOnce()
   })
 
@@ -403,6 +409,7 @@ describe("admitAuthenticationProof()", () => {
 
     await admitAuthenticationProof(input(), {
       createId: randomUUID,
+      getBootstrapSecretDigest: () => bootstrapSecretDigest,
       runTransaction: (operation) => operation(records),
       writeAudit: vi.fn(),
     })
@@ -423,6 +430,7 @@ describe("admitAuthenticationProof()", () => {
 
     await admitAuthenticationProof(input(), {
       createId: randomUUID,
+      getBootstrapSecretDigest: () => bootstrapSecretDigest,
       runTransaction: (operation) => operation(records),
       writeAudit: vi.fn(),
     })
@@ -563,6 +571,7 @@ describe("admitAuthenticationProof()", () => {
     await expect(
       admitAuthenticationProof(request, {
         createId: randomUUID,
+        getBootstrapSecretDigest: () => bootstrapSecretDigest,
         runTransaction: (operation) => operation(records),
         writeAudit: vi.fn(),
       }),
@@ -624,6 +633,7 @@ describe("admitAuthenticationProof()", () => {
         },
         {
           createId: randomUUID,
+          getBootstrapSecretDigest: () => bootstrapSecretDigest,
           runTransaction: (operation) => operation(records),
           writeAudit: vi.fn(),
         },
@@ -674,6 +684,7 @@ describe("admitAuthenticationProof()", () => {
         },
         {
           createId: randomUUID,
+          getBootstrapSecretDigest: () => bootstrapSecretDigest,
           runTransaction: (operation) => operation(records),
           writeAudit: vi.fn(),
         },
@@ -735,6 +746,7 @@ describe("admitAuthenticationProof()", () => {
         },
         {
           createId: randomUUID,
+          getBootstrapSecretDigest: () => bootstrapSecretDigest,
           runTransaction: (operation) => operation(records),
           writeAudit: vi.fn(),
         },
@@ -778,6 +790,7 @@ describe("admitAuthenticationProof()", () => {
         },
         {
           createId: randomUUID,
+          getBootstrapSecretDigest: () => bootstrapSecretDigest,
           runTransaction: (operation) => operation(records),
           writeAudit,
         },
@@ -808,6 +821,7 @@ describe("admitAuthenticationProof()", () => {
         userId: "22222222-2222-4222-8222-222222222222",
       }),
       lockAttempt: vi.fn().mockResolvedValue({
+        bootstrapSecretDigest,
         consumedAt: new Date(),
         providerRevisionId: "00000000-0000-4000-8000-000000000099",
         purpose: "ADMIN_ENROLLMENT",
@@ -850,6 +864,7 @@ describe("admitAuthenticationProof()", () => {
         },
         {
           createId: randomUUID,
+          getBootstrapSecretDigest: () => bootstrapSecretDigest,
           runTransaction: (operation) => operation(records),
           writeAudit: vi.fn(),
         },
@@ -913,6 +928,7 @@ describe("admitAuthenticationProof()", () => {
         },
         {
           createId: randomUUID,
+          getBootstrapSecretDigest: () => bootstrapSecretDigest,
           runTransaction: (operation) => {
             transactionCalls += 1
             return operation(records)

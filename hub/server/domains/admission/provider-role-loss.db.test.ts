@@ -111,6 +111,7 @@ function revokeProviderRole(records: Awaited<ReturnType<typeof createProviderRol
     },
     {
       createId: randomUUID,
+      getBootstrapSecretDigest: () => "f".repeat(64),
       runTransaction: (operation) => runAdmissionTransaction(prisma, operation),
       writeAudit: (event) => createSecurityAudit(prisma, event),
     },
