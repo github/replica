@@ -6,18 +6,20 @@ import { restoreHubSession } from "."
 function repositories(
   overrides: Partial<SessionRestoreRepositories> = {},
 ): SessionRestoreRepositories {
+  const session = {
+    id: "session-id",
+    membershipId: "membership-id",
+    revocationRevision: 0,
+  }
   return {
+    findSession: vi.fn().mockResolvedValue(session),
     getRevocation: vi.fn().mockResolvedValue({ revision: 0 }),
     lockActiveAssignment: vi.fn().mockResolvedValue(true),
     lockMembership: vi.fn().mockResolvedValue({
       id: "membership-id",
       lifecycle: "ACTIVE",
     }),
-    lockSession: vi.fn().mockResolvedValue({
-      id: "session-id",
-      membershipId: "membership-id",
-      revocationRevision: 0,
-    }),
+    lockSession: vi.fn().mockResolvedValue(session),
     ...overrides,
   }
 }
@@ -80,12 +82,7 @@ describe("restoreHubSession()", () => {
   })
 
   it("fails closed when the session expires while authority locks are acquired", async () => {
-    const activeSession = {
-      id: "session-id",
-      membershipId: "membership-id",
-      revocationRevision: 0,
-    }
-    const lockSession = vi.fn().mockResolvedValueOnce(activeSession).mockResolvedValueOnce(null)
+    const lockSession = vi.fn().mockResolvedValue(null)
     const records = repositories({ lockSession })
 
     await expect(
@@ -93,7 +90,7 @@ describe("restoreHubSession()", () => {
         runTransaction: (operation) => operation(records),
       }),
     ).resolves.toBeNull()
-    expect(lockSession).toHaveBeenCalledTimes(2)
+    expect(lockSession).toHaveBeenCalledOnce()
   })
 
   it.each(["SUSPENDED", "REMOVED"] as const)(

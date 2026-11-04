@@ -64,7 +64,10 @@ async function ensureBootstrapMembership(
       membershipId: membership.id,
     })
   }
-  return membership.id
+  return {
+    authorityRestored: membership.transition === "restored" || assignment === "restored",
+    membershipId: membership.id,
+  }
 }
 
 async function requireActiveMembership(
@@ -104,10 +107,33 @@ async function admitWithinTransaction(
   if (identity.provider !== input.providerKey) {
     throw new AdmissionDeniedError("identity_mismatch", input.proof.externalIdentityId)
   }
-  const membershipId =
-    attempt.purpose === "ADMIN_ENROLLMENT"
-      ? await ensureBootstrapMembership(repositories, input, identity.userId, createId)
-      : await requireActiveMembership(repositories, identity.userId, input.proof.externalIdentityId)
+  let membershipId: string
+  if (attempt.purpose === "ADMIN_ENROLLMENT") {
+    const enrollment = await ensureBootstrapMembership(
+      repositories,
+      input,
+      identity.userId,
+      createId,
+    )
+    membershipId = enrollment.membershipId
+    if (enrollment.authorityRestored) {
+      const endedSessions = await repositories.endOpenHubSessionsForMembership(membershipId)
+      for (const endedSession of endedSessions) {
+        await repositories.createSecurityAudit({
+          id: createId(),
+          type: "session_ended",
+          sessionId: endedSession.id,
+          membershipId: endedSession.membershipId,
+        })
+      }
+    }
+  } else {
+    membershipId = await requireActiveMembership(
+      repositories,
+      identity.userId,
+      input.proof.externalIdentityId,
+    )
+  }
   const session = await repositories.createHubSession({
     digest: input.sessionDigest,
     id: input.sessionId,

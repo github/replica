@@ -8,12 +8,15 @@ import { AdmissionPersistenceError } from "./errors"
 import { runAdmissionTransaction } from "./run-admission-transaction"
 
 describe("admission success audit rollback", () => {
-  it("rolls back bootstrap state and writes one terminal audit when session success audit fails", async () => {
+  it("rolls back restored authority and session replacement when an ended-session audit fails", async () => {
     const providerId = randomUUID()
     const revisionId = randomUUID()
     const userId = randomUUID()
     const externalIdentityId = randomUUID()
+    const membershipId = randomUUID()
+    const assignmentId = randomUUID()
     const attemptId = randomUUID()
+    const oldSessionId = randomUUID()
     const sessionId = randomUUID()
     const suffix = randomUUID().replaceAll("-", "")
     const functionName = `fail_session_audit_${suffix}`
@@ -44,6 +47,32 @@ describe("admission success audit rollback", () => {
           subject: "rollback-user",
         },
       })
+      await transaction.membership.create({
+        data: {
+          id: membershipId,
+          userId,
+          lifecycle: "REMOVED",
+        },
+      })
+      await transaction.membershipAssignment.create({
+        data: {
+          id: assignmentId,
+          membershipId,
+          externalIdentityId,
+          source: "BOOTSTRAP",
+          role: "ADMINISTRATOR",
+          lifecycle: "REVOKED",
+        },
+      })
+      await transaction.hubSession.create({
+        data: {
+          id: oldSessionId,
+          membershipId,
+          digest: "e".repeat(64),
+          revocationRevision: 0,
+          expiresAt: new Date("2030-01-01T00:00:00Z"),
+        },
+      })
       await transaction.authorizationAttempt.create({
         data: {
           id: attemptId,
@@ -66,8 +95,8 @@ describe("admission success audit rollback", () => {
       LANGUAGE plpgsql
       AS $$
       BEGIN
-        IF NEW.action = 'session.created' THEN
-          RAISE EXCEPTION 'session audit unavailable';
+        IF NEW.action = 'session.ended' THEN
+          RAISE EXCEPTION 'ended session audit unavailable';
         END IF;
         RETURN NEW;
       END;
@@ -100,9 +129,24 @@ describe("admission success audit rollback", () => {
       await prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS "${functionName}"()`)
     }
 
-    expect(await prisma.membership.count()).toBe(0)
-    expect(await prisma.membershipAssignment.count()).toBe(0)
-    expect(await prisma.hubSession.count()).toBe(0)
+    expect(
+      await prisma.membership.findUniqueOrThrow({
+        where: { id: membershipId },
+        select: { lifecycle: true },
+      }),
+    ).toEqual({ lifecycle: "REMOVED" })
+    expect(
+      await prisma.membershipAssignment.findUniqueOrThrow({
+        where: { id: assignmentId },
+        select: { lifecycle: true },
+      }),
+    ).toEqual({ lifecycle: "REVOKED" })
+    expect(
+      await prisma.hubSession.findMany({
+        orderBy: { id: "asc" },
+        select: { id: true, endedAt: true },
+      }),
+    ).toEqual([{ id: oldSessionId, endedAt: null }])
     const consumedAttempt = await prisma.authorizationAttempt.findUniqueOrThrow({
       where: { id: attemptId },
       select: { consumedAt: true },

@@ -29,6 +29,7 @@ function repositories(overrides: Partial<AdmissionRepositories> = {}) {
       transition: "created",
     }),
     createSecurityAudit: vi.fn().mockResolvedValue(undefined),
+    endOpenHubSessionsForMembership: vi.fn().mockResolvedValue([]),
     lockActiveAssignment: vi.fn().mockResolvedValue(true),
     lockAttempt: vi.fn().mockResolvedValue({
       consumedAt: new Date(),
@@ -139,10 +140,13 @@ describe("admitAuthenticationProof()", () => {
     )
   })
 
-  it("audits membership restoration without duplicating an unchanged assignment audit", async () => {
+  it("ends open sessions when enrollment restores only the membership", async () => {
     const createSecurityAudit = vi
       .fn<AdmissionRepositories["createSecurityAudit"]>()
       .mockResolvedValue(undefined)
+    const endOpenHubSessionsForMembership = vi
+      .fn()
+      .mockResolvedValue([{ id: "old-session-id", membershipId: "membership-id" }])
     const records = repositories({
       createBootstrapAssignment: vi.fn().mockResolvedValue("unchanged"),
       createOrRestoreMembership: vi.fn().mockResolvedValue({
@@ -150,6 +154,7 @@ describe("admitAuthenticationProof()", () => {
         transition: "restored",
       }),
       createSecurityAudit,
+      endOpenHubSessionsForMembership,
     })
 
     await admitAuthenticationProof(input(), {
@@ -158,6 +163,8 @@ describe("admitAuthenticationProof()", () => {
       writeAudit: vi.fn(),
     })
 
+    expect(endOpenHubSessionsForMembership).toHaveBeenCalledOnce()
+    expect(endOpenHubSessionsForMembership).toHaveBeenCalledWith("membership-id")
     expect(createSecurityAudit).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "membership_restored",
@@ -167,6 +174,122 @@ describe("admitAuthenticationProof()", () => {
     expect(createSecurityAudit).not.toHaveBeenCalledWith(
       expect.objectContaining({ type: "membership_assignment_restored" }),
     )
+    expect(createSecurityAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "session_ended",
+        sessionId: "old-session-id",
+        membershipId: "membership-id",
+      }),
+    )
+  })
+
+  it("ends open sessions when enrollment restores only the assignment", async () => {
+    const endOpenHubSessionsForMembership = vi.fn().mockResolvedValue([])
+    const records = repositories({
+      createBootstrapAssignment: vi.fn().mockResolvedValue("restored"),
+      createOrRestoreMembership: vi.fn().mockResolvedValue({
+        id: "membership-id",
+        transition: "unchanged",
+      }),
+      endOpenHubSessionsForMembership,
+    })
+
+    await admitAuthenticationProof(input(), {
+      createId: randomUUID,
+      runTransaction: (operation) => operation(records),
+      writeAudit: vi.fn(),
+    })
+
+    expect(endOpenHubSessionsForMembership).toHaveBeenCalledOnce()
+    expect(endOpenHubSessionsForMembership).toHaveBeenCalledWith("membership-id")
+  })
+
+  it("ends sessions once and audits each ended session when both authorities are restored", async () => {
+    const createSecurityAudit = vi
+      .fn<AdmissionRepositories["createSecurityAudit"]>()
+      .mockResolvedValue(undefined)
+    const endOpenHubSessionsForMembership = vi.fn().mockResolvedValue([
+      { id: "old-session-1", membershipId: "membership-id" },
+      { id: "old-session-2", membershipId: "membership-id" },
+    ])
+    const records = repositories({
+      createBootstrapAssignment: vi.fn().mockResolvedValue("restored"),
+      createOrRestoreMembership: vi.fn().mockResolvedValue({
+        id: "membership-id",
+        transition: "restored",
+      }),
+      createSecurityAudit,
+      endOpenHubSessionsForMembership,
+    })
+
+    await admitAuthenticationProof(input(), {
+      createId: randomUUID,
+      runTransaction: (operation) => operation(records),
+      writeAudit: vi.fn(),
+    })
+
+    expect(endOpenHubSessionsForMembership).toHaveBeenCalledOnce()
+    expect(
+      createSecurityAudit.mock.calls
+        .map(([event]) => event)
+        .filter((event) => event.type === "session_ended"),
+    ).toEqual([
+      expect.objectContaining({ sessionId: "old-session-1", membershipId: "membership-id" }),
+      expect.objectContaining({ sessionId: "old-session-2", membershipId: "membership-id" }),
+    ])
+  })
+
+  it.each([
+    ["created", "created"],
+    ["unchanged", "unchanged"],
+  ] as const)(
+    "does not end sessions when enrollment leaves authority %s and assignment %s",
+    async (membershipTransition, assignmentTransition) => {
+      const endOpenHubSessionsForMembership = vi.fn().mockResolvedValue([])
+      const records = repositories({
+        createBootstrapAssignment: vi.fn().mockResolvedValue(assignmentTransition),
+        createOrRestoreMembership: vi.fn().mockResolvedValue({
+          id: "membership-id",
+          transition: membershipTransition,
+        }),
+        endOpenHubSessionsForMembership,
+      })
+
+      await admitAuthenticationProof(input(), {
+        createId: randomUUID,
+        runTransaction: (operation) => operation(records),
+        writeAudit: vi.fn(),
+      })
+
+      expect(endOpenHubSessionsForMembership).not.toHaveBeenCalled()
+    },
+  )
+
+  it("creates the replacement session after ending restored authority sessions", async () => {
+    const order: string[] = []
+    const records = repositories({
+      createBootstrapAssignment: vi.fn().mockResolvedValue("restored"),
+      createHubSession: vi.fn().mockImplementation(() => {
+        order.push("create replacement")
+        return Promise.resolve({ expiresAt: new Date("2030-01-01") })
+      }),
+      createOrRestoreMembership: vi.fn().mockResolvedValue({
+        id: "membership-id",
+        transition: "restored",
+      }),
+      endOpenHubSessionsForMembership: vi.fn().mockImplementation(() => {
+        order.push("end old")
+        return Promise.resolve([])
+      }),
+    })
+
+    await admitAuthenticationProof(input(), {
+      createId: randomUUID,
+      runTransaction: (operation) => operation(records),
+      writeAudit: vi.fn(),
+    })
+
+    expect(order).toEqual(["end old", "create replacement"])
   })
 
   it("does not audit an unchanged active membership lifecycle", async () => {

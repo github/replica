@@ -1,6 +1,11 @@
 import type { Prisma } from "../../../generated/prisma/client.ts"
 
 export interface SessionRestoreRepositories {
+  findSession(digest: string): Promise<{
+    id: string
+    membershipId: string
+    revocationRevision: number
+  } | null>
   getRevocation(): Promise<{ revision: number } | null>
   lockActiveAssignment(membershipId: string): Promise<boolean>
   lockMembership(membershipId: string): Promise<{

@@ -11,7 +11,7 @@ export async function restoreHubSession(
   const parsedDigest = digestSchema.parse(digest)
   return dependencies.runTransaction(async (repositories) => {
     const revocation = await repositories.getRevocation()
-    const session = await repositories.lockSession(parsedDigest)
+    const session = await repositories.findSession(parsedDigest)
     if (!session || !revocation || session.revocationRevision !== revocation.revision) {
       return null
     }
@@ -19,7 +19,12 @@ export async function restoreHubSession(
     if (!membership || membership.lifecycle !== "ACTIVE") return null
     if (!(await repositories.lockActiveAssignment(session.membershipId))) return null
     const finalSession = await repositories.lockSession(parsedDigest)
-    if (finalSession?.id !== session.id) return null
+    if (
+      finalSession?.id !== session.id ||
+      finalSession.revocationRevision !== session.revocationRevision
+    ) {
+      return null
+    }
     const finalRevocation = await repositories.getRevocation()
     if (!finalRevocation || finalRevocation.revision !== revocation.revision) return null
     return true

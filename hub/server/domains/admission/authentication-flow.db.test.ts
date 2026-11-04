@@ -302,16 +302,19 @@ describe("Hub admission and session flow", () => {
   })
 
   it("keeps bootstrap reusable for another administrator and restores removed authority", async () => {
-    const server = await openServer([201, 202, 201])
+    const server = await openServer([201, 202, 201, 201, 201])
     const secret = "bootstrap-secret-that-is-at-least-32-characters"
     try {
+      const enrollmentSessions: string[] = []
       for (let index = 0; index < 2; index += 1) {
         const attempt = await startAuthentication(
           server.baseUrl,
           "/api/auth/github/admin-enrollment/start",
           new URLSearchParams({ bootstrap_secret: secret }),
         )
-        expect((await completeAuthentication(server.baseUrl, attempt)).status).toBe(303)
+        const response = await completeAuthentication(server.baseUrl, attempt)
+        expect(response.status).toBe(303)
+        enrollmentSessions.push(cookieValue(response, "hub_session")!)
       }
       expect(await prisma.membership.count()).toBe(2)
 
@@ -319,28 +322,61 @@ describe("Hub admission and session flow", () => {
         where: { subject: "201" },
         include: { user: { include: { membership: true } } },
       })
+      const firstMembershipId = firstIdentity.user.membership!.id
+      const additionalSessions: string[] = []
+      for (let index = 0; index < 2; index += 1) {
+        const attempt = await startAuthentication(server.baseUrl, "/api/auth/github/start")
+        const response = await completeAuthentication(server.baseUrl, attempt)
+        expect(response.headers.get("location")).toBe("/?authentication=success")
+        additionalSessions.push(cookieValue(response, "hub_session")!)
+      }
+      const oldSessionDigests = [enrollmentSessions[0]!, ...additionalSessions].map((session) =>
+        createHash("sha256").update(session).digest("hex"),
+      )
+      const oldSessions = await prisma.hubSession.findMany({
+        where: { digest: { in: oldSessionDigests } },
+        orderBy: { id: "asc" },
+        select: { id: true, digest: true },
+      })
+      expect(oldSessions).toHaveLength(3)
+
+      const alreadyEndedSession = oldSessions[0]!
+      const alreadyEndedAt = new Date()
+      await prisma.hubSession.update({
+        where: { id: alreadyEndedSession.id },
+        data: { endedAt: alreadyEndedAt },
+      })
 
       await prisma.membership.update({
-        where: { id: firstIdentity.user.membership!.id },
+        where: { id: firstMembershipId },
         data: { lifecycle: "REMOVED" },
       })
       await prisma.membershipAssignment.updateMany({
-        where: { membershipId: firstIdentity.user.membership!.id },
+        where: { membershipId: firstMembershipId },
         data: { lifecycle: "REVOKED" },
       })
       const assignmentRestoreAuditsBefore = await prisma.securityAudit.count({
         where: { action: "membership.assignment.restored" },
       })
+      const sessionEndedAuditsBefore = await prisma.securityAudit.count({
+        where: { action: "session.ended" },
+      })
+      const newlyEndedSessionIds = oldSessions
+        .filter(({ id }) => id !== alreadyEndedSession.id)
+        .map(({ id }) => id)
+        .sort()
 
       const restoration = await startAuthentication(
         server.baseUrl,
         "/api/auth/github/admin-enrollment/start",
         new URLSearchParams({ bootstrap_secret: secret }),
       )
-      expect((await completeAuthentication(server.baseUrl, restoration)).status).toBe(303)
+      const restored = await completeAuthentication(server.baseUrl, restoration)
+      expect(restored.status).toBe(303)
+      const replacementSession = cookieValue(restored, "hub_session")!
       expect(
         await prisma.membership.findUnique({
-          where: { id: firstIdentity.user.membership!.id },
+          where: { id: firstMembershipId },
           select: { lifecycle: true, assignments: { select: { lifecycle: true } } },
         }),
       ).toEqual({
@@ -351,7 +387,7 @@ describe("Hub admission and session flow", () => {
         await prisma.securityAudit.count({
           where: {
             action: "membership.restored",
-            targetId: firstIdentity.user.membership!.id,
+            targetId: firstMembershipId,
           },
         }),
       ).toBe(1)
@@ -360,6 +396,63 @@ describe("Hub admission and session flow", () => {
           where: { action: "membership.assignment.restored" },
         }),
       ).toBe(assignmentRestoreAuditsBefore + 1)
+
+      const persistedOldSessions = await prisma.hubSession.findMany({
+        where: { id: { in: oldSessions.map(({ id }) => id) } },
+        orderBy: { id: "asc" },
+        select: { id: true, endedAt: true },
+      })
+      expect(persistedOldSessions.map(({ id }) => id)).toEqual(oldSessions.map(({ id }) => id))
+      expect(persistedOldSessions.every(({ endedAt }) => endedAt instanceof Date)).toBe(true)
+      expect(persistedOldSessions.find(({ id }) => id === alreadyEndedSession.id)?.endedAt).toEqual(
+        alreadyEndedAt,
+      )
+
+      const newSessionEndedAudits = await prisma.securityAudit.findMany({
+        where: {
+          action: "session.ended",
+          targetId: { in: newlyEndedSessionIds },
+        },
+        orderBy: { targetId: "asc" },
+        select: { context: true, targetId: true },
+      })
+      expect(await prisma.securityAudit.count({ where: { action: "session.ended" } })).toBe(
+        sessionEndedAuditsBefore + 2,
+      )
+      expect(newSessionEndedAudits).toEqual(
+        newlyEndedSessionIds.map((sessionId) => ({
+          context: { membershipId: firstMembershipId },
+          targetId: sessionId,
+        })),
+      )
+
+      const replacementDigest = createHash("sha256").update(replacementSession).digest("hex")
+      expect(
+        await prisma.hubSession.findUniqueOrThrow({
+          where: { digest: replacementDigest },
+          select: { endedAt: true, membershipId: true },
+        }),
+      ).toEqual({ endedAt: null, membershipId: firstMembershipId })
+      expect(
+        await fetch(`${server.baseUrl}/api/auth/session`, {
+          headers: { cookie: `hub_session=${encodeURIComponent(additionalSessions[0]!)}` },
+        }),
+      ).toMatchObject({ status: 401 })
+      expect(
+        await fetch(`${server.baseUrl}/api/auth/session`, {
+          headers: { cookie: `hub_session=${encodeURIComponent(replacementSession)}` },
+        }),
+      ).toMatchObject({ status: 200 })
+
+      const otherMembershipSessionDigest = createHash("sha256")
+        .update(enrollmentSessions[1]!)
+        .digest("hex")
+      expect(
+        await prisma.hubSession.findUniqueOrThrow({
+          where: { digest: otherMembershipSessionDigest },
+          select: { endedAt: true },
+        }),
+      ).toEqual({ endedAt: null })
     } finally {
       await server.close()
     }
