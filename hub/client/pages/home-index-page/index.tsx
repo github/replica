@@ -3,6 +3,7 @@ import { Button, Hero, Text } from "@primer/react-brand"
 import { useEffect, useId, useState } from "react"
 
 import { HubAlert } from "@components/hub-alert"
+import { HubToast } from "@components/hub-toast"
 import { ReplicaLogo } from "@components/replica-logo"
 import type { HubResolvedColorMode } from "@hooks/use-hub-theme"
 
@@ -120,11 +121,7 @@ export function HomeIndexPage({
                 </div>
               ) : null}
 
-              {data.notice ? (
-                <div className="home__alert">
-                  <HubAlert title={data.notice} variant="success" layout="compact" />
-                </div>
-              ) : null}
+              {data.notice ? <HubToast title={data.notice} /> : null}
 
               <Hero.ButtonGroup className="home__actions">
                 <Button type="submit" variant="primary" leadingVisual={<SignInIcon />}>

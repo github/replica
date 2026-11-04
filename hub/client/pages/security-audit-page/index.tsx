@@ -3,6 +3,7 @@ import { ActionMenu, Button, Text } from "@primer/react-brand"
 
 import { HubAlert } from "@components/hub-alert"
 import { HubContentPageHeader } from "@components/hub-content-page-header"
+import { HubToast } from "@components/hub-toast"
 import { RepositoryWorkspace } from "@features/repository-workspace"
 import { HubAdministrationWorkspace } from "@features/hub-administration-workspace"
 
@@ -49,7 +50,7 @@ export function SecurityAuditPage({ data }: { data: SecurityAuditPageData }) {
       {data.scopesUnavailableMessage ? (
         <HubAlert title={data.scopesUnavailableMessage} variant="warning" />
       ) : null}
-      {data.notice ? <HubAlert title={data.notice} variant="success" /> : null}
+      {data.notice ? <HubToast title={data.notice} /> : null}
       <Text as="p">{data.retention}</Text>
       {!data.workspace && !data.administrationWorkspace ? (
         <div className="security-audit-page__actions">

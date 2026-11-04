@@ -15,6 +15,17 @@ import story, {
 } from "./stories"
 
 describe("AnalyticsPage()", () => {
+  it("keeps a read-only permission notice inline rather than offering a dismissible notification", () => {
+    const notice = "You can view analytics destinations, but you cannot change them."
+    const data = { ...Configured.args!.data!, readOnly: true, notice }
+    const { container } = render(<AnalyticsPage data={data} />, { wrapper: HubThemeProvider })
+
+    expect(container).toContainElement(screen.getByText(notice))
+    expect(screen.getByRole("region", { name: "Segment" })).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Dismiss notification" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("region", { name: "Notifications" })).not.toBeInTheDocument()
+  })
+
   it("defaults to new events and selects every event with labeled password inputs", () => {
     render(<AnalyticsPage data={story.args.data} />, { wrapper: HubThemeProvider })
     expect(

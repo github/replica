@@ -4,6 +4,7 @@ import { BookIcon, LinkExternalIcon, PlusIcon, QuestionIcon } from "@primer/octi
 import { Button, Heading, Text } from "@primer/react-brand"
 
 import { HubAlert } from "@components/hub-alert"
+import { HubToast } from "@components/hub-toast"
 import { HubWorkspace } from "@features/hub-workspace"
 
 import type { WelcomePageData } from "./types"
@@ -18,7 +19,7 @@ export function WelcomePage({ data }: { data: WelcomePageData }) {
       <div className="welcome-page-shell">
         <article className="welcome-page">
           <div className="welcome-page__content welcome-page__content--top">
-            {data.notice ? <HubAlert title={data.notice} variant="success" /> : null}
+            {data.notice ? <HubToast title={data.notice} /> : null}
 
             <header className="welcome-page__introduction">
               <Heading as="h1" size="2" className="welcome-page__heading">

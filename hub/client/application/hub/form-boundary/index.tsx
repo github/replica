@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react"
 import type { PropsWithChildren, SubmitEvent } from "react"
 
 import { HubAlert } from "@components/hub-alert"
+import { HubToast } from "@components/hub-toast"
 
 interface Props extends PropsWithChildren {
   busy: boolean
@@ -31,11 +32,12 @@ export function FlowFormBoundary({ children, busy, error, notice, onSubmit }: Pr
 
   return (
     <div onSubmit={submit} aria-busy={busy}>
-      {error || notice ? (
-        <div ref={feedback} tabIndex={-1} role={error ? "alert" : "status"}>
-          <HubAlert title={error || notice || ""} variant={error ? "critical" : "success"} />
+      {error ? (
+        <div ref={feedback} tabIndex={-1}>
+          <HubAlert title={error} variant="critical" />
         </div>
       ) : null}
+      {!error && notice ? <HubToast title={notice} /> : null}
       {children}
     </div>
   )

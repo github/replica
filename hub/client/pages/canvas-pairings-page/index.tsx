@@ -1,7 +1,7 @@
 import { MarkGithubIcon } from "@primer/octicons-react"
 import { Button, Heading, InlineLink, Text } from "@primer/react-brand"
 
-import { HubAlert } from "@components/hub-alert"
+import { HubToast } from "@components/hub-toast"
 
 import type { CanvasPairingsPageData } from "./types"
 
@@ -67,7 +67,7 @@ export function CanvasPairingsPage({ data }: { data: CanvasPairingsPageData }) {
             </>
           ) : (
             <>
-              {data.notice ? <HubAlert title={data.notice} variant="success" /> : null}
+              {data.notice ? <HubToast title={data.notice} /> : null}
               {data.createPath && data.createLabel ? (
                 <Button as="a" href={data.createPath} variant="primary">
                   {data.createLabel}

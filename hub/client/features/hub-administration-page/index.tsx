@@ -4,6 +4,7 @@ import { Button } from "@primer/react-brand"
 
 import { HubAlert } from "@components/hub-alert"
 import { HubContentPageHeader } from "@components/hub-content-page-header"
+import { HubToast } from "@components/hub-toast"
 import { HubAdministrationWorkspace } from "@features/hub-administration-workspace"
 import { HubWorkspace } from "@features/hub-workspace"
 
@@ -38,7 +39,7 @@ export function HubAdministrationPage({
       ) : null}
 
       {data.alert ? <HubAlert variant="critical" title={data.alert} /> : null}
-      {data.notice ? <HubAlert variant="success" title={data.notice} /> : null}
+      {data.notice ? <HubToast title={data.notice} /> : null}
 
       {children}
     </section>

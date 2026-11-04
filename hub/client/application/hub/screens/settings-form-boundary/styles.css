@@ -11,8 +11,7 @@
   flex-direction: column;
 }
 
-.settings-form-boundary > [aria-busy] > [role="status"],
-.settings-form-boundary > [aria-busy] > [role="alert"] {
+.settings-form-boundary > [aria-busy] > [tabindex="-1"] {
   max-block-size: 40%;
   overflow: auto;
   flex: none;

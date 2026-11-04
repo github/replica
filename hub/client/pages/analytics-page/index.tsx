@@ -12,6 +12,7 @@ import {
 } from "@primer/react-brand"
 
 import { HubAlert } from "@components/hub-alert"
+import { HubToast } from "@components/hub-toast"
 import { RepositoryWorkspace } from "@features/repository-workspace"
 
 import { CustomFields } from "./custom-fields"
@@ -48,7 +49,13 @@ export function AnalyticsPage({ data }: { data: AnalyticsPageData }) {
             {copy.privacy}
           </Text>
           {data.alert ? <HubAlert title={data.alert} variant="critical" /> : null}
-          {data.notice ? <HubAlert title={data.notice} variant="success" /> : null}
+          {data.notice ? (
+            data.readOnly ? (
+              <HubAlert title={data.notice} variant="info" />
+            ) : (
+              <HubToast title={data.notice} />
+            )
+          ) : null}
           <div className="analytics-page__section-header">
             <Heading as="h2" size="5">
               {copy.destinations}

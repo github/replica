@@ -4,6 +4,7 @@ import { Button, FormControl, Heading, Text, Textarea } from "@primer/react-bran
 import { HubAlert } from "@components/hub-alert"
 import { HubContentPageHeader } from "@components/hub-content-page-header"
 import { HubCounter } from "@components/hub-counter"
+import { HubToast } from "@components/hub-toast"
 import { HubUserAvatar } from "@components/hub-user-avatar"
 import { RepositoryWorkspace } from "@features/repository-workspace"
 import { ReviewRelativeTime } from "@features/review-relative-time"
@@ -36,7 +37,7 @@ export function LearningsPage({ data }: { data: LearningsPageData }) {
           }
         />
         {data.alert ? <HubAlert title={data.alert} variant="critical" /> : null}
-        {data.notice ? <HubAlert title={data.notice} variant="success" /> : null}
+        {data.notice ? <HubToast title={data.notice} /> : null}
         {data.loadError ? <HubAlert title={data.loadError} variant="critical" /> : null}
         {data.identityNotice ? <HubAlert title={data.identityNotice} variant="warning" /> : null}
 

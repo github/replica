@@ -1,4 +1,5 @@
 import { HubAlert } from "@components/hub-alert"
+import { HubToast } from "@components/hub-toast"
 import { PrototypeWorkspace } from "@features/prototype-workspace"
 import { ShareLinkItem } from "@features/share-link-item"
 import { ShareLinksForm } from "@features/share-links-form"
@@ -29,9 +30,7 @@ export function ShareLinksIndexPage({
             {data.alert ? (
               <HubAlert title={data.alert} variant="critical" layout="compact" />
             ) : null}
-            {data.notice ? (
-              <HubAlert title={data.notice} variant="success" layout="compact" />
-            ) : null}
+            {data.notice ? <HubToast title={data.notice} /> : null}
             {!data.publicSharingEnabled ? (
               <HubAlert title={data.disabledLabel} variant="warning" layout="compact" />
             ) : null}

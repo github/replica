@@ -6,6 +6,7 @@ import { Button, Pagination, Text } from "@primer/react-brand"
 import { HubAlert } from "@components/hub-alert"
 import { HubEmptyState } from "@components/hub-empty-state"
 import { HubIconButton } from "@components/hub-icon-button"
+import { HubToast } from "@components/hub-toast"
 import { PrototypeCard } from "@components/prototype-card"
 import { PrototypeViewModeControl } from "@components/prototype-view-mode-control"
 import type { PrototypeViewMode } from "@components/prototype-view-mode-control/types"
@@ -141,7 +142,7 @@ export function RepositoriesShowPage({
             />
           ) : null}
           {data.alert ? <HubAlert title={data.alert} variant="critical" layout="compact" /> : null}
-          {data.notice ? <HubAlert title={data.notice} variant="info" layout="compact" /> : null}
+          {data.notice ? <HubToast title={data.notice} variant="info" /> : null}
 
           {data.candidateCheckFailed ? (
             <HubAlert title={data.candidateCheckFailed} variant="warning" />
