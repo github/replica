@@ -63,7 +63,7 @@ export function settingsAudit(
         })
       : null,
     repositoriesLabel: "Repositories",
-    repositoriesPath: "/",
+    repositoriesPath: "/repositories",
     signOutLabel: "Sign out",
     signOutPath: "/session",
     authenticityToken: "",

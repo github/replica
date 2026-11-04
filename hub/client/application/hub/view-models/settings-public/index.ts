@@ -86,7 +86,7 @@ export function settingsPublic(state: SettingsPublicResponse, search: URLSearchP
     auditLabel: "Security audit",
     auditPath: allowed ? resourcePath("/settings/audit", search) : null,
     repositoriesLabel: "Repositories",
-    repositoriesPath: "/",
+    repositoriesPath: "/repositories",
     signOutLabel: "Sign out",
     signOutPath: "/session",
     authenticityToken: "",

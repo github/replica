@@ -30,7 +30,7 @@ export async function clientAction({ request }: Pick<ActionFunctionArgs, "reques
   const action = form.get("_action")
   if (
     typeof action !== "string" ||
-    action.split("?")[0] !== "/admin/sharing" ||
+    action.split("?")[0] !== "/settings/sharing" ||
     form.get("_method") !== "patch"
   ) {
     return data<ProductActionResult>(

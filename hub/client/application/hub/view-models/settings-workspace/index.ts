@@ -42,7 +42,7 @@ export function settingsWorkspace(
     settingsNavigationLabel: "Security and settings",
     selectedSection,
     repositoriesLabel: "Repositories",
-    repositoriesPath: "/",
+    repositoriesPath: "/repositories",
     signOutLabel: "Sign out",
     signOutPath: "/session",
     systemThemeLabel: "System",
@@ -61,15 +61,15 @@ export function settingsWorkspace(
               ? resourcePath(`/repositories/${repositoryId}/new`, search)
               : null,
             analyticsLabel: "Analytics",
-            analyticsPath: resourcePath("/settings/analytics", search, { repositoryId }),
+            analyticsPath: resourcePath(`/repositories/${repositoryId}/analytics`, search),
             learningsLabel: "Learnings",
-            learningsPath: resourcePath("/settings/learnings", search, { repositoryId }),
+            learningsPath: resourcePath(`/repositories/${repositoryId}/learnings`, search),
           }
         : null,
     administrationLinks: admin
       ? [
           { section: "admins", label: "Hub administrators", path: path("/settings/admins") },
-          { section: "sharing", label: "Public sharing", path: path("/admin/sharing") },
+          { section: "sharing", label: "Public sharing", path: path("/settings/sharing") },
           { section: "sessions", label: "End all Hub sessions", path: path("/settings/sessions") },
           { section: "github", label: "GitHub App", path: path("/settings/github") },
           { section: "copilot", label: "Copilot", path: path("/settings/copilot") },

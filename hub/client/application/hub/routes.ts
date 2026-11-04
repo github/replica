@@ -7,6 +7,7 @@ export default [
   index("routes/home/index.tsx"),
   route("sign-in", "routes/sign-in/index.tsx"),
   route("session", "routes/session/index.tsx"),
+  route("repositories", "routes/repositories/index.tsx"),
   ...productPublicRoutes,
   ...settingsPublicRoutes,
   layout("routes/workspace/index.tsx", [

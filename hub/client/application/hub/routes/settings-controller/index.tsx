@@ -1,6 +1,7 @@
 import { data, redirect } from "react-router"
 import type { ClientActionFunctionArgs, ClientLoaderFunctionArgs } from "react-router"
 
+import { routeIdentifierSchema } from "../../contracts"
 import {
   settingsMutationResponseSchema,
   settingsPublicResponseSchema,
@@ -17,18 +18,39 @@ import { settingsFormOperation } from "../settings-form-operation"
 import type { SettingsRouteData } from "./types"
 
 export function settingsController(section: SettingsSection, surface: "workspace" | "public") {
+  function settingsUrl(request: Request, params: ClientLoaderFunctionArgs["params"]) {
+    const url = new URL(request.url)
+    if (section !== "analytics" && section !== "learnings") return url
+    const parsed = routeIdentifierSchema.safeParse(params.repositoryId)
+    if (!parsed.success) throw new Response("Invalid repository identifier.", { status: 400 })
+    url.searchParams.set("repositoryId", String(parsed.data))
+    return url
+  }
+
   async function clientLoader({
     request,
     params,
   }: ClientLoaderFunctionArgs): Promise<SettingsRouteData> {
-    const url = new URL(request.url)
+    const url = settingsUrl(request, params)
     const parsed = settingsQuerySchema.safeParse(Object.fromEntries(url.searchParams))
     if (!parsed.success) throw new Response("Invalid settings filters.", { status: 400 })
     if (surface === "public") {
       const state = await settingsRequest(request, "public", settingsPublicResponseSchema)
       return { surface: "public", state, query: parsed.data }
     }
-    const state = await settingsRequest(request, "workspace", settingsWorkspaceResponseSchema)
+    const state = await settingsRequest(
+      request,
+      "workspace",
+      settingsWorkspaceResponseSchema,
+      undefined,
+      url.searchParams,
+    )
+    if (
+      (section === "analytics" || section === "learnings") &&
+      state.repository?.id !== parsed.data.repositoryId
+    ) {
+      throw new Response("This repository is not available.", { status: 404 })
+    }
     if (!state.repository && ["analytics", "learnings", "canvas-approval"].includes(section)) {
       throw new Response("Choose a repository before using this page.", {
         status: 404,
@@ -58,13 +80,14 @@ export function settingsController(section: SettingsSection, surface: "workspace
       throw new Response("Method not allowed.", { status: 405, headers: { Allow: "POST" } })
     }
     try {
-      const url = new URL(request.url)
+      const url = settingsUrl(request, params)
       const operation = settingsFormOperation(section, url, await request.formData(), params)
       const result = await settingsRequest(
         request,
         "actions",
         settingsMutationResponseSchema,
         operation,
+        url.searchParams,
       )
       if (result.redirect) throw redirect(resourcePath(result.redirect, url.searchParams))
       return data<SettingsActionResult>({

@@ -10,8 +10,10 @@ export function settingsRequest<T>(
   path: "workspace" | "public" | "actions" | "admin-candidates",
   schema: z.ZodType<T>,
   operation?: SettingsOperation,
+  search?: URLSearchParams,
 ) {
   const source = new URL(request.url)
+  if (search) source.search = search.toString()
   const query = settingsQuerySchema.safeParse(Object.fromEntries(source.searchParams))
   if (!query.success) throw new ApiRequestError(400, "Invalid settings filters.")
   const url = new URL(`/api/settings/${path}`, source.origin)

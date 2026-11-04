@@ -122,6 +122,7 @@ export async function renderHubFlow(
         HydrateFallback,
         children: [
           { index: true, loader: loadHome, Component: HomeRoute },
+          { path: "repositories", loader: loadHome, Component: HomeRoute },
           { path: "sign-in", loader: loadSignIn, Component: SignInRoute },
           { path: "session", action: changeSession },
           ...publicRoutes,

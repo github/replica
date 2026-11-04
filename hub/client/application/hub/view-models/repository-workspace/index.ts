@@ -16,9 +16,9 @@ export function repositoryWorkspace(
     accountMenuLabel: `Account menu for @${workspace.viewer.login}`,
     authenticityToken: "",
     analyticsLabel: "Analytics",
-    analyticsPath: resourcePath("/settings/analytics", search, { repositoryId: repository.id }),
+    analyticsPath: resourcePath(`/repositories/${repository.id}/analytics`, search),
     learningsLabel: "Learnings",
-    learningsPath: resourcePath("/settings/learnings", search, { repositoryId: repository.id }),
+    learningsPath: resourcePath(`/repositories/${repository.id}/learnings`, search),
     collapseNavigationLabel: "Collapse sidebar",
     currentUser: workspace.viewer,
     darkThemeLabel: "Dark",
@@ -50,7 +50,7 @@ export function repositoryWorkspace(
             {
               section: "sharing" as const,
               label: "Public sharing",
-              path: hubPath("/admin/sharing"),
+              path: hubPath("/settings/sharing"),
             },
             { section: "github" as const, label: "GitHub App", path: hubPath("/settings/github") },
           ]

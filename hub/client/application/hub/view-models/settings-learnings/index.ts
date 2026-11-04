@@ -68,8 +68,7 @@ export function settingsLearnings(
       usage: "",
     },
     run: {
-      path: resourcePath("/settings/learnings", search, {
-        repositoryId,
+      path: resourcePath(`/repositories/${repositoryId}/learnings`, search, {
         operation: "run",
       }),
       available: canDecide && state.copilot.connected && !pending,
@@ -84,8 +83,7 @@ export function settingsLearnings(
         id: entry.id,
         content: entry.content,
         digest: entry.digest,
-        decisionPath: resourcePath("/settings/learnings", search, {
-          repositoryId,
+        decisionPath: resourcePath(`/repositories/${repositoryId}/learnings`, search, {
           learningId: entry.id,
         }),
         support: null,
@@ -112,8 +110,7 @@ export function settingsLearnings(
     learnings: accepted.map((entry) => ({
       id: entry.id,
       content: entry.content,
-      decisionPath: resourcePath("/settings/learnings", search, {
-        repositoryId,
+      decisionPath: resourcePath(`/repositories/${repositoryId}/learnings`, search, {
         learningId: entry.id,
       }),
       accepted: entry.decidedBy ? `Accepted by @${entry.decidedBy}` : null,

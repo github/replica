@@ -25,7 +25,7 @@ const scenarios: Record<MockScenario, string> = {
 }
 
 const destinations = [
-  ["Repositories", "/repositories/2001"],
+  ["Repositories", "/repositories"],
   ["Prototype and reviews", "/repositories/2001/prototypes/1?build=3"],
   ["Build history", "/repositories/2001/prototypes/1/builds"],
   ["Create a prototype", "/repositories/2001/new"],
@@ -34,8 +34,8 @@ const destinations = [
   ["Shared preview", "/shared/demo-active"],
   ["Welcome", "/welcome"],
   ["Inbox", "/notifications"],
-  ["Analytics", "/settings/analytics"],
-  ["Learnings", "/settings/learnings"],
+  ["Analytics", "/repositories/2001/analytics"],
+  ["Learnings", "/repositories/2001/learnings"],
   ["Canvas connections", "/settings/canvas"],
   ["Approve a canvas connection", "/settings/canvas/approve"],
   ["Copilot", "/settings/copilot"],
@@ -48,7 +48,7 @@ const destinations = [
   ["Reset App configuration", "/settings/github?change=reset"],
   ["Hub administrators", "/settings/admins"],
   ["Administrator enrollment", "/settings/enroll"],
-  ["Public sharing", "/admin/sharing"],
+  ["Public sharing", "/settings/sharing"],
   ["Security audit", "/settings/audit"],
   ["Sessions", "/settings/sessions"],
 ] as const

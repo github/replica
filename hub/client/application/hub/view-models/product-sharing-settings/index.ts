@@ -41,7 +41,7 @@ export function productSharingSettingsData(
     search,
     "sharing",
   )
-  const sharingPath = resourcePath("/admin/sharing", search, {
+  const sharingPath = resourcePath("/settings/sharing", search, {
     repositoryId: repository?.id ?? null,
   })
   const common = {
@@ -53,7 +53,7 @@ export function productSharingSettingsData(
     sharingSettingsLabel: "Public sharing",
     sharingSettingsPath: sharingPath,
     repositoriesLabel: "Repositories",
-    repositoriesPath: "/",
+    repositoriesPath: "/repositories",
     signOutLabel: "Sign out",
     signOutPath: "/session",
     authenticityToken: "",

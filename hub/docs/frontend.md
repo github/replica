@@ -37,6 +37,7 @@ Start the mock development server before opening these examples. The links use t
 | Route | Connected presentation | URL state | Open an example |
 | --- | --- | --- | --- |
 | `/` | Redirects to a repository or mock sign-in, or shows an empty workspace | Selection comes from session and workspace responses | [Home](http://127.0.0.1:5173/) |
+| `/repositories` | Selects the first accessible repository, or shows an empty workspace | Uses the same selection behavior as Home; no separate repository-list screen | [Repositories](http://127.0.0.1:5173/repositories) |
 | `/sign-in` | Mock sign-in using the retained home page | Already signed-in viewers return to their workspace | [Sign-in](http://127.0.0.1:5173/sign-in) |
 | `/session` | Sign-in/out action; POST only, not a page | `intent` selects sign-in or sign-out | [Sign-in form](http://127.0.0.1:5173/sign-in); persona changes use the separate test toolbar |
 | `/repositories/:repositoryId` | Repository prototypes | `q`, `author`, `page`, `view` | [github/prototype](http://127.0.0.1:5173/repositories/2001) |
@@ -59,6 +60,10 @@ Other seeded page states:
 Review filters also live in the URL: `commentSearch`, `commentParticipant`, and the `commentBuild`, `commentPage`, `commentResolved`, `commentUnread`, and `commentMine` flags. A flag value of `1` enables it. Closing a conversation removes `comment`; browser back/forward restores the selection and filters.
 
 Hub settings and Public sharing reuse the same workspace navigation adapter. Links to Hub-wide pages carry `repositoryId` to preserve the selected repository; direct Public sharing visits use the first available repository. Users without repository access retain global navigation without an empty selector, and administrator links remain permission-dependent. Public and signed-out layouts remain separate.
+
+Analytics and Learnings belong to `/repositories/:repositoryId/analytics` and `/repositories/:repositoryId/learnings`. Their path identifier selects the repository for reads and form submissions, even if a query parameter names another repository. Malformed path identifiers return 400; unavailable repositories return 404. Hub-wide Public sharing uses `/settings/sharing`. Security audit keeps its existing `/settings/audit?scope=hub` and `/settings/audit?scope=repository&repositoryId=...` URLs.
+
+Old `/settings/analytics` and `/settings/learnings` links redirect to the selected repository's canonical page, retaining other query parameters. Without `repositoryId`, they select the first accessible repository; invalid or unavailable explicit context remains an error. `/admin/sharing` redirects to `/settings/sharing`, preserving its query parameters.
 
 Application code adapts internal links and same-origin GET forms to SPA navigation while preserving modified clicks, external links, downloads, and new tabs. Explicit adapters handle the connected mutations and sign-out. Unknown non-GET forms are blocked and reported through the test toolbar rather than submitting to removed server actions.
 
@@ -147,7 +152,7 @@ GitHub App setup, registration, and installation pages can be opened directly wi
 | [Builds index](../client/pages/builds-index-page/) | Connected build history | [Welcome history](http://127.0.0.1:5173/repositories/2001/prototypes/1/builds) |
 | [Builds show](../client/pages/builds-show-page/) | Connected build details | [Successful Build 3](http://127.0.0.1:5173/repositories/2001/prototypes/1/builds/3) |
 | [Home](../client/pages/home-index-page/) | `/sign-in` | [Mock sign-in](http://127.0.0.1:5173/sign-in) |
-| [Analytics](../client/pages/analytics-page/) | `/settings/analytics` | [Repository analytics](http://127.0.0.1:5173/settings/analytics?repositoryId=2001) |
+| [Analytics](../client/pages/analytics-page/) | `/repositories/:repositoryId/analytics` | [Repository analytics](http://127.0.0.1:5173/repositories/2001/analytics) |
 | [Canvas pairings](../client/pages/canvas-pairings-page/) | `/settings/canvas` and `/settings/canvas/approve` | [Connections](http://127.0.0.1:5173/settings/canvas?repositoryId=2001) and [approval](http://127.0.0.1:5173/settings/canvas/approve?repositoryId=2001) |
 | [Copilot connection](../client/pages/copilot-connection-page/) | `/settings/copilot` | [Mock Copilot connection](http://127.0.0.1:5173/settings/copilot) |
 | [Fresh authorization](../client/pages/fresh-authorization-page/) | `/settings/authorize` | [Confirmation after starting a continuation](http://127.0.0.1:5173/settings/authorize) |
@@ -158,7 +163,7 @@ GitHub App setup, registration, and installation pages can be opened directly wi
 | [Admin confirmation](../client/pages/hub-admin-confirmation-page/) | `/settings/admins/:userId/:operation` | [Add Mona](http://127.0.0.1:5173/settings/admins/2/designate) and [remove Octocat after adding Mona](http://127.0.0.1:5173/settings/admins/1/revoke) |
 | [Admin enrollment](../client/pages/hub-admin-enrollment-page/) | `/settings/enroll` | [Mock enrollment](http://127.0.0.1:5173/settings/enroll) |
 | [Admins](../client/pages/hub-admins-page/) | `/settings/admins` | [Administrator roster](http://127.0.0.1:5173/settings/admins) |
-| [Learnings](../client/pages/learnings-page/) | `/settings/learnings` | [Repository learnings](http://127.0.0.1:5173/settings/learnings?repositoryId=2001) |
+| [Learnings](../client/pages/learnings-page/) | `/repositories/:repositoryId/learnings` | [Repository learnings](http://127.0.0.1:5173/repositories/2001/learnings) |
 | [New prototype](../client/pages/new-prototype-page/) | `/repositories/:repositoryId/new` | [Create a prototype](http://127.0.0.1:5173/repositories/2001/new) |
 | [Notifications](../client/pages/notifications-page/) | `/notifications` | [Notifications](http://127.0.0.1:5173/notifications) |
 | [Prototype management](../client/pages/prototype-management-page/) | `/repositories/:repositoryId/prototypes/manage` | [Manage prototypes](http://127.0.0.1:5173/repositories/2001/prototypes/manage) |
@@ -167,7 +172,7 @@ GitHub App setup, registration, and installation pages can be opened directly wi
 | [Session revocation](../client/pages/session-revocation-page/) | `/settings/sessions` | [Mock browser session](http://127.0.0.1:5173/settings/sessions) |
 | [Share links](../client/pages/share-links-index-page/) | `/repositories/:repositoryId/prototypes/:prototypeId/share-links` | [Welcome share links](http://127.0.0.1:5173/repositories/2001/prototypes/1/share-links) |
 | [Shared build](../client/pages/shared-builds-show-page/) | `/shared/:shareId` | [Active shared preview](http://127.0.0.1:5173/shared/demo-active) |
-| [Sharing settings](../client/pages/sharing-settings-page/) | `/admin/sharing` | [Mock sharing controls](http://127.0.0.1:5173/admin/sharing) |
+| [Sharing settings](../client/pages/sharing-settings-page/) | `/settings/sharing` | [Mock sharing controls](http://127.0.0.1:5173/settings/sharing) |
 | [Welcome](../client/pages/welcome-page/) | `/welcome` | [Welcome page](http://127.0.0.1:5173/welcome) |
 
-Settings collection filters use the URL, including `repositoryId` where a repository is selected. Use focused request/store/route tests for cross-page behavior and existing page tests for local interactions. Review visual changes in Storybook and capture affected stories following the [Storybook guide](storybook.md#ui-changes-and-pull-request-evidence). Do not freeze whole DOM trees, incidental copy, or provisional APIs as the migration's ground truth.
+Settings collection filters use the URL. Repository-owned Analytics and Learnings use the path identifier; Hub-wide pages retain `repositoryId` as optional navigation context, and repository audit uses it to select records. Use focused request/store/route tests for cross-page behavior and existing page tests for local interactions. Review visual changes in Storybook and capture affected stories following the [Storybook guide](storybook.md#ui-changes-and-pull-request-evidence). Do not freeze whole DOM trees, incidental copy, or provisional APIs as the migration's ground truth.

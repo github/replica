@@ -19,7 +19,9 @@ export function settingsAnalytics(
       enabled: entry.enabled,
       eventTypes: configuration.eventTypes,
       deliveryFailed: false,
-      path: resourcePath("/settings/analytics", search, { repositoryId, destinationId: entry.id }),
+      path: resourcePath(`/repositories/${repositoryId}/analytics`, search, {
+        destinationId: entry.id,
+      }),
     }
     if (configuration.provider === "custom") {
       return {
@@ -59,7 +61,7 @@ export function settingsAnalytics(
     notice: !state.session.capabilities.manageSharing
       ? "You can view analytics destinations, but you do not have permission to change them."
       : null,
-    createPath: resourcePath("/settings/analytics", search, { repositoryId }),
+    createPath: resourcePath(`/repositories/${repositoryId}/analytics`, search),
     destinations,
     authenticationHeaders: ["authorization", "x-api-key", "x-auth-token", "api-key"],
     eventTypes: [

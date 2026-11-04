@@ -105,7 +105,7 @@ const workspaceRoutes: RouteObject[] = [
     Component: ShareLinksComponent,
   },
   {
-    path: "/settings/learnings",
+    path: "/repositories/:repositoryId/learnings",
     loader: (args) => loadLearnings({ ...args, serverLoader: unavailableServerRoute }),
     action: (args) => saveLearnings({ ...args, serverAction: unavailableServerRoute }),
     Component: LearningsComponent,
@@ -348,7 +348,7 @@ describe("Hub expanded frontend flows", () => {
   it("retains a failed learning edit and keeps the accepted wording in recall and audit across navigation", async () => {
     const store = createMockStore({ origin: window.location.origin })
     const server = setupServer(...createMockHandlers(store))
-    const router = await renderHubFlow(server, "/settings/learnings?repositoryId=2001", {
+    const router = await renderHubFlow(server, "/repositories/2001/learnings", {
       workspaceRoutes,
     })
     const suggestion = await screen.findByRole("article", {
@@ -394,7 +394,7 @@ describe("Hub expanded frontend flows", () => {
     const latest = within(audit).getAllByRole("row")[1]
     if (!latest) throw new Error("The new learning decision must have an audit row.")
     expect(within(latest).getByRole("cell", { name: "learning-decide" })).toBeInTheDocument()
-    await router.settle(() => router.navigate("/settings/learnings?repositoryId=2001"))
+    await router.settle(() => router.navigate("/repositories/2001/learnings"))
     expect(
       await screen.findByRole("article", { name: "Use a visible label on every field." }),
     ).toBeInTheDocument()
@@ -410,7 +410,7 @@ describe("Hub expanded frontend flows", () => {
       .learnings.find((item) => item.state === "suggested")
     if (!learning) throw new Error("The reader must have a suggested learning to inspect.")
     const server = setupServer(...createMockHandlers(store))
-    await renderHubFlow(server, "/settings/learnings?repositoryId=2001", { workspaceRoutes })
+    await renderHubFlow(server, "/repositories/2001/learnings", { workspaceRoutes })
     expect(
       await screen.findByRole("article", {
         name: learning.content,
@@ -639,7 +639,7 @@ describe("Hub expanded frontend flows", () => {
     expect(store.settings.getNavigationState().welcomeHidden).toBe(false)
   }, 15_000)
 
-  it.each(["/settings/learnings?repositoryId=2001", "/settings/sessions"])(
+  it.each(["/repositories/2001/learnings", "/settings/sessions"])(
     "signs out through the retained settings control at %s",
     async (path) => {
       const store = createMockStore({ origin: window.location.origin })

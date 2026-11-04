@@ -9,7 +9,8 @@ export const productWorkspaceRoutes: RouteConfigEntry[] = [
     "repositories/:repositoryId/prototypes/:prototypeId/share-links",
     "routes/product-share-links/index.tsx",
   ),
-  route("admin/sharing", "routes/product-sharing-settings/index.tsx"),
+  route("settings/sharing", "routes/product-sharing-settings/index.tsx"),
+  route("admin/sharing", "routes/legacy-sharing/index.tsx"),
 ]
 
 export const productPublicRoutes: RouteConfigEntry[] = [

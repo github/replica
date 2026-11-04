@@ -33,7 +33,7 @@ function unavailableServerRoute(): Promise<never> {
 
 const workspaceRoutes: RouteObject[] = [
   {
-    path: "/admin/sharing",
+    path: "/settings/sharing",
     loader: loadSharingSettings,
     Component: SharingSettingsComponent,
   },
@@ -63,9 +63,9 @@ function expectRepository(repositoryId: number, nameWithOwner: string) {
     screen.getByRole("button", { name: `Choose repository. ${nameWithOwner} selected` }),
   ).toHaveTextContent(nameWithOwner)
   expect(navigationLink(`/repositories/${repositoryId}`)).toHaveAccessibleName("Prototypes")
-  for (const pathname of ["/settings/analytics", "/settings/learnings"]) {
-    expect(new URL(navigationLink(pathname).href).searchParams.get("repositoryId")).toBe(
-      String(repositoryId),
+  for (const section of ["analytics", "learnings"]) {
+    expect(navigationLink(`/repositories/${repositoryId}/${section}`)).toHaveAccessibleName(
+      section === "analytics" ? "Analytics" : "Learnings",
     )
   }
 }
@@ -74,7 +74,7 @@ function expectHubContext(repositoryId: number) {
   for (const pathname of [
     "/welcome",
     "/notifications",
-    "/admin/sharing",
+    "/settings/sharing",
     "/settings/admins",
     "/settings/sessions",
     "/settings/github",
@@ -90,7 +90,7 @@ function expectHubContext(repositoryId: number) {
 
 function expectNoSharingAdministration() {
   for (const pathname of [
-    "/admin/sharing",
+    "/settings/sharing",
     "/settings/admins",
     "/settings/sessions",
     "/settings/github",
@@ -118,9 +118,9 @@ describe("Public sharing navigation", () => {
     expect(unreadCount).toBeGreaterThan(0)
     const server = setupServer(...createMockHandlers(store))
 
-    await renderHubFlow(server, "/admin/sharing", { workspaceRoutes })
+    await renderHubFlow(server, "/settings/sharing", { workspaceRoutes })
 
-    expect(navigationLink("/admin/sharing")).toHaveAttribute("aria-current", "page")
+    expect(navigationLink("/settings/sharing")).toHaveAttribute("aria-current", "page")
     const notifications = navigationLink("/notifications")
     expect(notifications).toHaveAccessibleName(/notifications/i)
     expect(within(notifications).getByText(String(unreadCount))).toBeVisible()
@@ -145,12 +145,12 @@ describe("Public sharing navigation", () => {
     store.session.select("admin")
     const server = setupServer(...createMockHandlers(store))
     const router = await renderHubFlow(server, "/repositories/2002", { workspaceRoutes })
-    const sharing = navigationLink("/admin/sharing")
+    const sharing = navigationLink("/settings/sharing")
 
     expect(new URL(sharing.href).searchParams.get("repositoryId")).toBe("2002")
     await router.settle(() => fireEvent.click(sharing))
 
-    expect(router.state.location.pathname).toBe("/admin/sharing")
+    expect(router.state.location.pathname).toBe("/settings/sharing")
     expectRepository(2002, "github/empty")
   })
 
@@ -158,11 +158,11 @@ describe("Public sharing navigation", () => {
     const store = createMockStore({ origin: window.location.origin })
     store.session.select("admin")
     const server = setupServer(...createMockHandlers(store))
-    const router = await renderHubFlow(server, "/admin/sharing?repositoryId=2002", {
+    const router = await renderHubFlow(server, "/settings/sharing?repositoryId=2002", {
       workspaceRoutes,
     })
 
-    for (const destination of ["/settings/copilot", "/notifications", "/admin/sharing"]) {
+    for (const destination of ["/settings/copilot", "/notifications", "/settings/sharing"]) {
       expectRepository(2002, "github/empty")
       expectHubContext(2002)
       await router.settle(() => fireEvent.click(navigationLink(destination)))
@@ -185,7 +185,7 @@ describe("Public sharing navigation", () => {
       store.session.select(profile)
       const server = setupServer(...createMockHandlers(store))
 
-      await renderHubFlow(server, "/admin/sharing?repositoryId=2002", { workspaceRoutes })
+      await renderHubFlow(server, "/settings/sharing?repositoryId=2002", { workspaceRoutes })
 
       expect(screen.getByRole("heading", { name: "Public sharing", level: 1 })).toBeVisible()
       expect(screen.getByRole("button", { name: `Account menu for @${login}` })).toBeVisible()
@@ -209,7 +209,7 @@ describe("Public sharing navigation", () => {
       ),
     )
 
-    await renderHubFlow(server, "/admin/sharing?repositoryId=2002", { workspaceRoutes })
+    await renderHubFlow(server, "/settings/sharing?repositoryId=2002", { workspaceRoutes })
 
     expect(screen.getByRole("heading", { name: "Public sharing", level: 1 })).toBeVisible()
     expect(screen.getByRole("button", { name: "Account menu for @octocat" })).toBeVisible()
@@ -231,10 +231,10 @@ describe("Public sharing navigation", () => {
       ),
     )
 
-    await renderHubFlow(server, "/admin/sharing", { workspaceRoutes })
+    await renderHubFlow(server, "/settings/sharing", { workspaceRoutes })
 
     expect(navigationLink("/welcome")).toHaveAccessibleName("Welcome")
-    expect(navigationLink("/")).toHaveAccessibleName("Repositories")
+    expect(navigationLink("/repositories")).toHaveAccessibleName("Repositories")
     expect(navigationLink("/notifications")).toHaveAccessibleName(/notifications/i)
     expect(screen.queryByRole("button", { name: /^Choose repository\./ })).not.toBeInTheDocument()
     for (const name of ["Create", "Prototypes", "Analytics", "Learnings"]) {
@@ -262,7 +262,7 @@ describe("Public sharing navigation", () => {
         }),
       )
 
-      await renderHubFlow(server, `/admin/sharing?repositoryId=${context}`, { workspaceRoutes })
+      await renderHubFlow(server, `/settings/sharing?repositoryId=${context}`, { workspaceRoutes })
 
       expect(within(screen.getByRole("alert")).getByText(String(status))).toBeVisible()
       expect(screen.queryByRole("button", { name: /^Choose repository\./ })).not.toBeInTheDocument()

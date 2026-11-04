@@ -41,7 +41,7 @@ export function settingsFormOperation(
   }
   const method = field("_method") || "post"
   const confirmed = field("confirmed") === "1"
-  const repositoryId = Number(source.searchParams.get("repositoryId"))
+  const repositoryId = Number(params.repositoryId ?? source.searchParams.get("repositoryId"))
   let input: unknown
 
   function requirePath(path: string, methods: string[]) {
@@ -56,7 +56,7 @@ export function settingsFormOperation(
       input = { operation: "welcome-hide" }
       break
     case "analytics": {
-      requirePath("/settings/analytics", ["post", "patch", "delete"])
+      requirePath(`/repositories/${params.repositoryId}/analytics`, ["post", "patch", "delete"])
       const destinationId = source.searchParams.has("destinationId")
         ? Number(source.searchParams.get("destinationId"))
         : undefined
@@ -176,7 +176,7 @@ export function settingsFormOperation(
       }
       break
     case "learnings": {
-      requirePath("/settings/learnings", ["post"])
+      requirePath(`/repositories/${params.repositoryId}/learnings`, ["post"])
       const operation = source.searchParams.get("operation")
       input =
         operation === "run"

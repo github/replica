@@ -4,8 +4,9 @@ import type { RouteConfigEntry } from "@react-router/dev/routes"
 export const settingsWorkspaceRoutes: RouteConfigEntry[] = [
   route("welcome", "routes/settings-welcome/index.tsx"),
   route("notifications", "routes/settings-notifications/index.tsx"),
-  route("settings/analytics", "routes/settings-analytics/index.tsx"),
-  route("settings/learnings", "routes/settings-learnings/index.tsx"),
+  route("repositories/:repositoryId/analytics", "routes/settings-analytics/index.tsx"),
+  route("repositories/:repositoryId/learnings", "routes/settings-learnings/index.tsx"),
+  route("settings/:section", "routes/legacy-repository-settings/index.tsx"),
   route("settings/canvas", "routes/settings-canvas/index.tsx"),
   route("settings/canvas/approve", "routes/settings-canvas-approval/index.tsx"),
   route("settings/copilot", "routes/settings-copilot/index.tsx"),
