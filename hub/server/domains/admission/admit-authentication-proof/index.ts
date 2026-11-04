@@ -178,39 +178,29 @@ async function admitWithinTransaction(
       throw new AdmissionDeniedError("provider_evidence_stale", input.proof.externalIdentityId)
     }
   }
-  let membershipId: string
-  let role: "MEMBER" | "ADMINISTRATOR"
-  if (attempt.purpose === "ADMIN_ENROLLMENT") {
+  let authority:
+    | {
+        membershipId: string
+        role: "MEMBER" | "ADMINISTRATOR"
+      }
+    | undefined
+  const administratorEnrollment = attempt.purpose === "ADMIN_ENROLLMENT"
+  if (administratorEnrollment) {
     const enrollment = await ensureBootstrapMembership(
       repositories,
       input,
       identity.userId,
       createId,
     )
-    membershipId = enrollment.membershipId
-    role = "ADMINISTRATOR"
+    authority = {
+      membershipId: enrollment.membershipId,
+      role: "ADMINISTRATOR",
+    }
     if (enrollment.authorityChanged) {
-      await endMembershipSessions(repositories, membershipId, createId)
+      await endMembershipSessions(repositories, authority.membershipId, createId)
     }
-    if (input.providerAssignment) {
-      if (input.providerAssignment.providerRevisionId !== attempt.providerRevisionId) {
-        throw new AdmissionDeniedError("configuration_changed", input.proof.externalIdentityId)
-      }
-      const applied = await applyProviderAssignmentEvidence(
-        {
-          assignmentSubject: input.providerAssignment.assignmentSubject,
-          externalIdentityId: input.proof.externalIdentityId,
-          providerRevisionId: input.providerAssignment.providerRevisionId,
-          role: input.providerAssignment.role,
-          userId: identity.userId,
-        },
-        { createId, repositories },
-      )
-      if (applied.denied) {
-        throw new AdmissionDeniedError(applied.reason, input.proof.externalIdentityId)
-      }
-    }
-  } else if (input.providerAssignment) {
+  }
+  if (input.providerAssignment) {
     if (input.providerAssignment.providerRevisionId !== attempt.providerRevisionId) {
       throw new AdmissionDeniedError("configuration_changed", input.proof.externalIdentityId)
     }
@@ -225,6 +215,9 @@ async function admitWithinTransaction(
       { createId, repositories },
     )
     if (applied.denied) {
+      if (administratorEnrollment) {
+        throw new AdmissionDeniedError(applied.reason, input.proof.externalIdentityId)
+      }
       const reason = applied.reason
       await repositories.createSecurityAudit({
         id: createId(),
@@ -234,31 +227,35 @@ async function admitWithinTransaction(
       })
       return { denied: true, reason }
     }
-    membershipId = applied.membershipId
-    role = applied.role
-  } else {
+    if (!administratorEnrollment) {
+      authority = {
+        membershipId: applied.membershipId,
+        role: applied.role,
+      }
+    }
+  } else if (!administratorEnrollment) {
     const active = await requireActiveMembership(
       repositories,
       identity.userId,
       input.proof.externalIdentityId,
     )
-    membershipId = active.membershipId
-    role = active.role
+    authority = active
   }
+  if (!authority) throw new AdmissionPersistenceError()
   const session = await repositories.createHubSession({
     digest: input.sessionDigest,
     id: input.sessionId,
     lifetimeSeconds: input.sessionLifetimeSeconds,
-    membershipId,
+    membershipId: authority.membershipId,
     revocationRevision: revocation.revision,
   })
   await repositories.createSecurityAudit({
     id: createId(),
     type: "session_created",
     sessionId: input.sessionId,
-    membershipId,
+    membershipId: authority.membershipId,
   })
-  return { admitted: { expiresAt: session.expiresAt, role } }
+  return { admitted: { expiresAt: session.expiresAt, role: authority.role } }
 }
 
 export async function admitAuthenticationProof(

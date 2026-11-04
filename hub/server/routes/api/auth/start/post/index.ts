@@ -1,7 +1,7 @@
 import type { RequestHandler } from "express"
 
-import { redirectAuthenticationStart } from "../../../../../../integrations/express/redirect-authentication-start/index.ts"
-import type { StartAuthenticationDependencies } from "../../../types.ts"
+import { redirectAuthenticationStart } from "../../../../../integrations/express/redirect-authentication-start/index.ts"
+import type { StartAuthenticationDependencies } from "../../types.ts"
 
 export function post(dependencies: StartAuthenticationDependencies): RequestHandler {
   return async (_request, response, next) => {

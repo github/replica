@@ -1,8 +1,8 @@
 import type { RequestHandler } from "express"
 import { z } from "zod"
 
-import { redirectAuthenticationStart } from "../../../../../../../integrations/express/redirect-authentication-start/index.ts"
-import type { StartAdministratorEnrollmentDependencies } from "../../../../types.ts"
+import { redirectAuthenticationStart } from "../../../../../../integrations/express/redirect-authentication-start/index.ts"
+import type { StartAdministratorEnrollmentDependencies } from "../../../types.ts"
 
 const bodySchema = z
   .object({

@@ -3,14 +3,12 @@ import type { Express } from "express"
 
 import { rateLimit } from "../integrations/express/authentication-rate-limit/index.ts"
 import { requireOrigin } from "../integrations/express/require-origin/index.ts"
+import { post as handleAdministratorEnrollmentStartPost } from "./api/auth/admin-enrollment/start/post/index.ts"
 import { get as handleAuthenticationCallbackGet } from "./api/auth/callback/get/index.ts"
-import { post as handleEntraAdministratorEnrollmentStartPost } from "./api/auth/entra/admin-enrollment/start/post/index.ts"
-import { post as handleEntraAuthenticationStartPost } from "./api/auth/entra/start/post/index.ts"
-import { post as handleAdministratorEnrollmentStartPost } from "./api/auth/github/admin-enrollment/start/post/index.ts"
-import { post as handleAuthenticationStartPost } from "./api/auth/github/start/post/index.ts"
 import { get as handleCurrentSessionGet } from "./api/auth/session/get/index.ts"
 import { get as handleAuthenticationProvidersGet } from "./api/auth/providers/get/index.ts"
 import { post as handleSignOutPost } from "./api/auth/session/sign-out/post/index.ts"
+import { post as handleAuthenticationStartPost } from "./api/auth/start/post/index.ts"
 import { get as handleApiHealthGet } from "./api/health/get/index.ts"
 import { get as handleApiReadyGet } from "./api/ready/get/index.ts"
 import type { RouteDependencies } from "./types.ts"
@@ -57,14 +55,14 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
         requireOrigin(authentication.entra.signIn.applicationOrigin),
         rateLimit(authentication.entra.signIn, "start"),
         express.urlencoded({ extended: false, limit: "4kb" }),
-        handleEntraAuthenticationStartPost(authentication.entra.signIn),
+        handleAuthenticationStartPost(authentication.entra.signIn),
       )
       app.post(
         "/api/auth/entra/admin-enrollment/start",
         requireOrigin(authentication.entra.administratorEnrollment.applicationOrigin),
         rateLimit(authentication.entra.administratorEnrollment, "start"),
         express.urlencoded({ extended: false, limit: "4kb" }),
-        handleEntraAdministratorEnrollmentStartPost(authentication.entra.administratorEnrollment),
+        handleAdministratorEnrollmentStartPost(authentication.entra.administratorEnrollment),
       )
       app.get(
         "/api/auth/entra/callback",
