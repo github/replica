@@ -214,7 +214,7 @@ describe("Hub primary route names", () => {
 
     const learning = store.settings.getWorkspace(secondQuery).learnings[0]!
     const suggestion = screen.getByRole("article", { name: learning.content })
-    const accept = within(suggestion).getByRole("button", { name: "Accept", exact: true })
+    const accept = within(suggestion).getByRole("button", { name: "Accept" })
     expect(new URL(accept.closest("form")!.action).pathname).toBe("/repositories/2002/learnings")
     await router.settle(() => fireEvent.click(accept))
 
