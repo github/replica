@@ -6,18 +6,6 @@
   outline: none;
 }
 
-.hub-navigation-progress {
-  position: fixed;
-  inset: 0 0 auto;
-  z-index: 10010;
-  padding: 0.25rem 1rem;
-  border-block-end: 0.125rem solid var(--hub-accent);
-  background: var(--hub-canvas-default);
-  color: var(--hub-fg-muted);
-  font-size: 0.8125rem;
-  text-align: center;
-}
-
 .hub-action-warning {
   position: fixed;
   inset: 1rem 1rem auto;

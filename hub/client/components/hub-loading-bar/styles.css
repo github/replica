@@ -1,0 +1,41 @@
+.hub-loading-bar {
+  position: fixed;
+  inset: 0 0 auto;
+  z-index: 10010;
+  block-size: 0.1875rem;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.hub-loading-bar::after {
+  display: block;
+  inline-size: 40%;
+  block-size: 100%;
+  background: linear-gradient(90deg, transparent, var(--hub-fg-success), transparent);
+  content: "";
+  animation: hub-loading-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes hub-loading-pulse {
+  from {
+    transform: translateX(-100%);
+    opacity: 0.5;
+  }
+
+  50% {
+    opacity: 1;
+  }
+
+  to {
+    transform: translateX(350%);
+    opacity: 0.5;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hub-loading-bar::after {
+    inline-size: 100%;
+    background: var(--hub-fg-success);
+    animation: none;
+  }
+}

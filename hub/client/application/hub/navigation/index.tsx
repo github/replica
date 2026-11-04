@@ -4,6 +4,7 @@ import { useLocation, useNavigate, useNavigation } from "react-router"
 import { Button } from "@primer/react-brand"
 
 import { HubAlert } from "@components/hub-alert"
+import { HubLoadingBar } from "@components/hub-loading-bar"
 
 import { reportClientIssue } from "../report-client-issue"
 
@@ -116,11 +117,7 @@ export function HubNavigation({
       onSubmit={blockLegacySubmission}
       aria-busy={navigation.state !== "idle"}
     >
-      {navigation.state !== "idle" ? (
-        <div className="hub-navigation-progress" role="status" aria-label="Page loading">
-          Loading page...
-        </div>
-      ) : null}
+      {navigation.state !== "idle" ? <HubLoadingBar /> : null}
       {blockedAction ? (
         <div className="hub-action-warning" ref={warning} tabIndex={-1}>
           <HubAlert
