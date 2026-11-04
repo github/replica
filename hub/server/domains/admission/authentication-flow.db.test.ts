@@ -51,10 +51,7 @@ async function openServer(
     }
     throw new Error(`Unexpected provider request: ${url}`)
   })
-  const dependencies = await createAuthenticationRouteDependencies(
-    environment,
-    providerRequest,
-  )
+  const dependencies = await createAuthenticationRouteDependencies(environment, providerRequest)
   const server = createServer(
     createApp({ authentication: dependencies, ...(logger ? { logger } : {}) }),
   )
