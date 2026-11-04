@@ -144,9 +144,7 @@ describe("admitAuthenticationProof()", () => {
     const createSecurityAudit = vi
       .fn<AdmissionRepositories["createSecurityAudit"]>()
       .mockResolvedValue(undefined)
-    const endOpenHubSessionsForMembership = vi
-      .fn()
-      .mockResolvedValue([{ id: "old-session-id", membershipId: "membership-id" }])
+    const endOpenHubSessionsForMembership = vi.fn().mockResolvedValue([{ id: "old-session-id" }])
     const records = repositories({
       createBootstrapAssignment: vi.fn().mockResolvedValue("unchanged"),
       createOrRestoreMembership: vi.fn().mockResolvedValue({
@@ -208,10 +206,9 @@ describe("admitAuthenticationProof()", () => {
     const createSecurityAudit = vi
       .fn<AdmissionRepositories["createSecurityAudit"]>()
       .mockResolvedValue(undefined)
-    const endOpenHubSessionsForMembership = vi.fn().mockResolvedValue([
-      { id: "old-session-1", membershipId: "membership-id" },
-      { id: "old-session-2", membershipId: "membership-id" },
-    ])
+    const endOpenHubSessionsForMembership = vi
+      .fn()
+      .mockResolvedValue([{ id: "old-session-1" }, { id: "old-session-2" }])
     const records = repositories({
       createBootstrapAssignment: vi.fn().mockResolvedValue("restored"),
       createOrRestoreMembership: vi.fn().mockResolvedValue({

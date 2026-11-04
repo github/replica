@@ -19,9 +19,7 @@ export interface AdmissionRepositories {
     transition: "created" | "restored" | "unchanged"
   }>
   createSecurityAudit(input: CreateSecurityAuditEvent): Promise<unknown>
-  endOpenHubSessionsForMembership(
-    membershipId: string,
-  ): Promise<Array<{ id: string; membershipId: string }>>
+  endOpenHubSessionsForMembership(membershipId: string): Promise<Array<{ id: string }>>
   lockActiveAssignment(membershipId: string): Promise<boolean>
   lockAttempt(id: string): Promise<{
     consumedAt: Date | null

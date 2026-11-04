@@ -123,7 +123,7 @@ async function admitWithinTransaction(
           id: createId(),
           type: "session_ended",
           sessionId: endedSession.id,
-          membershipId: endedSession.membershipId,
+          membershipId,
         })
       }
     }
