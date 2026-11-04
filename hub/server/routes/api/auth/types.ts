@@ -29,6 +29,7 @@ export interface AuthenticationCallbackDependencies extends RateLimitDependencie
     proof: AuthenticationProofResult
     providerAssignment?: {
       assignmentSubject: string | null
+      issuedAt: Date
       providerRevisionId: string
       role: "MEMBER" | "ADMINISTRATOR" | null
     }
@@ -37,6 +38,7 @@ export interface AuthenticationCallbackDependencies extends RateLimitDependencie
     proof: AuthenticationProofResult
     providerAssignment?: {
       assignmentSubject: string | null
+      issuedAt: Date
       providerRevisionId: string
       role: "MEMBER" | "ADMINISTRATOR" | null
     }

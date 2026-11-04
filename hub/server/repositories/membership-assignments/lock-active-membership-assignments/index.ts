@@ -35,6 +35,7 @@ export async function lockActiveMembershipAssignments(
     WHERE assignment."membership_id" = ${membershipId}::uuid
       AND assignment."lifecycle" = 'ACTIVE'
       AND assignment."source" = 'AUTHENTICATION_PROVIDER'
+      AND provider."enabled" = true
       AND provider."selected_revision_id" = assignment."provider_revision_id"
     ORDER BY assignment."id"
     FOR UPDATE OF assignment

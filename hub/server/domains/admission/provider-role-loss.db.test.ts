@@ -99,6 +99,7 @@ function revokeProviderRole(records: Awaited<ReturnType<typeof createProviderRol
       },
       providerAssignment: {
         assignmentSubject: null,
+        issuedAt: new Date("2026-11-04T20:00:00Z"),
         providerRevisionId: records.providerRevisionId,
         role: null,
       },

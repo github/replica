@@ -8,7 +8,8 @@ model AuthenticationProvider {
   selectedRevision AuthenticationProviderRevision?  @relation("SelectedAuthenticationProviderRevision", fields: [selectedRevisionId], references: [id], onDelete: Restrict)
 
   // Attribute columns
-  key String @unique @db.VarChar(100)
+  key     String  @unique @db.VarChar(100)
+  enabled Boolean @default(true)
 
   // Timestamp columns
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)

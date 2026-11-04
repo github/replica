@@ -164,5 +164,40 @@ export function getSecurityAuditData(
           reason: event.reason,
         }),
       }
+    case "authentication_provider_disabled":
+    case "authentication_provider_enabled":
+      return {
+        id: event.id,
+        action:
+          event.type === "authentication_provider_disabled"
+            ? "identity.authentication_provider.disabled"
+            : "identity.authentication_provider.enabled",
+        outcome: SecurityAuditOutcome.SUCCESS,
+        targetType: "authentication_provider",
+        targetId: event.providerId,
+        context: createSecurityAuditContextWithProviderKey({
+          provider: event.providerKey,
+        }),
+      }
+    case "authentication_providers_reconcile_failed":
+      return {
+        id: event.id,
+        action: "identity.authentication_providers.reconcile_failed",
+        outcome: SecurityAuditOutcome.FAILURE,
+        targetType: "authentication_providers",
+        context: {
+          providerKeys: event.providerKeys,
+          reason: event.reason,
+        },
+      }
+    case "session_revocation_advanced":
+      return {
+        id: event.id,
+        action: "session.revocation.advanced",
+        outcome: SecurityAuditOutcome.SUCCESS,
+        targetType: "session_revocation_state",
+        targetId: "global",
+        context: { reason: event.reason, revision: event.revision },
+      }
   }
 }

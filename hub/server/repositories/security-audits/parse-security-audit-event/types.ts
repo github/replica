@@ -10,6 +10,9 @@ import type {
   ProviderRevisionPersistFailedAudit,
   ProviderRevisionSelectedAudit,
   ProviderRevisionValidationFailedAudit,
+  AuthenticationProviderLifecycleAudit,
+  AuthenticationProvidersReconcileFailedAudit,
+  SessionRevocationAdvancedAudit,
   MembershipAssignmentCreatedAudit,
   MembershipAssignmentRestoredAudit,
   MembershipCreatedAudit,
@@ -41,3 +44,10 @@ export type ParsedSecurityAuditEvent =
   | (Omit<ProviderRevisionPersistFailedAudit, "providerKey"> & {
       providerKey: ProviderKey
     })
+  | (Omit<AuthenticationProviderLifecycleAudit, "providerKey"> & {
+      providerKey: ProviderKey
+    })
+  | (Omit<AuthenticationProvidersReconcileFailedAudit, "providerKeys"> & {
+      providerKeys: ProviderKey[]
+    })
+  | SessionRevocationAdvancedAudit

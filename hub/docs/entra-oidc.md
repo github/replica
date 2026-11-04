@@ -9,10 +9,10 @@ Create a single-tenant application registration with this exact behavior:
 - sign-in audience `AzureADMyOrg`;
 - web redirect URI `<HUB_APPLICATION_ORIGIN>/api/auth/entra/callback`;
 - ID-token optional claim `auth_time`, marked essential;
-- assignment required on the enterprise application;
+- assignment not required on the enterprise application;
 - app role value `Hub.User` for members;
 - app role value `Hub.Administrator` for administrators; and
-- users or groups assigned only through the tenant's approved process.
+- app roles assigned to users or groups only through the tenant's approved process.
 
 Hub accepts only the issuer `https://login.microsoftonline.com/<tenant-uuid>/v2.0`. It uses the signed `sub` claim as the immutable external identity. The signed tenant `oid` claim records provider-assignment provenance; Hub does not use email, username, or `oid` to link accounts.
 
@@ -23,6 +23,8 @@ This change does not include Microsoft Graph setup automation. The team will cho
 Role values are exact and case-sensitive. `Hub.Administrator` wins when a token contains both accepted roles. Other role values do not contribute Hub authority.
 
 Hub stores one active Entra assignment for an external identity. A role or provider-revision change creates a new immutable assignment version and supersedes the prior version. Losing both accepted roles revokes the Entra assignment and ends that membership's open Hub sessions.
+
+The enterprise application must allow an unassigned user to authenticate so Hub can receive signed evidence that accepted roles were removed. Hub then denies admission and revokes provider-owned authority in the same transaction. Requiring Entra assignment would block the callback before Hub could observe role loss, leaving retained Hub sessions authoritative until another lifecycle event.
 
 Bootstrap authority remains separate. Entra evidence cannot overwrite a bootstrap assignment or reactivate a suspended or removed membership. If Entra authority is revoked while a separate active bootstrap assignment remains, the user may still be admitted through that Hub-owned authority.
 

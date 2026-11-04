@@ -29,6 +29,7 @@ export interface EntraOidcUserAuthenticationAdapter {
     }
     providerAssignment: {
       assignmentSubject: string | null
+      issuedAt: Date
       role: "MEMBER" | "ADMINISTRATOR" | null
     }
   }>

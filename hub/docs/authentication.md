@@ -6,7 +6,7 @@ Hub exposes same-request GitHub and Microsoft Entra sign-in flows. An installati
 
 The start primitive selects the configured provider revision, creates opaque state, browser binding, PKCE verifier, and nonce, and persists one short-lived authorization attempt. PostgreSQL owns attempt creation, expiry, locking, and one-use consumption time. The stored attempt contains digests plus encrypted verifier and nonce state, not raw state, browser binding, or provider tokens.
 
-GitHub and Entra adapters are defined in code, not discovered from database records. Startup validates every configured adapter, then creates or selects its revision through the identity kernel. Operators do not seed provider rows. Failed validation or replacement leaves the current selected revision usable by existing replicas, while older replicas and attempts fail closed when their local revision no longer matches the selected revision.
+GitHub and Entra adapters are defined in code, not discovered from database records. Startup validates every configured adapter before one serializable transaction creates, selects, enables, or disables provider revisions. Operators do not seed provider rows. Failed validation or reconciliation leaves every current provider selection unchanged. Removing a previously selected provider disables its authority and advances the global session revocation revision; re-adding the same provider revision does not restore retained sessions.
 
 Increment `GITHUB_PROVIDER_REVISION` when an intentional provider configuration or credential generation change must invalidate in-flight attempts and stale replicas. Keep the revision unchanged for an ordinary restart with the same validated provider settings.
 
@@ -14,13 +14,13 @@ The completion primitive consumes the browser-bound attempt before provider work
 
 Completion returns a minimal provider-neutral proof value in memory containing only the consumed authorization attempt ID and resolved external identity ID. This value is internal-only, is not a session or authority, and is never reconstructed from browser request data.
 
-The callback passes that value directly to admission in the same process. Entra completion passes current app-role evidence beside the minimal proof, not inside it. Admission rereads the immutable external identity and locks the consumed attempt, selected provider revision, global session revocation state, membership, and active assignments before changing authority or creating a session.
+The callback passes that value directly to admission in the same process. Entra completion passes current app-role evidence and the signed token issue time beside the minimal proof, not inside it. Admission rereads the immutable external identity and locks the consumed attempt, selected provider revision, global session revocation state, provider-evidence order, membership, and active assignments before changing authority or creating a session. Equal or older signed evidence is denied before authority mutation or session issuance, including after assignment revocation or supersession.
 
 ## Admission
 
 Normal GitHub sign-in requires an active membership with an active assignment. Entra may create an active membership and provider-owned assignment from exact `Hub.User` or `Hub.Administrator` evidence. `Hub.Administrator` wins when both values are present. Suspended and removed memberships remain denied.
 
-One Entra assignment is active for an external identity. A role, assignment subject, or provider-revision change supersedes that immutable version and ends the membership's open sessions. Losing accepted roles revokes provider-owned authority and ends open sessions. When revocation leaves no authority, the transition, session termination, and denial audit commit together without a new session. Bootstrap assignments remain separate and may continue to admit the user; provider evidence never rewrites Hub-owned provenance.
+One Entra assignment is active for an external identity. A role, assignment subject, or provider-revision change supersedes that immutable version and ends the membership's open sessions. Losing accepted roles revokes provider-owned authority and ends open sessions. Hub persists the newest signed evidence marker independently from assignment lifecycle so stale callbacks cannot recreate revoked or downgraded authority. When revocation leaves no authority, the ordering marker, transition, session termination, and denial audit commit together without a new session. Bootstrap assignments remain separate and may continue to admit the user; provider evidence never rewrites Hub-owned provenance.
 
 The administrator enrollment start requires `HUB_BOOTSTRAP_SECRET` before OAuth begins. The configured secret must contain at least 32 characters and is compared in constant time. The secret authorizes each browser-bound, one-use authorization attempt; it is not stored, audited, logged, or globally consumed.
 
@@ -36,7 +36,7 @@ Membership ownership and creation history are immutable. Bootstrap enrollment wr
 
 Hub creates a fresh opaque session value only after admission succeeds. The browser receives the value in an `HttpOnly`, `SameSite=Lax` cookie with a bounded lifetime; HTTPS origins also set `Secure`. The database stores only its SHA-256 digest.
 
-Every current-session restore rereads the global revocation revision, session expiry and termination state, membership lifecycle, and active assignments, then returns the current effective member or administrator role. Provider-owned authority is active only while its provider revision remains selected. A retained cookie stops authorizing access after sign-out, expiry, suspension, removal, assignment revocation, provider revision replacement, or a global revision change.
+Every current-session restore rereads the global revocation revision, session expiry and termination state, membership lifecycle, and active assignments, then returns the current effective member or administrator role. Provider-owned authority is active only while its provider remains enabled and its revision remains selected. A retained cookie stops authorizing access after sign-out, expiry, suspension, removal, assignment revocation, provider removal or revision replacement, or a global revision change.
 
 Suspension, removal, assignment revocation, and global revision changes are enforced when read. Current Entra evidence may supersede or revoke its own provider assignment and end that membership's sessions; this version does not expose general membership lifecycle operations.
 

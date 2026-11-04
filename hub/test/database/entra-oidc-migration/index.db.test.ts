@@ -146,19 +146,42 @@ describe("Entra OIDC migration compatibility", () => {
                (table_name = 'authorization_attempts'
                  AND column_name IN ('nonce_ciphertext', 'requires_fresh_authentication'))
                OR
+               (table_name = 'authentication_providers'
+                 AND column_name = 'enabled')
+               OR
                (table_name = 'membership_assignments'
                  AND column_name IN ('provider_revision_id', 'provider_assignment_subject'))
+               OR
+               (table_name = 'provider_evidence_states'
+                 AND column_name IN (
+                   'id',
+                   'external_identity_id',
+                   'last_issued_at',
+                   'created_at',
+                   'updated_at'
+                 ))
              )
            ORDER BY table_name, column_name`,
         )
         expect(columns.rows).toEqual([
+          { table_name: "authentication_providers", column_name: "enabled" },
           { table_name: "authorization_attempts", column_name: "nonce_ciphertext" },
           {
             table_name: "membership_assignments",
             column_name: "provider_assignment_subject",
           },
           { table_name: "membership_assignments", column_name: "provider_revision_id" },
+          { table_name: "provider_evidence_states", column_name: "created_at" },
+          { table_name: "provider_evidence_states", column_name: "external_identity_id" },
+          { table_name: "provider_evidence_states", column_name: "id" },
+          { table_name: "provider_evidence_states", column_name: "last_issued_at" },
+          { table_name: "provider_evidence_states", column_name: "updated_at" },
         ])
+        await expect(
+          database.query(`SELECT enabled FROM authentication_providers WHERE id = $1`, [
+            providerId,
+          ]),
+        ).resolves.toMatchObject({ rows: [{ enabled: true }] })
 
         const enumValues = await database.query<{ enum_name: string; value: string }>(
           `SELECT type.typname AS enum_name, value.enumlabel AS value
@@ -181,18 +204,50 @@ describe("Entra OIDC migration compatibility", () => {
           { enum_name: "MembershipRole", value: "MEMBER" },
         ])
 
-        const indexes = await database.query<{ indexname: string }>(
-          `SELECT indexname
+        const indexes = await database.query<{ indexdef: string; indexname: string }>(
+          `SELECT indexname, indexdef
            FROM pg_indexes
            WHERE schemaname = 'public' AND tablename = 'membership_assignments'
            ORDER BY indexname`,
         )
         expect(indexes.rows).toEqual([
-          { indexname: "membership_assignments_active_bootstrap_key" },
-          { indexname: "membership_assignments_active_provider_identity_key" },
-          { indexname: "membership_assignments_pkey" },
-          { indexname: "membership_assignments_provider_revision_id_idx" },
+          {
+            indexdef: expect.stringContaining("(membership_id)"),
+            indexname: "membership_assignments_active_bootstrap_key",
+          },
+          {
+            indexdef: expect.stringContaining("(external_identity_id)"),
+            indexname: "membership_assignments_active_provider_identity_key",
+          },
+          {
+            indexdef: expect.stringMatching(
+              /CREATE INDEX .* ON public\.membership_assignments USING btree \(membership_id/,
+            ),
+            indexname: "membership_assignments_active_provider_membership_idx",
+          },
+          {
+            indexdef: expect.stringContaining("(id)"),
+            indexname: "membership_assignments_pkey",
+          },
+          {
+            indexdef: expect.stringContaining("(provider_revision_id)"),
+            indexname: "membership_assignments_provider_revision_id_idx",
+          },
         ])
+
+        await database.query("SET enable_seqscan = off")
+        const providerAssignmentPlan = await database.query<{ "QUERY PLAN": string }>(
+          `EXPLAIN (COSTS OFF)
+           SELECT provider_revision_id
+           FROM membership_assignments
+           WHERE membership_id = $1
+             AND source = 'AUTHENTICATION_PROVIDER'
+             AND lifecycle = 'ACTIVE'`,
+          [membershipId],
+        )
+        expect(providerAssignmentPlan.rows.map((row) => row["QUERY PLAN"]).join("\n")).toContain(
+          "membership_assignments_active_provider_membership_idx",
+        )
 
         const constraints = await database.query<{ conname: string }>(
           `SELECT constraint_record.conname
@@ -218,6 +273,58 @@ describe("Entra OIDC migration compatibility", () => {
           { conname: "membership_assignments_source_contract" },
         ])
 
+        const evidenceConstraints = await database.query<{ conname: string }>(
+          `SELECT constraint_record.conname
+           FROM pg_constraint constraint_record
+           JOIN pg_class table_record ON table_record.oid = constraint_record.conrelid
+           JOIN pg_namespace schema_record ON schema_record.oid = table_record.relnamespace
+           WHERE schema_record.nspname = 'public'
+             AND table_record.relname = 'provider_evidence_states'
+             AND constraint_record.conname IN (
+               'provider_evidence_states_external_identity_id_fkey',
+               'provider_evidence_states_pkey'
+             )
+           ORDER BY constraint_record.conname`,
+        )
+        expect(evidenceConstraints.rows).toEqual([
+          { conname: "provider_evidence_states_external_identity_id_fkey" },
+          { conname: "provider_evidence_states_pkey" },
+        ])
+        const evidenceIndexes = await database.query<{ indexdef: string; indexname: string }>(
+          `SELECT indexname, indexdef
+           FROM pg_indexes
+           WHERE schemaname = 'public' AND tablename = 'provider_evidence_states'
+           ORDER BY indexname`,
+        )
+        expect(evidenceIndexes.rows).toEqual([
+          {
+            indexdef: expect.stringContaining("UNIQUE INDEX"),
+            indexname: "provider_evidence_states_external_identity_id_key",
+          },
+          {
+            indexdef: expect.stringMatching(/UNIQUE INDEX .* \(id\)$/),
+            indexname: "provider_evidence_states_pkey",
+          },
+        ])
+        const evidenceTrigger = await database.query<{ definition: string; name: string }>(
+          `SELECT trigger_record.tgname AS name,
+                  pg_get_triggerdef(trigger_record.oid) AS definition
+           FROM pg_trigger trigger_record
+           JOIN pg_class table_record ON table_record.oid = trigger_record.tgrelid
+           JOIN pg_namespace schema_record ON schema_record.oid = table_record.relnamespace
+           WHERE schema_record.nspname = 'public'
+             AND table_record.relname = 'provider_evidence_states'
+             AND NOT trigger_record.tgisinternal`,
+        )
+        expect(evidenceTrigger.rows).toEqual([
+          {
+            definition: expect.stringMatching(
+              /BEFORE (?:UPDATE OR DELETE|DELETE OR UPDATE) ON public\.provider_evidence_states .* protect_provider_evidence_state\(\)/,
+            ),
+            name: "provider_evidence_states_protected",
+          },
+        ])
+
         await expect(
           database.query(`SELECT nonce_ciphertext FROM authorization_attempts WHERE id = $1`, [
             attemptId,
@@ -233,6 +340,20 @@ describe("Entra OIDC migration compatibility", () => {
         ).resolves.toMatchObject({
           rows: [{ provider_assignment_subject: null, provider_revision_id: null }],
         })
+        await expect(
+          database.query(
+            `INSERT INTO membership_assignments
+               (id, membership_id, external_identity_id, provider_revision_id, source, role,
+                provider_assignment_subject)
+             VALUES ($1, $2, $3, $4, 'AUTHENTICATION_PROVIDER', 'MEMBER', NULL)`,
+            [
+              "00000000-0000-4000-8000-000000000017",
+              membershipId,
+              identityId,
+              revisionId,
+            ],
+          ),
+        ).rejects.toThrow()
       } finally {
         await database.end()
       }

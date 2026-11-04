@@ -25,6 +25,7 @@ function input() {
 function repositories(overrides: Partial<AdmissionRepositories> = {}) {
   const membershipId = randomUUID()
   return {
+    claimProviderEvidence: vi.fn().mockResolvedValue("created"),
     createMembership: vi.fn().mockResolvedValue(undefined),
     createProviderAssignment: vi.fn().mockResolvedValue(true),
     createBootstrapAssignment: vi.fn().mockResolvedValue("created"),
@@ -54,7 +55,10 @@ function repositories(overrides: Partial<AdmissionRepositories> = {}) {
       id: membershipId,
       lifecycle: "ACTIVE",
     }),
-    lockProvider: vi.fn().mockResolvedValue({ selectedRevisionId: "revision-id" }),
+    lockProvider: vi.fn().mockResolvedValue({
+      enabled: true,
+      selectedRevisionId: "revision-id",
+    }),
     lockRevocation: vi.fn().mockResolvedValue({ revision: 0 }),
     ...overrides,
   } satisfies AdmissionRepositories
@@ -128,7 +132,10 @@ describe("admitAuthenticationProof()", () => {
     const createHubSession = vi.fn().mockResolvedValue({ expiresAt: new Date("2030-01-01") })
     const records = repositories({
       createHubSession,
-      lockProvider: vi.fn().mockResolvedValue({ selectedRevisionId: "new-revision" }),
+      lockProvider: vi.fn().mockResolvedValue({
+        enabled: true,
+        selectedRevisionId: "new-revision",
+      }),
     })
 
     const writeAudit = vi.fn().mockResolvedValue(undefined)
@@ -339,32 +346,89 @@ describe("admitAuthenticationProof()", () => {
     ])
   })
 
-  it.each([
-    ["created", "created"],
-    ["unchanged", "unchanged"],
-  ] as const)(
-    "does not end sessions when enrollment leaves authority %s and assignment %s",
-    async (membershipTransition, assignmentTransition) => {
-      const endOpenHubSessionsForMembership = vi.fn().mockResolvedValue([])
-      const records = repositories({
-        createBootstrapAssignment: vi.fn().mockResolvedValue(assignmentTransition),
-        createOrRestoreMembership: vi.fn().mockResolvedValue({
-          id: "membership-id",
-          transition: membershipTransition,
-        }),
-        endOpenHubSessionsForMembership,
+  it("ends and audits existing member sessions before first bootstrap elevation", async () => {
+    const order: string[] = []
+    const createSecurityAudit = vi
+      .fn<AdmissionRepositories["createSecurityAudit"]>()
+      .mockImplementation((event) => {
+        order.push(event.type)
+        return Promise.resolve()
       })
+    const records = repositories({
+      createBootstrapAssignment: vi.fn().mockResolvedValue("created"),
+      createHubSession: vi.fn().mockImplementation(() => {
+        order.push("create replacement")
+        return Promise.resolve({ expiresAt: new Date("2030-01-01") })
+      }),
+      createOrRestoreMembership: vi.fn().mockResolvedValue({
+        id: "membership-id",
+        transition: "unchanged",
+      }),
+      createSecurityAudit,
+      endOpenHubSessionsForMembership: vi.fn().mockImplementation(() => {
+        order.push("end old")
+        return Promise.resolve([{ id: "member-session" }])
+      }),
+    })
 
-      await admitAuthenticationProof(input(), {
-        createId: randomUUID,
-        getBootstrapSecretDigest: () => bootstrapSecretDigest,
-        runTransaction: (operation) => operation(records),
-        writeAudit: vi.fn(),
-      })
+    await admitAuthenticationProof(input(), {
+      createId: randomUUID,
+      getBootstrapSecretDigest: () => bootstrapSecretDigest,
+      runTransaction: (operation) => operation(records),
+      writeAudit: vi.fn(),
+    })
 
-      expect(endOpenHubSessionsForMembership).not.toHaveBeenCalled()
-    },
-  )
+    expect(order.indexOf("end old")).toBeGreaterThan(order.indexOf("membership_assignment_created"))
+    expect(order.indexOf("session_ended")).toBeGreaterThan(order.indexOf("end old"))
+    expect(order.indexOf("create replacement")).toBeGreaterThan(order.indexOf("session_ended"))
+    expect(createSecurityAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        membershipId: "membership-id",
+        sessionId: "member-session",
+        type: "session_ended",
+      }),
+    )
+  })
+
+  it("does not end sessions for a brand-new bootstrap membership", async () => {
+    const endOpenHubSessionsForMembership = vi.fn().mockResolvedValue([])
+    const records = repositories({
+      createBootstrapAssignment: vi.fn().mockResolvedValue("created"),
+      createOrRestoreMembership: vi.fn().mockResolvedValue({
+        id: "membership-id",
+        transition: "created",
+      }),
+      endOpenHubSessionsForMembership,
+    })
+
+    await admitAuthenticationProof(input(), {
+      createId: randomUUID,
+      runTransaction: (operation) => operation(records),
+      writeAudit: vi.fn(),
+    })
+
+    expect(endOpenHubSessionsForMembership).not.toHaveBeenCalled()
+  })
+
+  it("does not end sessions when active bootstrap authority is unchanged", async () => {
+    const endOpenHubSessionsForMembership = vi.fn().mockResolvedValue([])
+    const records = repositories({
+      createBootstrapAssignment: vi.fn().mockResolvedValue("unchanged"),
+      createOrRestoreMembership: vi.fn().mockResolvedValue({
+        id: "membership-id",
+        transition: "unchanged",
+      }),
+      endOpenHubSessionsForMembership,
+    })
+
+    await admitAuthenticationProof(input(), {
+      createId: randomUUID,
+      runTransaction: (operation) => operation(records),
+      writeAudit: vi.fn(),
+    })
+
+    expect(endOpenHubSessionsForMembership).not.toHaveBeenCalled()
+  })
 
   it("creates the replacement session after ending restored authority sessions", async () => {
     const order: string[] = []
@@ -480,6 +544,7 @@ describe("admitAuthenticationProof()", () => {
         userId: "22222222-2222-4222-8222-222222222222",
       }),
       lockProvider: vi.fn().mockResolvedValue({
+        enabled: true,
         selectedRevisionId: "00000000-0000-4000-8000-000000000099",
       }),
     })
@@ -489,6 +554,7 @@ describe("admitAuthenticationProof()", () => {
       requiresProviderAssignmentEvidence: true,
       providerAssignment: {
         assignmentSubject: "11111111-1111-4111-8111-111111111111",
+        issuedAt: new Date("2026-11-04T20:00:00Z"),
         providerRevisionId: "00000000-0000-4000-8000-000000000099",
         role: "MEMBER" as const,
       },
@@ -527,6 +593,7 @@ describe("admitAuthenticationProof()", () => {
         purpose: "SIGN_IN",
       }),
       lockProvider: vi.fn().mockResolvedValue({
+        enabled: true,
         selectedRevisionId: "00000000-0000-4000-8000-000000000099",
       }),
       lockMembership: vi.fn().mockResolvedValue({
@@ -550,6 +617,7 @@ describe("admitAuthenticationProof()", () => {
           requiresProviderAssignmentEvidence: true,
           providerAssignment: {
             assignmentSubject: null,
+            issuedAt: new Date("2026-11-04T20:00:00Z"),
             providerRevisionId: "00000000-0000-4000-8000-000000000099",
             role: null,
           },
@@ -582,6 +650,7 @@ describe("admitAuthenticationProof()", () => {
         purpose: "SIGN_IN",
       }),
       lockProvider: vi.fn().mockResolvedValue({
+        enabled: true,
         selectedRevisionId: "00000000-0000-4000-8000-000000000099",
       }),
       lockMembership: vi.fn().mockResolvedValue({
@@ -598,6 +667,7 @@ describe("admitAuthenticationProof()", () => {
           requiresProviderAssignmentEvidence: true,
           providerAssignment: {
             assignmentSubject: "11111111-1111-4111-8111-111111111111",
+            issuedAt: new Date("2026-11-04T20:00:00Z"),
             providerRevisionId: "00000000-0000-4000-8000-000000000099",
             role: "ADMINISTRATOR",
           },
@@ -628,6 +698,7 @@ describe("admitAuthenticationProof()", () => {
         purpose: "SIGN_IN",
       }),
       lockProvider: vi.fn().mockResolvedValue({
+        enabled: true,
         selectedRevisionId: "00000000-0000-4000-8000-000000000099",
       }),
       lockMembership: vi.fn().mockResolvedValue({
@@ -657,6 +728,7 @@ describe("admitAuthenticationProof()", () => {
           requiresProviderAssignmentEvidence: true,
           providerAssignment: {
             assignmentSubject: "11111111-1111-4111-8111-111111111111",
+            issuedAt: new Date("2026-11-04T20:00:00Z"),
             providerRevisionId: "00000000-0000-4000-8000-000000000099",
             role: "MEMBER",
           },
@@ -692,6 +764,7 @@ describe("admitAuthenticationProof()", () => {
         purpose: "SIGN_IN",
       }),
       lockProvider: vi.fn().mockResolvedValue({
+        enabled: true,
         selectedRevisionId: "00000000-0000-4000-8000-000000000099",
       }),
     })
@@ -740,6 +813,7 @@ describe("admitAuthenticationProof()", () => {
         purpose: "ADMIN_ENROLLMENT",
       }),
       lockProvider: vi.fn().mockResolvedValue({
+        enabled: true,
         selectedRevisionId: "00000000-0000-4000-8000-000000000099",
       }),
       lockMembership: vi.fn().mockResolvedValue({
@@ -769,6 +843,7 @@ describe("admitAuthenticationProof()", () => {
           requiresProviderAssignmentEvidence: true,
           providerAssignment: {
             assignmentSubject: null,
+            issuedAt: new Date("2026-11-04T20:00:00Z"),
             providerRevisionId: "00000000-0000-4000-8000-000000000099",
             role: null,
           },
@@ -806,6 +881,7 @@ describe("admitAuthenticationProof()", () => {
         purpose: "SIGN_IN",
       }),
       lockProvider: vi.fn().mockResolvedValue({
+        enabled: true,
         selectedRevisionId: "00000000-0000-4000-8000-000000000099",
       }),
       lockMembership: vi.fn().mockResolvedValue({
@@ -830,6 +906,7 @@ describe("admitAuthenticationProof()", () => {
           requiresProviderAssignmentEvidence: true,
           providerAssignment: {
             assignmentSubject: "11111111-1111-4111-8111-111111111111",
+            issuedAt: new Date("2026-11-04T20:00:00Z"),
             providerRevisionId: "00000000-0000-4000-8000-000000000099",
             role: "MEMBER",
           },

@@ -2,6 +2,11 @@ import type { Prisma } from "../../../generated/prisma/client.ts"
 import type { CreateSecurityAuditEvent } from "../../../repositories/security-audits/create-security-audit/types.ts"
 
 export interface AdmissionRepositories {
+  claimProviderEvidence(input: {
+    externalIdentityId: string
+    id: string
+    issuedAt: Date
+  }): Promise<"advanced" | "conflict" | "created" | "stale">
   createMembership(input: { id: string; userId: string }): Promise<boolean>
   createProviderAssignment(input: {
     externalIdentityId: string
@@ -53,7 +58,7 @@ export interface AdmissionRepositories {
   lockMembership(
     userId: string,
   ): Promise<{ id: string; lifecycle: "ACTIVE" | "SUSPENDED" | "REMOVED" } | null>
-  lockProvider(key: string): Promise<{ selectedRevisionId: string | null } | null>
+  lockProvider(key: string): Promise<{ enabled: boolean; selectedRevisionId: string | null } | null>
   lockRevocation(): Promise<{ revision: number } | null>
 }
 

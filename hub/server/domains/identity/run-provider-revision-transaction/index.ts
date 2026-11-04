@@ -2,19 +2,22 @@ import { Prisma } from "../../../generated/prisma/client.ts"
 import { createAuthenticationProviderRevision } from "../../../repositories/authentication-providers/create-authentication-provider-revision/index.ts"
 import { createAuthenticationProvider } from "../../../repositories/authentication-providers/create-authentication-provider/index.ts"
 import { findAuthenticationProvider } from "../../../repositories/authentication-providers/find-authentication-provider/index.ts"
+import { lockAuthenticationProvidersForReconciliation } from "../../../repositories/authentication-providers/lock-authentication-providers-for-reconciliation/index.ts"
 import { selectAuthenticationProviderRevision } from "../../../repositories/authentication-providers/select-authentication-provider-revision/index.ts"
+import { setAuthenticationProviderEnabled } from "../../../repositories/authentication-providers/set-authentication-provider-enabled/index.ts"
 import { createSecurityAudit } from "../../../repositories/security-audits/create-security-audit/index.ts"
+import { incrementSessionRevocationState } from "../../../repositories/session-revocation-states/increment-session-revocation-state/index.ts"
 import { classifyPrismaTransactionError } from "../../../integrations/prisma/classify-transaction-error/index.ts"
 import { IdentityTransactionConflictError } from "../errors.ts"
 import type {
+  AuthenticationProviderReconciliationRepositories,
   FindAuthenticationProviderForTransaction,
   ProviderRevisionDatabaseClient,
-  ProviderRevisionRepositories,
 } from "./types.ts"
 
 export function runProviderRevisionTransaction<Result>(
   database: ProviderRevisionDatabaseClient,
-  operation: (repositories: ProviderRevisionRepositories) => Promise<Result>,
+  operation: (repositories: AuthenticationProviderReconciliationRepositories) => Promise<Result>,
   findProvider: FindAuthenticationProviderForTransaction = findAuthenticationProvider,
 ): Promise<Result> {
   return database
@@ -26,8 +29,13 @@ export function runProviderRevisionTransaction<Result>(
             createAuthenticationProviderRevision(transaction, input),
           createSecurityAudit: (input) => createSecurityAudit(transaction, input),
           findAuthenticationProvider: (key) => findProvider(transaction, key),
+          incrementSessionRevocation: () => incrementSessionRevocationState(transaction),
+          lockAuthenticationProviders: () =>
+            lockAuthenticationProvidersForReconciliation(transaction),
           selectAuthenticationProviderRevision: (input) =>
             selectAuthenticationProviderRevision(transaction, input),
+          setAuthenticationProviderEnabled: (input) =>
+            setAuthenticationProviderEnabled(transaction, input),
         }),
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     )

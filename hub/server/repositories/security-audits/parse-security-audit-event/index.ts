@@ -94,6 +94,7 @@ const eventSchema = z.discriminatedUnion("type", [
         "membership_inactive",
         "membership_missing",
         "provider_evidence_missing",
+        "provider_evidence_stale",
       ]),
     })
     .strict(),
@@ -158,6 +159,30 @@ const eventSchema = z.discriminatedUnion("type", [
       revision: z.number().int().positive(),
     })
     .strict(),
+  z
+    .object({
+      id: z.uuid(),
+      providerId: z.uuid(),
+      providerKey: z.unknown(),
+      type: z.enum(["authentication_provider_disabled", "authentication_provider_enabled"]),
+    })
+    .strict(),
+  z
+    .object({
+      id: z.uuid(),
+      providerKeys: z.array(z.unknown()).max(10),
+      reason: z.enum(["retry_exhausted", "transaction_error"]),
+      type: z.literal("authentication_providers_reconcile_failed"),
+    })
+    .strict(),
+  z
+    .object({
+      id: z.uuid(),
+      reason: z.literal("provider_removed"),
+      revision: z.number().int().nonnegative(),
+      type: z.literal("session_revocation_advanced"),
+    })
+    .strict(),
 ])
 
 export function parseSecurityAuditEvent(input: unknown): ParsedSecurityAuditEvent {
@@ -172,6 +197,14 @@ export function parseSecurityAuditEvent(input: unknown): ParsedSecurityAuditEven
     case "provider_revision_denied":
     case "provider_revision_persist_failed":
       return { ...event, providerKey: parseProviderKey(event.providerKey) }
+    case "authentication_provider_disabled":
+    case "authentication_provider_enabled":
+      return { ...event, providerKey: parseProviderKey(event.providerKey) }
+    case "authentication_providers_reconcile_failed":
+      return {
+        ...event,
+        providerKeys: event.providerKeys.map((key) => parseProviderKey(key)),
+      }
     default:
       return event
   }

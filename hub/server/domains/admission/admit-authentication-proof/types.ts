@@ -6,6 +6,7 @@ export interface AdmitAuthenticationProofInput {
   proof: AuthenticationProofResult
   providerAssignment?: {
     assignmentSubject: string | null
+    issuedAt: Date
     providerRevisionId: string
     role: "MEMBER" | "ADMINISTRATOR" | null
   }

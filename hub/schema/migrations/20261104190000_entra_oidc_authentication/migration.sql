@@ -4,9 +4,21 @@ ALTER TYPE "MembershipAssignmentLifecycle" ADD VALUE 'SUPERSEDED' BEFORE 'REVOKE
 ALTER TABLE "authorization_attempts"
 ADD COLUMN "nonce_ciphertext" VARCHAR(500);
 
+ALTER TABLE "authentication_providers"
+ADD COLUMN "enabled" BOOLEAN NOT NULL DEFAULT true;
+
 ALTER TABLE "membership_assignments"
 ADD COLUMN "provider_revision_id" UUID,
 ADD COLUMN "provider_assignment_subject" VARCHAR(100);
+
+CREATE TABLE "provider_evidence_states" (
+    "id" UUID NOT NULL,
+    "external_identity_id" UUID NOT NULL,
+    "last_issued_at" TIMESTAMPTZ(3) NOT NULL,
+    "created_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updated_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "provider_evidence_states_pkey" PRIMARY KEY ("id")
+);
 
 DROP INDEX "membership_assignments_membership_id_source_role_key";
 DROP INDEX "membership_assignments_external_identity_id_key";
@@ -23,6 +35,7 @@ ADD CONSTRAINT "membership_assignments_source_contract" CHECK (
     (
         "source" = 'AUTHENTICATION_PROVIDER'
         AND "provider_revision_id" IS NOT NULL
+        AND "provider_assignment_subject" IS NOT NULL
         AND "provider_assignment_subject" ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
     )
 );
@@ -38,9 +51,21 @@ WHERE "source" = 'AUTHENTICATION_PROVIDER' AND "lifecycle" = 'ACTIVE';
 CREATE INDEX "membership_assignments_provider_revision_id_idx"
 ON "membership_assignments"("provider_revision_id");
 
+CREATE INDEX "membership_assignments_active_provider_membership_idx"
+ON "membership_assignments"("membership_id", "external_identity_id")
+WHERE "source" = 'AUTHENTICATION_PROVIDER' AND "lifecycle" = 'ACTIVE';
+
+CREATE UNIQUE INDEX "provider_evidence_states_external_identity_id_key"
+ON "provider_evidence_states"("external_identity_id");
+
 ALTER TABLE "membership_assignments"
 ADD CONSTRAINT "membership_assignments_provider_revision_id_fkey"
 FOREIGN KEY ("provider_revision_id") REFERENCES "authentication_provider_revisions"("id")
+ON DELETE RESTRICT ON UPDATE CASCADE;
+
+ALTER TABLE "provider_evidence_states"
+ADD CONSTRAINT "provider_evidence_states_external_identity_id_fkey"
+FOREIGN KEY ("external_identity_id") REFERENCES "external_identities"("id")
 ON DELETE RESTRICT ON UPDATE CASCADE;
 
 CREATE OR REPLACE FUNCTION protect_authorization_attempt_purpose()
@@ -115,3 +140,28 @@ BEGIN
     RETURN NEW;
 END;
 $$;
+
+CREATE FUNCTION protect_provider_evidence_state()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        RAISE EXCEPTION 'Provider evidence ordering history cannot be deleted.';
+    END IF;
+    IF NEW."id" <> OLD."id"
+       OR NEW."external_identity_id" <> OLD."external_identity_id"
+       OR NEW."created_at" <> OLD."created_at" THEN
+        RAISE EXCEPTION 'Provider evidence ordering identity and history are immutable.';
+    END IF;
+    IF NEW."last_issued_at" <= OLD."last_issued_at"
+       OR NEW."updated_at" <= OLD."updated_at" THEN
+        RAISE EXCEPTION 'Provider evidence ordering must advance monotonically.';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER "provider_evidence_states_protected"
+BEFORE UPDATE OR DELETE ON "provider_evidence_states"
+FOR EACH ROW EXECUTE FUNCTION protect_provider_evidence_state();

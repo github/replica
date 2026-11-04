@@ -14,6 +14,7 @@ import { createMembership } from "../../../repositories/memberships/create-membe
 import { createOrRestoreMembership } from "../../../repositories/memberships/create-or-restore-membership/index.ts"
 import { lockMembership } from "../../../repositories/memberships/lock-membership/index.ts"
 import { createSecurityAudit } from "../../../repositories/security-audits/create-security-audit/index.ts"
+import { claimProviderEvidence } from "../../../repositories/provider-evidence-states/claim-provider-evidence/index.ts"
 import { lockSessionRevocationState } from "../../../repositories/session-revocation-states/lock-session-revocation-state/index.ts"
 import { classifyPrismaTransactionError } from "../../../integrations/prisma/classify-transaction-error/index.ts"
 import { AdmissionTransactionConflictError } from "../errors.ts"
@@ -27,6 +28,7 @@ export function runAdmissionTransaction<Result>(
     .$transaction(
       (transaction) =>
         operation({
+          claimProviderEvidence: (input) => claimProviderEvidence(transaction, input),
           createMembership: (input) => createMembership(transaction, input),
           createProviderAssignment: (input) => createProviderAssignment(transaction, input),
           createBootstrapAssignment: (input) =>

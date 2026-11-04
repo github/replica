@@ -12,16 +12,18 @@ import type { CompleteAuthenticationProofDependencies } from "../../../../domain
 import { createEntraAuthenticationContext } from "../../../../domains/authentication/create-entra-authentication-context/index.ts"
 import { createGitHubAuthenticationContext } from "../../../../domains/authentication/create-github-authentication-context/index.ts"
 import { createOpaqueValue } from "../../../../domains/authentication/create-opaque-value/index.ts"
+import { createSharedAuthenticationContext } from "../../../../domains/authentication/create-shared-authentication-context/index.ts"
 import { decryptAuthenticationValue } from "../../../../domains/authentication/decrypt-authentication-value/index.ts"
 import { encryptAuthenticationValue } from "../../../../domains/authentication/encrypt-authentication-value/index.ts"
 import { hashAuthenticationValue } from "../../../../domains/authentication/hash-authentication-value/index.ts"
 import { startAuthenticationProof } from "../../../../domains/authentication/start-authentication-proof/index.ts"
 import type { AuthenticationProviderAdapter } from "../../../../domains/authentication/types.ts"
+import { ProviderConfigurationValidationError } from "../../../../domains/identity/errors.ts"
 import { getSelectedProviderRevision } from "../../../../domains/identity/get-selected-provider-revision/index.ts"
+import { reconcileAuthenticationProviders } from "../../../../domains/identity/reconcile-authentication-providers/index.ts"
 import { resolveOrCreateExternalIdentity } from "../../../../domains/identity/resolve-or-create-external-identity/index.ts"
 import { runIdentityCreationTransaction } from "../../../../domains/identity/run-identity-creation-transaction/index.ts"
 import { runProviderRevisionTransaction } from "../../../../domains/identity/run-provider-revision-transaction/index.ts"
-import { validateAndPersistProviderRevision } from "../../../../domains/identity/validate-and-persist-provider-revision/index.ts"
 import { prisma } from "../../../../integrations/prisma/index.ts"
 import { findAuthenticationProvider } from "../../../../repositories/authentication-providers/find-authentication-provider/index.ts"
 import { consumeAuthorizationAttempt } from "../../../../repositories/authorization-attempts/consume-authorization-attempt/index.ts"
@@ -72,31 +74,64 @@ export async function createAuthenticationRouteDependencies(
   environment: NodeJS.ProcessEnv,
   request: typeof globalThis.fetch = globalThis.fetch,
 ): Promise<AuthenticationRouteDependencies> {
+  const sharedContext = createSharedAuthenticationContext(environment)
   const githubContext = githubConfigured(environment)
     ? createGitHubAuthenticationContext(environment, request)
     : undefined
   const entraContext = entraConfigured(environment)
     ? createEntraAuthenticationContext(environment, request)
     : undefined
-  const sharedContext = githubContext ?? entraContext
-  if (!sharedContext) {
-    throw new Error("Configure at least one GitHub or Entra user sign-in provider.")
-  }
   const contexts: AuthenticationContext[] = []
   if (githubContext) contexts.push(githubContext)
   if (entraContext) contexts.push(entraContext)
   await Promise.all(
     contexts.map(async (context) => {
-      await context.adapter.validateConfiguration?.()
+      try {
+        await context.adapter.validateConfiguration?.()
+      } catch (error) {
+        const reported = new ProviderConfigurationValidationError({ cause: error })
+        try {
+          await createSecurityAudit(prisma, {
+            id: randomUUID(),
+            type: "provider_revision_validation_failed",
+            providerKey: context.adapter.providerKey,
+            revision: context.providerRevision,
+          })
+        } catch (auditError) {
+          throw new AggregateError(
+            [reported, auditError],
+            "The provider validation failure and its audit could not both be recorded.",
+            { cause: auditError },
+          )
+        }
+        throw reported
+      }
     }),
   )
+  await reconcileAuthenticationProviders(
+    contexts.map((context) => ({
+      canonicalPublicConfiguration: context.adapter.canonicalPublicConfiguration,
+      providerKey: context.adapter.providerKey,
+      revision: context.providerRevision,
+    })),
+    {
+      createId: randomUUID,
+      runTransaction: (operation) => runProviderRevisionTransaction(prisma, operation),
+      writeAudit: (event) => createSecurityAudit(prisma, event),
+    },
+  )
+  if (!contexts.length) {
+    throw new Error("Configure at least one GitHub or Entra user sign-in provider.")
+  }
 
   async function createProviderDependencies(
     context: AuthenticationContext,
   ): Promise<ProviderAuthenticationRouteDependencies> {
-    function selectedRevision() {
+    async function selectedRevision() {
+      const provider = await findAuthenticationProvider(prisma, context.adapter.providerKey)
+      if (!provider?.enabled) return null
       return getSelectedProviderRevision(context.adapter.providerKey, {
-        findAuthenticationProvider: (key) => findAuthenticationProvider(prisma, key),
+        findAuthenticationProvider: () => Promise.resolve(provider),
       })
     }
     function writeAuthenticationDenial(
@@ -109,22 +144,6 @@ export async function createAuthenticationRouteDependencies(
         reason,
       })
     }
-    await validateAndPersistProviderRevision(
-      {
-        configuration: {},
-        providerKey: context.adapter.providerKey,
-        revision: context.providerRevision,
-      },
-      {
-        createId: randomUUID,
-        runTransaction: (operation) => runProviderRevisionTransaction(prisma, operation),
-        validateConfiguration: () =>
-          Promise.resolve({
-            canonicalPublicConfiguration: context.adapter.canonicalPublicConfiguration,
-          }),
-        writeAudit: (event) => createSecurityAudit(prisma, event),
-      },
-    )
     function start(purpose: "SIGN_IN" | "ADMIN_ENROLLMENT") {
       return () =>
         startAuthenticationProof(

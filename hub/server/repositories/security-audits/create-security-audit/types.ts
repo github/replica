@@ -78,6 +78,7 @@ export interface AdmissionDeniedAudit extends SecurityAuditEvent {
     | "membership_inactive"
     | "membership_missing"
     | "provider_evidence_missing"
+    | "provider_evidence_stale"
 }
 
 export interface AdmissionFailedAudit extends SecurityAuditEvent {
@@ -127,6 +128,24 @@ export interface ProviderRevisionPersistFailedAudit extends SecurityAuditEvent {
   revision: number
 }
 
+export interface AuthenticationProviderLifecycleAudit extends SecurityAuditEvent {
+  type: "authentication_provider_disabled" | "authentication_provider_enabled"
+  providerId: string
+  providerKey: string
+}
+
+export interface AuthenticationProvidersReconcileFailedAudit extends SecurityAuditEvent {
+  type: "authentication_providers_reconcile_failed"
+  providerKeys: string[]
+  reason: "retry_exhausted" | "transaction_error"
+}
+
+export interface SessionRevocationAdvancedAudit extends SecurityAuditEvent {
+  type: "session_revocation_advanced"
+  reason: "provider_removed"
+  revision: number
+}
+
 export type CreateSecurityAuditEvent =
   | AuthenticationAttemptDeniedAudit
   | BootstrapAttemptDeniedAudit
@@ -145,3 +164,6 @@ export type CreateSecurityAuditEvent =
   | ProviderRevisionSelectedAudit
   | ProviderRevisionDeniedAudit
   | ProviderRevisionPersistFailedAudit
+  | AuthenticationProviderLifecycleAudit
+  | AuthenticationProvidersReconcileFailedAudit
+  | SessionRevocationAdvancedAudit

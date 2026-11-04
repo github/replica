@@ -19,7 +19,7 @@ export interface SessionRestoreRepositories {
     id: string
     lifecycle: "ACTIVE" | "SUSPENDED" | "REMOVED"
   } | null>
-  lockProvider(key: string): Promise<{ id: string } | null>
+  lockProvider(key: string): Promise<{ enabled: boolean; id: string } | null>
   lockSession(digest: string): Promise<{
     id: string
     membershipId: string

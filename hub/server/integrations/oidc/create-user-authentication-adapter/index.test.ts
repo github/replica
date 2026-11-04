@@ -142,6 +142,7 @@ describe("createEntraOidcUserAuthenticationAdapter()", () => {
       },
       providerAssignment: {
         assignmentSubject: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        issuedAt: expect.any(Date),
         role: "ADMINISTRATOR",
       },
     })
@@ -174,6 +175,32 @@ describe("createEntraOidcUserAuthenticationAdapter()", () => {
     })
 
     expect(evidence.providerAssignment?.role).toBe(expectedRole)
+  })
+
+  it("authenticates a signed role-free token as explicit authority-loss evidence", async () => {
+    const { adapter } = await protocolFixture({
+      roles: [],
+    })
+
+    await expect(
+      adapter.completeAuthenticationProof({
+        callbackUri,
+        code: "authorization-code",
+        codeVerifier: "pkce-verifier",
+        nonce: "attempt-nonce",
+      }),
+    ).resolves.toEqual({
+      identity: {
+        issuer,
+        provider: "entra",
+        subject: "immutable-subject",
+      },
+      providerAssignment: {
+        assignmentSubject: null,
+        issuedAt: expect.any(Date),
+        role: null,
+      },
+    })
   })
 
   it("accepts role-loss evidence without an oid but requires oid for role-bearing evidence", async () => {

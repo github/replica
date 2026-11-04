@@ -27,6 +27,7 @@ const inputSchema = z
     providerAssignment: z
       .object({
         assignmentSubject: z.uuid().nullable(),
+        issuedAt: z.date(),
         providerRevisionId: z.uuid(),
         role: z.enum(["MEMBER", "ADMINISTRATOR"]).nullable(),
       })
@@ -84,7 +85,9 @@ async function ensureBootstrapMembership(
     })
   }
   return {
-    authorityRestored: membership.transition === "restored" || assignment === "restored",
+    authorityChanged:
+      membership.transition === "restored" ||
+      (membership.transition !== "created" && assignment !== "unchanged"),
     membershipId: membership.id,
   }
 }
@@ -144,7 +147,7 @@ async function admitWithinTransaction(
   const revocation = await repositories.lockRevocation()
   const attempt = await repositories.lockAttempt(input.proof.authorizationAttemptId)
   const identity = await repositories.getExternalIdentity(input.proof.externalIdentityId)
-  if (!provider || !revocation || !attempt) {
+  if (!provider || !provider.enabled || !revocation || !attempt) {
     throw new AdmissionDeniedError("attempt_mismatch", input.proof.externalIdentityId)
   }
   if (!identity) {
@@ -165,6 +168,19 @@ async function admitWithinTransaction(
   if (input.requiresProviderAssignmentEvidence && !input.providerAssignment) {
     throw new AdmissionDeniedError("provider_evidence_missing", input.proof.externalIdentityId)
   }
+  let providerEvidenceAdvanced = false
+  if (input.providerAssignment) {
+    const claim = await repositories.claimProviderEvidence({
+      externalIdentityId: input.proof.externalIdentityId,
+      id: createId(),
+      issuedAt: input.providerAssignment.issuedAt,
+    })
+    if (claim === "conflict") throw new AdmissionTransactionConflictError()
+    if (claim === "stale") {
+      throw new AdmissionDeniedError("provider_evidence_stale", input.proof.externalIdentityId)
+    }
+    providerEvidenceAdvanced = true
+  }
   let membershipId: string
   let role: "MEMBER" | "ADMINISTRATOR"
   if (attempt.purpose === "ADMIN_ENROLLMENT") {
@@ -176,7 +192,7 @@ async function admitWithinTransaction(
     )
     membershipId = enrollment.membershipId
     role = "ADMINISTRATOR"
-    if (enrollment.authorityRestored) {
+    if (enrollment.authorityChanged) {
       await endMembershipSessions(repositories, membershipId, createId)
     }
     if (input.providerAssignment) {
@@ -185,8 +201,10 @@ async function admitWithinTransaction(
       }
       const applied = await applyProviderAssignmentEvidence(
         {
-          ...input.providerAssignment,
+          assignmentSubject: input.providerAssignment.assignmentSubject,
           externalIdentityId: input.proof.externalIdentityId,
+          providerRevisionId: input.providerAssignment.providerRevisionId,
+          role: input.providerAssignment.role,
           userId: identity.userId,
         },
         { createId, repositories },
@@ -201,15 +219,17 @@ async function admitWithinTransaction(
     }
     const applied = await applyProviderAssignmentEvidence(
       {
-        ...input.providerAssignment,
+        assignmentSubject: input.providerAssignment.assignmentSubject,
         externalIdentityId: input.proof.externalIdentityId,
+        providerRevisionId: input.providerAssignment.providerRevisionId,
+        role: input.providerAssignment.role,
         userId: identity.userId,
       },
       { createId, repositories },
     )
     if (applied.denied) {
       const reason = applied.reason
-      const denialAudited = applied.stateChanged
+      const denialAudited = providerEvidenceAdvanced || applied.stateChanged
       if (denialAudited) {
         await repositories.createSecurityAudit({
           id: createId(),

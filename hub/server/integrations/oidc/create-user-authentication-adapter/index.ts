@@ -231,6 +231,9 @@ export function createEntraOidcUserAuthenticationAdapter(
       const claims = verified.payload
       if (
         !claims.sub ||
+        typeof claims.iat !== "number" ||
+        !Number.isInteger(claims.iat) ||
+        claims.iat < 0 ||
         typeof claims.exp !== "number" ||
         claims.nonce !== nonce ||
         (claims.azp !== undefined && claims.azp !== configuration.clientId) ||
@@ -269,6 +272,7 @@ export function createEntraOidcUserAuthenticationAdapter(
         },
         providerAssignment: {
           assignmentSubject,
+          issuedAt: new Date(claims.iat * 1_000),
           role,
         },
       }

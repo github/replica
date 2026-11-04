@@ -6,6 +6,7 @@ export interface ImmutableIdentityEvidence {
 
 export interface ProviderAssignmentEvidence {
   assignmentSubject: string | null
+  issuedAt: Date
   role: "MEMBER" | "ADMINISTRATOR" | null
 }
 
