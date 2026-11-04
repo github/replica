@@ -12,9 +12,6 @@ DROP INDEX "membership_assignments_membership_id_source_role_key";
 DROP INDEX "membership_assignments_external_identity_id_key";
 
 ALTER TABLE "membership_assignments"
-DROP CONSTRAINT "membership_assignments_bootstrap_administrator";
-
-ALTER TABLE "membership_assignments"
 ADD CONSTRAINT "membership_assignments_source_contract" CHECK (
     (
         "source" = 'BOOTSTRAP'

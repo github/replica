@@ -62,7 +62,7 @@ describe("server runtime", () => {
       signOut: {},
     }
     vi.stubEnv("HUB_APPLICATION_ORIGIN", "https://hub.example.test")
-    createAuthenticationRouteDependencies.mockReturnValue(authentication)
+    createAuthenticationRouteDependencies.mockResolvedValue(authentication)
     vi.doMock("./routes/api/auth/create-authentication-route-dependencies/index.ts", () => ({
       createAuthenticationRouteDependencies,
     }))
