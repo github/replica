@@ -3,7 +3,7 @@ import path from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { collectBuildFiles, type BuildFileState } from "../collect-build-files/index.ts"
-import { MAX_ENTRIES, MAX_FILE_BYTES, MAX_PATH_DEPTH, MAX_TOTAL_BYTES } from "../constants.ts"
+import { MAX_ENTRIES, MAX_FILE_BYTES, MAX_PATH_DEPTH } from "../constants.ts"
 import { requireIndexFile } from "../require-index-file/index.ts"
 import { requiredPathArgument } from "../required-path-argument/index.ts"
 import { validateControlsDocument } from "../../../../hub/app/javascript/utils/prototype-controls/controls.mjs"
@@ -12,16 +12,16 @@ const DEFAULT_LIMITS = {
   maxEntries: MAX_ENTRIES,
   maxFileBytes: MAX_FILE_BYTES,
   maxPathDepth: MAX_PATH_DEPTH,
-  maxTotalBytes: MAX_TOTAL_BYTES,
 }
 
-/** Checks dist paths and sizes, then returns the files that can be packaged. */
+/** Checks output paths and sizes, then returns the files that can be packaged. */
 export async function validateBuildOutput(
   root: string,
   limits: Partial<BuildFileState["limits"]> = {},
+  outputDirectory = "dist",
 ) {
   const appliedLimits = { ...DEFAULT_LIMITS, ...limits }
-  const dist = path.join(root, "dist")
+  const dist = path.join(root, outputDirectory)
   let distDetails
 
   try {
@@ -32,17 +32,19 @@ export async function validateBuildOutput(
       "code" in error &&
       (error.code === "ENOENT" || error.code === "ENOTDIR")
     ) {
-      throw new Error("Build must contain a dist/ directory.", { cause: error })
+      throw new Error(`Build must contain a ${outputDirectory}/ directory.`, { cause: error })
     }
 
     throw error
   }
 
   if (!distDetails.isDirectory()) {
-    throw new Error("Build dist/ must be a directory. Symbolic links and files are not allowed.")
+    throw new Error(
+      `Build ${outputDirectory}/ must be a directory. Symbolic links and files are not allowed.`,
+    )
   }
 
-  await requireIndexFile(dist)
+  await requireIndexFile(dist, outputDirectory)
 
   const state: BuildFileState = {
     entries: 0,

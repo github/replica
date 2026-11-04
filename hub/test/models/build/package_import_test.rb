@@ -4,11 +4,14 @@ require "zip"
 
 class Build::PackageImportTest < ActiveSupport::TestCase
   setup do
+    @original_maximum = Rails.configuration.x.maximum_package_bytes
+    Rails.configuration.x.maximum_package_bytes = 150.megabytes
     @artifact_root = Pathname(Dir.mktmpdir("replica-package-import-"))
     @artifact_store = ArtifactStore.new(adapter: ArtifactStore::Local.new(root: @artifact_root))
   end
 
   teardown do
+    Rails.configuration.x.maximum_package_bytes = @original_maximum
     FileUtils.rm_rf(@artifact_root)
   end
 
@@ -18,10 +21,11 @@ class Build::PackageImportTest < ActiveSupport::TestCase
     temporary_paths = []
     client = fake_client
     package = replica_package
+    download_limit = BuildPackageLimit.maximum_download_bytes(150.megabytes)
     client.actions.define_singleton_method(:download_artifact) do |_repository, artifact_id, token:, destination:, maximum_bytes:|
       raise "wrong artifact" if artifact_id != 8001
       raise "wrong token" if token != "installation-token"
-      raise "wrong package limit" if maximum_bytes != 155.megabytes
+      raise "wrong package limit" if maximum_bytes != download_limit
 
       temporary_paths << destination.path
       destination.write(package)
@@ -157,6 +161,7 @@ class Build::PackageImportTest < ActiveSupport::TestCase
   end
 
   test "fails when the package exceeds its download limit" do
+    Rails.configuration.x.maximum_package_bytes = 7.megabytes
     build = completed_build
     configuration = installed_configuration
     client = fake_client
@@ -168,7 +173,73 @@ class Build::PackageImportTest < ActiveSupport::TestCase
     import_package(build, configuration)
 
     assert_equal "failed", build.reload.state
-    assert_includes build.failure_summary, "155 MiB"
+    assert_includes build.failure_summary, "7 MiB"
+    assert_includes build.failure_summary, "REPLICA_MAXIMUM_PACKAGE_MIB"
+    assert_empty @artifact_store.list("builds/#{build.id}")
+  end
+
+  test "snapshots one configured limit for both download and extraction during an import" do
+    Rails.configuration.x.maximum_package_bytes = 2.megabytes
+    download_limit = BuildPackageLimit.maximum_download_bytes(2.megabytes)
+    build = completed_build
+    configuration = installed_configuration
+    package = replica_package(desktop_screenshot: "x" * (1.megabyte + 1))
+    client = fake_client
+    client.actions.define_singleton_method(:download_artifact) do |_repository, _artifact_id, token:, destination:, maximum_bytes:|
+      raise "download ignored configured limit" if maximum_bytes != download_limit
+
+      Rails.configuration.x.maximum_package_bytes = 1.megabyte
+      destination.write(package)
+    end
+    stub_github_client(configuration, client)
+
+    import_package(build, configuration)
+
+    assert_equal 1.megabyte, Rails.configuration.x.maximum_package_bytes
+    assert_equal "successful", build.reload.state
+    assert_operator build.artifact_bytes, :>, 1.megabyte
+  end
+
+  test "an oversized unpacked package fails with the configured limit and removes partial storage" do
+    Rails.configuration.x.maximum_package_bytes = 1.megabyte
+    build = completed_build
+    configuration = installed_configuration
+    client = fake_client(package: replica_package(desktop_screenshot: "x" * 1.megabyte))
+    stub_github_client(configuration, client)
+
+    import_package(build, configuration)
+
+    assert_equal "failed", build.reload.state
+    assert_includes build.failure_summary, "1 MiB"
+    assert_includes build.failure_summary, "REPLICA_MAXIMUM_PACKAGE_MIB"
+    assert_empty @artifact_store.list("builds/#{build.id}")
+  end
+
+  test "changing the limit leaves an already successful Build and its retained files untouched" do
+    build = completed_build
+    configuration = installed_configuration
+    package = replica_package(desktop_screenshot: "x" * (1.megabyte + 1))
+    stub_github_client(configuration, fake_client(package:))
+    import_package(build, configuration)
+    assert_equal "successful", build.reload.state
+    assert_operator build.artifact_bytes, :>, 1.megabyte
+    original = build.reload.attributes
+    files = @artifact_store.list(build.artifact_prefix).to_h do |name|
+      destination = StringIO.new
+      @artifact_store.read(name, destination:)
+      [ name, destination.string ]
+    end
+    Rails.configuration.x.maximum_package_bytes = 1.megabyte
+
+    import_package(build, configuration)
+
+    assert_equal original, build.reload.attributes
+    assert_equal files.keys, @artifact_store.list(build.artifact_prefix)
+    files.each do |name, bytes|
+      destination = StringIO.new
+      @artifact_store.read(name, destination:)
+      assert_equal bytes, destination.string
+    end
   end
 
   test "fails when the package is not a readable ZIP" do

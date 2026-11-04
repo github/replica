@@ -1,4 +1,4 @@
-import { mkdir, readdir, symlink, writeFile } from "node:fs/promises"
+import { mkdir, open, readdir, symlink, writeFile } from "node:fs/promises"
 import path from "node:path"
 
 import { describe, expect, it } from "vitest"
@@ -8,6 +8,25 @@ import { temporaryDirectory } from "../../test/temporary-directory/index.ts"
 import { validateBuildOutput } from "./index.ts"
 
 describe("validateBuildOutput()", () => {
+  it.each(["missing directory", "file directory", "missing index", "directory index"])(
+    "names the configured output for a %s",
+    async (failure) => {
+      const root = await temporaryDirectory()
+      await mkdir(path.join(root, "website"))
+      const output = path.join(root, "website", "public")
+      if (failure === "file directory") {
+        await writeFile(output, "not a directory")
+      } else if (failure !== "missing directory") {
+        await mkdir(output)
+        if (failure === "directory index") await mkdir(path.join(output, "index.html"))
+      }
+
+      await expect(validateBuildOutput(root, {}, "website/public")).rejects.toThrow(
+        failure.endsWith("index") ? /website\/public\/index\.html/ : /website\/public\//,
+      )
+    },
+  )
+
   it("validates the retained Controls asset without trusting source definitions", async () => {
     const root = await temporaryDirectory()
     await mkdir(path.join(root, "dist", "assets"), { recursive: true })
@@ -133,14 +152,33 @@ describe("validateBuildOutput()", () => {
     await expect(validateBuildOutput(fileRoot, { maxFileBytes: 14 })).rejects.toThrow(
       new Error("Build output file must be no larger than 14 bytes: index.html has 15 bytes."),
     )
+  })
 
-    const totalRoot = await temporaryDirectory()
-    await mkdir(path.join(totalRoot, "dist", "assets"), { recursive: true })
-    await writeFile(path.join(totalRoot, "dist", "index.html"), "<!doctype html>")
-    await writeFile(path.join(totalRoot, "dist", "extra.txt"), "x")
-    await expect(validateBuildOutput(totalRoot, { maxTotalBytes: 15 })).rejects.toThrow(
-      new Error("Build output files must total no more than 15 bytes; found 16."),
-    )
+  it("accepts output larger than 100 MiB while retaining the individual file limit", async () => {
+    const root = await temporaryDirectory()
+    await mkdir(path.join(root, "dist"))
+    await writeFile(path.join(root, "dist", "index.html"), "<!doctype html>")
+    const fileBytes = 25 * 1024 * 1024
+    for (let index = 0; index < 5; index++) {
+      const file = await open(path.join(root, "dist", `asset-${index}.bin`), "w")
+      try {
+        await file.truncate(fileBytes)
+      } finally {
+        await file.close()
+      }
+    }
+
+    const result = await validateBuildOutput(root)
+
+    expect(result.bytes).toBe(5 * fileBytes + 15)
+    expect(result.files).toHaveLength(6)
+    const oversized = await open(path.join(root, "dist", "asset-0.bin"), "r+")
+    try {
+      await oversized.truncate(fileBytes + 1)
+    } finally {
+      await oversized.close()
+    }
+    await expect(validateBuildOutput(root)).rejects.toThrow(/asset-0\.bin/)
   })
 
   it("rejects non-ASCII output paths", async () => {

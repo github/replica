@@ -221,8 +221,15 @@ class Repository::WorkflowInstallation < ActiveRecord::AssociatedObject
 
     current_revisions = Rails.configuration.x.build_action_revisions
     return :current if installed_revisions.all? { _1.casecmp?(current_revision) }
-    return :different if current_revisions.nil? ||
+    known_revision = current_revisions.nil? ||
       installed_revisions.any? { current_revisions.include?(_1.downcase) }
+    if known_revision && installed_revisions.uniq.one?
+      previous_generated = workflow.sub(build_action, "#{action_path}@#{installed_revisions.first}")
+      previous_legacy = previous_generated.sub \
+        "if: github.ref_name != 'replica/install-workflow'",
+        "if: github.ref_name != github.event.repository.default_branch && github.ref_name != 'replica/install-workflow'"
+      return :different if content == previous_generated || content == previous_legacy
+    end
 
     :present
   end

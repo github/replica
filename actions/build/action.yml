@@ -1,9 +1,29 @@
 name: Replica build
 description: Build a Replica prototype, capture screenshots, and upload its package
 
+inputs:
+  skip-build:
+    description: Use static output built by earlier steps in this job instead of running npm
+    required: false
+    default: "false"
+  output-directory:
+    description: Workspace-relative directory containing the static website and index.html
+    required: false
+    default: dist
+
 runs:
   using: composite
   steps:
+    - name: Check action options
+      env:
+        REPLICA_SKIP_BUILD: ${{ inputs.skip-build }}
+      run: |
+        if [[ "$REPLICA_SKIP_BUILD" != "true" && "$REPLICA_SKIP_BUILD" != "false" ]]; then
+          echo "::error::skip-build must be true or false."
+          exit 1
+        fi
+      shell: bash
+
     - name: Use Node.js 24
       uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
       with:
@@ -14,6 +34,7 @@ runs:
       shell: bash
 
     - name: Check required npm files and build script
+      if: inputs.skip-build != 'true'
       run: node "$GITHUB_ACTION_PATH/scripts/validate-repository/index.ts" --root "$GITHUB_WORKSPACE"
       shell: bash
 
@@ -23,6 +44,7 @@ runs:
       working-directory: ${{ github.action_path }}
 
     - name: Build prototype as a non-root user in a Node container
+      if: inputs.skip-build != 'true'
       run: |
         docker run --rm \
           --cap-drop=ALL \
@@ -36,19 +58,14 @@ runs:
           sh -lc 'npm ci && npm run build'
       shell: bash
 
-    - name: Check dist paths and size limits
-      run: node "$GITHUB_ACTION_PATH/scripts/validate-build-output/index.ts" --root "$GITHUB_WORKSPACE"
-      shell: bash
-
-    - name: Copy dist to runner temporary storage
+    - name: Prepare static output in runner temporary storage
+      env:
+        REPLICA_OUTPUT_DIRECTORY: ${{ inputs.output-directory }}
       run: |
-        rm -rf "$RUNNER_TEMP/replica-build-root"
-        mkdir -p "$RUNNER_TEMP/replica-build-root"
-        cp -RP -- "$GITHUB_WORKSPACE/dist" "$RUNNER_TEMP/replica-build-root/dist"
-      shell: bash
-
-    - name: Check copied dist paths and size limits
-      run: node "$GITHUB_ACTION_PATH/scripts/validate-build-output/index.ts" --root "$RUNNER_TEMP/replica-build-root"
+        node "$GITHUB_ACTION_PATH/scripts/prepare-build-output/index.ts" \
+          --root "$GITHUB_WORKSPACE" \
+          --output-directory "$REPLICA_OUTPUT_DIRECTORY" \
+          --output "$RUNNER_TEMP/replica-build-root"
       shell: bash
 
     - name: Install Chromium

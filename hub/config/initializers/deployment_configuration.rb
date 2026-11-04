@@ -3,6 +3,10 @@ require Rails.root.join("app/models/share_preview_origin")
 require Rails.root.join("lib/analytics_outbound_hosts")
 require Rails.root.join("lib/share_link_lifetime")
 require Rails.root.join("lib/private_storage_root")
+require Rails.root.join("lib/build_package_limit")
+
+Rails.configuration.x.maximum_package_bytes = BuildPackageLimit.parse \
+  ENV["REPLICA_MAXIMUM_PACKAGE_MIB"]
 
 Rails.configuration.x.analytics_outbound_hosts = AnalyticsOutboundHosts.parse(
   ENV["REPLICA_ANALYTICS_OUTBOUND_HOSTS"]
