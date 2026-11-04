@@ -69,6 +69,7 @@ describe("admission authority locks", () => {
     try {
       const firstAdmission = runAdmissionTransaction(prisma, async (repositories) => {
         await expect(repositories.lockProvider("github")).resolves.toEqual({
+          enabled: true,
           selectedRevisionId: revisionId,
         })
         await expect(repositories.lockRevocation()).resolves.toMatchObject({ revision: 0 })
@@ -78,6 +79,7 @@ describe("admission authority locks", () => {
       await firstReady
       const secondAdmission = runAdmissionTransaction(prisma, async (repositories) => {
         await expect(repositories.lockProvider("github")).resolves.toEqual({
+          enabled: true,
           selectedRevisionId: revisionId,
         })
         await expect(repositories.lockRevocation()).resolves.toMatchObject({ revision: 0 })

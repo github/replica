@@ -602,9 +602,28 @@ describe("Hub admission and session flow", () => {
   })
 
   it("does not admit an active member assignment", async () => {
+    const providerId = randomUUID()
+    const providerRevisionId = randomUUID()
     const userId = randomUUID()
     const identityId = randomUUID()
     const membershipId = randomUUID()
+    await prisma.$transaction(async (transaction) => {
+      await transaction.authenticationProvider.create({
+        data: { enabled: false, id: providerId, key: "disabled-fixture-provider" },
+      })
+      await transaction.authenticationProviderRevision.create({
+        data: {
+          configurationDigest: "f".repeat(64),
+          id: providerRevisionId,
+          providerId,
+          revision: 1,
+        },
+      })
+      await transaction.authenticationProvider.update({
+        data: { selectedRevisionId: providerRevisionId },
+        where: { id: providerId },
+      })
+    })
     await prisma.user.create({ data: { id: userId } })
     await prisma.externalIdentity.create({
       data: {
@@ -623,7 +642,9 @@ describe("Hub admission and session flow", () => {
         id: randomUUID(),
         membershipId,
         externalIdentityId: identityId,
-        source: "BOOTSTRAP",
+        providerAssignmentSubject: randomUUID(),
+        providerRevisionId,
+        source: "AUTHENTICATION_PROVIDER",
         role: "MEMBER",
       },
     })

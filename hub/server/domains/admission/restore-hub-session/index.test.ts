@@ -24,7 +24,7 @@ function repositories(
       id: "membership-id",
       lifecycle: "ACTIVE",
     }),
-    lockProvider: vi.fn().mockResolvedValue({ id: "provider-id" }),
+    lockProvider: vi.fn().mockResolvedValue({ enabled: true, id: "provider-id" }),
     lockSession: vi.fn().mockResolvedValue(session),
     ...overrides,
   }
@@ -47,7 +47,7 @@ describe("restoreHubSession()", () => {
       getActiveProviderKeys: vi.fn().mockResolvedValue(["entra"]),
       lockProvider: vi.fn().mockImplementation(() => {
         order.push("provider")
-        return Promise.resolve({ id: "provider-id" })
+        return Promise.resolve({ enabled: true, id: "provider-id" })
       }),
       lockMembership: vi.fn().mockImplementation(() => {
         order.push("membership")
@@ -70,6 +70,24 @@ describe("restoreHubSession()", () => {
     const records = repositories({
       getRevocation: vi.fn().mockResolvedValue(null),
       lockMembership,
+    })
+
+    await expect(
+      restoreHubSession("a".repeat(64), {
+        runTransaction: (operation) => operation(records),
+      }),
+    ).resolves.toBeNull()
+    expect(lockMembership).not.toHaveBeenCalled()
+  })
+
+  it("fails closed when an assignment provider is disabled", async () => {
+    const lockMembership = vi.fn()
+    const records = repositories({
+      lockMembership,
+      lockProvider: vi.fn().mockResolvedValue({
+        enabled: false,
+        id: "provider-id",
+      }),
     })
 
     await expect(
