@@ -35,6 +35,10 @@ export function repositoryShowData(
     buildPrototypeLabel: "Build prototype",
     galleryViewLabel: "Gallery view",
     listViewLabel: "List view",
+    managePrototypesLabel: "Manage prototypes",
+    managePrototypesPath: workspace.capabilities?.createPrototypes
+      ? resourcePath(`${path}/prototypes/manage`, search)
+      : undefined,
     prototypeColumnLabel: "Prototype",
     ownerColumnLabel: "Author",
     buildColumnLabel: "Build",

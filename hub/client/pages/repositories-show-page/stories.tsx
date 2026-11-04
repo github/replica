@@ -178,6 +178,17 @@ export const Multiple: Story = {
   },
 }
 
+export const ReadOnly: Story = {
+  args: {
+    data: {
+      ...Multiple.args!.data!,
+      managePrototypesPath: undefined,
+      newPrototypePath: null,
+      workflowInstallation: undefined,
+    },
+  },
+}
+
 export const WideViewSwitching: Story = {
   ...Multiple,
   globals: { viewport: { value: "wideDesktop", isRotated: false } },
