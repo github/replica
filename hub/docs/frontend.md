@@ -71,6 +71,57 @@ Old `/settings/analytics` and `/settings/learnings` links redirect to the select
 
 Application code adapts internal links and same-origin GET forms to SPA navigation while preserving modified clicks, external links, downloads, and new tabs. Explicit adapters handle the connected mutations and sign-out. Unknown non-GET forms are blocked and reported through the test toolbar rather than submitting to removed server actions.
 
+### Rails conversion route map
+
+Use this map to find the frontend destination when converting a Rails page. The Rails reference is [the route file at commit `0e8bdbd9`](https://github.com/github/replica/blob/0e8bdbd952ce0d93c8976876fa59e9f119614ae8/hub/config/routes.rb). Current routes are registered in the [root route configuration](../client/application/hub/routes.ts), [product routes](../client/application/hub/routes/product-routes.ts), and [settings routes](../client/application/hub/routes/settings-routes.ts). Update this map when a canonical page URL changes.
+
+`:repo` stands for the repository ID; actual parameter names differ between frameworks. Optional `repositoryId` query parameters that only preserve sidebar context are omitted. This is a page-URL map, not an API or mutation-endpoint inventory, a promise of identifier compatibility, or evidence of backend feature parity.
+
+| Page | Rails | React Router |
+| --- | --- | --- |
+| Home | `/` | `/` |
+| Sign-in | Home with authentication actions | `/sign-in` |
+| Welcome | `/welcome` | `/welcome` |
+| Repositories | `/repositories` | `/repositories` |
+| Prototypes | `/repositories/:repo` | `/repositories/:repo` |
+| Create prototype | `/repositories/:repo/new` | `/repositories/:repo/new` |
+| Manage prototypes | `/repositories/:repo/prototypes/manage` | `/repositories/:repo/prototypes/manage` |
+| Prototype | `/repositories/:repo/prototypes/:prototypeId` | `/repositories/:repo/prototypes/:prototypeId` |
+| Build history | `/repositories/:repo/prototypes/:prototypeId/builds` | `/repositories/:repo/prototypes/:prototypeId/builds` |
+| Specific Build | `/repositories/:repo/prototypes/:prototypeId/builds/:id` | `/repositories/:repo/prototypes/:prototypeId/builds/:buildNumber` |
+| Prototype share links | `/repositories/:repo/prototypes/:prototypeId/share_links` | `/repositories/:repo/prototypes/:prototypeId/share-links` |
+| Browse template | `/repositories/:repo/templates/:templateId` | `/repositories/:repo/templates/:templateId` |
+| Analytics | `/repositories/:repo/analytics` | `/repositories/:repo/analytics` |
+| Learnings | `/repositories/:repo/learnings` | `/repositories/:repo/learnings` |
+| Notifications | `/notifications` | `/notifications` |
+| Public shared Build | `/share/:public_id` | `/shared/:shareId` |
+| Hub administrators | `/hub_admins` | `/settings/admins` |
+| Public sharing | `/sharing_settings` | `/settings/sharing` |
+| End all Hub sessions | `/session_revocation` | `/settings/sessions` |
+| Copilot connection | `/copilot` | `/settings/copilot` |
+| Repository security audit | `/repositories/:repo/security_audit` | `/settings/audit?scope=repository&repositoryId=:repo` |
+| Hub security audit | `/security_audit` | `/settings/audit?scope=hub` |
+| Canvas connections | `/canvas/connections` | `/settings/canvas` |
+| Canvas pairing approval | `/canvas/pair/:user_code` | `/settings/canvas/approve` |
+| Administrator enrollment | `/operator/enrollment` | `/settings/enroll` |
+| Fresh authorization | `/authorization/:id` | `/settings/authorize` |
+| GitHub App | `/github_app` | `/settings/github` |
+| GitHub App setup | `/setup` | `/settings/github/setup` |
+| Manual GitHub App setup | `/setup/manual` | `/settings/github/register` |
+| Setup callback / installation | `/setup/callback`, `/setup/install` | `/settings/github/installed` |
+
+The React `/repositories` entry selects the first accessible repository or shows the empty state; it is not a separate repository-list screen. Build record IDs and Build numbers are different identifiers. The setup and installation mapping represents a consolidated frontend flow, not a replacement for the Rails provider callback protocol.
+
+Compatibility redirects cover earlier React URLs, not every Rails URL:
+
+| Previous React URL | Canonical destination |
+| --- | --- |
+| `/settings/analytics?repositoryId=:repo` | `/repositories/:repo/analytics` |
+| `/settings/learnings?repositoryId=:repo` | `/repositories/:repo/learnings` |
+| `/admin/sharing` | `/settings/sharing` |
+
+These redirects retain other query parameters. The repository-settings redirects remove `repositoryId` after moving it into the path; without it, they select the first accessible repository. Explicit invalid or unavailable repository context remains an error.
+
 ## Connected mock flows
 
 - **Create and manage:** create a synthetic prototype and Build, start from a template, register a synthetic branch, or edit gallery metadata and start-page metadata. These actions change canonical local records, not GitHub, source code, workflows, or immutable Build contents.
