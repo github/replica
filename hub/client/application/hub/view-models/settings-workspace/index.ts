@@ -39,11 +39,11 @@ export function settingsWorkspace(
     systemThemeLabel: "System",
     welcomeLabel: "Welcome",
     welcomePath: state.welcomeHidden ? null : path("/welcome"),
-    notificationsLabel: "Inbox",
+    notificationsLabel: "Notifications",
     notificationsPath: path("/notifications"),
     notificationsUnread: state.notifications.unreadCount > 0,
     notificationsUnreadCount: state.notifications.unreadCount,
-    notificationsUnreadLabel: `Inbox, ${state.notifications.unreadCount} unread`,
+    notificationsUnreadLabel: `Notifications, ${state.notifications.unreadCount} unread`,
     repository:
       repository && repositoryId
         ? {

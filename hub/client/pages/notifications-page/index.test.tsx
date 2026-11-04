@@ -24,7 +24,7 @@ describe("NotificationsPage()", () => {
     expect(
       screen.queryByRole("button", { name: stories.args.data.repository.repositorySelectorLabel }),
     ).not.toBeInTheDocument()
-    expect(screen.getByRole("link", { name: "Inbox, 1 unread items" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Notifications, 1 unread items" })).toHaveAttribute(
       "aria-current",
       "page",
     )

@@ -158,7 +158,7 @@ GitHub App setup, registration, and installation pages can be opened directly wi
 | [Admins](../client/pages/hub-admins-page/) | `/settings/admins` | [Administrator roster](http://127.0.0.1:5173/settings/admins) |
 | [Learnings](../client/pages/learnings-page/) | `/settings/learnings` | [Repository learnings](http://127.0.0.1:5173/settings/learnings?repositoryId=2001) |
 | [New prototype](../client/pages/new-prototype-page/) | `/repositories/:repositoryId/new` | [Create a prototype](http://127.0.0.1:5173/repositories/2001/new) |
-| [Notifications](../client/pages/notifications-page/) | `/notifications` | [Mock inbox](http://127.0.0.1:5173/notifications) |
+| [Notifications](../client/pages/notifications-page/) | `/notifications` | [Notifications](http://127.0.0.1:5173/notifications) |
 | [Prototype management](../client/pages/prototype-management-page/) | `/repositories/:repositoryId/prototypes/manage` | [Manage prototypes](http://127.0.0.1:5173/repositories/2001/prototypes/manage) |
 | [Replica browse](../client/pages/replica-browse-page/) | `/repositories/:repositoryId/templates/:templateId` | [Browse the default template](http://127.0.0.1:5173/repositories/2001/templates/default) |
 | [Security audit](../client/pages/security-audit-page/) | `/settings/audit` | [Mock activity](http://127.0.0.1:5173/settings/audit?repositoryId=2001) |

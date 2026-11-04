@@ -149,6 +149,30 @@ const publicRoutes: RouteObject[] = [
 ]
 
 describe("Hub expanded frontend flows", () => {
+  it("keeps the Notifications navigation label when moving between repository and settings pages", async () => {
+    const store = createMockStore({ origin: window.location.origin })
+    const server = setupServer(...createMockHandlers(store))
+    const router = await renderHubFlow(server, "/repositories/2001", { workspaceRoutes })
+
+    function notificationsLink() {
+      const link = screen
+        .getAllByRole<HTMLAnchorElement>("link")
+        .find((item) => new URL(item.href).pathname === "/notifications")
+      if (!link) throw new Error("The workspace must offer notifications navigation.")
+      expect(link).toHaveTextContent("Notifications")
+      expect(link).toHaveAccessibleName(/notifications/i)
+      return link
+    }
+
+    await router.settle(() => fireEvent.click(notificationsLink()))
+    expect(router.state.location.pathname).toBe("/notifications")
+    expect(notificationsLink()).toHaveAttribute("aria-current", "page")
+    await router.settle(() => router.navigate("/settings/copilot"))
+    notificationsLink()
+    await router.settle(() => router.navigate("/repositories/2001"))
+    notificationsLink()
+  })
+
   it("shows connected Copilot with its owner and required disconnect consent as normal product UI", async () => {
     const store = createMockStore({ origin: window.location.origin })
     store.session.select("admin")

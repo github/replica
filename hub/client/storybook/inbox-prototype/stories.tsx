@@ -30,6 +30,6 @@ export const CollapsedSidebar: Story = { args: { defaultNavigationCollapsed: tru
 export const InboxPreview: Story = {
   args: { empty: true },
   play: async ({ canvas, userEvent }) => {
-    await userEvent.hover(canvas.getByRole("link", { name: "Inbox" }))
+    await userEvent.hover(canvas.getByRole("link", { name: "Notifications" }))
   },
 }

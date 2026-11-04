@@ -35,10 +35,10 @@ const meta = {
       expandNavigationLabel: "Expand sidebar",
       navigationLabel: "Repository navigation",
       notificationsPath: "/notifications",
-      notificationsLabel: "Inbox",
+      notificationsLabel: "Notifications",
       notificationsUnread: true,
       notificationsUnreadCount: 1,
-      notificationsUnreadLabel: "Inbox, 1 unread items",
+      notificationsUnreadLabel: "Notifications, 1 unread items",
       repository: {
         ...authenticatedHubWorkspaceData.repository,
         newPrototypeLabel: "Create",
@@ -117,7 +117,7 @@ export const Multiple: Story = {
     data: {
       ...meta.args.data,
       notificationsUnreadCount: 5,
-      notificationsUnreadLabel: "Inbox, 5 unread items",
+      notificationsUnreadLabel: "Notifications, 5 unread items",
     },
   },
 }

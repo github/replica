@@ -27,7 +27,7 @@ export function NotificationsPage({
         ...data,
         notificationsUnread: unreadCount > 0,
         notificationsUnreadCount: unreadCount,
-        notificationsUnreadLabel: `${copy.heading}, ${copy.unreadCount.replace("%{count}", String(unreadCount))}`,
+        notificationsUnreadLabel: `${data.notificationsLabel}, ${copy.unreadCount.replace("%{count}", String(unreadCount))}`,
         selectedSection: "notifications",
       }}
     >
