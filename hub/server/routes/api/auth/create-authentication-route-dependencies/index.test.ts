@@ -4,9 +4,6 @@ import { ZodError } from "zod"
 
 import { createAuthenticationRouteDependencies } from "."
 
-vi.mock("../../../../domains/identity/validate-and-persist-provider-revision/index.ts", () => ({
-  validateAndPersistProviderRevision: vi.fn(() => Promise.resolve()),
-}))
 vi.mock("../../../../integrations/prisma/index.ts", () => ({ prisma: {} }))
 
 const githubEnvironment = {
