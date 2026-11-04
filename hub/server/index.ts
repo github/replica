@@ -9,6 +9,7 @@ import { startServerProcesses } from "./start-server-processes/index.ts"
 import { parseRuntimeConfig } from "./utils/parse-runtime-config/index.ts"
 import { jobProcessors } from "./workers/configuration.ts"
 import { runJobWorker } from "./workers/run-job-worker/index.ts"
+import type { AuthenticationRouteDependencies } from "./routes/api/auth/types.ts"
 
 try {
   const configuration = parseRuntimeConfig(process.env)
@@ -30,7 +31,7 @@ try {
       throw new Error("HUB_TRUSTED_PROXY_HOPS must be an integer between 0 and 10.")
     }
     const trustedProxyHops = runsApi ? configuredTrustedProxyHops : 0
-    let authentication
+    let authentication: AuthenticationRouteDependencies | undefined
     if (runsApi && process.env.HUB_APPLICATION_ORIGIN) {
       const { createAuthenticationRouteDependencies } =
         await import("./routes/api/auth/create-authentication-route-dependencies/index.ts")

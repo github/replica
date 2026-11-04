@@ -96,7 +96,7 @@ describe("Hub admission migration compatibility", () => {
           [userId, providerId],
         )
 
-        const prisma = join(hubRoot, "node_modules/prisma/build/index.js")
+        const prismaCli = join(hubRoot, "node_modules/prisma/build/index.js")
         const options = {
           cwd: hubRoot,
           env: { ...process.env, DATABASE_URL: databaseUrl.toString() },
@@ -106,7 +106,7 @@ describe("Hub admission migration compatibility", () => {
           await promisify(execFile)(
             process.execPath,
             [
-              prisma,
+              prismaCli,
               "migrate",
               "resolve",
               "--applied",
@@ -119,7 +119,7 @@ describe("Hub admission migration compatibility", () => {
         }
         await promisify(execFile)(
           process.execPath,
-          [prisma, "migrate", "deploy", "--config", join(hubRoot, "prisma7.config.ts")],
+          [prismaCli, "migrate", "deploy", "--config", join(hubRoot, "prisma7.config.ts")],
           options,
         )
 
@@ -166,7 +166,7 @@ describe("Hub admission migration compatibility", () => {
       await admin.query(`DROP DATABASE IF EXISTS ${pg.escapeIdentifier(name)} WITH (FORCE)`)
       await admin.end()
     }
-  })
+  }, 30_000)
 
   it("makes the member role available without adding a member admission path", async () => {
     await expect(

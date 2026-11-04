@@ -8,6 +8,8 @@ export async function lockActiveMembershipAssignment(
     SELECT "id"
     FROM "membership_assignments"
     WHERE "membership_id" = ${membershipId}::uuid
+      AND "source" = 'BOOTSTRAP'
+      AND "role" = 'ADMINISTRATOR'
       AND "lifecycle" = 'ACTIVE'
     LIMIT 1
     FOR UPDATE

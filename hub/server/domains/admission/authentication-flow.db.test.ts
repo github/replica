@@ -506,6 +506,44 @@ describe("Hub admission and session flow", () => {
     }
   })
 
+  it("does not admit an active member assignment", async () => {
+    const userId = randomUUID()
+    const identityId = randomUUID()
+    const membershipId = randomUUID()
+    await prisma.user.create({ data: { id: userId } })
+    await prisma.externalIdentity.create({
+      data: {
+        id: identityId,
+        userId,
+        provider: "github",
+        issuer: "https://github.com",
+        subject: "301",
+      },
+    })
+    await prisma.membership.create({
+      data: { id: membershipId, userId },
+    })
+    await prisma.membershipAssignment.create({
+      data: {
+        id: randomUUID(),
+        membershipId,
+        externalIdentityId: identityId,
+        source: "BOOTSTRAP",
+        role: "MEMBER",
+      },
+    })
+    const server = await openServer([301])
+    try {
+      const attempt = await startAuthentication(server.baseUrl, "/api/auth/github/start")
+      const response = await completeAuthentication(server.baseUrl, attempt)
+
+      expect(response.headers.get("location")).toBe("/?authentication=denied")
+      expect(await prisma.hubSession.count()).toBe(0)
+    } finally {
+      await server.close()
+    }
+  })
+
   it("denies invalid bootstrap, unknown sign-in, retained cookies after suspension, and proof IDs", async () => {
     const server = await openServer([301, 302, 302, 302, 302])
     try {
