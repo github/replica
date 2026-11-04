@@ -11,7 +11,7 @@ import { createOrRestoreMembership } from "../../../repositories/memberships/cre
 import { lockMembership } from "../../../repositories/memberships/lock-membership/index.ts"
 import { createSecurityAudit } from "../../../repositories/security-audits/create-security-audit/index.ts"
 import { lockSessionRevocationState } from "../../../repositories/session-revocation-states/lock-session-revocation-state/index.ts"
-import { classifyPrismaTransactionError } from "../../../utils/classify-prisma-transaction-error/index.ts"
+import { classifyPrismaTransactionError } from "../../../integrations/prisma/classify-transaction-error/index.ts"
 import { AdmissionTransactionConflictError } from "../errors.ts"
 import type { AdmissionDatabaseClient, AdmissionRepositories } from "./types.ts"
 

@@ -1,12 +1,10 @@
 import type { Prisma } from "../../../generated/prisma/client.ts"
 
 export async function getSessionRevocationState(
-  database: Pick<Prisma.TransactionClient, "$queryRaw">,
+  database: Pick<Prisma.TransactionClient, "sessionRevocationState">,
 ) {
-  const rows = await database.$queryRaw<Array<{ revision: number }>>`
-    SELECT "revision"
-    FROM "session_revocation_states"
-    WHERE "key" = 'global'
-  `
-  return rows[0] ?? null
+  return database.sessionRevocationState.findUnique({
+    where: { key: "global" },
+    select: { revision: true },
+  })
 }

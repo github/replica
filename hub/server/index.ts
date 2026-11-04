@@ -3,7 +3,6 @@ import "dotenv/config"
 import { createConfiguredArtifactStorage } from "./domains/artifacts/create-configured-artifact-storage/index.ts"
 import { startTelemetry } from "./integrations/opentelemetry/start-telemetry/index.ts"
 import { logger } from "./integrations/pino/index.ts"
-import { createOptionalAuthenticationRouteDependencies } from "./create-optional-authentication-route-dependencies/index.ts"
 import { runApi } from "./run-api/index.ts"
 import { setup } from "./scripts/setup/index.ts"
 import { startServerProcesses } from "./start-server-processes/index.ts"
@@ -31,9 +30,12 @@ try {
       throw new Error("HUB_TRUSTED_PROXY_HOPS must be an integer between 0 and 10.")
     }
     const trustedProxyHops = runsApi ? configuredTrustedProxyHops : 0
-    const authentication = runsApi
-      ? await createOptionalAuthenticationRouteDependencies(process.env)
-      : undefined
+    let authentication
+    if (runsApi && process.env.HUB_APPLICATION_ORIGIN) {
+      const { createAuthenticationRouteDependencies } =
+        await import("./routes/api/auth/create-authentication-route-dependencies/index.ts")
+      authentication = createAuthenticationRouteDependencies(process.env)
+    }
     if (configuration.mode === "setup") await setup()
     else if (configuration.mode === "api")
       await runApi({

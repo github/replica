@@ -7,9 +7,9 @@ import { describe, expect, it, vi } from "vitest"
 
 import { getDatabaseUrl } from "../../../test/database/get-database-url"
 import { createApp } from "../../create-app"
-import { createAuthenticationRouteDependencies } from "../../create-authentication-route-dependencies"
 import { createLogger } from "../../integrations/pino/create-logger"
 import { prisma } from "../../integrations/prisma"
+import { createAuthenticationRouteDependencies } from "../../routes/api/auth/create-authentication-route-dependencies"
 import { restoreHubSession } from "./restore-hub-session"
 import { runSessionRestoreTransaction } from "./run-session-restore-transaction"
 

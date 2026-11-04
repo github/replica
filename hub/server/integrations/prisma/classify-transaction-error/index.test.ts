@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { createKnownRequestError } from "../../../test/prisma/create-known-request-error"
+import { createKnownRequestError } from "../../../../test/prisma/create-known-request-error"
 import { classifyPrismaTransactionError } from "."
 
 describe("classifyPrismaTransactionError()", () => {
