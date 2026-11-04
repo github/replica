@@ -76,6 +76,8 @@ Hub follows `.github/workflows/replica.yml` for connected repositories and match
 | Workflow succeeds         | Downloads and stores the artifact                  |
 | Artifact storage finishes | Marks the Build successful and enables its preview |
 
+A run that needs approval, such as `action_required`, first marks its Build failed. When the same run is approved or re-run, GitHub keeps its run ID and starts a newer attempt. Hub moves the failed Build to that attempt and follows it like the first one, so the commit does not need a new push. Webhooks and the regular five-minute workflow poll both apply the newer attempt. Events from an earlier attempt are ignored once Hub has seen a newer one. A Build that is successful, superseded, or already has successful workflow output keeps its result; re-running such a run does not replace it.
+
 ## Prototype requirements
 
 The default npm build needs:

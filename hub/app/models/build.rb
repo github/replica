@@ -239,12 +239,27 @@ class Build < ApplicationRecord
   end
 
   # Keeps the first authenticated workflow run attached to this Build.
+  # Only a newer attempt of that run can replace its attempt and link before successful output.
   def workflow_identity_is_unchanged
+    newer_attempt = newer_workflow_attempt?
     %i[
       github_workflow_run_id github_workflow_run_attempt workflow_url workflow_created_at
     ].each do |attribute|
+      next if newer_attempt && %i[github_workflow_run_attempt workflow_url].include?(attribute)
+
       errors.add(attribute, "cannot change") if public_send("will_save_change_to_#{attribute}?") && attribute_in_database(attribute).present?
     end
+  end
+
+  # Reports whether this update moves an unfinished or failed workflow to a later attempt of the same run.
+  def newer_workflow_attempt?
+    saved_attempt = attribute_in_database(:github_workflow_run_attempt)
+    return false if saved_attempt.nil? || !will_save_change_to_github_workflow_run_attempt?
+    return false if will_save_change_to_github_workflow_run_id?
+
+    github_workflow_run_attempt.to_i > saved_attempt &&
+      %w[queued running failed].include?(state_in_database) &&
+      attribute_in_database(:workflow_completed_at).nil?
   end
 
   # Keeps workflow completion and its selected GitHub artifact write-once.

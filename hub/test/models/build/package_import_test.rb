@@ -356,6 +356,34 @@ class Build::PackageImportTest < ActiveSupport::TestCase
     assert_empty @artifact_store.list("builds/#{build.id}")
   end
 
+  test "a stale earlier attempt cannot fail a recovered attempt during import" do
+    build = builds.create
+    attempt = ->(number) do
+      {
+        run_id: 9001,
+        run_attempt: number,
+        workflow_url: "https://github.com/github/prototype/actions/runs/9001",
+        workflow_created_at: Time.iso8601("2026-09-17T18:00:00Z")
+      }
+    end
+    build.workflow_run.record!(**attempt.(1), stage: "completed", conclusion: "action_required")
+    build.workflow_run.record!(**attempt.(2), stage: "completed", conclusion: "success")
+    configuration = installed_configuration
+    client = fake_client
+    package = replica_package
+    client.actions.define_singleton_method(:download_artifact) do |_repository, _artifact_id, token:, destination:, maximum_bytes:|
+      destination.write(package)
+      Build.find(build.id).workflow_run.record!(**attempt.(1), stage: "completed", conclusion: "action_required")
+    end
+    stub_github_client(configuration, client)
+
+    import_package(build, configuration)
+
+    assert_equal "successful", build.reload.state
+    assert_equal 2, build.github_workflow_run_attempt
+    assert_equal 8001, build.github_artifact_id
+  end
+
   private
 
   def stub_github_client(configuration, client)

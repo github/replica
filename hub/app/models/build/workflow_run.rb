@@ -21,11 +21,18 @@ class Build::WorkflowRun < ActiveRecord::AssociatedObject
     build.errors.add(:workflow_url, "must use the configured GitHub website over HTTPS")
   end
 
-  # Records the first workflow run and changes the Build from GitHub's current result.
+  # Records the first workflow run, or a newer attempt of it, and changes the Build from GitHub's current result.
   def record!(run_id:, run_attempt:, workflow_url:, workflow_created_at:, stage:, conclusion:)
     build.with_lock do
       if same_run?(run_id, run_attempt) && build.workflow_created_at.nil?
         build.update!(workflow_created_at:)
+      end
+
+      if newer_attempt?(run_id, run_attempt)
+        restart_attempt(run_attempt, workflow_url, workflow_created_at)
+        update_state(stage, conclusion)
+        build.save!
+        next
       end
 
       eligible = !%w[failed superseded successful].include?(build.state)
@@ -60,6 +67,23 @@ class Build::WorkflowRun < ActiveRecord::AssociatedObject
   # Checks whether the run ID and attempt match the workflow already recorded.
   def same_run?(run_id, run_attempt)
     build.github_workflow_run_id == run_id && build.github_workflow_run_attempt == run_attempt
+  end
+
+  # A re-run keeps GitHub's run ID. Only Builds without successful workflow output can follow it.
+  def newer_attempt?(run_id, run_attempt)
+    build.github_workflow_run_id == run_id && run_attempt > build.github_workflow_run_attempt &&
+      %w[queued running failed].include?(build.state) && build.workflow_completed_at.nil?
+  end
+
+  # Moves the Build to a newer attempt of its saved run and clears the earlier attempt's result.
+  def restart_attempt(run_attempt, workflow_url, workflow_created_at)
+    build.github_workflow_run_attempt = run_attempt
+    build.workflow_url = workflow_url
+    build.workflow_created_at ||= workflow_created_at
+    build.state = "queued"
+    build.started_at = nil
+    build.finished_at = nil
+    build.failure_summary = nil
   end
 
   # Saves the first workflow run ID, attempt, and GitHub URL.

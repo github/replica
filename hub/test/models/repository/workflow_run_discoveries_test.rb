@@ -87,6 +87,56 @@ class Repository::WorkflowRunDiscoveriesTest < ActiveSupport::TestCase
     assert_equal 9001, original.github_workflow_run_id
   end
 
+  test "a successful second attempt recovers the Build that GitHub held for approval" do
+    repository = repositories.create
+    failed = repository.workflow_run_discoveries.record!(
+      workflow_run(status: "completed", conclusion: "action_required")
+    )
+    assert_equal "GitHub Actions finished with action required.", failed.failure_summary
+
+    repository.workflow_run_discoveries.record!(workflow_run(run_attempt: 2), action: "requested")
+    assert_equal "queued", failed.reload.state
+    assert_enqueued_with(job: Build::ImportPackageJob) do
+      @recovered = repository.workflow_run_discoveries.record!(
+        workflow_run(run_attempt: 2, status: "completed", conclusion: "success"), action: "completed"
+      )
+    end
+    stale = repository.workflow_run_discoveries.record!(
+      workflow_run(status: "completed", conclusion: "action_required"), action: "completed"
+    )
+
+    assert_equal failed, @recovered
+    assert_equal failed, stale
+    assert_equal 1, Build.count
+    assert_equal 2, failed.reload.github_workflow_run_attempt
+    assert_equal "running", failed.state
+    assert_nil failed.failure_summary
+    assert_predicate failed.package_import, :pending?
+  end
+
+  test "a newer attempt stays on the retired history that owns its run" do
+    repository = repositories.create
+    original = repository.workflow_run_discoveries.record!(
+      workflow_run(status: "completed", conclusion: "action_required")
+    )
+    original.prototype.update!(current_build: original)
+    travel_to original.workflow_created_at + 1.minute do
+      repository.branch_presence.record_missing! \
+        branch_name: "prototype/welcome",
+        observed: repository.branch_presence.observations.fetch("prototype/welcome")
+    end
+    replacement = prototypes.create(repository:, branch_name: "prototype/welcome")
+    replacement_build = builds.create(prototype: replacement, commit_sha: "a" * 40)
+
+    recovered = repository.workflow_run_discoveries.record!(
+      workflow_run(run_attempt: 2, status: "completed", conclusion: "success")
+    )
+
+    assert_equal original, recovered
+    assert_predicate original.reload.package_import, :pending?
+    assert_nil replacement_build.reload.github_workflow_run_id
+  end
+
   test "ignores runs outside the fixed workflow contract" do
     repository = repositories.create
 
