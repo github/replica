@@ -77,6 +77,7 @@ export interface AdmissionDeniedAudit extends SecurityAuditEvent {
     | "identity_mismatch"
     | "membership_inactive"
     | "membership_missing"
+    | "provider_evidence_missing"
 }
 
 export interface AdmissionFailedAudit extends SecurityAuditEvent {

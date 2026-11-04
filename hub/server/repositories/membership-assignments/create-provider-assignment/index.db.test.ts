@@ -50,12 +50,14 @@ describe("createProviderAssignment()", () => {
     const firstId = randomUUID()
     const providerAssignmentSubject = "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA"
 
-    await createProviderAssignment(prisma, {
-      ...records,
-      id: firstId,
-      providerAssignmentSubject,
-      role: "MEMBER",
-    })
+    await expect(
+      createProviderAssignment(prisma, {
+        ...records,
+        id: firstId,
+        providerAssignmentSubject,
+        role: "MEMBER",
+      }),
+    ).resolves.toBe(true)
     await expect(
       createProviderAssignment(prisma, {
         ...records,
@@ -63,19 +65,21 @@ describe("createProviderAssignment()", () => {
         providerAssignmentSubject,
         role: "ADMINISTRATOR",
       }),
-    ).rejects.toThrow()
+    ).resolves.toBe(false)
 
     await endProviderAssignment(prisma, {
       id: firstId,
       lifecycle: "SUPERSEDED",
     })
     const replacementId = randomUUID()
-    await createProviderAssignment(prisma, {
-      ...records,
-      id: replacementId,
-      providerAssignmentSubject,
-      role: "ADMINISTRATOR",
-    })
+    await expect(
+      createProviderAssignment(prisma, {
+        ...records,
+        id: replacementId,
+        providerAssignmentSubject,
+        role: "ADMINISTRATOR",
+      }),
+    ).resolves.toBe(true)
 
     const assignments = await prisma.membershipAssignment.findMany({
       orderBy: { createdAt: "asc" },

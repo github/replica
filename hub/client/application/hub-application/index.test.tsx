@@ -118,7 +118,16 @@ describe("HubApplication()", () => {
     ["server failure", new Response(null, { status: 500 })],
     ["invalid success response", Response.json({ authenticated: false })],
   ])("shows a restore error for %s", async (_description, response) => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response))
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) =>
+        Promise.resolve(
+          requestUrl(input).endsWith("/api/auth/providers")
+            ? Response.json({ providers: ["github"] })
+            : response,
+        ),
+      ),
+    )
 
     renderApplication()
 
@@ -127,6 +136,7 @@ describe("HubApplication()", () => {
         "Replica Hub could not restore your session. Sign in again to continue.",
       ),
     ).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Sign in with GitHub" })).toBeInTheDocument()
   })
 
   it("shows only explicitly configured sign-in providers", async () => {
@@ -147,5 +157,27 @@ describe("HubApplication()", () => {
       await screen.findByRole("button", { name: "Sign in with Microsoft Entra" }),
     ).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "Sign in with GitHub" })).toBeNull()
+  })
+
+  it("shows an explicit discovery failure with no fallback actions", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) =>
+        Promise.resolve(
+          requestUrl(input).endsWith("/api/auth/providers")
+            ? new Response(null, { status: 500 })
+            : new Response(null, { status: 401 }),
+        ),
+      ),
+    )
+
+    renderApplication()
+
+    expect(
+      await screen.findByText(
+        "Replica Hub could not load sign-in options. Reload the page to try again.",
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: /sign in with/i })).toBeNull()
   })
 })

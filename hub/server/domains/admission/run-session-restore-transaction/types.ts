@@ -7,6 +7,7 @@ export interface SessionRestoreRepositories {
     revocationRevision: number
   } | null>
   getRevocation(): Promise<{ revision: number } | null>
+  getActiveProviderKeys(membershipId: string): Promise<string[]>
   lockActiveAssignments(membershipId: string): Promise<
     Array<{
       id: string
@@ -18,6 +19,7 @@ export interface SessionRestoreRepositories {
     id: string
     lifecycle: "ACTIVE" | "SUSPENDED" | "REMOVED"
   } | null>
+  lockProvider(key: string): Promise<{ id: string } | null>
   lockSession(digest: string): Promise<{
     id: string
     membershipId: string

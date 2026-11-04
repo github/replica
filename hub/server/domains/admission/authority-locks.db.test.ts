@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest"
 import { prisma } from "../../integrations/prisma"
 import { getDatabaseUrl } from "../../../test/database/get-database-url"
 import { runAdmissionTransaction } from "./run-admission-transaction"
+import { runSessionRestoreTransaction } from "./run-session-restore-transaction"
 
 async function observeBlocked(inspector: pg.Client, pid: number) {
   for (let attempt = 0; attempt < 100; attempt += 1) {
@@ -142,6 +143,45 @@ describe("admission authority locks", () => {
       await updater.query("COMMIT")
     } finally {
       admissionBarrier.release()
+      await Promise.allSettled([updater.query("ROLLBACK")])
+      await Promise.all([updater.end(), inspector.end()])
+    }
+  })
+
+  it("makes provider revision mutation wait for the session-restore provider lock", async () => {
+    const { providerId } = await createProvider()
+    const updater = new pg.Client({ connectionString: getDatabaseUrl() })
+    const inspector = new pg.Client({ connectionString: getDatabaseUrl() })
+    await Promise.all([updater.connect(), inspector.connect()])
+    const restoreBarrier = barrier()
+    let providerLocked!: () => void
+    const providerReady = new Promise<void>((resolve) => {
+      providerLocked = resolve
+    })
+    try {
+      const restoration = runSessionRestoreTransaction(prisma, async (repositories) => {
+        await expect(repositories.lockProvider("github")).resolves.not.toBeNull()
+        providerLocked()
+        await restoreBarrier.wait
+      })
+      await providerReady
+
+      const updaterPid = await updater.query<{ pid: number }>(`SELECT pg_backend_pid() AS pid`)
+      await updater.query("BEGIN")
+      const update = updater.query(
+        `UPDATE authentication_providers
+         SET updated_at = clock_timestamp()
+         WHERE id = $1`,
+        [providerId],
+      )
+      expect(await observeBlocked(inspector, updaterPid.rows[0]!.pid)).toBe(true)
+
+      restoreBarrier.release()
+      await restoration
+      await expect(update).resolves.toHaveProperty("rowCount", 1)
+      await updater.query("COMMIT")
+    } finally {
+      restoreBarrier.release()
       await Promise.allSettled([updater.query("ROLLBACK")])
       await Promise.all([updater.end(), inspector.end()])
     }

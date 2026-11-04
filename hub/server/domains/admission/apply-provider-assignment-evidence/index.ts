@@ -129,7 +129,7 @@ export async function applyProviderAssignmentEvidence(
       })
     }
     const assignmentId = dependencies.createId()
-    await dependencies.repositories.createProviderAssignment({
+    const created = await dependencies.repositories.createProviderAssignment({
       externalIdentityId: parsed.externalIdentityId,
       id: assignmentId,
       membershipId,
@@ -137,6 +137,7 @@ export async function applyProviderAssignmentEvidence(
       providerRevisionId: parsed.providerRevisionId,
       role: parsed.role,
     })
+    if (!created) throw new AdmissionTransactionConflictError()
     await dependencies.repositories.createSecurityAudit({
       assignmentId,
       id: dependencies.createId(),
@@ -147,6 +148,7 @@ export async function applyProviderAssignmentEvidence(
     authorityChanged =
       activeProviderAssignment !== null &&
       (activeProviderAssignment.role !== parsed.role ||
+        activeProviderAssignment.providerRevisionId !== parsed.providerRevisionId ||
         activeProviderAssignment.providerAssignmentSubject !==
           parsed.assignmentSubject?.toLowerCase())
   }

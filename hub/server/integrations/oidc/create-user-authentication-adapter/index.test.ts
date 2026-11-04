@@ -198,7 +198,44 @@ describe("createEntraOidcUserAuthenticationAdapter()", () => {
         codeVerifier: "pkce-verifier",
         nonce: "attempt-nonce",
       }),
-    ).rejects.toThrow("requires a directory object ID")
+    ).rejects.toThrow()
+  })
+
+  it("ignores malformed oid when no accepted app role remains", async () => {
+    const { adapter } = await protocolFixture({
+      oid: "not-a-directory-object-id",
+      roles: ["hub.user", "Hub.Owner"],
+    })
+
+    await expect(
+      adapter.completeAuthenticationProof({
+        callbackUri,
+        code: "authorization-code",
+        codeVerifier: "pkce-verifier",
+        nonce: "attempt-nonce",
+      }),
+    ).resolves.toMatchObject({
+      providerAssignment: {
+        assignmentSubject: null,
+        role: null,
+      },
+    })
+  })
+
+  it("rejects malformed oid when an accepted app role is present", async () => {
+    const { adapter } = await protocolFixture({
+      oid: "not-a-directory-object-id",
+      roles: ["Hub.Administrator"],
+    })
+
+    await expect(
+      adapter.completeAuthenticationProof({
+        callbackUri,
+        code: "authorization-code",
+        codeVerifier: "pkce-verifier",
+        nonce: "attempt-nonce",
+      }),
+    ).rejects.toThrow()
   })
 
   it("shares in-flight discovery and refreshes it only after the bounded TTL", async () => {

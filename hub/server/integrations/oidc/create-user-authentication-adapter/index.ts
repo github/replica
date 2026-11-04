@@ -270,10 +270,7 @@ export function createEntraOidcUserAuthenticationAdapter(
           ? "MEMBER"
           : null
       const assignmentSubject =
-        claims.oid === undefined ? null : assignmentSubjectSchema.parse(claims.oid).toLowerCase()
-      if (role !== null && assignmentSubject === null) {
-        throw new Error("Entra OIDC role evidence requires a directory object ID.")
-      }
+        role === null ? null : assignmentSubjectSchema.parse(claims.oid).toLowerCase()
       return {
         identity: {
           issuer,

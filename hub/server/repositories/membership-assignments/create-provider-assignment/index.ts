@@ -18,7 +18,7 @@ export async function createProviderAssignment(
   input: z.input<typeof inputSchema>,
 ) {
   const parsed = inputSchema.parse(input)
-  await database.$executeRaw`
+  const created = await database.$executeRaw`
     INSERT INTO "membership_assignments" (
       "id",
       "membership_id",
@@ -42,5 +42,7 @@ export async function createProviderAssignment(
       clock_timestamp(),
       clock_timestamp()
     )
+    ON CONFLICT DO NOTHING
   `
+  return created === 1
 }

@@ -20,7 +20,7 @@ The callback passes that value directly to admission in the same process. Entra 
 
 Normal GitHub sign-in requires an active membership with an active assignment. Entra may create an active membership and provider-owned assignment from exact `Hub.User` or `Hub.Administrator` evidence. `Hub.Administrator` wins when both values are present. Suspended and removed memberships remain denied.
 
-One Entra assignment is active for an external identity. A role, assignment subject, or provider-revision change supersedes that immutable version and ends the membership's open sessions. Losing accepted roles revokes provider-owned authority and ends open sessions. Bootstrap assignments remain separate and may continue to admit the user; provider evidence never rewrites Hub-owned provenance.
+One Entra assignment is active for an external identity. A role, assignment subject, or provider-revision change supersedes that immutable version and ends the membership's open sessions. Losing accepted roles revokes provider-owned authority and ends open sessions. When revocation leaves no authority, the transition, session termination, and denial audit commit together without a new session. Bootstrap assignments remain separate and may continue to admit the user; provider evidence never rewrites Hub-owned provenance.
 
 The administrator enrollment start requires `HUB_BOOTSTRAP_SECRET` before OAuth begins. The configured secret must contain at least 32 characters and is compared in constant time. The secret authorizes each browser-bound, one-use authorization attempt; it is not stored, audited, logged, or globally consumed.
 
@@ -36,7 +36,7 @@ Membership ownership and creation history are immutable. Bootstrap enrollment wr
 
 Hub creates a fresh opaque session value only after admission succeeds. The browser receives the value in an `HttpOnly`, `SameSite=Lax` cookie with a bounded lifetime; HTTPS origins also set `Secure`. The database stores only its SHA-256 digest.
 
-Every current-session restore rereads the global revocation revision, session expiry and termination state, membership lifecycle, and active assignments, then returns the current effective member or administrator role. A retained cookie stops authorizing access after sign-out, expiry, suspension, removal, assignment revocation, or a global revision change.
+Every current-session restore rereads the global revocation revision, session expiry and termination state, membership lifecycle, and active assignments, then returns the current effective member or administrator role. Provider-owned authority is active only while its provider revision remains selected. A retained cookie stops authorizing access after sign-out, expiry, suspension, removal, assignment revocation, provider revision replacement, or a global revision change.
 
 Suspension, removal, assignment revocation, and global revision changes are enforced when read. Current Entra evidence may supersede or revoke its own provider assignment and end that membership's sessions; this version does not expose general membership lifecycle operations.
 

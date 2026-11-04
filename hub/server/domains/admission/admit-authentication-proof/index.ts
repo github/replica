@@ -41,6 +41,7 @@ function matchesAuthenticationDigest(storedDigest: string | null, currentDigest:
 }
       .optional(),
     providerKey: z.unknown(),
+    requiresProviderAssignmentEvidence: z.boolean(),
     sessionDigest: z.string().regex(/^[0-9a-f]{64}$/),
     sessionId: z.uuid(),
     sessionLifetimeSeconds: z.number().int().min(60).max(86_400),
@@ -161,6 +162,9 @@ async function admitWithinTransaction(
   ) {
     throw new AdmissionDeniedError("configuration_changed", input.proof.externalIdentityId)
   }
+  if (input.requiresProviderAssignmentEvidence && !input.providerAssignment) {
+    throw new AdmissionDeniedError("provider_evidence_missing", input.proof.externalIdentityId)
+  }
   let membershipId: string
   let role: "MEMBER" | "ADMINISTRATOR"
   if (attempt.purpose === "ADMIN_ENROLLMENT") {
@@ -174,6 +178,22 @@ async function admitWithinTransaction(
     role = "ADMINISTRATOR"
     if (enrollment.authorityRestored) {
       await endMembershipSessions(repositories, membershipId, createId)
+    }
+    if (input.providerAssignment) {
+      if (input.providerAssignment.providerRevisionId !== attempt.providerRevisionId) {
+        throw new AdmissionDeniedError("configuration_changed", input.proof.externalIdentityId)
+      }
+      const applied = await applyProviderAssignmentEvidence(
+        {
+          ...input.providerAssignment,
+          externalIdentityId: input.proof.externalIdentityId,
+          userId: identity.userId,
+        },
+        { createId, repositories },
+      )
+      if (applied.denied) {
+        throw new AdmissionDeniedError(applied.reason, input.proof.externalIdentityId)
+      }
     }
   } else if (input.providerAssignment) {
     if (input.providerAssignment.providerRevisionId !== attempt.providerRevisionId) {

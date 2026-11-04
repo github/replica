@@ -10,6 +10,7 @@ export interface AdmitAuthenticationProofInput {
     role: "MEMBER" | "ADMINISTRATOR" | null
   }
   providerKey: string
+  requiresProviderAssignmentEvidence: boolean
   sessionDigest: string
   sessionId: string
   sessionLifetimeSeconds: number

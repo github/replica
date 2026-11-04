@@ -11,6 +11,7 @@ type SessionState =
   | { status: "loading" }
   | {
       status: "signed-out"
+      providerDiscoveryFailed: boolean
       providers: Array<"github" | "entra">
       restoreFailed: boolean
     }
@@ -40,11 +41,14 @@ export function HubApplication() {
   useEffect(() => {
     void fetch("/api/auth/providers", { credentials: "same-origin", cache: "no-store" })
       .then(async (response) => {
-        if (response.status === 404) return { providers: [] }
+        if (response.status === 404) return { failed: false, providers: [] }
         if (!response.ok) throw new Error("Authentication provider discovery failed.")
-        return providersSchema.parse(await response.json())
+        return { failed: false, ...providersSchema.parse(await response.json()) }
       })
-      .catch(() => ({ providers: [] as Array<"github" | "entra"> }))
+      .catch(() => ({
+        failed: true,
+        providers: [] as Array<"github" | "entra">,
+      }))
       .then(async (providerResult) => {
         try {
           const response = await fetch("/api/auth/session", {
@@ -54,6 +58,7 @@ export function HubApplication() {
           if (response.status === 401 || response.status === 404) {
             setSession({
               status: "signed-out",
+              providerDiscoveryFailed: providerResult.failed,
               providers: providerResult.providers,
               restoreFailed: authentication === "success",
             })
@@ -70,6 +75,7 @@ export function HubApplication() {
         } catch {
           setSession({
             status: "signed-out",
+            providerDiscoveryFailed: providerResult.failed,
             providers: providerResult.providers,
             restoreFailed: true,
           })
@@ -88,7 +94,12 @@ export function HubApplication() {
     return (
       <HubAdminEnrollmentPage
         data={{
-          alert: authentication === "denied" ? "Administrator enrollment was denied." : null,
+          alert:
+            session.status === "signed-out" && session.providerDiscoveryFailed
+              ? "Replica Hub could not load sign-in options. Reload the page to try again."
+              : authentication === "denied"
+                ? "Administrator enrollment was denied."
+                : null,
           productName: "Replica Hub",
           pageTitle: "Enroll a Hub administrator",
           heading: "Enroll a Hub administrator",
@@ -125,11 +136,13 @@ export function HubApplication() {
     <HomeIndexPage
       colorMode={resolvedColorMode}
       data={{
-        alert: session.restoreFailed
-          ? "Replica Hub could not restore your session. Sign in again to continue."
-          : authentication === "denied"
-            ? "Sign-in could not be completed, or this account is not an active Hub member."
-            : null,
+        alert: session.providerDiscoveryFailed
+          ? "Replica Hub could not load sign-in options. Reload the page to try again."
+          : session.restoreFailed
+            ? "Replica Hub could not restore your session. Sign in again to continue."
+            : authentication === "denied"
+              ? "Sign-in could not be completed, or this account is not an active Hub member."
+              : null,
         authenticityToken: "",
         badge: "Collaborative prototyping",
         badgeAlternate: "Built for feedback",

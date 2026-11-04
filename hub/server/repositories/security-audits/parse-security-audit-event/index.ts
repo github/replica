@@ -93,6 +93,7 @@ const eventSchema = z.discriminatedUnion("type", [
         "identity_mismatch",
         "membership_inactive",
         "membership_missing",
+        "provider_evidence_missing",
       ]),
     })
     .strict(),

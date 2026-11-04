@@ -30,7 +30,7 @@ const data: HomeIndexPageData = {
 const meta = {
   title: "Hub/Pages/Home",
   component: HomeIndexPage,
-  args: { animatePresentation: false, colorMode: "dark", data },
+  args: { colorMode: "dark", data, enableAnimation: false },
   argTypes: {
     colorMode: { control: false, table: { disable: true } },
   },

@@ -10,7 +10,7 @@ export interface AdmissionRepositories {
     providerAssignmentSubject: string
     providerRevisionId: string
     role: "MEMBER" | "ADMINISTRATOR"
-  }): Promise<void>
+  }): Promise<boolean>
   createBootstrapAssignment(input: {
     externalIdentityId: string
     id: string

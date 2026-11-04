@@ -15,6 +15,10 @@ export async function restoreHubSession(
     if (!session || !revocation || session.revocationRevision !== revocation.revision) {
       return null
     }
+    const providerKeys = await repositories.getActiveProviderKeys(session.membershipId)
+    for (const providerKey of providerKeys) {
+      if (!(await repositories.lockProvider(providerKey))) return null
+    }
     const membership = await repositories.lockMembership(session.membershipId)
     if (!membership || membership.lifecycle !== "ACTIVE") return null
     const assignments = await repositories.lockActiveAssignments(session.membershipId)

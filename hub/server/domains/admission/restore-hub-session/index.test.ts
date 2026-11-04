@@ -13,6 +13,7 @@ function repositories(
   }
   return {
     findSession: vi.fn().mockResolvedValue(session),
+    getActiveProviderKeys: vi.fn().mockResolvedValue(["entra"]),
     getRevocation: vi.fn().mockResolvedValue({ revision: 0 }),
     lockActiveAssignments: vi
       .fn()
@@ -23,6 +24,7 @@ function repositories(
       id: "membership-id",
       lifecycle: "ACTIVE",
     }),
+    lockProvider: vi.fn().mockResolvedValue({ id: "provider-id" }),
     lockSession: vi.fn().mockResolvedValue(session),
     ...overrides,
   }
@@ -37,6 +39,75 @@ describe("restoreHubSession()", () => {
         runTransaction: (operation) => operation(records),
       }),
     ).resolves.toEqual({ role: "MEMBER" })
+  })
+
+  it("denies restore when the selected provider revision leaves no current assignment", async () => {
+    const records = repositories({
+      lockActiveAssignments: vi.fn().mockResolvedValue([]),
+    })
+
+    await expect(
+      restoreHubSession("a".repeat(64), {
+        runTransaction: (operation) => operation(records),
+      }),
+    ).resolves.toBeNull()
+  })
+
+  it("permits restore when the provider assignment is on the selected revision", async () => {
+    const records = repositories({
+      lockActiveAssignments: vi
+        .fn()
+        .mockResolvedValue([
+          { id: "current-assignment", role: "MEMBER", source: "AUTHENTICATION_PROVIDER" },
+        ]),
+    })
+
+    await expect(
+      restoreHubSession("a".repeat(64), {
+        runTransaction: (operation) => operation(records),
+      }),
+    ).resolves.toEqual({ role: "MEMBER" })
+  })
+
+  it("permits bootstrap authority even when provider authority is stale", async () => {
+    const records = repositories({
+      getActiveProviderKeys: vi.fn().mockResolvedValue(["entra"]),
+      lockActiveAssignments: vi
+        .fn()
+        .mockResolvedValue([
+          { id: "bootstrap-assignment", role: "ADMINISTRATOR", source: "BOOTSTRAP" },
+        ]),
+    })
+
+    await expect(
+      restoreHubSession("a".repeat(64), {
+        runTransaction: (operation) => operation(records),
+      }),
+    ).resolves.toEqual({ role: "ADMINISTRATOR" })
+  })
+
+  it("locks each provider before locking membership authority", async () => {
+    const order: string[] = []
+    const records = repositories({
+      getActiveProviderKeys: vi.fn().mockResolvedValue(["entra"]),
+      lockProvider: vi.fn().mockImplementation(() => {
+        order.push("provider")
+        return Promise.resolve({ id: "provider-id" })
+      }),
+      lockMembership: vi.fn().mockImplementation(() => {
+        order.push("membership")
+        return Promise.resolve({
+          id: "membership-id",
+          lifecycle: "ACTIVE",
+        })
+      }),
+    })
+
+    await restoreHubSession("a".repeat(64), {
+      runTransaction: (operation) => operation(records),
+    })
+
+    expect(order).toEqual(["provider", "membership"])
   })
 
   it("fails closed when global revocation authority is missing", async () => {
@@ -117,6 +188,7 @@ describe("restoreHubSession()", () => {
 
   it("returns administrator when any active assignment grants administrator authority", async () => {
     const records = repositories({
+      getActiveProviderKeys: vi.fn().mockResolvedValue([]),
       lockActiveAssignments: vi.fn().mockResolvedValue([
         { id: "provider-assignment", role: "MEMBER", source: "AUTHENTICATION_PROVIDER" },
         { id: "bootstrap-assignment", role: "ADMINISTRATOR", source: "BOOTSTRAP" },

@@ -20,6 +20,8 @@ describe("createEntraAuthenticationContext()", () => {
 
     expect(context.callbackUri).toBe("https://hub.example.test/api/auth/entra/callback")
     expect(context.providerRevision).toBe(3)
+    expect(context.requiresProviderAssignmentEvidence).toBe(true)
+    expect(context.requiresFreshAdministratorEnrollment).toBe(true)
     expect(context.secureCookie).toBe(true)
     expect(context.adapter.canonicalPublicConfiguration).not.toContain("client-secret-value")
     expect(context.configurationDigest).toBe(
