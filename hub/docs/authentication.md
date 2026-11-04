@@ -8,6 +8,8 @@ The start primitive selects the configured GitHub provider revision, creates opa
 
 GitHub and future provider adapters are defined in code, not discovered from database records. On the first configured start, Hub validates the adapter's public configuration and creates and selects revision 1 through the identity kernel. A later configuration uses the next accepted revision. Operators do not seed provider rows. Failed validation or replacement leaves the current selected revision usable, while older replicas and attempts fail closed when their local revision no longer matches the selected revision.
 
+Increment `GITHUB_PROVIDER_REVISION` when an intentional provider configuration or credential generation change must invalidate in-flight attempts and stale replicas. Keep the revision unchanged for an ordinary restart with the same validated provider settings.
+
 The completion primitive consumes the browser-bound attempt before provider work, confirms that the selected provider revision and digest match the local validated adapter, exchanges the bounded authorization code, reads the public github.com current user, and resolves the immutable external identity through the identity kernel. GitHub's numeric user ID is the immutable subject. Profile and presentation data are outside this foundation.
 
 Completion returns a minimal provider-neutral proof value in memory containing only the consumed authorization attempt ID and resolved external identity ID. This value is internal-only, is not a session or authority, and is never reconstructed from browser request data.
@@ -22,7 +24,7 @@ The administrator enrollment start requires `HUB_BOOTSTRAP_SECRET` before OAuth 
 
 A successful enrollment creates or restores an active administrator assignment owned by the verified external identity. The same secret can enroll another administrator or restore a previous administrator, including when another administrator still exists. Repository permissions do not affect Hub admission.
 
-Membership lifecycle and assignment provenance are separate. The schema supports active, suspended, and removed memberships. This version stores only bootstrap-owned administrator assignments; provider-owned assignment synchronization and member roles remain deferred.
+Membership lifecycle and assignment provenance are separate. The schema supports active, suspended, and removed memberships, and freezes administrator and member role values for compatibility. This version creates and admits only bootstrap-owned administrator assignments; member admission, member UI, and provider-owned assignment synchronization remain deferred.
 
 Membership ownership and creation history are immutable. Bootstrap enrollment writes a separate membership-created or membership-restored audit whenever it changes membership lifecycle; an already active membership creates no duplicate lifecycle audit.
 
@@ -49,6 +51,10 @@ The address digest uses the trusted client address. Behind a protected proxy, co
 Consumed attempts remain available as short-lived protocol state for ten minutes after consumption so a trusted same-request consumer can reread them. Cleanup removes expired unconsumed attempts and consumed attempts after that fixed retention window; this is not authentication history.
 
 Administrator-enrollment rate limits write at most one durable denial audit for each address-digest window. The first-denial marker, capacity decision, and audit commit atomically; an audit failure rolls them back so a later denial can retry while the response remains `429`.
+
+## Database enforcement
+
+Database guards cover invariants that application validation alone cannot protect across concurrent writers or future code paths. They keep membership ownership and history immutable, keep assignment ownership, provenance, and role immutable, require an assignment identity to belong to the membership user, permit only first session termination, protect the global revocation identity and exact revision increment, and keep an authorization attempt's server-selected purpose immutable. Ordinary value-shape and time-order checks remain in the application contracts.
 
 ## Safety boundaries
 

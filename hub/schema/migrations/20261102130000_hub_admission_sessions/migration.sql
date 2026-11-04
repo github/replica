@@ -1,6 +1,6 @@
 CREATE TYPE "AuthorizationAttemptPurpose" AS ENUM ('SIGN_IN', 'ADMIN_ENROLLMENT');
 CREATE TYPE "MembershipLifecycle" AS ENUM ('ACTIVE', 'SUSPENDED', 'REMOVED');
-CREATE TYPE "MembershipRole" AS ENUM ('ADMINISTRATOR');
+CREATE TYPE "MembershipRole" AS ENUM ('ADMINISTRATOR', 'MEMBER');
 CREATE TYPE "MembershipAssignmentSource" AS ENUM ('BOOTSTRAP');
 CREATE TYPE "MembershipAssignmentLifecycle" AS ENUM ('ACTIVE', 'REVOKED');
 
@@ -28,10 +28,7 @@ CREATE TABLE "membership_assignments" (
     "lifecycle" "MembershipAssignmentLifecycle" NOT NULL DEFAULT 'ACTIVE',
     "created_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT "membership_assignments_pkey" PRIMARY KEY ("id"),
-    CONSTRAINT "membership_assignments_bootstrap_administrator" CHECK (
-        "source" = 'BOOTSTRAP' AND "role" = 'ADMINISTRATOR'
-    )
+    CONSTRAINT "membership_assignments_pkey" PRIMARY KEY ("id")
 );
 
 CREATE TABLE "session_revocation_states" (
@@ -41,7 +38,6 @@ CREATE TABLE "session_revocation_states" (
     "created_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "session_revocation_states_pkey" PRIMARY KEY ("id"),
-    CONSTRAINT "session_revocation_states_revision" CHECK ("revision" >= 0),
     CONSTRAINT "session_revocation_states_singleton" CHECK ("key" = 'global')
 );
 
@@ -54,11 +50,7 @@ CREATE TABLE "hub_sessions" (
     "ended_at" TIMESTAMPTZ(3),
     "created_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT "hub_sessions_pkey" PRIMARY KEY ("id"),
-    CONSTRAINT "hub_sessions_digest" CHECK ("digest" ~ '^[0-9a-f]{64}$'),
-    CONSTRAINT "hub_sessions_expiry" CHECK ("expires_at" > "created_at"),
-    CONSTRAINT "hub_sessions_ended" CHECK ("ended_at" IS NULL OR "ended_at" >= "created_at"),
-    CONSTRAINT "hub_sessions_revocation_revision" CHECK ("revocation_revision" >= 0)
+    CONSTRAINT "hub_sessions_pkey" PRIMARY KEY ("id")
 );
 
 CREATE TABLE "authentication_rate_limits" (
@@ -70,10 +62,7 @@ CREATE TABLE "authentication_rate_limits" (
     "denial_audited_at" TIMESTAMPTZ(3),
     "created_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT "authentication_rate_limits_pkey" PRIMARY KEY ("id"),
-    CONSTRAINT "authentication_rate_limits_digest" CHECK ("subject_digest" ~ '^[0-9a-f]{64}$'),
-    CONSTRAINT "authentication_rate_limits_count" CHECK ("count" > 0),
-    CONSTRAINT "authentication_rate_limits_expiry" CHECK ("expires_at" > "created_at")
+    CONSTRAINT "authentication_rate_limits_pkey" PRIMARY KEY ("id")
 );
 
 CREATE UNIQUE INDEX "memberships_user_id_key" ON "memberships"("user_id");
@@ -134,9 +123,6 @@ BEGIN
     IF NEW."revision" <> OLD."revision" + 1 THEN
         RAISE EXCEPTION 'Session revocation revision must increment exactly once.';
     END IF;
-    IF NEW."updated_at" <= OLD."updated_at" THEN
-        RAISE EXCEPTION 'Session revocation updates must advance updated_at.';
-    END IF;
     RETURN NEW;
 END;
 $$;
@@ -157,12 +143,6 @@ BEGIN
        OR NEW."user_id" <> OLD."user_id"
        OR NEW."created_at" <> OLD."created_at" THEN
         RAISE EXCEPTION 'Membership identity and ownership are immutable.';
-    END IF;
-    IF NEW."lifecycle" = OLD."lifecycle" THEN
-        RAISE EXCEPTION 'Membership updates must change lifecycle.';
-    END IF;
-    IF NEW."updated_at" <= OLD."updated_at" THEN
-        RAISE EXCEPTION 'Membership lifecycle updates must advance updated_at.';
     END IF;
     RETURN NEW;
 END;

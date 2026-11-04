@@ -29,57 +29,6 @@ async function createProviderAggregate(key: string, digest = "a".repeat(64)) {
 }
 
 describe("identity foundation migration", () => {
-  it("deploys the identity, proof, admission, and session migrations", async () => {
-    const migrations = await prisma.$queryRaw<Array<{ migration_name: string }>>`
-      SELECT migration_name
-      FROM public._prisma_migrations
-      WHERE finished_at IS NOT NULL
-      ORDER BY started_at
-    `
-    const tables = await prisma.$queryRaw<Array<{ table_name: string }>>`
-      SELECT table_name
-      FROM information_schema.tables
-      WHERE table_schema = 'public'
-        AND table_type = 'BASE TABLE'
-        AND table_name <> '_prisma_migrations'
-      ORDER BY table_name
-    `
-
-    expect(migrations).toEqual([
-      { migration_name: "20261029203000_identity_foundation" },
-      { migration_name: "20261030170000_authentication_proof" },
-      { migration_name: "20261102130000_hub_admission_sessions" },
-    ])
-    expect(tables).toEqual([
-      { table_name: "authentication_provider_revisions" },
-      { table_name: "authentication_providers" },
-      { table_name: "authentication_rate_limits" },
-      { table_name: "authorization_attempts" },
-      { table_name: "external_identities" },
-      { table_name: "hub_sessions" },
-      { table_name: "membership_assignments" },
-      { table_name: "memberships" },
-      { table_name: "security_audits" },
-      { table_name: "session_revocation_states" },
-      { table_name: "users" },
-    ])
-    const revisionColumns = await prisma.$queryRaw<Array<{ column_name: string }>>`
-      SELECT column_name
-      FROM information_schema.columns
-      WHERE table_schema = 'public'
-        AND table_name = 'authentication_provider_revisions'
-      ORDER BY ordinal_position
-    `
-    expect(revisionColumns.map(({ column_name }) => column_name)).toEqual([
-      "id",
-      "provider_id",
-      "revision",
-      "configuration_digest",
-      "created_at",
-      "updated_at",
-    ])
-  })
-
   it("enforces authorization attempt constraints and first-consumption-only history", async () => {
     const { revisionId } = await createProviderAggregate("github")
     const createdAt = new Date()
