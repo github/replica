@@ -152,13 +152,20 @@ describe("Hub admission migration compatibility", () => {
            WHERE provider.id = $2`,
           [userId, providerId],
         )
-        const upgradedAttempt = await database.query<{ purpose: string }>(
-          `SELECT purpose::text FROM authorization_attempts WHERE id = $1`,
+        const upgradedAttempt = await database.query<{
+          bootstrap_secret_digest: string | null
+          purpose: string
+        }>(
+          `SELECT purpose::text, bootstrap_secret_digest
+           FROM authorization_attempts
+           WHERE id = $1`,
           [attemptId],
         )
 
         expect(upgradedRecords.rows).toEqual(c2Records.rows)
-        expect(upgradedAttempt.rows).toEqual([{ purpose: "SIGN_IN" }])
+        expect(upgradedAttempt.rows).toEqual([
+          { bootstrap_secret_digest: null, purpose: "SIGN_IN" },
+        ])
       } finally {
         await database.end()
       }

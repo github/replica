@@ -22,6 +22,7 @@ export interface AdmissionRepositories {
   endOpenHubSessionsForMembership(membershipId: string): Promise<Array<{ id: string }>>
   lockActiveAssignment(membershipId: string): Promise<boolean>
   lockAttempt(id: string): Promise<{
+    bootstrapSecretDigest: string | null
     consumedAt: Date | null
     providerRevisionId: string
     purpose: "SIGN_IN" | "ADMIN_ENROLLMENT"

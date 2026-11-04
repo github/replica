@@ -16,14 +16,14 @@ import { runSessionRestoreTransaction } from "./run-session-restore-transaction"
 const applicationOrigin = "http://127.0.0.1:5173"
 const clientId = "github-client"
 
-function runtimeEnvironment() {
+function runtimeEnvironment(bootstrapSecret = "bootstrap-secret-that-is-at-least-32-characters") {
   return {
     GITHUB_CLIENT_ID: clientId,
     GITHUB_CLIENT_SECRET: "github-secret",
     GITHUB_PROVIDER_REVISION: "1",
     HUB_APPLICATION_ORIGIN: applicationOrigin,
     HUB_AUTHENTICATION_ENCRYPTION_KEY: randomBytes(32).toString("base64"),
-    HUB_BOOTSTRAP_SECRET: "bootstrap-secret-that-is-at-least-32-characters",
+    HUB_BOOTSTRAP_SECRET: bootstrapSecret,
   }
 }
 
@@ -33,7 +33,11 @@ function cookieValue(response: Response, name: string) {
   return match ? decodeURIComponent(match[1]!) : null
 }
 
-async function openServer(userIds: number[], logger?: ReturnType<typeof createLogger>) {
+async function openServer(
+  userIds: number[],
+  logger?: ReturnType<typeof createLogger>,
+  environment = runtimeEnvironment(),
+) {
   let userIndex = 0
   const providerRequest = vi.fn((input: string | URL | Request) => {
     const url = input instanceof Request ? input.url : input.toString()
@@ -47,7 +51,7 @@ async function openServer(userIds: number[], logger?: ReturnType<typeof createLo
     }
     throw new Error(`Unexpected provider request: ${url}`)
   })
-  const dependencies = createAuthenticationRouteDependencies(runtimeEnvironment(), providerRequest)
+  const dependencies = createAuthenticationRouteDependencies(environment, providerRequest)
   const server = createServer(
     createApp({ authentication: dependencies, ...(logger ? { logger } : {}) }),
   )
@@ -292,12 +296,93 @@ describe("Hub admission and session flow", () => {
       expect(await prisma.securityAudit.count()).toBe(auditCountAfterSignOut)
 
       const signIn = await startAuthentication(server.baseUrl, "/api/auth/github/start")
+      expect(
+        await prisma.authorizationAttempt.findUniqueOrThrow({
+          where: {
+            stateDigest: createHash("sha256").update(signIn.state).digest("hex"),
+          },
+          select: { bootstrapSecretDigest: true, purpose: true },
+        }),
+      ).toEqual({ bootstrapSecretDigest: null, purpose: "SIGN_IN" })
       const signedIn = await completeAuthentication(server.baseUrl, signIn)
       expect(signedIn.headers.get("location")).toBe("/?authentication=success")
       expect(cookieValue(signedIn, "hub_session")).toBeTruthy()
       expect(await prisma.membership.count()).toBe(1)
     } finally {
       await server.close()
+    }
+  })
+
+  it("consumes and denies enrollment when the bootstrap secret rotates before callback", async () => {
+    const originalSecret = "original-bootstrap-secret-that-is-at-least-32-characters"
+    const rotatedSecret = "rotated-bootstrap-secret-that-is-at-least-32-characters"
+    const originalDigest = createHash("sha256").update(originalSecret).digest("hex")
+    const environment = runtimeEnvironment(originalSecret)
+    const originalServer = await openServer([], undefined, environment)
+    let enrollment: Awaited<ReturnType<typeof startAuthentication>>
+    try {
+      enrollment = await startAuthentication(
+        originalServer.baseUrl,
+        "/api/auth/github/admin-enrollment/start",
+        new URLSearchParams({ bootstrap_secret: originalSecret }),
+      )
+      const attempt = await prisma.authorizationAttempt.findFirstOrThrow({
+        select: { bootstrapSecretDigest: true, purpose: true },
+      })
+      expect(attempt).toEqual({
+        bootstrapSecretDigest: originalDigest,
+        purpose: "ADMIN_ENROLLMENT",
+      })
+      expect(attempt.bootstrapSecretDigest).toMatch(/^[0-9a-f]{64}$/)
+    } finally {
+      await originalServer.close()
+    }
+
+    const logRecords: string[] = []
+    const logger = createLogger({ destination: { write: (line) => logRecords.push(line) } })
+    const rotatedServer = await openServer([601], logger, {
+      ...environment,
+      HUB_BOOTSTRAP_SECRET: rotatedSecret,
+    })
+    try {
+      const response = await completeAuthentication(rotatedServer.baseUrl, enrollment)
+
+      expect(response.status).toBe(303)
+      expect(response.headers.get("location")).toBe("/?authentication=denied")
+      expect(cookieValue(response, "hub_session")).toBeNull()
+      const consumedAttempt = await prisma.authorizationAttempt.findFirstOrThrow({
+        select: { consumedAt: true },
+      })
+      expect(consumedAttempt.consumedAt).toBeInstanceOf(Date)
+      expect(await prisma.membership.count()).toBe(0)
+      expect(await prisma.membershipAssignment.count()).toBe(0)
+      expect(await prisma.hubSession.count()).toBe(0)
+      await expect(
+        prisma.securityAudit.findMany({
+          where: { action: "admission.denied" },
+          select: { action: true, context: true, outcome: true },
+        }),
+      ).resolves.toEqual([
+        {
+          action: "admission.denied",
+          context: { reason: "configuration_changed" },
+          outcome: "DENIED",
+        },
+      ])
+
+      const persistedData = JSON.stringify({
+        attempts: await prisma.authorizationAttempt.findMany(),
+        audits: await prisma.securityAudit.findMany(),
+      })
+      expect(persistedData).not.toContain(originalSecret)
+      expect(persistedData).not.toContain(rotatedSecret)
+      expect(JSON.stringify(await prisma.securityAudit.findMany())).not.toContain(originalDigest)
+      await vi.waitFor(() => expect(logRecords).toHaveLength(1))
+      expect(logRecords[0]).not.toContain(originalSecret)
+      expect(logRecords[0]).not.toContain(rotatedSecret)
+      expect(logRecords[0]).not.toContain(originalDigest)
+    } finally {
+      await rotatedServer.close()
     }
   })
 
@@ -558,6 +643,7 @@ describe("Hub admission and session flow", () => {
       })
       expect(invalid.status).toBe(403)
       expect(server.providerRequest).not.toHaveBeenCalled()
+      expect(await prisma.authorizationAttempt.count()).toBe(0)
 
       const unknown = await startAuthentication(server.baseUrl, "/api/auth/github/start")
       const denied = await completeAuthentication(server.baseUrl, unknown)

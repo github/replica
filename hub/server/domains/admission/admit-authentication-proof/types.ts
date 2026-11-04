@@ -12,6 +12,7 @@ export interface AdmitAuthenticationProofInput {
 
 export interface AdmitAuthenticationProofDependencies {
   createId(): string
+  getBootstrapSecretDigest(): string
   runTransaction: AdmissionTransaction
   writeAudit(input: CreateSecurityAuditEvent): Promise<unknown>
 }

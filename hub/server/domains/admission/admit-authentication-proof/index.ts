@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto"
 import { z } from "zod"
 
 import { parseProviderKey } from "../../../utils/parse-provider-key/index.ts"
@@ -28,6 +29,14 @@ const inputSchema = z
     sessionLifetimeSeconds: z.number().int().min(60).max(86_400),
   })
   .strict()
+const authenticationDigestSchema = z.string().regex(/^[0-9a-f]{64}$/)
+
+function matchesAuthenticationDigest(storedDigest: string | null, currentDigest: string): boolean {
+  const stored = authenticationDigestSchema.safeParse(storedDigest)
+  const current = authenticationDigestSchema.safeParse(currentDigest)
+  if (!stored.success || !current.success) return false
+  return timingSafeEqual(Buffer.from(stored.data, "hex"), Buffer.from(current.data, "hex"))
+}
 
 async function ensureBootstrapMembership(
   repositories: AdmissionRepositories,
@@ -90,6 +99,7 @@ async function admitWithinTransaction(
   repositories: AdmissionRepositories,
   input: z.infer<typeof inputSchema> & { providerKey: string },
   createId: () => string,
+  getBootstrapSecretDigest: () => string,
 ): Promise<AdmittedHubSession> {
   const provider = await repositories.lockProvider(input.providerKey)
   const revocation = await repositories.lockRevocation()
@@ -106,6 +116,12 @@ async function admitWithinTransaction(
   }
   if (identity.provider !== input.providerKey) {
     throw new AdmissionDeniedError("identity_mismatch", input.proof.externalIdentityId)
+  }
+  if (
+    attempt.purpose === "ADMIN_ENROLLMENT" &&
+    !matchesAuthenticationDigest(attempt.bootstrapSecretDigest, getBootstrapSecretDigest())
+  ) {
+    throw new AdmissionDeniedError("configuration_changed", input.proof.externalIdentityId)
   }
   let membershipId: string
   if (attempt.purpose === "ADMIN_ENROLLMENT") {
@@ -165,7 +181,12 @@ export async function admitAuthenticationProof(
     return await runWithBoundedRetries(
       () =>
         dependencies.runTransaction((repositories) =>
-          admitWithinTransaction(repositories, input, () => dependencies.createId()),
+          admitWithinTransaction(
+            repositories,
+            input,
+            () => dependencies.createId(),
+            () => dependencies.getBootstrapSecretDigest(),
+          ),
         ),
       (error) => error instanceof AdmissionTransactionConflictError,
     )

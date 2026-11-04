@@ -75,6 +75,7 @@ describe("admission success audit rollback", () => {
       })
       await transaction.authorizationAttempt.create({
         data: {
+          bootstrapSecretDigest: "f".repeat(64),
           id: attemptId,
           providerRevisionId: revisionId,
           purpose: "ADMIN_ENROLLMENT",
@@ -119,6 +120,7 @@ describe("admission success audit rollback", () => {
           },
           {
             createId: randomUUID,
+            getBootstrapSecretDigest: () => "f".repeat(64),
             runTransaction: (operation) => runAdmissionTransaction(prisma, operation),
             writeAudit: (event) => createSecurityAudit(prisma, event),
           },

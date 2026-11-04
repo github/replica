@@ -6,6 +6,8 @@ import type { AdmissionDeniedError } from "../errors"
 import type { AdmissionRepositories } from "../run-admission-transaction/types"
 import { admitAuthenticationProof } from "."
 
+const bootstrapSecretDigest = "f".repeat(64)
+
 function input() {
   return {
     proof: {
@@ -32,6 +34,7 @@ function repositories(overrides: Partial<AdmissionRepositories> = {}) {
     endOpenHubSessionsForMembership: vi.fn().mockResolvedValue([]),
     lockActiveAssignment: vi.fn().mockResolvedValue(true),
     lockAttempt: vi.fn().mockResolvedValue({
+      bootstrapSecretDigest,
       consumedAt: new Date(),
       providerRevisionId: "revision-id",
       purpose: "ADMIN_ENROLLMENT",
@@ -71,6 +74,7 @@ describe("admitAuthenticationProof()", () => {
     await expect(
       admitAuthenticationProof(request, {
         createId: randomUUID,
+        getBootstrapSecretDigest: () => bootstrapSecretDigest,
         runTransaction,
         writeAudit,
       }),
@@ -96,6 +100,7 @@ describe("admitAuthenticationProof()", () => {
     await expect(
       admitAuthenticationProof(request, {
         createId: randomUUID,
+        getBootstrapSecretDigest: () => bootstrapSecretDigest,
         runTransaction,
         writeAudit,
       }),
@@ -124,6 +129,7 @@ describe("admitAuthenticationProof()", () => {
     await expect(
       admitAuthenticationProof(input(), {
         createId: randomUUID,
+        getBootstrapSecretDigest: () => bootstrapSecretDigest,
         runTransaction: (operation) => operation(records),
         writeAudit,
       }),
@@ -138,6 +144,93 @@ describe("admitAuthenticationProof()", () => {
         reason: "configuration_changed",
       }),
     )
+  })
+
+  it("admits enrollment when the bootstrap secret digest is unchanged", async () => {
+    const records = repositories()
+    const getBootstrapSecretDigest = vi.fn().mockReturnValue(bootstrapSecretDigest)
+
+    await expect(
+      admitAuthenticationProof(input(), {
+        createId: randomUUID,
+        getBootstrapSecretDigest,
+        runTransaction: (operation) => operation(records),
+        writeAudit: vi.fn(),
+      }),
+    ).resolves.toEqual({ expiresAt: new Date("2030-01-01") })
+
+    expect(getBootstrapSecretDigest).toHaveBeenCalledOnce()
+    expect(records.createOrRestoreMembership).toHaveBeenCalledOnce()
+    expect(records.createBootstrapAssignment).toHaveBeenCalledOnce()
+    expect(records.createHubSession).toHaveBeenCalledOnce()
+  })
+
+  it.each([
+    ["missing", null],
+    ["rotated", "e".repeat(64)],
+  ])("denies enrollment when its bootstrap secret digest is %s", async (_case, storedDigest) => {
+    const records = repositories({
+      lockAttempt: vi.fn().mockResolvedValue({
+        bootstrapSecretDigest: storedDigest,
+        consumedAt: new Date(),
+        providerRevisionId: "revision-id",
+        purpose: "ADMIN_ENROLLMENT",
+      }),
+    })
+    const writeAudit = vi.fn().mockResolvedValue(undefined)
+
+    await expect(
+      admitAuthenticationProof(input(), {
+        createId: randomUUID,
+        getBootstrapSecretDigest: () => bootstrapSecretDigest,
+        runTransaction: (operation) => operation(records),
+        writeAudit,
+      }),
+    ).rejects.toMatchObject<Partial<AdmissionDeniedError>>({
+      reason: "configuration_changed",
+    })
+
+    expect(records.createOrRestoreMembership).not.toHaveBeenCalled()
+    expect(records.createBootstrapAssignment).not.toHaveBeenCalled()
+    expect(records.createHubSession).not.toHaveBeenCalled()
+    expect(records.createSecurityAudit).not.toHaveBeenCalled()
+    expect(writeAudit).toHaveBeenCalledOnce()
+    expect(writeAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "admission_denied",
+        reason: "configuration_changed",
+      }),
+    )
+    expect(JSON.stringify(writeAudit.mock.calls)).not.toContain(bootstrapSecretDigest)
+    if (storedDigest) expect(JSON.stringify(writeAudit.mock.calls)).not.toContain(storedDigest)
+  })
+
+  it("admits normal sign-in without a bootstrap secret digest", async () => {
+    const getBootstrapSecretDigest = vi.fn()
+    const records = repositories({
+      lockAttempt: vi.fn().mockResolvedValue({
+        bootstrapSecretDigest: null,
+        consumedAt: new Date(),
+        providerRevisionId: "revision-id",
+        purpose: "SIGN_IN",
+      }),
+    })
+
+    await expect(
+      admitAuthenticationProof(input(), {
+        createId: randomUUID,
+        getBootstrapSecretDigest,
+        runTransaction: (operation) => operation(records),
+        writeAudit: vi.fn(),
+      }),
+    ).resolves.toEqual({ expiresAt: new Date("2030-01-01") })
+
+    expect(getBootstrapSecretDigest).not.toHaveBeenCalled()
+    expect(records.createOrRestoreMembership).not.toHaveBeenCalled()
+    expect(records.createBootstrapAssignment).not.toHaveBeenCalled()
+    expect(records.lockMembership).toHaveBeenCalledOnce()
+    expect(records.lockActiveAssignment).toHaveBeenCalledOnce()
+    expect(records.createHubSession).toHaveBeenCalledOnce()
   })
 
   it("ends open sessions when enrollment restores only the membership", async () => {
@@ -157,6 +250,7 @@ describe("admitAuthenticationProof()", () => {
 
     await admitAuthenticationProof(input(), {
       createId: randomUUID,
+      getBootstrapSecretDigest: () => bootstrapSecretDigest,
       runTransaction: (operation) => operation(records),
       writeAudit: vi.fn(),
     })
@@ -194,6 +288,7 @@ describe("admitAuthenticationProof()", () => {
 
     await admitAuthenticationProof(input(), {
       createId: randomUUID,
+      getBootstrapSecretDigest: () => bootstrapSecretDigest,
       runTransaction: (operation) => operation(records),
       writeAudit: vi.fn(),
     })
@@ -221,6 +316,7 @@ describe("admitAuthenticationProof()", () => {
 
     await admitAuthenticationProof(input(), {
       createId: randomUUID,
+      getBootstrapSecretDigest: () => bootstrapSecretDigest,
       runTransaction: (operation) => operation(records),
       writeAudit: vi.fn(),
     })
@@ -254,6 +350,7 @@ describe("admitAuthenticationProof()", () => {
 
       await admitAuthenticationProof(input(), {
         createId: randomUUID,
+        getBootstrapSecretDigest: () => bootstrapSecretDigest,
         runTransaction: (operation) => operation(records),
         writeAudit: vi.fn(),
       })
@@ -282,6 +379,7 @@ describe("admitAuthenticationProof()", () => {
 
     await admitAuthenticationProof(input(), {
       createId: randomUUID,
+      getBootstrapSecretDigest: () => bootstrapSecretDigest,
       runTransaction: (operation) => operation(records),
       writeAudit: vi.fn(),
     })
@@ -304,6 +402,7 @@ describe("admitAuthenticationProof()", () => {
 
     await admitAuthenticationProof(input(), {
       createId: randomUUID,
+      getBootstrapSecretDigest: () => bootstrapSecretDigest,
       runTransaction: (operation) => operation(records),
       writeAudit: vi.fn(),
     })
@@ -327,6 +426,7 @@ describe("admitAuthenticationProof()", () => {
     await expect(
       admitAuthenticationProof(input(), {
         createId: randomUUID,
+        getBootstrapSecretDigest: () => bootstrapSecretDigest,
         runTransaction: async (operation) => {
           try {
             return await operation(records)

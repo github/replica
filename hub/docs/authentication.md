@@ -22,6 +22,8 @@ Normal sign-in requires an active membership with an active assignment. Unknown 
 
 The administrator enrollment start requires `HUB_BOOTSTRAP_SECRET` before OAuth begins. The configured secret must contain at least 32 characters and is compared in constant time. The secret authorizes each browser-bound, one-use authorization attempt; it is not stored, audited, logged, or globally consumed.
 
+A started enrollment stores only a digest of the configured bootstrap secret. Rotating the secret automatically invalidates enrollment attempts that have not completed, while normal sign-in attempts remain unaffected.
+
 A successful enrollment creates or restores an active administrator assignment owned by the verified external identity. The same secret can enroll another administrator or restore a previous administrator, including when another administrator still exists. Repository permissions do not affect Hub admission.
 
 Membership lifecycle and assignment provenance are separate. The schema supports active, suspended, and removed memberships, and freezes administrator and member role values for compatibility. This version creates and admits only bootstrap-owned administrator assignments; member admission, member UI, and provider-owned assignment synchronization remain deferred.

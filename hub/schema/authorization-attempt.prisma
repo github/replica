@@ -8,6 +8,7 @@ model AuthorizationAttempt {
 
   // Attribute columns
   purpose                AuthorizationAttemptPurpose
+  bootstrapSecretDigest  String?                     @map("bootstrap_secret_digest") @db.Char(64)
   stateDigest            String                      @unique @map("state_digest") @db.VarChar(64)
   browserBindingDigest   String                      @map("browser_binding_digest") @db.VarChar(64)
   codeVerifierCiphertext String                      @map("code_verifier_ciphertext") @db.VarChar(500)

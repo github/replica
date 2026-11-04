@@ -13,6 +13,7 @@ import { createOpaqueValue } from "../../../../domains/authentication/create-opa
 import { createGitHubAuthenticationContext } from "../../../../domains/authentication/create-github-authentication-context/index.ts"
 import { decryptAuthenticationValue } from "../../../../domains/authentication/decrypt-authentication-value/index.ts"
 import { encryptAuthenticationValue } from "../../../../domains/authentication/encrypt-authentication-value/index.ts"
+import { hashAuthenticationValue } from "../../../../domains/authentication/hash-authentication-value/index.ts"
 import { startAuthenticationProof } from "../../../../domains/authentication/start-authentication-proof/index.ts"
 import { getSelectedProviderRevision } from "../../../../domains/identity/get-selected-provider-revision/index.ts"
 import { resolveOrCreateExternalIdentity } from "../../../../domains/identity/resolve-or-create-external-identity/index.ts"
@@ -75,7 +76,15 @@ export function createAuthenticationRouteDependencies(
           callbackUri: context.callbackUri,
           configurationDigest: context.configurationDigest,
           expectedRevision: context.providerRevision,
-          createAttempt: (input) => createAuthorizationAttempt(prisma, { ...input, purpose }),
+          createAttempt: (input) =>
+            createAuthorizationAttempt(prisma, {
+              ...input,
+              bootstrapSecretDigest:
+                purpose === "ADMIN_ENROLLMENT"
+                  ? hashAuthenticationValue(context.bootstrapSecret)
+                  : null,
+              purpose,
+            }),
           createId: randomUUID,
           createOpaqueValue,
           deleteExpiredArtifacts: () => deleteExpiredAuthorizationAttempts(prisma),
@@ -152,6 +161,7 @@ export function createAuthenticationRouteDependencies(
           },
           {
             createId: randomUUID,
+            getBootstrapSecretDigest: () => hashAuthenticationValue(context.bootstrapSecret),
             runTransaction: (operation) => runAdmissionTransaction(prisma, operation),
             writeAudit: (event) => createSecurityAudit(prisma, event),
           },

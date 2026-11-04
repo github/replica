@@ -6,6 +6,7 @@ export async function lockConsumedAuthorizationAttempt(
 ) {
   const rows = await database.$queryRaw<
     Array<{
+      bootstrapSecretDigest: string | null
       consumedAt: Date | null
       providerRevisionId: string
       purpose: "SIGN_IN" | "ADMIN_ENROLLMENT"
@@ -13,6 +14,7 @@ export async function lockConsumedAuthorizationAttempt(
   >`
     SELECT
       "consumed_at" AS "consumedAt",
+      "bootstrap_secret_digest" AS "bootstrapSecretDigest",
       "provider_revision_id" AS "providerRevisionId",
       "purpose"::text
     FROM "authorization_attempts"

@@ -5,7 +5,8 @@ CREATE TYPE "MembershipAssignmentSource" AS ENUM ('BOOTSTRAP');
 CREATE TYPE "MembershipAssignmentLifecycle" AS ENUM ('ACTIVE', 'REVOKED');
 
 ALTER TABLE "authorization_attempts"
-ADD COLUMN "purpose" "AuthorizationAttemptPurpose" NOT NULL DEFAULT 'SIGN_IN';
+ADD COLUMN "purpose" "AuthorizationAttemptPurpose" NOT NULL DEFAULT 'SIGN_IN',
+ADD COLUMN "bootstrap_secret_digest" CHAR(64);
 
 ALTER TABLE "authorization_attempts"
 ALTER COLUMN "purpose" DROP DEFAULT;
