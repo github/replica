@@ -2,60 +2,19 @@ import type { RepositoryWorkspaceData } from "@features/repository-workspace/typ
 
 import type { RepositoryRecord, WorkspaceResponse } from "../../contracts"
 import { resourcePath } from "../resource-path"
+import { workspaceNavigation } from "../workspace-navigation"
 
 export function repositoryWorkspace(
   workspace: WorkspaceResponse,
   repository: RepositoryRecord,
   search: URLSearchParams,
 ): RepositoryWorkspaceData {
-  function hubPath(pathname: string) {
-    return resourcePath(pathname, search, { repositoryId: repository.id })
-  }
-
   return {
-    accountMenuLabel: `Account menu for @${workspace.viewer.login}`,
-    authenticityToken: "",
+    ...workspaceNavigation(workspace, repository.id, search),
     analyticsLabel: "Analytics",
     analyticsPath: resourcePath(`/repositories/${repository.id}/analytics`, search),
     learningsLabel: "Learnings",
     learningsPath: resourcePath(`/repositories/${repository.id}/learnings`, search),
-    collapseNavigationLabel: "Collapse sidebar",
-    currentUser: workspace.viewer,
-    darkThemeLabel: "Dark",
-    expandNavigationLabel: "Expand sidebar",
-    feedbackLabel: "Feedback",
-    lightThemeLabel: "Light",
-    navigationLabel: "Repository navigation",
-    notificationsLabel: "Notifications",
-    notificationsPath: hubPath("/notifications"),
-    notificationsUnread: (workspace.navigation?.notificationsUnreadCount ?? 0) > 0,
-    notificationsUnreadCount: workspace.navigation?.notificationsUnreadCount,
-    notificationsUnreadLabel: "Unread notifications",
-    welcomeLabel: "Welcome",
-    welcomePath:
-      workspace.navigation && !workspace.navigation.welcomeHidden ? hubPath("/welcome") : null,
-    settingsNavigationLabel: "Security and settings",
-    securityAuditLabel: "Security audit",
-    securityAuditPath: resourcePath("/settings/audit", search, { repositoryId: repository.id }),
-    administrationLinks: [
-      { section: "copilot", label: "Copilot connection", path: hubPath("/settings/copilot") },
-      { section: "sessions", label: "End all Hub sessions", path: hubPath("/settings/sessions") },
-      ...(workspace.capabilities?.administerHub
-        ? [
-            {
-              section: "admins" as const,
-              label: "Hub administrators",
-              path: hubPath("/settings/admins"),
-            },
-            {
-              section: "sharing" as const,
-              label: "Public sharing",
-              path: hubPath("/settings/sharing"),
-            },
-            { section: "github" as const, label: "GitHub App", path: hubPath("/settings/github") },
-          ]
-        : []),
-    ],
     newPrototypeLabel: "Create",
     newPrototypePath: workspace.capabilities?.createPrototypes
       ? resourcePath(`/repositories/${repository.id}/new`, search)
@@ -71,8 +30,5 @@ export function repositoryWorkspace(
     repositorySelectorLabel: `Choose repository. ${repository.nameWithOwner} selected`,
     selectedRepositoryId: String(repository.id),
     selectedSection: "prototypes",
-    signOutLabel: "Sign out",
-    signOutPath: "/session",
-    systemThemeLabel: "System",
   }
 }

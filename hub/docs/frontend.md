@@ -59,7 +59,11 @@ Other seeded page states:
 
 Review filters also live in the URL: `commentSearch`, `commentParticipant`, and the `commentBuild`, `commentPage`, `commentResolved`, `commentUnread`, and `commentMine` flags. A flag value of `1` enables it. Closing a conversation removes `comment`; browser back/forward restores the selection and filters.
 
-Hub settings and Public sharing reuse the same workspace navigation adapter. Links to Hub-wide pages carry `repositoryId` to preserve the selected repository; direct Public sharing visits use the first available repository. Users without repository access retain global navigation without an empty selector, and administrator links remain permission-dependent. Public and signed-out layouts remain separate.
+Repository pages, Hub settings and Public sharing use one [workspace navigation definition](../client/application/hub/view-models/workspace-navigation/index.ts) for labels, ordering, destinations and visibility. Repository navigation adds its repository-specific links without redefining Hub settings. Current settings permissions, hidden Welcome state and unread counts replace cached workspace values before navigation is assembled.
+
+Administrators see Hub administrators, Public sharing, End all Hub sessions, GitHub App, Copilot connection and Security audit in that order on every workspace page. Other users do not see administrator links. Security audit links explicitly select Hub scope for administrators and repository scope for other users with repository context; a user without a repository or Hub administration has no audit link.
+
+Links to Hub-wide pages carry `repositoryId` to preserve the selected repository; direct Public sharing visits use the first available repository. Users without repository access retain global navigation without an empty selector. Public and signed-out layouts remain separate.
 
 Analytics and Learnings belong to `/repositories/:repositoryId/analytics` and `/repositories/:repositoryId/learnings`. Their path identifier selects the repository for reads and form submissions, even if a query parameter names another repository. Malformed path identifiers return 400; unavailable repositories return 404. Hub-wide Public sharing uses `/settings/sharing`. Security audit keeps its existing `/settings/audit?scope=hub` and `/settings/audit?scope=repository&repositoryId=...` URLs.
 
