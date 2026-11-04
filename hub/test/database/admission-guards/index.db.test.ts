@@ -181,12 +181,12 @@ describe("admission database guards", () => {
         data: { digest: "b".repeat(64) },
       }),
     ).rejects.toThrow("except for first termination")
-    await expect(
-      prisma.hubSession.update({
-        where: { id: sessionId },
-        data: { endedAt: new Date() },
-      }),
-    ).resolves.toMatchObject({ id: sessionId, endedAt: expect.any(Date) })
+    const ended = await prisma.hubSession.update({
+      where: { id: sessionId },
+      data: { endedAt: new Date() },
+    })
+    expect(ended.id).toBe(sessionId)
+    expect(ended.endedAt).toBeInstanceOf(Date)
     await expect(
       prisma.hubSession.update({
         where: { id: sessionId },
