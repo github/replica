@@ -1,6 +1,6 @@
 # Deploy Hub
 
-The Hub image runs the frontend, API, and both workers together. It can expose GitHub sign-in and reusable administrator enrollment when their settings are configured. It does not yet implement artifact import, preview hosting, or reviews. Do not treat the health endpoint as proof of those product flows.
+The Hub image runs the frontend, API, and both workers together. It can expose GitHub, Microsoft Entra, or both sign-in choices and reusable administrator enrollment when their settings are configured. It does not yet implement artifact import, preview hosting, or reviews. Do not treat the health endpoint as proof of those product flows.
 
 ## Image and runtime
 
@@ -20,6 +20,11 @@ Publishing is an explicit operator step, not a side effect of CI. From the appro
 | `HUB_APPLICATION_ORIGIN`                                 | Exact public HTTP origin. Setting it enables the authentication routes and requires the remaining authentication settings below.                |
 | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`                | GitHub App user-authorization credentials. Keep the secret in protected runtime configuration.                                                 |
 | `GITHUB_PROVIDER_REVISION`                               | Positive configured adapter revision. Hub validates and selects the matching public-configuration digest.                                     |
+| `ENTRA_OIDC_ISSUER`, `ENTRA_OIDC_CLIENT_ID`              | Exact single-tenant Entra v2 issuer and application client ID. See [Microsoft Entra OIDC](entra-oidc.md).                                      |
+| `ENTRA_OIDC_PROVIDER_REVISION`                           | Positive Entra adapter revision. Increase it when configuration or credential material changes.                                                |
+| `ENTRA_OIDC_CLIENT_AUTHENTICATION`                       | Exactly `client-secret` or `managed-identity`; Hub never falls back between modes.                                                             |
+| `ENTRA_OIDC_CLIENT_SECRET`                               | Local/test client secret when the selected mode is `client-secret`.                                                                            |
+| `ENTRA_OIDC_MANAGED_IDENTITY_CLIENT_ID`                  | User-assigned managed identity client ID when the selected mode is `managed-identity`.                                                         |
 | `HUB_AUTHENTICATION_ENCRYPTION_KEY`                      | Base64-encoded 32-byte key used only for short-lived authorization-attempt verifier state.                                                     |
 | `HUB_BOOTSTRAP_SECRET`                                   | Reusable high-entropy secret, at least 32 characters, for administrator enrollment.                                                            |
 | `HUB_TRUSTED_PROXY_HOPS`                                 | Exact protected proxy-chain length, default 0. Configure this for the deployment ingress before enabling authentication.                       |

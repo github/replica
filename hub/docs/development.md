@@ -1,6 +1,6 @@
 # Hub development
 
-Use the Hub devcontainer for Node.js and its pinned PostgreSQL version, or run Node.js locally with PostgreSQL 17 or newer. Hub can expose GitHub sign-in and reusable administrator enrollment when every authentication setting is configured. See [Deployment](deployment.md) for the production runtime.
+Use the Hub devcontainer for Node.js and its pinned PostgreSQL version, or run Node.js locally with PostgreSQL 17 or newer. Hub can expose GitHub, Microsoft Entra, or both sign-in choices and reusable administrator enrollment when the shared settings and at least one provider profile are configured. See [Deployment](deployment.md) for the production runtime.
 
 ## Frontend without a backend
 
@@ -42,7 +42,7 @@ npm run dev
 
 Open <http://127.0.0.1:5173>. React Router's Vite development server forwards `/api` requests to Express at <http://127.0.0.1:3001>. `GET /api/health` and `GET /api/ready` return JSON. The [authentication and Hub session guide](authentication.md) describes configured sign-in and enrollment. In real mode, `/` and `/admin-enrollment` show that authentication flow without requesting a product workspace. Product API routes have not been built, so other product pages display API errors rather than falling back to fixtures.
 
-The API registers authentication routes when `HUB_APPLICATION_ORIGIN` is configured. Set the GitHub client, provider revision, encryption key, and bootstrap secret settings documented in `.env.example` at the same time. Both development servers accept connections only from this machine. Stop each with Ctrl+C.
+The API registers authentication routes when `HUB_APPLICATION_ORIGIN` and at least one complete GitHub or Entra profile are configured. Set the shared encryption key and bootstrap secret at the same time. See `.env.example` and [Microsoft Entra OIDC](entra-oidc.md). Both development servers accept connections only from this machine. Stop each with Ctrl+C.
 
 No authentication-provider database seed is required. The first sign-in start validates the configured GitHub adapter and persists only its provider key, revision number, and public-configuration digest.
 
