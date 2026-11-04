@@ -19,33 +19,34 @@ function dependencies(overrides: Partial<StartAuthenticationProofDependencies> =
       return url
     },
   )
-  return {
+  const values = {
+    adapter: {
+      providerKey: "github",
+      createAuthorizationUrl,
+      completeAuthenticationProof: vi.fn(),
+    },
+    callbackUri: "https://hub.test/callback",
+    configurationDigest: "a".repeat(64),
+    expectedRevision: 1,
     createAttempt,
-    createAuthorizationUrl,
-    values: {
-      adapter: {
-        providerKey: "github",
-        createAuthorizationUrl,
-        completeAuthenticationProof: vi.fn(),
-      },
-      callbackUri: "https://hub.test/callback",
-      configurationDigest: "a".repeat(64),
-      expectedRevision: 1,
-      createAttempt,
-      createId: () => "00000000-0000-4000-8000-000000000010",
-      createOpaqueValue: () => "opaque-value-with-required-length",
-      deleteExpiredArtifacts: vi.fn(),
-      encryptCodeVerifier: vi.fn(() => "encrypted-verifier"),
-      encryptNonce: vi.fn(() => "encrypted-nonce"),
-      getSelectedProviderRevision: () =>
-        Promise.resolve({
-          id: "00000000-0000-4000-8000-000000000011",
-          revision: 1,
-          configurationDigest: "a".repeat(64),
-        }),
-      writeDenialAudit: vi.fn(),
-      ...overrides,
-    } satisfies StartAuthenticationProofDependencies,
+    createId: () => "00000000-0000-4000-8000-000000000010",
+    createOpaqueValue: () => "opaque-value-with-required-length",
+    deleteExpiredArtifacts: vi.fn(),
+    encryptCodeVerifier: vi.fn(() => "encrypted-verifier"),
+    encryptNonce: vi.fn(() => "encrypted-nonce"),
+    getSelectedProviderRevision: () =>
+      Promise.resolve({
+        id: "00000000-0000-4000-8000-000000000011",
+        revision: 1,
+        configurationDigest: "a".repeat(64),
+      }),
+    writeDenialAudit: vi.fn(),
+    ...overrides,
+  } satisfies StartAuthenticationProofDependencies
+  return {
+    createAttempt: vi.mocked(values.createAttempt),
+    createAuthorizationUrl: vi.mocked(values.adapter.createAuthorizationUrl),
+    values,
   }
 }
 
@@ -71,14 +72,13 @@ describe("startAuthenticationProof()", () => {
       .digest("hex")}`
     expect(result.browserBinding).toBe("browser-secret")
     expect(scoped.createAuthorizationUrl).toHaveBeenCalledOnce()
-    expect(scoped.createAuthorizationUrl).toHaveBeenCalledWith(
-      expect.objectContaining({
-        callbackUri: "https://hub.test/callback",
-        codeChallenge: expectedChallenge,
-        nonce: "nonce-secret",
-        state: "state-secret",
-      }),
-    )
+    expect(scoped.createAuthorizationUrl).toHaveBeenCalledWith({
+      callbackUri: "https://hub.test/callback",
+      codeChallenge: expectedChallenge,
+      freshAuthentication: false,
+      nonce: "nonce-secret",
+      state: "state-secret",
+    })
     const authorizationUrl = new URL(result.authorizationUrl)
     expect(authorizationUrl.searchParams.get("state")).toBe("state-secret")
     expect(authorizationUrl.searchParams.get("code_challenge")).toBe(expectedChallenge)

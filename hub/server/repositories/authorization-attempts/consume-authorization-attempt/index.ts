@@ -48,7 +48,7 @@ export async function consumeAuthorizationAttempt(
           "code_verifier_ciphertext",
           "created_at",
           "nonce_ciphertext",
-          "purpose"::text,
+          "purpose",
           "provider_revision_id"
       `
       const attempt = consumed[0]
