@@ -16,6 +16,7 @@ import type { AuthenticationCallbackDependencies } from "../../../types.ts"
 const querySchema = z
   .object({
     code: z.string().min(1).max(1_000),
+    iss: z.literal("https://github.com/login/oauth").optional(),
     state: z.string().min(32).max(200),
   })
   .strict()

@@ -224,6 +224,54 @@ describe("authenticationRoutes()", () => {
     })
   })
 
+  it("accepts GitHub's exact callback issuer parameter", async () => {
+    const { dependencies, completeProof, admitSession } = routeDependencies()
+    completeProof.mockResolvedValue({
+      proof: {
+        authorizationAttemptId: "attempt-id",
+        externalIdentityId: "identity-id",
+      },
+    })
+    admitSession.mockResolvedValue({ expiresAt: new Date("2030-01-01T00:00:00Z") })
+    const state = "s".repeat(32)
+    const browserBinding = "b".repeat(32)
+
+    await withServer(dependencies, async (baseUrl) => {
+      const callback = new URL("/api/auth/github/callback", baseUrl)
+      callback.searchParams.set("code", "provider-code")
+      callback.searchParams.set("state", state)
+      callback.searchParams.set("iss", "https://github.com/login/oauth")
+      const response = await fetch(callback, {
+        headers: { cookie: `hub_auth_browser=${browserBinding}` },
+        redirect: "manual",
+      })
+
+      expect(response.headers.get("location")).toBe("/?authentication=success")
+      expect(completeProof).toHaveBeenCalledWith({
+        browserBinding,
+        code: "provider-code",
+        state,
+      })
+    })
+  })
+
+  it("rejects an unexpected callback issuer before proof completion", async () => {
+    const { dependencies, completeProof } = routeDependencies()
+    await withServer(dependencies, async (baseUrl) => {
+      const callback = new URL("/api/auth/github/callback", baseUrl)
+      callback.searchParams.set("code", "provider-code")
+      callback.searchParams.set("state", "s".repeat(32))
+      callback.searchParams.set("iss", "https://attacker.example")
+      const response = await fetch(callback, {
+        headers: { cookie: `hub_auth_browser=${"b".repeat(32)}` },
+        redirect: "manual",
+      })
+
+      expect(response.headers.get("location")).toBe("/?authentication=denied")
+      expect(completeProof).not.toHaveBeenCalled()
+    })
+  })
+
   it("preserves a successful Hub session when a replay denial response arrives last", async () => {
     const { dependencies, completeProof, admitSession } = routeDependencies()
     completeProof
