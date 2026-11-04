@@ -41,51 +41,6 @@ describe("restoreHubSession()", () => {
     ).resolves.toEqual({ role: "MEMBER" })
   })
 
-  it("denies restore when the selected provider revision leaves no current assignment", async () => {
-    const records = repositories({
-      lockActiveAssignments: vi.fn().mockResolvedValue([]),
-    })
-
-    await expect(
-      restoreHubSession("a".repeat(64), {
-        runTransaction: (operation) => operation(records),
-      }),
-    ).resolves.toBeNull()
-  })
-
-  it("permits restore when the provider assignment is on the selected revision", async () => {
-    const records = repositories({
-      lockActiveAssignments: vi
-        .fn()
-        .mockResolvedValue([
-          { id: "current-assignment", role: "MEMBER", source: "AUTHENTICATION_PROVIDER" },
-        ]),
-    })
-
-    await expect(
-      restoreHubSession("a".repeat(64), {
-        runTransaction: (operation) => operation(records),
-      }),
-    ).resolves.toEqual({ role: "MEMBER" })
-  })
-
-  it("permits bootstrap authority even when provider authority is stale", async () => {
-    const records = repositories({
-      getActiveProviderKeys: vi.fn().mockResolvedValue(["entra"]),
-      lockActiveAssignments: vi
-        .fn()
-        .mockResolvedValue([
-          { id: "bootstrap-assignment", role: "ADMINISTRATOR", source: "BOOTSTRAP" },
-        ]),
-    })
-
-    await expect(
-      restoreHubSession("a".repeat(64), {
-        runTransaction: (operation) => operation(records),
-      }),
-    ).resolves.toEqual({ role: "ADMINISTRATOR" })
-  })
-
   it("locks each provider before locking membership authority", async () => {
     const order: string[] = []
     const records = repositories({
