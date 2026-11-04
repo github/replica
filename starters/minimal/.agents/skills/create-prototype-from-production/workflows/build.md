@@ -14,7 +14,11 @@ local preview.
 ## Implement
 
 Use the [create-prototype](../../create-prototype/SKILL.md) create workflow
-with the generated context. Order:
+with the generated context.
+
+Follow the app's `AGENTS.md` and shared authoring rules. Reuse existing components and supported design-system APIs when available; Minimal needs no added component library. Build editable React compositions with page content separate from presentation. Captured page HTML is reference evidence, not the app's rendering implementation.
+
+Order:
 
 1. Shared shell: header, menus, footer, mobile navigation, tokens and fonts.
 2. One composition per family, from its representative capture. Pass the
@@ -54,6 +58,8 @@ Fix navigation gaps and broken routes. Record only residual visual differences
 instead of iterating on polish. Set rows to `verified` or `blocked` with a note.
 
 ## Handoff
+
+Run the app's declared type check, tests, build and formatting check before handoff. Fix failures and report unavailable checks; a passing ledger does not replace them.
 
 `node .agents/skills/create-prototype-from-production/scripts/check-ledger.mjs --final`
 must pass. Commit the build separately from the capture commit. Report: ledger
