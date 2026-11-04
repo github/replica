@@ -180,4 +180,27 @@ describe("HubApplication()", () => {
     ).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: /sign in with/i })).toBeNull()
   })
+
+  it("shows provider discovery failure on administrator enrollment for a signed-in session", async () => {
+    window.history.replaceState({}, "", "/admin-enrollment")
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) =>
+        Promise.resolve(
+          requestUrl(input).endsWith("/api/auth/providers")
+            ? new Response(null, { status: 500 })
+            : Response.json({ authenticated: true, role: "ADMINISTRATOR" }),
+        ),
+      ),
+    )
+
+    renderApplication()
+
+    expect(
+      await screen.findByText(
+        "Replica Hub could not load sign-in options. Reload the page to try again.",
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: /verify with/i })).toBeNull()
+  })
 })

@@ -17,6 +17,7 @@ type SessionState =
     }
   | {
       status: "signed-in"
+      providerDiscoveryFailed: boolean
       providers: Array<"github" | "entra">
       role: "MEMBER" | "ADMINISTRATOR"
     }
@@ -69,6 +70,7 @@ export function HubApplication() {
           if (!parsed.success) throw new Error("Session restoration returned an invalid response.")
           setSession({
             status: "signed-in",
+            providerDiscoveryFailed: providerResult.failed,
             providers: providerResult.providers,
             role: parsed.data.role,
           })
@@ -94,12 +96,11 @@ export function HubApplication() {
     return (
       <HubAdminEnrollmentPage
         data={{
-          alert:
-            session.status === "signed-out" && session.providerDiscoveryFailed
-              ? "Replica Hub could not load sign-in options. Reload the page to try again."
-              : authentication === "denied"
-                ? "Administrator enrollment was denied."
-                : null,
+          alert: session.providerDiscoveryFailed
+            ? "Replica Hub could not load sign-in options. Reload the page to try again."
+            : authentication === "denied"
+              ? "Administrator enrollment was denied."
+              : null,
           productName: "Replica Hub",
           pageTitle: "Enroll a Hub administrator",
           heading: "Enroll a Hub administrator",
