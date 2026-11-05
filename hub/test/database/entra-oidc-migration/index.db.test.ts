@@ -158,6 +158,64 @@ describe("Entra OIDC migration compatibility", () => {
           "membership_assignments_active_provider_membership_idx",
         )
 
+        const bootstrapAssignmentIndex = await database.query<{
+          indisunique: boolean
+          predicate: string
+        }>(
+          `SELECT
+             index_definition.indisunique,
+             pg_get_expr(index_definition.indpred, index_definition.indrelid) AS predicate
+           FROM pg_class index_name
+           JOIN pg_index index_definition ON index_definition.indexrelid = index_name.oid
+           WHERE index_name.relname = 'membership_assignments_bootstrap_membership_idx'`,
+        )
+        expect(bootstrapAssignmentIndex.rows).toHaveLength(1)
+        expect(bootstrapAssignmentIndex.rows[0]?.indisunique).toBe(false)
+        expect(bootstrapAssignmentIndex.rows[0]?.predicate).toContain("'BOOTSTRAP'")
+        expect(bootstrapAssignmentIndex.rows[0]!.predicate).toContain("'ADMINISTRATOR'")
+        expect(bootstrapAssignmentIndex.rows[0]!.predicate).not.toContain("lifecycle")
+
+        for (const lifecycle of ["ACTIVE", "REVOKED"] as const) {
+          if (lifecycle === "REVOKED") {
+            await database.query(
+              `UPDATE membership_assignments
+               SET lifecycle = 'REVOKED', updated_at = clock_timestamp()
+               WHERE id = $1`,
+              [assignmentId],
+            )
+          }
+          const bootstrapAssignment = await database.query<{ lifecycle: string }>(
+            `SELECT lifecycle::text
+             FROM membership_assignments
+             WHERE membership_id = $1::uuid
+               AND source = 'BOOTSTRAP'
+               AND role = 'ADMINISTRATOR'
+             FOR UPDATE`,
+            [membershipId],
+          )
+          expect(bootstrapAssignment.rows).toEqual([{ lifecycle }])
+          const bootstrapAssignmentPlan = await database.query<{ "QUERY PLAN": string }>(
+            `EXPLAIN (COSTS OFF)
+             SELECT external_identity_id, lifecycle::text
+             FROM membership_assignments
+             WHERE membership_id = $1::uuid
+               AND source = 'BOOTSTRAP'
+               AND role = 'ADMINISTRATOR'
+             FOR UPDATE`,
+            [membershipId],
+          )
+          expect(
+            bootstrapAssignmentPlan.rows.map((row) => row["QUERY PLAN"]).join("\n"),
+            `${lifecycle} bootstrap lookup plan`,
+          ).toContain("membership_assignments_bootstrap_membership_idx")
+        }
+        await database.query(
+          `UPDATE membership_assignments
+           SET lifecycle = 'ACTIVE', updated_at = clock_timestamp()
+           WHERE id = $1`,
+          [assignmentId],
+        )
+
         await expect(
           database.query(`SELECT nonce_ciphertext FROM authorization_attempts WHERE id = $1`, [
             attemptId,

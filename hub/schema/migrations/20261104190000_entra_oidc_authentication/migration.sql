@@ -45,6 +45,10 @@ CREATE UNIQUE INDEX "membership_assignments_active_bootstrap_key"
 ON "membership_assignments"("membership_id")
 WHERE "source" = 'BOOTSTRAP' AND "lifecycle" = 'ACTIVE';
 
+CREATE INDEX "membership_assignments_bootstrap_membership_idx"
+ON "membership_assignments"("membership_id")
+WHERE "source" = 'BOOTSTRAP' AND "role" = 'ADMINISTRATOR';
+
 CREATE UNIQUE INDEX "membership_assignments_active_provider_identity_key"
 ON "membership_assignments"("external_identity_id")
 WHERE "source" = 'AUTHENTICATION_PROVIDER' AND "lifecycle" = 'ACTIVE';
