@@ -47,7 +47,7 @@ export async function claimProviderEvidence(
       SET
         "last_issued_at" = ${parsed.issuedAt},
         "last_role" = ${parsed.role}::"MembershipRole",
-        "updated_at" = clock_timestamp()
+        "updated_at" = GREATEST(clock_timestamp(), "updated_at" + interval '1 millisecond')
       WHERE "id" = ${state.id}::uuid
     `
     return "advanced"
