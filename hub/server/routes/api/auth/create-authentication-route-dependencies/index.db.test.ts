@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto"
 import { describe, expect, it, vi } from "vitest"
 
 import { prisma } from "../../../../integrations/prisma"
-import { createAuthenticationRouteDependencies } from "."
+import { createAuthenticationRouteDependencies, disableAuthenticationProviders } from "."
 
 const tenantId = "11111111-1111-4111-8111-111111111111"
 const entraClientId = "22222222-2222-4222-8222-222222222222"
@@ -428,6 +428,74 @@ describe("createAuthenticationRouteDependencies()", () => {
         context: { provider: "entra" },
       },
     ])
+  })
+
+  it("disables every provider once and requires fresh sign-in when identical configuration returns", async () => {
+    const original = await createAuthenticationRouteDependencies(
+      environment({ entra: true, github: true }),
+      validDiscovery,
+    )
+    const entraDigest = "f".repeat(64)
+    const githubDigest = "0".repeat(64)
+    await createProviderSession("entra", entraDigest)
+    await createProviderSession("github", githubDigest)
+
+    await disableAuthenticationProviders()
+
+    await expect(
+      prisma.authenticationProvider.findMany({
+        orderBy: { key: "asc" },
+        select: { enabled: true, key: true },
+      }),
+    ).resolves.toEqual([
+      { enabled: false, key: "entra" },
+      { enabled: false, key: "github" },
+    ])
+    await expect(
+      prisma.sessionRevocationState.findUniqueOrThrow({
+        select: { revision: true },
+        where: { key: "global" },
+      }),
+    ).resolves.toEqual({ revision: 1 })
+    await expect(original.currentSession.restore(entraDigest)).resolves.toBeNull()
+    await expect(original.currentSession.restore(githubDigest)).resolves.toBeNull()
+    await expect(original.entra!.signIn.start()).rejects.toThrow()
+    await expect(original.github!.signIn.start()).rejects.toThrow()
+
+    await disableAuthenticationProviders()
+
+    await expect(
+      prisma.sessionRevocationState.findUniqueOrThrow({
+        select: { revision: true },
+        where: { key: "global" },
+      }),
+    ).resolves.toEqual({ revision: 1 })
+    await expect(
+      prisma.securityAudit.count({ where: { action: "session.revocation.advanced" } }),
+    ).resolves.toBe(1)
+    await expect(
+      prisma.securityAudit.count({
+        where: { action: "identity.authentication_provider.disabled" },
+      }),
+    ).resolves.toBe(2)
+
+    const reenabled = await createAuthenticationRouteDependencies(
+      environment({ entra: true, github: true }),
+      validDiscovery,
+    )
+
+    await expect(reenabled.currentSession.restore(entraDigest)).resolves.toBeNull()
+    await expect(reenabled.currentSession.restore(githubDigest)).resolves.toBeNull()
+    const entraAttempt = await reenabled.entra!.signIn.start()
+    const githubAttempt = await reenabled.github!.signIn.start()
+    expect(entraAttempt.authorizationUrl).toContain(`${issuer}/oauth2/v2.0/authorize`)
+    expect(githubAttempt.authorizationUrl).toContain("github.com/login/oauth/authorize")
+    await expect(
+      prisma.sessionRevocationState.findUniqueOrThrow({
+        select: { revision: true },
+        where: { key: "global" },
+      }),
+    ).resolves.toEqual({ revision: 1 })
   })
 
   it("keeps both providers active when both remain configured", async () => {

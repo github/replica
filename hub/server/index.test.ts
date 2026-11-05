@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { runApi } from "./run-api"
+import { startServerProcesses } from "./start-server-processes"
 import { parseRuntimeConfig } from "./utils/parse-runtime-config"
 
 vi.mock("./domains/artifacts/create-configured-artifact-storage", () => ({
@@ -34,11 +35,26 @@ const apiConfiguration = {
   scheduledConcurrency: 1,
 }
 
+const authenticationConfigurationKeys = [
+  "GITHUB_CLIENT_ID",
+  "GITHUB_CLIENT_SECRET",
+  "GITHUB_PROVIDER_REVISION",
+  "ENTRA_OIDC_CLIENT_AUTHENTICATION",
+  "ENTRA_OIDC_CLIENT_ID",
+  "ENTRA_OIDC_CLIENT_SECRET",
+  "ENTRA_OIDC_ISSUER",
+  "ENTRA_OIDC_MANAGED_IDENTITY_CLIENT_ID",
+  "ENTRA_OIDC_PROVIDER_REVISION",
+  "HUB_AUTHENTICATION_ENCRYPTION_KEY",
+  "HUB_BOOTSTRAP_SECRET",
+] as const
+
 describe("server runtime", () => {
   beforeEach(() => {
     vi.resetModules()
     vi.doUnmock("./routes/api/auth/create-authentication-route-dependencies/index.ts")
     vi.mocked(parseRuntimeConfig).mockReturnValue(apiConfiguration)
+    vi.mocked(runApi).mockResolvedValue(undefined)
     vi.spyOn(process, "exit").mockImplementation((code) => {
       throw new Error(`Unexpected process exit: ${code}`)
     })
@@ -52,24 +68,73 @@ describe("server runtime", () => {
     expect(runApi).toHaveBeenCalledWith(expect.objectContaining({ authentication: undefined }))
   })
 
+  it.each(authenticationConfigurationKeys)(
+    "rejects partial authentication configuration when %s is set without an application origin",
+    async (key) => {
+      vi.stubEnv(key, "configured")
+      vi.mocked(parseRuntimeConfig).mockReturnValue({
+        ...apiConfiguration,
+        databaseUrl: "postgresql://hub.example.test/replica",
+      })
+
+      await expect(import("./index.ts")).rejects.toThrow("Unexpected process exit: 1")
+
+      expect(runApi).not.toHaveBeenCalled()
+    },
+  )
+
+  it.each(["api", "combined"] as const)(
+    "disables durable providers without registering authentication routes in a database-backed %s runtime",
+    async (mode) => {
+      const createAuthenticationRouteDependencies = vi.fn()
+      const disableAuthenticationProviders = vi.fn().mockResolvedValue(undefined)
+      vi.mocked(parseRuntimeConfig).mockReturnValue({
+        ...apiConfiguration,
+        mode,
+        databaseUrl: "postgresql://hub.example.test/replica",
+      })
+      vi.doMock("./routes/api/auth/create-authentication-route-dependencies/index.ts", () => ({
+        createAuthenticationRouteDependencies,
+        disableAuthenticationProviders,
+      }))
+
+      await expect(import("./index.ts")).resolves.toBeDefined()
+
+      expect(disableAuthenticationProviders).toHaveBeenCalledOnce()
+      expect(createAuthenticationRouteDependencies).not.toHaveBeenCalled()
+      const runner = mode === "api" ? runApi : startServerProcesses
+      expect(runner).toHaveBeenCalledWith(expect.objectContaining({ authentication: undefined }))
+    },
+  )
+
   it("loads route-owned authentication composition when auth is configured", async () => {
     const createAuthenticationRouteDependencies = vi.fn()
+    const disableAuthenticationProviders = vi.fn()
     const authentication = {
-      signIn: {},
-      administratorEnrollment: {},
-      callback: {},
       currentSession: {},
+      github: {
+        signIn: {},
+        administratorEnrollment: {},
+        callback: {},
+      },
       signOut: {},
     }
     vi.stubEnv("HUB_APPLICATION_ORIGIN", "https://hub.example.test")
+    vi.stubEnv("GITHUB_CLIENT_ID", "github-client")
+    vi.mocked(parseRuntimeConfig).mockReturnValue({
+      ...apiConfiguration,
+      databaseUrl: "postgresql://hub.example.test/replica",
+    })
     createAuthenticationRouteDependencies.mockResolvedValue(authentication)
     vi.doMock("./routes/api/auth/create-authentication-route-dependencies/index.ts", () => ({
       createAuthenticationRouteDependencies,
+      disableAuthenticationProviders,
     }))
 
     await expect(import("./index.ts")).resolves.toBeDefined()
 
     expect(createAuthenticationRouteDependencies).toHaveBeenCalledWith(process.env)
+    expect(disableAuthenticationProviders).not.toHaveBeenCalled()
     expect(runApi).toHaveBeenCalledWith(expect.objectContaining({ authentication }))
   })
 })

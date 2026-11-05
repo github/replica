@@ -70,6 +70,20 @@ function entraConfigured(environment: NodeJS.ProcessEnv) {
   )
 }
 
+function reconcileConfiguredProviders(
+  candidates: Parameters<typeof reconcileAuthenticationProviders>[0],
+) {
+  return reconcileAuthenticationProviders(candidates, {
+    createId: randomUUID,
+    runTransaction: (operation) => runProviderRevisionTransaction(prisma, operation),
+    writeAudit: (event) => createSecurityAudit(prisma, event),
+  })
+}
+
+export async function disableAuthenticationProviders(): Promise<void> {
+  await reconcileConfiguredProviders([])
+}
+
 export async function createAuthenticationRouteDependencies(
   environment: NodeJS.ProcessEnv,
   request: typeof globalThis.fetch = globalThis.fetch,
@@ -111,17 +125,12 @@ export async function createAuthenticationRouteDependencies(
   if (!contexts.length) {
     throw new Error("Configure at least one GitHub or Entra user sign-in provider.")
   }
-  await reconcileAuthenticationProviders(
+  await reconcileConfiguredProviders(
     contexts.map((context) => ({
       canonicalPublicConfiguration: context.adapter.canonicalPublicConfiguration,
       providerKey: context.adapter.providerKey,
       revision: context.providerRevision,
     })),
-    {
-      createId: randomUUID,
-      runTransaction: (operation) => runProviderRevisionTransaction(prisma, operation),
-      writeAudit: (event) => createSecurityAudit(prisma, event),
-    },
   )
 
   function createProviderDependencies(

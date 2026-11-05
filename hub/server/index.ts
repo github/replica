@@ -11,6 +11,27 @@ import { jobProcessors } from "./workers/configuration.ts"
 import { runJobWorker } from "./workers/run-job-worker/index.ts"
 import type { AuthenticationRouteDependencies } from "./routes/api/auth/types.ts"
 
+const providerConfigurationKeys = [
+  "GITHUB_CLIENT_ID",
+  "GITHUB_CLIENT_SECRET",
+  "GITHUB_PROVIDER_REVISION",
+  "ENTRA_OIDC_CLIENT_AUTHENTICATION",
+  "ENTRA_OIDC_CLIENT_ID",
+  "ENTRA_OIDC_CLIENT_SECRET",
+  "ENTRA_OIDC_ISSUER",
+  "ENTRA_OIDC_MANAGED_IDENTITY_CLIENT_ID",
+  "ENTRA_OIDC_PROVIDER_REVISION",
+] as const
+
+const sharedAuthenticationKeys = [
+  "HUB_AUTHENTICATION_ENCRYPTION_KEY",
+  "HUB_BOOTSTRAP_SECRET",
+] as const
+
+function hasConfiguredValue(environment: NodeJS.ProcessEnv, key: string): boolean {
+  return environment[key] !== undefined
+}
+
 try {
   const configuration = parseRuntimeConfig(process.env)
   const storage =
@@ -32,10 +53,34 @@ try {
     }
     const trustedProxyHops = runsApi ? configuredTrustedProxyHops : 0
     let authentication: AuthenticationRouteDependencies | undefined
-    if (runsApi && process.env.HUB_APPLICATION_ORIGIN) {
-      const { createAuthenticationRouteDependencies } =
-        await import("./routes/api/auth/create-authentication-route-dependencies/index.ts")
-      authentication = await createAuthenticationRouteDependencies(process.env)
+    if (runsApi) {
+      const providerConfigured = providerConfigurationKeys.some((key) =>
+        hasConfiguredValue(process.env, key),
+      )
+      const sharedAuthenticationConfigured = sharedAuthenticationKeys.some((key) =>
+        hasConfiguredValue(process.env, key),
+      )
+      const applicationOrigin = process.env.HUB_APPLICATION_ORIGIN?.trim()
+      if ((providerConfigured || sharedAuthenticationConfigured) && !applicationOrigin) {
+        throw new Error(
+          "HUB_APPLICATION_ORIGIN is required when authentication settings are configured.",
+        )
+      }
+      if (
+        (providerConfigured || sharedAuthenticationConfigured || applicationOrigin) &&
+        !configuration.databaseUrl
+      ) {
+        throw new Error("DATABASE_URL is required when authentication settings are configured.")
+      }
+      if (configuration.databaseUrl) {
+        const { createAuthenticationRouteDependencies, disableAuthenticationProviders } =
+          await import("./routes/api/auth/create-authentication-route-dependencies/index.ts")
+        if (providerConfigured) {
+          authentication = await createAuthenticationRouteDependencies(process.env)
+        } else {
+          await disableAuthenticationProviders()
+        }
+      }
     }
     if (configuration.mode === "setup") await setup()
     else if (configuration.mode === "api")
