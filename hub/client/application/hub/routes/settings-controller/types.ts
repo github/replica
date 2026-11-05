@@ -1,5 +1,6 @@
 import type {
   SettingsPublicResponse,
+  SettingsCandidateResponse,
   SettingsQuery,
   SettingsWorkspaceResponse,
 } from "../../settings-contracts"
@@ -10,5 +11,9 @@ export type SettingsRouteData =
       surface: "workspace"
       state: SettingsWorkspaceResponse
       query: SettingsQuery
-      confirmation?: { userId: number; operation: "designate" | "revoke" }
+      confirmation?: {
+        userId: number
+        user: SettingsCandidateResponse["users"][number]
+        operation: "designate" | "revoke"
+      }
     }

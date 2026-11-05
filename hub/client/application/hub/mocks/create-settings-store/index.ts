@@ -22,7 +22,7 @@ import { MockStoreError } from "../store-error"
 export function createSettingsStore(context: MockFlowContext) {
   let revision = 0
   const hiddenWelcome = new Set<string>()
-  const administrators = new Set(["octocat"])
+  const administrators: ReadonlySet<string> = new Set(["octocat"])
   const candidates = (["octocat", "mona"] as const).map((login, index) => {
     const user = context.resources.users.find((entry) => entry.login === login)
     if (!user) throw new Error(`The settings fixture needs the synthetic ${login} user.`)
@@ -225,28 +225,6 @@ export function createSettingsStore(context: MockFlowContext) {
     return record(operation, "Verify your identity to continue.", null, "/settings/authorize")
   }
 
-  function changeAdministrator(userId: number, change: "designate" | "revoke") {
-    const viewer = context.session.requireCapability("administerHub")
-    const candidate = candidates.find((entry) => entry.id === userId)
-    if (!candidate) throw new MockStoreError(404, "That Hub user does not exist.")
-    if (change === "designate") {
-      if (administrators.has(candidate.login)) {
-        throw new MockStoreError(409, "That user is already a Hub administrator.")
-      }
-      administrators.add(candidate.login)
-    } else {
-      if (!administrators.has(candidate.login)) {
-        throw new MockStoreError(409, "That user is not a Hub administrator.")
-      }
-      if (administrators.size === 1) {
-        throw new MockStoreError(409, "Hub must have at least one administrator.")
-      }
-      administrators.delete(candidate.login)
-      if (viewer.login === candidate.login) context.session.select("owner")
-    }
-    return candidate
-  }
-
   function mutate(input: SettingsOperation): SettingsMutationResponse {
     switch (input.operation) {
       case "welcome-hide": {
@@ -393,26 +371,12 @@ export function createSettingsStore(context: MockFlowContext) {
         }
         return record(input.operation, "GitHub App configuration reset.", null, "/settings/github")
       }
-      case "admin-add": {
-        context.session.requireCapability("administerHub")
-        const selected = [...new Set(input.userIds)].map((id) => {
-          const candidate = candidates.find((entry) => entry.id === id)
-          if (!candidate) throw new MockStoreError(404, "That Hub user does not exist.")
-          if (administrators.has(candidate.login)) {
-            throw new MockStoreError(409, "A selected user is already a Hub administrator.")
-          }
-          return candidate
-        })
-        selected.forEach((candidate) => administrators.add(candidate.login))
-        return record(input.operation, "Hub administrators added.")
-      }
+      case "admin-add":
       case "admin-change": {
-        const candidate = changeAdministrator(input.userId, input.change)
-        return record(
-          input.operation,
-          `@${candidate.login} ${input.change === "designate" ? "added to" : "removed from"} Hub administrators.`,
-          null,
-          "/settings/admins",
+        context.session.requireCapability("administerHub")
+        throw new MockStoreError(
+          501,
+          "Administrator role changes are not implemented. No roles or permissions were changed.",
         )
       }
       case "enroll":
@@ -431,7 +395,6 @@ export function createSettingsStore(context: MockFlowContext) {
           return record(input.operation, "Confirmation cancelled.", null, destination)
         }
         if (pending.operation === "enroll") {
-          administrators.add("octocat")
           enrollmentComplete = true
           return record(input.operation, "Administrator enrollment complete.", null, destination)
         }

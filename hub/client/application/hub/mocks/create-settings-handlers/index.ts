@@ -4,6 +4,7 @@ import { z } from "zod"
 import { settingsOperationSchema, settingsQuerySchema } from "../../settings-contracts"
 import type { MockSession } from "../create-session"
 import type { createSettingsStore } from "../create-settings-store"
+import { mockDiagnostics } from "../diagnostics"
 import { readMockJson } from "../read-json"
 import { respondMock } from "../respond"
 import { MockStoreError } from "../store-error"
@@ -106,7 +107,25 @@ export function createSettingsHandlers(
         async (_scenario, assertCurrentSession) => {
           const input = await readMockJson(request, settingsOperationSchema)
           assertCurrentSession()
-          return HttpResponse.json(store.mutate(input))
+          try {
+            return HttpResponse.json(store.mutate(input))
+          } catch (error) {
+            if (
+              error instanceof MockStoreError &&
+              error.status === 501 &&
+              (input.operation === "admin-add" || input.operation === "admin-change")
+            ) {
+              const operation =
+                input.operation === "admin-change"
+                  ? `${input.operation}:${input.change}`
+                  : input.operation
+              const ids = input.operation === "admin-add" ? input.userIds : [input.userId]
+              mockDiagnostics.report(
+                `${request.method} ${new URL(request.url).pathname}: ${operation}; target IDs: ${ids.join(", ")}; 501 Not Implemented.`,
+              )
+            }
+            throw error
+          }
         },
         session,
       ),

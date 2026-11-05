@@ -3,6 +3,7 @@ import type { ClientActionFunctionArgs, ClientLoaderFunctionArgs } from "react-r
 
 import { routeIdentifierSchema } from "../../contracts"
 import {
+  settingsCandidateResponseSchema,
   settingsMutationResponseSchema,
   settingsPublicResponseSchema,
   settingsQuerySchema,
@@ -57,19 +58,31 @@ export function settingsController(section: SettingsSection, surface: "workspace
       })
     }
     if (section === "admin-confirmation") {
-      if (
-        !["1", "2"].includes(params.userId ?? "") ||
-        (params.operation !== "designate" && params.operation !== "revoke")
-      ) {
+      const userId = routeIdentifierSchema.safeParse(params.userId)
+      if (!userId.success || (params.operation !== "designate" && params.operation !== "revoke")) {
         throw new Response("This user or role-change operation does not exist.", {
           status: 404,
         })
+      }
+      let user = state.administrators.users.find((entry) => entry.id === userId.data)
+      if (!user && state.session.capabilities.administerHub && params.operation === "designate") {
+        const candidates = await settingsRequest(
+          request,
+          "admin-candidates",
+          settingsCandidateResponseSchema,
+          undefined,
+          url.searchParams,
+        )
+        user = candidates.users.find((entry) => entry.id === userId.data)
+      }
+      if (!user) {
+        throw new Response("This Hub user's identity is unavailable.", { status: 404 })
       }
       return {
         surface: "workspace",
         state,
         query: parsed.data,
-        confirmation: { userId: Number(params.userId), operation: params.operation },
+        confirmation: { userId: userId.data, user, operation: params.operation },
       }
     }
     return { surface: "workspace", state, query: parsed.data }

@@ -137,7 +137,7 @@ These redirects retain other query parameters. The repository-settings redirects
 - **Review:** the existing preview bridge supports element and area selection. Comments, replies, edits, deletion, resolution, reactions, and read positions share a mock review store. Ordinary failed saves retain the draft for retry. Denied or unavailable review writes refresh access; loaded comments are removed if the refresh reports access loss. The read-only profile can inspect conversations but cannot change them. This is not a live multi-user review service.
 - **Share:** create and revoke local links pinned to successful Builds. `demo-active`, `demo-expired`, and `demo-revoked` exercise public states. New links open in the same tab because another document receives a fresh mock store. Disabling mock sharing revokes existing local links; re-enabling permits new links. This is provisional demo behavior, not an accepted production sharing policy.
 - **Account and setup:** inspect normal sign-in/out, welcome, connection, GitHub App setup, confirmation, enrollment, and session screens with canned API state. Do not enter real credentials or secrets. No provider authorization, installation, key rotation, or real session revocation occurs.
-- **Administration and activity:** inspect administrator changes, notifications, activity filters, analytics destinations, and learning actions. A learning request returns a completed fixture run and suggestion rather than implementing a background-job simulator. No real telemetry export, durable security audit, model run, or background job is performed.
+- **Administration and activity:** administrator controls submit requests, but adding, designating, or removing an administrator returns 501 Not Implemented. The orange test toolbar records the attempted operation; the roster and permissions do not change. Notifications, activity filters, analytics destinations, and learning actions retain their local behavior. A learning request returns a completed fixture run and suggestion rather than implementing a background-job simulator. No real telemetry export, durable security audit, model run, or background job is performed.
 
 Use the administrator mock profile for administrative mutation states. Other profiles demonstrate the existing read-only and access-denied presentation. Profile changes and error scenarios are test controls, not security boundaries.
 
@@ -169,7 +169,7 @@ These are frontend/mock contracts under [the application contracts](../client/ap
 | `GET /api/shared/:shareId` | Public preview or an explicit inactive-link state |
 | `GET`, `PATCH /api/product/sharing-settings` | Local sharing state |
 | `GET /api/settings/workspace`, `/api/settings/public`, `/api/settings/admin-candidates` | Settings records and synthetic page capabilities |
-| `POST /api/settings/actions` | Explicitly named local account, setup, administrative, analytics, and learning actions |
+| `POST /api/settings/actions` | Explicitly named local actions; administrator role changes return 501 without changing state |
 
 Errors use an HTTP status and `{ "error": "..." }`. Request schemas and the same response schemas check the JSON fixtures and HTTP boundary. Server-side input validation and authorization remain separate backend responsibilities.
 
@@ -228,7 +228,7 @@ GitHub App setup, registration, and installation pages can be opened directly wi
 | [GitHub App install](../client/pages/github-app-setup-install-page/) | `/settings/github/installed` | [Installation after registration](http://127.0.0.1:5173/settings/github/installed) |
 | [GitHub App register](../client/pages/github-app-setup-register-page/) | `/settings/github/register` | [Registration after setup](http://127.0.0.1:5173/settings/github/register) |
 | [GitHub App setup](../client/pages/github-app-setup-show-page/) | `/settings/github/setup` | [Start mock App setup](http://127.0.0.1:5173/settings/github/setup) |
-| [Admin confirmation](../client/pages/hub-admin-confirmation-page/) | `/settings/admins/:userId/:operation` | [Add Mona](http://127.0.0.1:5173/settings/admins/2/designate) and [remove Octocat after adding Mona](http://127.0.0.1:5173/settings/admins/1/revoke) |
+| [Admin confirmation](../client/pages/hub-admin-confirmation-page/) | Request-only `/settings/admins/:userId/:operation`; roles stay unchanged | [Designate request](http://127.0.0.1:5173/settings/admins/2/designate) and [removal request](http://127.0.0.1:5173/settings/admins/1/revoke) |
 | [Admin enrollment](../client/pages/hub-admin-enrollment-page/) | `/settings/enroll` | [Mock enrollment](http://127.0.0.1:5173/settings/enroll) |
 | [Admins](../client/pages/hub-admins-page/) | `/settings/admins` | [Administrator roster](http://127.0.0.1:5173/settings/admins) |
 | [Learnings](../client/pages/learnings-page/) | `/repositories/:repositoryId/learnings` | [Repository learnings](http://127.0.0.1:5173/repositories/2001/learnings) |

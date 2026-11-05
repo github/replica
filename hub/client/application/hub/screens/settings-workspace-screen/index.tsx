@@ -83,7 +83,7 @@ export function SettingsWorkspaceScreen({
             workspace,
             state,
             search,
-            data.confirmation.userId,
+            data.confirmation.user,
             data.confirmation.operation,
           )}
         />

@@ -222,7 +222,7 @@ export const settingsOperationSchema = z.discriminatedUnion("operation", [
   z
     .object({
       operation: z.literal("admin-add"),
-      userIds: z.array(identifier).min(1).max(2),
+      userIds: z.array(identifier).min(1),
       confirmed,
     })
     .strict(),
