@@ -101,9 +101,15 @@ function createReviewCommentsClient({
         const controller = new AbortController()
         pendingChanges.add(controller)
         try {
-          changedComments = await transport.change(requestPath, method, body, controller.signal)
+          const result = await transport.change(requestPath, method, body, controller.signal)
+          if (disposed || controller.signal.aborted) return null
+          if (result.kind === "access-lost") {
+            refreshComments()
+            return null
+          }
+          changedComments = result.comments
         } catch (error) {
-          if (!disposed) {
+          if (!disposed && !controller.signal.aborted) {
             onMutationRateLimited?.(
               error instanceof Error ? error.message : "The review change could not be saved.",
             )

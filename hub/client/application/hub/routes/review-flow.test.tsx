@@ -97,7 +97,7 @@ describe("Hub prototype review flow", () => {
     onTestFinished(() => finishSave?.())
     const failedSave = vi.fn(async () => {
       await saving
-      return HttpResponse.json({ error: "Reviews are temporarily unavailable." }, { status: 503 })
+      return HttpResponse.json({ error: "Reviews are temporarily unavailable." }, { status: 500 })
     })
     const failedReads = vi.fn(() =>
       HttpResponse.json({ error: "Loaded resources are unavailable." }, { status: 503 }),

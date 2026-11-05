@@ -3,6 +3,9 @@ import type { ReviewCommentsFetchResult } from "./fetch-all-review-comments/type
 
 export type ReviewCommentChangeMethod = "POST" | "PATCH" | "DELETE"
 
+export type ReviewCommentsChangeResult =
+  { kind: "success"; comments: ReviewComment[] } | { kind: "access-lost" }
+
 export interface ReviewCommentsTransport {
   load: (path: string, signal: AbortSignal) => Promise<ReviewCommentsFetchResult>
   change: (
@@ -10,7 +13,7 @@ export interface ReviewCommentsTransport {
     method: ReviewCommentChangeMethod,
     body?: object,
     signal?: AbortSignal,
-  ) => Promise<ReviewComment[]>
+  ) => Promise<ReviewCommentsChangeResult>
 }
 
 export interface ReviewCommentsClient {
