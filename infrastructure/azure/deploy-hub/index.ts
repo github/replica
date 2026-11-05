@@ -1,6 +1,6 @@
 import childProcess from "node:child_process"
 import { randomUUID } from "node:crypto"
-import { rm } from "node:fs/promises"
+import { mkdir, rm } from "node:fs/promises"
 import { resolve } from "node:path"
 import timers from "node:timers/promises"
 import { pathToFileURL } from "node:url"
@@ -52,7 +52,8 @@ export async function deployHub(args: string[] = process.argv.slice(2)): Promise
   const subscriptionId = subscription
   const variablesPath = resolve(variables)
   const root = resolve(import.meta.dirname, "..")
-  const planPath = resolve(root, ".terraform", `deployment-${randomUUID()}.tfplan`)
+  const planDirectory = resolve(process.env.TF_DATA_DIR ?? resolve(root, ".terraform"))
+  const planPath = resolve(planDirectory, `deployment-${randomUUID()}.tfplan`)
   const previousMask = process.umask(0o077)
   let lease: string | undefined
 
@@ -275,6 +276,7 @@ export async function deployHub(args: string[] = process.argv.slice(2)): Promise
   }
 
   try {
+    await mkdir(planDirectory, { recursive: true, mode: 0o700 })
     terraform(["init", "-input=false", `-backend-config=${resolve(backend)}`])
     if (azure<{ id: string }>("account", "show").id !== subscription) {
       throw new Error("Azure returned a different subscription.")
