@@ -24,3 +24,5 @@ Read the [app guide](README.md) for routing and scaffold commands. The scaffold 
 ## Product guidance
 
 Minimal includes research templates, not approved product or design-system facts. When authoring work needs missing context, offer `/setup-skills`. Review and separately approve drafts before activation. No guidance setup is needed just to inspect the included app.
+
+For `create-prototype-from-production` only, an explicitly authorized unattended local run may create fresh capture-derived `.agents/context/` without another activation prompt when neither `.agents/context/` nor `.github/contexts/` exists. This exception covers task evidence and labelled proposed defaults, not new team policy. Preserve existing context roots and files; changes to them still need review and separate approval.

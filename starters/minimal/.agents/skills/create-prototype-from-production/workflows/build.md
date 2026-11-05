@@ -2,19 +2,13 @@
 
 ## Canvas
 
-Before the first UI edit, in a canvas-capable host, call the canvas capability
-lookup (for example `list_canvas_capabilities`) instead of judging from the
-advertised tool list. Only a failed lookup means the canvas is missing. If the
-Replica canvas is available, use it for previews. If it is missing, tell the
-user once how to enable it, using the steps in the repository's canvas
-preflight, and continue with the local preview. Do not stop or wait: this
-skill overrides that preflight's stop. Hosts without canvas support use the
-local preview.
+Follow the [shared canvas preflight](../../../../REPLICA.md#canvas-preflight), discovering actual capabilities rather than judging from the advertised tool list. Use the Replica canvas when available. Its missing-canvas exception applies only to explicitly authorized unattended local runs: explain recovery once, then continue with the local preview without waiting or changing plugin settings. Hosts without canvas support retain the ordinary local-preview fallback.
+
+The Replica preview and browser inspection are separate. Use the [shared browser workflow](../../browser-canvas-validation/WORKFLOW.md) for rendered checks; a missing Replica canvas does not waive browser isolation or permit claiming unavailable checks passed.
 
 ## Implement
 
-Use the [create-prototype](../../create-prototype/SKILL.md) create workflow
-with the generated context.
+Use the [create-prototype](../../create-prototype/SKILL.md) create workflow with the selected active context and captured task evidence. Preserve existing guidance; missing or conflicting required context blocks only the affected work. In unattended runs, record that limitation and continue independent supported work without a question.
 
 Follow the app's `AGENTS.md` and shared authoring rules. Reuse existing components and supported design-system APIs when available; Minimal needs no added component library. Build editable React compositions with page content separate from presentation. Captured page HTML is reference evidence, not the app's rendering implementation.
 
@@ -61,7 +55,4 @@ instead of iterating on polish. Set rows to `verified` or `blocked` with a note.
 
 Run the app's declared type check, tests, build and formatting check before handoff. Fix failures and report unavailable checks; a passing ledger does not replace them.
 
-`node .agents/skills/create-prototype-from-production/scripts/check-ledger.mjs --final`
-must pass. Commit the build separately from the capture commit. Report: ledger
-counts by decision and status, the difference list, assets over 1 MB, defaults
-applied, and the preview URL.
+`node .agents/skills/create-prototype-from-production/scripts/check-ledger.mjs --final` must pass. When authorized, commit the build separately from the capture commit. Report ledger counts by decision and status, the difference list, assets over 1 MB, defaults applied, deferred operations, unavailable checks, commit status, and the preview URL when running. Blocked work is not a completed build.

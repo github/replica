@@ -52,19 +52,13 @@ extension. Record each in `reference/assets.json` with source URL and hash.
 Keep every asset of 25 MiB or less at its original size: never shrink,
 recompress or skip one for size. List files over 1 MB in the handoff.
 
-Replica Build rejects any served file over 25 MiB, and GitHub rejects any file
-over 100 MiB. Before committing, ask once, listing every asset over 25 MiB,
-whether to serve a copy under 25 MiB (the default, and the answer when nobody
-replies) or the original. Keep each replaced original under
-`reference/originals/` and record both hashes in `assets.json`. Never commit a
-file over 100 MiB, served or not: add it to `.gitignore` and record its source
-URL and hash so it can be downloaded again.
+Replica Build rejects any served file over 25 MiB, and GitHub rejects any file over 100 MiB. Default to serving a copy under 25 MiB for larger assets; record the choice without asking a routine question. Serve a larger original only when the request explicitly requires it, and report that Replica Build will reject it. Keep each replaced original under `reference/originals/` and record both hashes in `assets.json`. Never commit a file over 100 MiB, served or not: add it to `.gitignore` and record its source URL and hash so it can be downloaded again.
 
 ## Write the context documents
 
-Write compact `.agents/context/` documents from this evidence, using the
-headings of the matching `.agents/context-templates/` file so other skills
-find their sections:
+If an active context root already exists (`.agents/context/` first, then `.github/contexts/`), preserve it and keep new observations under `reference/`. Use the existing guidance for Build; do not silently replace it or shadow a legacy root. Needed guidance changes remain drafts pending reviewed approval.
+
+With no active root, an explicitly authorized unattended local run may write fresh `.agents/context/` under the [app's exception](../../../../AGENTS.md#product-guidance). Attended runs keep fresh documents in `.agents/context-drafts/` until reviewed and separately approved. Use the headings of the matching `.agents/context-templates/` files:
 
 | Document                | Source                                                                                  |
 | ----------------------- | --------------------------------------------------------------------------------------- |
@@ -76,7 +70,6 @@ find their sections:
 | `SEED-DATA.md`          | Real public copy from `content.json`; synthetic data only for customer-specific values  |
 | `ACCESSIBILITY.md`      | WCAG 2.2 AA as the starter default                                                      |
 
-Mark anything not observed as `proposed-default`. The intake go-ahead
-activates these documents; they are not drafts.
+Mark anything not observed as `proposed-default`. Capture establishes task evidence, not team policy or proof of accessibility compliance.
 
-Commit `reference/` and `.agents/context/` before Build starts.
+When authorized, commit `reference/` and newly activated context as the capture commit. Never activate pending drafts just to complete the commit.

@@ -2,13 +2,9 @@
 
 ## 1. Browser and access preflight
 
-Use the repository's isolated Playwright MCP (or the Copilot browser canvas
-when available). Never use a browser connected to the user's own profile.
+Use the browser canvas first, with the configured isolated Playwright MCP only for unavailable required capabilities, following the [shared browser workflow](../../browser-canvas-validation/WORKFLOW.md). Never use a browser connected to the user's own profile.
 
-Before the first navigation to the site, prove the browser is empty at
-runtime: on `about:blank`, run code that returns `page.context().cookies()`
-and the page count. Record the result in the ledger's `browser` field. A
-non-empty result stops the run; configuration alone is not proof.
+Before the first navigation to the site, establish an agent-owned isolated session on `about:blank` using supported runtime actions. Record cookie and page counts in the ledger's `browser` field, not cookie values. Pre-existing cookies or unrelated pages stop navigation; configuration alone is not proof. Do not assume the browser canvas exposes a Playwright `page` object. If isolation cannot be established, use only the shared workflow's configured isolated fallback or report capture blocked.
 
 Probe access once per origin: one `web_fetch` of the home page. If it fails
 (403, redirect error, challenge page), use the browser for every page on that
