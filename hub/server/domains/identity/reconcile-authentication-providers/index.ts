@@ -91,6 +91,10 @@ export async function reconcileAuthenticationProviders(
                 })
               }
               if (!current.enabled) {
+                await repositories.selectAuthenticationProviderRevision({
+                  providerId,
+                  revisionId,
+                })
                 await repositories.setAuthenticationProviderEnabled({
                   enabled: true,
                   providerId,
@@ -153,10 +157,7 @@ export async function reconcileAuthenticationProviders(
               revision: revocation.revision,
             })
             for (const provider of removed) {
-              await repositories.setAuthenticationProviderEnabled({
-                enabled: false,
-                providerId: provider.id,
-              })
+              await repositories.disableAuthenticationProvider(provider.id)
               await repositories.createSecurityAudit({
                 id: dependencies.createId(),
                 type: "authentication_provider_disabled",

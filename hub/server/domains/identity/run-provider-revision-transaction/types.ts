@@ -37,6 +37,7 @@ export interface ProviderRevisionRepositories {
 }
 
 export interface AuthenticationProviderReconciliationRepositories extends ProviderRevisionRepositories {
+  disableAuthenticationProvider(providerId: string): Promise<unknown>
   incrementSessionRevocation(): Promise<{ revision: number } | null>
   lockAuthenticationProviders(): Promise<
     Array<{

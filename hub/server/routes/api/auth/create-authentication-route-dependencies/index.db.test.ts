@@ -1,7 +1,9 @@
 import { randomBytes, randomUUID } from "node:crypto"
 import { describe, expect, it, vi } from "vitest"
 
+import { getSelectedProviderRevision } from "../../../../domains/identity/get-selected-provider-revision"
 import { prisma } from "../../../../integrations/prisma"
+import { findAuthenticationProvider } from "../../../../repositories/authentication-providers/find-authentication-provider"
 import { createAuthenticationRouteDependencies, disableAuthenticationProviders } from "."
 
 const tenantId = "11111111-1111-4111-8111-111111111111"
@@ -439,6 +441,10 @@ describe("createAuthenticationRouteDependencies()", () => {
     const githubDigest = "0".repeat(64)
     await createProviderSession("entra", entraDigest)
     await createProviderSession("github", githubDigest)
+    const selectedBefore = await prisma.authenticationProvider.findMany({
+      orderBy: { key: "asc" },
+      select: { key: true, selectedRevisionId: true },
+    })
 
     await disableAuthenticationProviders()
 
@@ -451,6 +457,20 @@ describe("createAuthenticationRouteDependencies()", () => {
       { enabled: false, key: "entra" },
       { enabled: false, key: "github" },
     ])
+    await expect(
+      prisma.authenticationProvider.findMany({
+        orderBy: { key: "asc" },
+        select: { key: true, selectedRevisionId: true },
+      }),
+    ).resolves.toEqual([
+      { key: "entra", selectedRevisionId: null },
+      { key: "github", selectedRevisionId: null },
+    ])
+    await expect(
+      getSelectedProviderRevision("entra", {
+        findAuthenticationProvider: (key) => findAuthenticationProvider(prisma, key),
+      }),
+    ).rejects.toThrow("does not have a selected revision")
     await expect(
       prisma.sessionRevocationState.findUniqueOrThrow({
         select: { revision: true },
@@ -484,6 +504,12 @@ describe("createAuthenticationRouteDependencies()", () => {
       validDiscovery,
     )
 
+    await expect(
+      prisma.authenticationProvider.findMany({
+        orderBy: { key: "asc" },
+        select: { key: true, selectedRevisionId: true },
+      }),
+    ).resolves.toEqual(selectedBefore)
     await expect(reenabled.currentSession.restore(entraDigest)).resolves.toBeNull()
     await expect(reenabled.currentSession.restore(githubDigest)).resolves.toBeNull()
     const entraAttempt = await reenabled.entra!.signIn.start()

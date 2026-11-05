@@ -12,6 +12,7 @@ import type { CompleteAuthenticationProofDependencies } from "../../../../domain
 import { createEntraAuthenticationContext } from "../../../../domains/authentication/create-entra-authentication-context/index.ts"
 import { createGitHubAuthenticationContext } from "../../../../domains/authentication/create-github-authentication-context/index.ts"
 import { createOpaqueValue } from "../../../../domains/authentication/create-opaque-value/index.ts"
+import { readAuthenticationConfigurationState } from "../../../../domains/authentication/read-authentication-configuration-state/index.ts"
 import { createSharedAuthenticationContext } from "../../../../domains/authentication/create-shared-authentication-context/index.ts"
 import { decryptAuthenticationValue } from "../../../../domains/authentication/decrypt-authentication-value/index.ts"
 import { encryptAuthenticationValue } from "../../../../domains/authentication/encrypt-authentication-value/index.ts"
@@ -51,25 +52,6 @@ interface AuthenticationContext {
   secureCookie: boolean
 }
 
-function githubConfigured(environment: NodeJS.ProcessEnv) {
-  return Boolean(
-    environment.GITHUB_CLIENT_ID ||
-    environment.GITHUB_CLIENT_SECRET ||
-    environment.GITHUB_PROVIDER_REVISION,
-  )
-}
-
-function entraConfigured(environment: NodeJS.ProcessEnv) {
-  return Boolean(
-    environment.ENTRA_OIDC_CLIENT_AUTHENTICATION ||
-    environment.ENTRA_OIDC_CLIENT_ID ||
-    environment.ENTRA_OIDC_CLIENT_SECRET ||
-    environment.ENTRA_OIDC_ISSUER ||
-    environment.ENTRA_OIDC_MANAGED_IDENTITY_CLIENT_ID ||
-    environment.ENTRA_OIDC_PROVIDER_REVISION,
-  )
-}
-
 function reconcileConfiguredProviders(
   candidates: Parameters<typeof reconcileAuthenticationProviders>[0],
 ) {
@@ -89,10 +71,11 @@ export async function createAuthenticationRouteDependencies(
   request: typeof globalThis.fetch = globalThis.fetch,
 ): Promise<AuthenticationRouteDependencies> {
   const sharedContext = createSharedAuthenticationContext(environment)
-  const githubContext = githubConfigured(environment)
+  const configuration = readAuthenticationConfigurationState(environment)
+  const githubContext = configuration.githubConfigured
     ? createGitHubAuthenticationContext(environment, request)
     : undefined
-  const entraContext = entraConfigured(environment)
+  const entraContext = configuration.entraConfigured
     ? createEntraAuthenticationContext(environment, request)
     : undefined
   const contexts: AuthenticationContext[] = []

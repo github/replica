@@ -21,8 +21,15 @@ export async function lockAuthenticationProvidersForReconciliation(
       revision."revision",
       revision."configuration_digest" AS "configurationDigest"
     FROM "authentication_providers" provider
-    JOIN "authentication_provider_revisions" revision
-      ON revision."id" = provider."selected_revision_id"
+    JOIN LATERAL (
+      SELECT candidate.*
+      FROM "authentication_provider_revisions" candidate
+      WHERE candidate."provider_id" = provider."id"
+      ORDER BY
+        (candidate."id" = provider."selected_revision_id") DESC,
+        candidate."revision" DESC
+      LIMIT 1
+    ) revision ON true
     ORDER BY provider."key"
     FOR UPDATE OF provider
   `

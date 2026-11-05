@@ -1,6 +1,7 @@
 import "dotenv/config"
 
 import { createConfiguredArtifactStorage } from "./domains/artifacts/create-configured-artifact-storage/index.ts"
+import { readAuthenticationConfigurationState } from "./domains/authentication/read-authentication-configuration-state/index.ts"
 import { startTelemetry } from "./integrations/opentelemetry/start-telemetry/index.ts"
 import { logger } from "./integrations/pino/index.ts"
 import { runApi } from "./run-api/index.ts"
@@ -10,27 +11,6 @@ import { parseRuntimeConfig } from "./utils/parse-runtime-config/index.ts"
 import { jobProcessors } from "./workers/configuration.ts"
 import { runJobWorker } from "./workers/run-job-worker/index.ts"
 import type { AuthenticationRouteDependencies } from "./routes/api/auth/types.ts"
-
-const providerConfigurationKeys = [
-  "GITHUB_CLIENT_ID",
-  "GITHUB_CLIENT_SECRET",
-  "GITHUB_PROVIDER_REVISION",
-  "ENTRA_OIDC_CLIENT_AUTHENTICATION",
-  "ENTRA_OIDC_CLIENT_ID",
-  "ENTRA_OIDC_CLIENT_SECRET",
-  "ENTRA_OIDC_ISSUER",
-  "ENTRA_OIDC_MANAGED_IDENTITY_CLIENT_ID",
-  "ENTRA_OIDC_PROVIDER_REVISION",
-] as const
-
-const sharedAuthenticationKeys = [
-  "HUB_AUTHENTICATION_ENCRYPTION_KEY",
-  "HUB_BOOTSTRAP_SECRET",
-] as const
-
-function hasConfiguredValue(environment: NodeJS.ProcessEnv, key: string): boolean {
-  return environment[key] !== undefined
-}
 
 try {
   const configuration = parseRuntimeConfig(process.env)
@@ -54,20 +34,28 @@ try {
     const trustedProxyHops = runsApi ? configuredTrustedProxyHops : 0
     let authentication: AuthenticationRouteDependencies | undefined
     if (runsApi) {
-      const providerConfigured = providerConfigurationKeys.some((key) =>
-        hasConfiguredValue(process.env, key),
-      )
-      const sharedAuthenticationConfigured = sharedAuthenticationKeys.some((key) =>
-        hasConfiguredValue(process.env, key),
-      )
-      const applicationOrigin = process.env.HUB_APPLICATION_ORIGIN?.trim()
-      if ((providerConfigured || sharedAuthenticationConfigured) && !applicationOrigin) {
+      const authenticationConfiguration = readAuthenticationConfigurationState(process.env)
+      if (
+        (authenticationConfiguration.providerConfigured ||
+          authenticationConfiguration.sharedConfigured) &&
+        !authenticationConfiguration.applicationOrigin
+      ) {
         throw new Error(
           "HUB_APPLICATION_ORIGIN is required when authentication settings are configured.",
         )
       }
       if (
-        (providerConfigured || sharedAuthenticationConfigured || applicationOrigin) &&
+        authenticationConfiguration.applicationOrigin &&
+        !authenticationConfiguration.providerConfigured
+      ) {
+        throw new Error(
+          "Configure at least one GitHub or Entra provider when HUB_APPLICATION_ORIGIN is set.",
+        )
+      }
+      if (
+        (authenticationConfiguration.providerConfigured ||
+          authenticationConfiguration.sharedConfigured ||
+          authenticationConfiguration.applicationOrigin) &&
         !configuration.databaseUrl
       ) {
         throw new Error("DATABASE_URL is required when authentication settings are configured.")
@@ -75,7 +63,7 @@ try {
       if (configuration.databaseUrl) {
         const { createAuthenticationRouteDependencies, disableAuthenticationProviders } =
           await import("./routes/api/auth/create-authentication-route-dependencies/index.ts")
-        if (providerConfigured) {
+        if (authenticationConfiguration.providerConfigured) {
           authentication = await createAuthenticationRouteDependencies(process.env)
         } else {
           await disableAuthenticationProviders()

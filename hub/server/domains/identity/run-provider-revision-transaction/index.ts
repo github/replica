@@ -1,6 +1,7 @@
 import { Prisma } from "../../../generated/prisma/client.ts"
 import { createAuthenticationProviderRevision } from "../../../repositories/authentication-providers/create-authentication-provider-revision/index.ts"
 import { createAuthenticationProvider } from "../../../repositories/authentication-providers/create-authentication-provider/index.ts"
+import { disableAuthenticationProvider } from "../../../repositories/authentication-providers/disable-authentication-provider/index.ts"
 import { findAuthenticationProvider } from "../../../repositories/authentication-providers/find-authentication-provider/index.ts"
 import { lockAuthenticationProvidersForReconciliation } from "../../../repositories/authentication-providers/lock-authentication-providers-for-reconciliation/index.ts"
 import { selectAuthenticationProviderRevision } from "../../../repositories/authentication-providers/select-authentication-provider-revision/index.ts"
@@ -28,6 +29,8 @@ export function runProviderRevisionTransaction<Result>(
           createAuthenticationProviderRevision: (input) =>
             createAuthenticationProviderRevision(transaction, input),
           createSecurityAudit: (input) => createSecurityAudit(transaction, input),
+          disableAuthenticationProvider: (providerId) =>
+            disableAuthenticationProvider(transaction, providerId),
           findAuthenticationProvider: (key) => findProvider(transaction, key),
           incrementSessionRevocation: () => incrementSessionRevocationState(transaction),
           lockAuthenticationProviders: () =>

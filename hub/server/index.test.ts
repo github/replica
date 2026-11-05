@@ -35,20 +35,6 @@ const apiConfiguration = {
   scheduledConcurrency: 1,
 }
 
-const authenticationConfigurationKeys = [
-  "GITHUB_CLIENT_ID",
-  "GITHUB_CLIENT_SECRET",
-  "GITHUB_PROVIDER_REVISION",
-  "ENTRA_OIDC_CLIENT_AUTHENTICATION",
-  "ENTRA_OIDC_CLIENT_ID",
-  "ENTRA_OIDC_CLIENT_SECRET",
-  "ENTRA_OIDC_ISSUER",
-  "ENTRA_OIDC_MANAGED_IDENTITY_CLIENT_ID",
-  "ENTRA_OIDC_PROVIDER_REVISION",
-  "HUB_AUTHENTICATION_ENCRYPTION_KEY",
-  "HUB_BOOTSTRAP_SECRET",
-] as const
-
 describe("server runtime", () => {
   beforeEach(() => {
     vi.resetModules()
@@ -68,9 +54,12 @@ describe("server runtime", () => {
     expect(runApi).toHaveBeenCalledWith(expect.objectContaining({ authentication: undefined }))
   })
 
-  it.each(authenticationConfigurationKeys)(
-    "rejects partial authentication configuration when %s is set without an application origin",
-    async (key) => {
+  it.each([
+    ["provider", "GITHUB_CLIENT_ID"],
+    ["shared", "HUB_BOOTSTRAP_SECRET"],
+  ] as const)(
+    "rejects partial authentication configuration when a %s setting is set without an application origin",
+    async (_kind, key) => {
       vi.stubEnv(key, "configured")
       vi.mocked(parseRuntimeConfig).mockReturnValue({
         ...apiConfiguration,
@@ -82,6 +71,27 @@ describe("server runtime", () => {
       expect(runApi).not.toHaveBeenCalled()
     },
   )
+
+  it("rejects an application origin without a configured provider", async () => {
+    vi.stubEnv("HUB_APPLICATION_ORIGIN", "https://hub.example.test")
+    vi.mocked(parseRuntimeConfig).mockReturnValue({
+      ...apiConfiguration,
+      databaseUrl: "postgresql://hub.example.test/replica",
+    })
+
+    await expect(import("./index.ts")).rejects.toThrow("Unexpected process exit: 1")
+
+    expect(runApi).not.toHaveBeenCalled()
+  })
+
+  it("requires a database when authentication is configured", async () => {
+    vi.stubEnv("HUB_APPLICATION_ORIGIN", "https://hub.example.test")
+    vi.stubEnv("GITHUB_CLIENT_ID", "github-client")
+
+    await expect(import("./index.ts")).rejects.toThrow("Unexpected process exit: 1")
+
+    expect(runApi).not.toHaveBeenCalled()
+  })
 
   it.each(["api", "combined"] as const)(
     "disables durable providers without registering authentication routes in a database-backed %s runtime",

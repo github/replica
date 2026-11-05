@@ -7,6 +7,45 @@ ADD COLUMN "nonce_ciphertext" VARCHAR(500);
 ALTER TABLE "authentication_providers"
 ADD COLUMN "enabled" BOOLEAN NOT NULL DEFAULT true;
 
+CREATE OR REPLACE FUNCTION enforce_selected_revision_provider()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    selected_revision UUID;
+    provider_enabled BOOLEAN;
+BEGIN
+    SELECT "selected_revision_id", "enabled"
+    INTO selected_revision, provider_enabled
+    FROM "authentication_providers"
+    WHERE "id" = NEW."id";
+
+    IF provider_enabled AND selected_revision IS NULL THEN
+        RAISE EXCEPTION 'Enabled authentication provider must have a selected revision.';
+    END IF;
+    IF NOT provider_enabled AND selected_revision IS NOT NULL THEN
+        RAISE EXCEPTION 'Disabled authentication provider cannot have a selected revision.';
+    END IF;
+    IF selected_revision IS NOT NULL
+       AND NOT EXISTS (
+           SELECT 1
+           FROM "authentication_provider_revisions"
+           WHERE "id" = selected_revision
+             AND "provider_id" = NEW."id"
+       ) THEN
+        RAISE EXCEPTION 'Selected revision must belong to its authentication provider.';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER "authentication_provider_selected_revision_owner" ON "authentication_providers";
+
+CREATE CONSTRAINT TRIGGER "authentication_provider_selected_revision_owner"
+AFTER INSERT OR UPDATE OF "selected_revision_id", "enabled" ON "authentication_providers"
+DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW EXECUTE FUNCTION enforce_selected_revision_provider();
+
 ALTER TABLE "membership_assignments"
 ADD COLUMN "provider_revision_id" UUID,
 ADD COLUMN "provider_assignment_subject" VARCHAR(100);
