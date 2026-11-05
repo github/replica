@@ -25,6 +25,12 @@ const PAGE_DATA: HomeIndexPageData = {
   ],
 }
 
+const ENTRA_ACTION: HomeIndexPageData["signInActions"][number] = {
+  label: "Sign in with Microsoft Entra",
+  path: "/api/auth/entra/start",
+  provider: "entra",
+}
+
 function renderHome(data = PAGE_DATA) {
   return render(<HomeIndexPage colorMode="dark" data={data} />)
 }
@@ -176,59 +182,41 @@ describe("HomeIndexPage()", () => {
 
   it.each([
     ["GitHub only", PAGE_DATA.signInActions],
-    [
-      "Entra only",
-      [
-        {
-          label: "Sign in with Microsoft Entra",
-          path: "/api/auth/entra/start",
-          provider: "entra" as const,
-        },
-      ],
-    ],
-    [
-      "both providers",
-      [
-        ...PAGE_DATA.signInActions,
-        {
-          label: "Sign in with Microsoft Entra",
-          path: "/api/auth/entra/start",
-          provider: "entra" as const,
-        },
-      ],
-    ],
-  ])(
-    "submits each visible provider through only its intended POST form in %s",
-    (_state, actions) => {
-      const { container } = renderHome({ ...PAGE_DATA, signInActions: actions })
-      const submissions = new Map(
-        actions.map((action) => {
-          const button = screen.getByRole("button", { name: action.label })
-          const form = button.closest("form") ?? (button as HTMLButtonElement).form
-          const submit = vi.fn((event: Event) => event.preventDefault())
+    ["Entra only", [ENTRA_ACTION]],
+    ["both providers", [...PAGE_DATA.signInActions, ENTRA_ACTION]],
+  ])("associates each visible provider with its intended POST form in %s", (_state, actions) => {
+    const { container } = renderHome({ ...PAGE_DATA, signInActions: actions })
+    expect(container.querySelectorAll("form")).toHaveLength(actions.length)
+    for (const action of actions) {
+      const button = screen.getByRole<HTMLButtonElement>("button", { name: action.label })
 
-          expect(form).not.toBeNull()
-          expect(form).toHaveAttribute("method", "post")
-          expect(form).toHaveAttribute("action", action.path)
-          expect((button as HTMLButtonElement).form).toBe(form)
-          form!.addEventListener("submit", submit)
-          return [action.provider, submit] as const
-        }),
-      )
-      expect(container.querySelectorAll("form")).toHaveLength(actions.length)
+      expect(button.form).not.toBeNull()
+      expect(button.form).toHaveAttribute("method", "post")
+      expect(button.form).toHaveAttribute("action", action.path)
+    }
+  })
 
-      for (const action of actions) {
-        for (const submit of submissions.values()) submit.mockClear()
+  it("submits only the selected provider when both are visible", () => {
+    const actions = [...PAGE_DATA.signInActions, ENTRA_ACTION]
+    renderHome({ ...PAGE_DATA, signInActions: actions })
+    const submissions = new Map(
+      actions.map((action) => {
+        const form = screen.getByRole<HTMLButtonElement>("button", { name: action.label }).form!
+        const submit = vi.fn((event: Event) => event.preventDefault())
+        form.addEventListener("submit", submit)
+        return [action.provider, submit] as const
+      }),
+    )
 
-        fireEvent.click(screen.getByRole("button", { name: action.label }))
-
-        for (const [provider, submit] of submissions) {
-          if (provider === action.provider) expect(submit).toHaveBeenCalledOnce()
-          else expect(submit).not.toHaveBeenCalled()
-        }
+    for (const action of actions) {
+      for (const submit of submissions.values()) submit.mockClear()
+      fireEvent.click(screen.getByRole("button", { name: action.label }))
+      for (const [provider, submit] of submissions) {
+        if (provider === action.provider) expect(submit).toHaveBeenCalledOnce()
+        else expect(submit).not.toHaveBeenCalled()
       }
-    },
-  )
+    }
+  })
 
   it("shows the canvas verification result without submitting another action", () => {
     const notice =
