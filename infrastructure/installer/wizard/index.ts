@@ -93,11 +93,11 @@ export async function runWizard({
       throw new Error("Choose a supported session recovery action.")
     if (session.draft?.deploymentStarted) {
       const warning =
-        "This setup was interrupted during deployment. A saved stage does not prove that the operation completed. Review retained installation/release locks and any provisioning execution using the installation recovery guide before continuing. Nothing will automatically break a lease or replay database provisioning."
+        "This setup was interrupted during deployment. A saved stage does not prove that the operation completed. After revalidating the target, the wizard can inspect retained installation/release locks and guide recovery with fresh consent. It never automatically clears a lock or replays ambiguous database provisioning."
       if (ui.notice) ui.notice("warning", warning)
       else ui.status(warning)
       await ui.wait(
-        "After reviewing the interrupted deployment and its cloud state, continue to revalidate your configuration. Deployment still requires fresh approval and normal reconciliation.",
+        "Continue to revalidate your configuration. Retained locks will offer recovery checks before proceeding; deployment and lock recovery still require fresh approval.",
       )
     }
   }

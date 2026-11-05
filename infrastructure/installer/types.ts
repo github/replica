@@ -53,6 +53,7 @@ export interface InstallerUI {
   phase?(phase: WizardPhase): void | Promise<void>
   confirm(message: string): Promise<boolean>
   wait(message: string): Promise<void>
+  select?(message: string, options: { label: string; value: string }[]): Promise<string>
 }
 
 export interface WizardUI extends InstallerUI {

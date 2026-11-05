@@ -11,6 +11,8 @@ import { verifyAzureTarget } from "./preflight/index.ts"
 import { provisionDatabase } from "./provision/index.ts"
 import { installationSecrets } from "./secrets/index.ts"
 import { installationNames } from "./settings.ts"
+import { verifyInstallationGroup } from "./group/index.ts"
+import { recoverLease } from "./lease/recover/index.ts"
 import type { AzureInstallation, Foundation, Installation } from "./types.ts"
 
 export async function installAzure(
@@ -114,25 +116,8 @@ export async function installAzure(
         ui,
         env: environment,
       })
-    const checkGroup = async (groupName: string) => {
-      if (!JSON.parse(await azure("group", "exists", "--name", groupName))) return
-      const group = JSON.parse(await azure("group", "show", "--name", groupName)) as {
-        tags?: Record<string, string>
-      }
-      const tags = {
-        application: "replica-hub",
-        installation: config.name,
-        owner: config.owner,
-        managed_by: "terraform",
-      }
-      if (Object.entries(tags).some(([key, value]) => group.tags?.[key] !== value)) {
-        throw new Error(
-          `Resource group ${groupName} belongs to another installation. Automatic adoption is not supported.`,
-        )
-      }
-    }
-    await checkGroup(names.foundationGroup)
-    await checkGroup(config.azure.resourceGroup)
+    await verifyInstallationGroup(context, names.foundationGroup)
+    await verifyInstallationGroup(context, config.azure.resourceGroup)
     const foundation = module("foundation", join(infrastructure, "azure", "foundation"))
     await foundation.init(await state.backend("foundation"))
     if (
@@ -230,6 +215,7 @@ export async function installAzure(
       )
     }
     await ui.phase?.("release")
+    await recoverLease(context, installation.storage_account, "releases", "deployment.lock")
     ui.status("Running the serialized maintenance-window release")
     try {
       await run(

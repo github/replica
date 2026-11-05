@@ -143,6 +143,18 @@ Distinguish pending, current, completed, skipped, and blocked states. Advance on
 
 After resume, distinguish restored answers from operations verified in this run. An interrupted deployment requires a warning and recovery acknowledgement before returning to configuration checks. Only the existing deployment engine can establish resource state; the saved phase cannot skip reconciliation.
 
+### Guided operational recovery
+
+Keep a recoverable lock in the wizard instead of sending the user through the same failing restart. Offer recheck, review recovery, and explicit exit. Put the exact target and current blocker beside those choices; preserve errors and next steps when returning from a check. A declined recovery confirmation returns to choices without changing the lock or discarding answers.
+
+Cloud-specific orchestration owns read-only safety checks. Known active work, unknown results, failed inspection, and ownership mismatches must block destructive recovery. Only a verified infinite operational lease can be offered for clearing. Terraform state locks and unrelated resources remain outside this flow.
+
+Separate facts the service can verify from operator attestations. Azure can report Terraform lease state, job executions, and app revisions/replicas; it cannot prove that another host's deployment process or old database sessions have stopped. Require fresh, explicit consent naming the selected lock and any manual database review. Repeat service-side checks immediately before breaking that one lease, then verify the result. Never infer consent from Resume, deployment approval, a saved answer, or a previous attempt.
+
+Keep retry boundaries narrow. Recheck a read or explicitly retry lock acquisition, not an entire provisioning or release sequence. A failed break must return to inspection rather than repeat the mutation automatically. Cancellation and explicit exit preserve progress. Non-interactive execution does not gain recovery permission from its normal approval flag.
+
+The [installation recovery guide](../README.md#interrupted-installation) owns operator instructions and the limits of existing-app/database recovery. Clearing an operational lease does not repair ambiguous database state or authorize SQL replay, credential rotation, rollback, or stopping workloads.
+
 ### Minimal local diagnostics
 
 Use the same OpenTelemetry SDK and Pino libraries as Hub, with an installer-specific adapter rather than importing Hub server code. Keep one private local JSONL file per process run beside the configuration, separate from the resumable draft. Do not initialize a global tracer provider or a remote exporter.

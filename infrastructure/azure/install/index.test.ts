@@ -16,6 +16,7 @@ async function scenario({
   releaseFails = false,
   priorProvisioning = false,
   provisioningFails = false,
+  retainedRelease = false,
 } = {}) {
   const directory = await mkdtemp(join(process.cwd(), ".replica-install-"))
   directories.push(directory)
@@ -46,6 +47,7 @@ async function scenario({
     registry_url: "registry.azurecr.io",
   }
   let released = false
+  let releaseLocked = retainedRelease
   const installation = {
     environment_id: `/subscriptions/${config.azure.subscriptionId}/resourceGroups/test-hub/providers/Microsoft.App/managedEnvironments/test`,
     resource_group: config.azure.resourceGroup,
@@ -83,6 +85,7 @@ async function scenario({
       return ""
     }
     if (executable === process.execPath) {
+      if (releaseLocked) throw new CommandExecutionError("The previous release lease is retained")
       if (releaseFails) throw new CommandExecutionError("Release failed")
       released = true
       installation.url = "https://hub.example.com"
@@ -101,8 +104,27 @@ async function scenario({
       })
     if (operation.startsWith("provider show"))
       return JSON.stringify({ registrationState: "Registered" })
-    if (operation.startsWith("group exists")) return "false"
+    if (operation.startsWith("group exists"))
+      return JSON.stringify(
+        retainedRelease && args[args.indexOf("--name") + 1] === config.azure.resourceGroup,
+      )
+    if (operation.startsWith("group show"))
+      return JSON.stringify({
+        tags: {
+          application: "replica-hub",
+          installation: config.name,
+          owner: config.owner,
+          managed_by: "terraform",
+        },
+      })
     if (operation === "storage account list" || operation === "role assignment list") return "[]"
+    if (operation === "storage account show" && args[args.indexOf("--query") + 1] === "tags")
+      return JSON.stringify({
+        application: "replica-hub",
+        installation: config.name,
+        owner: config.owner,
+        managed_by: "terraform",
+      })
     if (operation === "storage account show")
       return JSON.stringify({
         id: `/subscriptions/${config.azure.subscriptionId}/resourceGroups/state/providers/Microsoft.Storage/storageAccounts/state`,
@@ -119,7 +141,31 @@ async function scenario({
         },
       })
     if (operation === "storage blob exists") return JSON.stringify({ exists: true })
+    if (operation === "storage blob show")
+      return JSON.stringify(
+        args[args.indexOf("--name") + 1] === "deployment.lock" && releaseLocked
+          ? { state: "leased", status: "locked", duration: "infinite" }
+          : { state: "available", status: "unlocked", duration: null },
+      )
+    if (operation === "storage blob list")
+      return JSON.stringify(
+        ["foundation", "app", "provision"].map((module) => ({
+          name: `${config.name}/${module}.tfstate`,
+          lease: { state: "available", status: "unlocked", duration: null },
+        })),
+      )
+    if (operation === "storage blob lease" && args[3] === "break") {
+      const account = args[args.indexOf("--account-name") + 1]
+      const container = args[args.indexOf("--container-name") + 1]
+      const blob = args[args.indexOf("--blob-name") + 1]
+      if (account !== "artifactstore" || container !== "releases" || blob !== "deployment.lock")
+        throw new Error("The installer tried to break a different lock")
+      releaseLocked = false
+      return "{}"
+    }
     if (operation === "storage blob lease") return JSON.stringify("lease-id")
+    if (operation === "containerapp job list" || args.slice(0, 2).join(" ") === "containerapp list")
+      return "[]"
     if (operation === "keyvault secret list")
       return JSON.stringify([...secretValues.keys()].map((name) => ({ name })))
     if (operation === "keyvault secret set") {
@@ -234,6 +280,45 @@ it("updates an installed app only through the release orchestrator and never rer
         command[1]!.endsWith("/azure") &&
         ["plan", "apply"].includes(command[2]!),
     ),
+  ).toBe(false)
+})
+
+it("recovers a retained release lease after fresh maintenance approval even when database provisioning is already complete", async () => {
+  const s = await scenario({ existing: true, retainedRelease: true })
+  let maintenanceApprovedAt = -1
+  const confirm = s.ui.confirm
+  s.ui.confirm = vi.fn(async (message) => {
+    const approved = await confirm(message)
+    if (/maintenance.window/i.test(message)) maintenanceApprovedAt = s.events.length
+    return approved
+  })
+  s.ui.select = vi.fn(async (_message: string, options: { label: string; value: string }[]) => {
+    expect(options.map(({ value }) => value)).toContain("recover")
+    return "recover"
+  })
+
+  await expect(installAzure(s.config, s)).resolves.toBe("https://hub.example.com")
+
+  const commands = s.events.map(({ command }) => command)
+  const inspectRelease = commands.findIndex(
+    (command) =>
+      command.slice(0, 4).join(" ") === "az storage blob show" &&
+      command[command.indexOf("--name") + 1] === "deployment.lock",
+  )
+  const breakRelease = commands.findIndex(
+    (command) => command.slice(0, 5).join(" ") === "az storage blob lease break",
+  )
+  const release = commands.findIndex((command) => command[0] === process.execPath)
+  expect(maintenanceApprovedAt).toBeGreaterThan(-1)
+  expect(inspectRelease).toBeGreaterThanOrEqual(maintenanceApprovedAt)
+  expect(breakRelease).toBeGreaterThan(inspectRelease)
+  expect(release).toBeGreaterThan(breakRelease)
+  expect(
+    commands.filter((command) => command.slice(0, 5).join(" ") === "az storage blob lease break"),
+  ).toHaveLength(1)
+  expect(commands.filter((command) => command[0] === process.execPath)).toHaveLength(1)
+  expect(
+    commands.some((command) => command.slice(0, 4).join(" ") === "az containerapp job start"),
   ).toBe(false)
 })
 
