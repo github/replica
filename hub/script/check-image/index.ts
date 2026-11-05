@@ -31,9 +31,27 @@ export async function checkImage() {
   let applicationCreated = false
   let imageCreated = false
   try {
-    execFileSync("docker", ["build", "-t", image, resolve(import.meta.dirname, "../..")], {
-      stdio: "inherit",
-    })
+    const registry = process.env.NPM_REGISTRY
+    if (registry) {
+      const url = new URL(registry)
+      assert(
+        url.protocol === "https:" && !url.username && !url.password && !url.search && !url.hash,
+        "NPM_REGISTRY must be an HTTPS URL without credentials, query, or fragment",
+      )
+    }
+    execFileSync(
+      "docker",
+      [
+        "build",
+        "-t",
+        image,
+        ...(registry ? ["--build-arg", `NPM_REGISTRY=${registry}`] : []),
+        resolve(import.meta.dirname, "../.."),
+      ],
+      {
+        stdio: "inherit",
+      },
+    )
     imageCreated = true
     docker("network", "create", network)
     networkCreated = true
