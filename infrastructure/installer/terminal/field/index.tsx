@@ -40,6 +40,7 @@ export function FieldPrompt({
       setError(failure.message)
     }
     onEdit?.(raw)
+    onFeedback?.()
   }
   function submit(raw: string) {
     let checked: string
