@@ -174,22 +174,61 @@ describe("HomeIndexPage()", () => {
     )
   })
 
-  it("renders each explicitly configured provider with no fallback action", () => {
-    renderHome({
-      ...PAGE_DATA,
-      signInActions: [
+  it.each([
+    ["GitHub only", PAGE_DATA.signInActions],
+    [
+      "Entra only",
+      [
+        {
+          label: "Sign in with Microsoft Entra",
+          path: "/api/auth/entra/start",
+          provider: "entra" as const,
+        },
+      ],
+    ],
+    [
+      "both providers",
+      [
         ...PAGE_DATA.signInActions,
         {
           label: "Sign in with Microsoft Entra",
           path: "/api/auth/entra/start",
-          provider: "entra",
+          provider: "entra" as const,
         },
       ],
-    })
+    ],
+  ])(
+    "submits each visible provider through only its intended POST form in %s",
+    (_state, actions) => {
+      const { container } = renderHome({ ...PAGE_DATA, signInActions: actions })
+      const submissions = new Map(
+        actions.map((action) => {
+          const button = screen.getByRole("button", { name: action.label })
+          const form = button.closest("form") ?? (button as HTMLButtonElement).form
+          const submit = vi.fn((event: Event) => event.preventDefault())
 
-    expect(screen.getByRole("button", { name: "Sign in with GitHub" })).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Sign in with Microsoft Entra" })).toBeInTheDocument()
-  })
+          expect(form).not.toBeNull()
+          expect(form).toHaveAttribute("method", "post")
+          expect(form).toHaveAttribute("action", action.path)
+          expect((button as HTMLButtonElement).form).toBe(form)
+          form!.addEventListener("submit", submit)
+          return [action.provider, submit] as const
+        }),
+      )
+      expect(container.querySelectorAll("form")).toHaveLength(actions.length)
+
+      for (const action of actions) {
+        for (const submit of submissions.values()) submit.mockClear()
+
+        fireEvent.click(screen.getByRole("button", { name: action.label }))
+
+        for (const [provider, submit] of submissions) {
+          if (provider === action.provider) expect(submit).toHaveBeenCalledOnce()
+          else expect(submit).not.toHaveBeenCalled()
+        }
+      }
+    },
+  )
 
   it("shows the canvas verification result without submitting another action", () => {
     const notice =
