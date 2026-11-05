@@ -80,6 +80,7 @@ export function createTerminalUI(
       view.question = create((value) => {
         if (view.question?.kind === "confirm" || view.question?.kind === "wait")
           view.notice = undefined
+        view.welcome = false
         view.question = undefined
         rejectQuestion = undefined
         view.revision++

@@ -47,11 +47,7 @@ export function TerminalShell({
   const compact = !fullscreen || size.columns < (configureOnly ? 48 : 78)
   const tiny = fullscreen && size.rows < 10
   const art =
-    fullscreen &&
-    view.welcome &&
-    question?.kind === "cloud" &&
-    size.columns >= 60 &&
-    size.rows >= 24
+    fullscreen && view.welcome && question !== undefined && size.columns >= 60 && size.rows >= 24
   const activity = fullscreen && size.rows >= 30 ? view.history.slice(-3) : []
   const panelHeight = Math.max(
     1,

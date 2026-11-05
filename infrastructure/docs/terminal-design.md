@@ -2,7 +2,7 @@
 
 This guide records the reusable Replica terminal patterns implemented in the Hub deployment wizard. These are working guideposts, not a frozen framework. Revisit them when a real terminal, accessibility requirement, or second consumer exposes a better design.
 
-**Status: implemented locally.** Full-screen and inline layouts, reactive field feedback, resumable drafts, progress, first-run ASCII art, and elapsed time use the existing Ink stack. The [installation guide](../README.md) describes operator behavior and recovery. Local terminal exercises use offline sample data; they do not prove an authenticated Azure deployment.
+**Status: implemented locally.** Full-screen and inline layouts, reactive field feedback, resumable drafts, progress, startup ASCII art, and elapsed time use the existing Ink stack. The [installation guide](../README.md) describes operator behavior and recovery. Local terminal exercises use offline sample data; they do not prove an authenticated Azure deployment.
 
 ## User and scope
 
@@ -18,7 +18,7 @@ This work does not add AWS deployment, arbitrary backward navigation, automatic 
 
 | Feedback              | Required outcome                                                                                                             |
 | --------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| First-run welcome     | Show fun ASCII art when starting a new installation, without adding an unnecessary confirmation step.                        |
+| Startup welcome       | Show fun ASCII art on each interactive launch when space permits, without adding an unnecessary confirmation step.           |
 | Terminal ownership    | Use the available terminal space rather than appending an expanding conversation to the shell.                               |
 | Subway-style progress | Show a subtle indication of completed, current, and upcoming wizard stages.                                                  |
 | Draft recovery        | Detect an unfinished session after restart and offer to resume it.                                                           |
@@ -46,14 +46,14 @@ Keep the shell mounted while questions change. Reset only the input component th
 
 Give each area a clear responsibility:
 
-| Area            | Responsibility                                                                                    |
-| --------------- | ------------------------------------------------------------------------------------------------- |
-| Header          | Product name and current installation context. Show welcome art here only for a new installation. |
-| Progress        | One compact row of wizard stages, with the current stage emphasized.                              |
-| Main panel      | Current question or operation, contextual help, and adjacent validation feedback.                 |
-| Notices         | Persistent warnings or failures requiring attention, separate from ordinary logs.                 |
-| Recent activity | A bounded, low-emphasis view of safe operational messages.                                        |
-| Footer          | Relevant keyboard help and a tertiary elapsed-time counter.                                       |
+| Area            | Responsibility                                                                               |
+| --------------- | -------------------------------------------------------------------------------------------- |
+| Header          | Product name and current installation context. Show welcome art here until the first answer. |
+| Progress        | One compact row of wizard stages, with the current stage emphasized.                         |
+| Main panel      | Current question or operation, contextual help, and adjacent validation feedback.            |
+| Notices         | Persistent warnings or failures requiring attention, separate from ordinary logs.            |
+| Recent activity | A bounded, low-emphasis view of safe operational messages.                                   |
+| Footer          | Relevant keyboard help and a tertiary elapsed-time counter.                                  |
 
 Measure terminal rows and columns and respond to resizing. Reduce decoration and activity history before sacrificing the active input, its error, or required approval text. On narrow screens, replace the full map with the current stage and position. Start in inline mode when the terminal is limited; during a full-screen resize, reduce the surrounding layout and keep the main content reachable with Page Up and Page Down.
 
@@ -143,9 +143,9 @@ After resume, distinguish restored answers from operations verified in this run.
 
 ### Welcome and time
 
-Show a small, original ASCII Replica wordmark and friendly welcome alongside the cloud picker for a genuinely new full-screen installation: no completed configuration and no draft to resume. Keep cloud selection as the first actionable setup step. Avoid animation or a separate "press Enter to begin" screen.
+Show a small, original ASCII Replica wordmark and friendly welcome above the first question on every full-screen launch, including existing installations and draft recovery. Enable it before offering recovery choices, not after reading or changing the draft. The terminal dismisses it when the first question resolves. Keep the existing first action: cloud selection for a new questionnaire or recovery choices for an unfinished session. Avoid animation or a separate "press Enter to begin" screen.
 
-Repeat runs, inline mode, and resume prompts use a compact header. Hide the art when space is limited; keep the product name and instructions.
+Inline mode and screen-reader use keep a compact header without art. Full-screen terminals smaller than 60 columns by 24 rows also omit the art. Keep the product name and instructions.
 
 Use one monotonic elapsed timer for the current process. Start it when the interactive wizard opens, include time waiting for the operator, and display it quietly in the footer. Update once per second, without remounting inputs, moving focus, adding log lines, or creating screen-reader announcements each tick.
 
@@ -172,7 +172,7 @@ Each phase includes its behavior coverage and documentation update. The final ph
 | 1. Stable shell and message roles | Full-screen and inline modes, persistent layout, semantic notices versus logs, elapsed timer, and reliable terminal restoration.                                           | Existing terminal bridge. |
 | 2. Guided fields                  | Shared field descriptors drive help and reactive feedback, errors stay below their input, and valid answers advance without losing earlier choices.                        | Phase 1.                  |
 | 3. Durable sessions               | Valid answers checkpoint privately; restart offers resume; invalidated choices, failed saves, active writers, and interrupted deployments have explicit recovery behavior. | Phases 1 and 2.           |
-| 4. Welcome and progress           | First-run art uses the session lifecycle; orchestration supplies an honest stage map for configuration, deployment, updates, and recovery.                                 | Phases 1-3.               |
+| 4. Welcome and progress           | Startup art stays beside the first question; orchestration supplies an honest stage map for configuration, deployment, updates, and recovery.                              | Phases 1-3.               |
 | 5. End-to-end terminal review     | Exercise the complete flows and failure matrix, adjust the visual hierarchy, and document the implemented contracts and remaining gaps.                                    | Phases 1-4.               |
 
 Track substantial follow-up changes using [Contributing](../../CONTRIBUTING.md#before-you-start).
@@ -183,7 +183,7 @@ Use existing Vitest and Ink testing tools. Follow the [test-writing skill](../..
 
 | Area                 | Required evidence                                                                                                                                                                                       |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Startup              | A new installation shows the welcome and cloud choice; an existing installation stays compact; an unfinished session offers recovery.                                                                   |
+| Startup              | Each full-screen launch shows the welcome above its first question when space permits, including cloud selection and draft recovery. It disappears after the first answer.                              |
 | Fields               | Typing and paste update local feedback; errors stay with their input; invalid Enter does not advance; correction works; registry credentials never enter saved or diagnostic data.                      |
 | Drafts               | Restart restores accepted answers; writes are ordered and private; a failed write preserves the previous draft; concurrent writers are refused; corrupt or unsupported drafts are preserved.            |
 | Changed targets      | Lost authorization or a changed tenant/subscription invalidates dependent choices without changing independent answers or silently retargeting deployment.                                              |

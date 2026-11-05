@@ -121,6 +121,7 @@ it("resumes accepted answers after failure, rechecks Azure choices, and complete
   run.mockClear()
   const resumed: WizardUI = {
     ...first,
+    welcome: vi.fn(),
     cloud: vi.fn(async () => "azure" as const),
     field: vi.fn(async (field) => {
       expect(field.id).toBe("resourceGroup")
@@ -148,6 +149,7 @@ it("resumes accepted answers after failure, rechecks Azure choices, and complete
   })
 
   expect(resumed.cloud).not.toHaveBeenCalled()
+  expect(resumed.welcome).toHaveBeenCalledWith(true)
   expect(prerequisitePhases).toEqual(["checks"])
   expect(checkpointPhases).toEqual(["checks"])
   expect(resumed.field).toHaveBeenCalledOnce()

@@ -64,6 +64,7 @@ export async function runWizard({
       await terminal.phase?.(phase)
     },
   }
+  ui.welcome?.(true)
   if (session?.draft || session?.problem) {
     const draft = session.draft
     if (session.problem) {
@@ -100,12 +101,10 @@ export async function runWizard({
       )
     }
   }
-  ui.welcome?.(!existing && !session?.draft)
   await ui.phase?.("cloud")
   const cloud = session?.draft?.answers.cloud ?? (await ui.cloud())
   if (cloud !== "azure") throw new Error("This cloud is not available yet.")
   await session?.answer("cloud", cloud)
-  ui.welcome?.(false)
   const config = await configureAzure(ui, run, existing, session)
   if (
     existing &&

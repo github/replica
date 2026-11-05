@@ -131,6 +131,35 @@ it("does not resolve close until Ink has finished terminal restoration", async (
   expect(closed).toBe(true)
 })
 
+it.each(["cloud", "resume"])(
+  "shows the startup welcome beside the %s question until the first answer",
+  async (question) => {
+    vi.stubEnv("TERM", "xterm")
+    vi.stubEnv("INK_SCREEN_READER", "false")
+    const abort = new AbortController()
+    const ui = open(abort)
+    ui.welcome!(true)
+    const pending =
+      question === "cloud"
+        ? ui.cloud()
+        : ui.select("Resume setup?", [{ label: "Resume setup", value: "resume" }])
+    const terminal = show()
+    await vi.waitFor(() => expect(terminal.lastFrame()).toContain("REPLICA"))
+
+    terminal.stdin.write("\r")
+    await expect(pending).resolves.toBe(question === "cloud" ? "azure" : "resume")
+    const next = ui.text("Next setup question")
+    const rejected = expect(next).rejects.toThrow(/cancel/i)
+    await vi.waitFor(() => {
+      expect(terminal.lastFrame()).toContain("Next setup question")
+      expect(terminal.lastFrame()).not.toContain("REPLICA")
+    })
+
+    abort.abort()
+    await rejected
+  },
+)
+
 it.each(["inline", "screen reader"])(
   "does not request the alternate screen or show an animated clock in %s mode",
   async (mode) => {
@@ -138,13 +167,15 @@ it.each(["inline", "screen reader"])(
     vi.stubEnv("INK_SCREEN_READER", mode === "screen reader" ? "true" : "false")
     const abort = new AbortController()
     const ui = open(abort, { fullscreen: mode !== "inline" })
-    const pending = ui.text("Synthetic question")
+    ui.welcome!(true)
+    const pending = ui.cloud()
     const rejected = expect(pending).rejects.toThrow(/cancel/i)
     const terminal = show()
     await setImmediate()
 
     expect(boundary.options).toMatchObject({ alternateScreen: false })
     expect(terminal.lastFrame()).not.toMatch(/elapsed\s+\d+:/i)
+    expect(terminal.lastFrame()).not.toContain("REPLICA")
 
     abort.abort()
     await rejected
