@@ -99,9 +99,7 @@ describe("Hub empty workspace", () => {
     for (const entry of ["/", "/repositories"]) {
       await router.settle(() => router.navigate(entry))
       expect(router.state.location.pathname).toBe(`/repositories/${firstRepository.id}`)
-      await waitFor(() =>
-        expect(screen.getByRole("region", { name: "Prototypes" })).toBeVisible(),
-      )
+      await waitFor(() => expect(screen.getByRole("region", { name: "Prototypes" })).toBeVisible())
     }
   }, 15_000)
 })
