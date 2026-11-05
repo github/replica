@@ -1,11 +1,11 @@
 import type { Prisma } from "../../../generated/prisma/client.ts"
 
-export function setAuthenticationProviderEnabled(
+export function enableAuthenticationProvider(
   database: Pick<Prisma.TransactionClient, "authenticationProvider">,
-  input: { enabled: boolean; providerId: string },
+  input: { providerId: string; revisionId: string },
 ) {
   return database.authenticationProvider.update({
     where: { id: input.providerId },
-    data: { enabled: input.enabled },
+    data: { enabled: true, selectedRevisionId: input.revisionId },
   })
 }

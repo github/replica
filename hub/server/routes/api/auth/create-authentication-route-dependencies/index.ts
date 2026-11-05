@@ -105,9 +105,6 @@ export async function createAuthenticationRouteDependencies(
       }
     }),
   )
-  if (!contexts.length) {
-    throw new Error("Configure at least one GitHub or Entra user sign-in provider.")
-  }
   await reconcileConfiguredProviders(
     contexts.map((context) => ({
       canonicalPublicConfiguration: context.adapter.canonicalPublicConfiguration,

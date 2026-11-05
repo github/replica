@@ -12,6 +12,8 @@ import { jobProcessors } from "./workers/configuration.ts"
 import { runJobWorker } from "./workers/run-job-worker/index.ts"
 import type { AuthenticationRouteDependencies } from "./routes/api/auth/types.ts"
 
+class AuthenticationConfigurationError extends Error {}
+
 try {
   const configuration = parseRuntimeConfig(process.env)
   const storage =
@@ -40,7 +42,7 @@ try {
           authenticationConfiguration.sharedConfigured) &&
         !authenticationConfiguration.applicationOrigin
       ) {
-        throw new Error(
+        throw new AuthenticationConfigurationError(
           "HUB_APPLICATION_ORIGIN is required when authentication settings are configured.",
         )
       }
@@ -48,7 +50,7 @@ try {
         authenticationConfiguration.applicationOrigin &&
         !authenticationConfiguration.providerConfigured
       ) {
-        throw new Error(
+        throw new AuthenticationConfigurationError(
           "Configure at least one GitHub or Entra provider when HUB_APPLICATION_ORIGIN is set.",
         )
       }
@@ -58,7 +60,9 @@ try {
           authenticationConfiguration.applicationOrigin) &&
         !configuration.databaseUrl
       ) {
-        throw new Error("DATABASE_URL is required when authentication settings are configured.")
+        throw new AuthenticationConfigurationError(
+          "DATABASE_URL is required when authentication settings are configured.",
+        )
       }
       if (configuration.databaseUrl) {
         const { createAuthenticationRouteDependencies, disableAuthenticationProviders } =
@@ -109,9 +113,11 @@ try {
   } finally {
     await telemetry.shutdown()
   }
-} catch {
+} catch (error) {
   logger.fatal(
-    "Hub failed; check runtime configuration, dependencies, telemetry, and shutdown time.",
+    error instanceof AuthenticationConfigurationError
+      ? error.message
+      : "Hub failed; check runtime configuration, dependencies, telemetry, and shutdown time.",
   )
   process.exit(1)
 }

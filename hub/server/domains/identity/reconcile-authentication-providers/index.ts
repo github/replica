@@ -78,10 +78,12 @@ export async function reconcileAuthenticationProviders(
                   revision: candidate.revision,
                   configurationDigest: candidate.configurationDigest,
                 })
-                await repositories.selectAuthenticationProviderRevision({
-                  providerId,
-                  revisionId,
-                })
+                if (current.enabled) {
+                  await repositories.selectAuthenticationProviderRevision({
+                    providerId,
+                    revisionId,
+                  })
+                }
                 await repositories.createSecurityAudit({
                   id: dependencies.createId(),
                   type: "provider_revision_selected",
@@ -91,13 +93,9 @@ export async function reconcileAuthenticationProviders(
                 })
               }
               if (!current.enabled) {
-                await repositories.selectAuthenticationProviderRevision({
+                await repositories.enableAuthenticationProvider({
                   providerId,
                   revisionId,
-                })
-                await repositories.setAuthenticationProviderEnabled({
-                  enabled: true,
-                  providerId,
                 })
                 await repositories.createSecurityAudit({
                   id: dependencies.createId(),

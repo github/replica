@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
+import { logger } from "./integrations/pino"
 import { runApi } from "./run-api"
 import { startServerProcesses } from "./start-server-processes"
 import { parseRuntimeConfig } from "./utils/parse-runtime-config"
@@ -69,6 +70,9 @@ describe("server runtime", () => {
       await expect(import("./index.ts")).rejects.toThrow("Unexpected process exit: 1")
 
       expect(runApi).not.toHaveBeenCalled()
+      expect(logger.fatal).toHaveBeenCalledWith(
+        "HUB_APPLICATION_ORIGIN is required when authentication settings are configured.",
+      )
     },
   )
 
@@ -82,6 +86,9 @@ describe("server runtime", () => {
     await expect(import("./index.ts")).rejects.toThrow("Unexpected process exit: 1")
 
     expect(runApi).not.toHaveBeenCalled()
+    expect(logger.fatal).toHaveBeenCalledWith(
+      "Configure at least one GitHub or Entra provider when HUB_APPLICATION_ORIGIN is set.",
+    )
   })
 
   it("requires a database when authentication is configured", async () => {
@@ -91,6 +98,9 @@ describe("server runtime", () => {
     await expect(import("./index.ts")).rejects.toThrow("Unexpected process exit: 1")
 
     expect(runApi).not.toHaveBeenCalled()
+    expect(logger.fatal).toHaveBeenCalledWith(
+      "DATABASE_URL is required when authentication settings are configured.",
+    )
   })
 
   it.each(["api", "combined"] as const)(

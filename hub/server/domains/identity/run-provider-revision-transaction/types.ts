@@ -38,6 +38,7 @@ export interface ProviderRevisionRepositories {
 
 export interface AuthenticationProviderReconciliationRepositories extends ProviderRevisionRepositories {
   disableAuthenticationProvider(providerId: string): Promise<unknown>
+  enableAuthenticationProvider(input: { providerId: string; revisionId: string }): Promise<unknown>
   incrementSessionRevocation(): Promise<{ revision: number } | null>
   lockAuthenticationProviders(): Promise<
     Array<{
@@ -49,10 +50,6 @@ export interface AuthenticationProviderReconciliationRepositories extends Provid
       revisionId: string
     }>
   >
-  setAuthenticationProviderEnabled(input: {
-    enabled: boolean
-    providerId: string
-  }): Promise<unknown>
 }
 
 export type ProviderRevisionTransaction = <Result>(
