@@ -17,6 +17,7 @@ async function scenario({
   priorProvisioning = false,
   provisioningFails = false,
   retainedRelease = false,
+  imageFailsOnce = false,
 } = {}) {
   const directory = await mkdtemp(join(process.cwd(), ".replica-install-"))
   directories.push(directory)
@@ -47,6 +48,7 @@ async function scenario({
     registry_url: "registry.azurecr.io",
   }
   let released = false
+  let imageAttempts = 0
   let releaseLocked = retainedRelease
   const installation = {
     environment_id: `/subscriptions/${config.azure.subscriptionId}/resourceGroups/test-hub/providers/Microsoft.App/managedEnvironments/test`,
@@ -76,12 +78,15 @@ async function scenario({
     }
     if (executable === "git") return args[0] === "rev-parse" ? "a".repeat(40) : ""
     if (executable === "docker") {
+      imageAttempts++
       await writeFile(
         args[args.indexOf("--metadata-file") + 1]!,
         JSON.stringify({
           "containerimage.digest": `sha256:${"a".repeat(64)}`,
         }),
       )
+      if (imageFailsOnce && imageAttempts === 1)
+        throw new CommandExecutionError("npm ci failed: ECONNRESET registry.npmjs.org", false, 1)
       return ""
     }
     if (executable === process.execPath) {
@@ -281,6 +286,101 @@ it("updates an installed app only through the release orchestrator and never rer
         ["plan", "apply"].includes(command[2]!),
     ),
   ).toBe(false)
+})
+
+it("corrects an image-build proxy under the same installation lease without replaying infrastructure or credentials", async () => {
+  const s = await scenario({ imageFailsOnce: true })
+  delete s.config.npmRegistry
+  const registry = "https://packages.example/npm/"
+  s.ui.text = vi.fn(async () => registry)
+  s.ui.select = vi.fn<NonNullable<InstallerUI["select"]>>(async (_message, options) => {
+    expect(options.map(({ value }) => value)).toContain("registry")
+    const commands = s.events.map(({ command }) => command)
+    expect(commands.filter((command) => command[0] === "docker")).toHaveLength(1)
+    expect(
+      commands.some(
+        (command) =>
+          command.slice(0, 5).join(" ") === "az storage blob lease release" ||
+          command.slice(0, 5).join(" ") === "az storage blob lease break" ||
+          command.slice(0, 4).join(" ") === "az containerapp job start" ||
+          command[0] === process.execPath,
+      ),
+    ).toBe(false)
+    return "registry"
+  })
+  const saveNpmRegistry = vi.fn(async (value: string) => {
+    expect(value).toBe(registry)
+    expect(s.events.filter(({ command }) => command[0] === "docker")).toHaveLength(1)
+  })
+
+  await expect(installAzure(s.config, { ...s, saveNpmRegistry })).resolves.toBe(
+    "https://hub.example.com",
+  )
+
+  const commands = s.events.map(({ command }) => command)
+  const builds = commands
+    .map((command, index) => (command[0] === "docker" ? index : -1))
+    .filter((index) => index >= 0)
+  expect(builds).toHaveLength(2)
+  expect(commands[builds[0]!]!).not.toContain("--build-arg")
+  expect(commands[builds[1]!]!).toContain(`NPM_REGISTRY=${registry}`)
+  expect(commands.slice(builds[0]! + 1, builds[1]!)).toEqual([
+    ["git", "rev-parse", "HEAD"],
+    ["git", "status", "--porcelain", "--untracked-files=normal"],
+    expect.arrayContaining(["az", "acr", "login"]),
+  ])
+  expect(saveNpmRegistry).toHaveBeenCalledExactlyOnceWith(registry)
+  expect(
+    commands.filter(
+      (command) =>
+        command.slice(0, 5).join(" ") === "az storage blob lease acquire" &&
+        command.includes(`${s.config.name}/installer.lock`),
+    ),
+  ).toHaveLength(1)
+  expect(
+    commands.some((command) => command.slice(0, 5).join(" ") === "az storage blob lease break"),
+  ).toBe(false)
+  expect(
+    commands.filter((command) => command.slice(0, 4).join(" ") === "az containerapp job start"),
+  ).toHaveLength(1)
+  const releases = commands.filter((command) => command[0] === process.execPath)
+  expect(releases).toHaveLength(1)
+  expect(releases[0]).toContain(s.image)
+})
+
+it("propagates cancellation from ACR image recovery without downstream work or releasing the installation lease", async () => {
+  const s = await scenario()
+  const cancelled = new DOMException("Cancelled from image recovery", "AbortError")
+  const run: RunCommand = async (executable, args, options) => {
+    const result = await s.run(executable, args, options)
+    if (executable === "az" && args[0] === "acr" && args[1] === "login")
+      throw new CommandExecutionError("ACR login is not ready", false, 1)
+    return result
+  }
+  s.ui.select = vi.fn<NonNullable<InstallerUI["select"]>>(async (_message, options) => {
+    expect(options.map(({ value }) => value)).toEqual(expect.arrayContaining(["retry", "exit"]))
+    throw cancelled
+  })
+
+  await expect(installAzure(s.config, { ...s, run })).rejects.toBe(cancelled)
+
+  expect(s.ui.select).toHaveBeenCalledTimes(1)
+  expect(s.ui.wait).not.toHaveBeenCalled()
+  const commands = s.events.map(({ command }) => command)
+  expect(
+    commands.filter((command) => command.slice(0, 3).join(" ") === "az acr login"),
+  ).toHaveLength(1)
+  expect(
+    commands.some(
+      (command) =>
+        command[0] === "docker" ||
+        command[0] === process.execPath ||
+        command.slice(0, 4).join(" ") === "az containerapp job start" ||
+        command.slice(0, 5).join(" ") === "az storage blob lease release" ||
+        command.slice(0, 5).join(" ") === "az storage blob lease break",
+    ),
+  ).toBe(false)
+  expect(s.messages).toContainEqual(expect.stringContaining("installer.lock"))
 })
 
 it("recovers a retained release lease after fresh maintenance approval even when database provisioning is already complete", async () => {

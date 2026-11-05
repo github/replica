@@ -6,6 +6,8 @@ The Hub image runs the frontend, API, and both workers together. It does not yet
 
 Build from the repository root with `docker build -t replica-hub:check hub`. When an npm proxy is required, add `--build-arg NPM_REGISTRY=https://YOUR_PROXY/`. This resolves locked dependency versions through that registry without changing the source lockfile; the registry URL must not contain credentials. The image runs as a non-root user and contains compiled application code and migration tooling. It writes no application state to its writable layer. Publish and deploy the same image digest for setup and Hub.
 
+Host npm configuration is not inherited by the image build. Without `NPM_REGISTRY`, the container needs public npm access. The [guided Azure installer](../../infrastructure/README.md#recovering-image-builds) can save or correct the build proxy and retry image publication without restarting provisioning.
+
 Publishing is an explicit operator step, not a side effect of CI. From the approved checkout, authenticate to an authorized registry, then run `docker buildx build --platform linux/amd64 --tag YOUR_REGISTRY/replica-hub:YOUR_COMMIT --push hub`. Resolve the published digest with `docker buildx imagetools inspect YOUR_REGISTRY/replica-hub:YOUR_COMMIT` and give deployment the `registry/repository@sha256:...` reference, never the mutable tag.
 
 | Setting                                                  | Contract                                                                                                                                       |

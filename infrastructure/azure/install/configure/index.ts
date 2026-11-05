@@ -179,7 +179,9 @@ export async function configureAzure(
     session?.draft?.answers.useProxy ??
     (await remember(
       "useProxy",
-      await ui.confirm("Configure an npm proxy for the container build?"),
+      await ui.confirm(
+        "Configure an npm proxy for the container build? Docker does not inherit host npm settings; configure a proxy here if your network blocks the public npm registry.",
+      ),
     ))
   const npmRegistry = useProxy ? await field("npmRegistry", existing?.npmRegistry) : undefined
   return parseConfig({

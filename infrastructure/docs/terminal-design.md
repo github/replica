@@ -155,6 +155,14 @@ Keep retry boundaries narrow. Recheck a read or explicitly retry lock acquisitio
 
 The [installation recovery guide](../README.md#interrupted-installation) owns operator instructions and the limits of existing-app/database recovery. Clearing an operational lease does not repair ambiguous database state or authorize SQL replay, credential rotation, rollback, or stopping workloads.
 
+### Retrying a failed build step
+
+Define the retry boundary in orchestration, not in the generic command runner. Image publication can offer an explicit retry because it creates another candidate image without replaying infrastructure or database work. Recheck source identity and dirty-checkout consent, refresh registry sign-in, and use fresh build metadata for every attempt. Explain that a failed attempt may still have published an image; a missing or invalid digest is not success.
+
+Keep the current installation lock while the user repairs a build failure. Show a bounded error summary and relevant settings beside retry, correction, and exit choices so long command output cannot push controls out of view. Offer a scrollable full-details view that returns to the same recovery choices without starting work. For npm failures, distinguish the container's selected registry from host npm configuration rather than implying that host settings were inherited.
+
+Offer a correction only when the interface can validate the field and the workflow can persist it. Save the draft and complete configuration before retrying, keep consent out of both, and block further work when persistence fails. A corrected setting must survive a later build failure or process restart. Do not turn a narrowly retryable image step into permission to repeat Terraform, rotate credentials, or replay setup. Non-interactive execution and cancellation never enter automatic retry loops.
+
 ### Minimal local diagnostics
 
 Use the same OpenTelemetry SDK and Pino libraries as Hub, with an installer-specific adapter rather than importing Hub server code. Keep one private local JSONL file per process run beside the configuration, separate from the resumable draft. Do not initialize a global tracer provider or a remote exporter.

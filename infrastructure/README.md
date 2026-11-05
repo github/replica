@@ -23,7 +23,7 @@ npm ci --prefix infrastructure --ignore-scripts --engine-strict \
 npm run setup:server
 ```
 
-The wizard separately asks whether the container build needs a proxy. It passes the selected HTTPS registry into the Docker build and resolves the pinned dependency versions through that registry without changing your global npm configuration or the source lockfile. Proxy credentials in URLs and authenticated proxy setup are not supported. Do not pass tokens through build arguments.
+The wizard separately asks whether the container build needs a proxy. Host npm settings and flags used to install the wizard are not inherited by Docker. Without a selected proxy, the container needs public npm access. The wizard passes the selected HTTPS registry into the Docker build and resolves the pinned dependency versions through that registry without changing your global npm configuration or the source lockfile. Proxy credentials in URLs and authenticated proxy setup are not supported. Do not pass tokens through build arguments.
 
 Use a supported Node version, stable Terraform `>= 1.13.0, < 2.0.0`, Azure CLI with Container Apps job/revision support, and a running Docker engine with Buildx. CI checks Terraform 1.13.4 and 1.17.1; the AzureRM provider remains separately pinned and locked. The wizard explains missing prerequisites and waits while you complete them. Sign in with `az login` in a separate terminal; the wizard does not automate authentication. This first version supports local operator execution on macOS and Linux, not a federated CI deployment identity.
 
@@ -94,6 +94,16 @@ Telemetry never contains configuration answers, resource names, command argument
 Failed commands show their actual stderr to the local operator, limited to 64 KiB with terminal-control sequences removed. Those details may be sensitive: review them locally before sharing terminal captures. Successful command output is returned only to the caller, including token and secret lookups, and is not automatically printed. Neither successful output nor failed diagnostics enter telemetry or drafts.
 
 If diagnostics cannot be created or written, setup reports the problem rather than continuing without logging. Existing cloud changes and recovery requirements still apply.
+
+### Recovering image builds
+
+A failed image build or publication stays in the interactive wizard. A short error notice keeps recovery controls visible even for long Docker logs and states whether a container npm proxy is configured. Choose **Retry image build and publication**, **Set or change the npm proxy, then retry**, **Show full error details**, or **Exit and keep saved progress**. The details view includes the original local error and complete selected registry, supports terminal scrolling, and returns to recovery without retrying. Registry editing is available when setup can save the corrected setting and the terminal supports field input.
+
+For npm connection errors, check whether the error names a blocked public registry or an unavailable proxy. Get the correct HTTPS endpoint from your package-feed administrator and set it through the recovery option. For source compilation errors, repair the checkout before retrying. For Docker or ACR failures, restore Docker/Buildx, connectivity, or registry push access before retrying.
+
+A corrected proxy is validated and saved to both the draft and complete configuration before another build starts. Retry rechecks source revision and dirty-checkout consent, signs in to ACR, and builds/publishes a new candidate image. Each attempt uses fresh metadata and accepts only a valid immutable digest; failed attempts cannot supply a stale result. A previous attempt may have left a candidate image in ACR.
+
+The current installation lease stays held while you repair and retry. The wizard does not repeat Terraform, rotate stored credentials, run database setup, or clear locks for an image retry. Exiting retains saved answers and the existing lease for normal interrupted-installation recovery. Cancellation stops immediately, and non-interactive execution never retries or edits settings automatically.
 
 ### Azure discovery failures
 

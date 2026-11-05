@@ -7,6 +7,7 @@ export interface AzureInstallation {
   ui: InstallerUI
   env: NodeJS.ProcessEnv
   azure(...args: string[]): Promise<string>
+  saveNpmRegistry?(registry: string): Promise<void>
 }
 
 export interface Foundation {

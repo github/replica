@@ -2,11 +2,15 @@ import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { afterEach, expect, it, vi } from "vitest"
 
-import type { RunCommand, WizardUI } from "../types.ts"
+import * as azureInstaller from "../../azure/install/index.ts"
+import { openSession } from "../session/index.ts"
+import type { DeploymentConfig, RunCommand, WizardUI } from "../types.ts"
 import { runWizard } from "./index.ts"
 
 const directories: string[] = []
+const sessions: Awaited<ReturnType<typeof openSession>>[] = []
 afterEach(async () => {
+  await Promise.all(sessions.splice(0).map((session) => session.close()))
   await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true })))
 })
 
@@ -247,4 +251,118 @@ it("saves corrected legacy configuration privately before beginning provisioning
   expect(savedBeforeProvisioning).toEqual(expected)
   expect(JSON.parse(await readFile(path, "utf8"))).toEqual(expected)
   expect((await stat(path)).mode & 0o777).toBe(0o600)
+})
+
+it("checkpoints a corrected build proxy in the draft and complete config before retry, then restores it after another failure", async () => {
+  const directory = await mkdtemp(join(process.cwd(), ".replica-wizard-"))
+  directories.push(directory)
+  const path = join(directory, "installation.json")
+  const registry = "https://packages.example/npm/"
+  const existing: DeploymentConfig = {
+    version: 1,
+    cloud: "azure",
+    name: "test-hub",
+    owner: "test-team",
+    azure: {
+      subscriptionId: "00000000-0000-0000-0000-000000000001",
+      tenantId: "00000000-0000-0000-0000-000000000002",
+      location: "eastus2",
+      resourceGroup: "test-hub-rg",
+    },
+  }
+  await writeFile(path, JSON.stringify(existing), { mode: 0o600 })
+  const session = await openSession(path)
+  sessions.push(session)
+  let repaired = false
+  const answer = session.answer
+  vi.spyOn(session, "answer").mockImplementation(async (key, value) => {
+    if (key === "npmRegistry" && !repaired)
+      throw Object.assign(new Error("Synthetic disk failure"), { code: "EACCES" })
+    await answer(key, value)
+  })
+  const answers = [existing.name, existing.owner, existing.azure.resourceGroup]
+  const ui: WizardUI = {
+    cloud: vi.fn(async () => "azure" as const),
+    text: vi.fn(async () => {
+      if (!answers.length) throw new Error("Unexpected repeated configuration question")
+      return answers.shift()!
+    }),
+    select: vi.fn(async (_message, options) => options[0]!.value),
+    confirm: vi.fn(async () => false),
+    wait: vi.fn(async (message) => {
+      if (message.includes("EACCES")) {
+        expect(JSON.parse(await readFile(path, "utf8"))).toEqual(existing)
+        expect(session.draft?.answers).toMatchObject({ useProxy: true })
+        expect(session.draft?.answers.npmRegistry).toBeUndefined()
+        repaired = true
+      }
+    }),
+    status: vi.fn(),
+  }
+  const run = vi.fn<RunCommand>(async (executable, args) => {
+    if (executable === "terraform") return JSON.stringify({ terraform_version: "1.13.4" })
+    if (executable === "docker" || args.includes("--help")) return ""
+    if (executable !== "az") throw new Error(`Unexpected executable ${executable}`)
+    if (args[0] === "version") return "{}"
+    if (args[0] === "account" && args[1] === "list")
+      return JSON.stringify([
+        {
+          id: existing.azure.subscriptionId,
+          tenantId: existing.azure.tenantId,
+          name: "Test",
+          state: "Enabled",
+        },
+      ])
+    if (args[0] === "rest") return JSON.stringify([{ name: "eastus2", displayName: "East US 2" }])
+    if (args[0] === "provider" && args[1] === "show")
+      return JSON.stringify({
+        resourceTypes: ["managedEnvironments", "flexibleServers", "registries", "vaults"].map(
+          (resourceType) => ({ resourceType, locations: ["East US 2"] }),
+        ),
+      })
+    throw new Error(`Unexpected Azure operation ${args.join(" ")}`)
+  })
+  const laterFailure = new Error("Synthetic second image build failure")
+  const install = vi.spyOn(azureInstaller, "installAzure")
+  install.mockImplementationOnce(async (config, options) => {
+    expect(session.draft?.answers.useProxy).toBe(false)
+    await options.ui.phase?.("provision")
+    expect(options.saveNpmRegistry).toEqual(expect.any(Function))
+    await options.saveNpmRegistry!(registry)
+    expect(repaired).toBe(true)
+    expect(config).toEqual({ ...existing, npmRegistry: registry })
+    expect(JSON.parse(await readFile(path, "utf8"))).toEqual(config)
+    expect(JSON.parse(await readFile(session.path, "utf8"))).toMatchObject({
+      phase: "provision",
+      deploymentStarted: true,
+      answers: { useProxy: true, npmRegistry: registry },
+    })
+    expect((await stat(path)).mode & 0o777).toBe(0o600)
+    expect((await stat(session.path)).mode & 0o777).toBe(0o600)
+    throw laterFailure
+  })
+
+  await expect(runWizard({ ui, run, path, directory, existing, session })).rejects.toBe(
+    laterFailure,
+  )
+
+  await session.close()
+  const reopened = await openSession(path)
+  sessions.push(reopened)
+  expect(reopened.draft?.answers).toMatchObject({ useProxy: true, npmRegistry: registry })
+  const saved = JSON.parse(await readFile(path, "utf8")) as DeploymentConfig
+  install.mockImplementationOnce(async (config) => {
+    expect(config).toEqual(saved)
+    expect(config.npmRegistry).toBe(registry)
+    return "https://hub.example.com"
+  })
+
+  await expect(
+    runWizard({ ui, run, path, directory, existing: saved, session: reopened }),
+  ).resolves.toContain("https://hub.example.com")
+
+  expect(ui.text).toHaveBeenCalledTimes(3)
+  expect(ui.confirm).toHaveBeenCalledTimes(1)
+  expect(ui.cloud).toHaveBeenCalledTimes(1)
+  expect(install).toHaveBeenCalledTimes(2)
 })

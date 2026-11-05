@@ -54,6 +54,8 @@ export interface InstallerUI {
   confirm(message: string): Promise<boolean>
   wait(message: string): Promise<void>
   select?(message: string, options: { label: string; value: string }[]): Promise<string>
+  field?(definition: FieldDefinition, initialValue?: string): Promise<string>
+  text?(message: string, initialValue?: string): Promise<string>
 }
 
 export interface WizardUI extends InstallerUI {

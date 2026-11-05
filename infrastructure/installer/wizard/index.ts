@@ -126,7 +126,17 @@ export async function runWizard({
     ui.complete?.()
     return `Configuration saved to ${path}. No Azure resources were changed.`
   }
-  const url = await installAzure(config, { directory: join(directory, config.name), run, ui })
+  const url = await installAzure(config, {
+    directory: join(directory, config.name),
+    run,
+    ui,
+    async saveNpmRegistry(registry) {
+      await session?.answer("useProxy", true)
+      await session?.answer("npmRegistry", registry)
+      await checkpoint(() => saveConfig(path, { ...config, npmRegistry: registry }))
+      config.npmRegistry = registry
+    },
+  })
   await session?.complete()
   ui.complete?.()
   return `Hub is ready at ${url}. Readiness does not provide sign-in or authorization.`

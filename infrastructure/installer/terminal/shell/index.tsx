@@ -108,7 +108,7 @@ export function TerminalShell({
       {question?.kind === "wait" && (
         <Box flexDirection="column">
           <Text color={terminalColors.warning}>Action needed: {question.message}</Text>
-          <Text>Press Enter to recheck, or Ctrl+C to stop.</Text>
+          <Text>Press Enter to continue, or Ctrl+C to stop.</Text>
         </Box>
       )}
     </Box>

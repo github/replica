@@ -17,7 +17,17 @@ import type { AzureInstallation, Foundation, Installation } from "./types.ts"
 
 export async function installAzure(
   input: DeploymentConfig,
-  { directory, run, ui }: { directory: string; run: RunCommand; ui: InstallerUI },
+  {
+    directory,
+    run,
+    ui,
+    saveNpmRegistry,
+  }: {
+    directory: string
+    run: RunCommand
+    ui: InstallerUI
+    saveNpmRegistry?(registry: string): Promise<void>
+  },
 ): Promise<string> {
   const config = parseConfig(input)
   await verifyAzureTarget(config, run)
@@ -37,6 +47,7 @@ export async function installAzure(
     run,
     ui,
     env,
+    saveNpmRegistry,
     azure: (...args) =>
       run("az", [
         ...args,
