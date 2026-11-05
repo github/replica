@@ -2,9 +2,9 @@ import type { GithubAppSetupHeaderData } from "@features/github-app-setup-header
 
 export interface HubAdminEnrollmentPageData extends GithubAppSetupHeaderData {
   canContinue?: boolean
+  alert?: string | null
   pageTitle: string
   secretLabel: string
   submitLabel: string
   submitPath: string
-  authenticityToken: string
 }

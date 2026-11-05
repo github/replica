@@ -19,6 +19,7 @@ import "@/tokens/base.css"
 import type { Route } from "./+types/root"
 import type { SessionResponse } from "./session-contracts"
 import { DevelopmentTools } from "./development-tools"
+import { isAuthenticationRoute } from "./is-authentication-route"
 import { HubNavigation } from "./navigation"
 import { ApiContractError } from "./requests/api-contract-error"
 import { ApiRequestError } from "./requests/api-request-error"
@@ -30,6 +31,18 @@ import "./styles.css"
 export async function clientLoader({
   request,
 }: Pick<Route.ClientLoaderArgs, "request">): Promise<SessionResponse> {
+  if (isAuthenticationRoute(request)) {
+    // The public auth shell restores its own session without claiming product permissions.
+    return {
+      viewer: null,
+      capabilities: {
+        createPrototypes: false,
+        reviewPrototypes: false,
+        manageSharing: false,
+        administerHub: false,
+      },
+    }
+  }
   return getSession(request)
 }
 

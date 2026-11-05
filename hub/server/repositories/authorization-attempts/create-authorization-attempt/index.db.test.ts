@@ -38,12 +38,14 @@ describe("createAuthorizationAttempt()", () => {
         SELECT clock_timestamp()::timestamptz(3) AS value
       `
       const result = await createAuthorizationAttempt(transaction, {
+        bootstrapSecretDigest: null,
         id,
         providerRevisionId,
         stateDigest: "a".repeat(64),
         browserBindingDigest: "b".repeat(64),
         codeVerifierCiphertext: "encrypted-verifier",
         lifetimeSeconds: 600,
+        purpose: "SIGN_IN",
       })
       const afterRows = await transaction.$queryRaw<Array<{ value: Date }>>`
         SELECT clock_timestamp()::timestamptz(3) AS value
@@ -65,5 +67,46 @@ describe("createAuthorizationAttempt()", () => {
     expect(timing.returnedExpiry).toEqual(timing.expiresAt)
     expect(timing.expiresAt.getTime() - timing.createdAt.getTime()).toBeGreaterThan(599_000)
     expect(timing.expiresAt.getTime() - timing.createdAt.getTime()).toBeLessThanOrEqual(600_000)
+  })
+
+  it("persists an enrollment digest while leaving sign-in without one", async () => {
+    const providerRevisionId = await createProviderRevision()
+    const enrollmentId = randomUUID()
+    const signInId = randomUUID()
+    const digest = "f".repeat(64)
+
+    await prisma.$transaction(async (transaction) => {
+      await createAuthorizationAttempt(transaction, {
+        bootstrapSecretDigest: digest,
+        browserBindingDigest: "b".repeat(64),
+        codeVerifierCiphertext: "encrypted-enrollment-verifier",
+        id: enrollmentId,
+        lifetimeSeconds: 600,
+        providerRevisionId,
+        purpose: "ADMIN_ENROLLMENT",
+        stateDigest: "c".repeat(64),
+      })
+      await createAuthorizationAttempt(transaction, {
+        bootstrapSecretDigest: null,
+        browserBindingDigest: "d".repeat(64),
+        codeVerifierCiphertext: "encrypted-sign-in-verifier",
+        id: signInId,
+        lifetimeSeconds: 600,
+        providerRevisionId,
+        purpose: "SIGN_IN",
+        stateDigest: "e".repeat(64),
+      })
+    })
+
+    await expect(
+      prisma.authorizationAttempt.findMany({
+        where: { id: { in: [enrollmentId, signInId] } },
+        orderBy: { purpose: "asc" },
+        select: { bootstrapSecretDigest: true, purpose: true },
+      }),
+    ).resolves.toEqual([
+      { bootstrapSecretDigest: null, purpose: "SIGN_IN" },
+      { bootstrapSecretDigest: digest, purpose: "ADMIN_ENROLLMENT" },
+    ])
   })
 })

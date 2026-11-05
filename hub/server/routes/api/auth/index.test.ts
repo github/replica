@@ -1,0 +1,474 @@
+import { once } from "node:events"
+import { createHash } from "node:crypto"
+import { createServer } from "node:http"
+import type { AddressInfo } from "node:net"
+import { describe, expect, it, vi } from "vitest"
+
+import { createApp } from "../../../create-app"
+import { AuthenticationProofError } from "../../../domains/authentication/errors"
+import { createLogger } from "../../../integrations/pino/create-logger"
+import type { AuthenticationRouteDependencies } from "./types"
+
+function routeDependencies() {
+  const checkRateLimit = vi.fn().mockResolvedValue({ allowed: true, auditFailed: false })
+  const startSignIn = vi.fn()
+  const startEnrollment = vi.fn()
+  const endSession = vi.fn()
+  const completeProof = vi.fn()
+  const admitSession = vi.fn()
+  const restoreSession = vi.fn()
+  const verifyBootstrapSecret = vi.fn().mockReturnValue(false)
+  const dependencies: AuthenticationRouteDependencies = {
+    signIn: {
+      applicationOrigin: "http://127.0.0.1:5173",
+      checkRateLimit,
+      secureCookie: false,
+      start: startSignIn,
+    },
+    administratorEnrollment: {
+      applicationOrigin: "http://127.0.0.1:5173",
+      checkRateLimit,
+      secureCookie: false,
+      start: startEnrollment,
+      verifyBootstrapSecret,
+      writeBootstrapDenial: vi.fn().mockResolvedValue(undefined),
+    },
+    callback: {
+      checkRateLimit,
+      secureCookie: false,
+      complete: completeProof,
+      admit: admitSession,
+    },
+    currentSession: {
+      restore: restoreSession,
+    },
+    signOut: {
+      applicationOrigin: "http://127.0.0.1:5173",
+      secureCookie: false,
+      end: endSession,
+    },
+  }
+  return {
+    dependencies,
+    admitSession,
+    checkRateLimit,
+    completeProof,
+    endSession,
+    restoreSession,
+    startEnrollment,
+    startSignIn,
+    verifyBootstrapSecret,
+  }
+}
+
+async function withServer(
+  authentication: AuthenticationRouteDependencies,
+  operation: (baseUrl: string) => Promise<void>,
+  options: Parameters<typeof createApp>[0] = {},
+) {
+  const server = createServer(createApp({ ...options, authentication }))
+  server.listen(0, "127.0.0.1")
+  await once(server, "listening")
+  try {
+    const { port } = server.address() as AddressInfo
+    await operation(`http://127.0.0.1:${port}`)
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()))
+    })
+  }
+}
+
+describe("authenticationRoutes()", () => {
+  it("rejects a start from a different origin before provider work", async () => {
+    const { dependencies, checkRateLimit, startSignIn } = routeDependencies()
+    await withServer(dependencies, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/auth/github/start`, {
+        method: "POST",
+        headers: { origin: "https://attacker.example" },
+      })
+
+      expect(response.status).toBe(403)
+      expect(checkRateLimit).not.toHaveBeenCalled()
+      expect(startSignIn).not.toHaveBeenCalled()
+    })
+  })
+
+  it.each([
+    ["uppercase malformed", "/API/AUTH/GITHUB/START", "{malformed"],
+    ["mixed-case oversized", "/Api/Auth/GitHub/Start", JSON.stringify("x".repeat(150_000))],
+  ])(
+    "rejects %s JSON by origin before parsing the authentication body",
+    async (_name, path, body) => {
+      const { dependencies, checkRateLimit, startSignIn } = routeDependencies()
+      await withServer(dependencies, async (baseUrl) => {
+        const response = await fetch(`${baseUrl}${path}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body,
+        })
+
+        expect(response.status).toBe(403)
+        expect(checkRateLimit).not.toHaveBeenCalled()
+        expect(startSignIn).not.toHaveBeenCalled()
+      })
+    },
+  )
+
+  it("rate-limits an enrollment before parsing its secret", async () => {
+    const { dependencies, checkRateLimit, startEnrollment, verifyBootstrapSecret } =
+      routeDependencies()
+    checkRateLimit.mockResolvedValue({ allowed: false, auditFailed: false })
+    await withServer(dependencies, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/auth/github/admin-enrollment/start`, {
+        method: "POST",
+        headers: {
+          origin: dependencies.administratorEnrollment.applicationOrigin,
+          "content-type": "application/x-www-form-urlencoded",
+        },
+        body: "bootstrap_secret=payload-secret",
+      })
+
+      expect(response.status).toBe(429)
+      expect(verifyBootstrapSecret).not.toHaveBeenCalled()
+      expect(startEnrollment).not.toHaveBeenCalled()
+    })
+  })
+
+  it("redirects a native enrollment form after an invalid secret", async () => {
+    const { dependencies, startEnrollment, verifyBootstrapSecret } = routeDependencies()
+    await withServer(dependencies, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/auth/github/admin-enrollment/start`, {
+        method: "POST",
+        headers: {
+          accept: "text/html,application/xhtml+xml",
+          origin: dependencies.administratorEnrollment.applicationOrigin,
+          "content-type": "application/x-www-form-urlencoded",
+        },
+        body: "bootstrap_secret=wrong-secret",
+        redirect: "manual",
+      })
+
+      expect(response.status).toBe(303)
+      expect(response.headers.get("location")).toBe("/admin-enrollment?authentication=denied")
+      expect(verifyBootstrapSecret).toHaveBeenCalledWith("wrong-secret")
+      expect(startEnrollment).not.toHaveBeenCalled()
+    })
+  })
+
+  it("uses the trusted proxy address only when the exact hop count is configured", async () => {
+    const { dependencies, checkRateLimit } = routeDependencies()
+    await withServer(
+      dependencies,
+      async (baseUrl) => {
+        await fetch(`${baseUrl}/api/auth/github/start`, {
+          method: "POST",
+          headers: {
+            origin: dependencies.signIn.applicationOrigin,
+            "x-forwarded-for": "203.0.113.7",
+          },
+          redirect: "manual",
+        })
+
+        expect(checkRateLimit).toHaveBeenCalledWith(
+          "start",
+          createHash("sha256").update("start:203.0.113.7").digest("hex"),
+        )
+      },
+      { trustedProxyHops: 1 },
+    )
+  })
+
+  it("suppresses callback query and cookie values and disables response storage", async () => {
+    const { dependencies } = routeDependencies()
+    const records: string[] = []
+    const logger = createLogger({
+      destination: { write: (line) => records.push(line) },
+    })
+
+    await withServer(
+      dependencies,
+      async (baseUrl) => {
+        const response = await fetch(
+          `${baseUrl}/api/auth/github/callback?code=callback-code-secret&state=short`,
+          {
+            headers: { cookie: "hub_auth_browser=browser-binding-secret" },
+            redirect: "manual",
+          },
+        )
+
+        expect(response.status).toBe(303)
+        expect(response.headers.get("cache-control")).toBe("no-store")
+        await vi.waitFor(() => expect(records).toHaveLength(1))
+        expect(records[0]).not.toMatch(/callback-code-secret|browser-binding-secret|state/)
+      },
+      { logger },
+    )
+  })
+
+  it("rejects a malformed browser-binding cookie before proof completion", async () => {
+    const { dependencies, completeProof } = routeDependencies()
+    await withServer(dependencies, async (baseUrl) => {
+      const response = await fetch(
+        `${baseUrl}/api/auth/github/callback?code=provider-code&state=${"s".repeat(32)}`,
+        {
+          headers: { cookie: "hub_auth_browser=x" },
+          redirect: "manual",
+        },
+      )
+
+      expect(response.status).toBe(303)
+      expect(response.headers.get("location")).toBe("/?authentication=denied")
+      expect(response.headers.get("set-cookie")).toContain("Max-Age=0")
+      expect(completeProof).not.toHaveBeenCalled()
+    })
+  })
+
+  it("accepts GitHub's exact callback issuer parameter", async () => {
+    const { dependencies, completeProof, admitSession } = routeDependencies()
+    completeProof.mockResolvedValue({
+      proof: {
+        authorizationAttemptId: "attempt-id",
+        externalIdentityId: "identity-id",
+      },
+    })
+    admitSession.mockResolvedValue({ expiresAt: new Date("2030-01-01T00:00:00Z") })
+    const state = "s".repeat(32)
+    const browserBinding = "b".repeat(32)
+
+    await withServer(dependencies, async (baseUrl) => {
+      const callback = new URL("/api/auth/github/callback", baseUrl)
+      callback.searchParams.set("code", "provider-code")
+      callback.searchParams.set("state", state)
+      callback.searchParams.set("iss", "https://github.com/login/oauth")
+      const response = await fetch(callback, {
+        headers: { cookie: `hub_auth_browser=${browserBinding}` },
+        redirect: "manual",
+      })
+
+      expect(response.headers.get("location")).toBe("/?authentication=success")
+      expect(completeProof).toHaveBeenCalledWith({
+        browserBinding,
+        code: "provider-code",
+        state,
+      })
+    })
+  })
+
+  it("rejects an unexpected callback issuer before proof completion", async () => {
+    const { dependencies, completeProof } = routeDependencies()
+    await withServer(dependencies, async (baseUrl) => {
+      const callback = new URL("/api/auth/github/callback", baseUrl)
+      callback.searchParams.set("code", "provider-code")
+      callback.searchParams.set("state", "s".repeat(32))
+      callback.searchParams.set("iss", "https://attacker.example")
+      const response = await fetch(callback, {
+        headers: { cookie: `hub_auth_browser=${"b".repeat(32)}` },
+        redirect: "manual",
+      })
+
+      expect(response.headers.get("location")).toBe("/?authentication=denied")
+      expect(completeProof).not.toHaveBeenCalled()
+    })
+  })
+
+  it("preserves a successful Hub session when a replay denial response arrives last", async () => {
+    const { dependencies, completeProof, admitSession } = routeDependencies()
+    completeProof
+      .mockResolvedValueOnce({
+        proof: {
+          authorizationAttemptId: "attempt-id",
+          externalIdentityId: "identity-id",
+        },
+      })
+      .mockRejectedValueOnce(
+        new AuthenticationProofError("attempt_invalid", "The attempt was already consumed."),
+      )
+    admitSession.mockResolvedValue({
+      expiresAt: new Date("2030-01-01T00:00:00Z"),
+    })
+    const state = "s".repeat(32)
+    const browserBinding = "b".repeat(32)
+    let activeSession = "existing-session"
+
+    await withServer(dependencies, async (baseUrl) => {
+      const success = await fetch(
+        `${baseUrl}/api/auth/github/callback?code=provider-code&state=${state}`,
+        {
+          headers: { cookie: `hub_auth_browser=${browserBinding}; hub_session=${activeSession}` },
+          redirect: "manual",
+        },
+      )
+      const issued = success.headers.get("set-cookie")?.match(/hub_session=([^;,]+)/)?.[1]
+      expect(success.headers.get("location")).toBe("/?authentication=success")
+      expect(issued).toBeTruthy()
+      activeSession = issued!
+
+      const denial = await fetch(
+        `${baseUrl}/api/auth/github/callback?code=replayed-code&state=${state}`,
+        {
+          headers: { cookie: `hub_auth_browser=${browserBinding}; hub_session=${activeSession}` },
+          redirect: "manual",
+        },
+      )
+      const denialCookies = denial.headers.get("set-cookie") ?? ""
+      expect(denial.headers.get("location")).toBe("/?authentication=denied")
+      expect(denialCookies).toContain("hub_auth_browser=")
+      expect(denialCookies).not.toContain("hub_session=")
+      expect(activeSession).toBe(issued)
+    })
+  })
+
+  it("preserves a new session when an older restore denial arrives last", async () => {
+    const { dependencies, completeProof, admitSession, restoreSession } = routeDependencies()
+    let finishOldRestore!: (value: null) => void
+    restoreSession.mockImplementationOnce(
+      () =>
+        new Promise<null>((resolve) => {
+          finishOldRestore = resolve
+        }),
+    )
+    completeProof.mockResolvedValueOnce({
+      proof: {
+        authorizationAttemptId: "attempt-id",
+        externalIdentityId: "identity-id",
+      },
+    })
+    admitSession.mockResolvedValueOnce({ expiresAt: new Date("2030-01-01T00:00:00Z") })
+
+    await withServer(dependencies, async (baseUrl) => {
+      const oldRestore = fetch(`${baseUrl}/api/auth/session`, {
+        headers: { cookie: "hub_session=expired-session" },
+      })
+      await vi.waitFor(() => expect(restoreSession).toHaveBeenCalledOnce())
+
+      const success = await fetch(
+        `${baseUrl}/api/auth/github/callback?code=provider-code&state=${"s".repeat(32)}`,
+        {
+          headers: { cookie: `hub_auth_browser=${"b".repeat(32)}` },
+          redirect: "manual",
+        },
+      )
+      const issued = success.headers.get("set-cookie")?.match(/hub_session=([^;,]+)/)?.[1]
+      expect(issued).toBeTruthy()
+
+      finishOldRestore(null)
+      const staleDenial = await oldRestore
+      expect(staleDenial.status).toBe(401)
+      expect(staleDenial.headers.get("set-cookie")).toBeNull()
+
+      restoreSession.mockResolvedValueOnce(true)
+      const current = await fetch(`${baseUrl}/api/auth/session`, {
+        headers: { cookie: `hub_session=${issued}` },
+      })
+      expect(current.status).toBe(200)
+      expect(await current.json()).toEqual({ authenticated: true })
+      expect(restoreSession).toHaveBeenLastCalledWith(
+        createHash("sha256").update(issued!).digest("hex"),
+      )
+    })
+  })
+
+  it("returns 401 without mutating an invalid retained session cookie", async () => {
+    const { dependencies, restoreSession } = routeDependencies()
+    restoreSession.mockResolvedValueOnce(null)
+
+    await withServer(dependencies, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/auth/session`, {
+        headers: { cookie: "hub_session=invalid-retained-session" },
+      })
+
+      expect(response.status).toBe(401)
+      expect(await response.json()).toEqual({ authenticated: false })
+      expect(response.headers.get("set-cookie")).toBeNull()
+      expect(restoreSession).toHaveBeenCalledWith(
+        createHash("sha256").update("invalid-retained-session").digest("hex"),
+      )
+    })
+  })
+
+  it("redirects a native sign-out form after ending and clearing the session", async () => {
+    const { dependencies, endSession } = routeDependencies()
+    await withServer(dependencies, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/auth/session/sign-out`, {
+        method: "POST",
+        headers: {
+          accept: "text/html,application/xhtml+xml",
+          cookie: "hub_session=session-value",
+          origin: dependencies.signOut.applicationOrigin,
+        },
+        redirect: "manual",
+      })
+
+      expect(response.status).toBe(303)
+      expect(response.headers.get("location")).toBe("/")
+      expect(response.headers.get("set-cookie")).toContain("Max-Age=0")
+      expect(endSession).toHaveBeenCalledWith(
+        createHash("sha256").update("session-value").digest("hex"),
+      )
+    })
+  })
+
+  it("keeps API sign-out as an empty response", async () => {
+    const { dependencies, endSession } = routeDependencies()
+    await withServer(dependencies, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/auth/session/sign-out`, {
+        method: "POST",
+        headers: {
+          accept: "application/json",
+          origin: dependencies.signOut.applicationOrigin,
+        },
+      })
+
+      expect(response.status).toBe(204)
+      expect(endSession).not.toHaveBeenCalled()
+    })
+  })
+
+  it("rate-limits before parsing an oversized enrollment body and suppresses it from logs", async () => {
+    const { dependencies, checkRateLimit, verifyBootstrapSecret } = routeDependencies()
+    const records: string[] = []
+    const logger = createLogger({
+      destination: { write: (line) => records.push(line) },
+    })
+    await withServer(
+      dependencies,
+      async (baseUrl) => {
+        const response = await fetch(`${baseUrl}/api/auth/github/admin-enrollment/start`, {
+          method: "POST",
+          headers: {
+            origin: dependencies.administratorEnrollment.applicationOrigin,
+            "content-type": "application/x-www-form-urlencoded",
+          },
+          body: `bootstrap_secret=oversized-secret-${"x".repeat(5_000)}`,
+        })
+
+        expect(response.status).toBe(413)
+        expect(response.headers.get("cache-control")).toBe("no-store")
+        expect(checkRateLimit).toHaveBeenCalledOnce()
+        expect(verifyBootstrapSecret).not.toHaveBeenCalled()
+        await vi.waitFor(() => expect(records).toHaveLength(1))
+        expect(records[0]).not.toContain("oversized-secret")
+      },
+      { logger },
+    )
+  })
+
+  it("fails closed when the bootstrap rate-limit denial audit cannot be written", async () => {
+    const { dependencies, checkRateLimit, verifyBootstrapSecret } = routeDependencies()
+    checkRateLimit.mockResolvedValue({ allowed: false, auditFailed: true })
+    await withServer(dependencies, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/auth/github/admin-enrollment/start`, {
+        method: "POST",
+        headers: {
+          origin: dependencies.administratorEnrollment.applicationOrigin,
+          "content-type": "application/x-www-form-urlencoded",
+        },
+        body: "bootstrap_secret=never-parsed",
+      })
+
+      expect(response.status).toBe(429)
+      expect(verifyBootstrapSecret).not.toHaveBeenCalled()
+    })
+  })
+})

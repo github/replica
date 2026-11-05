@@ -10,23 +10,23 @@ describe("HubAdminEnrollmentPage()", () => {
       <ThemeProvider>
         <HubAdminEnrollmentPage
           data={{
+            alert: null,
             productName: "Replica Hub",
-            pageTitle: "Enroll an operator",
-            heading: "Enroll an operator",
+            pageTitle: "Enroll an administrator",
+            heading: "Enroll an administrator",
             description: "Verify your own GitHub account.",
             secretLabel: "Bootstrap secret",
             submitLabel: "Verify with GitHub",
-            submitPath: "/operator/enrollment",
-            authenticityToken: "csrf-token",
+            submitPath: "/api/auth/github/admin-enrollment/start",
           }}
         />
       </ThemeProvider>,
     )
     const form = screen.getByRole("button", { name: "Verify with GitHub" }).closest("form")
     expect(form).toHaveAttribute("method", "post")
-    expect(form).toHaveAttribute("action", "/operator/enrollment")
+    expect(form).toHaveAttribute("action", "/api/auth/github/admin-enrollment/start")
     expect(screen.getByLabelText(/Bootstrap secret/)).toHaveAttribute("type", "password")
-    expect(form?.querySelector('input[name="authenticity_token"]')).toHaveValue("csrf-token")
+    expect(form?.querySelector('input[name="authenticity_token"]')).toBeNull()
     expect(form?.querySelector('input[name="user_id"]')).toBeNull()
   })
 })

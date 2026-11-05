@@ -10,7 +10,7 @@ Hub is being rebuilt in TypeScript. The app starts locally, but its product feat
 - [Development](docs/development.md) and [testing](docs/testing-and-operations.md) own local and CI commands.
 - [Storybook](docs/storybook.md#ui-changes-and-pull-request-evidence) owns presentation coverage, cleanup, and PR screenshots.
 
-Run Node commands from `hub/`, locally or inside the devcontainer. PostgreSQL and Prisma include the identity and authentication proof foundation, but no prototype product models or public authentication routes. Agree on the design before adding models, sign-in, deployment, or product API routes.
+Run Node commands from `hub/`, locally or inside the devcontainer. PostgreSQL and Prisma support configured GitHub authentication, administrator enrollment, and Hub sessions; see [authentication](docs/authentication.md). Prototype product models and APIs are not built. Agree on the design before adding product models, permissions, deployment choices, or product API routes.
 
 `npm test` does not require PostgreSQL. Use `npm run test:database` for `.db.test.ts` and `.db.test.tsx` cases in Node.js or jsdom. Follow the database isolation and reset rules in [testing](docs/testing-and-operations.md).
 

@@ -20,7 +20,7 @@ const data: HomeIndexPageData = {
   pauseAnimationLabel: "Pause animation",
   resumeAnimationLabel: "Resume animation",
   signInLabel: "Sign in with GitHub",
-  signInPath: "/auth/github",
+  signInPath: "/api/auth/github/start",
 }
 
 const meta = {
@@ -50,55 +50,21 @@ type Story = StoryObj<typeof meta>
 
 export const Default: Story = {}
 
-export const AccessAlert: Story = {
-  args: {
-    data: {
-      ...data,
-      alert: "Your GitHub account does not have access to this Hub's prototype repositories.",
-    },
-  },
-}
 export const AuthorizationFailed: Story = {
   args: {
     data: {
       ...data,
       alert:
-        "GitHub authorization failed, expired, or used a different account. No sensitive changes were made. Return to the original action to try again.",
+        "GitHub could not complete sign-in, or this account is not an active Hub member. Start a new sign-in to try again.",
     },
   },
 }
 
-export const SessionsEnded: Story = {
+export const SessionRestoreFailed: Story = {
   args: {
     data: {
       ...data,
-      alert:
-        "A Hub administrator ended all sessions while you were signing in. Start a new GitHub sign-in.",
-    },
-  },
-}
-
-export const AuthorizationSucceeded: Story = {
-  args: {
-    data: {
-      ...data,
-      notice:
-        "GitHub authorization succeeded for this connection only. Return to the action and submit it again within five minutes.",
-    },
-  },
-}
-
-export const LocalDevelopment: Story = {
-  args: {
-    data: {
-      ...data,
-      badge: "Local development",
-      badgeAlternate: "Branches, builds, feedback",
-      description: "Explore committed branches in local Git repositories.",
-      heading: "Build and review prototypes on your computer.",
-      localMode: true,
-      signInLabel: "Open local Hub",
-      signInPath: "/auth/local",
+      alert: "Replica Hub could not restore your session. Sign in again to continue.",
     },
   },
 }

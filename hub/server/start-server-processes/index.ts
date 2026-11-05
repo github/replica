@@ -1,6 +1,7 @@
 import type { Logger } from "pino"
 
 import { openDatabase } from "../integrations/postgres/open-database/index.ts"
+import type { AuthenticationRouteDependencies } from "../routes/api/auth/types.ts"
 import { runApi } from "../run-api/index.ts"
 import { jobProcessors } from "../workers/configuration.ts"
 import { runJobWorker } from "../workers/run-job-worker/index.ts"
@@ -15,6 +16,8 @@ export async function startServerProcesses(options: {
   onDemandConcurrency: number
   scheduledConcurrency: number
   isStorageReady?: () => Promise<boolean>
+  authentication?: AuthenticationRouteDependencies
+  trustedProxyHops?: number
 }) {
   const controller = new AbortController()
   function stop() {

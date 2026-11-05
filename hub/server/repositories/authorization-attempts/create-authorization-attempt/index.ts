@@ -7,10 +7,15 @@ import type {
 
 const inputSchema = z
   .object({
+    bootstrapSecretDigest: z
+      .string()
+      .regex(/^[0-9a-f]{64}$/)
+      .nullable(),
     browserBindingDigest: z.string().regex(/^[0-9a-f]{64}$/),
     codeVerifierCiphertext: z.string().min(1).max(500),
     id: z.uuid(),
     lifetimeSeconds: z.number().int().min(1).max(3_600),
+    purpose: z.enum(["SIGN_IN", "ADMIN_ENROLLMENT"]),
     providerRevisionId: z.uuid(),
     stateDigest: z.string().regex(/^[0-9a-f]{64}$/),
   })
@@ -24,13 +29,15 @@ export async function createAuthorizationAttempt(
   const rows = await database.$queryRaw<Array<{ expires_at: Date }>>`
     INSERT INTO "authorization_attempts" (
       "id", "provider_revision_id", "state_digest", "browser_binding_digest",
-      "code_verifier_ciphertext", "expires_at",
+      "purpose", "bootstrap_secret_digest", "code_verifier_ciphertext", "expires_at",
       "created_at", "updated_at"
     ) VALUES (
       ${parsed.id}::uuid,
       ${parsed.providerRevisionId}::uuid,
       ${parsed.stateDigest},
       ${parsed.browserBindingDigest},
+      ${parsed.purpose}::"AuthorizationAttemptPurpose",
+      ${parsed.bootstrapSecretDigest},
       ${parsed.codeVerifierCiphertext},
       clock_timestamp() + make_interval(secs => ${parsed.lifetimeSeconds}),
       clock_timestamp(),

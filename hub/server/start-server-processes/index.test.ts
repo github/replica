@@ -5,6 +5,7 @@ import { deferred } from "../../test/ws/deferred"
 import { createLogger } from "../integrations/pino/create-logger"
 import { openDatabase } from "../integrations/postgres/open-database"
 import { runApi } from "../run-api"
+import type { AuthenticationRouteDependencies } from "../routes/api/auth/types"
 import { runJobWorker } from "../workers/run-job-worker"
 
 import { startServerProcesses } from "."
@@ -13,7 +14,13 @@ vi.mock("../integrations/postgres/open-database", () => ({ openDatabase: vi.fn()
 vi.mock("../run-api", () => ({ runApi: vi.fn() }))
 vi.mock("../workers/run-job-worker", () => ({ runJobWorker: vi.fn() }))
 
-function arrangeRuntime(isStorageReady?: () => Promise<boolean>) {
+function arrangeRuntime(
+  isStorageReady?: () => Promise<boolean>,
+  runtimeOptions: {
+    authentication?: AuthenticationRouteDependencies
+    trustedProxyHops?: number
+  } = {},
+) {
   const query = vi.fn().mockResolvedValue({
     command: "SELECT",
     rowCount: 1,
@@ -46,6 +53,7 @@ function arrangeRuntime(isStorageReady?: () => Promise<boolean>) {
     onDemandConcurrency: 2,
     scheduledConcurrency: 1,
     isStorageReady,
+    ...runtimeOptions,
   })
   void running.catch(() => {})
   function stop() {
@@ -60,6 +68,16 @@ function arrangeRuntime(isStorageReady?: () => Promise<boolean>) {
 }
 
 describe("startServerProcesses()", () => {
+  it("passes authentication and trusted proxy settings to the combined API", async () => {
+    const authentication = {} as AuthenticationRouteDependencies
+    arrangeRuntime(undefined, { authentication, trustedProxyHops: 2 })
+
+    await vi.waitFor(() => expect(runApi).toHaveBeenCalledTimes(1))
+    expect(vi.mocked(runApi)).toHaveBeenCalledWith(
+      expect.objectContaining({ authentication, trustedProxyHops: 2 }),
+    )
+  })
+
   it("requires configured storage as well as initialized workers and a live database", async () => {
     const isStorageReady = vi.fn().mockResolvedValue(false)
     const { query } = arrangeRuntime(isStorageReady)

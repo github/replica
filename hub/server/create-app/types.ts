@@ -1,10 +1,10 @@
 import type { Logger } from "pino"
 
-import type { Broadcast } from "../integrations/ws/types.ts"
+import type { RouteDependencies } from "../routes/types.ts"
 
-export interface CreateAppOptions {
-  broadcast?: Broadcast
+export interface CreateAppOptions extends RouteDependencies {
   logger?: Logger
   clientDirectory?: string
   isReady?: () => Promise<boolean>
+  trustedProxyHops?: number
 }

@@ -25,6 +25,8 @@ import { clientAction as changeSession } from "../session"
 import SignInRoute, { clientLoader as loadSignIn } from "../sign-in"
 import WorkspaceRoute, { clientLoader as loadWorkspace } from "../workspace"
 
+vi.mock("../../mocks/browser", () => ({ startMockApi: async () => {} }))
+
 function RootComponent({ withTools = false }: { withTools?: boolean }) {
   const session = useLoaderData<typeof loadSession>()
   return (
@@ -83,7 +85,8 @@ export async function renderHubFlow(
     withTools = false,
   }: { publicRoutes?: RouteObject[]; workspaceRoutes?: RouteObject[]; withTools?: boolean } = {},
 ) {
-  vi.stubEnv("MODE", "development")
+  vi.stubEnv("DEV", true)
+  vi.stubEnv("MODE", "mock")
   server.listen({ onUnhandledRequest: "error" })
   const pendingRequests = new Map<string, string>()
   const pendingAbortListeners = new Map<string, { signal: AbortSignal; abort: () => void }>()

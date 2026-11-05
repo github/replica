@@ -2,7 +2,7 @@
 
 The Hub frontend uses React Router Framework Mode as a browser-rendered SPA. All retained page modules are connected: repositories, prototype handoffs and previews, reviews, sharing, setup, account controls, administration, analytics, and learning. Product data uses local mocks; creation and branching reuse the original Copilot app handoff. The application reuses those pages rather than implementing a second set of screens.
 
-This is an evolving frontend implementation, not a restored production Hub. Real authentication, authorization, product APIs, persistence, external integrations, build hosting, and publishing remain separate work.
+This is an evolving frontend implementation, not a restored production Hub. Configured GitHub authentication, Hub admission, and browser sessions are available; the [authentication guide](authentication.md) owns that contract. Product APIs, product permissions, product persistence, external product integrations, build hosting, and publishing remain separate work.
 
 Browser source lives directly under [client/](../client/). The routed Hub entry is [application/hub/](../client/application/hub/); pages, features, components, hooks, utilities, Storybook fixtures, and theme tokens are sibling directories. The Express API stays separate under [server/](../server/).
 
@@ -22,7 +22,9 @@ The dataset includes `octocat`, `mona`, additional fictional collaborators, `git
 
 **Persona** selects an owner, a read-only user, an administrator, or a signed-out state. Owner and administrator use Octocat; the read-only profile uses Mona. These are fixture-defined UI capabilities, not production access policies. Signing in requires no credentials. Selecting another persona reloads the document and resets the complete world, including edits and drafts. Application requests carry no mock persona or revision headers.
 
-The neutral root reads the simulated session. Private pages load their workspace in a separate layout; public shared previews and signed-out pages do not load a private workspace. Replacing these contracts with real identity and authorization is outside this frontend work.
+In mock mode, the neutral root reads the simulated session. Private pages load their workspace in a separate layout; public shared previews and signed-out pages do not load a private workspace. These provisional product contracts are not adapters for real authentication or authorization.
+
+In real mode, `/` and `/admin-enrollment` render the authentication shell under `client/application/hub-application/`. The public route boundary carries no product identity or permissions and skips the provisional `/api/session` and private workspace requests. The shell owns actual authentication session restoration and its failure feedback; its sign-in, enrollment, and sign-out forms submit natively to the configured API. Other real product routes retain explicit API failures. In mock mode, `/` keeps the product entry flow, and `/admin-enrollment` redirects to the mock `/settings/enroll` flow.
 
 Product screens retain product-facing copy from the retained pages and their original fixtures. They do not describe mock data, simulations, or synthetic accounts. The bottom-right test toolbar is the only orange development surface and the only place for mock-only warnings, request diagnostics, and explanations of local actions. It can be collapsed on any viewport. Normal product validation, access-denied, and failure feedback remain in the product UI.
 
@@ -179,7 +181,7 @@ The [product contracts](../client/application/hub/product-contracts/index.ts), [
 
 The [mock folder](../client/application/hub/mocks/) owns fixtures, handlers, local state, the toolbar, diagnostics, and development assets. The application starts it through the small [bootstrap hook](../client/application/hub/bootstrap/index.ts) and displays its toolbar through [DevelopmentTools](../client/application/hub/development-tools/index.tsx). Vite enables its asset plugin only in mock mode.
 
-When the backend is ready, remove that folder and its two application hooks, the Vite mock-plugin import and registration, and the `dev:mock` script. Replace mock-backed test fixtures with the ported API's test support; remove tests that only exercised discarded fake workflows. Remove MSW when no remaining tests need it. Keep product copy, route modules, request functions, and presentation adapters, but align their provisional contracts with the real API rather than treating fixture-shaped records as production contracts. Also remove the [scenario URL propagation](../client/application/hub/view-models/resource-path/) and [same-tab sharing override](../client/application/hub/view-models/product-share-links/). Credential and file submissions remain unavailable until real handlers support them. A real API failure must never reactivate mock responses.
+When the backend is ready, remove that folder and its two application hooks, the Vite mock-plugin import and registration, and the `dev:mock` script. Replace mock-backed test fixtures with the ported API's test support; remove tests that only exercised discarded fake workflows. Remove MSW when no remaining tests need it. Keep product copy, route modules, request functions, and presentation adapters, but align their provisional contracts with the real API rather than treating fixture-shaped records as production contracts. Also remove the [scenario URL propagation](../client/application/hub/view-models/resource-path/) and [same-tab sharing override](../client/application/hub/view-models/product-share-links/). Product credential and file submissions remain unavailable until real handlers support them. Configured authentication forms are separate native submissions. A real API failure must never reactivate mock responses.
 
 There is no shared query cache or automatic retry loop. Requests use `cache: "no-store"`; React Router owns route data and action revalidation. Manual retries revalidate the route. TanStack Query can be added later if shared caching, deduplication, or background refresh warrants it without switching routers.
 
@@ -190,9 +192,9 @@ npm run dev:api
 npm run dev
 ```
 
-Run those in separate terminals. Real mode proxies `/api` to Express and never starts MSW or falls back to fixtures. Express currently implements only the health endpoint, so product routes show explicit API failures until their real endpoints exist.
+Run those in separate terminals. Real mode proxies `/api` to Express and never starts MSW or falls back to fixtures. Open `/` for configured GitHub sign-in or `/admin-enrollment` for administrator enrollment. Express exposes health, readiness, and configured authentication routes, but product routes show explicit API failures until their real endpoints exist.
 
-The backend's [authentication proof](authentication.md), [telemetry](telemetry.md), and [WebSocket](websockets.md) foundations do not change the mock contracts. Authentication proof is internal-only, WebSocket upgrades are denied until application access checks are supplied, and the frontend does not consume either foundation yet. Mock sign-in and review actions remain local simulations.
+The [authentication guide](authentication.md) owns real sign-in, admission, and session behavior. Those routes and the backend's [telemetry](telemetry.md) and [WebSocket](websockets.md) foundations do not change the provisional mock product contracts. WebSocket upgrades are denied until application access checks are supplied. Mock sign-in and review actions remain local simulations.
 
 `npm run lint` and `npm run typecheck` generate Framework route types before their typed checks, including independent CI jobs. `npm run build` produces the static SPA under `dist/client/` and the separate API under `dist/server/`. Framework SPA Mode disables runtime SSR but still renders the root fallback at build time, so imported modules and the root remain safe outside a browser.
 

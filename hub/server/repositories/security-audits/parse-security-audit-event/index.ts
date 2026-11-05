@@ -20,6 +20,79 @@ const eventSchema = z.discriminatedUnion("type", [
   z
     .object({
       id: z.uuid(),
+      type: z.literal("bootstrap_attempt_denied"),
+      reason: z.enum(["invalid_secret", "rate_limited"]),
+    })
+    .strict(),
+  z
+    .object({
+      id: z.uuid(),
+      type: z.literal("membership_assignment_created"),
+      membershipId: z.uuid(),
+    })
+    .strict(),
+  z
+    .object({
+      id: z.uuid(),
+      type: z.literal("membership_assignment_restored"),
+      membershipId: z.uuid(),
+    })
+    .strict(),
+  z
+    .object({
+      id: z.uuid(),
+      type: z.literal("membership_created"),
+      membershipId: z.uuid(),
+    })
+    .strict(),
+  z
+    .object({
+      id: z.uuid(),
+      type: z.literal("membership_restored"),
+      membershipId: z.uuid(),
+    })
+    .strict(),
+  z
+    .object({
+      id: z.uuid(),
+      type: z.literal("session_created"),
+      sessionId: z.uuid(),
+      membershipId: z.uuid(),
+    })
+    .strict(),
+  z
+    .object({
+      id: z.uuid(),
+      type: z.literal("session_ended"),
+      sessionId: z.uuid(),
+      membershipId: z.uuid(),
+    })
+    .strict(),
+  z
+    .object({
+      id: z.uuid(),
+      type: z.literal("admission_denied"),
+      externalIdentityId: z.uuid(),
+      reason: z.enum([
+        "attempt_mismatch",
+        "configuration_changed",
+        "identity_mismatch",
+        "membership_inactive",
+        "membership_missing",
+      ]),
+    })
+    .strict(),
+  z
+    .object({
+      id: z.uuid(),
+      type: z.literal("admission_failed"),
+      externalIdentityId: z.uuid(),
+      reason: z.enum(["retry_exhausted", "transaction_error"]),
+    })
+    .strict(),
+  z
+    .object({
+      id: z.uuid(),
       type: z.literal("external_identity_created"),
       externalIdentityId: z.uuid(),
       issuer: z.string().min(1).max(500),
@@ -79,7 +152,12 @@ export function parseSecurityAuditEvent(input: unknown): ParsedSecurityAuditEven
     case "external_identity_created":
     case "external_identity_create_failed":
       return { ...event, provider: parseProviderKey(event.provider) }
-    default:
+    case "provider_revision_validation_failed":
+    case "provider_revision_selected":
+    case "provider_revision_denied":
+    case "provider_revision_persist_failed":
       return { ...event, providerKey: parseProviderKey(event.providerKey) }
+    default:
+      return event
   }
 }

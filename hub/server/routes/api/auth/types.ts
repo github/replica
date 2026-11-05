@@ -1,0 +1,57 @@
+import type { AuthenticationProofResult } from "../../../domains/authentication/types.ts"
+
+export interface RateLimitDependencies {
+  checkRateLimit(
+    operation: "start" | "callback",
+    subjectDigest: string,
+  ): Promise<{ allowed: boolean; auditFailed: boolean }>
+}
+
+export interface StartAuthenticationDependencies extends RateLimitDependencies {
+  applicationOrigin: string
+  secureCookie: boolean
+  start(): Promise<{
+    authorizationUrl: string
+    browserBinding: string
+    expiresAt: Date
+  }>
+}
+
+export interface StartAdministratorEnrollmentDependencies extends StartAuthenticationDependencies {
+  verifyBootstrapSecret(submittedSecret: string): boolean
+  writeBootstrapDenial(reason: "invalid_secret"): Promise<unknown>
+}
+
+export interface AuthenticationCallbackDependencies extends RateLimitDependencies {
+  secureCookie: boolean
+  complete(input: {
+    browserBinding: string
+    code: string
+    state: string
+  }): Promise<{ proof: AuthenticationProofResult }>
+  admit(input: {
+    proof: AuthenticationProofResult
+    sessionDigest: string
+    sessionId: string
+  }): Promise<{
+    expiresAt: Date
+  }>
+}
+
+export interface CurrentSessionDependencies {
+  restore(sessionDigest: string): Promise<true | null>
+}
+
+export interface SignOutDependencies {
+  applicationOrigin: string
+  secureCookie: boolean
+  end(sessionDigest: string): Promise<boolean>
+}
+
+export interface AuthenticationRouteDependencies {
+  callback: AuthenticationCallbackDependencies
+  currentSession: CurrentSessionDependencies
+  signIn: StartAuthenticationDependencies
+  signOut: SignOutDependencies
+  administratorEnrollment: StartAdministratorEnrollmentDependencies
+}

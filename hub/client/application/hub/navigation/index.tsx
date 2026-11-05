@@ -81,10 +81,24 @@ export function HubNavigation({
 
   function blockLegacySubmission(event: SubmitEvent<HTMLDivElement>) {
     if (event.defaultPrevented || !(event.target instanceof HTMLFormElement)) return
-    const method = event.target.method.toLowerCase()
+    const submitter = event.nativeEvent.submitter
+    const method = (submitter?.getAttribute("formmethod") ?? event.target.method).toLowerCase()
     if (method === "dialog") return
+    const destination = new URL(
+      submitter?.getAttribute("formaction") ?? event.target.action,
+      document.baseURI,
+    )
+    if (
+      method === "post" &&
+      destination.origin === window.location.origin &&
+      [
+        "/api/auth/github/start",
+        "/api/auth/github/admin-enrollment/start",
+        "/api/auth/session/sign-out",
+      ].includes(destination.pathname)
+    )
+      return
     if (method === "get") {
-      const destination = new URL(event.target.action)
       if (destination.origin !== window.location.origin || destination.pathname.startsWith("/api/"))
         return
       event.preventDefault()
@@ -102,7 +116,11 @@ export function HubNavigation({
       return
     }
     event.preventDefault()
-    if (new URL(event.target.action).pathname === "/session" && onSignOut) {
+    if (
+      destination.origin === window.location.origin &&
+      destination.pathname === "/session" &&
+      onSignOut
+    ) {
       onSignOut()
       return
     }
