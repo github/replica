@@ -30,7 +30,7 @@ export function settingsPublic(state: SettingsPublicResponse, search: URLSearchP
     pageTitle: "Create GitHub App",
     heading: "Create the GitHub App",
     description: "Replica Hub uses a private GitHub App to discover and authorize prototypes.",
-    access: "You choose whether the App can access github/prototype, github/empty, or both.",
+    access: "You choose which repositories the GitHub App can access.",
     manifest: '{"name":"Replica Hub"}',
     submitLabel: "Create the App on GitHub",
     submitPath: resourcePath("/settings/github/register", search),
