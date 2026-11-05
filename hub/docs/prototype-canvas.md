@@ -52,6 +52,8 @@ Frontend source stays under `client/application/prototype-canvas/`, with its sta
 
 Extension commands and local servers live under `.github/extensions/replica-prototype/`. Edit their TypeScript `.mts` files, then regenerate the committed `.mjs` files. Installed users run those generated files without installing Hub's dependencies.
 
+Keep public SVG files on LF before regenerating the renderer. They are imported as raw text, so CRLF changes bundle bytes. The [Hub Git attributes](../.gitattributes) enforce LF on checkout; `git ls-files --eol -- public/avatar-placeholder.svg` from `hub/` should report `w/lf`.
+
 Run these commands directly from `hub/`:
 
 ```sh
