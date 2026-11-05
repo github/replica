@@ -58,7 +58,6 @@ export async function applyProviderAssignmentEvidence(
     }
   }
   let membershipId = existingMembership?.id
-  let membershipCreated = false
   if (!membershipId) {
     membershipId = dependencies.createId()
     const created = await dependencies.repositories.createMembership({
@@ -66,7 +65,6 @@ export async function applyProviderAssignmentEvidence(
       userId: parsed.userId,
     })
     if (!created) throw new AdmissionTransactionConflictError()
-    membershipCreated = true
     await dependencies.repositories.createSecurityAudit({
       id: dependencies.createId(),
       type: "membership_created",
@@ -125,7 +123,7 @@ export async function applyProviderAssignmentEvidence(
       role: parsed.role,
       type: "provider_membership_assignment_created",
     })
-    authorityChanged = activeProviderAssignment !== null || !membershipCreated
+    authorityChanged = Boolean(existingMembership)
   }
   if (authorityChanged) {
     await endMembershipSessions(membershipId, dependencies)

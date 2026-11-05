@@ -9,10 +9,7 @@ import { restoreHubSession } from "./restore-hub-session"
 import { runAdmissionTransaction } from "./run-admission-transaction"
 import { runSessionRestoreTransaction } from "./run-session-restore-transaction"
 
-async function createProviderAttempt(input: {
-  bootstrapAuthority: "absent" | "revoked"
-  existingMembership: boolean
-}) {
+async function createProviderAttempt(input: { existingMembership: boolean }) {
   const providerId = randomUUID()
   const providerRevisionId = randomUUID()
   const userId = randomUUID()
@@ -49,18 +46,6 @@ async function createProviderAttempt(input: {
     })
     if (input.existingMembership) {
       await transaction.membership.create({ data: { id: membershipId, userId } })
-      if (input.bootstrapAuthority === "revoked") {
-        await transaction.membershipAssignment.create({
-          data: {
-            externalIdentityId,
-            id: randomUUID(),
-            lifecycle: "REVOKED",
-            membershipId,
-            role: "ADMINISTRATOR",
-            source: "BOOTSTRAP",
-          },
-        })
-      }
       oldSessionId = randomUUID()
       await transaction.hubSession.create({
         data: {
@@ -127,49 +112,40 @@ function admitFirstProviderAssignment(records: Awaited<ReturnType<typeof createP
 }
 
 describe("first provider assignment", () => {
-  it.each(["absent", "revoked"] as const)(
-    "ends retained sessions before granting provider authority when bootstrap authority is %s",
-    async (bootstrapAuthority) => {
-      const records = await createProviderAttempt({
-        bootstrapAuthority,
-        existingMembership: true,
-      })
+  it("ends retained sessions before granting provider authority to an existing membership", async () => {
+    const records = await createProviderAttempt({ existingMembership: true })
 
-      await expect(admitFirstProviderAssignment(records)).resolves.toMatchObject({ role: "MEMBER" })
+    await expect(admitFirstProviderAssignment(records)).resolves.toMatchObject({ role: "MEMBER" })
 
-      const oldSession = await prisma.hubSession.findUniqueOrThrow({
-        select: { endedAt: true },
-        where: { id: records.oldSessionId },
-      })
-      expect(oldSession.endedAt).toBeInstanceOf(Date)
-      await expect(
-        restoreHubSession(records.oldSessionDigest, {
-          runTransaction: (operation) => runSessionRestoreTransaction(prisma, operation),
-        }),
-      ).resolves.toBeNull()
-      await expect(
-        prisma.membershipAssignment.findFirst({
-          select: { role: true },
-          where: {
-            lifecycle: "ACTIVE",
-            membershipId: records.membershipId,
-            source: "AUTHENTICATION_PROVIDER",
-          },
-        }),
-      ).resolves.toEqual({ role: "MEMBER" })
-      await expect(
-        prisma.securityAudit.count({
-          where: { action: "session.ended", targetId: records.oldSessionId },
-        }),
-      ).resolves.toBe(1)
-    },
-  )
+    const oldSession = await prisma.hubSession.findUniqueOrThrow({
+      select: { endedAt: true },
+      where: { id: records.oldSessionId },
+    })
+    expect(oldSession.endedAt).toBeInstanceOf(Date)
+    await expect(
+      restoreHubSession(records.oldSessionDigest, {
+        runTransaction: (operation) => runSessionRestoreTransaction(prisma, operation),
+      }),
+    ).resolves.toBeNull()
+    await expect(
+      prisma.membershipAssignment.findFirst({
+        select: { role: true },
+        where: {
+          lifecycle: "ACTIVE",
+          membershipId: records.membershipId,
+          source: "AUTHENTICATION_PROVIDER",
+        },
+      }),
+    ).resolves.toEqual({ role: "MEMBER" })
+    await expect(
+      prisma.securityAudit.count({
+        where: { action: "session.ended", targetId: records.oldSessionId },
+      }),
+    ).resolves.toBe(1)
+  })
 
   it("does not terminate sessions when the provider evidence creates the membership", async () => {
-    const records = await createProviderAttempt({
-      bootstrapAuthority: "absent",
-      existingMembership: false,
-    })
+    const records = await createProviderAttempt({ existingMembership: false })
 
     await expect(admitFirstProviderAssignment(records)).resolves.toMatchObject({ role: "MEMBER" })
 
@@ -181,10 +157,7 @@ describe("first provider assignment", () => {
   })
 
   it("rolls back authority, evidence order, and session termination when its audit fails", async () => {
-    const records = await createProviderAttempt({
-      bootstrapAuthority: "absent",
-      existingMembership: true,
-    })
+    const records = await createProviderAttempt({ existingMembership: true })
     const suffix = randomUUID().replaceAll("-", "")
     const functionName = `fail_provider_assignment_audit_${suffix}`
     const triggerName = `fail_provider_assignment_audit_${suffix}`

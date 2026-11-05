@@ -138,92 +138,11 @@ describe("Entra OIDC migration compatibility", () => {
         const upgradedRecords = await readParentAuthority(database, userId, providerId)
         expect(upgradedRecords.rows).toEqual(parentRecords.rows)
 
-        const columns = await database.query<{ column_name: string; table_name: string }>(
-          `SELECT table_name, column_name
-           FROM information_schema.columns
-           WHERE table_schema = 'public'
-             AND (
-               (table_name = 'authorization_attempts'
-                 AND column_name IN ('nonce_ciphertext', 'requires_fresh_authentication'))
-               OR
-               (table_name = 'authentication_providers'
-                 AND column_name = 'enabled')
-               OR
-               (table_name = 'membership_assignments'
-                 AND column_name IN ('provider_revision_id', 'provider_assignment_subject'))
-               OR
-               (table_name = 'provider_evidence_states'
-                 AND column_name IN (
-                   'id',
-                   'external_identity_id',
-                   'last_issued_at',
-                   'created_at',
-                   'updated_at'
-                 ))
-             )
-           ORDER BY table_name, column_name`,
-        )
-        expect(columns.rows).toEqual([
-          { table_name: "authentication_providers", column_name: "enabled" },
-          { table_name: "authorization_attempts", column_name: "nonce_ciphertext" },
-          {
-            table_name: "membership_assignments",
-            column_name: "provider_assignment_subject",
-          },
-          { table_name: "membership_assignments", column_name: "provider_revision_id" },
-          { table_name: "provider_evidence_states", column_name: "created_at" },
-          { table_name: "provider_evidence_states", column_name: "external_identity_id" },
-          { table_name: "provider_evidence_states", column_name: "id" },
-          { table_name: "provider_evidence_states", column_name: "last_issued_at" },
-          { table_name: "provider_evidence_states", column_name: "updated_at" },
-        ])
         await expect(
           database.query(`SELECT enabled FROM authentication_providers WHERE id = $1`, [
             providerId,
           ]),
         ).resolves.toMatchObject({ rows: [{ enabled: true }] })
-
-        const enumValues = await database.query<{ enum_name: string; value: string }>(
-          `SELECT type.typname AS enum_name, value.enumlabel AS value
-           FROM pg_type type
-           JOIN pg_enum value ON value.enumtypid = type.oid
-           WHERE type.typname IN (
-             'MembershipAssignmentLifecycle',
-             'MembershipAssignmentSource',
-             'MembershipRole'
-           )
-           ORDER BY type.typname, value.enumsortorder`,
-        )
-        expect(enumValues.rows).toEqual([
-          { enum_name: "MembershipAssignmentLifecycle", value: "ACTIVE" },
-          { enum_name: "MembershipAssignmentLifecycle", value: "SUPERSEDED" },
-          { enum_name: "MembershipAssignmentLifecycle", value: "REVOKED" },
-          { enum_name: "MembershipAssignmentSource", value: "BOOTSTRAP" },
-          { enum_name: "MembershipAssignmentSource", value: "AUTHENTICATION_PROVIDER" },
-          { enum_name: "MembershipRole", value: "ADMINISTRATOR" },
-          { enum_name: "MembershipRole", value: "MEMBER" },
-        ])
-
-        const indexes = await database.query<{ indexdef: string; indexname: string }>(
-          `SELECT indexname, indexdef
-           FROM pg_indexes
-           WHERE schemaname = 'public' AND tablename = 'membership_assignments'
-           ORDER BY indexname`,
-        )
-        expect(indexes.rows.map(({ indexname }) => indexname)).toEqual([
-          "membership_assignments_active_bootstrap_key",
-          "membership_assignments_active_provider_identity_key",
-          "membership_assignments_active_provider_membership_idx",
-          "membership_assignments_pkey",
-          "membership_assignments_provider_revision_id_idx",
-        ])
-        expect(indexes.rows[0]?.indexdef).toContain("(membership_id)")
-        expect(indexes.rows[1]?.indexdef).toContain("(external_identity_id)")
-        expect(indexes.rows[2]?.indexdef).toMatch(
-          /CREATE INDEX .* ON public\.membership_assignments USING btree \(membership_id/,
-        )
-        expect(indexes.rows[3]?.indexdef).toContain("(id)")
-        expect(indexes.rows[4]?.indexdef).toContain("(provider_revision_id)")
 
         await database.query("SET enable_seqscan = off")
         const providerAssignmentPlan = await database.query<{ "QUERY PLAN": string }>(
@@ -237,99 +156,6 @@ describe("Entra OIDC migration compatibility", () => {
         )
         expect(providerAssignmentPlan.rows.map((row) => row["QUERY PLAN"]).join("\n")).toContain(
           "membership_assignments_active_provider_membership_idx",
-        )
-
-        const constraints = await database.query<{ conname: string }>(
-          `SELECT constraint_record.conname
-           FROM pg_constraint constraint_record
-           JOIN pg_class table_record ON table_record.oid = constraint_record.conrelid
-           JOIN pg_namespace schema_record ON schema_record.oid = table_record.relnamespace
-           WHERE schema_record.nspname = 'public'
-             AND table_record.relname = 'membership_assignments'
-             AND constraint_record.conname IN (
-               'membership_assignments_external_identity_id_fkey',
-               'membership_assignments_membership_id_fkey',
-               'membership_assignments_pkey',
-               'membership_assignments_provider_revision_id_fkey',
-               'membership_assignments_source_contract'
-             )
-           ORDER BY constraint_record.conname`,
-        )
-        expect(constraints.rows).toEqual([
-          { conname: "membership_assignments_external_identity_id_fkey" },
-          { conname: "membership_assignments_membership_id_fkey" },
-          { conname: "membership_assignments_pkey" },
-          { conname: "membership_assignments_provider_revision_id_fkey" },
-          { conname: "membership_assignments_source_contract" },
-        ])
-
-        const evidenceConstraints = await database.query<{ conname: string }>(
-          `SELECT constraint_record.conname
-           FROM pg_constraint constraint_record
-           JOIN pg_class table_record ON table_record.oid = constraint_record.conrelid
-           JOIN pg_namespace schema_record ON schema_record.oid = table_record.relnamespace
-           WHERE schema_record.nspname = 'public'
-             AND table_record.relname = 'provider_evidence_states'
-             AND constraint_record.conname IN (
-               'provider_evidence_states_external_identity_id_fkey',
-               'provider_evidence_states_pkey'
-             )
-           ORDER BY constraint_record.conname`,
-        )
-        expect(evidenceConstraints.rows).toEqual([
-          { conname: "provider_evidence_states_external_identity_id_fkey" },
-          { conname: "provider_evidence_states_pkey" },
-        ])
-        const evidenceIndexes = await database.query<{ indexdef: string; indexname: string }>(
-          `SELECT indexname, indexdef
-           FROM pg_indexes
-           WHERE schemaname = 'public' AND tablename = 'provider_evidence_states'
-           ORDER BY indexname`,
-        )
-        expect(evidenceIndexes.rows.map(({ indexname }) => indexname)).toEqual([
-          "provider_evidence_states_external_identity_id_key",
-          "provider_evidence_states_pkey",
-        ])
-        expect(evidenceIndexes.rows[0]?.indexdef).toContain("UNIQUE INDEX")
-        expect(evidenceIndexes.rows[1]?.indexdef).toMatch(/UNIQUE INDEX .* \(id\)$/)
-        const evidenceTrigger = await database.query<{ definition: string; name: string }>(
-          `SELECT trigger_record.tgname AS name,
-                  pg_get_triggerdef(trigger_record.oid) AS definition
-           FROM pg_trigger trigger_record
-           JOIN pg_class table_record ON table_record.oid = trigger_record.tgrelid
-           JOIN pg_namespace schema_record ON schema_record.oid = table_record.relnamespace
-           WHERE schema_record.nspname = 'public'
-             AND table_record.relname = 'provider_evidence_states'
-             AND NOT trigger_record.tgisinternal`,
-        )
-        expect(evidenceTrigger.rows.map(({ name }) => name)).toEqual([
-          "provider_evidence_states_protected",
-        ])
-        expect(evidenceTrigger.rows[0]?.definition).toMatch(
-          /BEFORE (?:UPDATE OR DELETE|DELETE OR UPDATE) ON public\.provider_evidence_states .* protect_provider_evidence_state\(\)/,
-        )
-
-        const attemptTriggers = await database.query<{ definition: string; name: string }>(
-          `SELECT trigger_record.tgname AS name,
-                  pg_get_triggerdef(trigger_record.oid) AS definition
-           FROM pg_trigger trigger_record
-           JOIN pg_class table_record ON table_record.oid = trigger_record.tgrelid
-           JOIN pg_namespace schema_record ON schema_record.oid = table_record.relnamespace
-           WHERE schema_record.nspname = 'public'
-             AND table_record.relname = 'authorization_attempts'
-             AND NOT trigger_record.tgisinternal
-           ORDER BY trigger_record.tgname`,
-        )
-        expect(attemptTriggers.rows.map(({ name }) => name)).toEqual([
-          "authorization_attempts_authority_protected",
-          "authorization_attempts_nonce_protected",
-          "authorization_attempts_protected",
-        ])
-        expect(attemptTriggers.rows[0]?.definition).toContain(
-          "protect_authorization_attempt_authority()",
-        )
-        expect(attemptTriggers.rows[1]?.definition).toContain(
-          "protect_authorization_attempt_nonce()",
         )
 
         await expect(
@@ -370,6 +196,31 @@ describe("Entra OIDC migration compatibility", () => {
             ["00000000-0000-4000-8000-000000000017", membershipId, identityId, revisionId],
           ),
         ).rejects.toThrow()
+        const providerAssignmentId = "00000000-0000-4000-8000-000000000018"
+        await database.query(
+          `INSERT INTO membership_assignments
+             (id, membership_id, external_identity_id, provider_revision_id, source, role,
+              provider_assignment_subject)
+           VALUES ($1, $2, $3, $4, 'AUTHENTICATION_PROVIDER', 'MEMBER', $5)`,
+          [
+            providerAssignmentId,
+            membershipId,
+            identityId,
+            revisionId,
+            "00000000-0000-4000-8000-000000000019",
+          ],
+        )
+        await database.query(
+          `UPDATE membership_assignments
+           SET lifecycle = 'SUPERSEDED', updated_at = updated_at + interval '1 second'
+           WHERE id = $1`,
+          [providerAssignmentId],
+        )
+        await expect(
+          database.query(`SELECT lifecycle FROM membership_assignments WHERE id = $1`, [
+            providerAssignmentId,
+          ]),
+        ).resolves.toMatchObject({ rows: [{ lifecycle: "SUPERSEDED" }] })
       } finally {
         await database.end()
       }

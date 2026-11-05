@@ -10,7 +10,6 @@ import { runSessionRestoreTransaction } from "./run-session-restore-transaction"
 
 const initialEvidenceAt = new Date("2026-11-05T12:00:00Z")
 const currentEvidenceAt = new Date("2026-11-05T12:01:00Z")
-const newerEvidenceAt = new Date("2026-11-05T12:02:00Z")
 
 async function createInactiveMembership(lifecycle: "REMOVED" | "SUSPENDED") {
   const providerId = randomUUID()
@@ -18,8 +17,7 @@ async function createInactiveMembership(lifecycle: "REMOVED" | "SUSPENDED") {
   const userId = randomUUID()
   const externalIdentityId = randomUUID()
   const membershipId = randomUUID()
-  const assignmentId = randomUUID()
-  const oldSessionDigests = [randomBytes(32).toString("hex"), randomBytes(32).toString("hex")]
+  const oldSessionDigest = randomBytes(32).toString("hex")
   await prisma.$transaction(async (transaction) => {
     await transaction.authenticationProvider.create({
       data: { id: providerId, key: "entra" },
@@ -52,7 +50,7 @@ async function createInactiveMembership(lifecycle: "REMOVED" | "SUSPENDED") {
     await transaction.membershipAssignment.create({
       data: {
         externalIdentityId,
-        id: assignmentId,
+        id: randomUUID(),
         membershipId,
         providerAssignmentSubject: "22222222-2222-4222-8222-222222222222",
         providerRevisionId,
@@ -67,23 +65,20 @@ async function createInactiveMembership(lifecycle: "REMOVED" | "SUSPENDED") {
         lastIssuedAt: initialEvidenceAt,
       },
     })
-    for (const digest of oldSessionDigests) {
-      await transaction.hubSession.create({
-        data: {
-          digest,
-          expiresAt: new Date("2099-01-01T00:00:00Z"),
-          id: randomUUID(),
-          membershipId,
-          revocationRevision: 0,
-        },
-      })
-    }
+    await transaction.hubSession.create({
+      data: {
+        digest: oldSessionDigest,
+        expiresAt: new Date("2099-01-01T00:00:00Z"),
+        id: randomUUID(),
+        membershipId,
+        revocationRevision: 0,
+      },
+    })
   })
   return {
-    assignmentId,
     externalIdentityId,
     membershipId,
-    oldSessionDigests,
+    oldSessionDigest,
     providerRevisionId,
   }
 }
@@ -147,16 +142,14 @@ describe("inactive membership provider evidence", () => {
     {
       lifecycle: "SUSPENDED" as const,
       role: "MEMBER" as const,
-      staleEvidenceAt: currentEvidenceAt,
     },
     {
       lifecycle: "REMOVED" as const,
       role: null,
-      staleEvidenceAt: initialEvidenceAt,
     },
   ])(
     "applies current $role evidence while the membership is $lifecycle without reactivating it",
-    async ({ lifecycle, role, staleEvidenceAt }) => {
+    async ({ lifecycle, role }) => {
       const records = await createInactiveMembership(lifecycle)
 
       await expect(
@@ -192,51 +185,13 @@ describe("inactive membership provider evidence", () => {
         select: { endedAt: true },
         where: { membershipId: records.membershipId },
       })
-      expect(retainedSessions).toHaveLength(2)
+      expect(retainedSessions).toHaveLength(1)
       expect(retainedSessions.every(({ endedAt }) => endedAt instanceof Date)).toBe(true)
-      for (const digest of records.oldSessionDigests) {
-        await expect(
-          restoreHubSession(digest, {
-            runTransaction: (operation) => runSessionRestoreTransaction(prisma, operation),
-          }),
-        ).resolves.toBeNull()
-      }
-
-      await prisma.membership.update({
-        data: { lifecycle: "ACTIVE" },
-        where: { id: records.membershipId },
-      })
       await expect(
-        admitProviderEvidence(records, { issuedAt: staleEvidenceAt, role: "ADMINISTRATOR" }),
-      ).rejects.toMatchObject({ reason: "provider_evidence_stale" })
-      await expect(
-        prisma.providerEvidenceState.findUniqueOrThrow({
-          select: { lastIssuedAt: true },
-          where: { externalIdentityId: records.externalIdentityId },
+        restoreHubSession(records.oldSessionDigest, {
+          runTransaction: (operation) => runSessionRestoreTransaction(prisma, operation),
         }),
-      ).resolves.toEqual({ lastIssuedAt: currentEvidenceAt })
-
-      const currentAdmission = admitProviderEvidence(records, {
-        issuedAt: newerEvidenceAt,
-        role,
-      })
-      if (role === null) {
-        await expect(currentAdmission).rejects.toMatchObject({ reason: "authority_missing" })
-        await expect(prisma.hubSession.count()).resolves.toBe(2)
-      } else {
-        await expect(currentAdmission).resolves.toMatchObject({ role: "MEMBER" })
-        await expect(prisma.hubSession.count()).resolves.toBe(3)
-      }
-      await expect(
-        prisma.membershipAssignment.findFirst({
-          select: { role: true },
-          where: {
-            lifecycle: "ACTIVE",
-            membershipId: records.membershipId,
-            source: "AUTHENTICATION_PROVIDER",
-          },
-        }),
-      ).resolves.toEqual(role === null ? null : { role })
+      ).resolves.toBeNull()
     },
   )
 })

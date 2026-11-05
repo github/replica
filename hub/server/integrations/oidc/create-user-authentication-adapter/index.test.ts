@@ -18,7 +18,7 @@ const clientAuthentication: OidcClientAuthenticationProvider = {
 }
 
 async function protocolFixture(
-  claims: Record<string, unknown> = {},
+  claims: Record<string, unknown> | ((now: number) => Record<string, unknown>) = {},
   options: { invalidSignature?: boolean; issuer?: string } = {},
 ) {
   const { privateKey, publicKey } = await generateKeyPair("RS256")
@@ -27,6 +27,7 @@ async function protocolFixture(
     : publicKey
   const jwk = await exportJWK(verificationKey)
   const now = Math.floor(Date.now() / 1_000)
+  const claimOverrides = typeof claims === "function" ? claims(now) : claims
   const token = await new SignJWT({
     aud: clientId,
     exp: now + 300,
@@ -36,7 +37,7 @@ async function protocolFixture(
     oid: "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA",
     roles: ["Hub.User"],
     sub: "immutable-subject",
-    ...claims,
+    ...claimOverrides,
   })
     .setProtectedHeader({ alg: "RS256", kid: "test-key" })
     .sign(privateKey)
@@ -334,38 +335,47 @@ describe("createEntraOidcUserAuthenticationAdapter()", () => {
   })
 
   it.each([
-    ["nonce", { nonce: "different-nonce" }],
-    ["authorized party", { azp: "other-client" }],
-  ])("rejects a token with invalid %s binding", async (_name, claims) => {
-    const { adapter } = await protocolFixture(claims)
+    ["nonce", { nonce: "different-nonce" }, { message: "Entra OIDC token claims are invalid." }],
+    [
+      "authorized party",
+      { azp: "other-client" },
+      { message: "Entra OIDC token claims are invalid." },
+    ],
+    [
+      "wrong audience",
+      { aud: "different-client" },
+      { claim: "aud", code: "ERR_JWT_CLAIM_VALIDATION_FAILED", reason: "check_failed" },
+    ],
+    [
+      "expired",
+      (now: number) => ({ exp: now - 60 }),
+      { claim: "exp", code: "ERR_JWT_EXPIRED", reason: "check_failed" },
+    ],
+    [
+      "not active yet",
+      (now: number) => ({ nbf: now + 60 }),
+      { claim: "nbf", code: "ERR_JWT_CLAIM_VALIDATION_FAILED", reason: "check_failed" },
+    ],
+    [
+      "older than the maximum token age",
+      (now: number) => ({ iat: now - 660 }),
+      { claim: "iat", code: "ERR_JWT_EXPIRED", reason: "check_failed" },
+    ],
+  ] as const)(
+    "rejects a signed token with invalid %s evidence",
+    async (_name, claims, expectedError) => {
+      const { adapter } = await protocolFixture(claims)
 
-    await expect(
-      adapter.completeAuthenticationProof({
-        callbackUri,
-        code: "authorization-code",
-        codeVerifier: "pkce-verifier",
-        nonce: "attempt-nonce",
-      }),
-    ).rejects.toThrow()
-  })
-
-  it.each([
-    ["wrong audience", { aud: "different-client" }],
-    ["expired", { exp: Math.floor(Date.now() / 1_000) - 60 }],
-    ["not active yet", { nbf: Math.floor(Date.now() / 1_000) + 60 }],
-    ["older than the maximum token age", { iat: Math.floor(Date.now() / 1_000) - 660 }],
-  ])("rejects a signed token that is %s without returning evidence", async (_name, claims) => {
-    const { adapter } = await protocolFixture(claims)
-
-    await expect(
-      adapter.completeAuthenticationProof({
-        callbackUri,
-        code: "authorization-code",
-        codeVerifier: "pkce-verifier",
-        nonce: "attempt-nonce",
-      }),
-    ).rejects.toThrow()
-  })
+      await expect(
+        adapter.completeAuthenticationProof({
+          callbackUri,
+          code: "authorization-code",
+          codeVerifier: "pkce-verifier",
+          nonce: "attempt-nonce",
+        }),
+      ).rejects.toMatchObject(expectedError)
+    },
+  )
 
   it("requires auth_time within the saved attempt boundary for fresh enrollment", async () => {
     const now = Math.floor(Date.now() / 1_000)
