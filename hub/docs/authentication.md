@@ -56,7 +56,7 @@ Administrator-enrollment rate limits write at most one durable denial audit for 
 
 ## Database enforcement
 
-Database guards cover invariants that application validation alone cannot protect across concurrent writers or future code paths. They keep membership ownership and history immutable, keep assignment ownership, provenance, and role immutable, require an assignment identity to belong to the membership user, permit only first session termination, protect the global revocation identity and exact revision increment, and keep an authorization attempt's server-selected purpose immutable. Ordinary value-shape and time-order checks remain in the application contracts.
+Database guards cover invariants that application validation alone cannot protect across concurrent writers or future code paths. They keep membership ownership and history immutable, keep assignment ownership, provenance, and role immutable, require an assignment identity to belong to the membership user, permit only first session termination, protect the global revocation identity and exact revision increment, and keep an authorization attempt's server-selected purpose and bootstrap-secret generation immutable. Ordinary value-shape and time-order checks remain in the application contracts.
 
 ## Safety boundaries
 

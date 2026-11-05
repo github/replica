@@ -109,6 +109,54 @@ describe("admission database guards", () => {
     ).resolves.toEqual({ purpose: "SIGN_IN" })
   })
 
+  it("keeps the enrollment digest immutable during first consumption", async () => {
+    const providerRevisionId = await createProviderRevision()
+    const bootstrapSecretDigest = "c".repeat(64)
+    const attempt = await prisma.authorizationAttempt.create({
+      data: {
+        id: randomUUID(),
+        providerRevisionId,
+        stateDigest: "a".repeat(64),
+        browserBindingDigest: "b".repeat(64),
+        codeVerifierCiphertext: "encrypted",
+        purpose: "ADMIN_ENROLLMENT",
+        bootstrapSecretDigest,
+        expiresAt: new Date(Date.now() + 60_000),
+      },
+    })
+    const consumedAt = new Date()
+
+    await expect(
+      prisma.authorizationAttempt.update({
+        where: { id: attempt.id },
+        data: {
+          consumedAt,
+          bootstrapSecretDigest: "d".repeat(64),
+        },
+      }),
+    ).rejects.toThrow("authority is immutable")
+    await expect(
+      prisma.authorizationAttempt.findUniqueOrThrow({
+        where: { id: attempt.id },
+        select: { bootstrapSecretDigest: true, consumedAt: true },
+      }),
+    ).resolves.toEqual({
+      bootstrapSecretDigest,
+      consumedAt: null,
+    })
+
+    await expect(
+      prisma.authorizationAttempt.update({
+        where: { id: attempt.id },
+        data: { consumedAt },
+        select: { bootstrapSecretDigest: true, consumedAt: true },
+      }),
+    ).resolves.toEqual({
+      bootstrapSecretDigest,
+      consumedAt,
+    })
+  })
+
   it("keeps membership ownership and history while allowing lifecycle changes", async () => {
     const { firstMembershipId, secondUserId } = await createAdmissionAuthority()
 

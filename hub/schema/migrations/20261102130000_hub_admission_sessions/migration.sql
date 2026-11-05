@@ -153,21 +153,22 @@ CREATE TRIGGER "memberships_protected"
 BEFORE UPDATE OR DELETE ON "memberships"
 FOR EACH ROW EXECUTE FUNCTION protect_membership();
 
-CREATE FUNCTION protect_authorization_attempt_purpose()
+CREATE FUNCTION protect_authorization_attempt_authority()
 RETURNS trigger
 LANGUAGE plpgsql
 AS $$
 BEGIN
-    IF NEW."purpose" <> OLD."purpose" THEN
-        RAISE EXCEPTION 'Authorization attempt purpose is immutable.';
+    IF NEW."purpose" <> OLD."purpose"
+       OR NEW."bootstrap_secret_digest" IS DISTINCT FROM OLD."bootstrap_secret_digest" THEN
+        RAISE EXCEPTION 'Authorization attempt authority is immutable.';
     END IF;
     RETURN NEW;
 END;
 $$;
 
-CREATE TRIGGER "authorization_attempts_purpose_protected"
+CREATE TRIGGER "authorization_attempts_authority_protected"
 BEFORE UPDATE ON "authorization_attempts"
-FOR EACH ROW EXECUTE FUNCTION protect_authorization_attempt_purpose();
+FOR EACH ROW EXECUTE FUNCTION protect_authorization_attempt_authority();
 
 CREATE FUNCTION protect_membership_assignment()
 RETURNS trigger
