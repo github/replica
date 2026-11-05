@@ -42,6 +42,7 @@ describe("consumeAuthorizationAttempt()", () => {
         purpose: "SIGN_IN",
         codeVerifierCiphertext: "encrypted-verifier",
         nonceCiphertext: "encrypted-nonce",
+        sessionRevocationRevision: 7,
         expiresAt: new Date("2099-01-01T00:00:00Z"),
       },
     })
@@ -70,6 +71,7 @@ describe("consumeAuthorizationAttempt()", () => {
       createdAt: consumed?.createdAt,
       nonceCiphertext: "encrypted-nonce",
       purpose: "SIGN_IN",
+      sessionRevocationRevision: 7,
     })
     expect(consumed?.createdAt).toBeInstanceOf(Date)
     await expect(
@@ -91,6 +93,7 @@ describe("consumeAuthorizationAttempt()", () => {
         "purpose",
         "code_verifier_ciphertext",
         "nonce_ciphertext",
+        "session_revocation_revision",
         "expires_at",
         "created_at",
         "updated_at"
@@ -102,6 +105,7 @@ describe("consumeAuthorizationAttempt()", () => {
         'SIGN_IN',
         'encrypted-verifier',
         'encrypted-nonce',
+        0,
         clock_timestamp() - interval '1 second',
         clock_timestamp() - interval '2 minutes',
         clock_timestamp() - interval '2 minutes'

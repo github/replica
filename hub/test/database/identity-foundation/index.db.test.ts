@@ -35,6 +35,7 @@ describe("identity foundation migration", () => {
     const attempt = {
       id: randomUUID(),
       providerRevisionId: revisionId,
+      sessionRevocationRevision: 0,
       stateDigest: "a".repeat(64),
       browserBindingDigest: "b".repeat(64),
       codeVerifierCiphertext: "encrypted",

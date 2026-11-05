@@ -75,6 +75,7 @@ async function createProviderRoleSession() {
         id: attemptId,
         nonceCiphertext: "encrypted-nonce",
         providerRevisionId,
+        sessionRevocationRevision: 0,
         purpose: "SIGN_IN",
         stateDigest: "d".repeat(64),
         updatedAt: new Date("2020-01-01T00:01:00Z"),

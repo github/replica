@@ -27,10 +27,12 @@ import { runIdentityCreationTransaction } from "../../../../domains/identity/run
 import { runProviderRevisionTransaction } from "../../../../domains/identity/run-provider-revision-transaction/index.ts"
 import { prisma } from "../../../../integrations/prisma/index.ts"
 import { findAuthenticationProvider } from "../../../../repositories/authentication-providers/find-authentication-provider/index.ts"
+import { getAuthenticationProofState } from "../../../../repositories/authentication-providers/get-authentication-proof-state/index.ts"
 import { consumeAuthorizationAttempt } from "../../../../repositories/authorization-attempts/consume-authorization-attempt/index.ts"
 import { createAuthorizationAttempt } from "../../../../repositories/authorization-attempts/create-authorization-attempt/index.ts"
 import { deleteExpiredAuthorizationAttempts } from "../../../../repositories/authorization-attempts/delete-expired-authorization-attempts/index.ts"
 import { createSecurityAudit } from "../../../../repositories/security-audits/create-security-audit/index.ts"
+import { getSessionRevocationState } from "../../../../repositories/session-revocation-states/get-session-revocation-state/index.ts"
 import type {
   AuthenticationRouteDependencies,
   ProviderAuthenticationRouteDependencies,
@@ -157,6 +159,8 @@ export async function createAuthenticationRouteDependencies(
               encryptAuthenticationValue(value, context.encryptionKey),
             encryptNonce: (value) => encryptAuthenticationValue(value, context.encryptionKey),
             getSelectedProviderRevision: selectedRevision,
+            getSessionRevocationRevision: async () =>
+              (await getSessionRevocationState(prisma))?.revision ?? null,
             writeDenialAudit: writeAuthenticationDenial,
           },
         )
@@ -213,7 +217,8 @@ export async function createAuthenticationRouteDependencies(
             decryptNonce: (value) => decryptAuthenticationValue(value, context.encryptionKey),
             localConfigurationDigest: context.configurationDigest,
             localRevision: context.providerRevision,
-            getSelectedProviderRevision: selectedRevision,
+            getAuthenticationProofState: () =>
+              getAuthenticationProofState(prisma, context.adapter.providerKey),
             resolveOrCreateIdentity: (value) =>
               resolveOrCreateExternalIdentity(value, {
                 createId: randomUUID,

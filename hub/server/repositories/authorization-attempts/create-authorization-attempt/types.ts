@@ -11,5 +11,6 @@ export interface CreateAuthorizationAttemptInput {
   nonceCiphertext: string
   purpose: "SIGN_IN" | "ADMIN_ENROLLMENT"
   providerRevisionId: string
+  sessionRevocationRevision: number
   stateDigest: string
 }

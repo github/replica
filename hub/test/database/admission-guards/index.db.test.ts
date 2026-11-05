@@ -109,6 +109,7 @@ describe("admission database guards", () => {
       data: {
         id: randomUUID(),
         providerRevisionId,
+        sessionRevocationRevision: 0,
         stateDigest: "a".repeat(64),
         browserBindingDigest: "b".repeat(64),
         codeVerifierCiphertext: "encrypted",
@@ -138,6 +139,7 @@ describe("admission database guards", () => {
       data: {
         id: randomUUID(),
         providerRevisionId,
+        sessionRevocationRevision: 0,
         stateDigest: "a".repeat(64),
         browserBindingDigest: "b".repeat(64),
         codeVerifierCiphertext: "encrypted",

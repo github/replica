@@ -35,6 +35,7 @@ export async function consumeAuthorizationAttempt(
           nonce_ciphertext: string | null
           purpose: "SIGN_IN" | "ADMIN_ENROLLMENT"
           provider_revision_id: string
+          session_revocation_revision: number
         }>
       >`
         UPDATE "authorization_attempts"
@@ -49,7 +50,8 @@ export async function consumeAuthorizationAttempt(
           "created_at",
           "nonce_ciphertext",
           "purpose",
-          "provider_revision_id"
+          "provider_revision_id",
+          "session_revocation_revision"
       `
       const attempt = consumed[0]
       return attempt
@@ -60,6 +62,7 @@ export async function consumeAuthorizationAttempt(
             nonceCiphertext: attempt.nonce_ciphertext,
             purpose: attempt.purpose,
             providerRevisionId: attempt.provider_revision_id,
+            sessionRevocationRevision: attempt.session_revocation_revision,
           }
         : null
     },

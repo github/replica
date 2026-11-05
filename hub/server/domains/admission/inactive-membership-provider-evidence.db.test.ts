@@ -94,6 +94,7 @@ async function createAttempt(providerRevisionId: string) {
       id: randomUUID(),
       nonceCiphertext: "encrypted-nonce",
       providerRevisionId,
+      sessionRevocationRevision: 0,
       purpose: "SIGN_IN",
       stateDigest: randomBytes(32).toString("hex"),
       updatedAt: new Date("2026-11-05T12:00:00Z"),

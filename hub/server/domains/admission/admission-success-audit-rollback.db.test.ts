@@ -76,6 +76,7 @@ describe("admission success audit rollback", () => {
           bootstrapSecretDigest: "f".repeat(64),
           id: attemptId,
           providerRevisionId: revisionId,
+          sessionRevocationRevision: 0,
           purpose: "ADMIN_ENROLLMENT",
           stateDigest: "b".repeat(64),
           browserBindingDigest: "c".repeat(64),

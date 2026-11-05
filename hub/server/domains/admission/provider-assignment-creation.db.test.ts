@@ -68,6 +68,7 @@ async function createProviderAttempt(input: { existingMembership: boolean }) {
         id: attemptId,
         nonceCiphertext: "encrypted-nonce",
         providerRevisionId,
+        sessionRevocationRevision: 0,
         purpose: "SIGN_IN",
         stateDigest: randomBytes(32).toString("hex"),
         updatedAt: new Date("2026-11-05T13:00:00Z"),

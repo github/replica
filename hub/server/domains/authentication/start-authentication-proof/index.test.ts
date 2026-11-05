@@ -34,6 +34,7 @@ function dependencies(overrides: Partial<StartAuthenticationProofDependencies> =
     deleteExpiredArtifacts: vi.fn(),
     encryptCodeVerifier: vi.fn(() => "encrypted-verifier"),
     encryptNonce: vi.fn(() => "encrypted-nonce"),
+    getSessionRevocationRevision: vi.fn(() => Promise.resolve(0)),
     getSelectedProviderRevision: () =>
       Promise.resolve({
         id: "00000000-0000-4000-8000-000000000011",
@@ -93,11 +94,24 @@ describe("startAuthenticationProof()", () => {
       lifetimeSeconds: 600,
       nonceCiphertext: "encrypted:nonce-secret",
       purpose: "SIGN_IN",
+      sessionRevocationRevision: 0,
     })
     expect(encryptCodeVerifier).toHaveBeenCalledOnce()
     expect(encryptCodeVerifier).toHaveBeenCalledWith("verifier-secret")
     expect(JSON.stringify(scoped.createAttempt.mock.calls)).not.toMatch(
       /state-secret|browser-secret|verifier-secret/,
+    )
+  })
+
+  it("snapshots the current global session revocation revision", async () => {
+    const scoped = dependencies({
+      getSessionRevocationRevision: vi.fn(() => Promise.resolve(7)),
+    })
+
+    await startAuthenticationProof({ purpose: "SIGN_IN" }, scoped.values)
+
+    expect(scoped.createAttempt).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionRevocationRevision: 7 }),
     )
   })
 

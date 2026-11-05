@@ -2,7 +2,30 @@ ALTER TYPE "MembershipAssignmentSource" ADD VALUE 'AUTHENTICATION_PROVIDER';
 ALTER TYPE "MembershipAssignmentLifecycle" ADD VALUE 'SUPERSEDED' BEFORE 'REVOKED';
 
 ALTER TABLE "authorization_attempts"
-ADD COLUMN "nonce_ciphertext" VARCHAR(500);
+ADD COLUMN "nonce_ciphertext" VARCHAR(500),
+ADD COLUMN "session_revocation_revision" INTEGER;
+
+ALTER TABLE "authorization_attempts"
+DISABLE TRIGGER "authorization_attempts_protected";
+ALTER TABLE "authorization_attempts"
+DISABLE TRIGGER "authorization_attempts_authority_protected";
+
+UPDATE "authorization_attempts"
+SET "session_revocation_revision" = (
+    SELECT "revision"
+    FROM "session_revocation_states"
+    WHERE "key" = 'global'
+);
+
+ALTER TABLE "authorization_attempts"
+ENABLE TRIGGER "authorization_attempts_authority_protected";
+ALTER TABLE "authorization_attempts"
+ENABLE TRIGGER "authorization_attempts_protected";
+
+ALTER TABLE "authorization_attempts"
+ALTER COLUMN "session_revocation_revision" SET NOT NULL,
+ADD CONSTRAINT "authorization_attempts_session_revocation_revision_nonnegative"
+CHECK ("session_revocation_revision" >= 0);
 
 ALTER TABLE "authentication_providers"
 ADD COLUMN "enabled" BOOLEAN NOT NULL DEFAULT true;
@@ -127,6 +150,22 @@ $$;
 CREATE TRIGGER "authorization_attempts_nonce_protected"
 BEFORE UPDATE ON "authorization_attempts"
 FOR EACH ROW EXECUTE FUNCTION protect_authorization_attempt_nonce();
+
+CREATE FUNCTION protect_authorization_attempt_session_revocation_revision()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    IF NEW."session_revocation_revision" <> OLD."session_revocation_revision" THEN
+        RAISE EXCEPTION 'Authorization attempt session revocation revision is immutable.';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER "authorization_attempts_global_revocation_revision_protected"
+BEFORE UPDATE ON "authorization_attempts"
+FOR EACH ROW EXECUTE FUNCTION protect_authorization_attempt_session_revocation_revision();
 
 CREATE OR REPLACE FUNCTION protect_membership_assignment()
 RETURNS trigger

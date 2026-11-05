@@ -46,6 +46,7 @@ function repositories(overrides: Partial<AdmissionRepositories> = {}) {
       consumedAt: new Date(),
       providerRevisionId: "revision-id",
       purpose: "ADMIN_ENROLLMENT",
+      sessionRevocationRevision: 0,
     }),
     getExternalIdentity: vi.fn().mockResolvedValue({
       provider: "github",
@@ -160,6 +161,38 @@ describe("admitAuthenticationProof()", () => {
     )
   })
 
+  it("denies a proof from before global revocation without mutating authority or minting a session", async () => {
+    const records = repositories({
+      lockAttempt: vi.fn().mockResolvedValue({
+        bootstrapSecretDigest,
+        consumedAt: new Date(),
+        providerRevisionId: "revision-id",
+        purpose: "ADMIN_ENROLLMENT",
+        sessionRevocationRevision: 0,
+      }),
+      lockRevocation: vi.fn().mockResolvedValue({ revision: 1 }),
+    })
+    const writeAudit = vi.fn().mockResolvedValue(undefined)
+
+    await expect(
+      admitAuthenticationProof(input(), {
+        createId: randomUUID,
+        getBootstrapSecretDigest: () => bootstrapSecretDigest,
+        runTransaction: (operation) => operation(records),
+        writeAudit,
+      }),
+    ).rejects.toMatchObject<Partial<AdmissionDeniedError>>({
+      reason: "configuration_changed",
+    })
+
+    expect(records.createOrRestoreMembership).not.toHaveBeenCalled()
+    expect(records.createBootstrapAssignment).not.toHaveBeenCalled()
+    expect(records.claimProviderEvidence).not.toHaveBeenCalled()
+    expect(records.createProviderAssignment).not.toHaveBeenCalled()
+    expect(records.createHubSession).not.toHaveBeenCalled()
+    expect(records.createSecurityAudit).not.toHaveBeenCalled()
+  })
+
   it("admits enrollment when the bootstrap secret digest is unchanged", async () => {
     const records = repositories()
     const getBootstrapSecretDigest = vi.fn().mockReturnValue(bootstrapSecretDigest)
@@ -192,6 +225,7 @@ describe("admitAuthenticationProof()", () => {
         consumedAt: new Date(),
         providerRevisionId: "revision-id",
         purpose: "ADMIN_ENROLLMENT",
+        sessionRevocationRevision: 0,
       }),
     })
     const writeAudit = vi.fn().mockResolvedValue(undefined)
@@ -230,6 +264,7 @@ describe("admitAuthenticationProof()", () => {
         consumedAt: new Date(),
         providerRevisionId: "revision-id",
         purpose: "SIGN_IN",
+        sessionRevocationRevision: 0,
       }),
     })
 
@@ -536,6 +571,7 @@ describe("admitAuthenticationProof()", () => {
         consumedAt: new Date(),
         providerRevisionId: "00000000-0000-4000-8000-000000000099",
         purpose: "SIGN_IN",
+        sessionRevocationRevision: 0,
       }),
       lockMembership: vi.fn().mockResolvedValue({
         id: "membership-id",
@@ -604,6 +640,7 @@ describe("admitAuthenticationProof()", () => {
         consumedAt: new Date(),
         providerRevisionId: "00000000-0000-4000-8000-000000000099",
         purpose: "SIGN_IN",
+        sessionRevocationRevision: 0,
       }),
       lockProvider: vi.fn().mockResolvedValue({
         enabled: true,
@@ -675,6 +712,7 @@ describe("admitAuthenticationProof()", () => {
         consumedAt: new Date(),
         providerRevisionId: "00000000-0000-4000-8000-000000000099",
         purpose: "SIGN_IN",
+        sessionRevocationRevision: 0,
       }),
       lockProvider: vi.fn().mockResolvedValue({
         enabled: true,
@@ -746,6 +784,7 @@ describe("admitAuthenticationProof()", () => {
         consumedAt: new Date(),
         providerRevisionId: "00000000-0000-4000-8000-000000000099",
         purpose: "SIGN_IN",
+        sessionRevocationRevision: 0,
       }),
       lockProvider: vi.fn().mockResolvedValue({
         enabled: true,
@@ -788,6 +827,7 @@ describe("admitAuthenticationProof()", () => {
         consumedAt: new Date(),
         providerRevisionId: "00000000-0000-4000-8000-000000000099",
         purpose: "SIGN_IN",
+        sessionRevocationRevision: 0,
       }),
       lockProvider: vi.fn().mockResolvedValue({
         enabled: true,
@@ -855,6 +895,7 @@ describe("admitAuthenticationProof()", () => {
         consumedAt: new Date(),
         providerRevisionId: "00000000-0000-4000-8000-000000000099",
         purpose: "SIGN_IN",
+        sessionRevocationRevision: 0,
       }),
       lockProvider: vi.fn().mockResolvedValue({
         enabled: true,
@@ -906,6 +947,7 @@ describe("admitAuthenticationProof()", () => {
         consumedAt: new Date(),
         providerRevisionId: "00000000-0000-4000-8000-000000000099",
         purpose: "ADMIN_ENROLLMENT",
+        sessionRevocationRevision: 0,
       }),
       lockProvider: vi.fn().mockResolvedValue({
         enabled: true,
@@ -975,6 +1017,7 @@ describe("admitAuthenticationProof()", () => {
         consumedAt: new Date(),
         providerRevisionId: "00000000-0000-4000-8000-000000000099",
         purpose: "SIGN_IN",
+        sessionRevocationRevision: 0,
       }),
       lockProvider: vi.fn().mockResolvedValue({
         enabled: true,

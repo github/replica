@@ -18,6 +18,25 @@ const inputSchema = z
   })
   .strict()
 
+async function configurationChanged(
+  attempt: {
+    providerRevisionId: string
+    sessionRevocationRevision: number
+  },
+  dependencies: CompleteAuthenticationProofDependencies,
+): Promise<boolean> {
+  const state = await dependencies.getAuthenticationProofState()
+  const selected = state?.selectedProviderRevision
+  return (
+    !state ||
+    !selected ||
+    selected.id !== attempt.providerRevisionId ||
+    selected.revision !== dependencies.localRevision ||
+    selected.configurationDigest !== dependencies.localConfigurationDigest ||
+    state.sessionRevocationRevision !== attempt.sessionRevocationRevision
+  )
+}
+
 export async function completeAuthenticationProof(
   input: CompleteAuthenticationProofInput,
   dependencies: CompleteAuthenticationProofDependencies,
@@ -39,13 +58,7 @@ export async function completeAuthenticationProof(
     throw error
   }
 
-  const selectedBeforeProof = await dependencies.getSelectedProviderRevision()
-  if (
-    !selectedBeforeProof ||
-    selectedBeforeProof.id !== attempt.providerRevisionId ||
-    selectedBeforeProof.revision !== dependencies.localRevision ||
-    selectedBeforeProof.configurationDigest !== dependencies.localConfigurationDigest
-  ) {
+  if (await configurationChanged(attempt, dependencies)) {
     const error = new AuthenticationProofError(
       "configuration_changed",
       "The authentication provider configuration changed during this attempt.",
@@ -105,13 +118,7 @@ export async function completeAuthenticationProof(
     throw error
   }
 
-  const selectedAfterProof = await dependencies.getSelectedProviderRevision()
-  if (
-    !selectedAfterProof ||
-    selectedAfterProof.id !== attempt.providerRevisionId ||
-    selectedAfterProof.revision !== dependencies.localRevision ||
-    selectedAfterProof.configurationDigest !== dependencies.localConfigurationDigest
-  ) {
+  if (await configurationChanged(attempt, dependencies)) {
     const error = new AuthenticationProofError(
       "configuration_changed",
       "The authentication provider configuration changed during this attempt.",

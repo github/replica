@@ -217,16 +217,29 @@ describe("Entra OIDC migration compatibility", () => {
         )
 
         await expect(
-          database.query(`SELECT nonce_ciphertext FROM authorization_attempts WHERE id = $1`, [
-            attemptId,
-          ]),
-        ).resolves.toMatchObject({ rows: [{ nonce_ciphertext: null }] })
+          database.query(
+            `SELECT nonce_ciphertext, session_revocation_revision
+             FROM authorization_attempts
+             WHERE id = $1`,
+            [attemptId],
+          ),
+        ).resolves.toMatchObject({
+          rows: [{ nonce_ciphertext: null, session_revocation_revision: 0 }],
+        })
         await expect(
           database.query(
             `UPDATE authorization_attempts SET nonce_ciphertext = 'changed' WHERE id = $1`,
             [attemptId],
           ),
         ).rejects.toThrow(/Authorization attempt nonce is immutable/)
+        await expect(
+          database.query(
+            `UPDATE authorization_attempts
+             SET session_revocation_revision = session_revocation_revision + 1
+             WHERE id = $1`,
+            [attemptId],
+          ),
+        ).rejects.toThrow(/Authorization attempt session revocation revision is immutable/)
         await expect(
           database.query(
             `UPDATE authorization_attempts

@@ -152,7 +152,11 @@ async function admitWithinTransaction(
   if (!identity) {
     throw new AdmissionDeniedError("identity_mismatch", input.proof.externalIdentityId)
   }
-  if (!attempt.consumedAt || provider.selectedRevisionId !== attempt.providerRevisionId) {
+  if (
+    !attempt.consumedAt ||
+    provider.selectedRevisionId !== attempt.providerRevisionId ||
+    revocation.revision !== attempt.sessionRevocationRevision
+  ) {
     throw new AdmissionDeniedError("configuration_changed", input.proof.externalIdentityId)
   }
   if (identity.provider !== input.providerKey) {

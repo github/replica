@@ -12,6 +12,7 @@ export interface ConsumedAuthorizationAttempt {
   nonceCiphertext: string | null
   purpose: "SIGN_IN" | "ADMIN_ENROLLMENT"
   providerRevisionId: string
+  sessionRevocationRevision: number
 }
 
 export interface CompleteAuthenticationProofDependencies {
@@ -25,7 +26,10 @@ export interface CompleteAuthenticationProofDependencies {
   decryptNonce(value: string): string
   localConfigurationDigest: string
   localRevision: number
-  getSelectedProviderRevision(): Promise<SelectedProviderRevision | null>
+  getAuthenticationProofState(): Promise<{
+    selectedProviderRevision: SelectedProviderRevision | null
+    sessionRevocationRevision: number
+  } | null>
   resolveOrCreateIdentity(input: {
     issuer: string
     provider: string

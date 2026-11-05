@@ -104,6 +104,7 @@ async function createBootstrapAttempt(input: { existingMember: boolean }) {
         id: attemptId,
         nonceCiphertext: "encrypted-nonce",
         providerRevisionId,
+        sessionRevocationRevision: 0,
         purpose: "ADMIN_ENROLLMENT",
         stateDigest: "d".repeat(64),
         updatedAt: new Date("2026-11-04T20:01:00Z"),

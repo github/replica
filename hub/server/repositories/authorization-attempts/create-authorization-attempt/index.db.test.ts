@@ -47,6 +47,7 @@ describe("createAuthorizationAttempt()", () => {
         nonceCiphertext: "encrypted-nonce",
         lifetimeSeconds: 600,
         purpose: "SIGN_IN",
+        sessionRevocationRevision: 0,
       })
       const afterRows = await transaction.$queryRaw<Array<{ value: Date }>>`
         SELECT clock_timestamp()::timestamptz(3) AS value
@@ -86,6 +87,7 @@ describe("createAuthorizationAttempt()", () => {
         lifetimeSeconds: 600,
         providerRevisionId,
         purpose: "ADMIN_ENROLLMENT",
+        sessionRevocationRevision: 0,
         stateDigest: "c".repeat(64),
       })
       await createAuthorizationAttempt(transaction, {
@@ -97,6 +99,7 @@ describe("createAuthorizationAttempt()", () => {
         lifetimeSeconds: 600,
         providerRevisionId,
         purpose: "SIGN_IN",
+        sessionRevocationRevision: 0,
         stateDigest: "e".repeat(64),
       })
     })
@@ -111,5 +114,30 @@ describe("createAuthorizationAttempt()", () => {
       { bootstrapSecretDigest: null, purpose: "SIGN_IN" },
       { bootstrapSecretDigest: digest, purpose: "ADMIN_ENROLLMENT" },
     ])
+  })
+
+  it("persists the global session revocation revision captured at attempt start", async () => {
+    const providerRevisionId = await createProviderRevision()
+    const id = randomUUID()
+
+    await createAuthorizationAttempt(prisma, {
+      bootstrapSecretDigest: null,
+      browserBindingDigest: "1".repeat(64),
+      codeVerifierCiphertext: "encrypted-verifier",
+      id,
+      lifetimeSeconds: 600,
+      nonceCiphertext: "encrypted-nonce",
+      providerRevisionId,
+      purpose: "SIGN_IN",
+      sessionRevocationRevision: 7,
+      stateDigest: "2".repeat(64),
+    })
+
+    const rows = await prisma.$queryRaw<Array<{ sessionRevocationRevision: number }>>`
+      SELECT "session_revocation_revision" AS "sessionRevocationRevision"
+      FROM "authorization_attempts"
+      WHERE "id" = ${id}::uuid
+    `
+    expect(rows).toEqual([{ sessionRevocationRevision: 7 }])
   })
 })

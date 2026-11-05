@@ -22,16 +22,18 @@ function dependencies() {
       },
     }),
   )
-  const consumeAttempt = vi.fn<CompleteAuthenticationProofDependencies["consumeAttempt"]>(() =>
-    Promise.resolve({
+  const consumeAttempt = vi.fn<CompleteAuthenticationProofDependencies["consumeAttempt"]>(() => {
+    const attempt = {
       id: "00000000-0000-4000-8000-000000000010",
       providerRevisionId: revision.id,
       codeVerifierCiphertext: "encrypted-verifier",
       nonceCiphertext: "encrypted-nonce",
       createdAt: new Date("2026-11-04T18:00:00Z"),
       purpose: "SIGN_IN",
-    }),
-  )
+      sessionRevocationRevision: 0,
+    } as const
+    return Promise.resolve(attempt)
+  })
   return {
     adapter: {
       providerKey: "github",
@@ -44,7 +46,12 @@ function dependencies() {
     decryptNonce: vi.fn(() => "nonce-value"),
     localConfigurationDigest: revision.configurationDigest,
     localRevision: revision.revision,
-    getSelectedProviderRevision: vi.fn(() => Promise.resolve(revision)),
+    getAuthenticationProofState: vi.fn(() =>
+      Promise.resolve({
+        selectedProviderRevision: revision,
+        sessionRevocationRevision: 0,
+      }),
+    ),
     resolveOrCreateIdentity: vi.fn(() =>
       Promise.resolve({
         externalIdentityId: "00000000-0000-4000-8000-000000000012",
@@ -52,7 +59,7 @@ function dependencies() {
       }),
     ),
     writeDenialAudit: vi.fn(() => Promise.resolve()),
-  }
+  } satisfies CompleteAuthenticationProofDependencies
 }
 
 const input = {
@@ -99,6 +106,7 @@ describe("completeAuthenticationProof()", () => {
       nonceCiphertext: "encrypted-nonce",
       createdAt: new Date("2026-11-04T18:00:00Z"),
       purpose: "ADMIN_ENROLLMENT",
+      sessionRevocationRevision: 0,
     })
 
     await completeAuthenticationProof(input, scoped)
@@ -155,6 +163,7 @@ describe("completeAuthenticationProof()", () => {
         nonceCiphertext: "encrypted-nonce",
         createdAt: new Date(),
         purpose: "SIGN_IN",
+        sessionRevocationRevision: 0,
       })
     })
     scoped.adapter.completeAuthenticationProof.mockImplementation(() => {
@@ -193,6 +202,7 @@ describe("completeAuthenticationProof()", () => {
       nonceCiphertext: null,
       createdAt: new Date(),
       purpose: "SIGN_IN",
+      sessionRevocationRevision: 0,
     })
 
     await expect(completeAuthenticationProof(input, scoped)).rejects.toMatchObject({
@@ -234,11 +244,52 @@ describe("completeAuthenticationProof()", () => {
     expect(scoped.writeDenialAudit).toHaveBeenCalledWith("configuration_changed")
   })
 
+  it("denies an attempt from before global revocation without calling the provider", async () => {
+    const scoped = dependencies()
+    scoped.getAuthenticationProofState.mockResolvedValue({
+      selectedProviderRevision: revision,
+      sessionRevocationRevision: 1,
+    })
+
+    await expect(completeAuthenticationProof(input, scoped)).rejects.toMatchObject({
+      code: "configuration_changed",
+    })
+    expect(scoped.decryptCodeVerifier).not.toHaveBeenCalled()
+    expect(scoped.decryptNonce).not.toHaveBeenCalled()
+    expect(scoped.adapter.completeAuthenticationProof).not.toHaveBeenCalled()
+    expect(scoped.resolveOrCreateIdentity).not.toHaveBeenCalled()
+  })
+
+  it("fails closed when global revocation advances during provider work", async () => {
+    const scoped = dependencies()
+    scoped.getAuthenticationProofState
+      .mockResolvedValueOnce({
+        selectedProviderRevision: revision,
+        sessionRevocationRevision: 0,
+      })
+      .mockResolvedValueOnce({
+        selectedProviderRevision: revision,
+        sessionRevocationRevision: 1,
+      })
+
+    await expect(completeAuthenticationProof(input, scoped)).rejects.toMatchObject({
+      code: "configuration_changed",
+    })
+    expect(scoped.adapter.completeAuthenticationProof).toHaveBeenCalledOnce()
+    expect(scoped.resolveOrCreateIdentity).not.toHaveBeenCalled()
+  })
+
   it("fails closed when the provider revision changes after provider proof", async () => {
     const scoped = dependencies()
-    scoped.getSelectedProviderRevision
-      .mockResolvedValueOnce(revision)
-      .mockResolvedValueOnce({ ...revision, configurationDigest: "b".repeat(64) })
+    scoped.getAuthenticationProofState
+      .mockResolvedValueOnce({
+        selectedProviderRevision: revision,
+        sessionRevocationRevision: 0,
+      })
+      .mockResolvedValueOnce({
+        selectedProviderRevision: { ...revision, configurationDigest: "b".repeat(64) },
+        sessionRevocationRevision: 0,
+      })
 
     await expect(completeAuthenticationProof(input, scoped)).rejects.toMatchObject({
       code: "configuration_changed",

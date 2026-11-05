@@ -54,6 +54,7 @@ export interface AdmissionRepositories {
     consumedAt: Date | null
     providerRevisionId: string
     purpose: "SIGN_IN" | "ADMIN_ENROLLMENT"
+    sessionRevocationRevision: number
   } | null>
   getExternalIdentity(id: string): Promise<{ provider: string; userId: string } | null>
   lockMembership(

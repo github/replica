@@ -19,6 +19,7 @@ export interface StartAuthenticationProofDependencies {
     nonceCiphertext: string
     purpose: "SIGN_IN" | "ADMIN_ENROLLMENT"
     providerRevisionId: string
+    sessionRevocationRevision: number
     stateDigest: string
   }): Promise<{ expiresAt: Date }>
   createId(): string
@@ -27,6 +28,7 @@ export interface StartAuthenticationProofDependencies {
   encryptCodeVerifier(value: string): string
   encryptNonce(value: string): string
   getSelectedProviderRevision(): Promise<SelectedProviderRevision | null>
+  getSessionRevocationRevision(): Promise<number | null>
   writeDenialAudit(reason: "configuration_changed"): Promise<unknown>
 }
 

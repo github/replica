@@ -10,6 +10,7 @@ import { createApp } from "../../create-app"
 import { createLogger } from "../../integrations/pino/create-logger"
 import { prisma } from "../../integrations/prisma"
 import { createAuthenticationRouteDependencies } from "../../routes/api/auth/create-authentication-route-dependencies"
+import { disableAuthenticationProviders } from "../../routes/api/auth/create-authentication-route-dependencies"
 import { restoreHubSession } from "./restore-hub-session"
 import { runSessionRestoreTransaction } from "./run-session-restore-transaction"
 
@@ -33,24 +34,35 @@ function cookieValue(response: Response, name: string) {
   return match ? decodeURIComponent(match[1]!) : null
 }
 
+function deferred<Value>() {
+  let resolve!: (value: Value) => void
+  const promise = new Promise<Value>((complete) => {
+    resolve = complete
+  })
+  return { promise, resolve }
+}
+
 async function openServer(
   userIds: number[],
   logger?: ReturnType<typeof createLogger>,
   environment = runtimeEnvironment(),
+  providerRequestOverride?: ReturnType<typeof vi.fn<typeof fetch>>,
 ) {
   let userIndex = 0
-  const providerRequest = vi.fn((input: string | URL | Request) => {
-    const url = input instanceof Request ? input.url : input.toString()
-    if (url === "https://github.com/login/oauth/access_token") {
-      return Promise.resolve(
-        Response.json({ access_token: "provider-token", token_type: "bearer" }),
-      )
-    }
-    if (url === "https://api.github.com/user") {
-      return Promise.resolve(Response.json({ id: userIds[userIndex++]! }))
-    }
-    throw new Error(`Unexpected provider request: ${url}`)
-  })
+  const providerRequest =
+    providerRequestOverride ??
+    vi.fn((input: string | URL | Request) => {
+      const url = input instanceof Request ? input.url : input.toString()
+      if (url === "https://github.com/login/oauth/access_token") {
+        return Promise.resolve(
+          Response.json({ access_token: "provider-token", token_type: "bearer" }),
+        )
+      }
+      if (url === "https://api.github.com/user") {
+        return Promise.resolve(Response.json({ id: userIds[userIndex++]! }))
+      }
+      throw new Error(`Unexpected provider request: ${url}`)
+    })
   const dependencies = await createAuthenticationRouteDependencies(environment, providerRequest)
   const server = createServer(
     createApp({ authentication: dependencies, ...(logger ? { logger } : {}) }),
@@ -132,7 +144,7 @@ describe("Hub admission and session flow", () => {
         INSERT INTO "authorization_attempts" (
           "id", "provider_revision_id", "state_digest", "browser_binding_digest",
           "purpose", "code_verifier_ciphertext", "nonce_ciphertext",
-          "expires_at", "created_at", "updated_at"
+          "session_revocation_revision", "expires_at", "created_at", "updated_at"
         ) VALUES (
           ${attemptId}::uuid,
           ${providerRevision.id}::uuid,
@@ -141,6 +153,7 @@ describe("Hub admission and session flow", () => {
           'SIGN_IN',
           ${malformedCiphertext},
           'encrypted-nonce',
+          0,
           CURRENT_TIMESTAMP + interval '5 minutes',
           CURRENT_TIMESTAMP,
           CURRENT_TIMESTAMP
@@ -334,6 +347,7 @@ describe("Hub admission and session flow", () => {
       const attempt = await prisma.authorizationAttempt.findFirstOrThrow({
         select: { bootstrapSecretDigest: true, purpose: true },
       })
+
       expect(attempt).toEqual({
         bootstrapSecretDigest: originalDigest,
         purpose: "ADMIN_ENROLLMENT",
@@ -388,6 +402,119 @@ describe("Hub admission and session flow", () => {
       expect(logRecords[0]).not.toContain(originalDigest)
     } finally {
       await rotatedServer.close()
+    }
+  })
+
+  it("permanently denies a stale callback after disable and identical re-enable", async () => {
+    const environment = runtimeEnvironment()
+    const original = await openServer([], undefined, environment)
+    let staleAttempt: Awaited<ReturnType<typeof startAuthentication>>
+    try {
+      staleAttempt = await startAuthentication(
+        original.baseUrl,
+        "/api/auth/github/admin-enrollment/start",
+        new URLSearchParams({
+          bootstrap_secret: "bootstrap-secret-that-is-at-least-32-characters",
+        }),
+      )
+    } finally {
+      await original.close()
+    }
+    const selectedRevisionId = (
+      await prisma.authenticationProvider.findUniqueOrThrow({
+        where: { key: "github" },
+        select: { selectedRevisionId: true },
+      })
+    ).selectedRevisionId
+
+    await disableAuthenticationProviders()
+    const reenabled = await openServer([701], undefined, environment)
+    try {
+      await expect(
+        prisma.authenticationProvider.findUniqueOrThrow({
+          where: { key: "github" },
+          select: { enabled: true, selectedRevisionId: true },
+        }),
+      ).resolves.toEqual({ enabled: true, selectedRevisionId })
+
+      const stale = await completeAuthentication(reenabled.baseUrl, staleAttempt)
+
+      expect(stale.headers.get("location")).toBe("/?authentication=denied")
+      expect(cookieValue(stale, "hub_session")).toBeNull()
+      expect(reenabled.providerRequest).not.toHaveBeenCalled()
+      expect(await prisma.user.count()).toBe(0)
+      expect(await prisma.externalIdentity.count()).toBe(0)
+      expect(await prisma.membership.count()).toBe(0)
+      expect(await prisma.membershipAssignment.count()).toBe(0)
+      expect(await prisma.hubSession.count()).toBe(0)
+
+      const replay = await completeAuthentication(reenabled.baseUrl, staleAttempt)
+      expect(replay.headers.get("location")).toBe("/?authentication=denied")
+      expect(reenabled.providerRequest).not.toHaveBeenCalled()
+
+      const freshAttempt = await startAuthentication(
+        reenabled.baseUrl,
+        "/api/auth/github/admin-enrollment/start",
+        new URLSearchParams({
+          bootstrap_secret: "bootstrap-secret-that-is-at-least-32-characters",
+        }),
+      )
+      const fresh = await completeAuthentication(reenabled.baseUrl, freshAttempt)
+
+      expect(fresh.headers.get("location")).toBe("/?authentication=success")
+      expect(cookieValue(fresh, "hub_session")).toBeTruthy()
+      expect(reenabled.providerRequest).toHaveBeenCalledTimes(2)
+      expect(await prisma.membershipAssignment.count()).toBe(1)
+      expect(await prisma.hubSession.count()).toBe(1)
+    } finally {
+      await reenabled.close()
+    }
+  })
+
+  it("fails closed when global revocation advances during provider network work", async () => {
+    const providerStarted = deferred<void>()
+    const tokenResponse = deferred<Response>()
+    const providerRequest = vi.fn<typeof fetch>((input) => {
+      const url = input instanceof Request ? input.url : input.toString()
+      if (url === "https://github.com/login/oauth/access_token") {
+        providerStarted.resolve()
+        return tokenResponse.promise
+      }
+      if (url === "https://api.github.com/user") {
+        return Promise.resolve(Response.json({ id: 702 }))
+      }
+      throw new Error(`Unexpected provider request: ${url}`)
+    })
+    const server = await openServer([702], undefined, runtimeEnvironment(), providerRequest)
+    try {
+      const attempt = await startAuthentication(
+        server.baseUrl,
+        "/api/auth/github/admin-enrollment/start",
+        new URLSearchParams({
+          bootstrap_secret: "bootstrap-secret-that-is-at-least-32-characters",
+        }),
+      )
+      const completion = completeAuthentication(server.baseUrl, attempt)
+      await providerStarted.promise
+      await prisma.sessionRevocationState.update({
+        where: { key: "global" },
+        data: { revision: { increment: 1 } },
+      })
+      tokenResponse.resolve(Response.json({ access_token: "provider-token", token_type: "bearer" }))
+
+      const response = await completion
+
+      expect(response.headers.get("location")).toBe("/?authentication=denied")
+      expect(cookieValue(response, "hub_session")).toBeNull()
+      expect(providerRequest).toHaveBeenCalledTimes(2)
+      expect(await prisma.user.count()).toBe(0)
+      expect(await prisma.externalIdentity.count()).toBe(0)
+      expect(await prisma.membership.count()).toBe(0)
+      expect(await prisma.membershipAssignment.count()).toBe(0)
+      expect(await prisma.hubSession.count()).toBe(0)
+    } finally {
+      tokenResponse.resolve(Response.json({ access_token: "unused", token_type: "bearer" }))
+      await server.close()
     }
   })
 
