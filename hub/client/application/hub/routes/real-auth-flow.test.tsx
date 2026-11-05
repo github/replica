@@ -21,7 +21,11 @@ type RouteModule = {
   HydrateFallback?: ComponentType
 }
 
-const routeModules = import.meta.glob<RouteModule>(["../root.tsx", "./**/index.tsx"])
+const routeModules = import.meta.glob<RouteModule>([
+  "../root.tsx",
+  "./**/index.tsx",
+  "!./test-fixture/**",
+])
 
 function applicationRoute(entry: RouteConfigEntry): RouteObject {
   const modulePath =

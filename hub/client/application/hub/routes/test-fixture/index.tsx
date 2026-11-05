@@ -11,6 +11,7 @@ import { onTestFailed, onTestFinished, vi } from "vitest"
 
 import { HubThemeProvider } from "@hooks/use-hub-theme"
 
+import * as hubApi from "../../bootstrap"
 import HubRoot, { clientLoader as loadSession, ErrorBoundary, HydrateFallback } from "../../root"
 import MockToolbar from "../../mocks/toolbar"
 import BuildRoute, { clientLoader as loadBuild } from "../build"
@@ -24,8 +25,6 @@ import RepositoryRoute, { clientLoader as loadRepository } from "../repository"
 import { clientAction as changeSession } from "../session"
 import SignInRoute, { clientLoader as loadSignIn } from "../sign-in"
 import WorkspaceRoute, { clientLoader as loadWorkspace } from "../workspace"
-
-vi.mock("../../mocks/browser", () => ({ startMockApi: async () => {} }))
 
 function RootComponent({ withTools = false }: { withTools?: boolean }) {
   const session = useLoaderData<typeof loadSession>()
@@ -87,6 +86,7 @@ export async function renderHubFlow(
 ) {
   vi.stubEnv("DEV", true)
   vi.stubEnv("MODE", "mock")
+  vi.spyOn(hubApi, "bootstrapHubApi").mockResolvedValue(undefined)
   server.listen({ onUnhandledRequest: "error" })
   const pendingRequests = new Map<string, string>()
   const pendingAbortListeners = new Map<string, { signal: AbortSignal; abort: () => void }>()
