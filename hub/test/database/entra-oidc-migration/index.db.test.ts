@@ -177,6 +177,25 @@ describe("Entra OIDC migration compatibility", () => {
             [attemptId, "d".repeat(64)],
           ),
         ).rejects.toThrow(/Authorization attempt authority is immutable/)
+        const evidenceStateId = "00000000-0000-4000-8000-000000000020"
+        await database.query(
+          `INSERT INTO provider_evidence_states
+             (id, external_identity_id, last_issued_at)
+           VALUES ($1, $2, $3)`,
+          [evidenceStateId, identityId, new Date("2026-11-05T12:00:00Z")],
+        )
+        await expect(
+          database.query(
+            `UPDATE provider_evidence_states
+             SET last_issued_at = last_issued_at - interval '1 second',
+                 updated_at = updated_at + interval '1 second'
+             WHERE id = $1`,
+            [evidenceStateId],
+          ),
+        ).rejects.toThrow(/Provider evidence ordering must advance monotonically/)
+        await expect(
+          database.query(`DELETE FROM provider_evidence_states WHERE id = $1`, [evidenceStateId]),
+        ).rejects.toThrow(/Provider evidence ordering history cannot be deleted/)
         await expect(
           database.query(
             `SELECT provider_revision_id, provider_assignment_subject

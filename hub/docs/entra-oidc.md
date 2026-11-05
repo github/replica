@@ -26,7 +26,7 @@ Hub stores one active Entra assignment for an external identity. A role or provi
 
 The enterprise application must allow an unassigned user to authenticate so Hub can receive signed evidence that accepted roles were removed. Hub then denies admission and revokes provider-owned authority in the same transaction. Requiring Entra assignment would block the callback before Hub could observe role loss, leaving retained Hub sessions authoritative until another lifecycle event.
 
-Bootstrap authority remains separate. Entra evidence cannot overwrite a bootstrap assignment or reactivate a suspended or removed membership. If Entra authority is revoked while a separate active bootstrap assignment remains, the user may still be admitted through that Hub-owned authority.
+Bootstrap authority remains separate. Entra evidence cannot overwrite a bootstrap assignment or reactivate a suspended or removed membership. Current Entra evidence still supersedes or revokes provider authority and ends open sessions while the membership remains inactive. If Entra authority is revoked while a separate active bootstrap assignment remains, the user may still be admitted through that Hub-owned authority.
 
 ## Client authentication
 
