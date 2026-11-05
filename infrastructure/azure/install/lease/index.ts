@@ -60,9 +60,17 @@ export async function acquireLease(
       )
     }
   }
-  const lease = JSON.parse(
-    await azure("storage", "blob", "lease", "acquire", ...args, "--lease-duration", "-1"),
-  ) as unknown
+  let result: string
+  try {
+    result = await azure("storage", "blob", "lease", "acquire", ...args, "--lease-duration", "-1")
+  } catch (error) {
+    ui.notice?.(
+      "error",
+      `Could not acquire the lease at ${account}/${container}/${blob}. No lease was broken. Check access and whether another deployment or retained lease owns it; follow the installation recovery guide before retrying.`,
+    )
+    throw error
+  }
+  const lease: unknown = JSON.parse(result)
   if (typeof lease !== "string" || !lease)
     throw new Error("Azure did not return an installation lease.")
   let released = false
