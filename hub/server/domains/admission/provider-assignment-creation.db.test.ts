@@ -8,6 +8,7 @@ import { AdmissionPersistenceError } from "./errors"
 import { restoreHubSession } from "./restore-hub-session"
 import { runAdmissionTransaction } from "./run-admission-transaction"
 import { runSessionRestoreTransaction } from "./run-session-restore-transaction"
+import { withFailingSecurityAudit } from "./test/with-failing-security-audit"
 
 async function createProviderAttempt(input: { existingMembership: boolean }) {
   const providerId = randomUUID()
@@ -158,35 +159,11 @@ describe("first provider assignment", () => {
 
   it("rolls back authority, evidence order, and session termination when its audit fails", async () => {
     const records = await createProviderAttempt({ existingMembership: true })
-    const suffix = randomUUID().replaceAll("-", "")
-    const functionName = `fail_provider_assignment_audit_${suffix}`
-    const triggerName = `fail_provider_assignment_audit_${suffix}`
-    await prisma.$executeRawUnsafe(`
-      CREATE FUNCTION "${functionName}"()
-      RETURNS trigger
-      LANGUAGE plpgsql
-      AS $$
-      BEGIN
-        IF NEW.action = 'session.ended' THEN
-          RAISE EXCEPTION 'session audit unavailable';
-        END IF;
-        RETURN NEW;
-      END;
-      $$
-    `)
-    await prisma.$executeRawUnsafe(`
-      CREATE TRIGGER "${triggerName}"
-      BEFORE INSERT ON security_audits
-      FOR EACH ROW EXECUTE FUNCTION "${functionName}"()
-    `)
-    try {
-      await expect(admitFirstProviderAssignment(records)).rejects.toBeInstanceOf(
+    await withFailingSecurityAudit("session.ended", () =>
+      expect(admitFirstProviderAssignment(records)).rejects.toBeInstanceOf(
         AdmissionPersistenceError,
-      )
-    } finally {
-      await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS "${triggerName}" ON security_audits`)
-      await prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS "${functionName}"()`)
-    }
+      ),
+    )
 
     await expect(
       prisma.membershipAssignment.count({

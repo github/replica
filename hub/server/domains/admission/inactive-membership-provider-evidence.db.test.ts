@@ -176,17 +176,17 @@ describe("inactive membership provider evidence", () => {
       expect(assignments).toEqual(
         role === null
           ? [{ lifecycle: "REVOKED", role: "ADMINISTRATOR" }]
-          : expect.arrayContaining([
+          : [
               { lifecycle: "SUPERSEDED", role: "ADMINISTRATOR" },
               { lifecycle: "ACTIVE", role: "MEMBER" },
-            ]),
+            ],
       )
-      const retainedSessions = await prisma.hubSession.findMany({
+      const endedSessions = await prisma.hubSession.findMany({
         select: { endedAt: true },
         where: { membershipId: records.membershipId },
       })
-      expect(retainedSessions).toHaveLength(1)
-      expect(retainedSessions.every(({ endedAt }) => endedAt instanceof Date)).toBe(true)
+      expect(endedSessions).toHaveLength(1)
+      expect(endedSessions[0]?.endedAt).toBeInstanceOf(Date)
       await expect(
         restoreHubSession(records.oldSessionDigest, {
           runTransaction: (operation) => runSessionRestoreTransaction(prisma, operation),

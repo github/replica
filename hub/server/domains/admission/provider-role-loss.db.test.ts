@@ -5,6 +5,7 @@ import { prisma } from "../../integrations/prisma"
 import { createSecurityAudit } from "../../repositories/security-audits/create-security-audit"
 import { admitAuthenticationProof } from "./admit-authentication-proof"
 import { runAdmissionTransaction } from "./run-admission-transaction"
+import { withFailingSecurityAudit } from "./test/with-failing-security-audit"
 
 async function createProviderRoleSession() {
   const providerId = randomUUID()
@@ -152,34 +153,9 @@ describe("provider role-loss admission", () => {
 
   it("rolls back role revocation and session termination when the denial audit fails", async () => {
     const records = await createProviderRoleSession()
-    const functionName = `reject_denial_${randomUUID().replaceAll("-", "_")}`
-    const triggerName = `reject_denial_${randomUUID().replaceAll("-", "_")}`
-    await prisma.$executeRawUnsafe(`
-      CREATE FUNCTION "${functionName}"()
-      RETURNS trigger
-      LANGUAGE plpgsql
-      AS $$
-      BEGIN
-        IF NEW.action = 'admission.denied' THEN
-          RAISE EXCEPTION 'admission denial audit unavailable';
-        END IF;
-        RETURN NEW;
-      END;
-      $$
-    `)
-    await prisma.$executeRawUnsafe(`
-      CREATE TRIGGER "${triggerName}"
-      BEFORE INSERT ON security_audits
-      FOR EACH ROW EXECUTE FUNCTION "${functionName}"()
-    `)
-    try {
-      await expect(revokeProviderRole(records)).rejects.toThrow(
-        "Hub admission could not be completed",
-      )
-    } finally {
-      await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS "${triggerName}" ON security_audits`)
-      await prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS "${functionName}"()`)
-    }
+    await withFailingSecurityAudit("admission.denied", () =>
+      expect(revokeProviderRole(records)).rejects.toThrow("Hub admission could not be completed"),
+    )
 
     await expect(
       prisma.membershipAssignment.findUniqueOrThrow({

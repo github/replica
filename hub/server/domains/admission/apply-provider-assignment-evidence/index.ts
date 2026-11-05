@@ -71,7 +71,7 @@ export async function applyProviderAssignmentEvidence(
       membershipId,
     })
   }
-  let authorityChanged = false
+  let sessionsMustEnd = false
   if (parsed.role === null) {
     if (activeProviderAssignment) {
       await dependencies.repositories.endProviderAssignment({
@@ -85,7 +85,7 @@ export async function applyProviderAssignmentEvidence(
         role: activeProviderAssignment.role,
         type: "provider_membership_assignment_revoked",
       })
-      authorityChanged = true
+      sessionsMustEnd = true
     }
   } else if (
     !activeProviderAssignment ||
@@ -123,9 +123,9 @@ export async function applyProviderAssignmentEvidence(
       role: parsed.role,
       type: "provider_membership_assignment_created",
     })
-    authorityChanged = Boolean(existingMembership)
+    sessionsMustEnd = Boolean(existingMembership)
   }
-  if (authorityChanged) {
+  if (sessionsMustEnd) {
     await endMembershipSessions(membershipId, dependencies)
   }
   if (existingMembership && existingMembership.lifecycle !== "ACTIVE") {

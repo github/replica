@@ -6,6 +6,7 @@ import { createSecurityAudit } from "../../repositories/security-audits/create-s
 import { admitAuthenticationProof } from "./admit-authentication-proof"
 import { AdmissionPersistenceError } from "./errors"
 import { runAdmissionTransaction } from "./run-admission-transaction"
+import { withFailingSecurityAudit } from "./test/with-failing-security-audit"
 
 describe("admission success audit rollback", () => {
   it("rolls back restored authority and session replacement when an ended-session audit fails", async () => {
@@ -18,9 +19,6 @@ describe("admission success audit rollback", () => {
     const attemptId = randomUUID()
     const oldSessionId = randomUUID()
     const sessionId = randomUUID()
-    const suffix = randomUUID().replaceAll("-", "")
-    const functionName = `fail_session_audit_${suffix}`
-    const triggerName = `fail_session_audit_${suffix}`
     await prisma.$transaction(async (transaction) => {
       await transaction.authenticationProvider.create({
         data: { id: providerId, key: "github" },
@@ -91,26 +89,8 @@ describe("admission success audit rollback", () => {
       })
     })
 
-    await prisma.$executeRawUnsafe(`
-      CREATE FUNCTION "${functionName}"()
-      RETURNS trigger
-      LANGUAGE plpgsql
-      AS $$
-      BEGIN
-        IF NEW.action = 'session.ended' THEN
-          RAISE EXCEPTION 'ended session audit unavailable';
-        END IF;
-        RETURN NEW;
-      END;
-      $$
-    `)
-    await prisma.$executeRawUnsafe(`
-      CREATE TRIGGER "${triggerName}"
-      BEFORE INSERT ON security_audits
-      FOR EACH ROW EXECUTE FUNCTION "${functionName}"()
-    `)
-    try {
-      await expect(
+    await withFailingSecurityAudit("session.ended", () =>
+      expect(
         admitAuthenticationProof(
           {
             proof: { authorizationAttemptId: attemptId, externalIdentityId },
@@ -127,11 +107,8 @@ describe("admission success audit rollback", () => {
             writeAudit: (event) => createSecurityAudit(prisma, event),
           },
         ),
-      ).rejects.toBeInstanceOf(AdmissionPersistenceError)
-    } finally {
-      await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS "${triggerName}" ON security_audits`)
-      await prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS "${functionName}"()`)
-    }
+      ).rejects.toBeInstanceOf(AdmissionPersistenceError),
+    )
 
     expect(
       await prisma.membership.findUniqueOrThrow({
