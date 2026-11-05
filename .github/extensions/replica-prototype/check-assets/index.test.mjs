@@ -78,20 +78,22 @@ describe("checkAssets()", () => {
       await copyFile(new URL("./index.mjs", import.meta.url), script)
       await writeFile(assetFile, "original")
       await writeFile(
-        path.join(directory, "npm"),
-        '#!/bin/sh\nprintf "%s" changed > "$TEST_ASSET_PATH"\n',
-        { mode: 0o755 },
+        path.join(directory, "package.json"),
+        JSON.stringify({
+          private: true,
+          scripts: { "extension:build": "node build.mjs" },
+        }),
+      )
+      await writeFile(
+        path.join(directory, "build.mjs"),
+        'import { writeFileSync } from "node:fs"\nwriteFileSync(new URL("./extension with spaces/read-remote-branch/index.mjs", import.meta.url), "changed")\n',
       )
 
       assert.throws(
         () =>
           execFileSync(process.execPath, [script], {
+            cwd: directory,
             encoding: "utf8",
-            env: {
-              ...process.env,
-              PATH: `${directory}${path.delimiter}${process.env.PATH}`,
-              TEST_ASSET_PATH: assetFile,
-            },
             stdio: "pipe",
           }),
         /Extension assets differ after build.*read-remote-branch\/index\.mjs/s,

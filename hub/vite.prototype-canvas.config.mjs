@@ -1,9 +1,10 @@
+import { fileURLToPath } from "node:url"
 import react from "@vitejs/plugin-react"
 import { defineConfig } from "vite"
 import { viteAliases } from "./vite-aliases.ts"
 
 export default defineConfig({
-  root: new URL(".", import.meta.url).pathname,
+  root: fileURLToPath(new URL(".", import.meta.url)),
   publicDir: false,
   base: "/assets/",
   plugins: [react()],

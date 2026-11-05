@@ -1,9 +1,9 @@
-import { execFileSync } from "node:child_process"
+import { execSync } from "node:child_process"
 import { readdir, readFile } from "node:fs/promises"
 import { fileURLToPath } from "node:url"
 export async function checkAssets({
   assets = new URL("../", import.meta.url),
-  build = () => execFileSync("npm", ["run", "extension:build"], { stdio: "inherit" }),
+  build = () => execSync("npm run extension:build", { stdio: "inherit" }),
 } = {}) {
   const before = await snapshot(assets)
   await build()
