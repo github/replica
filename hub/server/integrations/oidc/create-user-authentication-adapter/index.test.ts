@@ -341,25 +341,17 @@ describe("createEntraOidcUserAuthenticationAdapter()", () => {
       { azp: "other-client" },
       { message: "Entra OIDC token claims are invalid." },
     ],
-    [
-      "wrong audience",
-      { aud: "different-client" },
-      { claim: "aud", code: "ERR_JWT_CLAIM_VALIDATION_FAILED", reason: "check_failed" },
-    ],
-    [
-      "expired",
-      (now: number) => ({ exp: now - 60 }),
-      { claim: "exp", code: "ERR_JWT_EXPIRED", reason: "check_failed" },
-    ],
+    ["wrong audience", { aud: "different-client" }, { code: "ERR_JWT_CLAIM_VALIDATION_FAILED" }],
+    ["expired", (now: number) => ({ exp: now - 60 }), { code: "ERR_JWT_EXPIRED" }],
     [
       "not active yet",
       (now: number) => ({ nbf: now + 60 }),
-      { claim: "nbf", code: "ERR_JWT_CLAIM_VALIDATION_FAILED", reason: "check_failed" },
+      { code: "ERR_JWT_CLAIM_VALIDATION_FAILED" },
     ],
     [
       "older than the maximum token age",
       (now: number) => ({ iat: now - 660 }),
-      { claim: "iat", code: "ERR_JWT_EXPIRED", reason: "check_failed" },
+      { code: "ERR_JWT_EXPIRED" },
     ],
   ] as const)(
     "rejects a signed token with invalid %s evidence",

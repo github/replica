@@ -38,10 +38,10 @@ export async function claimProviderEvidence(
   if (state) {
     const issuedAt = parsed.issuedAt.getTime()
     const lastIssuedAt = state.lastIssuedAt.getTime()
-    const equalTimestampReduction =
-      issuedAt === lastIssuedAt && authorityRank(parsed.role) < authorityRank(state.lastRole)
-    if (issuedAt < lastIssuedAt || (issuedAt === lastIssuedAt && !equalTimestampReduction))
-      return "stale"
+    const advances =
+      issuedAt > lastIssuedAt ||
+      (issuedAt === lastIssuedAt && authorityRank(parsed.role) < authorityRank(state.lastRole))
+    if (!advances) return "stale"
     await database.$executeRaw`
       UPDATE "provider_evidence_states"
       SET

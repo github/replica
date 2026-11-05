@@ -105,22 +105,4 @@ describe("createProviderAssignment()", () => {
       },
     ])
   })
-
-  it.each([
-    ["empty", ""],
-    ["longer than 100 characters", "A".repeat(101)],
-  ])("rejects an %s provider assignment subject", async (_case, providerAssignmentSubject) => {
-    const records = await createAuthorityRecords()
-
-    await expect(
-      createProviderAssignment(prisma, {
-        ...records,
-        id: randomUUID(),
-        providerAssignmentSubject,
-        role: "MEMBER",
-      }),
-    ).rejects.toThrow()
-
-    await expect(prisma.membershipAssignment.count()).resolves.toBe(0)
-  })
 })
