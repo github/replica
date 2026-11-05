@@ -66,7 +66,7 @@ ENTRA_OIDC_CLIENT_AUTHENTICATION=client-secret
 ENTRA_OIDC_CLIENT_SECRET=<secret-store-injected-value>
 ```
 
-Increase `ENTRA_OIDC_PROVIDER_REVISION` when public configuration, client-authentication mode, credential reference, or credential changes. Hub validates discovery before selecting a revision. Failed validation leaves the currently selected database revision unchanged.
+Increase `ENTRA_OIDC_PROVIDER_REVISION` when public configuration, client-authentication mode, credential reference, or credential changes. A new revision invalidates in-flight attempts, stale replicas, and provider authority and sessions tied to the old revision. Keep the revision unchanged for an ordinary restart with the same validated settings. Hub validates discovery before selecting a revision. Failed validation leaves the currently selected database revision unchanged.
 
 GitHub settings remain independent. Configure both profiles to show both sign-in choices.
 
