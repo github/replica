@@ -28,17 +28,17 @@ async function protocolFixture(
   const jwk = await exportJWK(verificationKey)
   const now = Math.floor(Date.now() / 1_000)
   const token = await new SignJWT({
+    aud: clientId,
+    exp: now + 300,
+    iat: now,
+    iss: options.issuer ?? issuer,
     nonce: "attempt-nonce",
     oid: "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA",
     roles: ["Hub.User"],
+    sub: "immutable-subject",
     ...claims,
   })
     .setProtectedHeader({ alg: "RS256", kid: "test-key" })
-    .setIssuer(options.issuer ?? issuer)
-    .setAudience(clientId)
-    .setSubject("immutable-subject")
-    .setIssuedAt(now)
-    .setExpirationTime(now + 300)
     .sign(privateKey)
   const request = vi.fn<typeof fetch>((input, init) => {
     const url = input instanceof Request ? input.url : input.toString()
@@ -337,6 +337,24 @@ describe("createEntraOidcUserAuthenticationAdapter()", () => {
     ["nonce", { nonce: "different-nonce" }],
     ["authorized party", { azp: "other-client" }],
   ])("rejects a token with invalid %s binding", async (_name, claims) => {
+    const { adapter } = await protocolFixture(claims)
+
+    await expect(
+      adapter.completeAuthenticationProof({
+        callbackUri,
+        code: "authorization-code",
+        codeVerifier: "pkce-verifier",
+        nonce: "attempt-nonce",
+      }),
+    ).rejects.toThrow()
+  })
+
+  it.each([
+    ["wrong audience", { aud: "different-client" }],
+    ["expired", { exp: Math.floor(Date.now() / 1_000) - 60 }],
+    ["not active yet", { nbf: Math.floor(Date.now() / 1_000) + 60 }],
+    ["older than the maximum token age", { iat: Math.floor(Date.now() / 1_000) - 660 }],
+  ])("rejects a signed token that is %s without returning evidence", async (_name, claims) => {
     const { adapter } = await protocolFixture(claims)
 
     await expect(
