@@ -12,7 +12,17 @@
 }
 
 .hub-toast {
+  display: flex;
   flex: none;
+  flex-wrap: nowrap;
   box-shadow: var(--hub-shadow-floating);
   pointer-events: auto;
+}
+
+.hub-toast .hub-alert__content {
+  flex: 1;
+}
+
+.hub-toast .hub-alert__action {
+  flex: none;
 }

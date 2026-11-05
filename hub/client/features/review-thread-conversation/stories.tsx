@@ -80,6 +80,7 @@ type Story = StoryObj<typeof meta>
 export const Single: Story = {}
 
 export const ReadOnlyConversation: Story = {
+  name: "Cannot edit or delete comments",
   args: {
     thread: {
       ...singleReviewThread,
