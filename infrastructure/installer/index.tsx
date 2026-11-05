@@ -3,12 +3,13 @@ import { parseArgs, styleText } from "node:util"
 
 import { installAzure } from "../azure/install/index.ts"
 import { azurePreflight } from "../azure/install/preflight/index.ts"
-import { runCommand } from "./command/index.ts"
+import { CommandExecutionError, runCommand } from "./command/index.ts"
 import { loadConfig } from "./config/index.ts"
 import { createTerminalUI } from "./terminal/index.tsx"
 import type { DeploymentConfig, InstallerUI, RunCommand } from "./types.ts"
 import { runWizard } from "./wizard/index.ts"
 import { openSession, type WizardSession } from "./session/index.ts"
+import { startInstallerTelemetry } from "./telemetry/index.ts"
 
 const { values } = parseArgs({
   options: {
@@ -26,11 +27,12 @@ if (values.help) {
   )
 } else {
   const abort = new AbortController()
-  const run: RunCommand = (executable, args, options) =>
+  const execute: RunCommand = (executable, args, options) =>
     runCommand(executable, args, { ...options, signal: abort.signal })
   const path = resolve(values.config ?? resolve(import.meta.dirname, "../.local/installation.json"))
   let terminal: ReturnType<typeof createTerminalUI> | undefined
   let session: WizardSession | undefined
+  let telemetry: Awaited<ReturnType<typeof startInstallerTelemetry>> | undefined
   let failure: unknown
   let interrupted = false
   let message: string | undefined
@@ -38,6 +40,17 @@ if (values.help) {
   process.once("SIGINT", interrupt)
   process.once("SIGTERM", interrupt)
   try {
+    telemetry = await startInstallerTelemetry(path)
+    const observed = telemetry.command(execute)
+    const run: RunCommand = async (executable, args, options) => {
+      try {
+        return await observed(executable, args, options)
+      } catch (error) {
+        if (error instanceof CommandExecutionError && !error.aborted)
+          terminal?.notice?.("error", error.message)
+        throw error
+      }
+    }
     let existing: DeploymentConfig | undefined
     try {
       existing = await loadConfig(path)
@@ -55,13 +68,14 @@ if (values.help) {
           "Non-interactive deployment requires --config, --approve-deployment, and an existing complete configuration.",
         )
       }
-      const ui: InstallerUI = {
+      const ui: InstallerUI = telemetry.observe({
         status: (value) => console.log(value),
         confirm: async () => true,
         wait: async (value) => {
           throw new Error(value)
         },
-      }
+      })
+      await ui.phase?.("checks")
       await azurePreflight(run, ui)
       message = await installAzure(existing, {
         directory: join(dirname(path), existing.name),
@@ -74,11 +88,11 @@ if (values.help) {
           "Use a terminal for the wizard, or supply --non-interactive with explicit configuration and approval.",
         )
       }
-      const ui = createTerminalUI(abort, {
+      terminal = createTerminalUI(abort, {
         fullscreen: !values["no-fullscreen"],
         configureOnly: values["configure-only"],
       })
-      terminal = ui
+      const ui = telemetry.observe(terminal)
       session = await openSession(path)
       message = await runWizard({
         ui,
@@ -114,6 +128,14 @@ if (values.help) {
     }
     process.removeListener("SIGINT", interrupt)
     process.removeListener("SIGTERM", interrupt)
+    try {
+      await telemetry?.close(failure)
+    } catch (error) {
+      failure ??= error
+      console.error(
+        "Could not finish saving installer diagnostics. The local log may be incomplete.",
+      )
+    }
   }
   if (failure) {
     console.error(
@@ -133,4 +155,5 @@ if (values.help) {
   } else {
     console.log(message)
   }
+  if (telemetry) console.error(`Setup diagnostics: ${telemetry.path}`)
 }

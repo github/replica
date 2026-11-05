@@ -12,7 +12,7 @@ The wizard may save validated, non-secret choices locally. It may change cloud r
 
 Keep the first implementation in `infrastructure/installer/`, above the cloud-specific directories. Reuse its interaction patterns across questions and providers. Extract a shared package only when another real consumer needs it.
 
-This work does not add AWS deployment, arbitrary backward navigation, automatic cloud rollback, a general workflow engine, or a new command-output disclosure policy. It does not authorize an Azure deployment.
+This work does not add AWS deployment, arbitrary backward navigation, automatic cloud rollback, or a general workflow engine. It does not authorize an Azure deployment.
 
 ## Accepted requirements
 
@@ -142,6 +142,16 @@ Keep detailed operations, such as image publication or temporary database-access
 Distinguish pending, current, completed, skipped, and blocked states. Advance only after the relevant operation actually returns successfully. Do not invent percentages or mark an operation complete because its command started. Use the actual path for configuration-only runs and existing-installation updates; stages not requested or not needed must not appear successful.
 
 After resume, distinguish restored answers from operations verified in this run. An interrupted deployment requires a warning and recovery acknowledgement before returning to configuration checks. Only the existing deployment engine can establish resource state; the saved phase cannot skip reconciliation.
+
+### Minimal local diagnostics
+
+Use the same OpenTelemetry SDK and Pino libraries as Hub, with an installer-specific adapter rather than importing Hub server code. Keep one private local JSONL file per process run beside the configuration, separate from the resumable draft. Do not initialize a global tracer provider or a remote exporter.
+
+Record a run span, phase spans, and command or prompt spans. Use static identifiers rather than user-provided labels. Write a start record before each action so a crash leaves a useful breadcrumb; write the final status, duration, parent IDs, and numeric exit code when it finishes. Flush records as they are written and end open phase/run spans after normal terminal and session cleanup. Report persistence failures explicitly.
+
+Keep telemetry data on an allowlist. Do not serialize answers, prompts, resource names, arguments, working directories, environment values, outputs, error objects, exception text, or deployment consent. A command classifier may recognize fixed CLI verbs, but only its catalog identifier enters the file. Repeated attempts receive separate spans, not inferred success or permission to replay them.
+
+Terminal diagnostics and persisted telemetry have different disclosure rules. Show bounded failed-command stderr to the local operator, stripping terminal-control sequences. Do not forward it to telemetry or drafts. Successful secret-returning stdout stays with its caller. The operator guide owns file locations, permissions, and recovery guidance.
 
 ### Welcome and time
 

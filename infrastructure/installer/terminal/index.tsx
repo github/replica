@@ -34,8 +34,9 @@ export function createTerminalUI(
   }
   const cancelled = () =>
     rejectQuestion?.(
-      new Error(
+      new DOMException(
         "Installation cancelled. Your draft is retained; check any retained cloud locks before retrying.",
+        "AbortError",
       ),
     )
   abort.signal.addEventListener("abort", cancelled)

@@ -83,11 +83,23 @@ If a draft or configuration write fails, the wizard waits while you repair disk 
 
 Failed read-only region/provider lookups offer a retry after you check sign-in, permissions, or connectivity in a separate terminal. Retry keeps the selected tenant and subscription. Ctrl+C still cancels. Unknown failures and operations with ambiguous ownership, provisioning, or migration state stop with recovery instructions rather than automatically repeating potentially unsafe changes.
 
+### Local diagnostics
+
+Every setup run writes a private JSONL diagnostics file under `logs/` beside the selected configuration. The default location is `infrastructure/.local/logs/`. The wizard prints the exact file path after completion or failure. Directories use permissions 0700 and files use 0600; an existing shared or symlinked logs directory is refused.
+
+OpenTelemetry records the run, its phases, and individual command or prompt steps. Pino writes start records immediately and completed spans with trace/parent IDs, elapsed time, outcomes, and command exit codes. A start without a matching completion identifies an interrupted step. Each command invocation has its own span, including repeated attempts. These are local JSON records, not an OTLP export.
+
+Telemetry never contains configuration answers, resource names, command arguments, environment values, UI messages, command output, exception messages or stacks, credentials, or deployment consent. Command names come from a fixed catalog; unknown commands use a generic identifier. No collector, network export, or environment-driven remote exporter is enabled. Files remain until you remove them; they are separate from drafts, Terraform state, and cloud leases.
+
+Failed commands show their actual stderr to the local operator, limited to 64 KiB with terminal-control sequences removed. Those details may be sensitive: review them locally before sharing terminal captures. Successful command output is returned only to the caller, including token and secret lookups, and is not automatically printed. Neither successful output nor failed diagnostics enter telemetry or drafts.
+
+If diagnostics cannot be created or written, setup reports the problem rather than continuing without logging. Existing cloud changes and recovery requirements still apply.
+
 ### Azure discovery failures
 
 The wizard names each region and provider lookup before running it. Region discovery uses a read-only ARM request with the selected subscription in both the URL and authentication context; it does not change your Azure CLI default subscription.
 
-If a lookup fails, the error includes its step name and process exit status. Command arguments and output remain withheld because Azure diagnostics can contain credentials. To inspect a failed lookup, replace `SUBSCRIPTION_ID` with the selected subscription and run the matching read-only command in a separate terminal:
+If a lookup fails, the error includes its step name, process exit status, and bounded stderr. The private diagnostics file identifies the failed step without recording those error details. To investigate further, replace `SUBSCRIPTION_ID` with the selected subscription and run the matching read-only command in a separate terminal:
 
 ```sh
 az rest --method get \
