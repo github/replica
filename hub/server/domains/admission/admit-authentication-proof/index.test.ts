@@ -646,10 +646,23 @@ describe("admitAuthenticationProof()", () => {
     expect(endOpenHubSessionsForMembership).toHaveBeenCalledWith("membership-id")
   })
 
-  it("does not restore a suspended membership from provider role evidence", async () => {
-    const createProviderAssignment = vi.fn()
+  it("updates provider authority for a suspended membership without restoring it", async () => {
+    const createProviderAssignment = vi.fn().mockResolvedValue(true)
+    const endOpenHubSessionsForMembership = vi.fn().mockResolvedValue([{ id: "open-session" }])
+    const request = {
+      ...input(),
+      providerKey: "entra",
+      requiresProviderAssignmentEvidence: true,
+      providerAssignment: {
+        assignmentSubject: "11111111-1111-4111-8111-111111111111",
+        issuedAt: new Date("2026-11-04T20:00:00Z"),
+        providerRevisionId: "00000000-0000-4000-8000-000000000099",
+        role: "ADMINISTRATOR" as const,
+      },
+    }
     const records = repositories({
       createProviderAssignment,
+      endOpenHubSessionsForMembership,
       getExternalIdentity: vi.fn().mockResolvedValue({
         provider: "entra",
         userId: "22222222-2222-4222-8222-222222222222",
@@ -670,27 +683,20 @@ describe("admitAuthenticationProof()", () => {
     })
 
     await expect(
-      admitAuthenticationProof(
-        {
-          ...input(),
-          providerKey: "entra",
-          requiresProviderAssignmentEvidence: true,
-          providerAssignment: {
-            assignmentSubject: "11111111-1111-4111-8111-111111111111",
-            issuedAt: new Date("2026-11-04T20:00:00Z"),
-            providerRevisionId: "00000000-0000-4000-8000-000000000099",
-            role: "ADMINISTRATOR",
-          },
-        },
-        {
-          createId: randomUUID,
-          getBootstrapSecretDigest: () => bootstrapSecretDigest,
-          runTransaction: (operation) => operation(records),
-          writeAudit: vi.fn(),
-        },
-      ),
+      admitAuthenticationProof(request, {
+        createId: randomUUID,
+        getBootstrapSecretDigest: () => bootstrapSecretDigest,
+        runTransaction: (operation) => operation(records),
+        writeAudit: vi.fn(),
+      }),
     ).rejects.toMatchObject({ reason: "membership_inactive" })
-    expect(createProviderAssignment).not.toHaveBeenCalled()
+    expect(createProviderAssignment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        externalIdentityId: request.proof.externalIdentityId,
+        role: "ADMINISTRATOR",
+      }),
+    )
+    expect(endOpenHubSessionsForMembership).toHaveBeenCalledWith("membership-id")
   })
 
   it("supersedes a revision-only provider assignment and ends open sessions", async () => {

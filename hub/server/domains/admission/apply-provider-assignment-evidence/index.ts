@@ -51,26 +51,6 @@ export async function applyProviderAssignmentEvidence(
   const activeProviderAssignment = await dependencies.repositories.lockActiveProviderAssignment(
     parsed.externalIdentityId,
   )
-  if (existingMembership && existingMembership.lifecycle !== "ACTIVE") {
-    if (parsed.role === null && activeProviderAssignment) {
-      await dependencies.repositories.endProviderAssignment({
-        id: activeProviderAssignment.id,
-        lifecycle: "REVOKED",
-      })
-      await dependencies.repositories.createSecurityAudit({
-        assignmentId: activeProviderAssignment.id,
-        id: dependencies.createId(),
-        membershipId: existingMembership.id,
-        role: activeProviderAssignment.role,
-        type: "provider_membership_assignment_revoked",
-      })
-      await endMembershipSessions(existingMembership.id, dependencies)
-    }
-    return {
-      denied: true,
-      reason: "membership_inactive",
-    }
-  }
   if (!existingMembership && parsed.role === null) {
     return {
       denied: true,
@@ -78,6 +58,7 @@ export async function applyProviderAssignmentEvidence(
     }
   }
   let membershipId = existingMembership?.id
+  let membershipCreated = false
   if (!membershipId) {
     membershipId = dependencies.createId()
     const created = await dependencies.repositories.createMembership({
@@ -85,6 +66,7 @@ export async function applyProviderAssignmentEvidence(
       userId: parsed.userId,
     })
     if (!created) throw new AdmissionTransactionConflictError()
+    membershipCreated = true
     await dependencies.repositories.createSecurityAudit({
       id: dependencies.createId(),
       type: "membership_created",
@@ -143,10 +125,16 @@ export async function applyProviderAssignmentEvidence(
       role: parsed.role,
       type: "provider_membership_assignment_created",
     })
-    authorityChanged = activeProviderAssignment !== null
+    authorityChanged = activeProviderAssignment !== null || !membershipCreated
   }
   if (authorityChanged) {
     await endMembershipSessions(membershipId, dependencies)
+  }
+  if (existingMembership && existingMembership.lifecycle !== "ACTIVE") {
+    return {
+      denied: true,
+      reason: "membership_inactive",
+    }
   }
   const assignments = await dependencies.repositories.lockActiveAssignments(membershipId)
   if (!assignments.length) {
