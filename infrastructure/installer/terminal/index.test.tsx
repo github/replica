@@ -3,6 +3,7 @@ import type { ReactNode } from "react"
 import { cleanup, render } from "ink-testing-library"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 
+import { configurationFields } from "../config/fields/index.ts"
 import { createTerminalUI } from "./index.tsx"
 
 const boundary = vi.hoisted(() => ({
@@ -64,6 +65,59 @@ afterEach(async () => {
   await Promise.all(terminals.splice(0).map((ui) => ui.close()))
   cleanup()
 })
+
+it.each(["full-screen", "inline"])(
+  "keeps resource-group overflow editable without advancing in %s mode",
+  async (mode) => {
+    vi.stubEnv("TERM", "xterm")
+    vi.stubEnv("INK_SCREEN_READER", "false")
+    const abort = new AbortController()
+    const ui = open(abort, { fullscreen: mode === "full-screen" })
+    const suggested = "synthetic-hub-rg"
+    const pending = ui.field!(configurationFields.resourceGroup, suggested)
+    const settled = vi.fn()
+    void pending.then(settled, settled)
+    const terminal = show()
+    await vi.waitFor(() => expect(terminal.lastFrame()).toContain(suggested))
+
+    terminal.stdin.write("x")
+
+    await vi.waitFor(() => expect(terminal.lastFrame()).toContain(`${suggested}x`))
+    expect(abort.signal.aborted).toBe(false)
+    expect(settled).not.toHaveBeenCalled()
+
+    const overflow = `${suggested}x${"a".repeat(91 - suggested.length - 1)}`
+    terminal.stdin.write(overflow.slice(suggested.length + 1))
+
+    await vi.waitFor(() => {
+      const frame = terminal.lastFrame()!
+      const lines = frame.split("\n")
+      const inputLine = lines.findIndex((line) => line.includes(overflow))
+      expect(inputLine).toBeGreaterThanOrEqual(0)
+      expect(lines[inputLine + 1]).toMatch(/Error:.*at most 90 characters \(91 entered\)/)
+    })
+    expect(abort.signal.aborted).toBe(false)
+    expect(settled).not.toHaveBeenCalled()
+
+    terminal.stdin.write("\r")
+    await setImmediate()
+    expect(terminal.lastFrame()).toContain(overflow)
+    expect(settled).not.toHaveBeenCalled()
+    expect(abort.signal.aborted).toBe(false)
+
+    terminal.stdin.write("\u007f")
+    const corrected = overflow.slice(0, -1)
+    await vi.waitFor(() => {
+      expect(terminal.lastFrame()).toContain(corrected)
+      expect(terminal.lastFrame()).not.toContain("Error:")
+    })
+    expect(settled).not.toHaveBeenCalled()
+
+    terminal.stdin.write("\r")
+    await expect(pending).resolves.toBe(corrected)
+    expect(abort.signal.aborted).toBe(false)
+  },
+)
 
 it("rejects the pending question when Ctrl+C cancels the owned terminal", async () => {
   const abort = new AbortController()

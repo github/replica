@@ -29,6 +29,7 @@ export function FieldPrompt({
     onError(failure instanceof Error ? failure : new Error("Unexpected field validation failure."))
 
   function change(raw: string) {
+    if (raw === value) return
     setValue(raw)
     try {
       if (submitted) {

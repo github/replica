@@ -94,6 +94,8 @@ The field component should:
 - Place a concise error directly below the input when submission fails, retain focus, and prevent advancement until the strict parser accepts the answer.
 - Clear or update stale errors as the value changes. Do not silently truncate, rewrite, or drop pasted characters to manufacture a valid answer.
 
+Treat `onChange` as a value notification, not proof of a new keystroke. Ignore notifications for the value already displayed before updating state or requesting a shell redraw. Ink UI can repeat a notification when the callback changes; letting that notification trigger another redraw creates a render loop.
+
 Keep read-only remote checks separate from local syntax validation. Do not call Azure on every keystroke. Run a remote check at a deliberate boundary and show its pending state and result next to the relevant interaction.
 
 Preserve the current sensitive-input rule: rejected credential-bearing registry URLs must not be copied into help, notices, logs, or drafts. Clear the rejected registry attempt on submission as today. Drafts contain committed, validated answers, not raw keystrokes or search queries.
