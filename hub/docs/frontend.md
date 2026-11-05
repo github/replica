@@ -1,6 +1,6 @@
 # Routed frontend
 
-The Hub frontend uses React Router Framework Mode as a browser-rendered SPA. All 27 retained page modules are connected: repositories, prototype handoffs and previews, reviews, sharing, setup, account controls, administration, analytics, and learning. Product data uses local mocks; creation and branching reuse the original Copilot app handoff. The application reuses those pages rather than implementing a second set of screens.
+The Hub frontend uses React Router Framework Mode as a browser-rendered SPA. All retained page modules are connected: repositories, prototype handoffs and previews, reviews, sharing, setup, account controls, administration, analytics, and learning. Product data uses local mocks; creation and branching reuse the original Copilot app handoff. The application reuses those pages rather than implementing a second set of screens.
 
 This is an evolving frontend implementation, not a restored production Hub. Real authentication, authorization, product APIs, persistence, external integrations, build hosting, and publishing remain separate work.
 
@@ -200,6 +200,8 @@ The worker and local preview assets are development-only and are not written int
 
 Vite bundles Primer's CommonJS entries for the framework's development and build-time rendering. Storybook uses its own Vite configuration so the Framework plugin does not take over its renderer. The separate Controls and prototype canvas entry points keep their existing source paths and build configuration.
 
+The `/` and `/repositories` entry points send signed-out viewers to sign-in and viewers with repositories to their first repository. When no repositories are available, the empty page keeps account access and permitted Hub navigation without inventing repository context.
+
 ## Retained-page inventory
 
 The migration started from commit `3254a642c9bb2dbf635915892475fa37d7bf2f00`. Its Hub entry point rendered only the logo. The retained page tests, stories, and typed props provide presentation and interaction references, not proof that the removed backend destinations work.
@@ -212,6 +214,7 @@ GitHub App setup, registration, and installation pages can be opened directly wi
 
 | Page module | Intent and current connection | Open an example |
 | --- | --- | --- |
+| [Repositories index](../client/pages/repositories-index-page/) | Repository-free navigation at `/` and `/repositories` | [Empty workspace in Storybook](http://localhost:6006/?path=/story/hub-pages-repositories--empty) |
 | [Repositories show](../client/pages/repositories-show-page/) | Connected repository listing, filters, and pagination | [github/prototype](http://127.0.0.1:5173/repositories/2001) |
 | [Prototypes show](../client/pages/prototypes-show-page/) | Preview, metadata, and mock review conversations | [Welcome review](http://127.0.0.1:5173/repositories/2001/prototypes/1?build=3&comment=1) |
 | [Builds index](../client/pages/builds-index-page/) | Connected build history | [Welcome history](http://127.0.0.1:5173/repositories/2001/prototypes/1/builds) |

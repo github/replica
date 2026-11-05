@@ -48,6 +48,10 @@ function WorkspaceComponent() {
   return <WorkspaceRoute loaderData={useLoaderData<typeof loadWorkspace>()} />
 }
 
+function HomeComponent() {
+  return <HomeRoute loaderData={useLoaderData<typeof loadHome>()} />
+}
+
 function RepositoryComponent() {
   return <RepositoryRoute loaderData={useLoaderData<typeof loadRepository>()} />
 }
@@ -121,8 +125,8 @@ export async function renderHubFlow(
         ErrorBoundary: withTools ? ErrorWithTools : ErrorBoundary,
         HydrateFallback,
         children: [
-          { index: true, loader: loadHome, Component: HomeRoute },
-          { path: "repositories", loader: loadHome, Component: HomeRoute },
+          { index: true, loader: loadHome, Component: HomeComponent },
+          { path: "repositories", loader: loadHome, Component: HomeComponent },
           { path: "sign-in", loader: loadSignIn, Component: SignInRoute },
           { path: "session", action: changeSession },
           ...publicRoutes,
