@@ -134,6 +134,10 @@ export const routeQuerySchema = z.object({
   build: z.coerce.number().int().positive().optional(),
 })
 
+export const prototypeQuerySchema = routeQuerySchema.pick({ build: true }).extend({
+  view: z.enum(["gallery", "list", "minimized"]).optional(),
+})
+
 export type UserRecord = z.infer<typeof userSchema>
 export type RepositoryRecord = z.infer<typeof repositorySchema>
 export type BuildRecord = z.infer<typeof buildSchema>
@@ -147,4 +151,5 @@ export type BuildHistoryResponse = z.infer<typeof buildHistoryResponseSchema>
 export type AuthorResults = z.infer<typeof authorResultsSchema>
 export type PrototypeDetails = z.infer<typeof prototypeDetailsSchema>
 export type RouteQuery = z.infer<typeof routeQuerySchema>
+export type PrototypeQuery = z.infer<typeof prototypeQuerySchema>
 export type PrototypeActionResult = { saved: true } | { saved: false; error: string }

@@ -1,6 +1,11 @@
 import { http, HttpResponse } from "msw"
 
-import { prototypeDetailsSchema, routeIdentifierSchema, routeQuerySchema } from "../../contracts"
+import {
+  prototypeDetailsSchema,
+  prototypeQuerySchema,
+  routeIdentifierSchema,
+  routeQuerySchema,
+} from "../../contracts"
 import { sessionResponseSchema } from "../../session-contracts"
 import type { MockStore } from "../create-store"
 import { MockStoreError } from "../store-error"
@@ -96,11 +101,15 @@ export function createMockHandlers(store: MockStore) {
 
     http.get(api("/repositories/:repositoryId/prototypes/:prototypeId"), ({ request, params }) =>
       withScenario(request, (scenario) => {
+        const parsed = prototypeQuerySchema.safeParse(
+          Object.fromEntries(new URL(request.url).searchParams),
+        )
+        if (!parsed.success) throw new MockStoreError(400, "Invalid request filters.")
         const response = store.getPrototype(
           identifier(params.repositoryId),
           identifier(params.prototypeId),
-          query(request).build,
-          new URL(request.url).searchParams.get("view") === "minimized",
+          parsed.data.build,
+          parsed.data.view === "minimized",
         )
         if (scenario === "empty") {
           response.prototype.builds = []

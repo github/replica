@@ -7,6 +7,30 @@ import { createMockStore } from "../mocks/create-store"
 import { renderHubFlow } from "./test-fixture"
 
 describe("Hub retained prototype interactions", () => {
+  it("loads and restores a minimized preview with its pinned Build and saved URL state", async () => {
+    const store = createMockStore({ origin: window.location.origin })
+    const server = setupServer(...createMockHandlers(store))
+    const search = new URLSearchParams({
+      build: "1",
+      view: "minimized",
+      return_path: "/welcome?step=2#heading",
+      "rc.workspace.showDescription": "false",
+    })
+    const router = await renderHubFlow(server, `/repositories/2001/prototypes/1?${search}`)
+
+    expect(screen.getByTitle("Welcome, Build 1 preview")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Maximize Hub UI" })).toBeInTheDocument()
+    expect(screen.queryByRole("dialog", { name: "Welcome" })).not.toBeInTheDocument()
+
+    await router.settle(() => router.navigate("/repositories/2001/prototypes/1/builds"))
+    await router.go(-1)
+
+    expect(screen.getByTitle("Welcome, Build 1 preview")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Maximize Hub UI" })).toBeInTheDocument()
+    const restored = new URLSearchParams(router.state.location.search)
+    expect(Object.fromEntries(restored)).toEqual(Object.fromEntries(search))
+  })
+
   it("lets a reader use the real Controls overlay and retains its state across Builds", async () => {
     const store = createMockStore({ origin: window.location.origin })
     store.session.select("reader")

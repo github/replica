@@ -1,6 +1,7 @@
 import { setupServer } from "msw/node"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
+import { prototypeResponseSchema } from "../../contracts"
 import { getPrototype } from "../../requests/get-prototype"
 import { getRepository } from "../../requests/get-repository"
 import { getSession } from "../../requests/get-session"
@@ -10,6 +11,55 @@ import { createMockStore } from "../create-store"
 import { createMockHandlers } from "."
 
 describe("createMockHandlers()", () => {
+  it("serves a minimized pinned preview without consuming the prototype introduction", async () => {
+    const origin = "https://hub.example.test"
+    const server = setupServer(...createMockHandlers(createMockStore({ origin })))
+    server.listen({ onUnhandledRequest: "error" })
+    onTestFinished(() => server.close())
+    const url = `${origin}/api/repositories/2001/prototypes/1?build=1`
+
+    const response = await fetch(`${url}&view=minimized`)
+
+    expect(response.status).toBe(200)
+    const preview = prototypeResponseSchema.parse(await response.json())
+    expect(preview.selectedBuild?.number).toBe(1)
+    expect(preview.showPrototypeInfo).toBe(false)
+
+    const regularResponse = await fetch(url)
+    const regularPreview = prototypeResponseSchema.parse(await regularResponse.json())
+    expect(regularPreview.showPrototypeInfo).toBe(true)
+  })
+
+  it("rejects a fractional Build identifier on a minimized preview", async () => {
+    const origin = "https://hub.example.test"
+    const server = setupServer(...createMockHandlers(createMockStore({ origin })))
+    server.listen({ onUnhandledRequest: "error" })
+    onTestFinished(() => server.close())
+
+    const response = await fetch(
+      `${origin}/api/repositories/2001/prototypes/1?view=minimized&build=1.5`,
+    )
+
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({ error: "Invalid request filters." })
+  })
+
+  it("keeps minimized out of repository listing views at both request boundaries", async () => {
+    const origin = "https://hub.example.test"
+    const server = setupServer(...createMockHandlers(createMockStore({ origin })))
+    server.listen({ onUnhandledRequest: "error" })
+    onTestFinished(() => server.close())
+    const request = new Request(`${origin}/repositories/2001?view=minimized`)
+
+    const result = Promise.resolve().then(() => getRepository(request, 2001))
+
+    await expect(result).rejects.toBeInstanceOf(Response)
+    await expect(result).rejects.toMatchObject({ status: 400 })
+    const response = await fetch(`${origin}/api/repositories/2001?view=minimized`)
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({ error: "Invalid request filters." })
+  })
+
   it("keeps development settings out of product requests and the session response", async () => {
     vi.stubEnv("MODE", "development")
     const origin = "https://hub.example.test"
