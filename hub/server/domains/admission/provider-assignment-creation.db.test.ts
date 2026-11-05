@@ -194,8 +194,8 @@ describe("first provider assignment", () => {
       LANGUAGE plpgsql
       AS $$
       BEGIN
-        IF NEW.action = 'provider.membership.assignment.created' THEN
-          RAISE EXCEPTION 'provider assignment audit unavailable';
+        IF NEW.action = 'session.ended' THEN
+          RAISE EXCEPTION 'session audit unavailable';
         END IF;
         RETURN NEW;
       END;
