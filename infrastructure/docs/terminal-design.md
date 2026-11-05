@@ -1,8 +1,8 @@
 # Installer terminal design
 
-This is the design plan for a reusable Replica terminal experience, starting with the Hub deployment wizard. The user-facing requirements below are accepted; the implementation choices are proposals. These are working guideposts, not a frozen framework.
+This guide records the reusable Replica terminal patterns implemented in the Hub deployment wizard. These are working guideposts, not a frozen framework. Revisit them when a real terminal, accessibility requirement, or second consumer exposes a better design.
 
-**Status: planning only.** The new full-screen layout, reactive field feedback, resumable drafts, progress map, welcome art, and timer are not implemented. The [installation guide](../README.md) describes the current behavior. Update this document as each pattern is implemented or revised.
+**Status: implemented locally.** Full-screen and inline layouts, reactive field feedback, resumable drafts, progress, first-run ASCII art, and elapsed time use the existing Ink stack. The [installation guide](../README.md) describes operator behavior and recovery. Local terminal exercises use offline sample data; they do not prove an authenticated Azure deployment.
 
 ## User and scope
 
@@ -26,17 +26,17 @@ This work does not add AWS deployment, arbitrary backward navigation, automatic 
 | Field feedback        | Put validation feedback next to its input, guide users before submission where possible, and keep corrections on that field. |
 | Elapsed time          | Show a quiet elapsed-time counter without competing with the task.                                                           |
 
-## Current gaps
+## Implementation
 
-[`terminal/`](../installer/terminal/index.tsx) renders a question and the last six status strings. All status strings use the same dim style. Question changes remount the terminal component, and the renderer does not use the alternate screen.
+[`terminal/`](../installer/terminal/index.tsx) owns the asynchronous interaction bridge and renderer lifecycle. Its stable shell separates questions, notices, bounded activity, progress, and elapsed time. Only the active input remounts when a question changes.
 
-[`prompt-for-field/`](../installer/prompt-for-field/index.ts) already retries invalid answers through shared parsers, but it sends help and validation errors into that status history. Validation happens on submission, not while editing.
+[`prompt-for-field/`](../installer/prompt-for-field/index.ts) supplies shared field definitions to the terminal. The field component renders editing guidance and adjacent errors; the same strict parsers guard submission, configuration, and restored answers.
 
-[`wizard/`](../installer/wizard/index.ts) saves complete configuration before provisioning. Earlier answers exist only in memory until then. There is no separate partial-session format.
+[`session/`](../installer/session/index.ts) stores validated answers and phase checkpoints separately from complete configuration. [`wizard/`](../installer/wizard/index.ts) connects recovery, questions, checkpoints, and orchestration. Complete configuration is still saved before provisioning.
 
-These are useful starting points. Extend the existing Ink, Ink UI, parser, and persistence patterns rather than replacing them with a second UI or state-management library.
+Extend these Ink, Ink UI, parser, and persistence patterns rather than replacing them with a second UI or state-management library.
 
-## Proposed design patterns
+## Design patterns
 
 ### A stable terminal shell
 
@@ -55,7 +55,7 @@ Give each area a clear responsibility:
 | Recent activity | A bounded, low-emphasis view of safe operational messages.                                        |
 | Footer          | Relevant keyboard help and a tertiary elapsed-time counter.                                       |
 
-Measure terminal rows and columns and respond to resizing. Reduce decoration and activity history before sacrificing the active input, its error, or required approval text. On narrow screens, replace the full map with the current stage and position. On short screens, keep essential content reachable rather than clipping it below the viewport; fall back to inline output if the essentials cannot fit.
+Measure terminal rows and columns and respond to resizing. Reduce decoration and activity history before sacrificing the active input, its error, or required approval text. On narrow screens, replace the full map with the current stage and position. Start in inline mode when the terminal is limited; during a full-screen resize, reduce the surrounding layout and keep the main content reachable with Page Up and Page Down.
 
 Provide an inline fallback for limited terminals and screen-reader use, with an explicit `--no-fullscreen` escape hatch. Preserve the existing requirement for complete configuration and explicit approval in non-interactive mode. Piped output must not contain a full-screen interface, animated clock, or terminal-control sequences.
 
@@ -104,7 +104,7 @@ Keep the reusable deployment configuration and the unfinished wizard session sep
 
 Use a versioned companion draft beside the selected configuration, derived from its absolute path, such as `<config path>.draft.json`. Different `--config` targets must not share a draft. Continue to keep real default files under ignored `.local/`.
 
-The draft should contain only:
+The draft contains only:
 
 - Its schema version, session identifier, and creation/update timestamps.
 - The associated configuration path and supported cloud.
@@ -131,7 +131,7 @@ Keep the draft through deployment and failure. Remove it only after the selected
 
 Use stable phase identifiers emitted by orchestration, not text matching against status messages. The terminal maps those identifiers to labels and presentation. Azure and Terraform code must not import React or terminal styling.
 
-A proposed top-level route is:
+The top-level deployment route is:
 
 `Cloud -> Checks -> Configure -> Review -> Provision -> Release -> Verify`
 
@@ -139,13 +139,13 @@ Keep detailed operations, such as image publication or temporary database-access
 
 Distinguish pending, current, completed, skipped, and blocked states. Advance only after the relevant operation actually returns successfully. Do not invent percentages or mark an operation complete because its command started. Use the actual path for configuration-only runs and existing-installation updates; stages not requested or not needed must not appear successful.
 
-After resume, distinguish restored answers from operations verified in this run. Keep an interrupted deployment visibly in recovery until reconciliation establishes its state.
+After resume, distinguish restored answers from operations verified in this run. An interrupted deployment requires a warning and recovery acknowledgement before returning to configuration checks. Only the existing deployment engine can establish resource state; the saved phase cannot skip reconciliation.
 
 ### Welcome and time
 
-Show a small, original ASCII Replica wordmark and friendly welcome alongside the cloud picker for a genuinely new installation: no completed configuration and no draft to resume. Keep cloud selection as the first actionable setup step. Avoid animation or a separate "press Enter to begin" screen.
+Show a small, original ASCII Replica wordmark and friendly welcome alongside the cloud picker for a genuinely new full-screen installation: no completed configuration and no draft to resume. Keep cloud selection as the first actionable setup step. Avoid animation or a separate "press Enter to begin" screen.
 
-Repeat runs and resume prompts use a compact header. Hide the art when space is limited; keep the product name and instructions.
+Repeat runs, inline mode, and resume prompts use a compact header. Hide the art when space is limited; keep the product name and instructions.
 
 Use one monotonic elapsed timer for the current process. Start it when the interactive wizard opens, include time waiting for the operator, and display it quietly in the footer. Update once per second, without remounting inputs, moving focus, adding log lines, or creating screen-reader announcements each tick.
 
@@ -175,7 +175,7 @@ Each phase includes its behavior coverage and documentation update. The final ph
 | 4. Welcome and progress           | First-run art uses the session lifecycle; orchestration supplies an honest stage map for configuration, deployment, updates, and recovery.                                 | Phases 1-3.               |
 | 5. End-to-end terminal review     | Exercise the complete flows and failure matrix, adjust the visual hierarchy, and document the implemented contracts and remaining gaps.                                    | Phases 1-4.               |
 
-Before runtime implementation, link a tracking issue following [Contributing](../../CONTRIBUTING.md#before-you-start).
+Track substantial follow-up changes using [Contributing](../../CONTRIBUTING.md#before-you-start).
 
 ## Acceptance and evidence
 
@@ -194,9 +194,9 @@ Use existing Vitest and Ink testing tools. Follow the [test-writing skill](../..
 
 Use rendered terminal review for color, spacing, hierarchy, and the subtlety of the map and timer. Do not freeze cosmetic ANSI output or exact artwork in broad snapshots. Use isolated sample-data previews for visual checks; these do not prove an authenticated Azure deployment.
 
-## Documentation as implementation lands
+## Maintaining the patterns
 
-Keep this document as the rationale and pattern guide. Mark each phase's status and replace proposals with the implemented contracts as they settle.
+Keep this document as the rationale and implemented pattern guide. All five delivery phases above are implemented. Label future proposals separately from current behavior and update these contracts as they settle.
 
 Update the [installation guide](../README.md) in the same change that adds a user-visible behavior, including draft location, resume choices, fallback mode, timing semantics, and failure recovery. Keep existing Azure lock and provisioning guidance authoritative rather than duplicating a second recovery procedure here.
 

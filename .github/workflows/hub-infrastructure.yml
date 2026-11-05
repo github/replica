@@ -14,17 +14,22 @@ defaults:
 
 jobs:
   terraform:
-    name: Terraform ${{ matrix.command }}
+    name: Terraform ${{ matrix.version }} ${{ matrix.module }} ${{ matrix.command }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
+        version: ["1.13.4", "1.17.1"]
+        module: [".", "foundation", "provision"]
         command: ["fmt -check -recursive", "validate", "test"]
+    defaults:
+      run:
+        working-directory: infrastructure/azure/${{ matrix.module }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
         with:
-          terraform_version: 1.13.4
+          terraform_version: ${{ matrix.version }}
           terraform_wrapper: false
       - run: terraform init -backend=false -input=false -lockfile=readonly
       - run: terraform ${{ matrix.command }}
@@ -38,3 +43,23 @@ jobs:
         with:
           node-version: 24
       - run: node --test deploy-hub/index.test.ts
+
+  installer:
+    name: Installer ${{ matrix.command }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        command: [typecheck, test]
+    defaults:
+      run:
+        working-directory: infrastructure
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: infrastructure/package-lock.json
+      - run: npm ci --ignore-scripts --engine-strict
+      - run: npm run ${{ matrix.command }}
