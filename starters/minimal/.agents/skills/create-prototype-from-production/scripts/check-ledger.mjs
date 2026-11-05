@@ -36,7 +36,13 @@ export function checkLedger(ledger, { final = false } = {}) {
     if (page.decision !== "build" && !LOCAL_BOUNDARIES.has(page.decision)) continue
 
     const kind = page.decision === "build" ? "build page" : "local boundary"
-    if (typeof page.route !== "string" || !page.route.startsWith("/"))
+    if (
+      typeof page.route !== "string" ||
+      !page.route.startsWith("/") ||
+      page.route.startsWith("//") ||
+      page.route.includes("\\") ||
+      /[\u0000-\u001f\u007f]/.test(page.route)
+    )
       problems.push(`${label}: ${kind} has no local route`)
     if (!STATUSES.has(page.status)) problems.push(`${label}: unknown status "${page.status}"`)
     if (final && !FINAL_STATUSES.has(page.status))

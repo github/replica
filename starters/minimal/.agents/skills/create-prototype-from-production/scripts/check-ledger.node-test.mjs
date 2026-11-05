@@ -30,7 +30,12 @@ const hub = {
 test("accepts a complete final ledger", () => {
   const pages = [
     hub,
-    { ...hub, url: "https://example.com/loans", route: "/loans", representative: false },
+    {
+      ...hub,
+      url: "https://example.com/loans",
+      route: "/loans?term=12#details",
+      representative: false,
+    },
     { url: "https://example.org/", foundIn: ["footer"], decision: "stub-external" },
     {
       url: "https://login.example.com/",
@@ -85,8 +90,15 @@ test("requires a local route and final status for local boundaries", () => {
 })
 
 test("rejects a route that is not a local path", () => {
-  const pages = [{ ...hub, route: "https://example.com/cards" }]
-  assert.match(checkLedger(ledger(pages)).join("\n"), /no local route/)
+  for (const route of [
+    "https://example.com/cards",
+    "//external.example/cards",
+    "/\\external.example/cards",
+    "/\t/external.example/cards",
+  ]) {
+    const pages = [{ ...hub, route }]
+    assert.match(checkLedger(ledger(pages)).join("\n"), /no local route/, JSON.stringify(route))
+  }
 })
 
 test("checks the ledger when run from a path with spaces", (t) => {
