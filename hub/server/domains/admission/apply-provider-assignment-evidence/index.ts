@@ -9,7 +9,7 @@ import type {
 
 const inputSchema = z
   .object({
-    assignmentSubject: z.uuid().nullable(),
+    assignmentSubject: z.string().min(1).max(100).nullable(),
     externalIdentityId: z.uuid(),
     providerRevisionId: z.uuid(),
     role: z.enum(["MEMBER", "ADMINISTRATOR"]).nullable(),
@@ -91,7 +91,7 @@ export async function applyProviderAssignmentEvidence(
     !activeProviderAssignment ||
     activeProviderAssignment.role !== parsed.role ||
     activeProviderAssignment.providerRevisionId !== parsed.providerRevisionId ||
-    activeProviderAssignment.providerAssignmentSubject !== parsed.assignmentSubject?.toLowerCase()
+    activeProviderAssignment.providerAssignmentSubject !== parsed.assignmentSubject
   ) {
     if (activeProviderAssignment) {
       await dependencies.repositories.endProviderAssignment({

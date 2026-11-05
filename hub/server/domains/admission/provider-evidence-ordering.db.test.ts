@@ -16,6 +16,7 @@ const issuer = `https://login.microsoftonline.com/${tenantId}/v2.0`
 const assignmentSubject = "33333333-3333-4333-8333-333333333333"
 
 interface TokenEvidence {
+  assignmentSubject?: string
   issuedAt: number
   nonce?: string
   role: "ADMINISTRATOR" | "MEMBER" | null
@@ -91,7 +92,7 @@ async function openServer(tokens: Map<string, TokenEvidence>) {
             : []
       const token = await new SignJWT({
         nonce: evidence.nonce,
-        oid: assignmentSubject,
+        oid: evidence.assignmentSubject ?? assignmentSubject,
         roles,
       })
         .setProtectedHeader({ alg: "RS256", kid: "test-key" })
@@ -164,6 +165,17 @@ async function activeProviderRole() {
       source: "AUTHENTICATION_PROVIDER",
     },
   })
+}
+
+async function sessionSummary() {
+  const sessions = await prisma.hubSession.findMany({
+    select: { endedAt: true },
+  })
+  return {
+    ended: sessions.filter(({ endedAt }) => endedAt !== null).length,
+    open: sessions.filter(({ endedAt }) => endedAt === null).length,
+    total: sessions.length,
+  }
 }
 
 describe("provider evidence ordering", () => {
@@ -253,6 +265,172 @@ describe("provider evidence ordering", () => {
           where: { action: "admission.denied" },
         }),
       ).resolves.toMatchObject({ outcome: "DENIED" })
+    } finally {
+      await server.close()
+    }
+  })
+
+  it.each([
+    {
+      name: "administrator before equal-second member evidence",
+      initial: "MEMBER" as const,
+      first: "ADMINISTRATOR" as const,
+      second: "MEMBER" as const,
+      firstLocation: "/?authentication=success",
+      secondLocation: "/?authentication=success",
+      expectedRole: "MEMBER" as const,
+      sessions: { ended: 2, open: 1, total: 3 },
+    },
+    {
+      name: "administrator before equal-second authority loss",
+      initial: "MEMBER" as const,
+      first: "ADMINISTRATOR" as const,
+      second: null,
+      firstLocation: "/?authentication=success",
+      secondLocation: "/?authentication=denied",
+      expectedRole: null,
+      sessions: { ended: 2, open: 0, total: 2 },
+    },
+    {
+      name: "member before equal-second administrator evidence",
+      initial: "ADMINISTRATOR" as const,
+      first: "MEMBER" as const,
+      second: "ADMINISTRATOR" as const,
+      firstLocation: "/?authentication=success",
+      secondLocation: "/?authentication=denied",
+      expectedRole: "MEMBER" as const,
+      sessions: { ended: 1, open: 1, total: 2 },
+    },
+    {
+      name: "authority loss before equal-second administrator evidence",
+      initial: "ADMINISTRATOR" as const,
+      first: null,
+      second: "ADMINISTRATOR" as const,
+      firstLocation: "/?authentication=denied",
+      secondLocation: "/?authentication=denied",
+      expectedRole: null,
+      sessions: { ended: 1, open: 0, total: 1 },
+    },
+    {
+      name: "member before an equal-second identical replay",
+      initial: "ADMINISTRATOR" as const,
+      first: "MEMBER" as const,
+      second: "MEMBER" as const,
+      firstLocation: "/?authentication=success",
+      secondLocation: "/?authentication=denied",
+      expectedRole: "MEMBER" as const,
+      sessions: { ended: 1, open: 1, total: 2 },
+    },
+    {
+      name: "member before equal-second conflicting member provenance",
+      initial: "ADMINISTRATOR" as const,
+      first: "MEMBER" as const,
+      second: "MEMBER" as const,
+      secondAssignmentSubject: "44444444-4444-4444-8444-444444444444",
+      firstLocation: "/?authentication=success",
+      secondLocation: "/?authentication=denied",
+      expectedRole: "MEMBER" as const,
+      sessions: { ended: 1, open: 1, total: 2 },
+    },
+  ])(
+    "orders $name without issuing a stale session",
+    async ({
+      initial,
+      first,
+      second,
+      secondAssignmentSubject,
+      firstLocation,
+      secondLocation,
+      expectedRole,
+      sessions,
+    }) => {
+      vi.useFakeTimers({ toFake: ["Date"] })
+      vi.setSystemTime(new Date("2027-01-02T00:00:00Z"))
+      const equalIssuedAt = 1_798_847_950
+      const tokens = new Map<string, TokenEvidence>([
+        ["initial", { issuedAt: equalIssuedAt - 100, role: initial }],
+        ["first", { issuedAt: equalIssuedAt, role: first }],
+        [
+          "second",
+          {
+            assignmentSubject: secondAssignmentSubject,
+            issuedAt: equalIssuedAt,
+            role: second,
+          },
+        ],
+      ])
+      const server = await openServer(tokens)
+      try {
+        const initialAttempt = await startAuthentication(server.baseUrl)
+        tokens.get("initial")!.nonce = initialAttempt.nonce
+        const initialResponse = await completeAuthentication(
+          server.baseUrl,
+          initialAttempt,
+          "initial",
+        )
+        expect(initialResponse.headers.get("location")).toBe("/?authentication=success")
+
+        const firstAttempt = await startAuthentication(server.baseUrl)
+        const secondAttempt = await startAuthentication(server.baseUrl)
+        tokens.get("first")!.nonce = firstAttempt.nonce
+        tokens.get("second")!.nonce = secondAttempt.nonce
+        const barrier = server.block("second")
+        const secondCompletion = completeAuthentication(server.baseUrl, secondAttempt, "second")
+        await barrier.started
+
+        const firstResponse = await completeAuthentication(server.baseUrl, firstAttempt, "first")
+        expect(firstResponse.headers.get("location")).toBe(firstLocation)
+        barrier.release()
+        const secondResponse = await secondCompletion
+
+        expect(secondResponse.headers.get("location")).toBe(secondLocation)
+        await expect(activeProviderRole()).resolves.toEqual(
+          expectedRole === null ? null : { role: expectedRole },
+        )
+        await expect(sessionSummary()).resolves.toEqual(sessions)
+        await expect(
+          prisma.providerEvidenceState.findFirstOrThrow({
+            select: { lastIssuedAt: true, lastRole: true },
+          }),
+        ).resolves.toEqual({
+          lastIssuedAt: new Date(equalIssuedAt * 1_000),
+          lastRole: expectedRole,
+        })
+      } finally {
+        await server.close()
+      }
+    },
+  )
+
+  it("applies a later timestamp normally after an equal-second reduction", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(new Date("2027-01-02T00:00:00Z"))
+    const equalIssuedAt = 1_798_847_950
+    const tokens = new Map<string, TokenEvidence>([
+      ["initial", { issuedAt: equalIssuedAt - 100, role: "MEMBER" }],
+      ["administrator", { issuedAt: equalIssuedAt, role: "ADMINISTRATOR" }],
+      ["member", { issuedAt: equalIssuedAt, role: "MEMBER" }],
+      ["later", { issuedAt: equalIssuedAt + 1, role: "ADMINISTRATOR" }],
+    ])
+    const server = await openServer(tokens)
+    try {
+      for (const code of ["initial", "administrator", "member", "later"]) {
+        const attempt = await startAuthentication(server.baseUrl)
+        tokens.get(code)!.nonce = attempt.nonce
+        const response = await completeAuthentication(server.baseUrl, attempt, code)
+        expect(response.headers.get("location")).toBe("/?authentication=success")
+      }
+
+      await expect(activeProviderRole()).resolves.toEqual({ role: "ADMINISTRATOR" })
+      await expect(sessionSummary()).resolves.toEqual({ ended: 3, open: 1, total: 4 })
+      await expect(
+        prisma.providerEvidenceState.findFirstOrThrow({
+          select: { lastIssuedAt: true, lastRole: true },
+        }),
+      ).resolves.toEqual({
+        lastIssuedAt: new Date((equalIssuedAt + 1) * 1_000),
+        lastRole: "ADMINISTRATOR",
+      })
     } finally {
       await server.close()
     }

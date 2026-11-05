@@ -527,8 +527,9 @@ describe("admitAuthenticationProof()", () => {
     )
   })
 
-  it("creates a provider assignment for exact Entra role evidence", async () => {
+  it("preserves an opaque provider assignment subject exactly", async () => {
     const createProviderAssignment = vi.fn().mockResolvedValue(true)
+    const assignmentSubject = "Tenant-Opaque.Subject_42"
     const records = repositories({
       createProviderAssignment,
       lockAttempt: vi.fn().mockResolvedValue({
@@ -561,7 +562,7 @@ describe("admitAuthenticationProof()", () => {
       providerKey: "entra",
       requiresProviderAssignmentEvidence: true,
       providerAssignment: {
-        assignmentSubject: "11111111-1111-4111-8111-111111111111",
+        assignmentSubject,
         issuedAt: new Date("2026-11-04T20:00:00Z"),
         providerRevisionId: "00000000-0000-4000-8000-000000000099",
         role: "MEMBER" as const,
@@ -579,10 +580,84 @@ describe("admitAuthenticationProof()", () => {
     expect(createProviderAssignment).toHaveBeenCalledWith(
       expect.objectContaining({
         externalIdentityId: request.proof.externalIdentityId,
-        providerAssignmentSubject: "11111111-1111-4111-8111-111111111111",
+        providerAssignmentSubject: assignmentSubject,
         providerRevisionId: "00000000-0000-4000-8000-000000000099",
         role: "MEMBER",
       }),
+    )
+  })
+
+  it("treats opaque provider assignment subjects as case-sensitive", async () => {
+    const assignmentSubject = "Tenant-Opaque.Subject_42"
+    const createProviderAssignment = vi.fn().mockResolvedValue(true)
+    const endProviderAssignment = vi.fn().mockResolvedValue(undefined)
+    const endOpenHubSessionsForMembership = vi.fn().mockResolvedValue([])
+    const records = repositories({
+      createProviderAssignment,
+      endProviderAssignment,
+      endOpenHubSessionsForMembership,
+      getExternalIdentity: vi.fn().mockResolvedValue({
+        provider: "entra",
+        userId: "22222222-2222-4222-8222-222222222222",
+      }),
+      lockAttempt: vi.fn().mockResolvedValue({
+        consumedAt: new Date(),
+        providerRevisionId: "00000000-0000-4000-8000-000000000099",
+        purpose: "SIGN_IN",
+      }),
+      lockProvider: vi.fn().mockResolvedValue({
+        enabled: true,
+        selectedRevisionId: "00000000-0000-4000-8000-000000000099",
+      }),
+      lockMembership: vi.fn().mockResolvedValue({
+        id: "00000000-0000-4000-8000-000000000077",
+        lifecycle: "ACTIVE",
+      }),
+      lockActiveProviderAssignment: vi.fn().mockResolvedValue({
+        id: "00000000-0000-4000-8000-000000000088",
+        providerAssignmentSubject: assignmentSubject.toLowerCase(),
+        providerRevisionId: "00000000-0000-4000-8000-000000000099",
+        role: "MEMBER",
+      }),
+      lockActiveAssignments: vi.fn().mockResolvedValue([
+        {
+          id: "replacement-assignment",
+          role: "MEMBER",
+          source: "AUTHENTICATION_PROVIDER",
+        },
+      ]),
+    })
+
+    await expect(
+      admitAuthenticationProof(
+        {
+          ...input(),
+          providerKey: "entra",
+          requiresProviderAssignmentEvidence: true,
+          providerAssignment: {
+            assignmentSubject,
+            issuedAt: new Date("2026-11-04T20:00:00Z"),
+            providerRevisionId: "00000000-0000-4000-8000-000000000099",
+            role: "MEMBER",
+          },
+        },
+        {
+          createId: randomUUID,
+          getBootstrapSecretDigest: () => bootstrapSecretDigest,
+          runTransaction: (operation) => operation(records),
+          writeAudit: vi.fn(),
+        },
+      ),
+    ).resolves.toMatchObject({ role: "MEMBER" })
+    expect(endProviderAssignment).toHaveBeenCalledWith({
+      id: "00000000-0000-4000-8000-000000000088",
+      lifecycle: "SUPERSEDED",
+    })
+    expect(createProviderAssignment).toHaveBeenCalledWith(
+      expect.objectContaining({ providerAssignmentSubject: assignmentSubject }),
+    )
+    expect(endOpenHubSessionsForMembership).toHaveBeenCalledWith(
+      "00000000-0000-4000-8000-000000000077",
     )
   })
 

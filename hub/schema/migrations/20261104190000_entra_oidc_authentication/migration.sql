@@ -15,6 +15,7 @@ CREATE TABLE "provider_evidence_states" (
     "id" UUID NOT NULL,
     "external_identity_id" UUID NOT NULL,
     "last_issued_at" TIMESTAMPTZ(3) NOT NULL,
+    "last_role" "MembershipRole",
     "created_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updated_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT "provider_evidence_states_pkey" PRIMARY KEY ("id")
@@ -36,7 +37,7 @@ ADD CONSTRAINT "membership_assignments_source_contract" CHECK (
         "source" = 'AUTHENTICATION_PROVIDER'
         AND "provider_revision_id" IS NOT NULL
         AND "provider_assignment_subject" IS NOT NULL
-        AND "provider_assignment_subject" ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+        AND char_length("provider_assignment_subject") BETWEEN 1 AND 100
     )
 );
 
@@ -157,8 +158,24 @@ BEGIN
        OR NEW."created_at" <> OLD."created_at" THEN
         RAISE EXCEPTION 'Provider evidence ordering identity and history are immutable.';
     END IF;
-    IF NEW."last_issued_at" <= OLD."last_issued_at"
-       OR NEW."updated_at" <= OLD."updated_at" THEN
+    IF NEW."last_issued_at" < OLD."last_issued_at"
+       OR NEW."updated_at" <= OLD."updated_at"
+       OR (
+           NEW."last_issued_at" = OLD."last_issued_at"
+           AND (
+               CASE OLD."last_role"
+                   WHEN 'ADMINISTRATOR' THEN 2
+                   WHEN 'MEMBER' THEN 1
+                   ELSE 0
+               END
+           ) <= (
+               CASE NEW."last_role"
+                   WHEN 'ADMINISTRATOR' THEN 2
+                   WHEN 'MEMBER' THEN 1
+                   ELSE 0
+               END
+           )
+       ) THEN
         RAISE EXCEPTION 'Provider evidence ordering must advance monotonically.';
     END IF;
     RETURN NEW;

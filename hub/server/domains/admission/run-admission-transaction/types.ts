@@ -6,6 +6,7 @@ export interface AdmissionRepositories {
     externalIdentityId: string
     id: string
     issuedAt: Date
+    role: "MEMBER" | "ADMINISTRATOR" | null
   }): Promise<"advanced" | "conflict" | "created" | "stale">
   createMembership(input: { id: string; userId: string }): Promise<boolean>
   createProviderAssignment(input: {

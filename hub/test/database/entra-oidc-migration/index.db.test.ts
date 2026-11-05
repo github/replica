@@ -180,8 +180,8 @@ describe("Entra OIDC migration compatibility", () => {
         const evidenceStateId = "00000000-0000-4000-8000-000000000020"
         await database.query(
           `INSERT INTO provider_evidence_states
-             (id, external_identity_id, last_issued_at)
-           VALUES ($1, $2, $3)`,
+             (id, external_identity_id, last_issued_at, last_role)
+           VALUES ($1, $2, $3, 'MEMBER')`,
           [evidenceStateId, identityId, new Date("2026-11-05T12:00:00Z")],
         )
         await expect(
@@ -216,18 +216,13 @@ describe("Entra OIDC migration compatibility", () => {
           ),
         ).rejects.toThrow()
         const providerAssignmentId = "00000000-0000-4000-8000-000000000018"
+        const opaqueAssignmentSubject = "Tenant-Opaque.Subject_42"
         await database.query(
           `INSERT INTO membership_assignments
              (id, membership_id, external_identity_id, provider_revision_id, source, role,
               provider_assignment_subject)
            VALUES ($1, $2, $3, $4, 'AUTHENTICATION_PROVIDER', 'MEMBER', $5)`,
-          [
-            providerAssignmentId,
-            membershipId,
-            identityId,
-            revisionId,
-            "00000000-0000-4000-8000-000000000019",
-          ],
+          [providerAssignmentId, membershipId, identityId, revisionId, opaqueAssignmentSubject],
         )
         await database.query(
           `UPDATE membership_assignments
@@ -236,10 +231,44 @@ describe("Entra OIDC migration compatibility", () => {
           [providerAssignmentId],
         )
         await expect(
-          database.query(`SELECT lifecycle FROM membership_assignments WHERE id = $1`, [
-            providerAssignmentId,
-          ]),
-        ).resolves.toMatchObject({ rows: [{ lifecycle: "SUPERSEDED" }] })
+          database.query(
+            `SELECT lifecycle, provider_assignment_subject
+             FROM membership_assignments
+             WHERE id = $1`,
+            [providerAssignmentId],
+          ),
+        ).resolves.toMatchObject({
+          rows: [
+            {
+              lifecycle: "SUPERSEDED",
+              provider_assignment_subject: opaqueAssignmentSubject,
+            },
+          ],
+        })
+        await expect(
+          database.query(
+            `INSERT INTO membership_assignments
+               (id, membership_id, external_identity_id, provider_revision_id, source, role,
+                provider_assignment_subject)
+             VALUES ($1, $2, $3, $4, 'AUTHENTICATION_PROVIDER', 'MEMBER', '')`,
+            ["00000000-0000-4000-8000-000000000021", membershipId, identityId, revisionId],
+          ),
+        ).rejects.toThrow()
+        await expect(
+          database.query(
+            `INSERT INTO membership_assignments
+               (id, membership_id, external_identity_id, provider_revision_id, source, role,
+                provider_assignment_subject)
+             VALUES ($1, $2, $3, $4, 'AUTHENTICATION_PROVIDER', 'MEMBER', $5)`,
+            [
+              "00000000-0000-4000-8000-000000000022",
+              membershipId,
+              identityId,
+              revisionId,
+              "A".repeat(101),
+            ],
+          ),
+        ).rejects.toThrow()
       } finally {
         await database.end()
       }

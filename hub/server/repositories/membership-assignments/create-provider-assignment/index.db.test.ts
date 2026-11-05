@@ -48,7 +48,7 @@ describe("createProviderAssignment()", () => {
   it("keeps one active immutable version and permits a replacement after supersession", async () => {
     const records = await createAuthorityRecords()
     const firstId = randomUUID()
-    const providerAssignmentSubject = "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA"
+    const providerAssignmentSubject = "Tenant-Opaque.Subject_42".padEnd(100, "X")
 
     await expect(
       createProviderAssignment(prisma, {
@@ -94,15 +94,33 @@ describe("createProviderAssignment()", () => {
       {
         id: firstId,
         lifecycle: "SUPERSEDED",
-        providerAssignmentSubject: providerAssignmentSubject.toLowerCase(),
+        providerAssignmentSubject,
         role: "MEMBER",
       },
       {
         id: replacementId,
         lifecycle: "ACTIVE",
-        providerAssignmentSubject: providerAssignmentSubject.toLowerCase(),
+        providerAssignmentSubject,
         role: "ADMINISTRATOR",
       },
     ])
+  })
+
+  it.each([
+    ["empty", ""],
+    ["longer than 100 characters", "A".repeat(101)],
+  ])("rejects an %s provider assignment subject", async (_case, providerAssignmentSubject) => {
+    const records = await createAuthorityRecords()
+
+    await expect(
+      createProviderAssignment(prisma, {
+        ...records,
+        id: randomUUID(),
+        providerAssignmentSubject,
+        role: "MEMBER",
+      }),
+    ).rejects.toThrow()
+
+    await expect(prisma.membershipAssignment.count()).resolves.toBe(0)
   })
 })

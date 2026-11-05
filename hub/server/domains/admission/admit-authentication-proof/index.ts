@@ -26,7 +26,7 @@ const inputSchema = z
       .strict(),
     providerAssignment: z
       .object({
-        assignmentSubject: z.uuid().nullable(),
+        assignmentSubject: z.string().min(1).max(100).nullable(),
         issuedAt: z.date(),
         providerRevisionId: z.uuid(),
         role: z.enum(["MEMBER", "ADMINISTRATOR"]).nullable(),
@@ -172,6 +172,7 @@ async function admitWithinTransaction(
       externalIdentityId: input.proof.externalIdentityId,
       id: createId(),
       issuedAt: input.providerAssignment.issuedAt,
+      role: input.providerAssignment.role,
     })
     if (claim === "conflict") throw new AdmissionTransactionConflictError()
     if (claim === "stale") {

@@ -8,6 +8,7 @@ model ProviderEvidenceState {
 
   // Attribute columns
   lastIssuedAt DateTime @map("last_issued_at") @db.Timestamptz(3)
+  lastRole     MembershipRole? @map("last_role")
 
   // Timestamp columns
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)

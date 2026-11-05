@@ -7,7 +7,7 @@ const inputSchema = z
     externalIdentityId: z.uuid(),
     id: z.uuid(),
     membershipId: z.uuid(),
-    providerAssignmentSubject: z.uuid(),
+    providerAssignmentSubject: z.string().min(1).max(100),
     providerRevisionId: z.uuid(),
     role: z.enum(["MEMBER", "ADMINISTRATOR"]),
   })
@@ -38,7 +38,7 @@ export async function createProviderAssignment(
       'AUTHENTICATION_PROVIDER',
       ${parsed.role}::"MembershipRole",
       'ACTIVE',
-      ${parsed.providerAssignmentSubject.toLowerCase()},
+      ${parsed.providerAssignmentSubject},
       clock_timestamp(),
       clock_timestamp()
     )
