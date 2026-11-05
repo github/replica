@@ -83,18 +83,20 @@ export async function recoverLease(
     if (unlocked(lease)) return
     notice(
       feedback?.level ?? "warning",
-      `Deployment lock: ${coordinates}\nSubscription: ${config.azure.subscriptionId}\n${feedback?.message ?? (retained(lease) ? "Another deployment or an interrupted run may own this lock. Its age does not establish that it is safe to clear." : "This lease is finite, changing, or unknown. Recovery is not available; wait for its owner to finish or review its state before rechecking.")}`,
+      `Deployment lock: ${coordinates}\nSubscription: ${config.azure.subscriptionId}\n${feedback?.message ?? (retained(lease) ? "Another deployment or an interrupted run may own this lock; age alone does not make it safe to clear.\nTo clear it and continue, the wizard checks safety first, then asks for confirmation. Resources and saved progress are kept." : "This lease is finite, changing, or unknown. Recovery is not available; wait for its owner to finish or review its state before rechecking.")}`,
     )
     feedback = undefined
     const choice = await select.call(ui, "How would you like to handle the deployment lock?", [
       {
         label:
           reviewing && retained(lease)
-            ? "Recheck recovery blockers"
-            : "Recheck after the previous run stops",
+            ? "Recheck blockers before clearing the lock"
+            : "Recheck without clearing the lock",
         value: "retry",
       },
-      ...(retained(lease) ? [{ label: "Review recovery checks", value: "recover" }] : []),
+      ...(retained(lease)
+        ? [{ label: "Clear lock and continue (after safety checks)", value: "recover" }]
+        : []),
       { label: "Exit and keep saved progress", value: "exit" },
     ])
     if (choice === "exit")
@@ -115,7 +117,7 @@ export async function recoverLease(
       )
       if (
         !(await ui.confirm(
-          `Confirm that all previous installer, Terraform, and release processes have stopped, including other terminals, machines, and CI.${inspection.databaseReview ? " Also confirm that old provisioning/setup/migration database sessions have ended and that partial migrations, database ownership, and temporary provisioning grants have been reviewed using the installation recovery guide." : ""}\nBreak only ${coordinates} in subscription ${config.azure.subscriptionId}? This does not repair or replay database work.`,
+          `Confirm that all previous installer, Terraform, and release processes have stopped, including other terminals, machines, and CI.${inspection.databaseReview ? " Also confirm that old provisioning/setup/migration database sessions have ended and that partial migrations, database ownership, and temporary provisioning grants have been reviewed using the installation recovery guide." : ""}\nClear only the deployment lock at ${coordinates} in subscription ${config.azure.subscriptionId}? Resources and saved progress will be kept. This does not repair or replay database work.`,
         ))
       ) {
         feedback = {
@@ -158,7 +160,7 @@ export async function recoverLease(
       )
       if (!unlocked(await readLease()))
         throw new Error("Azure has not confirmed that the selected lock is unlocked.")
-      notice("success", `Recovered ${coordinates}. Continuing with the guarded deployment flow.`)
+      notice("success", `Cleared the deployment lock at ${coordinates}. Continuing with setup.`)
       return
     } catch (error) {
       report(error)

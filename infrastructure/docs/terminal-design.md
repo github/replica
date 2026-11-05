@@ -145,7 +145,7 @@ After resume, distinguish restored answers from operations verified in this run.
 
 ### Guided operational recovery
 
-Keep a recoverable lock in the wizard instead of sending the user through the same failing restart. Offer recheck, review recovery, and explicit exit. Put the exact target and current blocker beside those choices; preserve errors and next steps when returning from a check. A declined recovery confirmation returns to choices without changing the lock or discarding answers.
+Keep a recoverable lock in the wizard instead of sending the user through the same failing restart. Label recovery choices with their action and outcome, such as **Clear lock and continue (after safety checks)**, rather than only naming a preparatory review step. Distinguish a check-only action from the action that checks safety, asks for confirmation, and clears the lock. Explain what will change and what will be kept. Put the exact target and current blocker beside those choices; preserve errors and next steps when returning from a check. A declined recovery confirmation returns to choices without changing the lock or discarding answers.
 
 Cloud-specific orchestration owns read-only safety checks. Known active work, unknown results, failed inspection, and ownership mismatches must block destructive recovery. Only a verified infinite operational lease can be offered for clearing. Terraform state locks and unrelated resources remain outside this flow.
 

@@ -214,6 +214,10 @@ it.each([
 
   const lock = await s.acquire()
 
+  expect(vi.mocked(s.ui.select!).mock.calls[0]![1]).toContainEqual({
+    label: expect.stringMatching(/clear.*lock.*continue/i),
+    value: "recover",
+  })
   expect(s.ui.confirm).toHaveBeenCalled()
   const acknowledgement = s.messages.join("\n")
   expect(acknowledgement).toMatch(/cannot|can't|unable|does not|doesn't/i)
