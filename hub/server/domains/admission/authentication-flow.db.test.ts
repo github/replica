@@ -616,10 +616,6 @@ describe("Hub admission and session flow", () => {
           revision: 1,
         },
       })
-      await transaction.authenticationProvider.update({
-        data: { selectedRevisionId: providerRevisionId },
-        where: { id: providerId },
-      })
     })
     await prisma.user.create({ data: { id: userId } })
     await prisma.externalIdentity.create({
