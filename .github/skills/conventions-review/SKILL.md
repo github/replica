@@ -100,60 +100,27 @@ Map every valid item to a canonical rule, candidate change, and verification evi
 
 ### Boundaries and configuration
 
-- The complete diff follows the affected project's layer, import, naming, file, export, and type rules.
-- SDK- or framework-specific code stays in its integration layer rather than a generic utility.
-- A new TypeScript alias has an end-to-end resolution contract for every native runtime, compiler, build, and test consumer; otherwise imports follow the documented convention.
-- Dynamic imports, optional composition, and composition roots have a demonstrated lazy-load or optional-dependency need and focused coverage. Reject pass-through factory chains without a documented owner.
-- Disabled optional features do not initialize their integrations. Partial configuration fails explicitly.
-- When startup reconciles several configured integrations with durable state, the update is atomic. Removing an integration also removes any authority or behavior that depended on it.
-- Middleware exclusions follow the framework's actual path and case-matching semantics so security checks keep their intended order.
+Apply the affected project's canonical architecture, coding, and configuration guides directly. For Hub, use the [backend architecture](../../../hub/docs/backend-architecture.md) and [coding conventions](../../../hub/docs/coding-conventions.md). Map each changed path to the exact applicable section and record evidence for optional composition, runtime resolution, middleware ordering, and configuration lifecycle only when the inventory includes those boundaries.
 
 ### Concurrency and authority
 
-Apply these prompts only when the change includes asynchronous waits, overlapping responses, locks, sessions, revocation, or externally issued authority:
-
-- Reread expiry, revocation, and current state after blocking, before returning success.
-- A stale denial, restore, or callback response cannot clear or overwrite newer browser or session state.
-- External authority evidence has durable monotonic ordering, including removal evidence, so delayed work cannot restore stale authority.
-- Lock order, retries, rollback, and cleanup preserve the named concurrency invariant.
+When the inventory includes asynchronous waits, overlapping responses, locks, sessions, revocation, or externally issued authority, apply the canonical concurrency rules in the affected project guides and the shared [testing and review guide](../../../docs/testing-and-review.md). Name each invariant and map it to focused evidence rather than restating the rule in this skill.
 
 ### Persistence and migrations
 
-Apply the [database guide](../../../hub/docs/database.md) only to Hub database changes.
-
-- Preserve existing migration bytes and validate fresh setup plus upgrade from the exact base.
-- Seed representative exact-base records and prove required data, backfills, relationships, and constraints survive the upgrade.
-- Test behavior and compatibility that the ORM or framework does not prove; reject inventory tests that enumerate every migration, table, column, or index.
-- Each database guard names a cross-writer, concurrency, or history invariant. Ordinary value validation remains in application code.
-- Prefer idiomatic Prisma for ordinary CRUD. Raw SQL identifies and tests the unsupported semantic that requires it.
-- SQL checks reject invalid `NULL` combinations explicitly, and indexes support the predicates used by real lock, restore, and lookup queries.
-- Assign schema and enum ownership to the earliest accepted stack layer that needs it without adding speculative product surface.
+Apply the [database guide](../../../hub/docs/database.md) only to Hub database changes. Use the review inventory to identify the exact migration, invariant, query, ORM, raw-SQL, index, and schema-ownership sections that apply, then verify their required behavior and evidence without copying those rules here.
 
 ### Tests
 
-- Apply the [test-writing skill](../write-tests/SKILL.md) criteria.
-- Each retained case catches a distinct plausible regression through the smallest useful public interface.
-- Important negative, safe-error, rollback, concurrency, pre-integration drift, and decryption failure branches remain covered when relevant.
-- Tests are deterministic and isolate records, clocks, resources, and mutable state.
-- Assertions prove outcomes and contracts rather than incidental implementation inventories.
-- A focused follow-up preserves all material coverage from the prior gated candidate.
+Apply the [test-writing skill](../write-tests/SKILL.md) and shared [testing and review guide](../../../docs/testing-and-review.md). Reconcile every added, changed, consolidated, or removed case with the accepted behavior and prior evidence, and report any material branch that no longer has proof.
 
 ### Documentation and pull request readiness
 
-- Prose follows the shared documentation conventions and describes current behavior.
-- Configuration examples explain when operator-controlled revisions or generations change and what the change invalidates.
-- Canonical guides own rules once; summaries link instead of copying project-specific detail.
-- The pull request can follow the repository template with short, plain-language `Why` and `What changes` sections.
-- Routine validation summaries are absent from the proposed body; known verification gaps are precise.
+Apply the shared [documentation conventions](../../../docs/documentation-conventions.md) and repository pull request template. Check that canonical guides own rules once, summaries link instead of copying them, and the proposed pull request text reflects current behavior and precise verification gaps.
 
 ### UI and rendered evidence
 
-Apply the Hub [coding conventions](../../../hub/docs/coding-conventions.md) and [Storybook guide](../../../hub/docs/storybook.md) only when Hub or canvas presentation changes.
-
-- Exact tokens resolve through defined semantic mappings.
-- Stories and assertions represent reachable runtime states rather than invented or obsolete states.
-- Every affected final-code story is rendered and inspected through the repository browser workflow.
-- Required screenshots match the exact candidate; a successful Storybook build alone is not rendered evidence.
+Apply the Hub [coding conventions](../../../hub/docs/coding-conventions.md), [Storybook guide](../../../hub/docs/storybook.md), and repository browser workflow only when Hub or canvas presentation changes. Inventory the affected runtime states, stories, tokens, interactions, and exact-candidate evidence, then verify them against those guides.
 
 ## Run exact-candidate validation
 

@@ -24,7 +24,7 @@ Use human review for visual appearance, supported by relevant screenshots or rec
 
 Keep each behavior at its owning layer and use integration tests to prove important connections. Repeating all lower-level cases through every consumer adds cost without necessarily adding confidence. Keep separate cases for distinct failures; combine assertions when they describe one coherent scenario. Parameterization improves readability but still runs every input. Fewer case names or assertions do not establish a faster suite.
 
-Migration tests should prove fresh setup and compatibility from the exact base when framework validation does not cover the upgrade. Seed representative base records and verify required backfills, relationships, constraints, and behavior. Do not enumerate every migration, table, column, or index merely to freeze the current schema.
+Hub migration tests follow the exact-base and behavior-focused rules in the [Hub database guide](../hub/docs/database.md#schema-changes).
 
 When consolidating tests, map every removed case to retained evidence. Do not lose distinct safe-error, pre-provider drift, decryption failure, rollback, or concurrency branches because several cases can share a shorter name or fixture.
 
