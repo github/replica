@@ -106,6 +106,7 @@ export function HubNavigation({
       onSignOut()
       return
     }
+    setBlockedAction("This action is unavailable. No changes were saved.")
     reportClientIssue("This action is not connected yet. No request was sent.")
   }
 

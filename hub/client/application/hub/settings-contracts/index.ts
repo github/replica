@@ -292,9 +292,7 @@ export type LearningRecord = z.infer<typeof learningRecordSchema>
 export type LearningRunRecord = z.infer<typeof learningRunSchema>
 export type SettingsAuditEvent = z.infer<typeof settingsAuditEventSchema>
 export type SettingsActionResult =
-  | { saved: true; notice: string; revision: number }
-  | { saved: false; error: string }
-  | { saved: false; unavailable: true }
+  { saved: true; notice: string; revision: number } | { saved: false; error: string }
 
 export type SettingsSection =
   | "analytics"

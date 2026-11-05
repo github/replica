@@ -18,7 +18,7 @@ export function SettingsRouteScreen({
   const revalidator = useRevalidator()
   const busy = fetcher.state !== "idle" || revalidator.state !== "idle"
   const result = fetcher.data
-  const error = !busy && result?.saved === false && "error" in result ? result.error : null
+  const error = !busy && result?.saved === false ? result.error : null
   const notice = !busy && result?.saved === true ? result.notice : null
 
   function submit(input: FormData) {

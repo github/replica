@@ -98,7 +98,10 @@ export function settingsController(section: SettingsSection, surface: "workspace
     } catch (error) {
       if (error instanceof Response && error.status === 501) {
         reportClientIssue(await error.text())
-        return data<SettingsActionResult>({ saved: false, unavailable: true }, { status: 501 })
+        return data<SettingsActionResult>(
+          { saved: false, error: "This action is unavailable. No changes were saved." },
+          { status: 501 },
+        )
       }
       if (error instanceof Response && error.status >= 400) {
         return data<SettingsActionResult>(

@@ -147,6 +147,8 @@ Route modules export `clientLoader`, `clientAction`, and their default component
 
 The shared JSON client awaits mock startup before sending any API request. It forwards cancellation, checks HTTP status, parses JSON, and validates the result with Zod. API, JSON, schema, and startup failures remain errors. Expected details-save failures appear in the still-open editor with its draft intact.
 
+Unsupported actions show a visible failure without requiring development controls. Credential and file submissions remain unprocessed; their technical diagnostics stay in the test toolbar.
+
 These are frontend/mock contracts under [the application contracts](../client/application/hub/contracts/index.ts), not Prisma models or already-implemented Express endpoints. The mock identifiers preserve the retained presentation; coordinate real identifiers and contracts with backend work.
 
 | HTTP interface | Result |
@@ -206,7 +208,7 @@ All page modules below have a mock route. This demonstrates frontend navigation 
 
 Examples use seeded identifiers. A new tab starts with the Owner persona; use **Persona** and **Open page** in the test toolbar to explore other states. Changing personas reloads and resets the data. Choose the signed-out persona for sign-in and the administrator persona for administrative actions.
 
-GitHub App setup, registration, and installation pages can be opened directly without reproducing a provider protocol first. The default fixture has an installed GitHub App and a connected Copilot service, so their normal settings are available to the administrator persona. Credential and file submissions are not processed; their unavailable-action diagnostics appear in the test toolbar. Fresh authorization uses a pending continuation from a connection change or enrollment action.
+GitHub App setup, registration, and installation pages can be opened directly without reproducing a provider protocol first. The default fixture has an installed GitHub App and a connected Copilot service, so their normal settings are available to the administrator persona. Fresh authorization uses a pending continuation from a connection change or enrollment action.
 
 | Page module | Intent and current connection | Open an example |
 | --- | --- | --- |

@@ -19,7 +19,7 @@ function UnconnectedPreferences() {
 }
 
 describe("Hub development controls", () => {
-  it("reports an unconnected action only in the toolbar without sending a mutation", async () => {
+  it("keeps development details in the toolbar without sending an unconnected mutation", async () => {
     mockDiagnostics.initialize()
     mockDiagnostics.clear()
     const store = createMockStore({ origin: window.location.origin })
