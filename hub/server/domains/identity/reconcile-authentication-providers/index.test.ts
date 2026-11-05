@@ -4,7 +4,9 @@ import { describe, expect, it, vi } from "vitest"
 import {
   IdentityTransactionConflictError,
   ProviderRevisionConflictError,
+  ProviderRevisionDriftError,
   ProviderRevisionGapError,
+  ProviderRevisionInvariantError,
   ProviderRevisionRollbackError,
 } from "../errors"
 import type { AuthenticationProviderReconciliationRepositories } from "../run-provider-revision-transaction/types"
@@ -83,6 +85,72 @@ describe("reconcileAuthenticationProviders()", () => {
       }),
     ).rejects.toBeInstanceOf(ProviderRevisionGapError)
     expect(records.createAuthenticationProvider).not.toHaveBeenCalled()
+  })
+
+  it("rejects same-revision configuration drift without mutating provider state", async () => {
+    const records = repositories([
+      {
+        configurationDigest: "a".repeat(64),
+        enabled: true,
+        id: randomUUID(),
+        key: "github",
+        revision: 1,
+        revisionId: randomUUID(),
+      },
+    ])
+    const writeAudit = vi.fn()
+
+    await expect(
+      reconcileAuthenticationProviders([candidate(1)], {
+        createId: randomUUID,
+        runTransaction: (operation) => operation(records),
+        writeAudit,
+      }),
+    ).rejects.toBeInstanceOf(ProviderRevisionDriftError)
+    expect(records.createAuthenticationProviderRevision).not.toHaveBeenCalled()
+    expect(records.selectAuthenticationProviderRevision).not.toHaveBeenCalled()
+    expect(records.enableAuthenticationProvider).not.toHaveBeenCalled()
+    expect(records.disableAuthenticationProvider).not.toHaveBeenCalled()
+    expect(records.createSecurityAudit).not.toHaveBeenCalled()
+    expect(writeAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerKeys: ["github"],
+        reason: "transaction_error",
+        type: "authentication_providers_reconcile_failed",
+      }),
+    )
+  })
+
+  it("fails provider removal when global revocation authority is missing", async () => {
+    const records = repositories([
+      {
+        configurationDigest: "a".repeat(64),
+        enabled: true,
+        id: randomUUID(),
+        key: "github",
+        revision: 1,
+        revisionId: randomUUID(),
+      },
+    ])
+    records.incrementSessionRevocation.mockResolvedValue(null)
+    const writeAudit = vi.fn()
+
+    await expect(
+      reconcileAuthenticationProviders([], {
+        createId: randomUUID,
+        runTransaction: (operation) => operation(records),
+        writeAudit,
+      }),
+    ).rejects.toBeInstanceOf(ProviderRevisionInvariantError)
+    expect(records.disableAuthenticationProvider).not.toHaveBeenCalled()
+    expect(records.createSecurityAudit).not.toHaveBeenCalled()
+    expect(writeAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerKeys: [],
+        reason: "transaction_error",
+        type: "authentication_providers_reconcile_failed",
+      }),
+    )
   })
 
   it("writes one terminal retry-exhaustion audit after the bounded transaction policy", async () => {
