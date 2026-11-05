@@ -22,6 +22,7 @@ Commits and pull requests follow the [contribution conventions](../CONTRIBUTING.
 
 - [Hub documentation](../hub/docs/README.md) covers starting and checking the TypeScript API and frontend, and what is not built yet.
 - [Azure Hub installation](../infrastructure/README.md) covers Terraform, release ordering, ownership, and recovery.
+- [Installer terminal design plan](../infrastructure/docs/terminal-design.md) records planned TUI patterns for layout, field feedback, progress, and resumable sessions.
 - [Starter instructions](../starter/AGENTS.md) and [setup guide](../starter/SETUP.md) cover the copyable prototype app and skills.
 - [Build action setup](../CONTRIBUTING.md#replica-build-action) covers the shared action.
 - [Controls documentation](../hub/docs/prototype-controls.md) covers the shared engine and definition schema owned by Hub.
