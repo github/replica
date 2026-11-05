@@ -1,4 +1,4 @@
-.operator-enrollment__form {
+.administrator-enrollment__form {
   display: grid;
   gap: var(--hub-space-16);
 }

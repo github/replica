@@ -38,4 +38,14 @@ describe("parseSecurityAuditEvent()", () => {
 
     expect(parseSecurityAuditEvent(event)).toEqual(event)
   })
+
+  it("accepts bootstrap assignment events without caller-supplied invariant metadata", () => {
+    const event = {
+      id: "5dd31031-6f1c-4c16-87c2-aee5342145cc",
+      type: "membership_assignment_created",
+      membershipId: "8a2479e7-3ca4-46f8-9749-c35d8e4eb09e",
+    }
+
+    expect(parseSecurityAuditEvent(event)).toEqual(event)
+  })
 })

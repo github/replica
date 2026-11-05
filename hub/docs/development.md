@@ -1,6 +1,6 @@
 # Hub development
 
-Use the Hub devcontainer for Node.js and PostgreSQL, or run Node.js locally with the same database service. See [Deployment](deployment.md) for the production runtime.
+Use the Hub devcontainer for Node.js and its pinned PostgreSQL version, or run Node.js locally with PostgreSQL 17 or newer. Hub can expose GitHub sign-in and reusable administrator enrollment when every authentication setting is configured. See [Deployment](deployment.md) for the production runtime.
 
 ## Devcontainer
 
@@ -20,7 +20,7 @@ cp .env.example .env
 npm ci --engine-strict
 ```
 
-The example URL connects to PostgreSQL on `127.0.0.1:5432`. To use another development database, set `DATABASE_URL` in `.env` instead. Do not commit credentials. The health and frontend routes do not query the database. Authentication routes are not registered.
+The example URL connects to PostgreSQL on `127.0.0.1:5432`. To use another development database, set `DATABASE_URL` in `.env` instead. Do not commit credentials. The health route does not query the database. Authentication routes require the database and remain unavailable until their settings are configured.
 
 ## Start the app
 
@@ -36,9 +36,11 @@ In a second terminal, also from `hub/`, start Vite:
 npm run dev
 ```
 
-Open <http://127.0.0.1:5173>. Vite serves the frontend and forwards `/api` requests to Express at <http://127.0.0.1:3001>. `GET /api/health` and `GET /api/ready` return JSON. The internal proof primitives described in [Authentication proof](authentication.md) are not registered as routes.
+Open <http://127.0.0.1:5173>. Vite serves the frontend and forwards `/api` requests to Express at <http://127.0.0.1:3001>. `GET /api/health` and `GET /api/ready` return JSON. The [authentication and Hub session guide](authentication.md) describes the configured sign-in routes.
 
-The current API has no public authentication route or authentication environment settings. Both servers accept connections only from this machine. Stop each with Ctrl+C.
+The API registers authentication routes when `HUB_APPLICATION_ORIGIN` is configured. Set the GitHub client, provider revision, encryption key, and bootstrap secret settings documented in `.env.example` at the same time. Both development servers accept connections only from this machine. Stop each with Ctrl+C.
+
+No authentication-provider database seed is required. The first sign-in start validates the configured GitHub adapter and persists only its provider key, revision number, and public-configuration digest.
 
 Vite also forwards WebSocket upgrades under `/api`. The `/api/realtime` endpoint rejects connections until application access checks are connected; see [WebSocket updates](websockets.md). Stopping the API closes its WebSocket connections as well.
 

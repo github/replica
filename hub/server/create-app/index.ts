@@ -1,6 +1,7 @@
 import express from "express"
 import { resolve } from "node:path"
 
+import { authenticationSecurity } from "../integrations/express/authentication-security/index.ts"
 import { handleError } from "../integrations/express/handle-error/index.ts"
 import { respondNotFound } from "../integrations/express/respond-not-found/index.ts"
 import { createRequestLogger } from "../integrations/pino/create-request-logger/index.ts"
@@ -9,13 +10,22 @@ import { routes } from "../routes/index.ts"
 import type { CreateAppOptions } from "./types.ts"
 
 /** Give every endpoint the same request logging and safe error responses. */
-export function createApp({ broadcast, logger, clientDirectory, isReady }: CreateAppOptions = {}) {
+export function createApp({
+  authentication,
+  broadcast,
+  clientDirectory,
+  isReady,
+  logger,
+  trustedProxyHops = 0,
+}: CreateAppOptions = {}) {
   const app = express()
   app.disable("x-powered-by")
+  app.set("trust proxy", trustedProxyHops)
   app.use(createRequestLogger(logger))
-  app.use(express.json())
+  app.use("/api/auth", authenticationSecurity())
+  app.use(/^(?!\/api\/auth(?:\/|$)).*/i, express.json())
 
-  routes(app, { broadcast, isReady, logger })
+  routes(app, { authentication, broadcast, isReady, logger })
   app.use("/api", respondNotFound)
   if (clientDirectory) {
     const directory = resolve(clientDirectory)

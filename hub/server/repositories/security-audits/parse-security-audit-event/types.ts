@@ -1,16 +1,34 @@
 import type { ProviderKey } from "../../../utils/parse-provider-key/types.ts"
 import type {
   AuthenticationAttemptDeniedAudit,
+  AdmissionDeniedAudit,
+  AdmissionFailedAudit,
+  BootstrapAttemptDeniedAudit,
   ExternalIdentityCreatedAudit,
   ExternalIdentityCreateFailedAudit,
   ProviderRevisionDeniedAudit,
   ProviderRevisionPersistFailedAudit,
   ProviderRevisionSelectedAudit,
   ProviderRevisionValidationFailedAudit,
+  MembershipAssignmentCreatedAudit,
+  MembershipAssignmentRestoredAudit,
+  MembershipCreatedAudit,
+  MembershipRestoredAudit,
+  SessionCreatedAudit,
+  SessionEndedAudit,
 } from "../create-security-audit/types.ts"
 
 export type ParsedSecurityAuditEvent =
   | (Omit<AuthenticationAttemptDeniedAudit, "provider"> & { provider: ProviderKey })
+  | AdmissionDeniedAudit
+  | AdmissionFailedAudit
+  | BootstrapAttemptDeniedAudit
+  | MembershipAssignmentCreatedAudit
+  | MembershipAssignmentRestoredAudit
+  | MembershipCreatedAudit
+  | MembershipRestoredAudit
+  | SessionCreatedAudit
+  | SessionEndedAudit
   | (Omit<ExternalIdentityCreatedAudit, "provider"> & { provider: ProviderKey })
   | (Omit<ExternalIdentityCreateFailedAudit, "provider"> & { provider: ProviderKey })
   | (Omit<ProviderRevisionValidationFailedAudit, "providerKey"> & {

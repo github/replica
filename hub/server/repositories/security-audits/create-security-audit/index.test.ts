@@ -49,6 +49,55 @@ describe("createSecurityAudit()", () => {
     })
     await createSecurityAudit(database, {
       id,
+      type: "bootstrap_attempt_denied",
+      reason: "invalid_secret",
+    })
+    await createSecurityAudit(database, {
+      id,
+      type: "membership_assignment_created",
+      membershipId: "8a2479e7-3ca4-46f8-9749-c35d8e4eb09e",
+    })
+    await createSecurityAudit(database, {
+      id,
+      type: "membership_created",
+      membershipId: "8a2479e7-3ca4-46f8-9749-c35d8e4eb09e",
+    })
+    await createSecurityAudit(database, {
+      id,
+      type: "membership_restored",
+      membershipId: "8a2479e7-3ca4-46f8-9749-c35d8e4eb09e",
+    })
+    await createSecurityAudit(database, {
+      id,
+      type: "membership_assignment_restored",
+      membershipId: "8a2479e7-3ca4-46f8-9749-c35d8e4eb09e",
+    })
+    await createSecurityAudit(database, {
+      id,
+      type: "session_created",
+      sessionId: "85956fe6-022e-4092-a2ee-8435f612844f",
+      membershipId: "8a2479e7-3ca4-46f8-9749-c35d8e4eb09e",
+    })
+    await createSecurityAudit(database, {
+      id,
+      type: "session_ended",
+      sessionId: "85956fe6-022e-4092-a2ee-8435f612844f",
+      membershipId: "8a2479e7-3ca4-46f8-9749-c35d8e4eb09e",
+    })
+    await createSecurityAudit(database, {
+      id,
+      type: "admission_denied",
+      externalIdentityId: "e8714e71-52a7-45e8-a639-99ec37f2d85f",
+      reason: "membership_missing",
+    })
+    await createSecurityAudit(database, {
+      id,
+      type: "admission_failed",
+      externalIdentityId: "e8714e71-52a7-45e8-a639-99ec37f2d85f",
+      reason: "retry_exhausted",
+    })
+    await createSecurityAudit(database, {
+      id,
       type: "external_identity_created",
       externalIdentityId: "e8714e71-52a7-45e8-a639-99ec37f2d85f",
       provider: "workforce",
@@ -101,6 +150,60 @@ describe("createSecurityAudit()", () => {
         outcome: "DENIED",
         targetType: "authorization_attempt",
         context: { provider: "github", reason: "verification_state_invalid" },
+      }),
+      expect.objectContaining({
+        action: "admission.bootstrap.denied",
+        outcome: "DENIED",
+        targetType: "bootstrap_enrollment",
+        context: { reason: "invalid_secret" },
+      }),
+      expect.objectContaining({
+        action: "membership.assignment.created",
+        outcome: "SUCCESS",
+        targetType: "membership",
+        context: { source: "bootstrap", role: "administrator" },
+      }),
+      expect.objectContaining({
+        action: "membership.created",
+        outcome: "SUCCESS",
+        targetType: "membership",
+        context: {},
+      }),
+      expect.objectContaining({
+        action: "membership.restored",
+        outcome: "SUCCESS",
+        targetType: "membership",
+        context: {},
+      }),
+      expect.objectContaining({
+        action: "membership.assignment.restored",
+        outcome: "SUCCESS",
+        targetType: "membership",
+        context: { source: "bootstrap", role: "administrator" },
+      }),
+      expect.objectContaining({
+        action: "session.created",
+        outcome: "SUCCESS",
+        targetType: "hub_session",
+        context: { membershipId: "8a2479e7-3ca4-46f8-9749-c35d8e4eb09e" },
+      }),
+      expect.objectContaining({
+        action: "session.ended",
+        outcome: "SUCCESS",
+        targetType: "hub_session",
+        context: { membershipId: "8a2479e7-3ca4-46f8-9749-c35d8e4eb09e" },
+      }),
+      expect.objectContaining({
+        action: "admission.denied",
+        outcome: "DENIED",
+        targetType: "external_identity",
+        context: { reason: "membership_missing" },
+      }),
+      expect.objectContaining({
+        action: "admission.failed",
+        outcome: "FAILURE",
+        targetType: "external_identity",
+        context: { reason: "retry_exhausted" },
       }),
       expect.objectContaining({
         action: "identity.external.created",

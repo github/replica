@@ -7,8 +7,10 @@ import { promisify } from "node:util"
 import pg from "pg"
 import { describe, expect, it } from "vitest"
 
-describe("authentication proof migration", () => {
-  it("upgrades the exact C1 schema before deploying C2", async () => {
+import { prisma } from "../../../server/integrations/prisma"
+
+describe("Hub admission migration compatibility", () => {
+  it("preserves exact C2 parent records and backfills sign-in purpose", async () => {
     const adminUrl = process.env.TEST_DATABASE_URL
     if (!adminUrl) throw new Error("TEST_DATABASE_URL is required.")
     const name = `replica_upgrade_${randomBytes(8).toString("hex")}`
@@ -22,13 +24,18 @@ describe("authentication proof migration", () => {
       await database.connect()
       try {
         const hubRoot = fileURLToPath(new URL("../../../", import.meta.url))
-        const migrationName = "20261029203000_identity_foundation"
-        const migrationPath = join(hubRoot, "schema/migrations", migrationName, "migration.sql")
-        await database.query(await readFile(migrationPath, "utf8"))
+        const c1MigrationName = "20261029203000_identity_foundation"
+        const c2MigrationName = "20261030170000_authentication_proof"
+        for (const migrationName of [c1MigrationName, c2MigrationName]) {
+          const migrationPath = join(hubRoot, "schema/migrations", migrationName, "migration.sql")
+          await database.query(await readFile(migrationPath, "utf8"))
+        }
+
         const providerId = "00000000-0000-4000-8000-000000000010"
         const revisionId = "00000000-0000-4000-8000-000000000011"
         const userId = "00000000-0000-4000-8000-000000000012"
-        const externalIdentityId = "00000000-0000-4000-8000-000000000013"
+        const attemptId = "00000000-0000-4000-8000-000000000013"
+        const identityId = "00000000-0000-4000-8000-000000000015"
         await database.query("BEGIN")
         await database.query(
           `INSERT INTO authentication_providers (id, key) VALUES ($1, 'github')`,
@@ -49,10 +56,17 @@ describe("authentication proof migration", () => {
           `INSERT INTO external_identities
              (id, user_id, provider, issuer, subject)
            VALUES ($1, $2, 'github', 'https://github.com', '123456')`,
-          [externalIdentityId, userId],
+          [identityId, userId],
         )
         await database.query("COMMIT")
-        const c1Records = await database.query(
+        await database.query(
+          `INSERT INTO authorization_attempts
+             (id, provider_revision_id, state_digest, browser_binding_digest,
+              code_verifier_ciphertext, expires_at)
+           VALUES ($1, $2, $3, $4, 'encrypted', CURRENT_TIMESTAMP + interval '1 minute')`,
+          [attemptId, revisionId, "c".repeat(64), "d".repeat(64)],
+        )
+        const c2Records = await database.query(
           `SELECT
              provider.id AS provider_id,
              provider.key AS provider_key,
@@ -81,77 +95,34 @@ describe("authentication proof migration", () => {
            WHERE provider.id = $2`,
           [userId, providerId],
         )
-        const prisma = join(hubRoot, "node_modules/prisma/build/index.js")
+
+        const prismaCli = join(hubRoot, "node_modules/prisma/build/index.js")
         const options = {
           cwd: hubRoot,
           env: { ...process.env, DATABASE_URL: databaseUrl.toString() },
           timeout: 60_000,
         }
+        for (const migrationName of [c1MigrationName, c2MigrationName]) {
+          await promisify(execFile)(
+            process.execPath,
+            [
+              prismaCli,
+              "migrate",
+              "resolve",
+              "--applied",
+              migrationName,
+              "--config",
+              join(hubRoot, "prisma7.config.ts"),
+            ],
+            options,
+          )
+        }
         await promisify(execFile)(
           process.execPath,
-          [
-            prisma,
-            "migrate",
-            "resolve",
-            "--applied",
-            migrationName,
-            "--config",
-            join(hubRoot, "prisma7.config.ts"),
-          ],
-          options,
-        )
-        await promisify(execFile)(
-          process.execPath,
-          [prisma, "migrate", "deploy", "--config", join(hubRoot, "prisma7.config.ts")],
+          [prismaCli, "migrate", "deploy", "--config", join(hubRoot, "prisma7.config.ts")],
           options,
         )
 
-        const migrations = await database.query<{ migration_name: string }>(
-          "SELECT migration_name FROM public._prisma_migrations WHERE finished_at IS NOT NULL ORDER BY started_at",
-        )
-        expect(migrations.rows).toEqual([
-          { migration_name: "20261029203000_identity_foundation" },
-          { migration_name: "20261030170000_authentication_proof" },
-        ])
-        const c2Tables = await database.query<{ table_name: string }>(
-          `SELECT table_name
-           FROM information_schema.tables
-           WHERE table_schema = 'public'
-             AND table_name = 'authorization_attempts'
-           ORDER BY table_name`,
-        )
-        expect(c2Tables.rows).toEqual([{ table_name: "authorization_attempts" }])
-        const attemptColumns = await database.query<{ column_name: string }>(
-          `SELECT column_name
-           FROM information_schema.columns
-           WHERE table_schema = 'public'
-             AND table_name = 'authorization_attempts'
-           ORDER BY ordinal_position`,
-        )
-        expect(attemptColumns.rows.map(({ column_name }) => column_name)).toEqual([
-          "id",
-          "provider_revision_id",
-          "state_digest",
-          "browser_binding_digest",
-          "code_verifier_ciphertext",
-          "expires_at",
-          "consumed_at",
-          "created_at",
-          "updated_at",
-        ])
-        const attemptIndexes = await database.query<{ indexname: string }>(
-          `SELECT indexname
-           FROM pg_indexes
-           WHERE schemaname = 'public'
-             AND tablename = 'authorization_attempts'
-           ORDER BY indexname`,
-        )
-        expect(attemptIndexes.rows.map(({ indexname }) => indexname)).toEqual([
-          "authorization_attempts_consumed_at_idx",
-          "authorization_attempts_expires_at_idx",
-          "authorization_attempts_pkey",
-          "authorization_attempts_state_digest_key",
-        ])
         const upgradedRecords = await database.query(
           `SELECT
              provider.id AS provider_id,
@@ -181,38 +152,20 @@ describe("authentication proof migration", () => {
            WHERE provider.id = $2`,
           [userId, providerId],
         )
-        expect(upgradedRecords.rows).toEqual(c1Records.rows)
-
-        const attemptId = "00000000-0000-4000-8000-000000000014"
-        await expect(
-          database.query(
-            `INSERT INTO authorization_attempts
-               (id, provider_revision_id, state_digest, browser_binding_digest,
-                code_verifier_ciphertext, expires_at)
-             VALUES ($1, $2, 'bad', $3, 'encrypted', CURRENT_TIMESTAMP + interval '1 minute')`,
-            [attemptId, revisionId, "b".repeat(64)],
-          ),
-        ).rejects.toThrow()
-        await database.query(
-          `INSERT INTO authorization_attempts
-             (id, provider_revision_id, state_digest, browser_binding_digest,
-              code_verifier_ciphertext, expires_at)
-           VALUES ($1, $2, $3, $4, 'encrypted', CURRENT_TIMESTAMP + interval '1 minute')`,
-          [attemptId, revisionId, "a".repeat(64), "b".repeat(64)],
-        )
-        await expect(
-          database.query(`DELETE FROM authorization_attempts WHERE id = $1`, [attemptId]),
-        ).rejects.toThrow("Unexpired authorization attempts cannot be deleted")
-        await database.query(
-          `UPDATE authorization_attempts SET consumed_at = CURRENT_TIMESTAMP WHERE id = $1`,
+        const upgradedAttempt = await database.query<{
+          bootstrap_secret_digest: string | null
+          purpose: string
+        }>(
+          `SELECT purpose::text, bootstrap_secret_digest
+           FROM authorization_attempts
+           WHERE id = $1`,
           [attemptId],
         )
-        await expect(
-          database.query(
-            `UPDATE authorization_attempts SET consumed_at = CURRENT_TIMESTAMP WHERE id = $1`,
-            [attemptId],
-          ),
-        ).rejects.toThrow("first consumption")
+
+        expect(upgradedRecords.rows).toEqual(c2Records.rows)
+        expect(upgradedAttempt.rows).toEqual([
+          { bootstrap_secret_digest: null, purpose: "SIGN_IN" },
+        ])
       } finally {
         await database.end()
       }
@@ -221,4 +174,12 @@ describe("authentication proof migration", () => {
       await admin.end()
     }
   }, 30_000)
+
+  it("makes the member role available without adding a member admission path", async () => {
+    await expect(
+      prisma.$queryRaw<Array<{ role: string }>>`
+        SELECT 'MEMBER'::"MembershipRole"::text AS role
+      `,
+    ).resolves.toEqual([{ role: "MEMBER" }])
+  })
 })
