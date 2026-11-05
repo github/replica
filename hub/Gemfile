@@ -37,7 +37,7 @@ group :test do
 end
 
 group :development do
-  gem "annotaterb", "4.25.0", require: false
+  gem "annotaterb", "4.26.0", require: false
   gem "chusaku", "1.5.2", require: false
   gem "foreman", "0.90.0", require: false
   gem "web-console"
