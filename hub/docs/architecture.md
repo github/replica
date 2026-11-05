@@ -6,7 +6,7 @@ Hub contributors are rebuilding the app on `build/hub/new` before merging it int
 
 The team has chosen TypeScript, Express for the API, React and Vite for the frontend, and Vitest for tests. The old backend and the frontend code that connected to it have been removed rather than rewritten.
 
-The API responds to a health check. The frontend connects all retained pages through an explicit local mock mode, including prototype creation, reviews, sharing, account/setup, and administrative flows. Storybook remains the presentation workbench. These simulations do not implement real authentication, permission enforcement, publishing, or backend product services.
+The API responds to a health check. The frontend connects the retained pages for local exploration. Storybook remains the presentation workbench.
 
 Contributors can use PostgreSQL and Prisma locally or in the devcontainer. The database has a provider-neutral identity transaction foundation and internal GitHub authentication proof primitives. No public authentication flow is exposed. Production sign-in and product APIs have not been built. The app cannot yet discover real repositories, import Builds, host published previews, persist product data, or support live multi-user reviews.
 
@@ -51,9 +51,9 @@ Browser source lives directly under `client/`. Application code under `client/ap
 
 Imports follow the arrows above. Shared components, hooks, and utilities must not import pages, features, or application code. Keep browser and server code separate. Agree on the API before adding types shared between them.
 
-The theme provider wraps normal routes, loading feedback, and error feedback. The root reads session state without requiring a private workspace; a nested layout loads that workspace for signed-in pages. Route loaders and actions own requests and revalidation; shareable filters and selections live in the URL. MSW starts only in explicit mock development mode and uses fixture-backed local records. The bottom-right test toolbar owns all mock controls and diagnostics; changing its persona reloads a fresh world. Product screens keep their original product-facing copy. API failures never activate mock mode.
+The theme provider wraps normal routes, loading feedback, and error feedback. The root reads session state without requiring a private workspace; a nested layout loads that workspace for signed-in pages. Route loaders and actions own requests and revalidation; shareable filters and selections live in the URL. Product screens keep product-facing copy, and API failures remain visible errors.
 
-The application adapts retained internal links and GET forms to SPA navigation. Explicit adapters submit supported mutations; unknown legacy form submissions receive visible feedback. The [frontend guide](frontend.md) owns the connected routes, provisional HTTP contracts, mock lifecycle, and complete page inventory. Real product API implementation remains separate work.
+The application adapts retained internal links and GET forms to SPA navigation. Explicit adapters submit supported mutations; unknown legacy form submissions receive visible feedback. The [frontend guide](frontend.md) owns the connected routes, provisional HTTP contracts, local development modes, and complete page inventory. Real product API implementation remains separate work.
 
 ## Other projects
 

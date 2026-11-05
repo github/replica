@@ -1,17 +1,10 @@
 # Hub development
 
-Use the Hub devcontainer for Node.js and PostgreSQL, or run Node.js locally. The mock frontend needs no database or API server. Sign-in is not configured. See [Deployment](deployment.md) for the production runtime.
+Use the Hub devcontainer for Node.js and PostgreSQL, or run Node.js locally. Sign-in is not configured. See [Deployment](deployment.md) for the production runtime.
 
 ## Frontend without a backend
 
-With a Node.js version supported by [the dependency manifest](../package.json), run from `hub/`:
-
-```sh
-npm ci --engine-strict
-npm run dev:mock
-```
-
-Open <http://127.0.0.1:5173/repositories/2001>. Explore the retained product pages using local mock data, not GitHub or the real API. Reloading resets mock edits. See [Routed frontend](frontend.md) for scenarios, contracts, and the page inventory.
+Follow [Routed frontend](frontend.md) for local startup, data modes, and route examples. The local frontend can run without PostgreSQL or the API server.
 
 ## Devcontainer
 
@@ -80,7 +73,7 @@ npm run build
 npm start
 ```
 
-The build generates Framework route types and produces `dist/client/` and `dist/server/`. `npm start` runs only the compiled API by default. In a separate terminal, `npm run preview` serves the built frontend in real mode for local inspection. Mock workers and preview assets are development-only. The [production image](deployment.md) serves the frontend and API on one port and runs both workers; unknown API routes remain JSON 404 responses rather than returning the frontend document.
+The build generates Framework route types and produces `dist/client/` and `dist/server/`. `npm start` runs only the compiled API by default. In a separate terminal, `npm run preview` serves the built frontend in real mode for local inspection. Development-only assets are not included in production. The [production image](deployment.md) serves the frontend and API on one port and runs both workers; unknown API routes remain JSON 404 responses rather than returning the frontend document.
 
 Use `npm run storybook` to view the existing components and pages at <http://localhost:6006>. They use sample data, not the new API.
 
