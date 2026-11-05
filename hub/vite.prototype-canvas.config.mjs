@@ -24,7 +24,7 @@ export default defineConfig({
           groups: [
             {
               name: "improvement-notes-prototype",
-              test: /app[\\/]features[\\/]prototype-canvas-improvement-notes[\\/]/,
+              test: /client[\\/]features[\\/]prototype-canvas-improvement-notes[\\/]/,
               priority: 5,
               includeDependenciesRecursively: false,
             },
