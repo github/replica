@@ -68,18 +68,21 @@ ADD CONSTRAINT "provider_evidence_states_external_identity_id_fkey"
 FOREIGN KEY ("external_identity_id") REFERENCES "external_identities"("id")
 ON DELETE RESTRICT ON UPDATE CASCADE;
 
-CREATE OR REPLACE FUNCTION protect_authorization_attempt_purpose()
+CREATE FUNCTION protect_authorization_attempt_nonce()
 RETURNS trigger
 LANGUAGE plpgsql
 AS $$
 BEGIN
-    IF NEW."purpose" <> OLD."purpose"
-       OR NEW."nonce_ciphertext" IS DISTINCT FROM OLD."nonce_ciphertext" THEN
-        RAISE EXCEPTION 'Authorization attempt purpose and verification requirements are immutable.';
+    IF NEW."nonce_ciphertext" IS DISTINCT FROM OLD."nonce_ciphertext" THEN
+        RAISE EXCEPTION 'Authorization attempt nonce is immutable.';
     END IF;
     RETURN NEW;
 END;
 $$;
+
+CREATE TRIGGER "authorization_attempts_nonce_protected"
+BEFORE UPDATE ON "authorization_attempts"
+FOR EACH ROW EXECUTE FUNCTION protect_authorization_attempt_nonce();
 
 CREATE OR REPLACE FUNCTION protect_membership_assignment()
 RETURNS trigger

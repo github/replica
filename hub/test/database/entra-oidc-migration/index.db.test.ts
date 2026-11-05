@@ -309,11 +309,48 @@ describe("Entra OIDC migration compatibility", () => {
           /BEFORE (?:UPDATE OR DELETE|DELETE OR UPDATE) ON public\.provider_evidence_states .* protect_provider_evidence_state\(\)/,
         )
 
+        const attemptTriggers = await database.query<{ definition: string; name: string }>(
+          `SELECT trigger_record.tgname AS name,
+                  pg_get_triggerdef(trigger_record.oid) AS definition
+           FROM pg_trigger trigger_record
+           JOIN pg_class table_record ON table_record.oid = trigger_record.tgrelid
+           JOIN pg_namespace schema_record ON schema_record.oid = table_record.relnamespace
+           WHERE schema_record.nspname = 'public'
+             AND table_record.relname = 'authorization_attempts'
+             AND NOT trigger_record.tgisinternal
+           ORDER BY trigger_record.tgname`,
+        )
+        expect(attemptTriggers.rows.map(({ name }) => name)).toEqual([
+          "authorization_attempts_authority_protected",
+          "authorization_attempts_nonce_protected",
+          "authorization_attempts_protected",
+        ])
+        expect(attemptTriggers.rows[0]?.definition).toContain(
+          "protect_authorization_attempt_authority()",
+        )
+        expect(attemptTriggers.rows[1]?.definition).toContain(
+          "protect_authorization_attempt_nonce()",
+        )
+
         await expect(
           database.query(`SELECT nonce_ciphertext FROM authorization_attempts WHERE id = $1`, [
             attemptId,
           ]),
         ).resolves.toMatchObject({ rows: [{ nonce_ciphertext: null }] })
+        await expect(
+          database.query(
+            `UPDATE authorization_attempts SET nonce_ciphertext = 'changed' WHERE id = $1`,
+            [attemptId],
+          ),
+        ).rejects.toThrow(/Authorization attempt nonce is immutable/)
+        await expect(
+          database.query(
+            `UPDATE authorization_attempts
+             SET bootstrap_secret_digest = $2
+             WHERE id = $1`,
+            [attemptId, "d".repeat(64)],
+          ),
+        ).rejects.toThrow(/Authorization attempt authority is immutable/)
         await expect(
           database.query(
             `SELECT provider_revision_id, provider_assignment_subject
