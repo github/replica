@@ -56,9 +56,7 @@ export function Welcome({ expanded }: { expanded: boolean }) {
           {expanded ? wordmark.join("\n") : "REPLICA"}
         </Text>
         <Box marginTop={1}>
-          <Text color={terminalColors.info}>
-            {expanded ? "GitHub + REPLICA" : "GitHub + Replica"}
-          </Text>
+          <Text color={terminalColors.info}>GitHub Replica</Text>
         </Box>
         <Text dimColor>Build. Ship. Repeat.</Text>
       </Box>

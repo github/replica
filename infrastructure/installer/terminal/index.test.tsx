@@ -213,7 +213,7 @@ it.each(["cloud", "resume"])(
         ? ui.cloud()
         : ui.select("Resume setup?", [{ label: "Resume setup", value: "resume" }])
     const terminal = show()
-    await vi.waitFor(() => expect(terminal.lastFrame()).toContain("REPLICA"))
+    await vi.waitFor(() => expect(terminal.lastFrame()).toContain("GitHub"))
 
     terminal.stdin.write("\r")
     await expect(pending).resolves.toBe(question === "cloud" ? "azure" : "resume")
@@ -221,7 +221,7 @@ it.each(["cloud", "resume"])(
     const rejected = expect(next).rejects.toThrow(/cancel/i)
     await vi.waitFor(() => {
       expect(terminal.lastFrame()).toContain("Next setup question")
-      expect(terminal.lastFrame()).not.toContain("REPLICA")
+      expect(terminal.lastFrame()).not.toContain("GitHub")
     })
 
     abort.abort()
@@ -244,7 +244,7 @@ it.each(["inline", "screen reader"])(
 
     expect(boundary.options).toMatchObject({ alternateScreen: false })
     expect(terminal.lastFrame()).not.toMatch(/elapsed\s+\d+:/i)
-    expect(terminal.lastFrame()).not.toContain("REPLICA")
+    expect(terminal.lastFrame()).not.toContain("GitHub")
 
     abort.abort()
     await rejected
@@ -264,7 +264,7 @@ it("keeps the first question and its input usable while the welcome banner resiz
   vi.spyOn(terminal.stdout, "columns", "get").mockImplementation(() => dimensions.columns)
   Object.defineProperty(terminal.stdout, "rows", { get: () => dimensions.rows })
   terminal.stdout.emit("resize")
-  await vi.waitFor(() => expect(terminal.lastFrame()).toContain("REPLICA"))
+  await vi.waitFor(() => expect(terminal.lastFrame()).toContain("GitHub"))
   terminal.stdin.write("Res")
 
   for (const size of [
@@ -279,7 +279,7 @@ it("keeps the first question and its input usable while the welcome banner resiz
       const frame = terminal.lastFrame()!
       expect(frame).toContain("Resume setup?")
       expect(frame).toMatch(/Search:\s*Res/)
-      expect(frame.includes("REPLICA")).toBe(size.art)
+      expect(frame.includes("GitHub")).toBe(size.art)
       expect(frame.split("\n").length).toBeLessThanOrEqual(size.rows)
     })
   }
