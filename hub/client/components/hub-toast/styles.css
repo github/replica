@@ -1,0 +1,28 @@
+.hub-toast-region {
+  position: fixed;
+  inset: auto 1rem 1rem auto;
+  z-index: var(--hub-layer-toast);
+  display: flex;
+  inline-size: min(28rem, calc(100vw - 2rem));
+  max-block-size: calc(100dvh - 2rem);
+  overflow-y: auto;
+  flex-direction: column;
+  gap: var(--hub-space-12);
+  pointer-events: none;
+}
+
+.hub-toast {
+  display: flex;
+  flex: none;
+  flex-wrap: nowrap;
+  box-shadow: var(--hub-shadow-floating);
+  pointer-events: auto;
+}
+
+.hub-toast .hub-alert__content {
+  flex: 1;
+}
+
+.hub-toast .hub-alert__action {
+  flex: none;
+}

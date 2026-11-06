@@ -1,4 +1,5 @@
 import { copyFile } from "node:fs/promises"
+import { fileURLToPath } from "node:url"
 
 import { build } from "vite"
 
@@ -19,12 +20,11 @@ await build({
     minify: true,
     // This module is injected directly, not published for further bundling.
     rolldownOptions: { output: { minify: true } },
-    outDir: assets.pathname,
+    outDir: fileURLToPath(assets),
     lib: {
-      entry: new URL(
-        "../app/javascript/application/prototype-preview-bridge/index.ts",
-        import.meta.url,
-      ).pathname,
+      entry: fileURLToPath(
+        new URL("../client/application/prototype-preview-bridge/index.ts", import.meta.url),
+      ),
       formats: ["es"],
       name: "ReplicaCanvasBridge",
       fileName: () => "canvas-bridge.js",
@@ -38,17 +38,18 @@ await build({
   logLevel: "warn",
   resolve: {
     alias: {
-      "@utils": new URL("../app/javascript/utils/", import.meta.url).pathname,
+      "@utils": fileURLToPath(new URL("../client/utils/", import.meta.url)),
     },
   },
   build: {
     emptyOutDir: false,
     minify: true,
     rolldownOptions: { output: { minify: true } },
-    outDir: assets.pathname,
+    outDir: fileURLToPath(assets),
     lib: {
-      entry: new URL("../app/javascript/utils/review-anchor/validate-anchor.ts", import.meta.url)
-        .pathname,
+      entry: fileURLToPath(
+        new URL("../client/utils/review-anchor/validate-anchor.ts", import.meta.url),
+      ),
       formats: ["es"],
       fileName: () => "review-anchor-validation.mjs",
     },
@@ -64,12 +65,11 @@ await build({
     emptyOutDir: false,
     minify: true,
     rolldownOptions: { output: { minify: true } },
-    outDir: assets.pathname,
+    outDir: fileURLToPath(assets),
     lib: {
-      entry: new URL(
-        "../app/javascript/utils/prototype-controls/controls-validation.mjs",
-        import.meta.url,
-      ).pathname,
+      entry: fileURLToPath(
+        new URL("../client/utils/prototype-controls/controls-validation.mjs", import.meta.url),
+      ),
       formats: ["es"],
       fileName: () => "controls-validator.mjs",
     },

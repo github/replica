@@ -11,22 +11,26 @@
     "noEmit": true,
     "noUncheckedIndexedAccess": true,
     "paths": {
-      "@/*": ["./app/javascript/*"],
-      "@application/*": ["./app/javascript/application/*"],
-      "@components/*": ["./app/javascript/components/*"],
-      "@features/*": ["./app/javascript/features/*"],
-      "@hooks/*": ["./app/javascript/hooks/*"],
-      "@pages/*": ["./app/javascript/pages/*"],
-      "@utils/*": ["./app/javascript/utils/*"]
+      "@/*": ["./client/*"],
+      "@application/*": ["./client/application/*"],
+      "@assets/*": ["./public/*"],
+      "@components/*": ["./client/components/*"],
+      "@features/*": ["./client/features/*"],
+      "@hooks/*": ["./client/hooks/*"],
+      "@pages/*": ["./client/pages/*"],
+      "@utils/*": ["./client/utils/*"],
+      "@replica-extension/*": ["../.github/extensions/replica-prototype/*"]
     },
     "resolveJsonModule": true,
+    "rootDirs": [".", "./.react-router/types"],
     "skipLibCheck": true,
     "strict": true,
     "target": "ES2023",
     "types": ["node", "vite/client", "vitest/globals"]
   },
   "include": [
-    "app/javascript",
+    "client",
+    ".react-router/types/**/*",
     "server",
     "script/**/*.ts",
     "test",
@@ -36,6 +40,7 @@
     "prisma7.config.ts",
     "vite-aliases.ts",
     "controls-validator-plugin.ts",
+    "react-router.config.ts",
     "vite.config.ts",
     "vitest.config.ts"
   ]

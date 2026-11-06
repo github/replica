@@ -20,6 +20,8 @@ The API health check proves only that Express responds. Product API routes that 
 
 Run `npm run image:check` with a Docker-compatible daemon to build the production image and exercise role provisioning, repeated setup, runtime data access and denied schema changes, queue processing, readiness, serving, and shutdown against disposable PostgreSQL. It creates uniquely named resources and removes them afterward. The image compiles the Hub runtime only; the normal `build` command also checks the frontend, test tooling, and shared extension.
 
+The image smoke test waits for PostgreSQL's TCP listener. Its temporary initialization server accepts Unix-socket connections before the database is ready for connections from other containers.
+
 Installation generates Prisma Client without a database connection. Client tests check reuse across development reloads, production behavior, and errors for missing configuration.
 
 ## Clean test cases

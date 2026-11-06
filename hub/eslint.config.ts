@@ -13,6 +13,7 @@ export default defineConfig(
   {
     ignores: [
       "**/.local/**",
+      ".react-router/**",
       "**/*.js",
       "coverage/**",
       "node_modules/**",
@@ -55,7 +56,7 @@ export default defineConfig(
     rules: { "@typescript-eslint/no-base-to-string": "off" },
   },
   {
-    files: ["app/javascript/pages/**/*.{ts,tsx}"],
+    files: ["client/pages/**/*.{ts,tsx}"],
     rules: {
       "no-restricted-imports": [
         "error",
@@ -71,19 +72,42 @@ export default defineConfig(
     },
   },
   {
-    files: ["app/javascript/**/stories.tsx"],
+    files: ["client/**/stories.tsx"],
     rules: {
       "react-refresh/only-export-components": "off",
     },
   },
   {
-    files: ["app/javascript/application/start-prototype-canvas/index.tsx"],
+    files: ["client/application/start-prototype-canvas/index.tsx"],
     rules: {
       "react-refresh/only-export-components": "off",
     },
   },
   {
-    files: ["app/javascript/{components,hooks,utils}/**/*.{ts,tsx}"],
+    files: ["client/application/hub/root.tsx", "client/application/hub/routes/**/index.tsx"],
+    rules: {
+      "react-refresh/only-export-components": "off",
+    },
+  },
+  {
+    files: [
+      "client/application/hub/routes/**/index.tsx",
+      "client/application/hub/read-route-identifier/index.ts",
+      "client/application/hub/read-route-query/index.ts",
+      "client/application/hub/read-prototype-query/index.ts",
+      "client/application/hub/routes/read-form-field/index.ts",
+      "client/application/hub/routes/read-numeric-form-field/index.ts",
+      "client/application/hub/routes/require-form-destination/index.ts",
+    ],
+    rules: {
+      "@typescript-eslint/only-throw-error": [
+        "error",
+        { allow: [{ from: "lib", name: "Response" }] },
+      ],
+    },
+  },
+  {
+    files: ["client/{components,hooks,utils}/**/*.{ts,tsx}"],
     rules: {
       "no-restricted-imports": [
         "error",
@@ -107,8 +131,8 @@ export default defineConfig(
       "../.github/extensions/replica-prototype/**/*.mjs",
       "../.github/extensions/replica-prototype/**/*.d.mts",
       "../.github/extensions/replica-prototype/**/*.d.ts",
-      "app/javascript/utils/prototype-controls/**/*.mjs",
-      "app/javascript/utils/prototype-controls/**/*.d.mts",
+      "client/utils/prototype-controls/**/*.mjs",
+      "client/utils/prototype-controls/**/*.d.mts",
       "../packages/learning/**/*.mjs",
       "../packages/learning/**/*.d.mts",
     ],

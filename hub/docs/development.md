@@ -2,6 +2,10 @@
 
 Use the Hub devcontainer for Node.js and its pinned PostgreSQL version, or run Node.js locally with PostgreSQL 17 or newer. Hub can expose GitHub sign-in and reusable administrator enrollment when every authentication setting is configured. See [Deployment](deployment.md) for the production runtime.
 
+## Frontend without a backend
+
+Follow [Routed frontend](frontend.md) for local startup, data modes, and route examples. The local frontend can run without PostgreSQL or the API server.
+
 ## Devcontainer
 
 Install a Docker-compatible runtime with Docker Compose and an editor with Dev Containers support. Open the repository's `hub/` directory in the editor and reopen it in the container using `.devcontainer/devcontainer.json`.
@@ -22,7 +26,7 @@ npm ci --engine-strict
 
 The example URL connects to PostgreSQL on `127.0.0.1:5432`. To use another development database, set `DATABASE_URL` in `.env` instead. Do not commit credentials. The health route does not query the database. Authentication routes require the database and remain unavailable until their settings are configured.
 
-## Start the app
+## Start with the real API
 
 Run these commands from `hub/`, inside the devcontainer or with local Node.js:
 
@@ -36,7 +40,7 @@ In a second terminal, also from `hub/`, start Vite:
 npm run dev
 ```
 
-Open <http://127.0.0.1:5173>. Vite serves the frontend and forwards `/api` requests to Express at <http://127.0.0.1:3001>. `GET /api/health` and `GET /api/ready` return JSON. The [authentication and Hub session guide](authentication.md) describes the configured sign-in routes.
+Open <http://127.0.0.1:5173>. React Router's Vite development server forwards `/api` requests to Express at <http://127.0.0.1:3001>. `GET /api/health` and `GET /api/ready` return JSON. The [authentication and Hub session guide](authentication.md) describes configured sign-in and enrollment. In real mode, `/` and `/admin-enrollment` show that authentication flow without requesting a product workspace. Product API routes have not been built, so other product pages display API errors rather than falling back to fixtures.
 
 The API registers authentication routes when `HUB_APPLICATION_ORIGIN` is configured. Set the GitHub client, provider revision, encryption key, and bootstrap secret settings documented in `.env.example` at the same time. Both development servers accept connections only from this machine. Stop each with Ctrl+C.
 
@@ -71,7 +75,7 @@ npm run build
 npm start
 ```
 
-The build produces `dist/client/` and `dist/server/`. `npm start` runs only the compiled API by default. In a separate terminal, `npm run preview` serves the built frontend for local inspection. The [production image](deployment.md) serves both on one port and runs both workers.
+The build generates Framework route types and produces `dist/client/` and `dist/server/`. `npm start` runs only the compiled API by default. In a separate terminal, `npm run preview` serves the built frontend in real mode for local inspection. Development-only assets are not included in production. The [production image](deployment.md) serves the frontend and API on one port and runs both workers; unknown API routes remain JSON 404 responses rather than returning the frontend document.
 
 Use `npm run storybook` to view the existing components and pages at <http://localhost:6006>. They use sample data, not the new API.
 

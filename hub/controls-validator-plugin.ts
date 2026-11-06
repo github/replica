@@ -1,22 +1,22 @@
 import { fileURLToPath } from "node:url"
 import { dirname, resolve } from "node:path"
-import type { Plugin } from "vite"
+import { normalizePath, type Plugin } from "vite"
 
-const root = resolve(
-  dirname(fileURLToPath(import.meta.url)),
-  "./app/javascript/utils/prototype-controls",
-)
+const root = resolve(dirname(fileURLToPath(import.meta.url)), "./client/utils/prototype-controls")
 export const controlsValidatorModule = "replica-controls-validator"
 export const controlsValidatorPath = resolve(root, "controls-shape.cjs")
+const validationPath = normalizePath(resolve(root, "controls-validation.mjs"))
 
 export function controlsValidatorPlugin(): Plugin {
   return {
     name: "replica:controls-validator",
     enforce: "pre",
     resolveId(source, importer, options) {
+      const importerPath = importer?.split("?")[0]
       if (
         source !== "./controls-shape.cjs" ||
-        importer?.split("?")[0] !== resolve(root, "controls-validation.mjs")
+        !importerPath ||
+        normalizePath(importerPath) !== validationPath
       )
         return null
       return this.resolve(controlsValidatorModule, importer, { ...options, skipSelf: true })
