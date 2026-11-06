@@ -1,5 +1,10 @@
 mock_provider "azurerm" {
   override_during = plan
+  mock_data "azurerm_client_config" {
+    defaults = {
+      object_id = "00000000-0000-0000-0000-000000000005"
+    }
+  }
   mock_resource "azurerm_resource_group" {
     defaults = {
       id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/test-hub"
@@ -118,6 +123,13 @@ run "bootstrap_keeps_hub_stopped" {
   }
   assert {
     condition = (
+      length(data.azurerm_client_config.deployment) == 0 &&
+      length(azurerm_role_assignment.deployment_storage) == 0
+    )
+    error_message = "Deployment Blob access must remain opt-in without reading or granting a deployment principal by default."
+  }
+  assert {
+    condition = (
       output.installation.app_id == null &&
       output.installation.resource_group_id == azurerm_resource_group.hub.id &&
       output.installation.resource_group_id == "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/test-hub" &&
@@ -133,6 +145,28 @@ run "bootstrap_keeps_hub_stopped" {
       azurerm_container_app_job.setup.replica_retry_limit == 0
     )
     error_message = "Setup must run explicitly, once per execution, without automatic retries."
+  }
+}
+
+run "deployment_blob_access_is_an_explicit_account_scoped_grant" {
+  command = plan
+
+  variables {
+    grant_deployment_storage_access = true
+  }
+
+  assert {
+    condition = (
+      length(data.azurerm_client_config.deployment) == 1 &&
+      length(azurerm_role_assignment.deployment_storage) == 1 &&
+      azurerm_role_assignment.deployment_storage[0].scope == azurerm_storage_account.artifacts.id &&
+      azurerm_role_assignment.deployment_storage[0].role_definition_name == "Storage Blob Data Contributor" &&
+      azurerm_role_assignment.deployment_storage[0].principal_id == data.azurerm_client_config.deployment[0].object_id &&
+      azurerm_role_assignment.deployment_storage[0].principal_id == "00000000-0000-0000-0000-000000000005" &&
+      azurerm_role_assignment.deployment_storage[0].principal_id != azurerm_user_assigned_identity.hub.principal_id &&
+      azurerm_role_assignment.deployment_storage[0].principal_id != azurerm_user_assigned_identity.setup.principal_id
+    )
+    error_message = "Opt-in Blob access must grant only the authenticated deployment principal on the installation storage account, not a workload or the artifacts container."
   }
 }
 
