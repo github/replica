@@ -1,8 +1,9 @@
 import { http, HttpResponse } from "msw"
 import { z } from "zod"
 
-import { settingsOperationSchema, settingsQuerySchema } from "../../settings-contracts"
-import type { MockSession } from "../create-session"
+import { settingsOperationSchema, settingsQuerySchema } from "@application/hub/settings-contracts"
+
+import type { MockSession } from "../create-session/types"
 import type { createSettingsStore } from "../create-settings-store"
 import { mockDiagnostics } from "../diagnostics"
 import { readMockJson } from "../read-json"

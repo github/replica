@@ -6,6 +6,7 @@ import * as prettier from "prettier"
 const project = fileURLToPath(
   new URL("../../.github/extensions/replica-prototype/tsconfig.json", import.meta.url),
 )
+// Resolve the CLI rather than the package entry, which exposes the compiler API.
 const compiler = fileURLToPath(
   new URL("./bin/tsc", import.meta.resolve("@typescript/native/package.json")),
 )

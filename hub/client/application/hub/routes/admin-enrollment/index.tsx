@@ -1,8 +1,9 @@
 import { redirect } from "react-router"
 
-import { HubApplication } from "../../../hub-application"
+import { HubApplication } from "@application/hub-application"
+import { isAuthenticationRoute } from "@application/hub/is-authentication-route"
+
 import type { Route } from "./+types/index"
-import { isAuthenticationRoute } from "../../is-authentication-route"
 
 export function clientLoader({ request }: Pick<Route.ClientLoaderArgs, "request">) {
   if (!isAuthenticationRoute(request)) throw redirect("/settings/enroll")

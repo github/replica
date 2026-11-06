@@ -1,4 +1,4 @@
-import { SettingsRouteScreen } from "../../screens/settings-route-screen"
+import { SettingsRouteScreen } from "@application/hub/screens/settings-route-screen"
 import { settingsController } from "../settings-controller"
 import type { SettingsRouteData } from "../settings-controller/types"
 import { settingsMeta } from "../settings-meta"

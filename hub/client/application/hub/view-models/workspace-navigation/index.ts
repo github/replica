@@ -1,6 +1,6 @@
 import type { HubWorkspaceData } from "@features/hub-workspace/types"
 
-import type { WorkspaceResponse } from "../../contracts"
+import type { WorkspaceResponse } from "../../contracts/types"
 import { resourcePath } from "../resource-path"
 
 export function workspaceNavigation(

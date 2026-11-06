@@ -8,7 +8,7 @@ import { createMockHandlers } from "../mocks/create-handlers"
 import { createMockStore } from "../mocks/create-store"
 import { mockDiagnostics } from "../mocks/diagnostics"
 import { settingsQuerySchema } from "../settings-contracts"
-import type { SettingsOperation } from "../settings-contracts"
+import type { SettingsOperation } from "../settings-contracts/types"
 import SettingsAdminConfirmationRoute, {
   clientAction as confirmAdministrator,
   clientLoader as loadConfirmation,

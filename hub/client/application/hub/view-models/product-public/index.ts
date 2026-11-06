@@ -1,6 +1,6 @@
 import type { SharedBuildsShowPageData } from "@pages/shared-builds-show-page/types"
 
-import type { ProductPublicResponse } from "../../product-contracts"
+import type { ProductPublicResponse } from "../../product-contracts/types"
 
 export function productPublicData(response: ProductPublicResponse): SharedBuildsShowPageData {
   const common = {

@@ -4,8 +4,9 @@ import type {
   PrototypeResponse,
   RepositoryRecord,
   UserRecord,
-} from "../../contracts"
-import type { MockSession } from "../create-session"
+} from "@application/hub/contracts/types"
+
+import type { MockSession } from "../create-session/types"
 
 export interface MockFlowContext {
   origin: string

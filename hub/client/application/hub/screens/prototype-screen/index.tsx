@@ -6,10 +6,10 @@ import { usePrototypeReview } from "@hooks/use-prototype-review"
 import { PrototypesShowPage } from "@pages/prototypes-show-page"
 import type { PrototypeDetailsInput } from "@pages/prototypes-show-page/types"
 
-import type { PrototypeResponse, WorkspaceResponse } from "../../contracts"
+import type { PrototypeResponse, WorkspaceResponse } from "../../contracts/types"
 import { prototypeShowData } from "../../view-models/prototype-show"
 import { createReviewTransport } from "../../review-transport"
-import type { SessionResponse } from "../../session-contracts"
+import type { SessionResponse } from "../../session-contracts/types"
 import { readReviewQuery } from "../../read-review-query"
 
 export function PrototypeScreen({

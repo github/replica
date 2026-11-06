@@ -1,5 +1,5 @@
 import { mockProfileSchema, mockScenarioSchema } from "../contracts"
-import type { MockProfile, MockScenario } from "../contracts"
+import type { MockProfile, MockScenario } from "../contracts/types"
 
 interface Diagnostic {
   id: number
@@ -14,6 +14,7 @@ interface Snapshot {
 
 const profileKey = "replica:mock-profile"
 const scenarioKey = "replica:mock-scenario"
+const messageLimit = 5
 const listeners = new Set<() => void>()
 let snapshot: Snapshot = { profile: "owner", scenario: "normal", messages: [] }
 let nextId = 1
@@ -24,7 +25,7 @@ function update(values: Partial<Snapshot>) {
 }
 
 function report(message: string) {
-  update({ messages: [...snapshot.messages, { id: nextId++, message }].slice(-5) })
+  update({ messages: [...snapshot.messages, { id: nextId++, message }].slice(-messageLimit) })
 }
 
 function remember(key: string, value: string) {

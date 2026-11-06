@@ -3,24 +3,24 @@ import { describe, expect, it, vi } from "vitest"
 
 import { HubThemeProvider } from "@hooks/use-hub-theme"
 
-import { FlowFormBoundary } from "."
+import { FormBoundary } from "."
 
-describe("FlowFormBoundary()", () => {
+describe("FormBoundary()", () => {
   it("announces routine feedback outside the form without taking focus and permits dismissal", () => {
     const onSubmit = vi.fn()
     const { container, rerender } = render(
-      <FlowFormBoundary busy={false} onSubmit={onSubmit}>
+      <FormBoundary busy={false} onSubmit={onSubmit}>
         <input aria-label="Prototype name" />
-      </FlowFormBoundary>,
+      </FormBoundary>,
       { wrapper: HubThemeProvider },
     )
     const field = screen.getByRole("textbox", { name: "Prototype name" })
     field.focus()
 
     rerender(
-      <FlowFormBoundary busy={false} notice="Prototype details saved." onSubmit={onSubmit}>
+      <FormBoundary busy={false} notice="Prototype details saved." onSubmit={onSubmit}>
         <input aria-label="Prototype name" />
-      </FlowFormBoundary>,
+      </FormBoundary>,
     )
 
     const notifications = screen.getByRole("region", { name: "Notifications" })
@@ -35,17 +35,17 @@ describe("FlowFormBoundary()", () => {
   it("keeps a failed save inline and focuses its actionable error feedback", () => {
     const onSubmit = vi.fn()
     const { container, rerender } = render(
-      <FlowFormBoundary busy={false} onSubmit={onSubmit}>
+      <FormBoundary busy={false} onSubmit={onSubmit}>
         <input aria-label="Prototype name" />
-      </FlowFormBoundary>,
+      </FormBoundary>,
       { wrapper: HubThemeProvider },
     )
     screen.getByRole("textbox", { name: "Prototype name" }).focus()
 
     rerender(
-      <FlowFormBoundary busy={false} error="Your changes could not be saved." onSubmit={onSubmit}>
+      <FormBoundary busy={false} error="Your changes could not be saved." onSubmit={onSubmit}>
         <input aria-label="Prototype name" />
-      </FlowFormBoundary>,
+      </FormBoundary>,
     )
 
     const error = screen.getByRole("alert")

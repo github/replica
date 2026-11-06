@@ -5,7 +5,7 @@ import type { GithubAppSetupShowPageData } from "@pages/github-app-setup-show-pa
 import type { HubAdminEnrollmentPageData } from "@pages/hub-admin-enrollment-page/types"
 import type { SessionRevocationPageData } from "@pages/session-revocation-page/types"
 
-import type { SettingsPublicResponse } from "../../settings-contracts"
+import type { SettingsPublicResponse } from "../../settings-contracts/types"
 import { resourcePath } from "../resource-path"
 
 export function settingsPublic(state: SettingsPublicResponse, search: URLSearchParams) {

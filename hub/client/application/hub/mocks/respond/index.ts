@@ -1,10 +1,12 @@
 import { delay, HttpResponse } from "msw"
 
 import { mockScenarioSchema } from "../contracts"
-import type { MockScenario } from "../contracts"
+import type { MockScenario } from "../contracts/types"
 import { mockDiagnostics } from "../diagnostics"
 import { MockStoreError } from "../store-error"
-import type { MockSession } from "../create-session"
+import type { MockSession } from "../create-session/types"
+
+const loadingDelayMs = 1500
 
 export async function respondMock(
   request: Request,
@@ -36,7 +38,7 @@ export async function respondMock(
         `${request.method} ${new URL(request.url).pathname}: ${scenario} response selected.`,
       )
     }
-    if (scenario === "loading") await delay(1500)
+    if (scenario === "loading") await delay(loadingDelayMs)
     assertCurrentSession()
     if (scenario === "forbidden") {
       throw new MockStoreError(403, "You do not have access to this resource.")

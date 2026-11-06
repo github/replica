@@ -1,5 +1,5 @@
 import { settingsOperationSchema } from "../../settings-contracts"
-import type { SettingsOperation, SettingsSection } from "../../settings-contracts"
+import type { SettingsOperation, SettingsSection } from "../../settings-contracts/types"
 
 export function settingsFormOperation(
   section: SettingsSection,
@@ -46,7 +46,10 @@ export function settingsFormOperation(
 
   function requirePath(path: string, methods: string[]) {
     if (source.pathname !== path || !methods.includes(method)) {
-      throw new Response("This form operation is not supported on this page.", { status: 422 })
+      throw new Response(
+        `This page requires a ${methods.map((value) => value.toUpperCase()).join(" or ")} form targeting ${path}.`,
+        { status: 422 },
+      )
     }
   }
 

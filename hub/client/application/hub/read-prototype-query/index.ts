@@ -1,5 +1,5 @@
 import { prototypeQuerySchema } from "../contracts"
-import type { PrototypeQuery } from "../contracts"
+import type { PrototypeQuery } from "../contracts/types"
 
 export function readPrototypeQuery(request: Request): PrototypeQuery {
   const params = new URL(request.url).searchParams
@@ -9,7 +9,10 @@ export function readPrototypeQuery(request: Request): PrototypeQuery {
   })
 
   if (!result.success) {
-    throw new Response("Invalid route filters.", { status: 400 })
+    throw new Response(
+      result.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join(" "),
+      { status: 400 },
+    )
   }
   return result.data
 }

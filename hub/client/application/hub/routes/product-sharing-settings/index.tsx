@@ -3,13 +3,13 @@ import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 
 import { SharingSettingsPage } from "@pages/sharing-settings-page"
 
-import type { WorkspaceResponse } from "../../contracts"
+import type { WorkspaceResponse } from "../../contracts/types"
 import {
   productMutationResponseSchema,
   productSharingSettingsInputSchema,
   productSharingSettingsSchema,
 } from "../../product-contracts"
-import type { ProductActionResult, ProductSharingSettings } from "../../product-contracts"
+import type { ProductActionResult, ProductSharingSettings } from "../../product-contracts/types"
 import { ProductFormBoundary } from "../../screens/product-form-boundary"
 import { productSharingSettingsData } from "../../view-models/product-sharing-settings"
 import { productActionError } from "../product-action-error"
@@ -44,7 +44,16 @@ export async function clientAction({ request }: Pick<ActionFunctionArgs, "reques
   })
   if (!parsed.success) {
     return data<ProductActionResult>(
-      { saved: false, error: "Confirm the current sharing change." },
+      {
+        saved: false,
+        error: parsed.error.issues
+          .map((issue) =>
+            issue.path[0] === "confirmed"
+              ? "Confirm the sharing change before submitting."
+              : "Choose whether to enable or disable public sharing.",
+          )
+          .join(" "),
+      },
       { status: 422 },
     )
   }

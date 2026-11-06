@@ -1,6 +1,6 @@
 import type { BuildsShowPageData } from "@pages/builds-show-page/types"
 
-import type { BuildResponse, WorkspaceResponse } from "../../contracts"
+import type { BuildResponse, WorkspaceResponse } from "../../contracts/types"
 import { buildStateLabel } from "../build-state-label"
 import { formatBuildTime } from "../format-build-time"
 import { prototypeWorkspace } from "../prototype-workspace"

@@ -3,7 +3,7 @@ import type { LoaderFunctionArgs } from "react-router"
 import { SharedBuildsShowPage } from "@pages/shared-builds-show-page"
 
 import { productPublicResponseSchema, productShareIdSchema } from "../../product-contracts"
-import type { ProductPublicResponse } from "../../product-contracts"
+import type { ProductPublicResponse } from "../../product-contracts/types"
 import { productPublicData } from "../../view-models/product-public"
 import { requestProductJson } from "../product-request"
 

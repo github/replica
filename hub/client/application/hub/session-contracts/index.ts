@@ -6,5 +6,3 @@ export const sessionResponseSchema = z.object({
   viewer: userSchema.nullable(),
   capabilities: workspaceCapabilitiesSchema,
 })
-
-export type SessionResponse = z.infer<typeof sessionResponseSchema>

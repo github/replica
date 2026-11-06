@@ -21,6 +21,7 @@ export function HubToast({
   const [dismissed, setDismissed] = useState(false)
   const [previousTitle, setPreviousTitle] = useState(title)
 
+  // React retries this render before committing, so a new title is never briefly dismissed.
   if (title !== previousTitle) {
     setPreviousTitle(title)
     setDismissed(false)

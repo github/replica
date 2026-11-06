@@ -1,6 +1,6 @@
 import type { RepositoriesShowPageData } from "@pages/repositories-show-page/types"
 
-import type { RepositoryResponse, WorkspaceResponse } from "../../contracts"
+import type { RepositoryResponse, WorkspaceResponse } from "../../contracts/types"
 import { buildStateLabel } from "../build-state-label"
 import { repositoryWorkspace } from "../repository-workspace"
 import { resourcePath } from "../resource-path"

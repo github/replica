@@ -1,7 +1,7 @@
 import type { PrototypesShowPageData } from "@pages/prototypes-show-page/types"
 import { reviewCommentsCopy } from "@utils/review-comment/en"
 
-import type { PrototypeResponse, WorkspaceResponse } from "../../contracts"
+import type { PrototypeResponse, WorkspaceResponse } from "../../contracts/types"
 import { buildStateLabel } from "../build-state-label"
 import { productContinuation } from "../product-continuation"
 import { prototypeWorkspace } from "../prototype-workspace"

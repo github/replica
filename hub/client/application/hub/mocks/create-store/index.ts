@@ -6,7 +6,7 @@ import {
   prototypeSchema,
   repositorySchema,
   userSchema,
-} from "../../contracts"
+} from "@application/hub/contracts"
 import type {
   AuthorResults,
   BuildHistoryResponse,
@@ -18,7 +18,8 @@ import type {
   RepositoryResponse,
   RouteQuery,
   WorkspaceResponse,
-} from "../../contracts"
+} from "@application/hub/contracts/types"
+
 import { createMockSession } from "../create-session"
 import { createFixtureSeed } from "../create-fixture-seed"
 import type { MockFlowContext } from "../flow-context/types"
@@ -26,6 +27,12 @@ import { createReviewStore } from "../create-review-store"
 import { createProductStore } from "../create-product-store"
 import { createSettingsStore } from "../create-settings-store"
 import { MockStoreError } from "../store-error"
+
+import type { Options } from "./types"
+
+const prototypePageSize = 24
+const buildHistoryPageSize = 25
+const authorPageSize = 20
 
 const seedSchema = z.object({
   viewerLogin: z.string().min(1),
@@ -40,11 +47,6 @@ const seedSchema = z.object({
     }),
   ),
 })
-
-interface Options {
-  origin: string
-  seed?: unknown
-}
 
 export function createMockStore({ origin, seed = createFixtureSeed() }: Options) {
   const parsedOrigin = new URL(origin)
@@ -222,7 +224,7 @@ export function createMockStore({ origin, seed = createFixtureSeed() }: Options)
           ),
         )
         .map(({ id }) => prototypeRecord(repositoryId, id))
-      const page = paginate(matches, query.page, 24)
+      const page = paginate(matches, query.page, prototypePageSize)
       return {
         repository,
         prototypes: page.records,
@@ -271,7 +273,7 @@ export function createMockStore({ origin, seed = createFixtureSeed() }: Options)
     getBuildHistory(repositoryId: number, prototypeId: number, page = 1): BuildHistoryResponse {
       session.requireViewer()
       const prototype = prototypeRecord(repositoryId, prototypeId)
-      const selected = paginate(prototype.builds, page, 25)
+      const selected = paginate(prototype.builds, page, buildHistoryPageSize)
       return {
         repository: repositoryRecord(repositoryId),
         prototype,
@@ -292,9 +294,8 @@ export function createMockStore({ origin, seed = createFixtureSeed() }: Options)
       if (cursor !== null && previousIndex === -1) {
         throw new MockStoreError(400, "Unknown author cursor.")
       }
-      const pageSize = 20
-      const page = authors.slice(previousIndex + 1, previousIndex + 1 + pageSize)
-      const next = authors.length > previousIndex + 1 + pageSize ? page.at(-1) : undefined
+      const page = authors.slice(previousIndex + 1, previousIndex + 1 + authorPageSize)
+      const next = authors.length > previousIndex + 1 + authorPageSize ? page.at(-1) : undefined
       return { authors: page, nextCursor: next?.id ?? null }
     },
 
@@ -317,5 +318,3 @@ export function createMockStore({ origin, seed = createFixtureSeed() }: Options)
     },
   }
 }
-
-export type MockStore = ReturnType<typeof createMockStore>

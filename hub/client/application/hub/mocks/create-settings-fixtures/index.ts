@@ -1,6 +1,7 @@
 import type { InboxNotification } from "@utils/notification/types"
 
-import type { SettingsAuditEvent } from "../../settings-contracts"
+import type { SettingsAuditEvent } from "@application/hub/settings-contracts/types"
+
 import type { MockFlowContext } from "../flow-context/types"
 import reviewSeed from "../review-seed.json"
 

@@ -1,8 +1,8 @@
 import type { HubAdministrationPageData } from "@features/hub-administration-page/types"
 import type { HubAdministrationWorkspaceData } from "@features/hub-administration-workspace/types"
 
-import type { WorkspaceResponse } from "../../contracts"
-import type { SettingsWorkspaceResponse } from "../../settings-contracts"
+import type { WorkspaceResponse } from "../../contracts/types"
+import type { SettingsWorkspaceResponse } from "../../settings-contracts/types"
 import { resourcePath } from "../resource-path"
 import { settingsWorkspace } from "../settings-workspace"
 

@@ -5,9 +5,10 @@ import {
   prototypeQuerySchema,
   routeIdentifierSchema,
   routeQuerySchema,
-} from "../../contracts"
-import { sessionResponseSchema } from "../../session-contracts"
-import type { MockStore } from "../create-store"
+} from "@application/hub/contracts"
+import { sessionResponseSchema } from "@application/hub/session-contracts"
+
+import type { MockStore } from "../create-store/types"
 import { MockStoreError } from "../store-error"
 import { respondMock } from "../respond"
 import { createReviewHandlers } from "../create-review-handlers"

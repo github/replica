@@ -1,7 +1,11 @@
 import { useFetcher, useLocation, useRevalidator } from "react-router"
 
-import type { SettingsActionResult, SettingsSection } from "../../settings-contracts"
-import type { SettingsRouteData } from "../../routes/settings-controller/types"
+import type {
+  SettingsActionResult,
+  SettingsSection,
+} from "@application/hub/settings-contracts/types"
+import type { SettingsRouteData } from "@application/hub/routes/settings-controller/types"
+
 import { SettingsFormBoundary } from "../settings-form-boundary"
 import { SettingsPublicScreen } from "../settings-public-screen"
 import { SettingsWorkspaceScreen } from "../settings-workspace-screen"

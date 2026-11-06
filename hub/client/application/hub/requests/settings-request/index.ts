@@ -1,7 +1,7 @@
 import type { z } from "zod"
 
 import { settingsQuerySchema } from "../../settings-contracts"
-import type { SettingsOperation } from "../../settings-contracts"
+import type { SettingsOperation } from "../../settings-contracts/types"
 import { ApiRequestError } from "../api-request-error"
 import { requestJson } from "../request-json"
 

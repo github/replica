@@ -3,7 +3,7 @@ import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 
 import { ShareLinksIndexPage } from "@pages/share-links-index-page"
 
-import type { WorkspaceResponse } from "../../contracts"
+import type { WorkspaceResponse } from "../../contracts/types"
 import {
   productLinkCreatedResponseSchema,
   productMutationResponseSchema,
@@ -11,7 +11,7 @@ import {
   productShareInputSchema,
   productSharingResponseSchema,
 } from "../../product-contracts"
-import type { ProductActionResult, ProductSharingResponse } from "../../product-contracts"
+import type { ProductActionResult, ProductSharingResponse } from "../../product-contracts/types"
 import { readRouteIdentifier } from "../../read-route-identifier"
 import { readRouteQuery } from "../../read-route-query"
 import { ProductFormBoundary } from "../../screens/product-form-boundary"

@@ -2,12 +2,13 @@ import { redirect, useLocation } from "react-router"
 
 import { RepositoriesIndexPage } from "@pages/repositories-index-page"
 
-import { HubApplication } from "../../../hub-application"
+import { HubApplication } from "@application/hub-application"
+import { isAuthenticationRoute } from "@application/hub/is-authentication-route"
+import { getSession } from "@application/hub/requests/get-session"
+import { getWorkspace } from "@application/hub/requests/get-workspace"
+import { workspaceNavigation } from "@application/hub/view-models/workspace-navigation"
+
 import type { Route } from "./+types/index"
-import { isAuthenticationRoute } from "../../is-authentication-route"
-import { getSession } from "../../requests/get-session"
-import { getWorkspace } from "../../requests/get-workspace"
-import { workspaceNavigation } from "../../view-models/workspace-navigation"
 
 export async function clientLoader({ request }: Pick<Route.ClientLoaderArgs, "request">) {
   if (isAuthenticationRoute(request)) return null

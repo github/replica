@@ -5,7 +5,7 @@ import type {
   PrototypeRecord,
   RepositoryRecord,
   WorkspaceResponse,
-} from "../../contracts"
+} from "../../contracts/types"
 import { buildStateLabel } from "../build-state-label"
 import { repositoryWorkspace } from "../repository-workspace"
 import { resourcePath } from "../resource-path"

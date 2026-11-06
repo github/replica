@@ -1,6 +1,6 @@
 import { data } from "react-router"
 
-import type { ProductActionResult } from "../../product-contracts"
+import type { ProductActionResult } from "../../product-contracts/types"
 import { ApiContractError } from "../../requests/api-contract-error"
 import { ApiRequestError } from "../../requests/api-request-error"
 

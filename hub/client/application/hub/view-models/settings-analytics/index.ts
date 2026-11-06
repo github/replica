@@ -1,7 +1,7 @@
 import type { AnalyticsDestination, AnalyticsPageData } from "@pages/analytics-page/types"
 
-import type { WorkspaceResponse } from "../../contracts"
-import type { SettingsWorkspaceResponse } from "../../settings-contracts"
+import type { WorkspaceResponse } from "../../contracts/types"
+import type { SettingsWorkspaceResponse } from "../../settings-contracts/types"
 import { resourcePath } from "../resource-path"
 import { settingsRepositoryWorkspace } from "../settings-repository-workspace"
 

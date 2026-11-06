@@ -1,5 +1,5 @@
 import { routeQuerySchema } from "../contracts"
-import type { RouteQuery } from "../contracts"
+import type { RouteQuery } from "../contracts/types"
 
 export function readRouteQuery(request: Request): RouteQuery {
   const params = new URL(request.url).searchParams
@@ -12,7 +12,10 @@ export function readRouteQuery(request: Request): RouteQuery {
   })
 
   if (!result.success) {
-    throw new Response("Invalid route filters.", { status: 400 })
+    throw new Response(
+      result.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join(" "),
+      { status: 400 },
+    )
   }
   return result.data
 }

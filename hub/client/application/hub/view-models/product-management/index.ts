@@ -1,7 +1,7 @@
 import type { PrototypeManagementPageData } from "@pages/prototype-management-page/types"
 
-import type { WorkspaceResponse } from "../../contracts"
-import type { ProductManagementResponse } from "../../product-contracts"
+import type { WorkspaceResponse } from "../../contracts/types"
+import type { ProductManagementResponse } from "../../product-contracts/types"
 import { repositoryWorkspace } from "../repository-workspace"
 import { resourcePath } from "../resource-path"
 

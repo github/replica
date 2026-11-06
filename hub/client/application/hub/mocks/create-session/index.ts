@@ -1,6 +1,7 @@
-import type { UserRecord } from "../../contracts"
-import type { SessionResponse } from "../../session-contracts"
-import type { MockProfile } from "../contracts"
+import type { UserRecord } from "@application/hub/contracts/types"
+import type { SessionResponse } from "@application/hub/session-contracts/types"
+
+import type { MockProfile } from "../contracts/types"
 import { MockStoreError } from "../store-error"
 
 export function createMockSession(users: UserRecord[], initialLogin: string) {
@@ -46,5 +47,3 @@ export function createMockSession(users: UserRecord[], initialLogin: string) {
     },
   }
 }
-
-export type MockSession = ReturnType<typeof createMockSession>

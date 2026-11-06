@@ -2,7 +2,7 @@ import { useLocation } from "react-router"
 
 import { BuildsIndexPage } from "@pages/builds-index-page"
 
-import type { BuildHistoryResponse, WorkspaceResponse } from "../../contracts"
+import type { BuildHistoryResponse, WorkspaceResponse } from "../../contracts/types"
 import { buildHistoryData } from "../../view-models/build-history"
 
 export function BuildHistoryScreen({

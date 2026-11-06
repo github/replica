@@ -1,5 +1,5 @@
 import { prototypeDetailsSchema, prototypeResponseSchema } from "../../contracts"
-import type { PrototypeDetails } from "../../contracts"
+import type { PrototypeDetails } from "../../contracts/types"
 import { requestJson } from "../request-json"
 
 export function updatePrototype(

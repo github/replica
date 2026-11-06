@@ -2,7 +2,7 @@ import { useLocation } from "react-router"
 
 import { BuildsShowPage } from "@pages/builds-show-page"
 
-import type { BuildResponse, WorkspaceResponse } from "../../contracts"
+import type { BuildResponse, WorkspaceResponse } from "../../contracts/types"
 import { buildShowData } from "../../view-models/build-show"
 
 export function BuildScreen({

@@ -1,9 +1,9 @@
-import type { BuildRecord, PrototypeResponse } from "../../contracts"
+import type { BuildRecord, PrototypeResponse } from "@application/hub/contracts/types"
 import {
   productMetadataInputSchema,
   productShareInputSchema,
   productSharingSettingsInputSchema,
-} from "../../product-contracts"
+} from "@application/hub/product-contracts"
 import type {
   ProductManagementResponse,
   ProductMetadataInput,
@@ -13,9 +13,12 @@ import type {
   ProductSharingResponse,
   ProductSharingSettingsInput,
   ProductTemplate,
-} from "../../product-contracts"
+} from "@application/hub/product-contracts/types"
+
 import type { MockFlowContext } from "../flow-context/types"
 import { MockStoreError } from "../store-error"
+
+const millisecondsPerDay = 24 * 60 * 60 * 1000
 
 export function createProductStore(context: MockFlowContext) {
   const { resources, session } = context
@@ -56,9 +59,11 @@ export function createProductStore(context: MockFlowContext) {
               prototype.repositoryId === seedBuild.repositoryId &&
               prototype.id === seedBuild.prototypeId,
           )?.authorLogin ?? "octocat",
-        createdAt: new Date(now - 2 * 86400000).toISOString(),
-        expiresAt: new Date(now + (state === "expired" ? -1 : 7) * 86400000).toISOString(),
-        revokedAt: state === "revoked" ? new Date(now - 86400000).toISOString() : null,
+        createdAt: new Date(now - 2 * millisecondsPerDay).toISOString(),
+        expiresAt: new Date(
+          now + (state === "expired" ? -1 : 7) * millisecondsPerDay,
+        ).toISOString(),
+        revokedAt: state === "revoked" ? new Date(now - millisecondsPerDay).toISOString() : null,
       })
     }
   }
@@ -308,7 +313,7 @@ export function createProductStore(context: MockFlowContext) {
         createdBy: viewer.login,
         createdAt: new Date(now).toISOString(),
         expiresAt: new Date(
-          now + (parsed.data.expiration === "one_day" ? 1 : 7) * 86400000,
+          now + (parsed.data.expiration === "one_day" ? 1 : 7) * millisecondsPerDay,
         ).toISOString(),
         revokedAt: null,
       }

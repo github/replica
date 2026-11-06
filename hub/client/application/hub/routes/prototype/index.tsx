@@ -1,14 +1,19 @@
 import { data, useFetcher, useOutletContext } from "react-router"
 
+import { prototypeDetailsSchema } from "@application/hub/contracts"
+import type {
+  PrototypeActionResult,
+  PrototypeResponse,
+  WorkspaceResponse,
+} from "@application/hub/contracts/types"
+import { readRouteIdentifier } from "@application/hub/read-route-identifier"
+import { ApiContractError } from "@application/hub/requests/api-contract-error"
+import { ApiRequestError } from "@application/hub/requests/api-request-error"
+import { getPrototype } from "@application/hub/requests/get-prototype"
+import { updatePrototype } from "@application/hub/requests/update-prototype"
+import { PrototypeScreen } from "@application/hub/screens/prototype-screen"
+
 import type { Route } from "./+types/index"
-import { prototypeDetailsSchema } from "../../contracts"
-import type { PrototypeActionResult, PrototypeResponse, WorkspaceResponse } from "../../contracts"
-import { readRouteIdentifier } from "../../read-route-identifier"
-import { ApiContractError } from "../../requests/api-contract-error"
-import { ApiRequestError } from "../../requests/api-request-error"
-import { getPrototype } from "../../requests/get-prototype"
-import { updatePrototype } from "../../requests/update-prototype"
-import { PrototypeScreen } from "../../screens/prototype-screen"
 
 type ActionResponse = ReturnType<typeof data<PrototypeActionResult>>
 
@@ -77,6 +82,7 @@ export function meta({ loaderData }: Route.MetaArgs) {
 
 export default function PrototypeRoute({ loaderData }: Pick<Route.ComponentProps, "loaderData">) {
   const workspace = useOutletContext<WorkspaceResponse>()
+  // React Router retains fetcher data; keep save feedback scoped to this prototype.
   const fetcher = useFetcher<PrototypeActionResult>({
     key: `prototype-details:${loaderData.repository.id}/${loaderData.prototype.id}`,
   })

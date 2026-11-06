@@ -1,7 +1,7 @@
 import { setupServer } from "msw/node"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
-import type { PrototypeRecord } from "../contracts"
+import type { PrototypeRecord } from "../contracts/types"
 import { getAuthors } from "../requests/get-authors"
 import { getBuildHistory } from "../requests/get-build-history"
 import { getRepository } from "../requests/get-repository"

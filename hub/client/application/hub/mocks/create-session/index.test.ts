@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import type { UserRecord } from "../../contracts"
+import type { UserRecord } from "@application/hub/contracts/types"
 
 import { createMockSession } from "."
 

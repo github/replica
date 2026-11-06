@@ -1,8 +1,10 @@
+import { useEffect, useRef } from "react"
+
 import { useNotificationInbox } from "@hooks/use-notification-inbox"
 import { NotificationsPage } from "@pages/notifications-page"
 
-import type { WorkspaceResponse } from "../../contracts"
-import type { SettingsWorkspaceResponse } from "../../settings-contracts"
+import type { WorkspaceResponse } from "../../contracts/types"
+import type { SettingsWorkspaceResponse } from "../../settings-contracts/types"
 import { settingsNotifications } from "../../view-models/settings-notifications"
 
 export function NotificationsScreen({
@@ -33,4 +35,3 @@ export function NotificationsScreen({
 
   return <NotificationsPage data={data} {...inbox} onFilter={onFilter} />
 }
-import { useEffect, useRef } from "react"

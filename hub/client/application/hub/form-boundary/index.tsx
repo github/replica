@@ -11,7 +11,7 @@ interface Props extends PropsWithChildren {
   onSubmit: (data: FormData) => void
 }
 
-export function FlowFormBoundary({ children, busy, error, notice, onSubmit }: Props) {
+export function FormBoundary({ children, busy, error, notice, onSubmit }: Props) {
   const feedback = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (error) feedback.current?.focus()

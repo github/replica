@@ -3,9 +3,9 @@ import type { LoaderFunctionArgs } from "react-router"
 
 import { NewPrototypePage } from "@pages/new-prototype-page"
 
-import type { WorkspaceResponse } from "../../contracts"
+import type { WorkspaceResponse } from "../../contracts/types"
 import { productCatalogResponseSchema } from "../../product-contracts"
-import type { ProductCatalogResponse } from "../../product-contracts"
+import type { ProductCatalogResponse } from "../../product-contracts/types"
 import { readRouteIdentifier } from "../../read-route-identifier"
 import { productNewData } from "../../view-models/product-new"
 import { requestProductJson } from "../product-request"

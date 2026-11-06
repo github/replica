@@ -1,9 +1,8 @@
-import type { MockScenario } from "../contracts"
 import { NOTIFICATION_SCHEMA } from "@utils/notification/schemas"
 import {
   settingsPublicResponseSchema,
   settingsWorkspaceResponseSchema,
-} from "../../settings-contracts"
+} from "@application/hub/settings-contracts"
 import type {
   AnalyticsDestinationRecord,
   CanvasGrantRecord,
@@ -14,7 +13,9 @@ import type {
   SettingsPublicResponse,
   SettingsQuery,
   SettingsWorkspaceResponse,
-} from "../../settings-contracts"
+} from "@application/hub/settings-contracts/types"
+
+import type { MockScenario } from "../contracts/types"
 import type { MockFlowContext } from "../flow-context/types"
 import { createSettingsFixtures } from "../create-settings-fixtures"
 import { MockStoreError } from "../store-error"

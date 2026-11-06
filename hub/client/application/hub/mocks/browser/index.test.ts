@@ -9,6 +9,8 @@ import { getSession } from "../../requests/get-session"
 import { renderHubFlow } from "../../routes/test-fixture"
 import { mockDiagnostics } from "../diagnostics"
 
+import { startMockApi } from "."
+
 const { start, stop, setupWorker } = vi.hoisted(() => {
   const start = vi.fn<ReturnType<typeof setupBrowserWorker>["start"]>()
   const stop = vi.fn<() => void>()
@@ -24,9 +26,7 @@ vi.mock("msw/browser", () => ({ setupWorker }))
 
 describe("startMockApi()", () => {
   it("starts quietly and rejects unhandled API writes without logging request bodies", async () => {
-    const { mockDiagnostics: diagnostics } = await import("../diagnostics")
-    diagnostics.clear()
-    const { startMockApi } = await import(".")
+    mockDiagnostics.clear()
     await startMockApi()
     const options = start.mock.calls[0]?.[0]
     const unhandled = options?.onUnhandledRequest
@@ -67,7 +67,7 @@ describe("startMockApi()", () => {
     if (failures.length === requests.length) {
       expect(failures[1]?.message).toBe(failures[0]?.message)
     }
-    const messages = diagnostics.getSnapshot().messages.map(({ message }) => message)
+    const messages = mockDiagnostics.getSnapshot().messages.map(({ message }) => message)
     expect(messages.length).toBeGreaterThan(0)
     expect(messages.join("\n")).not.toContain(canary)
   })
@@ -75,8 +75,6 @@ describe("startMockApi()", () => {
   it("stops a partially started worker before surfacing startup failure", async () => {
     const failure = new Error("Service worker registration failed.")
     start.mockRejectedValueOnce(failure)
-    const { startMockApi } = await import(".")
-
     await expect(startMockApi()).rejects.toBe(failure)
 
     expect(start).toHaveBeenCalledOnce()
@@ -86,7 +84,6 @@ describe("startMockApi()", () => {
   it("starts a fresh world and discards saved edits and drafts after a same-viewer toolbar persona change", async () => {
     mockDiagnostics.initialize()
     mockDiagnostics.clear()
-    const { startMockApi } = await import(".")
     await startMockApi()
     const firstHandlers = setupWorker.mock.calls[0]
     if (!firstHandlers) throw new Error("The first document must register its API handlers.")

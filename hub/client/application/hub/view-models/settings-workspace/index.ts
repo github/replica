@@ -1,7 +1,7 @@
 import type { HubWorkspaceData } from "@features/hub-workspace/types"
 
-import type { WorkspaceResponse } from "../../contracts"
-import type { SettingsWorkspaceResponse } from "../../settings-contracts"
+import type { WorkspaceResponse } from "../../contracts/types"
+import type { SettingsWorkspaceResponse } from "../../settings-contracts/types"
 import { repositoryWorkspace } from "../repository-workspace"
 import { workspaceNavigation } from "../workspace-navigation"
 

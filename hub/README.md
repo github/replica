@@ -2,9 +2,16 @@
 
 Hub is being rebuilt on `build/hub/new` using TypeScript, Express, React, Vite, and Vitest. This branch lets contributors start the new app locally. It is not ready to replace the existing Hub.
 
-The API has liveness and readiness routes. React Router connects the retained frontend pages for local exploration. Real product API routes and public authentication flows are not implemented.
+The API has liveness and readiness routes. React Router connects the retained frontend pages for local exploration. Product API routes are not implemented.
 
-Contributors can use PostgreSQL and Prisma locally or in the devcontainer. The database includes a provider-neutral identity foundation and internal [authentication proof primitives](docs/authentication.md). The [background-job foundation](docs/background-jobs.md) provides PostgreSQL-backed BullMQ queues and independent on-demand and scheduled workers, without product jobs yet. [Telemetry](docs/telemetry.md) supports explicit server-side spans, and the [WebSocket foundation](docs/websockets.md) rejects upgrades until application access checks are supplied. Production sign-in, persisted prototype data, and live multi-user reviews are not implemented.
+Contributors can use PostgreSQL and Prisma locally or in the devcontainer. The backend provides:
+
+- A provider-neutral identity foundation and configured [GitHub authentication](docs/authentication.md).
+- PostgreSQL-backed [background jobs](docs/background-jobs.md) with separate on-demand and scheduled workers. Product jobs are not registered yet.
+- Explicit server-side [telemetry spans](docs/telemetry.md).
+- A [WebSocket foundation](docs/websockets.md) that rejects upgrades until application access checks are supplied.
+
+Persisted prototype data and live multi-user reviews are not implemented.
 
 The [production runtime](docs/deployment.md) packages the frontend, API, and workers in one image, with a separate release setup script.
 

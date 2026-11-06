@@ -1,7 +1,7 @@
 import type { GithubAppForm, GithubAppPageData } from "@pages/github-app-page/types"
 
-import type { WorkspaceResponse } from "../../contracts"
-import type { SettingsQuery, SettingsWorkspaceResponse } from "../../settings-contracts"
+import type { WorkspaceResponse } from "../../contracts/types"
+import type { SettingsQuery, SettingsWorkspaceResponse } from "../../settings-contracts/types"
 import { resourcePath } from "../resource-path"
 import { settingsAdministration } from "../settings-administration"
 

@@ -1,7 +1,7 @@
 import type { ReplicaBrowsePageData } from "@pages/replica-browse-page/types"
 
-import type { WorkspaceResponse } from "../../contracts"
-import type { ProductTemplateResponse } from "../../product-contracts"
+import type { WorkspaceResponse } from "../../contracts/types"
+import type { ProductTemplateResponse } from "../../product-contracts/types"
 import { productContinuation } from "../product-continuation"
 import { repositoryWorkspace } from "../repository-workspace"
 import { resourcePath } from "../resource-path"

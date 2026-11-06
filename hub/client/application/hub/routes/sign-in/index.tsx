@@ -3,7 +3,7 @@ import { redirect, useFetcher } from "react-router"
 import { useHubTheme } from "@hooks/use-hub-theme"
 import { HomeIndexPage } from "@pages/home-index-page"
 
-import { FlowFormBoundary } from "../../form-boundary"
+import { FormBoundary } from "../../form-boundary"
 import type { Route } from "./+types/index"
 import { getSession } from "../../requests/get-session"
 
@@ -21,7 +21,7 @@ export default function SignInRoute() {
   const { resolvedColorMode } = useHubTheme()
   const fetcher = useFetcher()
   return (
-    <FlowFormBoundary
+    <FormBoundary
       busy={fetcher.state !== "idle"}
       onSubmit={() => {
         void fetcher.submit({ intent: "sign-in" }, { method: "post", action: "/session" })
@@ -47,6 +47,6 @@ export default function SignInRoute() {
           resumeAnimationLabel: "Resume animation",
         }}
       />
-    </FlowFormBoundary>
+    </FormBoundary>
   )
 }

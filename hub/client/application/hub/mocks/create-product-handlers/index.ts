@@ -1,15 +1,16 @@
 import { http, HttpResponse } from "msw"
 
-import { routeIdentifierSchema, routeQuerySchema } from "../../contracts"
+import { routeIdentifierSchema, routeQuerySchema } from "@application/hub/contracts"
 import {
   productMetadataInputSchema,
   productShareIdSchema,
   productShareInputSchema,
   productSharingSettingsInputSchema,
   productTemplateIdSchema,
-} from "../../product-contracts"
+} from "@application/hub/product-contracts"
+
 import type { createProductStore } from "../create-product-store"
-import type { MockSession } from "../create-session"
+import type { MockSession } from "../create-session/types"
 import { readMockJson } from "../read-json"
 import { respondMock } from "../respond"
 import { MockStoreError } from "../store-error"

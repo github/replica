@@ -1,8 +1,8 @@
 import { useEffect, useState, useSyncExternalStore } from "react"
 import { useLocation, useNavigate, useRevalidator } from "react-router"
 
-import { mockProfiles, mockScenarios } from "../contracts"
-import type { MockProfile, MockScenario } from "../contracts"
+import { mockProfiles, mockScenarios } from "../contracts/constants"
+import type { MockProfile, MockScenario } from "../contracts/types"
 import { mockDiagnostics } from "../diagnostics"
 
 import "./styles.css"

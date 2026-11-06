@@ -274,5 +274,3 @@ export function createReviewStore(context: MockFlowContext) {
     },
   }
 }
-
-export type ReviewMockStore = ReturnType<typeof createReviewStore>

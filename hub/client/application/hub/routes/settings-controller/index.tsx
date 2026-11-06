@@ -1,20 +1,24 @@
 import { data, redirect } from "react-router"
 import type { ClientActionFunctionArgs, ClientLoaderFunctionArgs } from "react-router"
 
-import { routeIdentifierSchema } from "../../contracts"
+import { routeIdentifierSchema } from "@application/hub/contracts"
 import {
   settingsCandidateResponseSchema,
   settingsMutationResponseSchema,
   settingsPublicResponseSchema,
   settingsQuerySchema,
   settingsWorkspaceResponseSchema,
-} from "../../settings-contracts"
-import type { SettingsActionResult, SettingsSection } from "../../settings-contracts"
-import { ApiContractError } from "../../requests/api-contract-error"
-import { ApiRequestError } from "../../requests/api-request-error"
-import { settingsRequest } from "../../requests/settings-request"
-import { resourcePath } from "../../view-models/resource-path"
-import { reportClientIssue } from "../../report-client-issue"
+} from "@application/hub/settings-contracts"
+import type {
+  SettingsActionResult,
+  SettingsSection,
+} from "@application/hub/settings-contracts/types"
+import { ApiContractError } from "@application/hub/requests/api-contract-error"
+import { ApiRequestError } from "@application/hub/requests/api-request-error"
+import { settingsRequest } from "@application/hub/requests/settings-request"
+import { resourcePath } from "@application/hub/view-models/resource-path"
+import { reportClientIssue } from "@application/hub/report-client-issue"
+
 import { settingsFormOperation } from "../settings-form-operation"
 import type { SettingsRouteData } from "./types"
 

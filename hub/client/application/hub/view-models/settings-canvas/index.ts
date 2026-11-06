@@ -1,6 +1,6 @@
 import type { CanvasPairingsPageData } from "@pages/canvas-pairings-page/types"
 
-import type { SettingsWorkspaceResponse } from "../../settings-contracts"
+import type { SettingsWorkspaceResponse } from "../../settings-contracts/types"
 import { resourcePath } from "../resource-path"
 
 export function settingsCanvas(

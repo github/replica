@@ -1,7 +1,7 @@
 import { useOutletContext } from "react-router"
 
 import type { Route } from "./+types/index"
-import type { BuildResponse, WorkspaceResponse } from "../../contracts"
+import type { BuildResponse, WorkspaceResponse } from "../../contracts/types"
 import { readRouteIdentifier } from "../../read-route-identifier"
 import { getBuild } from "../../requests/get-build"
 import { BuildScreen } from "../../screens/build-screen"

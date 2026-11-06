@@ -3,13 +3,13 @@ import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 
 import { PrototypeManagementPage } from "@pages/prototype-management-page"
 
-import type { WorkspaceResponse } from "../../contracts"
+import type { WorkspaceResponse } from "../../contracts/types"
 import {
   productManagementResponseSchema,
   productMetadataInputSchema,
   productMutationResponseSchema,
 } from "../../product-contracts"
-import type { ProductActionResult, ProductManagementResponse } from "../../product-contracts"
+import type { ProductActionResult, ProductManagementResponse } from "../../product-contracts/types"
 import { readRouteIdentifier } from "../../read-route-identifier"
 import { ProductFormBoundary } from "../../screens/product-form-boundary"
 import { productManagementData } from "../../view-models/product-management"

@@ -17,7 +17,7 @@ import { HubThemeProvider } from "@hooks/use-hub-theme"
 import "@/tokens/base.css"
 
 import type { Route } from "./+types/root"
-import type { SessionResponse } from "./session-contracts"
+import type { SessionResponse } from "./session-contracts/types"
 import { DevelopmentTools } from "./development-tools"
 import { isAuthenticationRoute } from "./is-authentication-route"
 import { HubNavigation } from "./navigation"
@@ -105,7 +105,7 @@ export function ErrorBoundary() {
   else if (status === 400) heading = "Invalid address"
 
   useEffect(() => {
-    console.error("The Hub route could not be loaded.", error)
+    console.error("The Hub route could not be loaded.")
     document.title = `${heading} - Replica Hub`
     document.querySelector("main")?.focus()
   }, [error, heading])

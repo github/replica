@@ -5,12 +5,13 @@ import { createByteLimitedStringSchema } from "@utils/create-byte-limited-string
 import { REVIEW_ANCHOR_SCHEMA } from "@utils/review-anchor/schemas"
 import { REACTION_CONTENT_SCHEMA } from "@utils/review-comment/schemas"
 
-import { routeIdentifierSchema } from "../../contracts"
-import type { ReviewMockStore } from "../create-review-store"
+import { routeIdentifierSchema } from "@application/hub/contracts"
+
+import type { ReviewMockStore } from "../create-review-store/types"
 import { readMockJson } from "../read-json"
 import { respondMock as respondWithSession } from "../respond"
 import { MockStoreError } from "../store-error"
-import type { MockSession } from "../create-session"
+import type { MockSession } from "../create-session/types"
 
 const bodySchema = createByteLimitedStringSchema(10_000, { required: true })
 const commentBody = z.object({ review_comment: z.object({ body: bodySchema }) })

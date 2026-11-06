@@ -1,4 +1,4 @@
-import type { BuildRecord } from "../../contracts"
+import type { BuildRecord } from "../../contracts/types"
 
 const labels: Record<BuildRecord["state"], string> = {
   failed: "Failed",

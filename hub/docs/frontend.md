@@ -1,10 +1,14 @@
 # Routed frontend
 
-The Hub frontend uses React Router Framework Mode as a browser-rendered SPA. All retained page modules are connected: repositories, prototype handoffs and previews, reviews, sharing, setup, account controls, administration, analytics, and learning. Product data uses local mocks; creation and branching reuse the original Copilot app handoff. The application reuses those pages rather than implementing a second set of screens.
+The Hub frontend uses React Router Framework Mode as a single-page application (SPA) rendered in the browser. It connects every retained page to local product mocks. Creation and branching open the original Copilot app handoff.
 
-This is an evolving frontend implementation, not a restored production Hub. Configured GitHub authentication, Hub admission, and browser sessions are available; the [authentication guide](authentication.md) owns that contract. Product APIs, product permissions, product persistence, external product integrations, build hosting, and publishing remain separate work.
+This frontend does not restore the production Hub. Configured GitHub authentication, Hub admission, and browser sessions are available; see [Authentication](authentication.md). The following remain separate backend work:
 
-Browser source lives directly under [client/](../client/). The routed Hub entry is [application/hub/](../client/application/hub/); pages, features, components, hooks, utilities, Storybook fixtures, and theme tokens are sibling directories. The Express API stays separate under [server/](../server/).
+- Product APIs, permissions, and persistence.
+- External product integrations.
+- Build hosting and publishing.
+
+Browser source lives under [client/](../client/), with its routed entry in [application/hub/](../client/application/hub/). The [frontend layers](coding-conventions.md#frontend-layers) define how that entry uses presentation code. The Express API stays separate under [server/](../server/).
 
 ## Start with mock data
 
@@ -14,7 +18,11 @@ From `hub/`, with dependencies installed:
 npm run dev:mock
 ```
 
-Open <http://127.0.0.1:5173/repositories/2001>. No API server, database, GitHub App, or credentials are needed. The bottom-right **Test data** toolbar opens connected pages, selects a persona, resets records, and selects slow, empty, forbidden, server-error, invalid-response, or save-error responses.
+Open <http://127.0.0.1:5173/repositories/2001>. No API server, database, GitHub App, or credentials are needed. Use the bottom-right **Test data** toolbar to:
+
+- Open connected pages.
+- Select a persona or reset records.
+- Select slow, empty, forbidden, server-error, invalid-response, or save-error responses.
 
 If port 5173 is occupied, leave that server running and use `npm run dev:mock -- --port 0`. Open the URL printed by the CLI; the operating system assigns a free port.
 
@@ -59,7 +67,15 @@ Other seeded page states:
 
 `author=me` selects the mock viewer; other author selections use an ID returned by the authors endpoint. Search, author, pagination, and gallery/list changes are reflected in the URL. Draft text and pending form state remain local to the interaction.
 
-Review filters also live in the URL: `commentSearch`, `commentParticipant`, and the `commentBuild`, `commentPage`, `commentResolved`, `commentUnread`, and `commentMine` flags. A flag value of `1` enables it. Closing a conversation removes `comment`; browser back/forward restores the selection and filters.
+Review search and participant filters use `commentSearch` and `commentParticipant` in the URL. The following flags are enabled by a value of `1`:
+
+- `commentBuild`
+- `commentPage`
+- `commentResolved`
+- `commentUnread`
+- `commentMine`
+
+Closing a conversation removes `comment`; browser back/forward restores the selection and filters.
 
 Repository pages, Hub settings and Public sharing use one [workspace navigation definition](../client/application/hub/view-models/workspace-navigation/index.ts) for labels, ordering, destinations and visibility. Repository navigation adds its repository-specific links without redefining Hub settings. Current settings permissions, hidden Welcome state and unread counts replace cached workspace values before navigation is assembled.
 
@@ -179,9 +195,18 @@ The [product contracts](../client/application/hub/product-contracts/index.ts), [
 
 ## Removing mocks
 
-The [mock folder](../client/application/hub/mocks/) owns fixtures, handlers, local state, the toolbar, diagnostics, and development assets. The application starts it through the small [bootstrap hook](../client/application/hub/bootstrap/index.ts) and displays its toolbar through [DevelopmentTools](../client/application/hub/development-tools/index.tsx). Vite enables its asset plugin only in mock mode.
+The [mock folder](../client/application/hub/mocks/) contains the development runtime and its test toolbar. The application starts it through the [bootstrap hook](../client/application/hub/bootstrap/index.ts) and displays the toolbar through [DevelopmentTools](../client/application/hub/development-tools/index.tsx). Vite enables its asset plugin only in mock mode.
 
-When the backend is ready, remove that folder and its two application hooks, the Vite mock-plugin import and registration, and the `dev:mock` script. Replace mock-backed test fixtures with the ported API's test support; remove tests that only exercised discarded fake workflows. Remove MSW when no remaining tests need it. Keep product copy, route modules, request functions, and presentation adapters, but align their provisional contracts with the real API rather than treating fixture-shaped records as production contracts. Also remove the [scenario URL propagation](../client/application/hub/view-models/resource-path/) and [same-tab sharing override](../client/application/hub/view-models/product-share-links/). Product credential and file submissions remain unavailable until real handlers support them. Configured authentication forms are separate native submissions. A real API failure must never reactivate mock responses.
+When the backend is ready:
+
+- Remove the mock folder and its two application hooks.
+- Remove the Vite mock-plugin import and registration, and the `dev:mock` script.
+- Replace mock-backed test fixtures with the ported API's test support. Remove tests that only exercise discarded fake workflows.
+- Remove MSW when no remaining tests need it.
+- Keep the route and presentation code. Align its provisional contracts with the real API instead of treating fixture-shaped records as production contracts.
+- Remove the [scenario URL propagation](../client/application/hub/view-models/resource-path/) and [same-tab sharing override](../client/application/hub/view-models/product-share-links/).
+
+Product credential and file submissions remain unavailable until real handlers support them. Configured authentication forms are separate native submissions. A real API failure must never reactivate mock responses.
 
 There is no shared query cache or automatic retry loop. Requests use `cache: "no-store"`; React Router owns route data and action revalidation. Manual retries revalidate the route. TanStack Query can be added later if shared caching, deduplication, or background refresh warrants it without switching routers.
 

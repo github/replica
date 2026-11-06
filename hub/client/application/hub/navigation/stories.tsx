@@ -32,6 +32,7 @@ function NavigationStory({ loading = false }: { loading?: boolean }) {
       },
       {
         path: "/loading",
+        // Keep React Router pending until disposal aborts the story's navigation.
         loader: ({ request }) =>
           new Promise<null>((resolve) => {
             request.signal.addEventListener("abort", () => resolve(null), { once: true })

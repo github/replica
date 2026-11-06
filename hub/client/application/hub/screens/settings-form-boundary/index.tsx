@@ -2,7 +2,7 @@ import type { PropsWithChildren } from "react"
 
 import { HubVisuallyHidden } from "@components/hub-visually-hidden"
 
-import { FlowFormBoundary } from "../../form-boundary"
+import { FormBoundary } from "../../form-boundary"
 
 import "./styles.css"
 
@@ -20,10 +20,10 @@ export function SettingsFormBoundary({
 }>) {
   return (
     <div className="settings-form-boundary">
-      <FlowFormBoundary busy={busy} error={error} notice={notice} onSubmit={onSubmit}>
+      <FormBoundary busy={busy} error={error} notice={notice} onSubmit={onSubmit}>
         {busy ? <HubVisuallyHidden role="status">Updating settings…</HubVisuallyHidden> : null}
         <div className="settings-form-boundary__content">{children}</div>
-      </FlowFormBoundary>
+      </FormBoundary>
     </div>
   )
 }

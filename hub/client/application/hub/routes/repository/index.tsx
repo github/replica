@@ -1,11 +1,12 @@
 import { useOutletContext } from "react-router"
 
+import type { RepositoryResponse, WorkspaceResponse } from "@application/hub/contracts/types"
+import { readRouteIdentifier } from "@application/hub/read-route-identifier"
+import { getAuthors } from "@application/hub/requests/get-authors"
+import { getRepository } from "@application/hub/requests/get-repository"
+import { RepositoryScreen } from "@application/hub/screens/repository-screen"
+
 import type { Route } from "./+types/index"
-import type { RepositoryResponse, WorkspaceResponse } from "../../contracts"
-import { readRouteIdentifier } from "../../read-route-identifier"
-import { getAuthors } from "../../requests/get-authors"
-import { getRepository } from "../../requests/get-repository"
-import { RepositoryScreen } from "../../screens/repository-screen"
 
 export async function clientLoader({
   request,

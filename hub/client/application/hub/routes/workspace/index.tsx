@@ -1,8 +1,9 @@
 import { Outlet, redirect } from "react-router"
 
+import { ApiRequestError } from "@application/hub/requests/api-request-error"
+import { getWorkspace } from "@application/hub/requests/get-workspace"
+
 import type { Route } from "./+types/index"
-import { ApiRequestError } from "../../requests/api-request-error"
-import { getWorkspace } from "../../requests/get-workspace"
 
 export async function clientLoader({ request }: Pick<Route.ClientLoaderArgs, "request">) {
   try {

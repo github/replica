@@ -1,3 +1,5 @@
+import { Text } from "@primer/react-brand"
+
 import { HubAlert } from "@components/hub-alert"
 import { HubToast } from "@components/hub-toast"
 import { PrototypeWorkspace } from "@features/prototype-workspace"
@@ -124,4 +126,3 @@ export function ShareLinksIndexPage({
     </PrototypeWorkspace>
   )
 }
-import { Text } from "@primer/react-brand"

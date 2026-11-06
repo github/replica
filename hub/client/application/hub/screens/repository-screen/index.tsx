@@ -11,7 +11,7 @@ import type { PrototypeViewMode } from "@components/prototype-view-mode-control/
 import { RepositoriesShowPage } from "@pages/repositories-show-page"
 import type { PrototypeAuthorResults } from "@utils/prototype-listing/types"
 
-import type { RepositoryResponse, WorkspaceResponse } from "../../contracts"
+import type { RepositoryResponse, WorkspaceResponse } from "../../contracts/types"
 import { repositoryShowData } from "../../view-models/repository-show"
 
 export function RepositoryScreen({

@@ -51,7 +51,12 @@ Browser source lives directly under `client/`. Application code under `client/ap
 
 Imports follow the arrows above. Shared components, hooks, and utilities must not import pages, features, or application code. Keep browser and server code separate. Agree on the API before adding types shared between them.
 
-The theme provider wraps normal routes, loading feedback, and error feedback. In real mode, `/` and `/admin-enrollment` render the authentication shell under `client/application/hub-application/`, which owns current-session restoration without requesting product data. In mock mode, the root reads the simulated session without requiring a private workspace; a nested layout loads that workspace for signed-in pages. Route loaders and actions own product requests and revalidation; shareable filters and selections live in the URL. Product screens keep product-facing copy, and API failures remain visible errors.
+The theme provider wraps routes and their loading and error feedback.
+
+- In real mode, `/` and `/admin-enrollment` render the authentication shell under `client/application/hub-application/`. That shell restores the current session without requesting product data.
+- In mock mode, the root reads the simulated session. A nested layout loads the private workspace for signed-in pages.
+- Route loaders and actions request product data and refresh it after changes. Shareable filters and selections live in the URL.
+- Product screens keep product-facing copy. API failures remain visible errors.
 
 The application adapts retained internal links and GET forms to SPA navigation. Authentication POST forms use native browser submissions. Explicit adapters submit supported product mutations; unknown legacy form submissions receive visible feedback. The [frontend guide](frontend.md) owns the connected routes, provisional HTTP contracts, local development modes, and complete page inventory. Real product API implementation remains separate work.
 

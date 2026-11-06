@@ -43,6 +43,7 @@ function applicationRoute(entry: RouteConfigEntry): RouteObject {
         action: module.clientAction,
         ErrorBoundary: module.ErrorBoundary,
         HydrateFallback: module.HydrateFallback,
+        // Data routers expose loader data through a hook, unlike framework route props.
         Component: Page ? () => <Page loaderData={useLoaderData()} /> : undefined,
       }
     },

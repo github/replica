@@ -1,7 +1,7 @@
 import type { ShareLinksIndexPageData } from "@pages/share-links-index-page/types"
 
-import type { WorkspaceResponse } from "../../contracts"
-import type { ProductSharingResponse } from "../../product-contracts"
+import type { WorkspaceResponse } from "../../contracts/types"
+import type { ProductSharingResponse } from "../../product-contracts/types"
 import { prototypeWorkspace } from "../prototype-workspace"
 import { resourcePath } from "../resource-path"
 

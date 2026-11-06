@@ -1,8 +1,8 @@
 import type { SharingSettingsPageData } from "@pages/sharing-settings-page/types"
 
-import type { WorkspaceResponse } from "../../contracts"
+import type { WorkspaceResponse } from "../../contracts/types"
 import { routeIdentifierSchema } from "../../contracts"
-import type { ProductSharingSettings } from "../../product-contracts"
+import type { ProductSharingSettings } from "../../product-contracts/types"
 import { ApiRequestError } from "../../requests/api-request-error"
 import { resourcePath } from "../resource-path"
 import { settingsWorkspace } from "../settings-workspace"
