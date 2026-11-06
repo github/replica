@@ -247,6 +247,28 @@ Use existing Vitest and Ink testing tools. Follow the [test-writing skill](../..
 
 Use rendered terminal review for color, spacing, hierarchy, and the subtlety of the map and timer. Do not freeze cosmetic ANSI output or exact artwork in broad snapshots. Use isolated sample-data previews for visual checks; these do not prove an authenticated Azure deployment.
 
+### Regenerate the wizard design gallery
+
+From the repository root, install the infrastructure development dependencies with the approved npm registry, then start the capture command:
+
+```sh
+npm ci --prefix infrastructure --ignore-scripts --engine-strict \
+  --registry=https://packagefeedproxy.microsoft.io/npm/ --replace-registry-host=never
+npm run wizard:design --prefix infrastructure
+```
+
+Open the printed `http://127.0.0.1:PORT` address in an ordinary browser and choose **Generate all screens and PDF**. Keep the page and command open until the page reports completion. The command does not install or launch a browser and does not require the Copilot browser host. Stop its local server with Ctrl+C after export.
+
+Each run creates an ignored `infrastructure/.design-gallery/run-*/` directory containing `index.html`, `manifest.json`, `screens/` with individual PNGs and visible-text transcripts, and `Replica-wizard-design-guide.pdf`. Open `index.html` directly for offline design review, or share that whole directory. The PDF has linked contents and one annotated screen per page. Incomplete captures and invalid images fail instead of producing a partial PDF.
+
+The maintained catalog in [`installer/design-gallery/scenes.ts`](../installer/design-gallery/scenes.ts) covers 100 distinct states: direct prompt families and representative branching, validation, recovery, result, scrolling and responsive variants. Each screen records its purpose, required decision or default, consequence and source. Catalog array position supplies the displayed number everywhere, including dropdown, Previous/Next navigation, manifest and PDF. Semantic IDs are stable file names and links, not ordinals; keep related recovery variants in their chapter rather than preserving old screenshot numbers.
+
+The command renders the real `TerminalShell` and its input components into isolated streams. Scripted key events exercise filtering, validation and scrolling. Field scenes use `configurationFields`; receipt scenes call `formatDeploymentSummary` with a fabricated `DeploymentResult`. Other shell output and cloud responses are explicit synthetic fixtures. The tool does not run wizard orchestration, Azure CLI, Docker, Terraform, deployment or release scripts, database jobs, sign-in or lock recovery, and never loads `.local/` configuration or diagnostics. Inline presentation is illustrated, not audited with assistive technology.
+
+When adding or changing prompt behavior, update the catalog's inputs and annotations together. Source-copy bindings in `scenes.ts` contain SHA-256 hashes of the production files supplying fixture copy. Generation stops if one changes; review every affected scene before updating its binding. For example, from the repository root, `shasum -a 256 infrastructure/azure/install/configure/index.ts` prints that file's current hash. Presentation-only changes to the shell render directly without refreshing copied messages. Regenerate and inspect the affected screens after either kind of change; a source hash is a review reminder, not proof that annotations are correct.
+
+The capture server listens only on loopback, serves fixed assets and catalog output paths, and accepts exports only from its exact origin with a per-run token. Do not expose or forward its port. It has no deployment controls. Output directories are unique per run; remove old runs when they are no longer needed.
+
 ## Maintaining the patterns
 
 Keep this document as the rationale and implemented pattern guide. All five delivery phases above are implemented. Label future proposals separately from current behavior and update these contracts as they settle.

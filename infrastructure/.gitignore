@@ -1,6 +1,7 @@
 .tools/
 node_modules/
 .local/
+.design-gallery/
 **/.terraform/
 **/*.tfstate*
 **/*.tfplan
