@@ -18,7 +18,7 @@ Each installation has its own resource group tagged with its application, instal
 
 Two optional modules have separate Terraform states and lifecycles. [`azure/foundation/`](azure/foundation/main.tf) creates an installation-owned ACR and RBAC-enabled Key Vault in a separate resource group, with `AcrPush` and `Key Vault Secrets Officer` grants for the deployment identity. The vault has 90-day soft deletion and purge protection. Pass its registry and vault outputs to the main installation; the main module still accepts existing resources and never owns their teardown.
 
-[`azure/provision/`](azure/provision/main.tf) creates a temporary private-network database-role provisioning job and identity in the installation's Container Apps environment. It accepts the same immutable image and exactly three versioned Key Vault references: `DATABASE_URL` for the administrator, `HUB_MIGRATION_PASSWORD`, and `HUB_RUNTIME_PASSWORD`. The job has one replica, no automatic retries, and a ten-minute timeout. An authorized operator must run it once against a fresh database, verify that exact execution succeeded, and remove the temporary job, identity, and grants before release. Do not rerun it against an installed database or grant its administrator secret to Hub or setup. The existing private-network operator script remains an alternative.
+[`azure/provision/`](azure/provision/main.tf) creates a temporary private-network database-role provisioning job and identity in the installation's Container Apps environment. It accepts the same immutable image and exactly three versioned Key Vault references: `DATABASE_URL` for the administrator, `HUB_MIGRATION_PASSWORD`, and `HUB_RUNTIME_PASSWORD`. Each secret URL must belong to the supplied `vault_id`. Omit `registry_id` for a public image; an existing ACR requires its resource ID and grants only the provisioning identity pull access. The job has one replica, no automatic retries, and a ten-minute timeout. An authorized operator must run it once against a fresh database, verify that exact execution succeeded, and remove the temporary job, identity, and grants before release. Do not rerun it against an installed database or grant its administrator secret to Hub or setup. The existing private-network operator script remains an alternative.
 
 Initialize each optional module against its own protected backend state key, review its declared inputs and Terraform plan, and authorize its apply separately. Never share a state key with the main installation. Neither module starts Hub or replaces the serialized release command.
 
@@ -46,7 +46,7 @@ The deployment identity needs resource creation/update rights for the installati
 
 The main module's optional `grant_deployment_storage_access=true` grants the authenticated Terraform deployment identity `Storage Blob Data Contributor` on the installation account. It defaults to `false`; use it only when this account-level grant matches the deployment policy. It does not grant access to the separate state backend.
 
-Register `Microsoft.App`, `Microsoft.OperationalInsights`, `Microsoft.Network`, `Microsoft.Storage`, `Microsoft.DBforPostgreSQL`, and `Microsoft.ManagedIdentity` beforehand. The provider does not register services across the subscription. Allow time for newly assigned RBAC roles to propagate before setup.
+Register `Microsoft.App`, `Microsoft.OperationalInsights`, `Microsoft.Network`, `Microsoft.Storage`, `Microsoft.DBforPostgreSQL`, and `Microsoft.ManagedIdentity` beforehand. Before applying the optional foundation module, also register `Microsoft.ContainerRegistry` and `Microsoft.KeyVault`. The providers do not register services across the subscription. Allow time for newly assigned RBAC roles to propagate before setup.
 
 Copy [`backend.hcl.example`](azure/backend.hcl.example) to `infrastructure/azure/backend.hcl` and [`installation.tfvars.example`](azure/installation.tfvars.example) to `infrastructure/azure/installation.tfvars`. Both real files are ignored. Replace every placeholder, choose a globally unique name, and resolve an existing image to its real `registry/repository@sha256:...` digest. Use either a public image or an existing ACR; private non-ACR registry credentials and ACR's ABAC repository-permissions mode are not covered by this reference.
 
@@ -94,7 +94,7 @@ The operator must approve the maintenance window and inspect intended configurat
 
 Terraform owns the image in both resources. There is deliberately **no** `ignore_changes` or out-of-band `az containerapp update --image`: a later infrastructure apply cannot silently use a stale image. Provisioning and rollout are separated by the two phases above. Never run a full Terraform apply directly on an installed Hub, start a setup job manually, or change revisions in the portal outside this serialized procedure. Terraform state locking alone does not protect setup-to-rollout ordering. The app's `prevent_destroy` guard rejects accidental `deploy_hub=false` on later full plans.
 
-Plans reject resource deletion and replacement during normal releases. A database major upgrade, region move, rename, or replacement needs a reviewed migration/recovery plan, not an override of that guard. The release script stores sensitive plans under `TF_DATA_DIR` when set, otherwise under the module's `.terraform/`, and deletes them on exit. Failures identify a fixed command label and available exit code without printing arguments or tool output. It leaves Hub stopped and retains the infinite lease after any release failure; it never reactivates an older process automatically against a possibly migrated schema.
+Plans reject resource deletion and replacement during normal releases. A database major upgrade, region move, rename, or replacement needs a reviewed migration/recovery plan, not an override of that guard. The release script stores sensitive plans under `TF_DATA_DIR` when nonempty, otherwise under the module's `.terraform/`, and deletes them on exit. Relative `TF_DATA_DIR` paths resolve against `infrastructure/azure/`, matching Terraform's `-chdir` behavior; protect that directory if it is outside the module. Failures identify a fixed command label and available exit code without printing arguments or tool output. It leaves Hub stopped and retains the infinite lease after any release failure; it never reactivates an older process automatically against a possibly migrated schema.
 
 ### Recover a failed release
 
@@ -156,7 +156,7 @@ terraform init -backend=false -input=false -lockfile=readonly
 terraform fmt -check -recursive
 terraform validate
 terraform test
-node --test deploy-hub/index.test.ts stop-hub/index.test.ts
+node --test deploy-hub/index.test.ts stop-hub/index.test.ts ../installer/command/describe/index.test.ts
 ```
 
 Run the same Terraform initialization, formatting, validation, and test commands from `foundation/` and `provision/` to check the optional modules. CI checks each module using both supported Terraform versions in [the workflow matrix](../.github/workflows/hub-infrastructure.yml).
