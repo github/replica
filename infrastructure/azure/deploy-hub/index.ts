@@ -1,11 +1,13 @@
 import childProcess from "node:child_process"
 import { randomUUID } from "node:crypto"
-import { rm } from "node:fs/promises"
+import { mkdir, rm } from "node:fs/promises"
 import { resolve } from "node:path"
 import timers from "node:timers/promises"
 import { pathToFileURL } from "node:url"
 import { parseArgs } from "node:util"
 
+import { describeCommand } from "../../installer/command/describe/index.ts"
+import { stopHub } from "../stop-hub/index.ts"
 import type { ContainerApp, DeploymentPlan, Installation, JobExecution, Revision } from "./types.ts"
 
 export async function deployHub(args: string[] = process.argv.slice(2)): Promise<void> {
@@ -52,7 +54,8 @@ export async function deployHub(args: string[] = process.argv.slice(2)): Promise
   const subscriptionId = subscription
   const variablesPath = resolve(variables)
   const root = resolve(import.meta.dirname, "..")
-  const planPath = resolve(root, ".terraform", `deployment-${randomUUID()}.tfplan`)
+  const planDirectory = resolve(root, process.env.TF_DATA_DIR || ".terraform")
+  const planPath = resolve(planDirectory, `deployment-${randomUUID()}.tfplan`)
   const previousMask = process.umask(0o077)
   let lease: string | undefined
 
@@ -64,37 +67,48 @@ export async function deployHub(args: string[] = process.argv.slice(2)): Promise
         maxBuffer: 32 * 1024 * 1024,
       })
       return capture ? (output?.trim() ?? "") : ""
-    } catch {
+    } catch (error) {
       // Child errors and output can contain credentials and release lease arguments.
+      const exitCode =
+        error instanceof Error &&
+        "status" in error &&
+        typeof error.status === "number" &&
+        Number.isInteger(error.status) &&
+        error.status > 0
+          ? error.status
+          : undefined
+      const tool = executable === "terraform" ? "Terraform" : "Azure"
       throw new Error(
-        executable === "terraform"
-          ? "Terraform command failed; inspect the installation through authorized tooling."
-          : "Azure command failed; inspect the installation through authorized tooling.",
+        `${tool} command failed: ${describeCommand(executable, arguments_).label}${exitCode === undefined ? "" : ` (exit code ${exitCode})`}. Tool output remains private; inspect the installation through authorized tooling.`,
       )
     }
   }
   function terraform(arguments_: string[], capture = false): string {
     return command("terraform", [`-chdir=${root}`, ...arguments_], capture)
   }
-  function parseOutput<T>(output: string): T {
+  function parseOutput<T>(output: string, operation: string): T {
     try {
       return JSON.parse(output) as T
     } catch {
-      throw new Error("Deployment tooling returned an invalid response.")
+      throw new Error(
+        `${operation} returned invalid JSON. Tool output remains private; inspect the installation through authorized tooling.`,
+      )
     }
   }
-  function azure<T>(...arguments_: string[]): T {
-    return parseOutput<T>(
-      command(
-        "az",
-        [...arguments_, "--subscription", subscriptionId, "--only-show-errors", "--output", "json"],
-        true,
-      ),
+  function azureCommand(...arguments_: string[]): string {
+    return command(
+      "az",
+      [...arguments_, "--subscription", subscriptionId, "--only-show-errors", "--output", "json"],
+      true,
     )
+  }
+  function azure<T>(...arguments_: string[]): T {
+    return parseOutput<T>(azureCommand(...arguments_), describeCommand("az", arguments_).label)
   }
   function readInstallation(): Installation {
     const installation = parseOutput<Installation>(
       terraform(["output", "-json", "installation"], true),
+      describeCommand("terraform", ["output", "-json", "installation"]).label,
     )
     if (installation.subscription_id !== subscription) {
       throw new Error("The selected subscription does not match this Terraform state.")
@@ -154,7 +168,10 @@ export async function deployHub(args: string[] = process.argv.slice(2)): Promise
     if (target) arguments_.push(`-target=${target}`)
     if (destroy) arguments_.push("-destroy")
     terraform(arguments_)
-    const planned = parseOutput<DeploymentPlan>(terraform(["show", "-json", planPath], true))
+    const planned = parseOutput<DeploymentPlan>(
+      terraform(["show", "-json", planPath], true),
+      describeCommand("terraform", ["show", "-json", planPath]).label,
+    )
     if (!destroy) {
       if (planned.resource_changes?.some(({ change }) => change.actions.includes("delete"))) {
         throw new Error(
@@ -171,46 +188,6 @@ export async function deployHub(args: string[] = process.argv.slice(2)): Promise
   }
   function apply(): void {
     terraform(["apply", "-input=false", "-lock-timeout=60s", planPath])
-  }
-  async function stopHub(installation: Installation): Promise<void> {
-    if (!installation.app_created) return
-    const revisions = azure<Revision[]>(
-      "containerapp",
-      "revision",
-      "list",
-      ...appArguments(installation),
-    )
-    for (const revision of revisions) {
-      if (revision.properties.active) {
-        azure(
-          "containerapp",
-          "revision",
-          "deactivate",
-          ...appArguments(installation),
-          "--revision",
-          revision.name,
-        )
-      }
-    }
-    const deadline = performance.now() + 300_000
-    // Inactive revisions may still have terminating replicas.
-    for (const revision of revisions) {
-      while (
-        azure<unknown[]>(
-          "containerapp",
-          "replica",
-          "list",
-          ...appArguments(installation),
-          "--revision",
-          revision.name,
-        ).length
-      ) {
-        if (performance.now() >= deadline) {
-          throw new Error("Old replicas have not stopped. Hub remains in maintenance.")
-        }
-        await timers.setTimeout(5_000)
-      }
-    }
   }
   async function setup(installation: Installation): Promise<void> {
     const execution = azure<JobExecution>(
@@ -240,15 +217,35 @@ export async function deployHub(args: string[] = process.argv.slice(2)): Promise
   }
   async function waitReady(installation: Installation): Promise<void> {
     const app = azure<ContainerApp>("containerapp", "show", ...appArguments(installation))
-    const revision = app.properties.latestRevisionName
-    azure(
+    const revision = app?.properties?.latestRevisionName
+    if (typeof revision !== "string" || !/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(revision)) {
+      throw new Error(
+        "Azure did not return a valid latest Hub revision. Keep the release lock and investigate.",
+      )
+    }
+    const current = azure<Revision>(
       "containerapp",
       "revision",
-      "activate",
+      "show",
       ...appArguments(installation),
       "--revision",
       revision,
     )
+    if (current?.name !== revision || typeof current?.properties?.active !== "boolean") {
+      throw new Error(
+        "Azure did not confirm the latest Hub revision's activation state. Keep the release lock and investigate.",
+      )
+    }
+    if (!current.properties.active) {
+      azureCommand(
+        "containerapp",
+        "revision",
+        "activate",
+        ...appArguments(installation),
+        "--revision",
+        revision,
+      )
+    }
     const deadline = performance.now() + 300_000
     while (performance.now() < deadline) {
       const latest = azure<ContainerApp>("containerapp", "show", ...appArguments(installation))
@@ -275,6 +272,7 @@ export async function deployHub(args: string[] = process.argv.slice(2)): Promise
   }
 
   try {
+    await mkdir(planDirectory, { recursive: true, mode: 0o700 })
     terraform(["init", "-input=false", `-backend-config=${resolve(backend)}`])
     if (azure<{ id: string }>("account", "show").id !== subscription) {
       throw new Error("Azure returned a different subscription.")
@@ -325,10 +323,23 @@ export async function deployHub(args: string[] = process.argv.slice(2)): Promise
     ) {
       throw new Error("A setup execution is still running; do not start another release.")
     }
-    await stopHub(installation)
+    if (installation.app_created)
+      await stopHub({
+        name: installation.app_name,
+        resourceGroup: installation.resource_group,
+        command: (...args) =>
+          args[2] === "deactivate" ? azureCommand(...args) : azure<unknown>(...args),
+      })
     if (operation === "destroy") {
       plan(installation.app_created, installation, undefined, true)
-      azure("storage", "blob", "delete", ...blobArguments(installation, true), "--lease-id", lease)
+      azureCommand(
+        "storage",
+        "blob",
+        "delete",
+        ...blobArguments(installation, true),
+        "--lease-id",
+        lease,
+      )
       lease = undefined
       apply()
       console.log("Terraform-tracked installation resources were destroyed.")
@@ -342,7 +353,7 @@ export async function deployHub(args: string[] = process.argv.slice(2)): Promise
     apply()
     installation = readInstallation()
     await waitReady(installation)
-    azure(
+    azureCommand(
       "storage",
       "blob",
       "lease",
