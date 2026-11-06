@@ -189,7 +189,7 @@ Record a run span, phase spans, and command or prompt spans. Use static identifi
 
 Keep telemetry data on an allowlist. Do not serialize answers, prompts, resource names, arguments, working directories, environment values, outputs, error objects, exception text, or deployment consent. A command classifier may recognize fixed CLI verbs, but only its catalog identifier enters the file. Repeated attempts receive separate spans, not inferred success or permission to replay them.
 
-Terminal diagnostics and persisted telemetry have different disclosure rules. Show bounded failed-command stderr to the local operator, stripping terminal-control sequences. Do not forward it to telemetry or drafts. Successful secret-returning stdout stays with its caller. The operator guide owns file locations, permissions, and recovery guidance.
+Terminal diagnostics and persisted telemetry have different disclosure rules. Default failures report only the safe command label and exit status. Hold bounded failed-command stderr privately and show it only after an explicit interactive details choice, stripping terminal-control sequences. Never print it in unattended output or forward it to telemetry or drafts. Successful secret-returning stdout stays with its caller. The operator guide owns file locations, permissions, and recovery guidance.
 
 ### Welcome and time
 

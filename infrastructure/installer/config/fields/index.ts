@@ -63,6 +63,15 @@ function textField(
 const registryHelp =
   "Use the HTTPS registry URL supplied by your package-feed administrator, without a username, password, query, or fragment."
 
+export function parseAzureId(value: unknown): string {
+  return readText(
+    value,
+    "Azure ID",
+    /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i,
+    "Use a tenant or subscription UUID.",
+  ).toLowerCase()
+}
+
 export const configurationFields = {
   name: textField(
     "name",

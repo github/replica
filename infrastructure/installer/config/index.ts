@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises"
 
 import type { DeploymentConfig } from "../types.ts"
-import { configurationFields } from "./fields/index.ts"
+import { configurationFields, parseAzureId } from "./fields/index.ts"
 import { writePrivateJson } from "../write-private-json/index.ts"
 
 export function parseConfig(value: unknown): DeploymentConfig {
@@ -35,7 +35,6 @@ export function parseConfig(value: unknown): DeploymentConfig {
   const azure = record(config.azure)
   // Legacy v1 IP settings are accepted on read, but are no longer used or saved.
   keys(azure, ["subscriptionId", "tenantId", "location", "resourceGroup", "stateAllowedIp"])
-  const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i
   const name = configurationFields.name.parse(config.name)
   const npmRegistry =
     config.npmRegistry === undefined
@@ -48,8 +47,8 @@ export function parseConfig(value: unknown): DeploymentConfig {
     owner: configurationFields.owner.parse(config.owner),
     ...(npmRegistry ? { npmRegistry } : {}),
     azure: {
-      subscriptionId: string(azure.subscriptionId, "subscription ID", uuid),
-      tenantId: string(azure.tenantId, "tenant ID", uuid),
+      subscriptionId: parseAzureId(azure.subscriptionId),
+      tenantId: parseAzureId(azure.tenantId),
       location: string(azure.location, "Azure region", /^[a-z][a-z0-9]+$/),
       resourceGroup: configurationFields.resourceGroup.parse(azure.resourceGroup),
     },

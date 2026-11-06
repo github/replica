@@ -7,12 +7,18 @@ import { describeCommand } from "./describe/index.ts"
 export class CommandExecutionError extends Error {
   readonly aborted: boolean
   readonly exitCode: number | undefined
+  #details: string | undefined
 
-  constructor(message: string, aborted = false, exitCode?: number) {
+  constructor(message: string, aborted = false, exitCode?: number, details?: string) {
     super(message)
     this.name = "CommandExecutionError"
     this.aborted = aborted
     this.exitCode = exitCode
+    this.#details = details
+  }
+
+  details(): string | undefined {
+    return this.#details
   }
 }
 
@@ -33,7 +39,7 @@ export const runCommand: RunCommand = (executable, args, options = {}) =>
     let diagnosticTruncated = false
     let bytes = 0
     let exceeded = false
-    let terminationTimeout: ReturnType<typeof setTimeout> | undefined
+    let termination: Promise<void> | undefined
     function signalChild(signal: NodeJS.Signals) {
       try {
         if (process.platform !== "win32" && child.pid) process.kill(-child.pid, signal)
@@ -42,11 +48,41 @@ export const runCommand: RunCommand = (executable, args, options = {}) =>
         if (!(error instanceof Error && "code" in error && error.code === "ESRCH")) throw error
       }
     }
+    function failCleanup() {
+      reject(
+        new CommandExecutionError(
+          `${operation} failed during cancellation cleanup. Verify that the owned command and its descendants have stopped before retrying.`,
+          options.signal?.aborted,
+        ),
+      )
+    }
     const terminate = () => {
-      if (terminationTimeout) return
-      signalChild("SIGTERM")
-      terminationTimeout = setTimeout(() => signalChild("SIGKILL"), 5_000)
-      terminationTimeout.unref()
+      if (termination) return
+      termination = (async () => {
+        const alive = () => {
+          if (process.platform === "win32")
+            return child.exitCode === null && child.signalCode === null
+          if (!child.pid) return false
+          try {
+            process.kill(-child.pid, 0)
+            return true
+          } catch (error) {
+            if (error instanceof Error && "code" in error && error.code === "ESRCH") return false
+            throw error
+          }
+        }
+        signalChild("SIGTERM")
+        const deadline = performance.now() + 5_000
+        while (alive() && performance.now() < deadline)
+          await new Promise((resolve) => setTimeout(resolve, 25))
+        if (alive()) {
+          signalChild("SIGKILL")
+          const killed = performance.now() + 1_000
+          while (alive() && performance.now() < killed)
+            await new Promise((resolve) => setTimeout(resolve, 25))
+        }
+      })()
+      termination.catch(failCleanup)
     }
     options.signal?.addEventListener("abort", terminate, { once: true })
     child.stdout.on("data", (chunk: Buffer) => {
@@ -67,16 +103,28 @@ export const runCommand: RunCommand = (executable, args, options = {}) =>
         diagnosticBytes += kept.length
       }
     })
-    child.on("error", () =>
-      reject(
-        new CommandExecutionError(
-          `${operation} could not start. Check ${executable} installation and permissions.`,
-        ),
-      ),
-    )
-    child.on("close", (code) => {
-      clearTimeout(terminationTimeout)
-      options.signal?.removeEventListener("abort", terminate)
+    let couldNotStart = false
+    child.on("error", () => {
+      couldNotStart = true
+    })
+    child.on("close", async (code) => {
+      try {
+        await termination
+      } catch {
+        failCleanup()
+        return
+      } finally {
+        options.signal?.removeEventListener("abort", terminate)
+      }
+      if (couldNotStart) {
+        reject(
+          new CommandExecutionError(
+            `${operation} could not start. Check the tool installation and permissions.`,
+            options.signal?.aborted,
+          ),
+        )
+        return
+      }
       if (code !== 0 || exceeded || options.signal?.aborted) {
         const reason = options.signal?.aborted
           ? "cancelled"
@@ -90,9 +138,10 @@ export const runCommand: RunCommand = (executable, args, options = {}) =>
           .trim()
         reject(
           new CommandExecutionError(
-            `${operation} failed (${reason}).\n${detail || "The command returned no error details."}${diagnosticTruncated ? "\nError details truncated after 64 KiB." : ""}`,
+            `${operation} failed (${reason}).`,
             options.signal?.aborted,
             code ?? undefined,
+            `${detail || "The command returned no error details."}${diagnosticTruncated ? "\nError details truncated after 64 KiB." : ""}`,
           ),
         )
       } else {
