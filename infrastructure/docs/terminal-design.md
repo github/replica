@@ -257,7 +257,7 @@ npm ci --prefix infrastructure --ignore-scripts --engine-strict \
 npm run wizard:design --prefix infrastructure
 ```
 
-Open the printed `http://127.0.0.1:PORT` address in an ordinary browser. Use **Previous**, the screen selector and **Next** to browse the screen and its side-by-side annotations. Choose **Generate all screens and PDF** to export the whole catalog; the page returns to your selected screen afterwards. Keep the page and command open until it reports completion. The command does not install or launch a browser and does not require the Copilot browser host. Stop its local server with Ctrl+C after export.
+Open the complete printed `http://127.0.0.1:PORT/#token=...` address in an ordinary browser, including its access fragment. Keep this per-run link private; opening the address without its fragment cannot export. Use **Previous**, the screen selector and **Next** to browse the screen and its side-by-side annotations. Choose **Generate all screens and PDF** to export the whole catalog; the page returns to your selected screen afterwards. Navigation and export cannot overlap, and controls stay disabled until the current render or export finishes. Keep the page and command open until it reports completion. The command does not install or launch a browser and does not require the Copilot browser host. Stop its local server with Ctrl+C after export.
 
 Each run creates an ignored `infrastructure/.design-gallery/run-*/` directory containing `index.html`, `gallery.css`, `manifest.json`, `screens/` with individual PNGs and visible-text transcripts, and `Replica-wizard-design-guide.pdf`. Open `index.html` directly for offline design review, or share that whole directory. The live and offline gallery share their layout and navigation. The PDF has linked contents and one annotated screen per page. Incomplete captures and invalid images fail instead of producing a partial PDF.
 
@@ -267,7 +267,7 @@ The command renders the real `TerminalShell` and its input components into isola
 
 When adding or changing prompt behavior, update the catalog's inputs and annotations together. Source-copy bindings in `scenes.ts` contain SHA-256 hashes of the production files supplying fixture copy. Generation stops if one changes; review every affected scene before updating its binding. For example, from the repository root, `shasum -a 256 infrastructure/azure/install/configure/index.ts` prints that file's current hash. Presentation-only changes to the shell render directly without refreshing copied messages. Regenerate and inspect the affected screens after either kind of change; a source hash is a review reminder, not proof that annotations are correct.
 
-The capture server listens only on loopback, serves fixed assets and catalog output paths, and accepts exports only from its exact origin with a per-run token. Do not expose or forward its port. It has no deployment controls. Output directories are unique per run; remove old runs when they are no longer needed.
+The capture server listens only on loopback, serves fixed assets and catalog output paths, and accepts exports only from its exact origin with a per-run token. The command supplies that token through the printed URL fragment, which the browser does not send in HTTP requests; the unauthenticated catalog and assets never return it. Do not share the access link or expose or forward its port. It has no deployment controls. Output directories are unique per run; remove old runs when they are no longer needed.
 
 ## Maintaining the patterns
 

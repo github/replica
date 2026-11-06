@@ -80,7 +80,7 @@ export async function startGallery({
     if (request.headers.host !== new URL(url).host) throw new RequestError(403, "Unknown request host.")
     const path = request.url ?? ""
     if (request.method === "GET") {
-      if (path === "/scenes.json") return json(response, 200, { scenes, token, revision })
+      if (path === "/scenes.json") return json(response, 200, { scenes, revision })
       const asset = assets.get(path)
       if (asset) {
         response.writeHead(200, { "Content-Type": asset[1] })
