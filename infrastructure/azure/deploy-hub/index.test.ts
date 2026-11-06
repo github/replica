@@ -1,14 +1,41 @@
 import assert from "node:assert/strict"
 import childProcess from "node:child_process"
-import { afterEach, describe, it, mock } from "node:test"
+import { randomUUID } from "node:crypto"
+import { existsSync, mkdirSync, rmSync, statSync, writeFileSync } from "node:fs"
+import { basename, dirname, resolve } from "node:path"
+import { afterEach, beforeEach, describe, it, mock } from "node:test"
 import timers from "node:timers/promises"
 import { inspect } from "node:util"
 
 import { describeCommand } from "../../installer/command/describe/index.ts"
 import { deployHub } from "./index.ts"
 
+const terraformRoot = resolve(import.meta.dirname, "..")
+let fixtureDirectory: string
+let previousDataDirectory: string | undefined
+let previousMask: number
+let defaultDirectoryExisted: boolean
+
+beforeEach(() => {
+  previousDataDirectory = process.env.TF_DATA_DIR
+  previousMask = process.umask()
+  defaultDirectoryExisted = existsSync(resolve(terraformRoot, ".terraform"))
+  fixtureDirectory = resolve(terraformRoot, `.deploy-hub-test-${randomUUID()}`)
+  mkdirSync(fixtureDirectory, { mode: 0o700 })
+  process.env.TF_DATA_DIR = resolve(fixtureDirectory, "terraform")
+})
+
 afterEach(() => {
   mock.restoreAll()
+  if (previousDataDirectory === undefined) delete process.env.TF_DATA_DIR
+  else process.env.TF_DATA_DIR = previousDataDirectory
+  process.umask(previousMask)
+  rmSync(fixtureDirectory, { recursive: true, force: true })
+  const callerDirectory = resolve(basename(fixtureDirectory))
+  if (callerDirectory !== fixtureDirectory)
+    rmSync(callerDirectory, { recursive: true, force: true })
+  if (!defaultDirectoryExisted)
+    rmSync(resolve(terraformRoot, ".terraform"), { recursive: true, force: true })
 })
 
 function installationScenario({
@@ -26,6 +53,7 @@ function installationScenario({
   httpStatuses = [200],
   commandFailure,
   commandOutput,
+  onPlan,
 }: {
   appCreated?: boolean
   setupStatus?: string
@@ -36,6 +64,7 @@ function installationScenario({
   httpStatuses?: number[]
   commandFailure?: { args: string[]; error: Error; occurrence?: number }
   commandOutput?: { args: string[]; stdout: string }
+  onPlan?: (path: string) => void
 } = {}) {
   const installation = {
     name: "test-hub",
@@ -77,6 +106,7 @@ function installationScenario({
           return appCreated ? "azurerm_container_app.hub[0]" : ""
         case "plan":
           targeted = args.some((argument: string) => argument.startsWith("-target="))
+          onPlan?.(args.find((argument) => argument.startsWith("-out="))!.slice(5))
           return ""
         case "show":
           return JSON.stringify({
@@ -118,11 +148,17 @@ function installationScenario({
         }
         if (args.includes("release") && releaseError) throw releaseError
         return ""
-      case "containerapp revision list":
-        return JSON.stringify([
+      case "containerapp revision list": {
+        const revisions = [
           { name: "old-active", properties: { active: true } },
           { name: "old-terminating", properties: { active: false } },
-        ])
+        ]
+        return JSON.stringify(
+          args.includes("--all")
+            ? revisions
+            : revisions.filter((revision) => revision.properties.active),
+        )
+      }
       case "containerapp replica list": {
         const revision = args[args.indexOf("--revision") + 1]
         const reads = (replicaReads.get(revision) ?? 0) + 1
@@ -170,6 +206,72 @@ function installationScenario({
 }
 
 describe("deployHub()", () => {
+  for (const dataDirectory of ["relative", "absolute", "empty", "unset"]) {
+    it(`keeps sensitive plans in Terraform's data directory when TF_DATA_DIR is ${dataDirectory}`, async () => {
+      if (dataDirectory === "relative")
+        process.env.TF_DATA_DIR = `${basename(fixtureDirectory)}/relative`
+      else if (dataDirectory === "empty") process.env.TF_DATA_DIR = ""
+      else if (dataDirectory === "unset") delete process.env.TF_DATA_DIR
+      const expectedDirectory =
+        dataDirectory === "relative"
+          ? resolve(fixtureDirectory, "relative")
+          : dataDirectory === "absolute"
+            ? resolve(fixtureDirectory, "terraform")
+            : resolve(terraformRoot, ".terraform")
+      const directoryExisted = existsSync(expectedDirectory)
+      const planFiles: { path: string; directoryMode: number; fileMode: number }[] = []
+      const { args, events } = installationScenario({
+        onPlan(path) {
+          writeFileSync(path, "synthetic-sensitive-plan")
+          planFiles.push({
+            path,
+            directoryMode: statSync(dirname(path)).mode & 0o777,
+            fileMode: statSync(path).mode & 0o777,
+          })
+        },
+      })
+      process.umask(0o022)
+
+      await deployHub(args)
+
+      assert.equal(process.umask(), 0o022)
+      assert.equal(planFiles.length, 2)
+      for (const { path, directoryMode, fileMode } of planFiles) {
+        assert.equal(dirname(path), expectedDirectory)
+        if (!directoryExisted) assert.equal(directoryMode, 0o700)
+        assert.equal(fileMode, 0o600)
+        assert.equal(existsSync(path), false)
+      }
+      assert.ok(
+        events
+          .filter((event) => event[0] === "terraform")
+          .every((event) => event[1] === `-chdir=${terraformRoot}`),
+      )
+    })
+  }
+
+  it("deletes a sensitive saved plan and restores the umask after plan inspection fails", async () => {
+    let planPath: string | undefined
+    const { args } = installationScenario({
+      onPlan(path) {
+        planPath = path
+        writeFileSync(path, "synthetic-sensitive-plan")
+      },
+      commandFailure: {
+        args: [`-chdir=${terraformRoot}`, "show"],
+        error: new Error("Synthetic plan inspection failure"),
+      },
+    })
+    mock.method(console, "error", () => undefined)
+    process.umask(0o022)
+
+    await assert.rejects(deployHub(args), /Terraform command failed/)
+
+    assert.ok(planPath)
+    assert.equal(existsSync(planPath), false)
+    assert.equal(process.umask(), 0o022)
+  })
+
   it("drains all old revisions and completes setup before rollout, readiness, and lease release", async () => {
     const { args, events, replicaReads, commandOptions } = installationScenario()
     const output: unknown[][] = []
