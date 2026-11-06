@@ -70,19 +70,6 @@ type Story = StoryObj<typeof meta>
 
 export const Default: Story = {}
 
-export const ReducedMotion: Story = {
-  beforeEach() {
-    const matchMedia = window.matchMedia.bind(window)
-    window.matchMedia = (query) =>
-      Object.assign(matchMedia(query), {
-        matches: query === "(prefers-reduced-motion: reduce)",
-      })
-    return () => {
-      window.matchMedia = matchMedia
-    }
-  },
-}
-
 export const MicrosoftEntra: Story = {
   args: {
     data: {
