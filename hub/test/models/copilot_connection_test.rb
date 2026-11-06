@@ -8,6 +8,7 @@ class CopilotConnectionTest < ActiveSupport::TestCase
     @session = @admin.sessions.create!(fresh_authorized_at: Time.current)
     @previous_cli = ENV["REPLICA_LEARNING_CLI"]
     @previous_token = Rails.configuration.x.copilot_token
+    @previous_billing = Rails.configuration.x.copilot_billing
     ENV["REPLICA_LEARNING_CLI"] = CLI
     Rails.configuration.x.copilot_token = "copilot-user-token"
   end
@@ -15,6 +16,7 @@ class CopilotConnectionTest < ActiveSupport::TestCase
   teardown do
     ENV["REPLICA_LEARNING_CLI"] = @previous_cli
     Rails.configuration.x.copilot_token = @previous_token
+    Rails.configuration.x.copilot_billing = @previous_billing
   end
 
   test "connects for a current administrator with fresh proof and keeps only the token's digest" do
@@ -104,10 +106,10 @@ class CopilotConnectionTest < ActiveSupport::TestCase
     connection = CopilotConnection.connect!(actor: @admin, browser_session: @session)
     earlier = CopilotConnection.find(connection.id)
     Rails.configuration.x.copilot_token = "renewed-user-token"
-    connection.refuse!(token: "renewed-user-token")
+    connection.refuse!(credential: "renewed-user-token")
     before = connection.reload.attributes
 
-    recorded = earlier.refuse!(token: "copilot-user-token")
+    recorded = earlier.refuse!(credential: "copilot-user-token")
     assert_equal before, connection.reload.attributes
     assert_raises(CopilotConnection::Refused) { connection.access_token! }
     assert_not recorded
@@ -118,12 +120,12 @@ class CopilotConnectionTest < ActiveSupport::TestCase
     earlier_failure = CopilotConnection.find(connection.id)
     earlier_success = CopilotConnection.find(connection.id)
     Rails.configuration.x.copilot_token = "renewed-user-token"
-    connection.refuse!(token: "renewed-user-token")
+    connection.refuse!(credential: "renewed-user-token")
     before = connection.reload.attributes
     Rails.configuration.x.copilot_token = "copilot-user-token"
 
-    recorded_failure = earlier_failure.refuse!(token: "copilot-user-token")
-    recorded_success = earlier_success.verified!(token: "copilot-user-token")
+    recorded_failure = earlier_failure.refuse!(credential: "copilot-user-token")
+    recorded_success = earlier_success.verified!(credential: "copilot-user-token")
     assert_equal before, connection.reload.attributes
     assert_not recorded_failure
     assert_not recorded_success
@@ -136,10 +138,10 @@ class CopilotConnectionTest < ActiveSupport::TestCase
     earlier = CopilotConnection.find(connection.id)
     assert_equal "renewed-user-token", earlier.access_token!
     Rails.configuration.x.copilot_token = "third-fixture-token"
-    connection.refuse!(token: "third-fixture-token")
+    connection.refuse!(credential: "third-fixture-token")
     before = connection.reload.attributes
 
-    recorded = earlier.verified!(token: "renewed-user-token")
+    recorded = earlier.verified!(credential: "renewed-user-token")
     assert_equal before, connection.reload.attributes
     assert_raises(CopilotConnection::Refused) { connection.access_token! }
     assert_not recorded
@@ -150,7 +152,7 @@ class CopilotConnectionTest < ActiveSupport::TestCase
     earlier = CopilotConnection.find(connection.id)
     connection.refuse!
 
-    earlier.verified!(token: "copilot-user-token")
+    earlier.verified!(credential: "copilot-user-token")
     assert connection.reload.refused?
 
     checked = CopilotConnection.connect!(actor: @admin, browser_session: @session)
@@ -162,11 +164,11 @@ class CopilotConnectionTest < ActiveSupport::TestCase
     connection = CopilotConnection.connect!(actor: @admin, browser_session: @session)
     Rails.configuration.x.copilot_token = "renewed-user-token"
 
-    assert connection.refuse!(token: "renewed-user-token")
+    assert connection.refuse!(credential: "renewed-user-token")
     assert connection.reload.refused?
 
     Rails.configuration.x.copilot_token = "third-fixture-token"
-    assert connection.verified!(token: "third-fixture-token")
+    assert connection.verified!(credential: "third-fixture-token")
     assert_not connection.reload.refused?
     assert_equal Digest::SHA256.hexdigest("third-fixture-token"), connection.token_digest
   end
@@ -176,14 +178,14 @@ class CopilotConnectionTest < ActiveSupport::TestCase
     earlier = CopilotConnection.find(connection.id)
     CopilotConnection.disconnect!(actor: @admin, browser_session: @session)
 
-    assert_not earlier.refuse!(token: "copilot-user-token")
-    assert_not earlier.verified!(token: "copilot-user-token")
+    assert_not earlier.refuse!(credential: "copilot-user-token")
+    assert_not earlier.verified!(credential: "copilot-user-token")
     assert_nil CopilotConnection.current
 
     replacement = CopilotConnection.connect!(actor: @admin, browser_session: @session)
     replacement.refuse!
-    assert_not earlier.refuse!(token: "copilot-user-token")
-    assert_not earlier.verified!(token: "copilot-user-token")
+    assert_not earlier.refuse!(credential: "copilot-user-token")
+    assert_not earlier.verified!(credential: "copilot-user-token")
     assert replacement.reload.refused?
   end
 
@@ -227,6 +229,182 @@ class CopilotConnectionTest < ActiveSupport::TestCase
     @admin.update_columns(hub_admin: true)
     CopilotConnection.disconnect!(actor: @admin, browser_session: @session)
     assert_raises(CopilotConnection::Refused) { loaded.access_token! }
+  end
+
+  test "with organization billing, connects with a new App token, ignores the operator's token, and keeps only the installation's digest" do
+    configuration = github_app_configurations.create_installed
+    Rails.configuration.x.copilot_billing = "organization"
+    Rails.configuration.x.copilot_token = "no-copilot-token"
+    stub_github_copilot_token("copilot-user-token", "app-token-2", "app-token-3")
+
+    connection = CopilotConnection.connect!(actor: @admin, browser_session: @session)
+
+    assert_equal CopilotConnection.digest(configuration.copilot_credential), connection.token_digest
+    assert_equal %w[app-token-2 app-token-3], [ connection.access_token!, connection.access_token! ]
+  end
+
+  test "with organization billing, Hub has no credential without an active organization installation of its App" do
+    Rails.configuration.x.copilot_billing = "organization"
+
+    [ nil, { owner_type: "User" }, { installation_state: "suspended" } ].each do |installation|
+      GithubAppConfiguration.delete_all
+      github_app_configurations.create_installed(**installation) if installation
+
+      error = assert_raises(CopilotConnection::ChangeDenied, installation.inspect) do
+        CopilotConnection.connect!(actor: @admin, browser_session: @session)
+      end
+      assert_equal :no_token, error.reason, installation.inspect
+    end
+  end
+
+  test "with organization billing, a recheck refuses the connection when the App lacks the Copilot permission, but not when GitHub fails" do
+    github_app_configurations.create_installed
+    Rails.configuration.x.copilot_billing = "organization"
+    stub_github_copilot_token("copilot-user-token")
+    connection = CopilotConnection.connect!(actor: @admin, browser_session: @session)
+
+    stub_github_copilot_token(error_status: 500)
+    assert_raises(Learning::Error) { CopilotConnection.connect!(actor: @admin, browser_session: @session) }
+    assert_not connection.reload.refused?
+
+    stub_github_copilot_token(error_status: 422, error_body: github_copilot_permission_missing_error)
+    assert_raises(CopilotConnection::PermissionMissing) do
+      CopilotConnection.connect!(actor: @admin, browser_session: @session)
+    end
+    assert connection.reload.refused?
+
+    connection.update!(refused_at: nil)
+    stub_github_copilot_token \
+      error_status: 422,
+      error_body: { message: "Validation Failed", errors: [ { code: "abuse" } ] }
+    assert_raises(Learning::Error) { CopilotConnection.connect!(actor: @admin, browser_session: @session) }
+    assert_not connection.reload.refused?
+  end
+
+  test "turning on organization billing leaves a connection made with a token unusable until an administrator connects again" do
+    github_app_configurations.create_installed
+    connection = CopilotConnection.connect!(actor: @admin, browser_session: @session)
+    Rails.configuration.x.copilot_billing = "organization"
+    mint = stub_github_copilot_token("copilot-user-token")
+
+    assert_not connection.usable?
+    error = assert_raises(CopilotConnection::Refused) { connection.access_token! }
+    assert_equal "A Hub administrator must connect Copilot again before Hub bills the organization.", error.message
+    assert_not_requested mint
+
+    assert CopilotConnection.connect!(actor: @admin, browser_session: @session).usable?
+  end
+
+  test "an in-flight success cannot confirm organization billing for a connection made with a token" do
+    github_app_configurations.create_installed
+    connection = CopilotConnection.connect!(actor: @admin, browser_session: @session)
+    Rails.configuration.x.copilot_billing = "organization"
+
+    assert_not connection.verified!
+    assert_not connection.reload.usable?
+  end
+
+  test "with organization billing, a refusal belongs to the App installation, and a new installation waits for an administrator to connect it" do
+    configuration = github_app_configurations.create_installed
+    Rails.configuration.x.copilot_billing = "organization"
+    stub_github_copilot_token("copilot-user-token")
+    connection = CopilotConnection.connect!(actor: @admin, browser_session: @session)
+    assert connection.refuse!
+
+    configuration.update!(installation_id: 789)
+    stub_github_copilot_token("renewed-user-token", installation_id: 789)
+    assert_not connection.refused?
+    assert_not connection.usable?
+
+    reconnected = CopilotConnection.connect!(actor: @admin, browser_session: @session)
+    assert_equal "renewed-user-token", reconnected.access_token!
+  end
+
+  test "organization billing stays bound to the exact App configuration an administrator confirmed" do
+    changes = {
+      "replacement configuration" => lambda do |configuration|
+        id = configuration.id
+        configuration.delete
+        github_app_configurations.create_installed(id: id + 100)
+      end,
+      "App identity" => ->(configuration) { configuration.update_columns(github_app_id: 999) },
+      "App client identity" => ->(configuration) { configuration.update_columns(client_id: "Iv1.replacement") },
+      "credential revision" => lambda do |configuration|
+        configuration.update_columns(credential_revision: configuration.credential_revision + 1)
+      end,
+      "installation" => ->(configuration) { configuration.update_columns(installation_id: 789) },
+      "organization owner" => ->(configuration) { configuration.update_columns(owner_github_id: 654) },
+      "organization owner type" => ->(configuration) { configuration.update_columns(owner_type: "User") },
+      "suspended installation" => ->(configuration) { configuration.update_columns(installation_state: "suspended") },
+      "removed installation" => ->(configuration) { configuration.update_columns(installation_state: "removed") }
+    }
+
+    changes.each do |label, change|
+      CopilotConnection.delete_all
+      GithubAppConfiguration.delete_all
+      configuration = github_app_configurations.create_installed
+      Rails.configuration.x.copilot_billing = "organization"
+      stub_github_copilot_token("copilot-user-token")
+      connection = CopilotConnection.connect!(actor: @admin, browser_session: @session)
+      WebMock.reset_executed_requests!
+
+      change.call(configuration)
+      installation_id = GithubAppConfiguration.current.installation_id
+      mint = stub_github_copilot_token("unconfirmed-token", installation_id:)
+
+      assert_not connection.reload.usable?, label
+      assert_raises(CopilotConnection::Refused, label) { connection.access_token! }
+      assert_not_requested mint
+    end
+  end
+
+  test "organization billing confirmation survives a non-billing configuration write" do
+    configuration = github_app_configurations.create_installed
+    Rails.configuration.x.copilot_billing = "organization"
+    stub_github_copilot_token("copilot-user-token")
+    connection = CopilotConnection.connect!(actor: @admin, browser_session: @session)
+    configuration.touch
+    stub_github_copilot_token("still-confirmed-token")
+
+    assert connection.reload.usable?
+    assert_equal "still-confirmed-token", connection.access_token!
+  end
+
+  test "organization billing hands out no token when the connection is refused during minting" do
+    github_app_configurations.create_installed
+    Rails.configuration.x.copilot_billing = "organization"
+    connection = CopilotConnection.create! \
+      user: @admin,
+      token_digest: CopilotConnection.digest(CopilotConnection.credential),
+      verified_at: 1.day.ago
+    request = stub_request(:post, "#{GITHUB_API_URL}/app/installations/456/access_tokens")
+      .with(body: { permissions: { organization_copilot_requests: "read" } })
+      .to_return do
+        connection.refuse!
+        {
+          status: 201,
+          body: JSON.generate(
+            token: "refused-token",
+            expires_at: 1.hour.from_now.iso8601,
+            permissions: { organization_copilot_requests: "read" }
+          ),
+          headers: { "Content-Type" => "application/json" }
+        }
+      end
+
+    assert_raises(CopilotConnection::Refused) { connection.access_token! }
+    assert connection.reload.refused?
+    assert_requested request
+  end
+
+  test "Hub starts with organization billing and refuses a billing choice it does not know" do
+    initializer = Rails.root.join("config/initializers/deployment_configuration.rb")
+    Rails.configuration.x.copilot_billing = "organization"
+    assert_nothing_raised { load initializer }
+
+    Rails.configuration.x.copilot_billing = "organisation"
+    error = assert_raises(RuntimeError) { load initializer }
+    assert_match(/\AREPLICA_COPILOT_BILLING must be token_owner or organization: .*organisation/, error.message)
   end
 
   test "disconnects for a current administrator with fresh proof, and needs a connection to disconnect" do

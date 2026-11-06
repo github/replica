@@ -1,11 +1,12 @@
 # Provides grouped access to GitHub's APIs through shared HTTP transports.
 class GithubClient
   class Error < StandardError
-    attr_reader :status
+    attr_reader :response, :status
 
-    # Records GitHub's HTTP status when one is available.
-    def initialize(message, status: nil)
+    # Records GitHub's HTTP status and decoded error response when they are available.
+    def initialize(message, status: nil, response: nil)
       @status = status
+      @response = response
       super(message)
     end
   end

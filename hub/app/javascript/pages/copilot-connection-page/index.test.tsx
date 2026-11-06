@@ -19,6 +19,11 @@ describe("CopilotConnectionPage()", () => {
     renderPage(story.args.data)
     expect(screen.getByRole("heading", { name: "Copilot is not connected" })).toBeInTheDocument()
     expect(
+      screen.getByText(
+        "Copilot counts the usage toward the Copilot plan of the person who owns the token in REPLICA_COPILOT_TOKEN.",
+      ),
+    ).toBeInTheDocument()
+    expect(
       screen.getByText(/The usage counts toward the Copilot plan of the token's owner/),
     ).toBeInTheDocument()
     const checkbox = screen.getByRole("checkbox", {
@@ -31,6 +36,9 @@ describe("CopilotConnectionPage()", () => {
     expect(form).toHaveAttribute("method", "post")
     expect(form?.querySelector('[name="_method"]')).toBeNull()
     expect(form?.querySelector('[name="authenticity_token"]')).toHaveValue("storybook-token")
+    expect(form?.querySelector('[name="billing_confirmation"]')).toHaveValue(
+      "signed-billing-confirmation",
+    )
     expect(screen.queryByRole("button", { name: "Disconnect Copilot" })).not.toBeInTheDocument()
   })
 

@@ -1,12 +1,13 @@
-# Lets Hub administrators connect Copilot with the operator's token, see who connected it, and
-# disconnect it. Both changes need fresh GitHub proof, like Hub's other administrator settings.
-# Hub keeps no Copilot credential; see CopilotConnection.
+# Lets Hub administrators connect Copilot with the credential the operator configured, see who
+# connected it, and disconnect it. Both changes need fresh GitHub proof, like Hub's other
+# administrator settings. Hub keeps no Copilot credential; see CopilotConnection.
 class CopilotConnectionsController < SuperglueController
   include FreshAuthorizationRequired
 
   before_action :require_github_hub
   before_action :authorize_admin
-  before_action :confirm_change, only: %i[create destroy]
+  before_action :confirm_connect, only: :create
+  before_action :confirm_disconnect, only: :destroy
   before_action :authorize_connect, only: :create
   before_action :authorize_disconnect, only: :destroy
 
@@ -21,16 +22,20 @@ class CopilotConnectionsController < SuperglueController
 
   # @route POST /copilot (copilot_connection)
   def create
-    CopilotConnection.connect!(actor: Current.user, browser_session: Current.session)
+    CopilotConnection.connect! \
+      actor: Current.user,
+      browser_session: Current.session,
+      credential: @confirmed_credential
     @security_audit_recorded = true
     redirect_to copilot_connection_path, notice: t("copilot_connection.connected"), status: :see_other
   rescue CopilotConnection::Refused, Learning::Error => error
     reason, outcome = case error
+    when CopilotConnection::PermissionMissing then [ :permission_missing, "denied" ]
     when CopilotConnection::Refused then [ :refused, "denied" ]
     else [ error.code == "not_installed" ? :not_installed : :unavailable, "failed" ]
     end
     record_security_audit(outcome:)
-    redirect_to copilot_connection_path, alert: t("copilot_connection.errors.#{reason}"), status: :see_other
+    redirect_to copilot_connection_path, alert: helpers.copilot_billing_t("errors.#{reason}"), status: :see_other
   end
 
   # @route DELETE /copilot (copilot_connection)
@@ -42,7 +47,7 @@ class CopilotConnectionsController < SuperglueController
 
   private
 
-  # Local development has no Copilot token, so it uses the developer's own Copilot sign-in instead.
+  # Local development has no Copilot credential, so it uses the developer's own Copilot sign-in instead.
   def require_github_hub
     head :not_found if LocalDevelopment.enabled?
   end
@@ -57,7 +62,13 @@ class CopilotConnectionsController < SuperglueController
     render :show, status: :forbidden
   end
 
-  def confirm_change
+  def confirm_connect
+    return change_denied(CopilotConnection::ChangeDenied.new(:confirmation_required)) if params[:confirmed] != "1"
+
+    @confirmed_credential = CopilotConnection.confirmed_credential!(params[:billing_confirmation])
+  end
+
+  def confirm_disconnect
     return if params[:confirmed] == "1"
 
     change_denied(CopilotConnection::ChangeDenied.new(:confirmation_required))
@@ -85,7 +96,7 @@ class CopilotConnectionsController < SuperglueController
     else
       redirect_to \
         copilot_connection_path,
-        alert: t("copilot_connection.errors.#{error.reason}"),
+        alert: helpers.copilot_billing_t("errors.#{error.reason}"),
         status: :see_other
     end
   end

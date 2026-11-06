@@ -222,7 +222,7 @@ class Learning::Run < ApplicationRecord
     captured_at = Time.current
     Learning::Collection.new(store, captured_at:).import!(store.grant_ids!(by: grantor, basis:))
     label(store, since: (captured_at - WINDOW).utc.iso8601(6))
-    @connection&.verified!(token: @copilot_token) if copilot_requests.positive?
+    @connection&.verified!(credential: @copilot_credential) if copilot_requests.positive?
     consolidation = store.call \
       "consolidate",
       "--from", (captured_at - WINDOW).utc.iso8601(6),
@@ -230,10 +230,13 @@ class Learning::Run < ApplicationRecord
       "--actor", ACTOR,
       "--max", MAX_SUGGESTIONS.to_s
     succeed!(consolidation)
+  rescue CopilotConnection::PermissionMissing => error
+    @connection&.refuse!(credential: @copilot_credential)
+    fail!("copilot_refused", error.message)
   rescue CopilotConnection::Refused => error
     fail!("copilot_refused", error.message)
   rescue Learning::Error => error
-    @connection&.refuse!(token: @copilot_token) if error.code == "unauthorized"
+    @connection&.refuse!(credential: @copilot_credential) if error.code == "unauthorized"
     fail!(error.code, error.message)
   rescue StandardError
     fail!("failed", "Hub could not finish this run.")
@@ -273,16 +276,18 @@ class Learning::Run < ApplicationRecord
     claimed == 1
   end
 
-  # The operator's Copilot token while the connection allows Hub to use it, or none in local
-  # development, where Copilot uses whoever is signed in. Remembers both, so a refusal applies only
-  # to the token Copilot actually refused.
+  # A token for one Copilot request while the connection allows Hub to use Copilot, or none in local
+  # development, where Copilot uses whoever is signed in. With organization billing, each request gets
+  # a new token. Remembers the connection and the credential behind the token, so a refusal applies
+  # only to the credential Copilot actually refused.
   def copilot_token
     return nil if LocalDevelopment.enabled?
 
     @connection = CopilotConnection.current
     raise CopilotConnection::Refused, "Copilot is not connected." if @connection.nil?
 
-    @copilot_token = @connection.access_token!
+    @copilot_credential = CopilotConnection.credential
+    @connection.access_token!
   end
 
   # Who allowed Hub to use this repository's comments: the person who connected Copilot, or the

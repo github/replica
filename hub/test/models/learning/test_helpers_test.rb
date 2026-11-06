@@ -3,7 +3,7 @@ require "test_helper"
 class LearningTestHelpersTest < ActiveSupport::TestCase
   # Exercise real Minitest callbacks explicitly without adding a failing discoverable test.
   class Probe < ActiveSupport::TestCase
-    attr_accessor :fail_before_helper, :fail_in_body, :replacement_root, :replacement_token
+    attr_accessor :fail_before_helper, :fail_in_body, :replacement_root, :replacement_token, :replacement_billing
     attr_reader :created_root
 
     setup { raise "failure before learning setup" if fail_before_helper }
@@ -13,6 +13,7 @@ class LearningTestHelpersTest < ActiveSupport::TestCase
       @created_root = Rails.configuration.x.learning_root
       Rails.configuration.x.learning_root = replacement_root if replacement_root
       Rails.configuration.x.copilot_token = replacement_token if replacement_token
+      Rails.configuration.x.copilot_billing = replacement_billing if replacement_billing
       raise "failure after learning setup" if fail_in_body
     end
   end
@@ -31,6 +32,7 @@ class LearningTestHelpersTest < ActiveSupport::TestCase
       assert_equal root, Rails.configuration.x.learning_root
       assert_equal "existing-test-cli", ENV["REPLICA_LEARNING_CLI"]
       assert_equal "preserved-synthetic-token", Rails.configuration.x.copilot_token
+      assert_equal "organization", Rails.configuration.x.copilot_billing
       assert_equal original_environment, Learning::Command.instance_method(:environment)
     end
   end
@@ -53,6 +55,7 @@ class LearningTestHelpersTest < ActiveSupport::TestCase
       assert_equal root, Rails.configuration.x.learning_root
       assert_equal "existing-test-cli", ENV["REPLICA_LEARNING_CLI"]
       assert_equal "preserved-synthetic-token", Rails.configuration.x.copilot_token
+      assert_equal "organization", Rails.configuration.x.copilot_billing
       assert_equal original_environment, Learning::Command.instance_method(:environment)
     ensure
       Dir.define_singleton_method(:mktmpdir, original_directory)
@@ -68,6 +71,7 @@ class LearningTestHelpersTest < ActiveSupport::TestCase
         probe = Probe.new("exercise")
         probe.replacement_root = replacement
         probe.replacement_token = "different-synthetic-token"
+        probe.replacement_billing = "token_owner"
         probe.fail_in_body = true
 
         result = probe.run
@@ -80,6 +84,7 @@ class LearningTestHelpersTest < ActiveSupport::TestCase
         assert_equal root, Rails.configuration.x.learning_root
         assert_equal "existing-test-cli", ENV["REPLICA_LEARNING_CLI"]
         assert_equal "preserved-synthetic-token", Rails.configuration.x.copilot_token
+        assert_equal "organization", Rails.configuration.x.copilot_billing
         assert_equal original_environment, Learning::Command.instance_method(:environment)
       end
     end
@@ -107,6 +112,7 @@ class LearningTestHelpersTest < ActiveSupport::TestCase
     original_root = Rails.configuration.x.learning_root
     original_cli = ENV["REPLICA_LEARNING_CLI"]
     original_token = Rails.configuration.x.copilot_token
+    original_billing = Rails.configuration.x.copilot_billing
     original_environment = Learning::Command.instance_method(:environment)
     Dir.mktmpdir("preserved-learning-root-") do |directory|
       root = Pathname(directory)
@@ -114,11 +120,13 @@ class LearningTestHelpersTest < ActiveSupport::TestCase
       Rails.configuration.x.learning_root = root
       ENV["REPLICA_LEARNING_CLI"] = "existing-test-cli"
       Rails.configuration.x.copilot_token = "preserved-synthetic-token"
+      Rails.configuration.x.copilot_billing = "organization"
       yield root
     ensure
       Rails.configuration.x.learning_root = original_root
       ENV["REPLICA_LEARNING_CLI"] = original_cli
       Rails.configuration.x.copilot_token = original_token
+      Rails.configuration.x.copilot_billing = original_billing
       Learning::Command.define_method(:environment, original_environment)
       Learning::Command.send(:private, :environment)
     end

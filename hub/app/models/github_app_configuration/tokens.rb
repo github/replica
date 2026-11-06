@@ -1,5 +1,15 @@
 # Creates the short-lived tokens used for GitHub App requests.
 class GithubAppConfiguration::Tokens < ActiveRecord::AssociatedObject
+  # GitHub refused to create a Copilot token because the installation lacks the App's Copilot
+  # Requests organization permission.
+  class CopilotPermissionMissing < GithubClient::Error; end
+
+  # The only permission a Copilot token asks for, and the only one Hub accepts on it. A token with any
+  # other permission, even read-only repository metadata, could read the repositories the App's
+  # installation covers.
+  COPILOT_PERMISSIONS = { organization_copilot_requests: "read" }.freeze
+  COPILOT_PERMISSION_ERROR = "The permissions requested are not granted to this installation.".freeze
+
   # Creates a short-lived token that authenticates as the GitHub App.
   def app
     now = Time.current.to_i
@@ -42,5 +52,47 @@ class GithubAppConfiguration::Tokens < ActiveRecord::AssociatedObject
     @installation_token
   rescue KeyError, TypeError, ArgumentError
     raise GithubClient::InvalidResponse, "GitHub returned an incomplete installation token"
+  end
+
+  # Creates a new one-hour token for one replica-learning command. It can only make Copilot requests,
+  # which Copilot bills to the organization that installed the App. Hub never reuses it, never uses it
+  # for other GitHub requests, and never stores it. Raises CopilotPermissionMissing when the
+  # installation has not granted the App's Copilot Requests organization permission.
+  def copilot(snapshot: record.copilot_snapshot)
+    GithubAppConfiguration.with_copilot_installation!(snapshot) { }
+
+    payload = record.github_client.installations.create_token \
+      snapshot.fetch(:installation_id),
+      token: app,
+      permissions: COPILOT_PERMISSIONS
+    GithubAppConfiguration.with_copilot_installation!(snapshot) { }
+    raise KeyError if !payload.is_a?(Hash)
+
+    token = payload.fetch("token")
+    expires_at = Time.iso8601(payload.fetch("expires_at"))
+    raise KeyError if !token.is_a?(String) || token.blank? || expires_at <= Time.current
+
+    # GitHub grants only the requested permissions. A token with more must not reach Copilot's runtime.
+    if payload.fetch("permissions") != COPILOT_PERMISSIONS.stringify_keys
+      raise GithubClient::InvalidResponse, "GitHub returned a Copilot token with other permissions"
+    end
+
+    token
+  rescue GithubClient::Error => error
+    raise if !copilot_permission_missing?(error)
+
+    raise CopilotPermissionMissing.new \
+      "The GitHub App installation has not granted the Copilot Requests organization permission",
+      status: error.status
+  rescue KeyError, TypeError, ArgumentError
+    raise GithubClient::InvalidResponse, "GitHub returned an incomplete installation token"
+  end
+
+  private
+
+  # Recognizes the exact observed GitHub validation response, not every possible HTTP 422.
+  def copilot_permission_missing?(error)
+    error.status == 422 && error.response.is_a?(Hash) &&
+      error.response["message"] == COPILOT_PERMISSION_ERROR
   end
 end
