@@ -4,7 +4,9 @@ The Hub image runs the frontend, API, and both workers together. It can expose G
 
 ## Image and runtime
 
-Build from the repository root with `docker build -t replica-hub:check hub`. The image runs as a non-root user and contains compiled application code and migration tooling. It writes no application state to its writable layer. Publish and deploy the same image digest for setup and Hub.
+Build from the repository root with `docker build -t replica-hub:check hub`. When an npm proxy is required, add `--build-arg NPM_REGISTRY=https://YOUR_PROXY/`. This resolves locked dependency versions through that registry without changing the source lockfile; the registry URL must not contain credentials. The image runs as a non-root user and contains compiled application code and migration tooling. It writes no application state to its writable layer. Publish and deploy the same image digest for setup and Hub.
+
+Host npm configuration is not inherited by the image build. Without `NPM_REGISTRY`, the container needs public npm access. Use `--build-arg NPM_REGISTRY=https://packagefeedproxy.microsoft.io/npm/` where public npm access is not allowed. Explicit scoped registry mappings in the copied `.npmrc` still apply.
 
 Publishing is an explicit operator step, not a side effect of CI. From the approved checkout, authenticate to an authorized registry, then run `docker buildx build --platform linux/amd64 --tag YOUR_REGISTRY/replica-hub:YOUR_COMMIT --push hub`. Resolve the published digest with `docker buildx imagetools inspect YOUR_REGISTRY/replica-hub:YOUR_COMMIT` and give deployment the `registry/repository@sha256:...` reference, never the mutable tag.
 
@@ -46,7 +48,7 @@ The deployment orchestrator owns serialization of the complete release, includin
 
 ## Scope and evidence
 
-CI checks the image against disposable PostgreSQL, including setup, frontend/API serving, readiness, and termination. This is not a supported local-production installation. The existing devcontainer remains the development environment.
+CI checks the image against disposable PostgreSQL, including setup, frontend/API serving, readiness, and termination. Set `NPM_REGISTRY` when running `node hub/script/check-image/index.ts` locally if the build requires a proxy. This is not a supported local-production installation. The existing devcontainer remains the development environment.
 
 The [Azure reference installation](../../infrastructure/README.md) uses Terraform and a serialized maintenance-window release. It consumes the same image but does not yet configure the optional authentication settings. Add those protected settings and the exact Container Apps proxy-chain length before enabling authentication there.
 

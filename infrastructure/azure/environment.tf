@@ -22,4 +22,9 @@ resource "azurerm_container_app_environment" "hub" {
     minimum_count         = 0
     maximum_count         = 0
   }
+
+  lifecycle {
+    # Azure names its infrastructure group; resetting that name would replace the environment.
+    ignore_changes = [infrastructure_resource_group_name]
+  }
 }
