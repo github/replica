@@ -28,7 +28,7 @@ The enterprise application must allow an unassigned user to authenticate so Hub 
 
 This version does not use Microsoft Graph or SCIM lifecycle sync, polling, webhooks, or refresh tokens. Entra may briefly return cached role claims even during a fresh login. Until updated role-free evidence arrives, an existing Hub cookie can remain valid until its 12-hour expiry, provider removal, provider revision or global session revocation, or Hub membership suspension or removal.
 
-Disabling Entra or increasing its provider revision revokes Entra-owned authority and sessions that rely solely on it; separate bootstrap authority may remain valid. Advancing global session revocation invalidates every Hub session. Immediate per-user Entra lifecycle synchronization is not implemented.
+Increasing the Entra provider revision revokes Entra-owned authority and sessions that rely solely on it, while separate bootstrap authority remains valid. Removing or disabling Entra also advances global session revocation, which invalidates every Hub session; a surviving bootstrap assignment can admit the user again on a new sign-in. Immediate per-user Entra lifecycle synchronization is not implemented.
 
 Bootstrap authority remains separate. Entra evidence cannot overwrite a bootstrap assignment or reactivate a suspended or removed membership. Current Entra evidence still supersedes or revokes provider authority and ends open sessions while the membership remains inactive. If Entra authority is revoked while a separate active bootstrap assignment remains, the user may still be admitted through that Hub-owned authority.
 
