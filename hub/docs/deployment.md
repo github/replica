@@ -31,7 +31,7 @@ Publishing is an explicit operator step, not a side effect of CI. From the appro
 
 Configuration errors stop startup without printing credentials. Logging and optional tracing retain their existing [logging](logging.md) and [telemetry](telemetry.md) contracts.
 
-Entra role removal is observed only when Entra later emits updated role-free authentication evidence; Entra may briefly return cached role claims even during a fresh login. Existing Hub sessions may remain valid until their 12-hour expiry or another Hub/provider revocation event. Increasing a provider revision revokes that provider's authority and sessions that rely solely on it, while separate bootstrap authority remains valid. Removing a provider from configuration disables its authority and advances global session revocation, which invalidates every Hub session. Hub does not implement immediate per-user Entra lifecycle synchronization.
+Hub does not implement immediate per-user Entra lifecycle synchronization. Before changing or removing Entra configuration, review [App roles and membership](entra-oidc.md#app-roles-and-membership) for cached claims, the 12-hour session window, and the different blast radii of provider revision and removal controls.
 
 The runtime serves built frontend navigation and static files on the API port. Unknown `/api` endpoints remain JSON 404 responses. Missing files with extensions do not return the frontend document.
 
