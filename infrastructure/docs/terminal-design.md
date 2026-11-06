@@ -63,6 +63,8 @@ Own cleanup in one entry-point lifecycle boundary. On cancellation and catchable
 
 A failure summary may preserve a relevant warning or error, but must not repeat an earlier success or informational notice as the explanation for a later failure. Print an identical failure and notice only once.
 
+Print the completed deployment report outside the restored terminal screen, not as a transient success notice. Interactive and non-interactive paths share one formatter for the service URL, target, image, configuration location, and verified resource links. Never dump configuration or command output into the report, record it in telemetry, or print it before readiness and lock release succeed. Configuration-only completion remains distinct from deployment completion.
+
 Hard termination or power loss cannot guarantee terminal cleanup. Recovery must rely on previously saved checkpoints, not an exit handler successfully running.
 
 ### Semantic presentation, not colored log strings

@@ -4,6 +4,7 @@ import { installAzure } from "../../azure/install/index.ts"
 import { saveConfig } from "../config/index.ts"
 import type { DeploymentConfig, RunCommand, WizardUI } from "../types.ts"
 import type { WizardSession } from "../session/index.ts"
+import { formatDeploymentSummary } from "../deployment-summary/index.ts"
 
 export async function runWizard({
   ui,
@@ -126,7 +127,7 @@ export async function runWizard({
     ui.complete?.()
     return `Configuration saved to ${path}. No Azure resources were changed.`
   }
-  const url = await installAzure(config, {
+  const result = await installAzure(config, {
     directory: join(directory, config.name),
     run,
     ui,
@@ -139,5 +140,5 @@ export async function runWizard({
   })
   await session?.complete()
   ui.complete?.()
-  return `Hub is ready at ${url}. Readiness does not provide sign-in or authorization.`
+  return formatDeploymentSummary(result, path)
 }

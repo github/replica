@@ -20,7 +20,30 @@ export interface Foundation {
 export interface Installation {
   environment_id: string
   resource_group: string
+  resource_group_id: string
+  app_id: string | null
   storage_account: string
+  storage_account_id: string
+  postgres_server_id: string
   postgres_host: string
   url: string | null
+}
+
+export interface DeploymentResult {
+  name: string
+  url: string
+  subscriptionId: string
+  tenantId: string
+  location: string
+  image: string
+  resources: {
+    resourceGroup: string
+    app: string
+    environment: string
+    database: string
+    storage: string
+    registry: string
+    vault: string
+    stateStorage: string
+  }
 }

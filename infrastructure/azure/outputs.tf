@@ -5,9 +5,12 @@ output "installation" {
     owner                      = var.owner
     subscription_id            = var.subscription_id
     resource_group             = azurerm_resource_group.hub.name
+    resource_group_id          = azurerm_resource_group.hub.id
+    app_id                     = var.deploy_hub ? azurerm_container_app.hub[0].id : null
     app_name                   = "${var.name}-hub"
     setup_job_name             = azurerm_container_app_job.setup.name
     storage_account            = azurerm_storage_account.artifacts.name
+    storage_account_id         = azurerm_storage_account.artifacts.id
     release_container          = azurerm_storage_container.releases.name
     release_blob               = azurerm_storage_blob.release_lock.name
     environment_id             = azurerm_container_app_environment.hub.id

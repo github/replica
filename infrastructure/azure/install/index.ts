@@ -13,7 +13,8 @@ import { installationSecrets } from "./secrets/index.ts"
 import { installationNames } from "./settings.ts"
 import { verifyInstallationGroup } from "./group/index.ts"
 import { recoverLease } from "./lease/recover/index.ts"
-import type { AzureInstallation, Foundation, Installation } from "./types.ts"
+import { deploymentResult } from "./result/index.ts"
+import type { AzureInstallation, DeploymentResult, Foundation, Installation } from "./types.ts"
 
 export async function installAzure(
   input: DeploymentConfig,
@@ -28,7 +29,7 @@ export async function installAzure(
     ui: InstallerUI
     saveNpmRegistry?(registry: string): Promise<void>
   },
-): Promise<string> {
+): Promise<DeploymentResult> {
   const config = parseConfig(input)
   await verifyAzureTarget(config, run)
   const env: NodeJS.ProcessEnv = {
@@ -261,10 +262,15 @@ export async function installAzure(
     }
     await ui.phase?.("verify")
     const released = await app.output<Installation>("installation")
-    if (!released.url?.startsWith("https://"))
-      throw new Error("Release did not return an HTTPS endpoint.")
+    const result = deploymentResult({
+      config,
+      installation: released,
+      foundation: resources,
+      stateStorageId: state.id,
+      image,
+    })
     await lock.release()
-    return released.url
+    return result
   } finally {
     delete env.TF_VAR_postgres_admin_password
     lock.reportRetained()

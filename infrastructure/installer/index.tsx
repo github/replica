@@ -10,6 +10,7 @@ import type { DeploymentConfig, InstallerUI, RunCommand } from "./types.ts"
 import { runWizard } from "./wizard/index.ts"
 import { openSession, type WizardSession } from "./session/index.ts"
 import { startInstallerTelemetry } from "./telemetry/index.ts"
+import { formatDeploymentSummary } from "./deployment-summary/index.ts"
 
 const { values } = parseArgs({
   options: {
@@ -77,11 +78,14 @@ if (values.help) {
       })
       await ui.phase?.("checks")
       await azurePreflight(run, ui)
-      message = await installAzure(existing, {
-        directory: join(dirname(path), existing.name),
-        run,
-        ui,
-      })
+      message = formatDeploymentSummary(
+        await installAzure(existing, {
+          directory: join(dirname(path), existing.name),
+          run,
+          ui,
+        }),
+        path,
+      )
     } else {
       if (!process.stdin.isTTY || !process.stdout.isTTY) {
         throw new Error(

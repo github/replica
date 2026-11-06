@@ -225,5 +225,5 @@ export async function prepareBackend(context: AzureInstallation) {
     )
     return path
   }
-  return { backend, account: names.stateAccount }
+  return { backend, account: names.stateAccount, id: storage.id }
 }

@@ -1,5 +1,15 @@
 mock_provider "azurerm" {
   override_during = plan
+  mock_resource "azurerm_resource_group" {
+    defaults = {
+      id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/test-hub"
+    }
+  }
+  mock_resource "azurerm_container_app" {
+    defaults = {
+      id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/test-hub/providers/Microsoft.App/containerApps/test-hub-hub"
+    }
+  }
   mock_resource "azurerm_virtual_network" {
     defaults = {
       id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/test-hub/providers/Microsoft.Network/virtualNetworks/test"
@@ -108,6 +118,16 @@ run "bootstrap_keeps_hub_stopped" {
   }
   assert {
     condition = (
+      output.installation.app_id == null &&
+      output.installation.resource_group_id == azurerm_resource_group.hub.id &&
+      output.installation.resource_group_id == "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/test-hub" &&
+      output.installation.storage_account_id == azurerm_storage_account.artifacts.id &&
+      output.installation.storage_account_id == "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/test-hub/providers/Microsoft.Storage/storageAccounts/testhub"
+    )
+    error_message = "Bootstrap coordinates must expose authoritative group and storage IDs without claiming a deployed app."
+  }
+  assert {
+    condition = (
       azurerm_container_app_job.setup.template[0].container[0].command == tolist(["node", "dist/server/scripts/setup/index.js"]) &&
       azurerm_container_app_job.setup.manual_trigger_config[0].parallelism == 1 &&
       azurerm_container_app_job.setup.replica_retry_limit == 0
@@ -153,6 +173,13 @@ run "combined_release_uses_one_image_and_bounded_shutdown" {
     acr_id     = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/existing/providers/Microsoft.ContainerRegistry/registries/existing"
   }
 
+  assert {
+    condition = (
+      output.installation.app_id == azurerm_container_app.hub[0].id &&
+      output.installation.app_id == "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/test-hub/providers/Microsoft.App/containerApps/test-hub-hub"
+    )
+    error_message = "A deployed app must expose its actual Azure resource ID for the deployment report."
+  }
   assert {
     condition = (
       azurerm_container_app.hub[0].template[0].min_replicas == 1 &&

@@ -67,6 +67,8 @@ npm run setup:server -- \
 
 Non-interactive execution requires complete configuration and fails with instructions when a prerequisite requires human action. It does not answer missing configuration questions or escalate access. Interactive runs refuse to overwrite a saved installation with a different target or owner; use a new configuration file for another installation. Normal updates use the existing release orchestrator; the wizard never directly applies the full application configuration to an installed Hub.
 
+You can reopen the wizard while Hub is running, but a deployment or update is a maintenance-window operation, not a no-downtime rerun. It requires fresh approval before stopping old revisions and running setup. A failed attempt may have left Hub running with retained leases; those leases still require the [interrupted-installation recovery checks](#interrupted-installation). Restarting does not clear them or inherit permission to stop workloads.
+
 Interactive runs also save a private companion draft at `<config path>.draft.json`, such as `.local/installation.json.draft.json`. Each accepted answer and phase transition is saved before continuing. On restart, the wizard shows the draft's target and last-save time and offers Resume setup, Start over, or Exit. Resume rechecks Azure access and available choices, then returns to the first unresolved question. Changed parent choices invalidate dependent answers without discarding independent settings.
 
 Drafts contain only validated non-secret choices, not raw keystrokes, search queries, command output, credentials, or consent for cloud changes. A draft does not replace complete deployment configuration or prove that a resource operation succeeded. Start over requires confirmation and only resets the local draft; it does not delete resources or clear cloud leases. Successful configuration-only or deployment completion removes the draft and keeps the reusable configuration. Non-interactive execution never consumes a draft.
@@ -76,6 +78,14 @@ The local `<config path>.draft.json.lock` allows one interactive writer per conf
 Older version-1 configuration files may contain `azure.stateAllowedIp`. That obsolete setting is accepted but ignored, and is omitted when the configuration is saved again.
 
 The wizard only reuses resources owned by this installation and matching its Terraform state. It does not automatically adopt existing shared registries, vaults, or unrelated resource groups. Use the manual reference below when connecting an externally managed registry, vault, backend, or an existing installation not created by this wizard.
+
+### Deployment result
+
+A successful installation or update prints a report in your normal shell after restoring the terminal. Interactive and non-interactive runs use the same report: service URL, installation name, Azure subscription and tenant, region, immutable image digest, and saved configuration path. It also lists the application resource group, Hub app, Container Apps environment, PostgreSQL server, artifact storage, registry, Key Vault, and Terraform state account with links to their Azure portal pages.
+
+Resource links use IDs from Terraform outputs and the existing verified Azure state-account inspection, not reconstructed naming conventions. The report contains no credentials and is not added to telemetry or drafts. It appears only after readiness, installation/release lease release, and entry-point cleanup succeed. Invalid or incomplete metadata stops setup with an error instead of printing a misleading success report. Configuration-only runs report the saved file without claiming a deployment.
+
+Readiness remains a technical check, not sign-in or authorization. An earlier deployment's URL or a running revision does not prove that a later failed update completed.
 
 ### Correcting answers and retrying lookups
 

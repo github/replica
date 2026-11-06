@@ -5,6 +5,7 @@ import { afterEach, expect, it, vi } from "vitest"
 import { CommandExecutionError } from "../../installer/command/index.ts"
 import type { DeploymentConfig, InstallerUI, RunCommand } from "../../installer/types.ts"
 import { installAzure } from "./index.ts"
+import type { DeploymentResult } from "./types.ts"
 
 const directories: string[] = []
 afterEach(async () => {
@@ -51,7 +52,11 @@ async function scenario({
   let imageAttempts = 0
   let releaseLocked = retainedRelease
   const installation = {
-    environment_id: `/subscriptions/${config.azure.subscriptionId}/resourceGroups/test-hub/providers/Microsoft.App/managedEnvironments/test`,
+    environment_id: `/subscriptions/${config.azure.subscriptionId}/resourceGroups/${config.azure.resourceGroup}/providers/Microsoft.App/managedEnvironments/test`,
+    resource_group_id: `/subscriptions/${config.azure.subscriptionId}/resourceGroups/${config.azure.resourceGroup}`,
+    app_id: null as string | null,
+    postgres_server_id: `/subscriptions/${config.azure.subscriptionId}/resourceGroups/${config.azure.resourceGroup}/providers/Microsoft.DBforPostgreSQL/flexibleServers/test-hub-postgres`,
+    storage_account_id: `/subscriptions/${config.azure.subscriptionId}/resourceGroups/${config.azure.resourceGroup}/providers/Microsoft.Storage/storageAccounts/artifactstore`,
     resource_group: config.azure.resourceGroup,
     storage_account: "artifactstore",
     postgres_host: "test-hub-postgres.postgres.database.azure.com",
@@ -94,6 +99,7 @@ async function scenario({
       if (releaseFails) throw new CommandExecutionError("Release failed")
       released = true
       installation.url = "https://hub.example.com"
+      installation.app_id = `/subscriptions/${config.azure.subscriptionId}/resourceGroups/${config.azure.resourceGroup}/providers/Microsoft.App/containerApps/test-hub-hub`
       return ""
     }
     if (executable !== "az") throw new Error(`Unexpected executable ${executable}`)
@@ -225,13 +231,57 @@ async function scenario({
     messages,
     secretValues,
     image,
+    installation,
+    expectedResult: (): DeploymentResult => ({
+      name: config.name,
+      url: "https://hub.example.com",
+      subscriptionId: config.azure.subscriptionId,
+      tenantId: config.azure.tenantId,
+      location: config.azure.location,
+      image,
+      resources: {
+        resourceGroup: installation.resource_group_id,
+        app: installation.app_id!,
+        environment: installation.environment_id,
+        database: installation.postgres_server_id,
+        storage: installation.storage_account_id,
+        registry: foundation.registry_id,
+        vault: foundation.vault_id,
+        stateStorage: `/subscriptions/${config.azure.subscriptionId}/resourceGroups/state/providers/Microsoft.Storage/storageAccounts/state`,
+      },
+    }),
     released: () => released,
   }
 }
 
 it("publishes through the chosen registry, provisions privately, removes temporary access, then invokes the guarded release", async () => {
   const s = await scenario()
-  await expect(installAzure(s.config, s)).resolves.toBe("https://hub.example.com")
+  const releasingLease = Promise.withResolvers<void>()
+  const finishLeaseRelease = Promise.withResolvers<void>()
+  let receiptReturned = false
+  const run: RunCommand = async (executable, args, options) => {
+    const result = await s.run(executable, args, options)
+    if (
+      executable === "az" &&
+      args.slice(0, 4).join(" ") === "storage blob lease release" &&
+      args.includes(`${s.config.name}/installer.lock`)
+    ) {
+      releasingLease.resolve()
+      await finishLeaseRelease.promise
+      expect(receiptReturned).toBe(false)
+    }
+    return result
+  }
+  const installing = installAzure(s.config, { ...s, run }).then((result) => {
+    receiptReturned = true
+    return result
+  })
+  await releasingLease.promise
+  await Promise.resolve()
+  expect(receiptReturned).toBe(false)
+  finishLeaseRelease.resolve()
+  const result = await installing
+  expect(result).toEqual(s.expectedResult())
   const commands = s.events.map(({ command }) => command)
   const start = commands.findIndex(
     (command) => command.slice(0, 4).join(" ") === "az containerapp job start",
@@ -246,6 +296,17 @@ it("publishes through the chosen registry, provisions privately, removes tempora
   expect(start).toBeGreaterThan(-1)
   expect(cleanup).toBeGreaterThan(start)
   expect(release).toBeGreaterThan(cleanup)
+  const finalOutput = commands.findLastIndex(
+    (command) =>
+      command[0] === "terraform" && command[1]!.endsWith("/azure") && command[2] === "output",
+  )
+  const installerRelease = commands.findIndex(
+    (command) =>
+      command.slice(0, 5).join(" ") === "az storage blob lease release" &&
+      command.includes(`${s.config.name}/installer.lock`),
+  )
+  expect(finalOutput).toBeGreaterThan(release)
+  expect(installerRelease).toBeGreaterThan(finalOutput)
   expect(commands.find((command) => command[0] === "docker")).toContain(
     "NPM_REGISTRY=https://proxy.example/npm/",
   )
@@ -273,8 +334,22 @@ it("publishes through the chosen registry, provisions privately, removes tempora
 
 it("updates an installed app only through the release orchestrator and never reruns fresh role provisioning", async () => {
   const s = await scenario({ existing: true })
-  await installAzure(s.config, s)
+  const result = await installAzure(s.config, s)
+  expect(result).toEqual(s.expectedResult())
   expect(s.released()).toBe(true)
+  const commands = s.events.map(({ command }) => command)
+  const release = commands.findIndex((command) => command[0] === process.execPath)
+  const finalOutput = commands.findLastIndex(
+    (command) =>
+      command[0] === "terraform" && command[1]!.endsWith("/azure") && command[2] === "output",
+  )
+  expect(finalOutput).toBeGreaterThan(release)
+  const installerRelease = commands.findIndex(
+    (command) =>
+      command.slice(0, 5).join(" ") === "az storage blob lease release" &&
+      command.includes(`${s.config.name}/installer.lock`),
+  )
+  expect(installerRelease).toBeGreaterThan(finalOutput)
   expect(
     s.events.some(({ command }) => command.slice(0, 4).join(" ") === "az containerapp job start"),
   ).toBe(false)
@@ -313,8 +388,8 @@ it("corrects an image-build proxy under the same installation lease without repl
     expect(s.events.filter(({ command }) => command[0] === "docker")).toHaveLength(1)
   })
 
-  await expect(installAzure(s.config, { ...s, saveNpmRegistry })).resolves.toBe(
-    "https://hub.example.com",
+  await expect(installAzure(s.config, { ...s, saveNpmRegistry })).resolves.toEqual(
+    expect.objectContaining({ url: "https://hub.example.com", image: s.image }),
   )
 
   const commands = s.events.map(({ command }) => command)
@@ -409,7 +484,9 @@ it("replans a failed application step under the same lease without replaying ear
     return "retry"
   })
 
-  await expect(installAzure(s.config, { ...s, run })).resolves.toBe("https://hub.example.com")
+  await expect(installAzure(s.config, { ...s, run })).resolves.toEqual(
+    expect.objectContaining({ url: "https://hub.example.com", image: s.image }),
+  )
 
   expect(s.ui.select).toHaveBeenCalledOnce()
   expect(approvals).toHaveLength(2)
@@ -525,7 +602,9 @@ it("recovers a retained release lease after fresh maintenance approval even when
     return "recover"
   })
 
-  await expect(installAzure(s.config, s)).resolves.toBe("https://hub.example.com")
+  await expect(installAzure(s.config, s)).resolves.toEqual(
+    expect.objectContaining({ url: "https://hub.example.com", image: s.image }),
+  )
 
   const commands = s.events.map(({ command }) => command)
   const inspectRelease = commands.findIndex(
@@ -564,6 +643,82 @@ it("retains installation exclusion and does not report a ready app when release 
     s.events.filter(({ command }) => command.slice(0, 4).join(" ") === "az containerapp job start"),
   ).toHaveLength(1)
   expect(s.ui.wait).not.toHaveBeenCalled()
+})
+
+it("does not release or return a deployment receipt when fresh maintenance approval is declined for an update", async () => {
+  const s = await scenario({ existing: true })
+  s.ui.confirm = vi
+    .fn<InstallerUI["confirm"]>()
+    .mockResolvedValueOnce(true)
+    .mockResolvedValueOnce(false)
+
+  await expect(installAzure(s.config, s)).rejects.toThrow()
+
+  expect(s.ui.confirm).toHaveBeenCalledTimes(2)
+  expect(s.released()).toBe(false)
+  expect(s.messages).toContainEqual(expect.stringContaining("installer.lock"))
+  expect(
+    s.events.some(
+      ({ command }) =>
+        command[0] === process.execPath ||
+        (command.slice(0, 5).join(" ") === "az storage blob lease release" &&
+          command.includes(`${s.config.name}/installer.lock`)),
+    ),
+  ).toBe(false)
+})
+
+it("retains the installation lease when final resource metadata is invalid after a successful release", async () => {
+  const s = await scenario({ existing: true })
+  const run: RunCommand = async (executable, args, options) => {
+    const result = await s.run(executable, args, options)
+    if (
+      s.released() &&
+      executable === "terraform" &&
+      args[0]!.endsWith("/azure") &&
+      args[1] === "output"
+    )
+      return JSON.stringify({ ...s.installation, app_id: null })
+    return result
+  }
+
+  await expect(installAzure(s.config, { ...s, run })).rejects.toThrow()
+
+  expect(s.released()).toBe(true)
+  expect(s.messages).toContainEqual(expect.stringContaining("installer.lock"))
+  expect(
+    s.events.some(
+      ({ command }) =>
+        command.slice(0, 5).join(" ") === "az storage blob lease release" &&
+        command.includes(`${s.config.name}/installer.lock`),
+    ),
+  ).toBe(false)
+})
+
+it("does not return a deployment receipt when releasing the installation lease fails", async () => {
+  const s = await scenario({ existing: true })
+  const failure = new CommandExecutionError("Synthetic installer lease release failure")
+  const run: RunCommand = async (executable, args, options) => {
+    const result = await s.run(executable, args, options)
+    if (
+      executable === "az" &&
+      args.slice(0, 4).join(" ") === "storage blob lease release" &&
+      args.includes(`${s.config.name}/installer.lock`)
+    )
+      throw failure
+    return result
+  }
+
+  await expect(installAzure(s.config, { ...s, run })).rejects.toBe(failure)
+
+  expect(s.released()).toBe(true)
+  expect(s.messages).toContainEqual(expect.stringContaining("installer.lock"))
+  expect(
+    s.events.filter(
+      ({ command }) =>
+        command.slice(0, 5).join(" ") === "az storage blob lease release" &&
+        command.includes(`${s.config.name}/installer.lock`),
+    ),
+  ).toHaveLength(1)
 })
 
 it("refuses to rerun ambiguous prior provisioning and retains the release lease", async () => {
