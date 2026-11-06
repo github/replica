@@ -10,6 +10,6 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["**/*.ts", "../infrastructure/**/*.ts"],
+  "include": ["**/*.ts", "../infrastructure/azure/deploy-hub/**/*.ts"],
   "exclude": ["node_modules"]
 }
