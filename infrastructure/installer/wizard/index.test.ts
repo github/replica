@@ -164,6 +164,10 @@ it("completes the draft and reports the structured deployment only after the ins
     return summary
   })
   await started.promise
+  expect(azureInstaller.installAzure).toHaveBeenCalledWith(
+    config,
+    expect.objectContaining({ directory }),
+  )
   expect(reported).toBe(false)
   expect(ui.complete).not.toHaveBeenCalled()
   expect(session.draft).toBeDefined()

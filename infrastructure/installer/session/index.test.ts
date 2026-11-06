@@ -176,6 +176,26 @@ describe("wizard draft sessions", () => {
     expect((await track(configPath)).draft?.answers).toEqual({ owner: "platform-team" })
   })
 
+  it("normalizes draft Azure UUIDs and retains dependent choices when only identifier case changes", async () => {
+    const { configPath } = await target()
+    const session = await track(configPath)
+    const tenantId = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+    const subscriptionId = "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff"
+    await session.answer("tenantId", tenantId.toUpperCase())
+    await session.answer("subscriptionId", subscriptionId.toUpperCase())
+    await session.answer("location", "eastus2")
+
+    await session.answer("tenantId", tenantId)
+    await session.answer("subscriptionId", subscriptionId)
+    await session.close()
+
+    expect((await track(configPath)).draft?.answers).toEqual({
+      tenantId,
+      subscriptionId,
+      location: "eastus2",
+    })
+  })
+
   it("refuses another active writer and an already closed writer cannot release its successor's ownership", async () => {
     const { configPath } = await target()
     const first = await track(configPath)

@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto"
-import { mkdir, rm } from "node:fs/promises"
+import { rm } from "node:fs/promises"
 import { join } from "node:path"
 
 import type { InstallerUI, RunCommand } from "../installer/types.ts"
 import { CommandExecutionError } from "../installer/command/index.ts"
 import { promptForRecovery } from "../installer/prompt-for-recovery/index.ts"
+import { privateDirectory } from "../installer/private-files/index.ts"
 
 export function terraformModule({
   directory,
@@ -25,7 +26,7 @@ export function terraformModule({
     })
   return {
     async init(backend: string) {
-      await mkdir(dataDirectory, { recursive: true, mode: 0o700 })
+      await privateDirectory(dataDirectory)
       await command(["init", "-input=false", `-backend-config=${backend}`])
     },
     async state(): Promise<string[]> {

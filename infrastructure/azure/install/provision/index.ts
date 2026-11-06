@@ -1,4 +1,3 @@
-import { writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import timers from "node:timers/promises"
 
@@ -6,6 +5,7 @@ import { terraformModule } from "../../../terraform/index.ts"
 import { acquireLease } from "../lease/index.ts"
 import type { installationSecrets } from "../secrets/index.ts"
 import type { AzureInstallation, Foundation, Installation } from "../types.ts"
+import { writePrivateFile } from "../../../installer/private-files/index.ts"
 
 export async function provisionDatabase(
   context: AzureInstallation,
@@ -52,7 +52,7 @@ export async function provisionDatabase(
       )
     }
     const variables = join(directory, "provision.tfvars.json")
-    await writeFile(
+    await writePrivateFile(
       variables,
       JSON.stringify({
         subscription_id: config.azure.subscriptionId,
@@ -65,7 +65,6 @@ export async function provisionDatabase(
         vault_id: foundation.vault_id,
         secret_urls: secrets.provisioning,
       }),
-      { mode: 0o600 },
     )
     if (complete) {
       const job = await module.output<string>("job_name")

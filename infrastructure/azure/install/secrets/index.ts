@@ -1,7 +1,8 @@
 import { randomBytes } from "node:crypto"
-import { rm, writeFile } from "node:fs/promises"
+import { rm } from "node:fs/promises"
 import { join } from "node:path"
 import type { AzureInstallation, Foundation } from "../types.ts"
+import { writePrivateFile } from "../../../installer/private-files/index.ts"
 
 export async function installationSecrets(context: AzureInstallation, foundation: Foundation) {
   const { azure, directory, config, ui } = context
@@ -31,7 +32,7 @@ export async function installationSecrets(context: AzureInstallation, foundation
   const put = async (name: string, value: string) => {
     const file = join(directory, `secret-${randomBytes(8).toString("hex")}`)
     try {
-      await writeFile(file, value, { mode: 0o600, flag: "wx" })
+      await writePrivateFile(file, value)
       const result = JSON.parse(
         await azure(
           "keyvault",

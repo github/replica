@@ -40,7 +40,7 @@ describe("installer command execution", () => {
     })
   })
 
-  it("keeps failed stderr in the local error without printing output or exposing argv, stdout, or environment", async () => {
+  it("keeps failed diagnostics behind explicit access without exposing secrets in default errors or output", async () => {
     const label = "Discover selected subscription regions"
     const secrets = [
       "synthetic-argument-secret",
@@ -77,10 +77,13 @@ describe("installer command execution", () => {
     expect((failure as Error).message).toContain(label)
     expect((failure as Error).message).toMatch(/\bexit(?:ed with)?(?: code| status)?[: ]+7\b/i)
     expect((failure as CommandExecutionError).exitCode).toBe(7)
-    expect((failure as Error).message).toContain(secrets[2])
+    expect((failure as CommandExecutionError).details()).toContain(secrets[2])
     const visibleFailure = inspect(failure, { depth: 10, showHidden: true })
-    for (const secret of [secrets[0], secrets[1], secrets[3]]) {
+    const serializedFailure = JSON.stringify(failure)
+    for (const secret of secrets) {
       expect(visibleFailure).not.toContain(secret)
+      expect(serializedFailure).not.toContain(secret)
+      expect((failure as Error).message).not.toContain(secret)
     }
     for (const secret of secrets) {
       expect(emitted).not.toContain(secret)
@@ -130,10 +133,11 @@ describe("installer command execution", () => {
     ]).catch((error: unknown) => error)
 
     expect(failure).toBeInstanceOf(CommandExecutionError)
-    expect((failure as Error).message).toContain("permission denied")
-    expect((failure as Error).message).toContain("retry")
-    expect((failure as Error).message).not.toContain("title")
-    expect((failure as Error).message).not.toMatch(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/)
+    const details = (failure as CommandExecutionError).details()
+    expect(details).toContain("permission denied")
+    expect(details).toContain("retry")
+    expect(details).not.toContain("title")
+    expect(details).not.toMatch(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/)
   })
 
   it("bounds failed stderr at 64 KiB and explicitly marks truncation", async () => {
@@ -149,12 +153,14 @@ describe("installer command execution", () => {
     ).catch((error: unknown) => error)
 
     expect(failure).toBeInstanceOf(CommandExecutionError)
-    const message = (failure as Error).message
-    expect(message).toContain(label)
-    expect(message).toContain("diagnostic-start:")
-    expect(message).not.toContain(":omitted-tail")
-    expect(message).toMatch(/truncat/i)
-    expect(Buffer.byteLength(message)).toBeLessThanOrEqual(64 * 1024 + 512)
+    const details = (failure as CommandExecutionError).details()
+    expect((failure as Error).message).toContain(label)
+    expect((failure as Error).message).not.toContain("diagnostic-start:")
+    expect(details).toContain("diagnostic-start:")
+    expect(details).not.toContain(":omitted-tail")
+    expect(details).toMatch(/truncat/i)
+    if (details === undefined) throw new Error("Expected bounded diagnostic details")
+    expect(Buffer.byteLength(details)).toBeLessThanOrEqual(64 * 1024 + 512)
   })
 
   it("preserves the error constructor's cancellation argument and optional exit code", () => {

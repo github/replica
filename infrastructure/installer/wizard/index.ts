@@ -1,5 +1,5 @@
 import { configureAzure } from "../../azure/install/configure/index.ts"
-import { join } from "node:path"
+import { parseConfig } from "../config/index.ts"
 import { installAzure } from "../../azure/install/index.ts"
 import { saveConfig } from "../config/index.ts"
 import type { DeploymentConfig, RunCommand, WizardUI } from "../types.ts"
@@ -23,6 +23,7 @@ export async function runWizard({
   configureOnly?: boolean
   session?: WizardSession
 }): Promise<string> {
+  if (existing) existing = parseConfig(existing)
   const checkpoint = async <T>(action: () => Promise<T>): Promise<T> => {
     while (true) {
       try {
@@ -128,7 +129,7 @@ export async function runWizard({
     return `Configuration saved to ${path}. No Azure resources were changed.`
   }
   const result = await installAzure(config, {
-    directory: join(directory, config.name),
+    directory,
     run,
     ui,
     async saveNpmRegistry(registry) {
