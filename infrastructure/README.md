@@ -95,6 +95,8 @@ Telemetry never contains configuration answers, resource names, command argument
 
 Failed commands show their actual stderr to the local operator, limited to 64 KiB with terminal-control sequences removed. Those details may be sensitive: review them locally before sharing terminal captures. Successful command output is returned only to the caller, including token and secret lookups, and is not automatically printed. Neither successful output nor failed diagnostics enter telemetry or drafts.
 
+The serialized release tool keeps raw child errors and output private because they can contain credentials or lease IDs. Its errors identify the failed operation through the shared static command catalog and include a nonzero exit code when available.
+
 If diagnostics cannot be created or written, setup reports the problem rather than continuing without logging. Existing cloud changes and recovery requirements still apply.
 
 ### Recovering image builds
@@ -254,11 +256,13 @@ The operator must approve the maintenance window and inspect intended configurat
 3. Checks that no setup execution is running, deactivates every active revision, and waits for **all** old revision replicas to disappear before setup. Users cannot use Hub during this window.
 4. Uses a deliberate targeted Terraform plan/apply for the setup job and its infrastructure dependencies. It cannot update the app at this point.
 5. Starts that job, checks that exact execution until it succeeds, and stops on failure or timeout.
-6. Only after success, plans/applies the complete configuration with `deploy_hub=true` and the same image digest. It activates the latest revision, waits for Azure's ready-revision signal and an HTTPS `/api/ready` response, then releases the lease.
+6. Only after success, plans/applies the complete configuration with `deploy_hub=true` and the same image digest. It checks the latest revision's activation state and activates it only if inactive. It then waits for Azure's ready-revision signal and an HTTPS `/api/ready` response before releasing the lease.
 
 Terraform owns the image in both resources. Neither resource uses `ignore_changes` for the image, and the orchestrator never uses out-of-band `az containerapp update --image`. A later infrastructure apply cannot silently use a stale image. Provisioning and rollout are separated by the two phases above. Never run a full Terraform apply directly on an installed Hub, start a setup job manually, or change revisions in the portal outside this serialized procedure. Terraform state locking alone does not protect setup-to-rollout ordering. The app's `prevent_destroy` guard rejects accidental `deploy_hub=false` on later full plans.
 
-Plans reject resource deletion and replacement during normal releases. A database major upgrade, region move, rename, or replacement needs a reviewed migration/recovery plan, not an override of that guard. The release script deletes its sensitive saved plan on exit. It leaves Hub stopped and retains the infinite lease after any release failure; it never reactivates an older process automatically against a possibly migrated schema.
+Azure can activate the revision during Terraform rollout. Requesting activation again can return `RevisionAlreadyInRequestedState`; the release script checks that exact revision rather than treating an already-active revision as a failed release. Unknown or mismatched activation state still blocks completion. An active revision alone is not success: readiness checks must pass before the lease is released.
+
+Plans reject resource deletion and replacement during normal releases. A database major upgrade, region move, rename, or replacement needs a reviewed migration/recovery plan, not an override of that guard. The release script deletes its sensitive saved plan on exit and retains an acquired lease on failure. A failure after stopping old revisions but before rollout leaves Hub stopped; a failure after rollout can leave the new revision running. The script never reactivates an older process automatically against a possibly migrated schema.
 
 ### Recover a failed release
 

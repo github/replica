@@ -6,6 +6,7 @@ import timers from "node:timers/promises"
 import { pathToFileURL } from "node:url"
 import { parseArgs } from "node:util"
 
+import { describeCommand } from "../../installer/command/describe/index.ts"
 import type { ContainerApp, DeploymentPlan, Installation, JobExecution, Revision } from "./types.ts"
 
 export async function deployHub(args: string[] = process.argv.slice(2)): Promise<void> {
@@ -65,12 +66,19 @@ export async function deployHub(args: string[] = process.argv.slice(2)): Promise
         maxBuffer: 32 * 1024 * 1024,
       })
       return capture ? (output?.trim() ?? "") : ""
-    } catch {
+    } catch (error) {
       // Child errors and output can contain credentials and release lease arguments.
+      const exitCode =
+        error instanceof Error &&
+        "status" in error &&
+        typeof error.status === "number" &&
+        Number.isInteger(error.status) &&
+        error.status > 0
+          ? error.status
+          : undefined
+      const tool = executable === "terraform" ? "Terraform" : "Azure"
       throw new Error(
-        executable === "terraform"
-          ? "Terraform command failed; inspect the installation through authorized tooling."
-          : "Azure command failed; inspect the installation through authorized tooling.",
+        `${tool} command failed: ${describeCommand(executable, arguments_).label}${exitCode === undefined ? "" : ` (exit code ${exitCode})`}. Tool output remains private; inspect the installation through authorized tooling.`,
       )
     }
   }
@@ -241,15 +249,35 @@ export async function deployHub(args: string[] = process.argv.slice(2)): Promise
   }
   async function waitReady(installation: Installation): Promise<void> {
     const app = azure<ContainerApp>("containerapp", "show", ...appArguments(installation))
-    const revision = app.properties.latestRevisionName
-    azure(
+    const revision = app?.properties?.latestRevisionName
+    if (typeof revision !== "string" || !/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(revision)) {
+      throw new Error(
+        "Azure did not return a valid latest Hub revision. Keep the release lock and investigate.",
+      )
+    }
+    const current = azure<Revision>(
       "containerapp",
       "revision",
-      "activate",
+      "show",
       ...appArguments(installation),
       "--revision",
       revision,
     )
+    if (current?.name !== revision || typeof current?.properties?.active !== "boolean") {
+      throw new Error(
+        "Azure did not confirm the latest Hub revision's activation state. Keep the release lock and investigate.",
+      )
+    }
+    if (!current.properties.active) {
+      azure(
+        "containerapp",
+        "revision",
+        "activate",
+        ...appArguments(installation),
+        "--revision",
+        revision,
+      )
+    }
     const deadline = performance.now() + 300_000
     while (performance.now() < deadline) {
       const latest = azure<ContainerApp>("containerapp", "show", ...appArguments(installation))

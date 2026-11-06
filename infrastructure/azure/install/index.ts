@@ -244,7 +244,10 @@ export async function installAzure(
           image,
           "--accept-maintenance",
         ],
-        { env: { ...env, TF_DATA_DIR: join(directory, "terraform", "app") } },
+        {
+          env: { ...env, TF_DATA_DIR: join(directory, "terraform", "app") },
+          label: "Run the maintenance-window release",
+        },
       )
     } catch (error) {
       ui.notice?.(
