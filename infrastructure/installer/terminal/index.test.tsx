@@ -250,3 +250,41 @@ it.each(["inline", "screen reader"])(
     await rejected
   },
 )
+
+it("keeps the first question and its input usable while the welcome banner resizes", async () => {
+  vi.stubEnv("TERM", "xterm")
+  vi.stubEnv("INK_SCREEN_READER", "false")
+  const ui = open(new AbortController())
+  ui.welcome!(true)
+  const pending = ui.select("Resume setup?", [{ label: "Resume setup", value: "resume" }])
+  const settled = vi.fn()
+  void pending.then(settled, settled)
+  const terminal = show()
+  let dimensions = { columns: 80, rows: 36 }
+  vi.spyOn(terminal.stdout, "columns", "get").mockImplementation(() => dimensions.columns)
+  Object.defineProperty(terminal.stdout, "rows", { get: () => dimensions.rows })
+  terminal.stdout.emit("resize")
+  await vi.waitFor(() => expect(terminal.lastFrame()).toContain("REPLICA"))
+  terminal.stdin.write("Res")
+
+  for (const size of [
+    { columns: 80, rows: 36, art: true },
+    { columns: 60, rows: 24, art: true },
+    { columns: 59, rows: 24, art: false },
+    { columns: 80, rows: 23, art: false },
+  ]) {
+    dimensions = size
+    terminal.stdout.emit("resize")
+    await vi.waitFor(() => {
+      const frame = terminal.lastFrame()!
+      expect(frame).toContain("Resume setup?")
+      expect(frame).toMatch(/Search:\s*Res/)
+      expect(frame.includes("REPLICA")).toBe(size.art)
+      expect(frame.split("\n").length).toBeLessThanOrEqual(size.rows)
+    })
+  }
+
+  expect(settled).not.toHaveBeenCalled()
+  terminal.stdin.write("\r")
+  await expect(pending).resolves.toBe("resume")
+})

@@ -193,7 +193,7 @@ Terminal diagnostics and persisted telemetry have different disclosure rules. Sh
 
 ### Welcome and time
 
-Show a small, original ASCII Replica wordmark and friendly welcome above the first question on every full-screen launch, including existing installations and draft recovery. Enable it before offering recovery choices, not after reading or changing the draft. The terminal dismisses it when the first question resolves. Keep the existing first action: cloud selection for a new questionnaire or recovery choices for an unfinished session. Avoid animation or a separate "press Enter to begin" screen.
+Show the ASCII GitHub silhouette beside Replica's wordmark above the first question on every full-screen launch, including existing installations and draft recovery. The silhouette is adapted from the MIT-licensed Primer Octicons mark. Use the expanded block-letter banner at 80 columns by 36 rows or larger and the compact mark and name below that size. Reserve the banner's actual height before sizing the question panel. Enable it before offering recovery choices, not after reading or changing the draft. The terminal dismisses it when the first question resolves. Keep the existing first action: cloud selection for a new questionnaire or recovery choices for an unfinished session. Avoid animation or a separate "press Enter to begin" screen.
 
 Inline mode and screen-reader use keep a compact header without art. Full-screen terminals smaller than 60 columns by 24 rows also omit the art. Keep the product name and instructions.
 

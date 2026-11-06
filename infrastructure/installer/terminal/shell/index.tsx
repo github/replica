@@ -8,6 +8,7 @@ import { FieldPrompt } from "../field/index.tsx"
 import { Progress } from "../progress/index.tsx"
 import { ScrollPanel } from "../scroll-panel/index.tsx"
 import { Elapsed } from "../elapsed/index.tsx"
+import { Welcome, welcomeHeights } from "../welcome/index.tsx"
 import { terminalColors, terminalTheme } from "../theme/index.ts"
 import type { TerminalView } from "../view.ts"
 
@@ -48,10 +49,12 @@ export function TerminalShell({
   const tiny = fullscreen && size.rows < 10
   const art =
     fullscreen && view.welcome && question !== undefined && size.columns >= 60 && size.rows >= 24
+  const expandedArt = size.columns >= 80 && size.rows >= 36
+  const headerHeight = tiny ? 0 : art ? welcomeHeights[expandedArt ? "expanded" : "compact"] + 2 : 2
   const activity = fullscreen && size.rows >= 30 ? view.history.slice(-3) : []
   const panelHeight = Math.max(
     1,
-    size.rows - (tiny ? 0 : art ? 5 : 2) - 1 - 2 - (activity.length ? activity.length + 2 : 0),
+    size.rows - headerHeight - 1 - 2 - (activity.length ? activity.length + 2 : 0),
   )
   useInput((input, key) => {
     if (key.ctrl && input === "c") cancel()
@@ -121,11 +124,7 @@ export function TerminalShell({
         height={fullscreen ? size.rows : undefined}
         paddingX={1}
       >
-        {art && (
-          <Text color={terminalColors.accent}>
-            {"  +---+   +---+\n  | R |---| R |  REPLICA\n  +---+   +---+  A home for your Hub."}
-          </Text>
-        )}
+        {art && <Welcome expanded={expandedArt} />}
         {!tiny && (
           <>
             <Text bold color={terminalColors.accent}>
