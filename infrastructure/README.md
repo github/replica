@@ -1,5 +1,197 @@
 # Azure Hub installation
 
+## Guided installation
+
+New setups start by asking which cloud to use. Azure is available; AWS is shown as unavailable with "Coming soon". The themed Ink interface lives in `installer/`, above the cloud-specific directories. Azure configuration and orchestration live in `azure/install/`; reusable Terraform execution lives in `terraform/`. Terraform resources are grouped into separate Azure root modules: `azure/foundation/` owns the registry and vault, `azure/` owns the running installation, and `azure/provision/` owns temporary database provisioning. None of these Terraform modules depends on Ink or React.
+
+The terminal is a front end to independently usable Terraform modules. Keep resource definitions, dependencies, and reconciliation in Terraform. The wizard collects and saves inputs, invokes the modules, and presents plans, approval, progress, and recovery. State-backend bootstrap, credential handling, image publication, and serialized database/release operations remain explicit orchestration boundaries; they must not duplicate Terraform-managed resources or repair them outside Terraform.
+
+Every full-screen launch welcomes you with a cyan ASCII GitHub mark and magenta Replica wordmark above the first question, including the resume menu and saved-installation setup. Larger terminals show block lettering; smaller ones keep a compact mark and name. The art disappears after your first answer and is omitted when the terminal is smaller than 60 columns by 24 rows. A compact stage map shows progress, while an elapsed counter stays in the footer. The counter measures this run, including time waiting for you; it restarts after the process restarts. Errors and warnings are labeled and colored separately from muted operational activity.
+
+The wizard uses a separate terminal screen and restores your shell on completion, cancellation, and catchable errors. Use Page Up and Page Down to scroll long notices or approval details. Narrow screens show the current stage and position instead of the full map. Use `npm run setup:server -- --no-fullscreen` for inline mode. Limited terminals and `INK_SCREEN_READER=true` also use inline mode, without welcome art or an animated timer.
+
+From the repository root, install the wizard's dependencies and start it:
+
+```sh
+npm ci --prefix infrastructure --ignore-scripts --engine-strict
+npm run setup:server
+```
+
+If your organization requires an npm proxy, use it for this initial dependency installation before the wizard can load. For example:
+
+```sh
+npm ci --prefix infrastructure --ignore-scripts --engine-strict \
+  --registry=https://packagefeedproxy.microsoft.io/npm/ --replace-registry-host=never
+npm run setup:server
+```
+
+The wizard separately asks whether the container build needs a proxy. Host npm settings and flags used to install the wizard are not inherited by Docker. Without a selected proxy, the container needs public npm access. The wizard passes the selected HTTPS registry into the Docker build and resolves the pinned dependency versions through that registry without changing your global npm configuration or the source lockfile. Proxy credentials in URLs and authenticated proxy setup are not supported. Do not pass tokens through build arguments.
+
+Use a supported Node version, stable Terraform `>= 1.13.0, < 2.0.0`, Azure CLI with Container Apps job/revision support, and a running Docker engine with Buildx. CI checks Terraform 1.13.4 and 1.17.1; the AzureRM provider remains separately pinned and locked. The wizard explains missing prerequisites and waits while you complete them. Sign in with `az login` in a separate terminal; the wizard does not automate authentication. This first version supports local operator execution on macOS and Linux, not a federated CI deployment identity.
+
+The first run asks for an Azure tenant, then lists only that tenant's enabled subscriptions and regions advertised for all required services. Type a name or ID to filter each list, use Up/Down to scroll, and press Enter to select. Each list shows matching and total counts and how many options are visible at a time. Saved tenants, subscriptions, and regions appear first.
+
+Tenant choices come from subscriptions in your current Azure CLI sign-in, using the tenant name or domain when Azure provides it. Tenants without an enabled subscription and tenant-only sign-in accounts are not deployment targets. If a tenant is missing, sign in with `az login --tenant TENANT_ID` in a separate terminal, then restart the wizard. The installer does not automate sign-in or install the experimental Azure CLI account extension.
+
+The wizard then asks for the installation name, owning team or person, and dedicated app resource group. The owning team or person is a label saved in configuration and Azure resource tags; it does not assign billing or permissions or send notifications. Each text answer is validated before moving to the next question. The wizard explains invalid values and lets you correct that field without repeating earlier answers. Your subscription must still have sufficient quota and permission to deploy in the chosen region. The wizard does not bypass denied permissions or subscription policy.
+
+Before provisioning, it shows the target and asks permission for billable resources, role assignments, image publication, and a maintenance-window release. Terraform changes receive separate confirmation, including the removal of temporary provisioning access. The signed-in identity needs resource creation and role-assignment rights, permission to register the required providers, and access through applicable Azure network policies. An administrator may need to grant these rights. Resource Contributor alone is insufficient.
+
+The guided flow creates a tagged state resource group/account first, with shared-key authorization and anonymous blob access disabled, TLS, identity-based data access, versioning, and soft deletion. Its public network endpoint accepts requests from any network, but reading or changing state still requires Azure authentication and Blob data permissions. The wizard does not require an IP address, CIDR, or external IP lookup. These bootstrap resources remain outside application Terraform state and are never deleted by the normal application destroy command. Do not reuse this backend for unrelated installations.
+
+If an earlier installer created an IP-restricted state account, the wizard verifies its ownership and authentication settings, then asks before switching to authenticated access without the network restriction. It verifies the resulting settings before using state storage. It will not override disabled public access, a network perimeter, or an account with different ownership or unsafe authentication settings. If your organization requires private networking, use an authorized deployment path rather than bypassing that policy.
+
+It then uses separate protected Terraform state files for the foundation, application, and temporary provisioning modules. Foundation resources include an ACR and an RBAC-enabled, purge-protected Key Vault. Passwords are generated independently and written to Key Vault using private temporary files, never command-line values. Existing credentials are reused, not silently rotated. The PostgreSQL administrator password still enters protected application Terraform state.
+
+The wizard builds and pushes a Linux AMD64 image and deploys its immutable digest. On first installation, Hub remains absent while a separate private-network job initializes the database roles. This job has its own temporary managed identity and secret-scoped administrator/password access; neither Hub nor normal setup receives administrator access. After success, the wizard records completion in Key Vault and destroys the temporary job, identity, and grants before invoking the existing serialized release procedure.
+
+The final release stops old revisions, runs migrations and schedule setup, starts Hub, and checks HTTPS readiness. Readiness is not authorization. Hub supports optional, manually configured GitHub sign-in and administrator enrollment; the wizard does not configure them. Supply the protected authentication settings from [Hub deployment](../hub/docs/deployment.md#image-and-runtime) before enabling sign-in. Artifact import, hosted previews, and reviews are not available yet.
+
+### Saved configuration and repeat runs
+
+By default, non-secret choices are saved in ignored `infrastructure/.local/installation.json`, with private generated inputs and Terraform working directories under `.local/INSTALLATION_NAME/`. Keep these files private and preserve the configuration for later releases. Start from [`installation.example.json`](installation.example.json) if you prefer to fill out the JSON yourself. Real configuration files belong under the ignored `.local/` directory, not beside the tracked example. The root shortcut runs the wizard from `infrastructure/`, so relative `--config` paths are resolved from that directory.
+
+```sh
+# Collect and save configuration without creating cloud resources.
+npm run setup:server -- --configure-only
+
+# Reopen a saved configuration interactively.
+npm run setup:server -- --config .local/installation.json
+
+# Explicit approval for automation includes publication, Terraform changes,
+# temporary provisioning cleanup, and a maintenance window.
+npm run setup:server -- \
+  --config .local/installation.json \
+  --non-interactive --approve-deployment
+```
+
+Non-interactive execution requires complete configuration and fails with instructions when a prerequisite requires human action. It does not answer missing configuration questions or escalate access. Interactive runs refuse to overwrite a saved installation with a different target or owner; use a new configuration file for another installation. Normal updates use the existing release orchestrator; the wizard never directly applies the full application configuration to an installed Hub.
+
+You can reopen the wizard while Hub is running, but a deployment or update is a maintenance-window operation, not a no-downtime rerun. It requires fresh approval before stopping old revisions and running setup. A failed attempt may have left Hub running with retained leases; those leases still require the [interrupted-installation recovery checks](#interrupted-installation). Restarting does not clear them or inherit permission to stop workloads.
+
+Interactive runs also save a private companion draft at `<config path>.draft.json`, such as `.local/installation.json.draft.json`. Each accepted answer and phase transition is saved before continuing. On restart, the wizard shows the draft's target and last-save time and offers Resume setup, Start over, or Exit. Resume rechecks Azure access and available choices, then returns to the first unresolved question. Changed parent choices invalidate dependent answers without discarding independent settings.
+
+Drafts contain only validated non-secret choices, not raw keystrokes, search queries, command output, credentials, or consent for cloud changes. A draft does not replace complete deployment configuration or prove that a resource operation succeeded. Start over requires confirmation and only resets the local draft; it does not delete resources or clear cloud leases. Successful configuration-only or deployment completion removes the draft and keeps the reusable configuration. Non-interactive execution never consumes a draft.
+
+The local `<config path>.draft.json.lock` allows one interactive writer per configuration. An exited process on the same host can be recovered automatically. An active writer, an unknown owner, or a malformed writer record blocks reuse with instructions. If a crash leaves a `.lock.recovery` record, verify the recorded owning process has exited before reviewing and removing that exact local recovery file. These local files are not the Azure installation or release leases described below.
+
+Older version-1 configuration files may contain `azure.stateAllowedIp`. That obsolete setting is accepted but ignored, and is omitted when the configuration is saved again.
+
+The wizard only reuses resources owned by this installation and matching its Terraform state. It does not automatically adopt existing shared registries, vaults, or unrelated resource groups. Use the manual reference below when connecting an externally managed registry, vault, backend, or an existing installation not created by this wizard.
+
+### Deployment result
+
+A successful installation or update prints a report in your normal shell after restoring the terminal. Interactive and non-interactive runs use the same report: service URL, installation name, Azure subscription and tenant, region, immutable image digest, and saved configuration path. It also lists the application resource group, Hub app, Container Apps environment, PostgreSQL server, artifact storage, registry, Key Vault, and Terraform state account with links to their Azure portal pages.
+
+Resource links use IDs from Terraform outputs and the existing verified Azure state-account inspection, not reconstructed naming conventions. The report contains no credentials and is not added to telemetry or drafts. It appears only after readiness, installation/release lease release, and entry-point cleanup succeed. Invalid or incomplete metadata stops setup with an error instead of printing a misleading success report. Configuration-only runs report the saved file without claiming a deployment.
+
+Readiness remains a technical check, not proof that manually configured sign-in or authorization works. An earlier deployment's URL or a running revision does not prove that a later failed update completed.
+
+### Correcting answers and retrying lookups
+
+Installation name, ownership label, resource group, and npm registry inputs use the same validation rules as saved configuration and drafts. Constraints appear before you type. Local guidance updates while editing, and an invalid submission shows a labeled error immediately below the input without advancing. Rejected npm registry values are cleared rather than echoed back because they may contain credentials. Earlier accepted answers remain in the private draft. Cancelling an unfinished questionnaire preserves that draft without replacing an existing complete configuration.
+
+If a draft or configuration write fails, the wizard waits while you repair disk space or permissions, then retries the same save. It keeps the previous good draft and in-memory answer and does not start further cloud changes while saving is blocked. An unreadable or unsupported draft is preserved; explicitly starting over archives it before collecting new answers.
+
+Failed read-only region/provider lookups offer a retry after you check sign-in, permissions, or connectivity in a separate terminal. Retry keeps the selected tenant and subscription. Ctrl+C still cancels. Unknown failures and operations with ambiguous ownership, provisioning, or migration state stop with recovery instructions rather than automatically repeating potentially unsafe changes.
+
+### Local diagnostics
+
+Every setup run writes a private JSONL diagnostics file under `logs/` beside the selected configuration. The default location is `infrastructure/.local/logs/`. The wizard prints the exact file path after completion or failure. Directories use permissions 0700 and files use 0600; an existing shared or symlinked logs directory is refused.
+
+OpenTelemetry records the run, its phases, and individual command or prompt steps. Pino writes start records immediately and completed spans with trace/parent IDs, elapsed time, outcomes, and command exit codes. A start without a matching completion identifies an interrupted step. Each command invocation has its own span, including repeated attempts. These are local JSON records, not an OTLP export.
+
+Telemetry never contains configuration answers, resource names, command arguments, environment values, UI messages, command output, exception messages or stacks, credentials, or deployment consent. Command names come from a fixed catalog; unknown commands use a generic identifier. No collector, network export, or environment-driven remote exporter is enabled. Files remain until you remove them; they are separate from drafts, Terraform state, and cloud leases.
+
+Failed commands show their actual stderr to the local operator, limited to 64 KiB with terminal-control sequences removed. Those details may be sensitive: review them locally before sharing terminal captures. Successful command output is returned only to the caller, including token and secret lookups, and is not automatically printed. Neither successful output nor failed diagnostics enter telemetry or drafts.
+
+The serialized release tool keeps raw child errors and output private because they can contain credentials or lease IDs. Its errors identify the failed operation through the shared static command catalog and include a nonzero exit code when available.
+
+If diagnostics cannot be created or written, setup reports the problem rather than continuing without logging. Existing cloud changes and recovery requirements still apply.
+
+### Recovering image builds
+
+A failed image build or publication stays in the interactive wizard. A short error notice keeps recovery controls visible even for long Docker logs and states whether a container npm proxy is configured. Choose **Retry image build and publication**, **Set or change the npm proxy, then retry**, **Show full error details**, or **Exit and keep saved progress**. The details view includes the original local error and complete selected registry, supports terminal scrolling, and returns to recovery without retrying. Registry editing is available when setup can save the corrected setting and the terminal supports field input.
+
+For npm connection errors, check whether the error names a blocked public registry or an unavailable proxy. Get the correct HTTPS endpoint from your package-feed administrator and set it through the recovery option. For source compilation errors, repair the checkout before retrying. For Docker or ACR failures, restore Docker/Buildx, connectivity, or registry push access before retrying.
+
+A corrected proxy is validated and saved to both the draft and complete configuration before another build starts. Retry rechecks source revision and dirty-checkout consent, signs in to ACR, and builds/publishes a new candidate image. Each attempt uses fresh metadata and accepts only a valid immutable digest; failed attempts cannot supply a stale result. A previous attempt may have left a candidate image in ACR.
+
+The current installation lease stays held while you repair and retry. The wizard does not repeat Terraform, rotate stored credentials, run database setup, or clear locks for an image retry. Exiting retains saved answers and the existing lease for normal interrupted-installation recovery. Cancellation stops immediately, and non-interactive execution never retries or edits settings automatically.
+
+### Recovering Terraform steps
+
+A failed command during normal Terraform planning, plan inspection, or apply offers **Replan and review this Terraform step**, **Show full error details**, or **Exit and keep saved progress**. Terraform may have created some resources before returning an error. The wizard does not roll back those resources or assume the failed apply completed.
+
+The wizard removes the previous sensitive plan before offering recovery. Retry prepares a new plan against current state and asks for approval before applying remaining resource changes. It never reapplies the failed plan or restarts earlier installation steps. The installation lease remains held, deletion and replacement guards still apply, and database jobs and releases are not replayed. Cancellation, declined approval, unsafe or unreadable plan data, and temporary provisioning cleanup/destroy failures stop instead of entering this retry flow. Non-interactive execution remains fail-fast.
+
+Terraform normally reconciles the configuration with saved state, including resources created before a partial failure. A proposed deletion or replacement is different from a failed command: the wizard blocks the plan before apply and names the affected resources and replacement-triggering attribute paths without showing their values. Review the configuration and state rather than bypassing that guard. No changes from the blocked plan were applied; earlier steps may have completed.
+
+Azure chooses the Container Apps infrastructure resource-group name and PostgreSQL availability zone when this module leaves them unset. The Terraform resources preserve those service-assigned attributes on later plans instead of trying to remove them. This applies to manual Terraform runs too. Other resource settings, including workload images, remain reconciled normally; real deletions and replacements remain blocked by deployment orchestration.
+
+The database subnet explicitly includes the `Microsoft.Storage` service endpoint that Azure adds for PostgreSQL log archival. Replanning must not remove this required endpoint.
+
+For a Storage 403 while creating `deployment.lock`, inspect Blob data permissions as well as resource-management permissions. The wizard grants its deployment identity `Storage Blob Data Contributor` on the application storage account, but creating that role assignment does not mean Blob authorization has propagated. Terraform's dependency ordering waits for the role assignment resource, not for successful Blob data requests. After allowing propagation or repairing permissions, choose **Replan and review this Terraform step**. If access remains denied, check the selected identity, role scope and conditions, network rules, and subscription policy. Do not enable shared keys or change network policy to bypass a denial.
+
+### Azure discovery failures
+
+The wizard names each region and provider lookup before running it. Region discovery uses a read-only ARM request with the selected subscription in both the URL and authentication context; it does not change your Azure CLI default subscription.
+
+If a lookup fails, the error includes its step name, process exit status, and bounded stderr. The private diagnostics file identifies the failed step without recording those error details. To investigate further, replace `SUBSCRIPTION_ID` with the selected subscription and run the matching read-only command in a separate terminal:
+
+```sh
+az rest --method get \
+  --url "/subscriptions/SUBSCRIPTION_ID/locations?api-version=2022-12-01" \
+  --subscription SUBSCRIPTION_ID --query value --output json
+
+# For a provider lookup, use the namespace named in the failed step.
+az provider show --namespace Microsoft.App \
+  --subscription SUBSCRIPTION_ID --output json
+```
+
+Check sign-in and subscription access if Azure reports an authentication or authorization error. Review diagnostic output locally; do not paste tokens or credentials into logs or issue reports. These discovery failures happen before the wizard saves a new configuration or provisions resources.
+
+### Interrupted installation
+
+The wizard holds an infinite lease on `terraform/INSTALLATION_NAME/installer.lock` in the state account across provisioning and release. A failed or cancelled installation retains that lease. Fresh-database provisioning additionally holds the normal `releases/deployment.lock`; a failed release retains its existing release lease too. These locks are deliberately not cleared automatically.
+
+Interactive setup offers **Recheck without clearing the lock**, **Clear lock and continue (after safety checks)**, or **Exit and keep saved progress** when it finds a retained operational lock. Choose **Clear lock and continue (after safety checks)** to run the safety checks and then confirm clearing only the selected lock. Resources and saved progress are kept. **Recheck without clearing the lock** only checks whether its owner has released it.
+
+This works during first-time setup and after an app or database exists, including a retained release lock before the maintenance-window release. Finite, changing, or unknown leases cannot be cleared through this flow.
+
+Recovery checks installation ownership, Terraform state leases, every job execution in the app group, and every app revision and replica, including inactive revisions. Active jobs, active revisions, remaining replicas, unknown metadata, failed checks, or locked Terraform state block clearing. The wizard never force-unlocks Terraform or bypasses ownership checks.
+
+When activity in the installation's Hub app is the only blocker, the wizard offers **Stop Hub for recovery and continue**. It verifies that app's actual Azure resource ID and ownership tags, not just its resource group's ownership. The action requires fresh downtime approval and confirmation that prior deployment processes and provisioning/setup/migration database sessions have stopped. It rechecks ownership, jobs, Terraform state, and the selected lease immediately before deactivating Hub's active revisions, then waits up to five minutes for every old replica to disappear, including replicas of inactive revisions. It does not delete the app or database, cancel jobs, replay SQL, or reactivate an old revision.
+
+After shutdown, the wizard checks recovery again and asks separately before clearing the selected operational lock. Changed revisions, replicas, job executions, or Terraform state invalidate approval and require fresh review. All safety checks still apply. Hub can remain stopped if you decline clearing, cancel, or encounter a later failure; there is no automatic rollback. A failed or partially completed shutdown keeps the lock-clearing step blocked and reports that the current workload state needs review.
+
+If another app, a running or unknown database job, locked Terraform state, unverified ownership, or a failed inspection also blocks recovery, automatic Hub shutdown is unavailable. Resolve or review those blockers separately. **Recheck safety before clearing the lock** performs fresh inspection but is not consent to stop workloads or bypass a blocker. **Exit and keep saved progress** preserves the reason in the restored shell. Failed or ambiguous Azure clearing responses remain unverified until the wizard reads the current lease state. Non-interactive deployment approval does not authorize lease recovery or this shutdown action.
+
+Azure cannot prove that a previous installer or Terraform process on another machine has stopped or that database sessions have ended. Before authorizing recovery, verify every previous installer/release process has exited. For an existing app group, also verify old provisioning/setup/migration database sessions have stopped and review partial migrations, database ownership, and temporary provisioning grants. Use the exact setup or provisioning job named in the checks to review its execution history; review PostgreSQL sessions through your authorized private-network database administration connection. Do not clear a lock if those checks cannot be completed.
+
+After explicit confirmation, the wizard repeats its checks, breaks only the selected installation or release lease, verifies that Azure reports it unlocked, and continues through normal lock acquisition. A declined confirmation returns to recovery choices. Break failures are surfaced and rechecked, never automatically repeated. No recovery consent is saved in drafts or telemetry. Non-interactive runs never enter this flow or clear retained locks.
+
+For manual recovery after the same review, an authorized operator can use `az storage blob lease break --account-name ACCOUNT --container-name CONTAINER --blob-name BLOB --auth-mode login --lease-break-period 0 --subscription SUBSCRIPTION`. Use the exact coordinates printed by the wizard; never break an active installation's lease.
+
+Resume setup restores answers, not prior approval or a position from which commands can be replayed. It revalidates choices before offering lock recovery at the relevant operation. The installer reconciles Terraform and reuses stored credentials. Clearing a lease does not repair ambiguous database state: if a provisioning execution exists without its Key Vault completion marker, setup still stops rather than rerunning fresh-database SQL. Inspect the exact execution and database roles before a reviewed repair. A successful provisioning transaction interrupted before marker creation also requires that explicit review.
+
+Generated backend files remain usable with the existing manual release tooling. Do not destroy the foundation or state account when removing an app without separately authorizing loss of images, secrets, and state history. Key Vault purge protection deliberately prevents immediate permanent deletion of secrets.
+
+### Local checks
+
+```sh
+npm run typecheck --prefix infrastructure
+npm test --prefix infrastructure
+```
+
+The checks cover terminal cloud selection, searchable lists, tenant-scoped subscription selection, private configuration, command redaction/cancellation, Terraform plan guards, and mocked Azure installation ordering. CI also validates and tests each Terraform module. They do not prove an Azure deployment. An authorized tenant exercise must still establish RBAC/network propagation, identity-based pulls and secret resolution, database TLS, interruption recovery, maintenance behavior, and backup restoration.
+
+### Terminal design patterns
+
+The [installer terminal design guide](docs/terminal-design.md) records the working patterns for layout, field feedback, semantic notices, progress, timing, and private sessions. It explains module boundaries and the evidence expected when evolving these patterns.
+
+## Manual reference
+
 Operators can provision a durable Hub, run setup before every release, and replace the image without replacing its database or artifacts. This reference chooses Terraform with AzureRM to follow the team's Terraform experience; it is an implementation choice, not an application dependency. The main installation is flat under [`azure/`](azure/) rather than split into one-resource modules.
 
 Definitions are grouped by responsibility: [`networking.tf`](azure/networking.tf), [`database.tf`](azure/database.tf), [`storage.tf`](azure/storage.tf), [`roles.tf`](azure/roles.tf), [`environment.tf`](azure/environment.tf), [`application.tf`](azure/application.tf), and [`setup.tf`](azure/setup.tf). Shared tags and the resource group remain in [`main.tf`](azure/main.tf). These files form one Terraform module; moving declarations between them does not change resource addresses or require state migration.
@@ -90,17 +282,21 @@ The operator must approve the maintenance window and inspect intended configurat
 3. Checks that no setup execution is running, deactivates every active revision, and waits for **all** old revision replicas to disappear before setup. Users cannot use Hub during this window.
 4. Uses a deliberate targeted Terraform plan/apply for the setup job and its infrastructure dependencies. It cannot update the app at this point.
 5. Starts that job, checks that exact execution until it succeeds, and stops on failure or timeout.
-6. Only after success, plans/applies the complete configuration with `deploy_hub=true` and the same image digest. It activates the latest revision, waits for Azure's ready-revision signal and an HTTPS `/api/ready` response, then releases the lease.
+6. Only after success, plans/applies the complete configuration with `deploy_hub=true` and the same image digest. It checks the latest revision's activation state and activates it only if inactive. It then waits for Azure's ready-revision signal and an HTTPS `/api/ready` response before releasing the lease.
 
-Terraform owns the image in both resources. There is deliberately **no** `ignore_changes` or out-of-band `az containerapp update --image`: a later infrastructure apply cannot silently use a stale image. Provisioning and rollout are separated by the two phases above. Never run a full Terraform apply directly on an installed Hub, start a setup job manually, or change revisions in the portal outside this serialized procedure. Terraform state locking alone does not protect setup-to-rollout ordering. The app's `prevent_destroy` guard rejects accidental `deploy_hub=false` on later full plans.
+Terraform owns the image in both resources. Neither resource uses `ignore_changes` for the image, and the orchestrator never uses out-of-band `az containerapp update --image`. A later infrastructure apply cannot silently use a stale image. Provisioning and rollout are separated by the two phases above. Never run a full Terraform apply directly on an installed Hub, start a setup job manually, or change revisions in the portal outside this serialized procedure. Terraform state locking alone does not protect setup-to-rollout ordering. The app's `prevent_destroy` guard rejects accidental `deploy_hub=false` on later full plans.
 
-Plans reject resource deletion and replacement during normal releases. A database major upgrade, region move, rename, or replacement needs a reviewed migration/recovery plan, not an override of that guard. The release script stores sensitive plans under `TF_DATA_DIR` when set, otherwise under the module's `.terraform/`, and deletes them on exit. Failures identify a fixed command label and available exit code without printing arguments or tool output. It leaves Hub stopped and retains the infinite lease after any release failure; it never reactivates an older process automatically against a possibly migrated schema.
+Azure can activate the revision during Terraform rollout. Requesting activation again can return `RevisionAlreadyInRequestedState`; the release script checks that exact revision rather than treating an already-active revision as a failed release. Unknown or mismatched activation state still blocks completion. An active revision alone is not success: readiness checks must pass before the lease is released.
+
+Successful Azure operations that return no data, such as lease release, are checked by exit status rather than parsed as JSON. Responses used for deployment decisions still require valid JSON. Invalid replies name the operation without disclosing tool output.
+
+Plans reject resource deletion and replacement during normal releases. A database major upgrade, region move, rename, or replacement needs a reviewed migration/recovery plan, not an override of that guard. The release script stores sensitive plans under `TF_DATA_DIR` when set, otherwise under the module's `.terraform/`, and deletes them on exit. Failures identify a fixed command label and available exit code without printing arguments or tool output. It retains an acquired lease on failure. A failure after stopping old revisions but before rollout leaves Hub stopped; a failure after rollout can leave the new revision running. The script never reactivates an older process automatically against a possibly migrated schema.
 
 ### Recover a failed release
 
 Inspect the named setup execution and Container Apps/Log Analytics logs using authorized Azure access. Check that the release process has exited, every setup execution is terminal, and no old revision still has replicas. After a successful but partially deployed setup, decide whether to retry the same digest or use a compatible recovery image. Prisma migrations, queue migrations, and schedule registration are not a single atomic transaction.
 
-Confirm that the prior migration database sessions have also stopped before retrying, including after a lost setup-lock connection. Only after those checks may an operator break the retained lease:
+Confirm that the prior migration database sessions have also stopped before retrying, including after a lost setup-lock connection. Guided setup provides the interactive recovery checks described above before invoking a new release. For manual releases, only after those checks may an operator break the retained lease:
 
 ```sh
 az storage blob lease break --account-name YOUR_ACCOUNT \
