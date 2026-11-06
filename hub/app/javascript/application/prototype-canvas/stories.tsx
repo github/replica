@@ -363,6 +363,9 @@ export const Playground: Story = {
   },
 }
 export const NoPrototype: Story = { args: { withoutPreview: true } }
+export const NoPrototypeDefaultBranch: Story = {
+  args: { withoutPreview: true, scenario: "Default branch" },
+}
 export const NoPrototypeServerScanning: Story = {
   args: { withoutPreview: true, serverState: "scanning" },
 }

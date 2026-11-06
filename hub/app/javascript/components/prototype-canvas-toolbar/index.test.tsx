@@ -3,6 +3,10 @@ import { ThemeProvider } from "@primer/react-brand/esm"
 import { createRef } from "react"
 import { describe, expect, it, vi } from "vitest"
 
+import { resolvePublication } from "@utils/resolve-prototype-publication"
+import { publicationExamples } from "@utils/resolve-prototype-publication/fixtures"
+import { publicationCopy } from "@utils/resolve-prototype-publication/en"
+
 import { Toolbar } from "."
 
 const config = { name: "Demo", prototypeUrl: "http://localhost:3000", token: "local-token" }
@@ -162,6 +166,21 @@ describe("Toolbar()", () => {
     expect(button).toBeDisabled()
     expect(button).toHaveAttribute("aria-busy", "true")
     expect(button.querySelector("svg")).not.toBeNull()
+  })
+  it("explains why a default branch cannot be published without showing progress", () => {
+    const example = publicationExamples["Default branch"]!
+    const publication = resolvePublication(example.state, example.hub)
+    render(
+      <ThemeProvider>
+        <Toolbar {...props} state={example.state} publication={publication} />
+      </ThemeProvider>,
+    )
+    const button = screen.getByRole("button", { name: publicationCopy.cannotPublish })
+    expect(button).toBeDisabled()
+    expect(button).toHaveAttribute("aria-busy", "false")
+    expect(button).toHaveAccessibleDescription(
+      publicationCopy.registrationReasons.get("branch_not_reviewable")!.description,
+    )
   })
   it("opens controls with a labeled sliders icon button", () => {
     const onControls = vi.fn()
