@@ -46,4 +46,28 @@ describe("HubAdminEnrollmentPage()", () => {
     expect(form?.querySelector('input[name="authenticity_token"]')).toBeNull()
     expect(form?.querySelector('input[name="user_id"]')).toBeNull()
   })
+
+  it("preserves the single-action settings enrollment contract", () => {
+    render(
+      <ThemeProvider>
+        <HubAdminEnrollmentPage
+          data={{
+            alert: null,
+            canContinue: false,
+            productName: "Replica Hub",
+            pageTitle: "Enroll an operator",
+            heading: "Enroll an operator",
+            description: "Verify your own GitHub account.",
+            secretLabel: "Bootstrap secret",
+            submitLabel: "Verify with GitHub",
+            submitPath: "/settings/enroll",
+          }}
+        />
+      </ThemeProvider>,
+    )
+
+    const submit = screen.getByRole("button", { name: "Verify with GitHub" })
+    expect(submit).toBeDisabled()
+    expect(submit.closest("form")).toHaveAttribute("action", "/settings/enroll")
+  })
 })
