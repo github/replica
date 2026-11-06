@@ -22,7 +22,7 @@ This change does not include Microsoft Graph setup automation. The team will cho
 
 Role values are exact and case-sensitive. `Hub.Administrator` wins when a token contains both accepted roles. Other role values do not contribute Hub authority.
 
-Hub stores one active Entra assignment for an external identity. A role or provider-revision change creates a new immutable assignment version and supersedes the prior version. Hub observes role loss only when a later Entra authentication emits updated role-free evidence; once observed, losing both accepted roles revokes the Entra assignment and ends that membership's open Hub sessions atomically.
+Hub stores one active Entra assignment for an external identity. A role, assignment subject, or provider-revision change creates a new immutable assignment version, supersedes the prior version, and ends that membership's open Hub sessions. Hub observes role loss only when a later Entra authentication emits updated role-free evidence; once observed, losing both accepted roles revokes the Entra assignment and ends open Hub sessions atomically.
 
 The enterprise application must allow an unassigned user to authenticate so Hub can receive signed evidence that accepted roles were removed. Hub revokes provider-owned authority in the same transaction and denies admission when no separate active authority remains. Requiring Entra assignment would block the callback before Hub could observe role loss.
 
