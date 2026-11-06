@@ -51,15 +51,23 @@ export class ProviderRevisionInvariantError extends Error {
 }
 
 export class ProviderRevisionDeniedError extends Error {
+  readonly providerKey: string
+  readonly revision: number
+  readonly auditReason:
+    "reactivation_requires_revision" | "revision_gap" | "rollback" | "same_revision_drift"
+
   constructor(
     message: string,
-    readonly providerKey: string,
-    readonly revision: number,
-    readonly auditReason:
+    providerKey: string,
+    revision: number,
+    auditReason:
       "reactivation_requires_revision" | "revision_gap" | "rollback" | "same_revision_drift",
   ) {
     super(message)
     this.name = "ProviderRevisionDeniedError"
+    this.providerKey = providerKey
+    this.revision = revision
+    this.auditReason = auditReason
   }
 }
 
