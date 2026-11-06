@@ -115,7 +115,8 @@ describe("loopback design capture server", () => {
     await ui.text()
     const catalog = await (await fetch(new URL("/scenes.json", server.url))).json()
     expect(catalog.scenes ?? catalog).toEqual(scenes)
-    for (const asset of ["xterm.js", "xterm.css", "html-to-image.js"]) {
+    expect(catalog.revision).toBe("synthetic-revision")
+    for (const asset of ["xterm.js", "xterm.css", "html-to-image.js", "gallery.css", "capture.js"]) {
       const response = await fetch(new URL(`/assets/${asset}`, server.url))
       expect(response.ok, asset).toBe(true)
       expect((await response.arrayBuffer()).byteLength).toBeGreaterThan(0)
@@ -156,6 +157,9 @@ describe("loopback design capture server", () => {
     const html = await fetch(new URL("/gallery/index.html", server.url))
     expect(html.ok).toBe(true)
     expect(await html.text()).toContain("Replica-wizard-design-guide.pdf")
+    const css = await fetch(new URL("/gallery/gallery.css", server.url))
+    expect(css.headers.get("content-type")).toContain("text/css")
+    expect(await css.text()).toBe(await readFile(new URL("./gallery.css", import.meta.url), "utf8"))
     const pdf = await fetch(new URL("/gallery/Replica-wizard-design-guide.pdf", server.url))
     expect(pdf.ok).toBe(true)
     expect(pdf.headers.get("content-type")).toContain("application/pdf")
