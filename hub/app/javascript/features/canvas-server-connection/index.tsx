@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { HubAlert } from "@components/hub-alert"
 import { prototypeCanvasRequest } from "@utils/prototype-canvas-request"
 
+import { SERVER_DISCOVERY_INTERVAL_MS, STARTUP_OUTPUT_INTERVAL_MS } from "./constants"
 import { serverCopy as copy } from "./en"
 import "./styles.css"
 
@@ -52,7 +53,7 @@ export function CanvasServerConnection({ token }: { token: string }) {
     const timer = window.setTimeout(() => void scan(), 0)
     const interval = window.setInterval(() => {
       if (document.visibilityState === "visible") void scan()
-    }, 30_000)
+    }, SERVER_DISCOVERY_INTERVAL_MS)
     return () => {
       controller.abort()
       window.clearTimeout(timer)
@@ -79,7 +80,7 @@ export function CanvasServerConnection({ token }: { token: string }) {
         checking = false
       }
     }
-    const timer = window.setInterval(() => void poll(), 1000)
+    const timer = window.setInterval(() => void poll(), STARTUP_OUTPUT_INTERVAL_MS)
     return () => {
       disposed = true
       window.clearInterval(timer)

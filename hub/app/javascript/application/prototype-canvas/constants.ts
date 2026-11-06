@@ -1,0 +1,1 @@
+export const PROTOTYPE_HEALTH_INTERVAL_MS = 5_000

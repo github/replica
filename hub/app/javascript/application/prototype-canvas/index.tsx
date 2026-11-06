@@ -26,6 +26,7 @@ import { useShareLinks } from "@hooks/use-canvas-share-links"
 import { controlsStatus } from "@utils/prototype-controls-status"
 import { CanvasPrototypeCreation } from "@features/canvas-prototype-creation"
 
+import { PROTOTYPE_HEALTH_INTERVAL_MS } from "./constants"
 import "./styles.css"
 
 type Props = { config: CanvasConfig }
@@ -183,7 +184,7 @@ export function App({ config }: Props) {
         checking = false
       }
     }
-    const timer = window.setInterval(() => void check(), 5000)
+    const timer = window.setInterval(() => void check(), PROTOTYPE_HEALTH_INTERVAL_MS)
     return () => {
       disposed = true
       window.clearInterval(timer)
