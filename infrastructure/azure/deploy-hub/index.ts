@@ -54,7 +54,7 @@ export async function deployHub(args: string[] = process.argv.slice(2)): Promise
   const subscriptionId = subscription
   const variablesPath = resolve(variables)
   const root = resolve(import.meta.dirname, "..")
-  const planDirectory = resolve(process.env.TF_DATA_DIR ?? resolve(root, ".terraform"))
+  const planDirectory = resolve(root, process.env.TF_DATA_DIR || ".terraform")
   const planPath = resolve(planDirectory, `deployment-${randomUUID()}.tfplan`)
   const previousMask = process.umask(0o077)
   let lease: string | undefined

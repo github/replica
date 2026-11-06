@@ -20,7 +20,11 @@ variable "name" { type = string }
 variable "location" { type = string }
 variable "resource_group" { type = string }
 variable "environment_id" { type = string }
-variable "registry_id" { type = string }
+variable "registry_id" {
+  type        = string
+  default     = null
+  description = "Optional existing ACR resource ID. Omit for a public image."
+}
 variable "image" {
   type = string
   validation {
@@ -28,7 +32,13 @@ variable "image" {
     error_message = "Use an immutable registry/repository@sha256 digest for provisioning."
   }
 }
-variable "vault_id" { type = string }
+variable "vault_id" {
+  type = string
+  validation {
+    condition     = can(regex("^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft.KeyVault/vaults/[^/]+$", var.vault_id))
+    error_message = "Supply the Key Vault resource ID that owns the provisioning secrets."
+  }
+}
 variable "secret_urls" {
   type = map(string)
   validation {
@@ -39,6 +49,15 @@ variable "secret_urls" {
       ])
     )
     error_message = "Provide exactly three versioned Key Vault references for the administrator URL and two role passwords, never raw values."
+  }
+  validation {
+    condition = (
+      !can(regex("^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft.KeyVault/vaults/[^/]+$", var.vault_id)) ||
+      alltrue([for secret in values(var.secret_urls) :
+        lower(try(split("/", secret)[2], "")) == "${lower(try(split("/", var.vault_id)[8], ""))}.vault.azure.net"
+      ])
+    )
+    error_message = "Every provisioning secret URL must belong to vault_id."
   }
 }
 
@@ -56,6 +75,7 @@ resource "azurerm_role_assignment" "secrets" {
 }
 
 resource "azurerm_role_assignment" "image" {
+  count                = var.registry_id == null ? 0 : 1
   scope                = var.registry_id
   role_definition_name = "AcrPull"
   principal_id         = azurerm_user_assigned_identity.provision.principal_id
@@ -78,9 +98,12 @@ resource "azurerm_container_app_job" "provision" {
     type         = "UserAssigned"
     identity_ids = [azurerm_user_assigned_identity.provision.id]
   }
-  registry {
-    server   = split("/", var.image)[0]
-    identity = azurerm_user_assigned_identity.provision.id
+  dynamic "registry" {
+    for_each = var.registry_id == null ? [] : [var.registry_id]
+    content {
+      server   = split("/", var.image)[0]
+      identity = azurerm_user_assigned_identity.provision.id
+    }
   }
   dynamic "secret" {
     for_each = var.secret_urls
