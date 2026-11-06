@@ -127,18 +127,33 @@ class Build::PackageImport < ActiveRecord::AssociatedObject
 
   # Returns the one Actions artifact ID selected from the completed workflow run.
   def select_artifact_id(client, token, repository)
+    attempt = client.actions.workflow_run_attempt \
+      repository,
+      build.github_workflow_run_id,
+      build.github_workflow_run_attempt,
+      token: token
+    if attempt.fetch("run_attempt") != build.github_workflow_run_attempt
+      raise GithubClient::InvalidResponse, "GitHub returned a different workflow attempt"
+    end
+    attempt_started_at = Time.iso8601(attempt.fetch("run_started_at"))
+
     artifacts = client.actions.artifacts \
       repository,
       build.github_workflow_run_id,
       name: ARTIFACT_NAME,
       token: token
-    artifact = select_artifact(artifacts)
+    artifact = select_artifact(artifacts, attempt_started_at:)
     artifact.fetch("id")
+  rescue KeyError, TypeError, ArgumentError
+    raise GithubClient::InvalidResponse, "GitHub returned incomplete workflow attempt data"
   end
 
-  # Returns the one unexpired fixed-name artifact for this workflow run.
-  def select_artifact(artifacts)
-    matches = artifacts.select { _1["name"] == ARTIFACT_NAME }
+  # Returns the one unexpired fixed-name artifact created during this attempt.
+  def select_artifact(artifacts, attempt_started_at:)
+    matches = artifacts.select do |artifact|
+      artifact["name"] == ARTIFACT_NAME &&
+        Time.iso8601(artifact.fetch("created_at")) > attempt_started_at
+    end
     raise ArtifactMissing if matches.empty?
     raise ArtifactAmbiguous if matches.many?
 
@@ -151,5 +166,7 @@ class Build::PackageImport < ActiveRecord::AssociatedObject
     artifact
   rescue KeyError, TypeError
     raise GithubClient::InvalidResponse, "GitHub returned incomplete artifact data"
+  rescue ArgumentError
+    raise GithubClient::InvalidResponse, "GitHub returned an invalid artifact creation time"
   end
 end
