@@ -83,6 +83,8 @@ A field error must never disappear because six newer log lines arrived. A failed
 
 Keep severity separate from recovery behavior. A validation error allows editing; a read-only discovery failure may allow retry; an ambiguous migration or ownership failure requires review. Red text must not imply that the application always exits, and a generic retry button must not repeat unsafe operations.
 
+When a recovery action is blocked, put the reason in the next active question and make clear that recovery did not complete. Do not keep offering the same success-sounding action. Offer a safety recheck or exit, retaining fresh confirmation before any mutation. Distinguish a known refusal from an ambiguous command result that still needs verification.
+
 ### A reusable field contract
 
 Extend the existing field definitions with the information the renderer needs: a stable field identifier, label, help, optional example, strict parser, and any useful editing-time guidance. Keep cloud-specific rules outside the presentation components.

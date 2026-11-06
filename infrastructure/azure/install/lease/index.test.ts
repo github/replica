@@ -326,7 +326,10 @@ it("returns to recovery options after declining and exits without breaking or ac
   await expect(s.acquire()).rejects.toThrow()
 
   expect(s.ui.confirm).toHaveBeenCalled()
-  expect(s.menus.at(-1)).toEqual(expect.arrayContaining(["retry", "exit"]))
+  const [question, options] = vi.mocked(s.ui.select!).mock.calls.at(-1)!
+  expect(question).toMatch(/lock.*(?:not cleared|unchanged)|did not clear/i)
+  expect(question).toMatch(/not authorized|authorization.*declined|declined.*authorization/i)
+  expect(options.map(({ value }) => value)).toEqual(["retry", "exit"])
   expect(s.choices).toHaveLength(0)
   expect(s.breaks()).toHaveLength(0)
   expect(s.acquisitions()).toHaveLength(0)
@@ -370,28 +373,33 @@ it.each([
 
 const blockers: {
   description: string
+  reason: RegExp
   change: (s: ReturnType<typeof scenario>) => void
 }[] = [
   {
     description: "foreign foundation ownership",
+    reason: /ownership|belong|another.*installation/i,
     change: (s) => {
       s.evidence.foundationTags!.owner = "another-team"
     },
   },
   {
     description: "foreign app ownership",
+    reason: /ownership|belong|another.*installation/i,
     change: (s) => {
       s.evidence.appTags!.installation = "another-installation"
     },
   },
   {
     description: "missing ownership metadata",
+    reason: /ownership|belong|another.*installation/i,
     change: (s) => {
       s.evidence.appTags = undefined
     },
   },
   {
     description: "a leased Terraform state",
+    reason: /provision\.tfstate.*(?:locked|unknown)/i,
     change: (s) => {
       s.evidence.stateBlobs[2]!.lease = {
         state: "leased",
@@ -402,48 +410,56 @@ const blockers: {
   },
   {
     description: "unknown Terraform lease metadata",
+    reason: /app\.tfstate.*(?:locked|unknown)/i,
     change: (s) => {
       s.evidence.stateBlobs[1]!.lease = {}
     },
   },
   {
     description: "a running job",
+    reason: /provision.*provision-stopped.*Running/i,
     change: (s) => {
       s.evidence.executions.provision![0]!.status = "Running"
     },
   },
   {
     description: "an unknown job status",
+    reason: /unknown job execution metadata/i,
     change: (s) => {
       delete s.evidence.executions.setup![0]!.status
     },
   },
   {
     description: "an active app revision",
+    reason: /hub-current.*active/i,
     change: (s) => {
       s.evidence.revisions.hub![0]!.active = true
     },
   },
   {
     description: "unknown revision activity",
+    reason: /unknown revision metadata/i,
     change: (s) => {
       delete s.evidence.revisions.hub![1]!.active
     },
   },
   {
     description: "replicas on an inactive old revision",
+    reason: /hub-old.*replica/i,
     change: (s) => {
       s.evidence.replicas["hub-old"] = ["still-running-replica"]
     },
   },
   {
     description: "an incomplete app inventory",
+    reason: /(?:unknown|did not return).*inspection list/i,
     change: (s) => {
       s.evidence.apps = null
     },
   },
   {
     description: "an incomplete replica inventory",
+    reason: /(?:unknown|did not return).*inspection list/i,
     change: (s) => {
       s.evidence.replicas["worker-old"] = null
     },
@@ -451,21 +467,85 @@ const blockers: {
 ]
 
 it.each(blockers)(
-  "keeps recheck and exit usable without breaking for $description",
-  async ({ change }) => {
+  "keeps the reason and only safety recheck or exit visible for $description",
+  async ({ change, reason }) => {
     const s = scenario({ existing: true })
     change(s)
     s.choices.push("recover", "retry", "exit")
 
-    await expect(s.acquire()).rejects.toThrow()
+    await expect(s.acquire()).rejects.toThrow(reason)
 
     expect(s.choices).toHaveLength(0)
-    expect(s.menus.at(-1)).toEqual(expect.arrayContaining(["retry", "exit"]))
+    expect(s.menus.slice(1)).toEqual([
+      ["retry", "exit"],
+      ["retry", "exit"],
+    ])
+    for (const [question, options] of vi.mocked(s.ui.select!).mock.calls.slice(1)) {
+      expect(question).toMatch(
+        /lock.*(?:not cleared|unchanged)|did not clear|recovery (?:did not complete|could not be verified)/i,
+      )
+      expect(question).toMatch(reason)
+      expect(options).toContainEqual({
+        label: expect.stringMatching(/recheck/i),
+        value: "retry",
+      })
+    }
+    expect(
+      s.commands.filter((args) => args.slice(0, 3).join(" ") === "storage blob list"),
+    ).toHaveLength(2)
     expect(s.ui.confirm).not.toHaveBeenCalled()
     expect(s.breaks()).toHaveLength(0)
     expect(s.acquisitions()).toHaveLength(0)
   },
 )
+
+it("rechecks an unresolved blocker and requires fresh consent and inspection once it resolves", async () => {
+  const s = scenario({ existing: true, release: true })
+  s.evidence.replicas["hub-old"] = ["still-running-replica"]
+  s.choices.push("recover", "retry", "retry")
+  const events: string[] = []
+  let rechecks = 0
+  s.onSelect((choice) => {
+    if (choice !== "retry") return
+    expect(s.ui.confirm).not.toHaveBeenCalled()
+    expect(s.breaks()).toHaveLength(0)
+    if (++rechecks === 2) s.evidence.replicas["hub-old"] = []
+  })
+  s.onCommand((args) => {
+    if (args.slice(0, 3).join(" ") === "storage blob list") events.push("inspection")
+    if (args.slice(0, 4).join(" ") === "storage blob lease break") events.push("break")
+  })
+  s.onConfirm(() => {
+    events.push("confirmation")
+    return true
+  })
+
+  const lock = await s.acquire()
+
+  expect(s.menus.slice(1)).toEqual([
+    ["retry", "exit"],
+    ["retry", "exit"],
+  ])
+  for (const [question] of vi.mocked(s.ui.select!).mock.calls.slice(1)) {
+    expect(question).toMatch(/lock.*(?:not cleared|unchanged)|did not clear/i)
+    expect(question).toMatch(/hub-old.*replica/i)
+  }
+  expect(events).toEqual([
+    "inspection",
+    "inspection",
+    "inspection",
+    "confirmation",
+    "inspection",
+    "break",
+  ])
+  expect(s.ui.confirm).toHaveBeenCalledTimes(1)
+  expect(s.breaks()).toHaveLength(1)
+  expect(option(s.breaks()[0]!, "--account-name")).toBe(s.target.account)
+  expect(option(s.breaks()[0]!, "--container-name")).toBe(s.target.container)
+  expect(option(s.breaks()[0]!, "--blob-name")).toBe(s.target.blob)
+  expect(s.acquisitions()).toHaveLength(1)
+  await lock.release()
+})
 
 it("repeats safety checks after consent and refuses evidence that changed during review", async () => {
   const s = scenario({ existing: true })
@@ -477,6 +557,10 @@ it("repeats safety checks after consent and refuses evidence that changed during
 
   await expect(s.acquire()).rejects.toThrow()
 
+  const [question, options] = vi.mocked(s.ui.select!).mock.calls.at(-1)!
+  expect(question).toMatch(/lock.*(?:not cleared|unchanged)|did not clear/i)
+  expect(question).toMatch(/hub-old.*replica/i)
+  expect(options.map(({ value }) => value)).toEqual(["retry", "exit"])
   expect(s.ui.confirm).toHaveBeenCalled()
   expect(s.breaks()).toHaveLength(0)
   expect(s.acquisitions()).toHaveLength(0)
@@ -492,6 +576,10 @@ it("rechecks the selected lease after consent and refuses a lease that is now ch
 
   await expect(s.acquire()).rejects.toThrow()
 
+  const [question, options] = vi.mocked(s.ui.select!).mock.calls.at(-1)!
+  expect(question).toMatch(/lock.*(?:not cleared|unchanged)|did not clear/i)
+  expect(question).toMatch(/lease.*changed|changed.*lease/i)
+  expect(options.map(({ value }) => value)).toEqual(["retry", "exit"])
   expect(s.ui.confirm).toHaveBeenCalled()
   expect(s.breaks()).toHaveLength(0)
   expect(s.acquisitions()).toHaveLength(0)
@@ -505,9 +593,13 @@ it("surfaces failed inspection and permits recheck or exit without a mutation", 
       throw new CommandExecutionError("Revision inspection denied")
   })
 
-  await expect(s.acquire()).rejects.toThrow()
+  await expect(s.acquire()).rejects.toThrow("Revision inspection denied")
 
-  expect(s.messages.join("\n")).toContain("Revision inspection denied")
+  for (const [question, options] of vi.mocked(s.ui.select!).mock.calls.slice(1)) {
+    expect(question).toMatch(/recovery (?:did not complete|could not be verified)/i)
+    expect(question).toContain("Revision inspection denied")
+    expect(options.map(({ value }) => value)).toEqual(["retry", "exit"])
+  }
   expect(s.choices).toHaveLength(0)
   expect(s.breaks()).toHaveLength(0)
   expect(s.ui.confirm).not.toHaveBeenCalled()
@@ -560,25 +652,55 @@ it("does not replay an ambiguous failed break or attempt acquisition afterward",
   s.choices.push("recover", "exit")
   s.failBreak(failure)
 
-  await expect(s.acquire()).rejects.toThrow()
+  const stopped = s.acquire()
+  await expect(stopped).rejects.toThrow(failure.message)
+  await expect(stopped).rejects.not.toThrow(/locks? (?:were |was )?preserved/i)
 
-  expect(s.messages.join("\n")).toContain(failure.message)
+  const [question, options] = vi.mocked(s.ui.select!).mock.calls.at(-1)!
+  expect(question).toContain(failure.message)
+  expect(question).toMatch(/could not be verified|did not complete|do not assume.*cleared/i)
+  expect(question).not.toMatch(/lock.*(?:not cleared|unchanged)|did not clear/i)
+  expect(options.map(({ value }) => value)).toEqual(["retry", "exit"])
   expect(s.breaks()).toHaveLength(1)
   expect(s.acquisitions()).toHaveLength(0)
 })
 
-it("does not acquire when a successful break cannot be verified as unlocked", async () => {
-  const s = scenario()
-  s.choices.push("recover", "exit")
-  s.afterBreak(() => {
-    s.evidence.lease = { state: "breaking", status: "locked", duration: "infinite" }
-  })
+it.each([
+  {
+    description: "Azure still reports a changing lease",
+    reason: /not confirmed.*unlocked|not.*verif.*unlocked/i,
+    change: (s: ReturnType<typeof scenario>) => {
+      s.evidence.lease = { state: "breaking", status: "locked", duration: "infinite" }
+    },
+  },
+  {
+    description: "post-break inspection fails",
+    reason: /Post-break lease inspection denied/,
+    change: (s: ReturnType<typeof scenario>) => {
+      s.onCommand((args) => {
+        if (args.slice(0, 3).join(" ") === "storage blob show")
+          throw new CommandExecutionError("Post-break lease inspection denied")
+      })
+    },
+  },
+])(
+  "keeps clearing uncertain and does not acquire when $description",
+  async ({ reason, change }) => {
+    const s = scenario()
+    s.choices.push("recover", "exit")
+    s.afterBreak(() => change(s))
 
-  await expect(s.acquire()).rejects.toThrow()
+    await expect(s.acquire()).rejects.toThrow(reason)
 
-  expect(s.breaks()).toHaveLength(1)
-  expect(s.acquisitions()).toHaveLength(0)
-})
+    const [question, options] = vi.mocked(s.ui.select!).mock.calls.at(-1)!
+    expect(question).toMatch(reason)
+    expect(question).toMatch(/could not be verified|did not complete|do not assume.*cleared/i)
+    expect(question).not.toMatch(/lock.*(?:not cleared|unchanged)|did not clear/i)
+    expect(options.map(({ value }) => value)).toEqual(["retry", "exit"])
+    expect(s.breaks()).toHaveLength(1)
+    expect(s.acquisitions()).toHaveLength(0)
+  },
+)
 
 it("retries a failed normal acquisition only on an explicit retry choice", async () => {
   const s = scenario()
