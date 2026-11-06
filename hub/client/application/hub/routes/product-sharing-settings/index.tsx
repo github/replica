@@ -2,18 +2,21 @@ import { data, useFetcher, useLocation, useOutletContext } from "react-router"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 
 import { SharingSettingsPage } from "@pages/sharing-settings-page"
-
-import type { WorkspaceResponse } from "../../contracts/types"
+import type { WorkspaceResponse } from "@application/hub/contracts/types"
 import {
   productMutationResponseSchema,
   productSharingSettingsInputSchema,
   productSharingSettingsSchema,
-} from "../../product-contracts"
-import type { ProductActionResult, ProductSharingSettings } from "../../product-contracts/types"
-import { ProductFormBoundary } from "../../screens/product-form-boundary"
-import { productSharingSettingsData } from "../../view-models/product-sharing-settings"
+} from "@application/hub/product-contracts"
+import type {
+  ProductActionResult,
+  ProductSharingSettings,
+} from "@application/hub/product-contracts/types"
+import { ProductFormBoundary } from "@application/hub/screens/product-form-boundary"
+import { productSharingSettingsData } from "@application/hub/view-models/product-sharing-settings-data"
+
 import { productActionError } from "../product-action-error"
-import { requestProductJson } from "../product-request"
+import { requestProductJson } from "../request-product-json"
 
 export function clientLoader({ request }: Pick<LoaderFunctionArgs, "request">) {
   return requestProductJson(request, "/api/product/sharing-settings", productSharingSettingsSchema)
@@ -74,7 +77,7 @@ export function meta({ loaderData }: { loaderData?: ProductSharingSettings }) {
   return [{ title: loaderData ? "Public sharing - Replica Hub" : "Replica Hub" }]
 }
 
-export default function ProductSharingSettingsRoute({
+export default function ProductSharingSettings({
   loaderData,
 }: {
   loaderData: ProductSharingSettings

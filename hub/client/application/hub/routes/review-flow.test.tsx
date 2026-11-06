@@ -3,9 +3,9 @@ import { http, HttpResponse } from "msw"
 import { setupServer } from "msw/node"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
-import { createMockHandlers } from "../mocks/create-handlers"
-import { createMockStore } from "../mocks/create-store"
-import { renderHubFlow } from "./test-fixture"
+import { createMockHandlers } from "../mocks/create-mock-handlers"
+import { createMockStore } from "../mocks/create-mock-store"
+import { renderHubFlow } from "./fixtures/render-hub-flow"
 
 describe("Hub prototype review flow", () => {
   // The full mutation/remount/reopen flow has exceeded 15s with two Windows workers.

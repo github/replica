@@ -1,7 +1,7 @@
 import type { ComponentProps, ReactNode } from "react"
 import { useSubmit } from "react-router"
 
-import { FormBoundary } from "../../form-boundary"
+import { FormBoundary } from "@application/hub/form-boundary"
 
 import "./styles.css"
 

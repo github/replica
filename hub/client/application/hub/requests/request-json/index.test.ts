@@ -2,10 +2,10 @@ import { http, HttpResponse } from "msw"
 import { setupServer } from "msw/node"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
-import { workspaceResponseSchema } from "../../contracts"
+import { workspaceResponseSchema } from "@application/hub/contracts"
+
 import { ApiContractError } from "../api-contract-error"
 import { ApiRequestError } from "../api-request-error"
-
 import { requestJson } from "."
 
 describe("requestJson()", () => {

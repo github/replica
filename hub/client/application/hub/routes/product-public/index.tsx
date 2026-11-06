@@ -1,11 +1,14 @@
 import type { LoaderFunctionArgs } from "react-router"
 
 import { SharedBuildsShowPage } from "@pages/shared-builds-show-page"
+import {
+  productPublicResponseSchema,
+  productShareIdSchema,
+} from "@application/hub/product-contracts"
+import type { ProductPublicResponse } from "@application/hub/product-contracts/types"
+import { productPublicData } from "@application/hub/view-models/product-public-data"
 
-import { productPublicResponseSchema, productShareIdSchema } from "../../product-contracts"
-import type { ProductPublicResponse } from "../../product-contracts/types"
-import { productPublicData } from "../../view-models/product-public"
-import { requestProductJson } from "../product-request"
+import { requestProductJson } from "../request-product-json"
 
 export function clientLoader({ request, params }: Pick<LoaderFunctionArgs, "request" | "params">) {
   const shareId = productShareIdSchema.safeParse(params.shareId)
@@ -30,6 +33,6 @@ export function meta({ loaderData }: { loaderData?: ProductPublicResponse }) {
   return [{ title: `${stateLabel} - Replica Hub` }]
 }
 
-export default function ProductPublicRoute({ loaderData }: { loaderData: ProductPublicResponse }) {
+export default function ProductPublic({ loaderData }: { loaderData: ProductPublicResponse }) {
   return <SharedBuildsShowPage data={productPublicData(loaderData)} />
 }

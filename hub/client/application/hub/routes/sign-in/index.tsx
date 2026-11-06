@@ -2,10 +2,10 @@ import { redirect, useFetcher } from "react-router"
 
 import { useHubTheme } from "@hooks/use-hub-theme"
 import { HomeIndexPage } from "@pages/home-index-page"
+import { FormBoundary } from "@application/hub/form-boundary"
+import { getSession } from "@application/hub/requests/get-session"
 
-import { FormBoundary } from "../../form-boundary"
 import type { Route } from "./+types/index"
-import { getSession } from "../../requests/get-session"
 
 export async function clientLoader({ request }: Pick<Route.ClientLoaderArgs, "request">) {
   const session = await getSession(request)
@@ -17,7 +17,7 @@ export function meta() {
   return [{ title: "Replica Hub" }]
 }
 
-export default function SignInRoute() {
+export default function SignIn() {
   const { resolvedColorMode } = useHubTheme()
   const fetcher = useFetcher()
   return (

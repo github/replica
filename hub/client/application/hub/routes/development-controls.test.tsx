@@ -2,10 +2,10 @@ import { fireEvent, screen, within } from "@testing-library/react"
 import { setupServer } from "msw/node"
 import { describe, expect, it } from "vitest"
 
-import { createMockHandlers } from "../mocks/create-handlers"
-import { createMockStore } from "../mocks/create-store"
+import { createMockHandlers } from "../mocks/create-mock-handlers"
+import { createMockStore } from "../mocks/create-mock-store"
 import { mockDiagnostics } from "../mocks/diagnostics"
-import { renderHubFlow } from "./test-fixture"
+import { renderHubFlow } from "./fixtures/render-hub-flow"
 
 function UnconnectedPreferences() {
   return (

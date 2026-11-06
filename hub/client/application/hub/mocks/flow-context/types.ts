@@ -6,7 +6,7 @@ import type {
   UserRecord,
 } from "@application/hub/contracts/types"
 
-import type { MockSession } from "../create-session/types"
+import type { MockSession } from "../create-mock-session/types"
 
 export interface MockFlowContext {
   origin: string

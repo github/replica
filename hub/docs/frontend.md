@@ -79,7 +79,16 @@ Closing a conversation removes `comment`; browser back/forward restores the sele
 
 Repository pages, Hub settings and Public sharing use one [workspace navigation definition](../client/application/hub/view-models/workspace-navigation/index.ts) for labels, ordering, destinations and visibility. Repository navigation adds its repository-specific links without redefining Hub settings. Current settings permissions, hidden Welcome state and unread counts replace cached workspace values before navigation is assembled.
 
-Administrators see Hub administrators, Public sharing, End all Hub sessions, GitHub App, Copilot connection and Security audit in that order on every workspace page. Other users do not see administrator links. Security audit links explicitly select Hub scope for administrators and repository scope for other users with repository context; a user without a repository or Hub administration has no audit link.
+Every workspace page shows administrators these links in order:
+
+- Hub administrators
+- Public sharing
+- End all Hub sessions
+- GitHub App
+- Copilot connection
+- Security audit
+
+Other users do not see administrator links. Security audit links select Hub scope for administrators and repository scope for other users with repository context. A user without either context has no audit link.
 
 Links to Hub-wide pages carry `repositoryId` to preserve the selected repository; direct Public sharing visits use the first available repository. Users without repository access retain global navigation without an empty selector. Public and signed-out layouts remain separate.
 
@@ -152,7 +161,7 @@ These redirects retain other query parameters. The repository-settings redirects
 - **Preview and branch:** the first visit opens the prototype information dialog; dismissing it is retained during the mock session. Minimized preview URLs remain valid when reloaded or reopened; their view state is separate from gallery/list filters. **Branch from here** opens the retained composer for users who can create prototypes. Its Copilot prompt names the source branch and includes the live preview route when available. It does not change the pinned Build or create a local record. Prototypes without a Build can still be branching starting points.
 - **Controls:** a successful preview exposes the original Controls button and in-preview toolbar, including for readers. Failed, running and absent previews do not show Controls. The mock preview supplies an isolated Controls fixture so changes such as **Show description** and **Card spacing** affect the rendered preview without implementing hosted Builds.
 - **Manage:** the gear beside the Prototypes heading opens the existing management route for users who can create prototypes. Gallery metadata, start-page metadata and fixture-branch registration change canonical local records, not GitHub, source code, workflows, or immutable Build contents.
-- **Review:** the existing preview bridge supports element and area selection. Comments, replies, edits, deletion, resolution, reactions, and read positions share a mock review store. Ordinary failed saves retain the draft for retry. Denied or unavailable review writes refresh access; loaded comments are removed if the refresh reports access loss. The read-only profile can inspect conversations but cannot change them. This is not a live multi-user review service.
+- **Review:** the existing preview bridge supports element and area selection. All conversation changes share one mock review store. Ordinary failed saves retain the draft for retry. Denied or unavailable review writes refresh access; loaded comments are removed if the refresh reports access loss. The read-only profile can inspect conversations but cannot change them. This is not a live multi-user review service.
 - **Share:** create and revoke local links pinned to successful Builds. `demo-active`, `demo-expired`, and `demo-revoked` exercise public states. New links open in the same tab because another document receives a fresh mock store. Disabling mock sharing revokes existing local links; re-enabling permits new links. This is provisional demo behavior, not an accepted production sharing policy.
 - **Account and setup:** inspect normal sign-in/out, welcome, connection, GitHub App setup, confirmation, enrollment, and session screens with canned API state. Do not enter real credentials or secrets. No provider authorization, installation, key rotation, or real session revocation occurs.
 - **Administration and activity:** administrator controls submit requests, but adding, designating, or removing an administrator returns 501 Not Implemented. The orange test toolbar records the attempted operation; the roster and permissions do not change. Notifications, activity filters, analytics destinations, and learning actions retain their local behavior. A learning request returns a completed fixture run and suggestion rather than implementing a background-job simulator. No real telemetry export, durable security audit, model run, or background job is performed.
@@ -167,7 +176,7 @@ The shared JSON client awaits mock startup before sending any API request. It fo
 
 Unsupported actions show a visible failure without requiring development controls. Credential and file submissions remain unprocessed; their technical diagnostics stay in the test toolbar.
 
-These are frontend/mock contracts under [the application contracts](../client/application/hub/contracts/index.ts), not Prisma models or already-implemented Express endpoints. The mock identifiers preserve the retained presentation; coordinate real identifiers and contracts with backend work.
+These are frontend/mock contracts under [the application contracts](../client/application/hub/contracts/index.ts), not Prisma models or already-implemented Express endpoints. Template and share identifiers accept URL-safe opaque values rather than requiring the mock generator's format. Build commits accept full SHA-1 or SHA-256 object names. Coordinate real identifiers and contracts with backend work.
 
 | HTTP interface | Result |
 | --- | --- |
@@ -195,7 +204,7 @@ The [product contracts](../client/application/hub/product-contracts/index.ts), [
 
 ## Removing mocks
 
-The [mock folder](../client/application/hub/mocks/) contains the development runtime and its test toolbar. The application starts it through the [bootstrap hook](../client/application/hub/bootstrap/index.ts) and displays the toolbar through [DevelopmentTools](../client/application/hub/development-tools/index.tsx). Vite enables its asset plugin only in mock mode.
+The [mock folder](../client/application/hub/mocks/) contains the development runtime and its test toolbar. The application starts it through the [bootstrap hook](../client/application/hub/bootstrap-hub-api/index.ts) and displays the toolbar through [DevelopmentTools](../client/application/hub/development-tools/index.tsx). Vite enables its asset plugin only in mock mode.
 
 When the backend is ready:
 
@@ -204,7 +213,7 @@ When the backend is ready:
 - Replace mock-backed test fixtures with the ported API's test support. Remove tests that only exercise discarded fake workflows.
 - Remove MSW when no remaining tests need it.
 - Keep the route and presentation code. Align its provisional contracts with the real API instead of treating fixture-shaped records as production contracts.
-- Remove the [scenario URL propagation](../client/application/hub/view-models/resource-path/) and [same-tab sharing override](../client/application/hub/view-models/product-share-links/).
+- Remove the [scenario URL propagation](../client/application/hub/view-models/resource-path/) and [same-tab sharing override](../client/application/hub/view-models/product-share-links-data/).
 
 Product credential and file submissions remain unavailable until real handlers support them. Configured authentication forms are separate native submissions. A real API failure must never reactivate mock responses.
 
@@ -261,7 +270,7 @@ GitHub App setup, registration, and installation pages can be opened directly wi
 | [Learnings](../client/pages/learnings-page/) | `/repositories/:repositoryId/learnings` | [Repository learnings](http://127.0.0.1:5173/repositories/2001/learnings) |
 | [New prototype](../client/pages/new-prototype-page/) | `/repositories/:repositoryId/new` | [Create a prototype](http://127.0.0.1:5173/repositories/2001/new) |
 | [Notifications](../client/pages/notifications-page/) | `/notifications` | [Notifications](http://127.0.0.1:5173/notifications) |
-| [Prototype management](../client/pages/prototype-management-page/) | `/repositories/:repositoryId/prototypes/manage` | [Manage prototypes](http://127.0.0.1:5173/repositories/2001/prototypes/manage) |
+| [Prototype management](../client/pages/prototype-management-page/) | `/repositories/:repositoryId/prototypes/manage` | [Edit prototype listings](http://127.0.0.1:5173/repositories/2001/prototypes/manage) |
 | [Replica browse](../client/pages/replica-browse-page/) | `/repositories/:repositoryId/templates/:templateId` | [Browse the default template](http://127.0.0.1:5173/repositories/2001/templates/default) |
 | [Security audit](../client/pages/security-audit-page/) | `/settings/audit` | [Mock activity](http://127.0.0.1:5173/settings/audit?repositoryId=2001) |
 | [Session revocation](../client/pages/session-revocation-page/) | `/settings/sessions` | [Mock browser session](http://127.0.0.1:5173/settings/sessions) |

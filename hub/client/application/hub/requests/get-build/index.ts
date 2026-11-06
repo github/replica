@@ -1,4 +1,5 @@
-import { buildResponseSchema } from "../../contracts"
+import { buildResponseSchema } from "@application/hub/contracts"
+
 import { requestJson } from "../request-json"
 
 export function getBuild(

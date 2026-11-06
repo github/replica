@@ -3,10 +3,10 @@ import { http, HttpResponse } from "msw"
 import { setupServer } from "msw/node"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
-import { createMockHandlers } from "../mocks/create-handlers"
-import { createMockStore } from "../mocks/create-store"
+import { createMockHandlers } from "../mocks/create-mock-handlers"
+import { createMockStore } from "../mocks/create-mock-store"
 import seedData from "../mocks/seed.json"
-import { renderHubFlow } from "./test-fixture"
+import { renderHubFlow } from "./fixtures/render-hub-flow"
 
 describe("Hub repository journey", () => {
   it("restores applied search, author, page and view state through back navigation", async () => {

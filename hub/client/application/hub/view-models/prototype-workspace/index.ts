@@ -1,11 +1,11 @@
 import type { PrototypeWorkspaceData } from "@features/prototype-workspace"
-
 import type {
   BuildRecord,
   PrototypeRecord,
   RepositoryRecord,
   WorkspaceResponse,
-} from "../../contracts/types"
+} from "@application/hub/contracts/types"
+
 import { buildStateLabel } from "../build-state-label"
 import { repositoryWorkspace } from "../repository-workspace"
 import { resourcePath } from "../resource-path"

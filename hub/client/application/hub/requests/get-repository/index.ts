@@ -1,5 +1,6 @@
-import { repositoryResponseSchema } from "../../contracts"
-import { readRouteQuery } from "../../read-route-query"
+import { repositoryResponseSchema } from "@application/hub/contracts"
+import { readRouteQuery } from "@application/hub/read-route-query"
+
 import { requestJson } from "../request-json"
 
 export function getRepository(request: Request, repositoryId: number) {

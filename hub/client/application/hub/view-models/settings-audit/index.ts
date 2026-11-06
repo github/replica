@@ -1,7 +1,10 @@
 import type { SecurityAuditPageData } from "@pages/security-audit-page/types"
+import type { WorkspaceResponse } from "@application/hub/contracts/types"
+import type {
+  SettingsQuery,
+  SettingsWorkspaceResponse,
+} from "@application/hub/settings-contracts/types"
 
-import type { WorkspaceResponse } from "../../contracts/types"
-import type { SettingsQuery, SettingsWorkspaceResponse } from "../../settings-contracts/types"
 import { resourcePath } from "../resource-path"
 import { settingsRepositoryWorkspace } from "../settings-repository-workspace"
 import { settingsWorkspace } from "../settings-workspace"

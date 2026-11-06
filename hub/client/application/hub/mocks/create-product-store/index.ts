@@ -19,13 +19,14 @@ import type { MockFlowContext } from "../flow-context/types"
 import { MockStoreError } from "../store-error"
 
 const millisecondsPerDay = 24 * 60 * 60 * 1000
+const firstCandidateId = 9001
 
 export function createProductStore(context: MockFlowContext) {
   const { resources, session } = context
   const startPages = new Map<string, string | null>()
   const candidates = resources.repositories.flatMap((repository) =>
     ["exploration", "comparison"].map((name, index) => ({
-      id: index + 9001,
+      id: index + firstCandidateId,
       repositoryId: repository.id,
       branchName: `prototype/${name}`,
       name: name === "exploration" ? "Exploration" : "Comparison",
@@ -352,7 +353,9 @@ export function createProductStore(context: MockFlowContext) {
     updateSharingSettings(input: ProductSharingSettingsInput) {
       session.requireCapability("administerHub")
       const parsed = productSharingSettingsInputSchema.safeParse(input)
-      if (!parsed.success) throw new MockStoreError(422, "Confirm the sharing change.")
+      if (!parsed.success) {
+        throw new MockStoreError(422, parsed.error.issues.map(({ message }) => message).join(" "))
+      }
       const enabled = parsed.data.operation === "enable"
       if (sharingEnabled === enabled) {
         throw new MockStoreError(

@@ -5,6 +5,17 @@ import type { SettingsAuditEvent } from "@application/hub/settings-contracts/typ
 import type { MockFlowContext } from "../flow-context/types"
 import reviewSeed from "../review-seed.json"
 
+const fixtureStartTime = Date.parse("2026-10-30T12:00:00Z")
+const auditEventCount = 65
+const auditEventIntervalMs = 3_600_000
+const auditActorInterval = 4
+const notificationCount = 64
+const notificationIntervalMs = 2_880_000
+const initialThreadNotificationCount = 4
+const lastInitialThreadNotificationIndex = initialThreadNotificationCount - 1
+const readNotificationInterval = 3
+const commentsPerSeededThread = 2
+
 const excerpts = [
   "Could you review the primary action, @octocat?",
   "The label now describes the next step.",
@@ -29,12 +40,12 @@ const auditActivity = [
 
 export function createSettingsFixtures(context: MockFlowContext) {
   const repository = context.resources.repositories[0]
-  const auditEvents: SettingsAuditEvent[] = Array.from({ length: 65 }, (_, index) => {
+  const auditEvents: SettingsAuditEvent[] = Array.from({ length: auditEventCount }, (_, index) => {
     const [operation, detail] = auditActivity[index % auditActivity.length]!
     return {
       id: index + 1,
-      createdAt: new Date(Date.parse("2026-10-30T12:00:00Z") + index * 3_600_000).toISOString(),
-      actor: index % 4 === 0 ? "mona" : "octocat",
+      createdAt: new Date(fixtureStartTime + index * auditEventIntervalMs).toISOString(),
+      actor: index % auditActorInterval === 0 ? "mona" : "octocat",
       operation,
       repositoryId: repository?.id ?? null,
       context: detail,
@@ -60,26 +71,31 @@ export function createSettingsFixtures(context: MockFlowContext) {
     )
       return []
     const target = { prototype, owner, buildNumber: item.buildNumber, threadId: nextThreadId }
-    nextThreadId += 2
+    nextThreadId += commentsPerSeededThread
     return [target]
   })
   const actors = context.resources.users.filter((user) => user.login !== "octocat")
   if (!targets.length || !actors.length) return { notifications, auditEvents }
 
   const kinds = ["mention", "reply", "comment", "resolved", "reopened"] as const
-  for (let index = 0; index < 64; index += 1) {
+  for (let index = 0; index < notificationCount; index += 1) {
     const id = index + 1
-    const target = targets[index < 4 ? 0 : (index - 4) % targets.length]!
-    const actor = actors[index < 4 ? 0 : (index - 4) % actors.length]!
+    const isInitialThread = index < initialThreadNotificationCount
+    const target =
+      targets[isInitialThread ? 0 : (index - initialThreadNotificationCount) % targets.length]!
+    const actor =
+      actors[isInitialThread ? 0 : (index - initialThreadNotificationCount) % actors.length]!
     notifications.push({
       id,
       version: 0,
       recipientLogin: "octocat",
       actor: { login: actor.login, name: actor.name, avatarUrl: actor.avatarUrl },
-      kind: kinds[index < 4 ? index : index % kinds.length]!,
+      kind: kinds[isInitialThread ? index : index % kinds.length]!,
       excerpt: excerpts[index % excerpts.length]!,
-      createdAt: new Date(Date.parse("2026-10-30T12:00:00Z") + index * 2_880_000).toISOString(),
-      read: index === 3 || (index > 3 && index % 3 === 0),
+      createdAt: new Date(fixtureStartTime + index * notificationIntervalMs).toISOString(),
+      read:
+        index === lastInitialThreadNotificationIndex ||
+        (index > lastInitialThreadNotificationIndex && index % readNotificationInterval === 0),
       repository: target.owner.nameWithOwner,
       prototype: target.prototype.name,
       path: `/repositories/${target.owner.id}/prototypes/${target.prototype.id}?build=${target.buildNumber}&comment=${target.threadId}&notification=${id}`,

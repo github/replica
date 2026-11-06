@@ -2,19 +2,22 @@ import { data, useFetcher, useLocation, useOutletContext } from "react-router"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 
 import { PrototypeManagementPage } from "@pages/prototype-management-page"
-
-import type { WorkspaceResponse } from "../../contracts/types"
+import type { WorkspaceResponse } from "@application/hub/contracts/types"
 import {
   productManagementResponseSchema,
   productMetadataInputSchema,
   productMutationResponseSchema,
-} from "../../product-contracts"
-import type { ProductActionResult, ProductManagementResponse } from "../../product-contracts/types"
-import { readRouteIdentifier } from "../../read-route-identifier"
-import { ProductFormBoundary } from "../../screens/product-form-boundary"
-import { productManagementData } from "../../view-models/product-management"
+} from "@application/hub/product-contracts"
+import type {
+  ProductActionResult,
+  ProductManagementResponse,
+} from "@application/hub/product-contracts/types"
+import { readRouteIdentifier } from "@application/hub/read-route-identifier"
+import { ProductFormBoundary } from "@application/hub/screens/product-form-boundary"
+import { productManagementData } from "@application/hub/view-models/product-management-data"
+
 import { productActionError } from "../product-action-error"
-import { requestProductJson } from "../product-request"
+import { requestProductJson } from "../request-product-json"
 
 export function clientLoader({ request, params }: Pick<LoaderFunctionArgs, "request" | "params">) {
   const repositoryId = readRouteIdentifier(params.repositoryId, "repository")
@@ -80,13 +83,13 @@ export function meta({ loaderData }: { loaderData?: ProductManagementResponse })
   return [
     {
       title: loaderData
-        ? `Manage prototypes - ${loaderData.repository.nameWithOwner} - Replica Hub`
+        ? `Edit prototype listings - ${loaderData.repository.nameWithOwner} - Replica Hub`
         : "Replica Hub",
     },
   ]
 }
 
-export default function ProductManagementRoute({
+export default function ProductManagement({
   loaderData,
 }: {
   loaderData: ProductManagementResponse

@@ -23,6 +23,7 @@ export function FormBoundary({ children, busy, error, notice, onSubmit }: Props)
     event.preventDefault()
     if (busy) return
     const submitter = event.nativeEvent.submitter
+    // Include the clicked button's name and value when delegating a descendant form.
     const input = new FormData(event.target, submitter)
     const action = new URL(event.target.action, window.location.href)
     input.set("_action", `${action.pathname}${action.search}`)

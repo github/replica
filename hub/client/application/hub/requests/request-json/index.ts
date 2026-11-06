@@ -1,7 +1,8 @@
 import type { z } from "zod"
 
-import { bootstrapHubApi } from "../../bootstrap"
-import { apiErrorSchema } from "../../contracts"
+import { bootstrapHubApi } from "@application/hub/bootstrap-hub-api"
+import { apiErrorSchema } from "@application/hub/contracts"
+
 import { ApiContractError } from "../api-contract-error"
 import { ApiRequestError } from "../api-request-error"
 

@@ -1,10 +1,11 @@
 import { useOutletContext } from "react-router"
 
+import type { BuildHistoryResponse, WorkspaceResponse } from "@application/hub/contracts/types"
+import { readRouteIdentifier } from "@application/hub/read-route-identifier"
+import { getBuildHistory } from "@application/hub/requests/get-build-history"
+import { BuildHistoryScreen } from "@application/hub/screens/build-history-screen"
+
 import type { Route } from "./+types/index"
-import type { BuildHistoryResponse, WorkspaceResponse } from "../../contracts/types"
-import { readRouteIdentifier } from "../../read-route-identifier"
-import { getBuildHistory } from "../../requests/get-build-history"
-import { BuildHistoryScreen } from "../../screens/build-history-screen"
 
 export async function clientLoader({
   request,
@@ -23,9 +24,7 @@ export function meta({ loaderData }: Route.MetaArgs) {
   ]
 }
 
-export default function BuildHistoryRoute({
-  loaderData,
-}: Pick<Route.ComponentProps, "loaderData">) {
+export default function BuildHistory({ loaderData }: Pick<Route.ComponentProps, "loaderData">) {
   const workspace = useOutletContext<WorkspaceResponse>()
   return <BuildHistoryScreen workspace={workspace} data={loaderData} />
 }

@@ -2,22 +2,25 @@ import { data, useFetcher, useLocation, useOutletContext } from "react-router"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 
 import { ShareLinksIndexPage } from "@pages/share-links-index-page"
-
-import type { WorkspaceResponse } from "../../contracts/types"
+import type { WorkspaceResponse } from "@application/hub/contracts/types"
 import {
   productLinkCreatedResponseSchema,
   productMutationResponseSchema,
   productShareIdSchema,
   productShareInputSchema,
   productSharingResponseSchema,
-} from "../../product-contracts"
-import type { ProductActionResult, ProductSharingResponse } from "../../product-contracts/types"
-import { readRouteIdentifier } from "../../read-route-identifier"
-import { readRouteQuery } from "../../read-route-query"
-import { ProductFormBoundary } from "../../screens/product-form-boundary"
-import { productShareLinksData } from "../../view-models/product-share-links"
+} from "@application/hub/product-contracts"
+import type {
+  ProductActionResult,
+  ProductSharingResponse,
+} from "@application/hub/product-contracts/types"
+import { readRouteIdentifier } from "@application/hub/read-route-identifier"
+import { readRouteQuery } from "@application/hub/read-route-query"
+import { ProductFormBoundary } from "@application/hub/screens/product-form-boundary"
+import { productShareLinksData } from "@application/hub/view-models/product-share-links-data"
+
 import { productActionError } from "../product-action-error"
-import { requestProductJson } from "../product-request"
+import { requestProductJson } from "../request-product-json"
 
 export function clientLoader({ request, params }: Pick<LoaderFunctionArgs, "request" | "params">) {
   const repositoryId = readRouteIdentifier(params.repositoryId, "repository")
@@ -98,11 +101,7 @@ export function meta({ loaderData }: { loaderData?: ProductSharingResponse }) {
   ]
 }
 
-export default function ProductShareLinksRoute({
-  loaderData,
-}: {
-  loaderData: ProductSharingResponse
-}) {
+export default function ProductShareLinks({ loaderData }: { loaderData: ProductSharingResponse }) {
   const workspace = useOutletContext<WorkspaceResponse>()
   const location = useLocation()
   const fetcher = useFetcher<ProductActionResult>()

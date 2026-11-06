@@ -10,9 +10,8 @@ import {
 import type { PrototypeViewMode } from "@components/prototype-view-mode-control/types"
 import { RepositoriesShowPage } from "@pages/repositories-show-page"
 import type { PrototypeAuthorResults } from "@utils/prototype-listing/types"
-
-import type { RepositoryResponse, WorkspaceResponse } from "../../contracts/types"
-import { repositoryShowData } from "../../view-models/repository-show"
+import type { RepositoryResponse, WorkspaceResponse } from "@application/hub/contracts/types"
+import { repositoryShowData } from "@application/hub/view-models/repository-show-data"
 
 export function RepositoryScreen({
   workspace,

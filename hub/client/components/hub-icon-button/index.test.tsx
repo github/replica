@@ -77,13 +77,13 @@ describe("HubIconButton()", () => {
       <HubIconButton
         as="a"
         href="/prototypes/manage"
-        aria-label="Manage prototypes"
+        aria-label="Edit prototype listings"
         icon={Icon}
         loading
       />,
     )
 
-    const link = screen.getByRole("link", { name: "Manage prototypes" })
+    const link = screen.getByRole("link", { name: "Edit prototype listings" })
     expect(link).toHaveAttribute("aria-busy", "true")
     expect(link.querySelector(".hub-spinner")).toBeInTheDocument()
     expect(screen.queryByTestId("icon")).not.toBeInTheDocument()

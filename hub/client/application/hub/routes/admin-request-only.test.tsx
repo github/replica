@@ -4,8 +4,8 @@ import { setupServer } from "msw/node"
 import { useLoaderData, type RouteObject } from "react-router"
 import { describe, expect, it, onTestFinished } from "vitest"
 
-import { createMockHandlers } from "../mocks/create-handlers"
-import { createMockStore } from "../mocks/create-store"
+import { createMockHandlers } from "../mocks/create-mock-handlers"
+import { createMockStore } from "../mocks/create-mock-store"
 import { mockDiagnostics } from "../mocks/diagnostics"
 import { settingsQuerySchema } from "../settings-contracts"
 import type { SettingsOperation } from "../settings-contracts/types"
@@ -17,7 +17,7 @@ import SettingsAdminsRoute, {
   clientAction as addAdministrators,
   clientLoader as loadAdministrators,
 } from "./settings-admins"
-import { renderHubFlow } from "./test-fixture"
+import { renderHubFlow } from "./fixtures/render-hub-flow"
 
 function AdministratorsComponent() {
   return <SettingsAdminsRoute loaderData={useLoaderData<typeof loadAdministrators>()} />

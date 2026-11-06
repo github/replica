@@ -4,9 +4,11 @@ import { GithubAppSetupRegisterPage } from "@pages/github-app-setup-register-pag
 import { GithubAppSetupShowPage } from "@pages/github-app-setup-show-page"
 import { HubAdminEnrollmentPage } from "@pages/hub-admin-enrollment-page"
 import { SessionRevocationPage } from "@pages/session-revocation-page"
-
-import type { SettingsPublicResponse, SettingsSection } from "../../settings-contracts/types"
-import { settingsPublic } from "../../view-models/settings-public"
+import type {
+  SettingsPublicResponse,
+  SettingsSection,
+} from "@application/hub/settings-contracts/types"
+import { settingsPublic } from "@application/hub/view-models/settings-public"
 
 export function SettingsPublicScreen({
   section,

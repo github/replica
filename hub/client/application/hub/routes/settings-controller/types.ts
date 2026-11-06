@@ -3,7 +3,7 @@ import type {
   SettingsCandidateResponse,
   SettingsQuery,
   SettingsWorkspaceResponse,
-} from "../../settings-contracts/types"
+} from "@application/hub/settings-contracts/types"
 
 export type SettingsRouteData =
   | { surface: "public"; state: SettingsPublicResponse; query: SettingsQuery }

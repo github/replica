@@ -1,4 +1,5 @@
-import { authorResultsSchema } from "../../contracts"
+import { authorResultsSchema } from "@application/hub/contracts"
+
 import { requestJson } from "../request-json"
 
 interface Options {

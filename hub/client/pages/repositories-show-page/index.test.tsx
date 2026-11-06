@@ -191,8 +191,8 @@ describe("RepositoriesShowPage()", () => {
       ...PAGE_DATA,
       alert: "This local repository is no longer available.",
       emptyLabel:
-        "Hub checks committed local branches every minute. When one appears, add it under Manage prototypes.",
-      managePrototypesLabel: "Manage prototypes",
+        "Hub checks committed local branches every minute. When one appears, add it under Edit prototype listings.",
+      managePrototypesLabel: "Edit prototype listings",
       managePrototypesPath: "/repositories/1/prototypes/manage",
       newPrototypePath: null,
       prototypes: [],
@@ -207,24 +207,24 @@ describe("RepositoriesShowPage()", () => {
     const { container, rerender } = render(<RepositoriesShowPage data={localPageData} />)
 
     expect(screen.queryByRole("button", { name: "Refresh branches" })).not.toBeInTheDocument()
-    const managePrototypes = screen.getByRole("link", { name: "Manage prototypes" })
+    const managePrototypes = screen.getByRole("link", { name: "Edit prototype listings" })
     expect(managePrototypes).toHaveAttribute("href", "/repositories/1/prototypes/manage")
     expect(managePrototypes).not.toHaveAttribute("aria-busy")
 
     rerender(<RepositoriesShowPage data={localPageData} managingPrototypes />)
-    const pendingManagePrototypes = screen.getByRole("link", { name: "Manage prototypes" })
+    const pendingManagePrototypes = screen.getByRole("link", { name: "Edit prototype listings" })
     expect(pendingManagePrototypes).toHaveAttribute("aria-busy", "true")
     expect(pendingManagePrototypes.querySelector(".hub-spinner")).toBeInTheDocument()
 
     rerender(<RepositoriesShowPage data={localPageData} />)
-    const settledManagePrototypes = screen.getByRole("link", { name: "Manage prototypes" })
+    const settledManagePrototypes = screen.getByRole("link", { name: "Edit prototype listings" })
     expect(settledManagePrototypes).not.toHaveAttribute("aria-busy")
     const emptyDescription = container.querySelector(".hub-empty-state__description")
     expect(emptyDescription).toHaveTextContent(
-      "Hub checks committed local branches every minute. When one appears, add it under Manage prototypes.",
+      "Hub checks committed local branches every minute. When one appears, add it under Edit prototype listings.",
     )
     const manageLabel = emptyDescription?.querySelector(".repository-detail__manage-label")
-    expect(manageLabel).toHaveTextContent("Manage prototypes")
+    expect(manageLabel).toHaveTextContent("Edit prototype listings")
     expect(manageLabel?.querySelector(".octicon-gear")).toBeInTheDocument()
     expect(screen.getByRole("alert")).toHaveTextContent(
       "This local repository is no longer available.",
@@ -319,7 +319,7 @@ describe("RepositoriesShowPage()", () => {
     expect(screen.queryByText("Explore a new welcome flow.")).not.toBeInTheDocument()
     expect(screen.queryByText("prototype/welcome")).not.toBeInTheDocument()
     expect(screen.queryByText("2 builds")).not.toBeInTheDocument()
-    expect(screen.queryByText("Manage prototypes")).not.toBeInTheDocument()
+    expect(screen.queryByText("Edit prototype listings")).not.toBeInTheDocument()
     expect(
       screen.getByRole("button", { name: "Open installation pull request" }),
     ).toBeInTheDocument()
@@ -370,7 +370,7 @@ describe("RepositoriesShowPage()", () => {
       <RepositoriesShowPage
         data={{
           ...PAGE_DATA,
-          managePrototypesLabel: "Manage prototypes",
+          managePrototypesLabel: "Edit prototype listings",
           managePrototypesPath: "/repositories/2001/prototypes/manage",
           workflowInstallation: undefined,
           addToHubLabel: "Add to Hub",
@@ -428,7 +428,7 @@ describe("RepositoriesShowPage()", () => {
       expect(form.querySelector('[name="user_id"]')).toBeNull()
       expect(form.querySelector('[name="prototype[name]"]')).toBeNull()
     }
-    const gear = screen.getByRole("link", { name: "Manage prototypes" })
+    const gear = screen.getByRole("link", { name: "Edit prototype listings" })
     expect(gear).toHaveAttribute("href", "/repositories/2001/prototypes/manage")
     expect(gear).toHaveClass("hub-icon-button--invisible")
     expect(screen.queryByText("You have branches ready to add to Hub.")).not.toBeInTheDocument()
@@ -439,7 +439,7 @@ describe("RepositoriesShowPage()", () => {
       <RepositoriesShowPage
         data={{
           ...PAGE_DATA,
-          managePrototypesLabel: "Manage prototypes",
+          managePrototypesLabel: "Edit prototype listings",
           managePrototypesPath: "/repositories/2001/prototypes/manage",
           recentBranches: [],
           workflowInstallation: undefined,
@@ -447,7 +447,7 @@ describe("RepositoriesShowPage()", () => {
       />,
     )
 
-    expect(screen.getByRole("link", { name: "Manage prototypes" })).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "Edit prototype listings" })).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "Add to Hub" })).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "Hide message" })).not.toBeInTheDocument()
     expect(screen.queryByRole("status")).not.toBeInTheDocument()

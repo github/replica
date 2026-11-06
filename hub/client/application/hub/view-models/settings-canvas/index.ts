@@ -1,6 +1,6 @@
 import type { CanvasPairingsPageData } from "@pages/canvas-pairings-page/types"
+import type { SettingsWorkspaceResponse } from "@application/hub/settings-contracts/types"
 
-import type { SettingsWorkspaceResponse } from "../../settings-contracts/types"
 import { resourcePath } from "../resource-path"
 
 export function settingsCanvas(
@@ -29,7 +29,7 @@ export function settingsCanvas(
       repository: state.repository.nameWithOwner,
       repositoryLabel: "Repository",
       permissions: state.session.capabilities.manageSharing
-        ? "The canvas can read Build details and review conversations, edit prototype details, and participate in conversations with your Hub account. It can create review threads when the local checkout matches an imported Build. The connection also lets Copilot add the learnings this repository's administrators accepted to your prompts."
+        ? "The canvas can read Build details and review conversations. It can edit prototype details and post as your Hub account. It can create review threads when the local checkout matches an imported Build. The connection also lets Copilot add the learnings this repository's administrators accepted to your prompts."
         : "You do not have permission to approve a connection for this repository.",
       learningsConsentVersion: state.canvasApproval.consentVersion,
       expiration:

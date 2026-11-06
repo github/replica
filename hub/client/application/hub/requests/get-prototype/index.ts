@@ -1,5 +1,6 @@
-import { prototypeResponseSchema } from "../../contracts"
-import { readPrototypeQuery } from "../../read-prototype-query"
+import { prototypeResponseSchema } from "@application/hub/contracts"
+import { readPrototypeQuery } from "@application/hub/read-prototype-query"
+
 import { requestJson } from "../request-json"
 
 export function getPrototype(request: Request, repositoryId: number, prototypeId: number) {

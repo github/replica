@@ -11,8 +11,13 @@ const identifier = z.number().int().positive()
 const httpUrl = z.url({ protocol: /^https?$/ })
 const timestamp = z.iso.datetime({ offset: true })
 
-export const productTemplateIdSchema = z.string().regex(/^(?:default|prototype-[1-9]\d*)$/)
-export const productShareIdSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{0,79}$/)
+const routeSegment = z
+  .string()
+  .regex(/^[a-z0-9._~-]+$/i)
+  .refine((value) => value !== "." && value !== "..")
+
+export const productTemplateIdSchema = routeSegment
+export const productShareIdSchema = routeSegment
 export const productStartPageSchema = z
   .string()
   .trim()

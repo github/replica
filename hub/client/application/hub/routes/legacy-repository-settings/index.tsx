@@ -1,8 +1,8 @@
 import { redirect } from "react-router"
 import type { LoaderFunctionArgs } from "react-router"
 
-import { routeIdentifierSchema } from "../../contracts"
-import { getWorkspace } from "../../requests/get-workspace"
+import { routeIdentifierSchema } from "@application/hub/contracts"
+import { getWorkspace } from "@application/hub/requests/get-workspace"
 
 export async function clientLoader({
   request,

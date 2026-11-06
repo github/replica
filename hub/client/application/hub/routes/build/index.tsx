@@ -1,10 +1,11 @@
 import { useOutletContext } from "react-router"
 
+import type { BuildResponse, WorkspaceResponse } from "@application/hub/contracts/types"
+import { readRouteIdentifier } from "@application/hub/read-route-identifier"
+import { getBuild } from "@application/hub/requests/get-build"
+import { BuildScreen } from "@application/hub/screens/build-screen"
+
 import type { Route } from "./+types/index"
-import type { BuildResponse, WorkspaceResponse } from "../../contracts/types"
-import { readRouteIdentifier } from "../../read-route-identifier"
-import { getBuild } from "../../requests/get-build"
-import { BuildScreen } from "../../screens/build-screen"
 
 export async function clientLoader({
   request,
@@ -28,7 +29,7 @@ export function meta({ loaderData }: Route.MetaArgs) {
   ]
 }
 
-export default function BuildRoute({ loaderData }: Pick<Route.ComponentProps, "loaderData">) {
+export default function Build({ loaderData }: Pick<Route.ComponentProps, "loaderData">) {
   const workspace = useOutletContext<WorkspaceResponse>()
   return <BuildScreen workspace={workspace} data={loaderData} />
 }

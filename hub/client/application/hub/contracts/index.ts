@@ -28,7 +28,7 @@ export const buildSchema = z.object({
   repositoryId: identifier,
   prototypeId: identifier,
   state: z.enum(["failed", "queued", "running", "successful", "superseded"]),
-  commitSha: z.string().regex(/^[a-f0-9]{40}$/),
+  commitSha: z.string().regex(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/i),
   commitAuthorLogin: z.string().min(1),
   createdAt: timestamp,
   startedAt: timestamp.nullable(),

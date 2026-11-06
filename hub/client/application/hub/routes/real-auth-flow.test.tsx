@@ -24,7 +24,7 @@ type RouteModule = {
 const routeModules = import.meta.glob<RouteModule>([
   "../root.tsx",
   "./**/index.tsx",
-  "!./test-fixture/**",
+  "!./fixtures/**",
 ])
 
 function applicationRoute(entry: RouteConfigEntry): RouteObject {

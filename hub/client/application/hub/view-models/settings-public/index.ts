@@ -4,8 +4,8 @@ import type { GithubAppSetupRegisterPageData } from "@pages/github-app-setup-reg
 import type { GithubAppSetupShowPageData } from "@pages/github-app-setup-show-page/types"
 import type { HubAdminEnrollmentPageData } from "@pages/hub-admin-enrollment-page/types"
 import type { SessionRevocationPageData } from "@pages/session-revocation-page/types"
+import type { SettingsPublicResponse } from "@application/hub/settings-contracts/types"
 
-import type { SettingsPublicResponse } from "../../settings-contracts/types"
 import { resourcePath } from "../resource-path"
 
 export function settingsPublic(state: SettingsPublicResponse, search: URLSearchParams) {
@@ -80,7 +80,7 @@ export function settingsPublic(state: SettingsPublicResponse, search: URLSearchP
       : "End all Hub sessions",
     description:
       signedOut && state.sessionRevoked
-        ? "Your session has ended. Existing browser sessions, canvas access and refresh credentials, pending approvals, and signed-in preview handoffs no longer authorize access. Sign in again to continue."
+        ? "Your session has ended. Existing browser sessions and canvas credentials no longer authorize access. Pending connection approvals and signed-in preview handoffs have ended. Sign in again to continue."
         : "Sign everyone out of this Hub and disconnect existing Copilot canvas connections. People can sign in and approve new connections afterward.",
     pageTitle: "End all Hub sessions",
     auditLabel: "Security audit",
@@ -100,7 +100,7 @@ export function settingsPublic(state: SettingsPublicResponse, search: URLSearchP
     scope:
       signedOut && state.sessionRevoked
         ? "Public share links and public previews have not changed. People can sign in and approve new canvas connections."
-        : "Existing browser sessions, canvas access and refresh credentials, pending canvas approvals, preview handoffs, and signed-in preview access will end. Public share links and public previews will not change.",
+        : "Hub will end existing browser sessions and revoke canvas access and refresh credentials. Pending canvas approvals and signed-in preview access will end, including existing handoffs. Public share links and public previews will not change.",
     ownSession: allowed
       ? `Your own session (@${state.session.viewer?.login}) will end too. This browser will show the result without requiring another sign-in.`
       : null,

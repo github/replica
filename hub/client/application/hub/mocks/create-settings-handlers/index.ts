@@ -3,11 +3,12 @@ import { z } from "zod"
 
 import { settingsOperationSchema, settingsQuerySchema } from "@application/hub/settings-contracts"
 
-import type { MockSession } from "../create-session/types"
+import type { MockSession } from "../create-mock-session/types"
 import type { createSettingsStore } from "../create-settings-store"
 import { mockDiagnostics } from "../diagnostics"
-import { readMockJson } from "../read-json"
-import { respondMock } from "../respond"
+import { parseMockQuery } from "../parse-mock-query"
+import { readMockJson } from "../read-mock-json"
+import { respondMock } from "../respond-mock"
 import { MockStoreError } from "../store-error"
 
 export function createSettingsHandlers(
@@ -20,11 +21,7 @@ export function createSettingsHandlers(
   }
 
   function query(request: Request) {
-    const parsed = settingsQuerySchema.safeParse(
-      Object.fromEntries(new URL(request.url).searchParams),
-    )
-    if (!parsed.success) throw new MockStoreError(400, "Invalid settings filters.")
-    return parsed.data
+    return parseMockQuery(request.url, settingsQuerySchema, "Invalid settings filters.")
   }
 
   return [
@@ -120,10 +117,7 @@ export function createSettingsHandlers(
                 input.operation === "admin-change"
                   ? `${input.operation}:${input.change}`
                   : input.operation
-              const ids = input.operation === "admin-add" ? input.userIds : [input.userId]
-              mockDiagnostics.report(
-                `${request.method} ${new URL(request.url).pathname}: ${operation}; target IDs: ${ids.join(", ")}; 501 Not Implemented.`,
-              )
+              mockDiagnostics.report(`${operation}; 501 Not Implemented.`)
             }
             throw error
           }

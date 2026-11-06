@@ -95,6 +95,9 @@ export default defineConfig(
       "client/application/hub/read-route-identifier/index.ts",
       "client/application/hub/read-route-query/index.ts",
       "client/application/hub/read-prototype-query/index.ts",
+      "client/application/hub/routes/read-form-field/index.ts",
+      "client/application/hub/routes/read-numeric-form-field/index.ts",
+      "client/application/hub/routes/require-form-destination/index.ts",
     ],
     rules: {
       "@typescript-eslint/only-throw-error": [

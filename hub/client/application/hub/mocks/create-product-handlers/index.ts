@@ -1,6 +1,6 @@
 import { http, HttpResponse } from "msw"
 
-import { routeIdentifierSchema, routeQuerySchema } from "@application/hub/contracts"
+import { routeQuerySchema } from "@application/hub/contracts"
 import {
   productMetadataInputSchema,
   productShareIdSchema,
@@ -10,9 +10,11 @@ import {
 } from "@application/hub/product-contracts"
 
 import type { createProductStore } from "../create-product-store"
-import type { MockSession } from "../create-session/types"
-import { readMockJson } from "../read-json"
-import { respondMock } from "../respond"
+import type { MockSession } from "../create-mock-session/types"
+import { parseMockIdentifier as identifier } from "../parse-mock-identifier"
+import { parseMockQuery } from "../parse-mock-query"
+import { readMockJson } from "../read-mock-json"
+import { respondMock } from "../respond-mock"
 import { MockStoreError } from "../store-error"
 
 export function createProductHandlers(
@@ -22,12 +24,6 @@ export function createProductHandlers(
 ) {
   function api(path: string) {
     return new URL(`/api${path}`, origin).href
-  }
-
-  function identifier(value: unknown): number {
-    const parsed = routeIdentifierSchema.safeParse(value)
-    if (!parsed.success) throw new MockStoreError(400, "Invalid record identifier.")
-    return parsed.data
   }
 
   function shareId(value: unknown) {
@@ -109,14 +105,11 @@ export function createProductHandlers(
         respondMock(
           request,
           (scenario) => {
-            const query = routeQuerySchema.safeParse(
-              Object.fromEntries(new URL(request.url).searchParams),
-            )
-            if (!query.success) throw new MockStoreError(400, "Invalid Build selection.")
+            const query = parseMockQuery(request.url, routeQuerySchema, "Invalid Build selection.")
             const response = store.getShareLinks(
               identifier(params.repositoryId),
               identifier(params.prototypeId),
-              query.data.build,
+              query.build,
             )
             if (scenario === "empty") response.links = []
             return HttpResponse.json(response)

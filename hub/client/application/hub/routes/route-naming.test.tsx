@@ -6,8 +6,8 @@ import { useLoaderData, type RouteObject } from "react-router"
 import { describe, expect, it, vi } from "vitest"
 
 import routeConfig from "../routes"
-import { createMockHandlers } from "../mocks/create-handlers"
-import { createMockStore } from "../mocks/create-store"
+import { createMockHandlers } from "../mocks/create-mock-handlers"
+import { createMockStore } from "../mocks/create-mock-store"
 import { settingsQuerySchema } from "../settings-contracts"
 import { clientLoader as redirectRepositorySettings } from "./legacy-repository-settings"
 import { clientLoader as redirectSharing } from "./legacy-sharing"
@@ -23,7 +23,7 @@ import SettingsLearningsRoute, {
   clientAction as saveLearnings,
   clientLoader as loadLearnings,
 } from "./settings-learnings"
-import { renderHubFlow } from "./test-fixture"
+import { renderHubFlow } from "./fixtures/render-hub-flow"
 
 function AnalyticsComponent() {
   return <SettingsAnalyticsRoute loaderData={useLoaderData<typeof loadAnalytics>()} />

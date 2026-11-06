@@ -23,7 +23,7 @@ export const sessionRevocationData: SessionRevocationPageData = {
   canRevoke: true,
   signedOut: false,
   scope:
-    "Existing browser sessions, canvas access and refresh credentials, pending canvas approvals, preview handoffs, and signed-in preview access will end. Public share links and public previews will not change.",
+    "Hub will end existing browser sessions and revoke canvas access and refresh credentials. Pending canvas approvals and signed-in preview access will end, including existing handoffs. Public share links and public previews will not change.",
   ownSession:
     "Your own session (@octocat) will end too. This browser will show the result without requiring another sign-in.",
   verification:
@@ -43,7 +43,7 @@ const result: SessionRevocationPageData = {
   ...sessionRevocationData,
   heading: "All existing Hub sessions ended",
   description:
-    "Your session has ended. Existing browser sessions, canvas access and refresh credentials, pending approvals, and signed-in preview handoffs no longer authorize access. Sign in again to continue.",
+    "Your session has ended. Existing browser sessions and canvas credentials no longer authorize access. Pending connection approvals and signed-in preview handoffs have ended. Sign in again to continue.",
   scope:
     "Public share links and public previews have not changed. People can sign in and approve new canvas connections.",
   canRevoke: false,

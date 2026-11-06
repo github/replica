@@ -21,7 +21,7 @@ export function meta({ loaderData }: Route.MetaArgs) {
   ]
 }
 
-export default function RepositoryRoute({ loaderData }: Pick<Route.ComponentProps, "loaderData">) {
+export default function Repository({ loaderData }: Pick<Route.ComponentProps, "loaderData">) {
   const workspace = useOutletContext<WorkspaceResponse>()
   return (
     <RepositoryScreen

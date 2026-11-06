@@ -1,4 +1,5 @@
-import { SettingsRouteScreen } from "../../screens/settings-route-screen"
+import { SettingsRouteScreen } from "@application/hub/screens/settings-route-screen"
+
 import { settingsController } from "../settings-controller"
 import type { SettingsRouteData } from "../settings-controller/types"
 import { settingsMeta } from "../settings-meta"
@@ -9,10 +10,6 @@ export function meta({ loaderData }: { loaderData?: SettingsRouteData }) {
   return settingsMeta("github-installed", loaderData)
 }
 
-export default function SettingsGithubInstalledRoute({
-  loaderData,
-}: {
-  loaderData: SettingsRouteData
-}) {
+export default function SettingsGithubInstalled({ loaderData }: { loaderData: SettingsRouteData }) {
   return <SettingsRouteScreen section="github-installed" data={loaderData} />
 }

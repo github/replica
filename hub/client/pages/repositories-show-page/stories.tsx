@@ -21,7 +21,7 @@ const data: RepositoriesShowPageData = {
   expandNavigationLabel: "Expand sidebar",
   galleryViewLabel: "Gallery view",
   listViewLabel: "List view",
-  managePrototypesLabel: "Manage prototypes",
+  managePrototypesLabel: "Edit prototype listings",
   managePrototypesPath: "/repositories/2001/prototypes/manage",
   prototypeColumnLabel: "Prototype",
   ownerColumnLabel: "Author",
@@ -128,8 +128,8 @@ export const LocalRepository: Story = {
     data: {
       ...data,
       emptyLabel:
-        "Hub checks committed local branches every minute. Add a recent branch here, or find older branches under Manage prototypes.",
-      managePrototypesLabel: "Manage prototypes",
+        "Hub checks committed local branches every minute. Add a recent branch here, or find older branches under Edit prototype listings.",
+      managePrototypesLabel: "Edit prototype listings",
       managePrototypesPath: "/repositories/1/prototypes/manage",
       newPrototypePath: null,
       pageTitle: "local/example",
@@ -312,7 +312,7 @@ export const WriterWithUnlistedBranches: Story = {
       prototypes: [welcomePrototype],
       prototypesCountLabel: "1 prototype",
       workflowInstallation: undefined,
-      managePrototypesLabel: "Manage prototypes",
+      managePrototypesLabel: "Edit prototype listings",
       managePrototypesPath: "/repositories/2001/prototypes/manage",
       addToHubLabel: "Add to Hub",
       declineBranchLabel: "Hide message",
@@ -352,7 +352,7 @@ export const LocalWriterWithUnlistedBranches: Story = {
   args: {
     data: {
       ...data,
-      managePrototypesLabel: "Manage prototypes",
+      managePrototypesLabel: "Edit prototype listings",
       managePrototypesPath: "/repositories/1/prototypes/manage",
       addToHubLabel: "Add to Hub",
       declineBranchLabel: "Hide message",

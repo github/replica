@@ -4,8 +4,8 @@ import { setupServer } from "msw/node"
 import { useLoaderData, type RouteObject } from "react-router"
 import { describe, expect, it } from "vitest"
 
-import { createMockHandlers } from "../mocks/create-handlers"
-import { createMockStore } from "../mocks/create-store"
+import { createMockHandlers } from "../mocks/create-mock-handlers"
+import { createMockStore } from "../mocks/create-mock-store"
 import ProductSharingSettingsRoute, {
   clientLoader as loadSharingSettings,
 } from "./product-sharing-settings"
@@ -13,7 +13,7 @@ import SettingsCopilotRoute, { clientLoader as loadCopilot } from "./settings-co
 import SettingsNotificationsRoute, {
   clientLoader as loadNotifications,
 } from "./settings-notifications"
-import { renderHubFlow } from "./test-fixture"
+import { renderHubFlow } from "./fixtures/render-hub-flow"
 
 function SharingSettingsComponent() {
   return <ProductSharingSettingsRoute loaderData={useLoaderData<typeof loadSharingSettings>()} />

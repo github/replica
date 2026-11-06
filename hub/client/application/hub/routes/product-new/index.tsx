@@ -2,13 +2,13 @@ import { useLocation, useOutletContext } from "react-router"
 import type { LoaderFunctionArgs } from "react-router"
 
 import { NewPrototypePage } from "@pages/new-prototype-page"
+import type { WorkspaceResponse } from "@application/hub/contracts/types"
+import { productCatalogResponseSchema } from "@application/hub/product-contracts"
+import type { ProductCatalogResponse } from "@application/hub/product-contracts/types"
+import { readRouteIdentifier } from "@application/hub/read-route-identifier"
+import { productNewData } from "@application/hub/view-models/product-new-data"
 
-import type { WorkspaceResponse } from "../../contracts/types"
-import { productCatalogResponseSchema } from "../../product-contracts"
-import type { ProductCatalogResponse } from "../../product-contracts/types"
-import { readRouteIdentifier } from "../../read-route-identifier"
-import { productNewData } from "../../view-models/product-new"
-import { requestProductJson } from "../product-request"
+import { requestProductJson } from "../request-product-json"
 
 export function clientLoader({ request, params }: Pick<LoaderFunctionArgs, "request" | "params">) {
   const repositoryId = readRouteIdentifier(params.repositoryId, "repository")
@@ -29,7 +29,7 @@ export function meta({ loaderData }: { loaderData?: ProductCatalogResponse }) {
   ]
 }
 
-export default function ProductNewRoute({ loaderData }: { loaderData: ProductCatalogResponse }) {
+export default function ProductNew({ loaderData }: { loaderData: ProductCatalogResponse }) {
   const workspace = useOutletContext<WorkspaceResponse>()
   const location = useLocation()
   return (

@@ -1,6 +1,6 @@
 import type { RepositoryWorkspaceData } from "@features/repository-workspace/types"
+import type { RepositoryRecord, WorkspaceResponse } from "@application/hub/contracts/types"
 
-import type { RepositoryRecord, WorkspaceResponse } from "../../contracts/types"
 import { resourcePath } from "../resource-path"
 import { workspaceNavigation } from "../workspace-navigation"
 

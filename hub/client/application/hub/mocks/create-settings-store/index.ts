@@ -20,6 +20,9 @@ import type { MockFlowContext } from "../flow-context/types"
 import { createSettingsFixtures } from "../create-settings-fixtures"
 import { MockStoreError } from "../store-error"
 
+const reservedFixtureIdFloor = 9
+const canvasGrantLifetimeMs = 7 * 24 * 60 * 60 * 1000
+
 export function createSettingsStore(context: MockFlowContext) {
   let revision = 0
   const hiddenWelcome = new Set<string>()
@@ -87,7 +90,11 @@ export function createSettingsStore(context: MockFlowContext) {
   const runs: LearningRunRecord[] = []
   const { auditEvents, notifications } = createSettingsFixtures(context)
   let nextId =
-    Math.max(9, ...auditEvents.map(({ id }) => id), ...notifications.map(({ id }) => id)) + 1
+    Math.max(
+      reservedFixtureIdFloor,
+      ...auditEvents.map(({ id }) => id),
+      ...notifications.map(({ id }) => id),
+    ) + 1
   let github: SettingsPublicResponse["github"] = {
     state: "installed",
     organization: "github",
@@ -295,7 +302,7 @@ export function createSettingsStore(context: MockFlowContext) {
           repositoryId: repository.id,
           repository: repository.nameWithOwner,
           viewerLogin: viewer.login,
-          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+          expiresAt: new Date(Date.now() + canvasGrantLifetimeMs).toISOString(),
         })
         return record(
           input.operation,

@@ -1,7 +1,6 @@
 import { redirect, useLocation } from "react-router"
 
 import { RepositoriesIndexPage } from "@pages/repositories-index-page"
-
 import { HubApplication } from "@application/hub-application"
 import { isAuthenticationRoute } from "@application/hub/is-authentication-route"
 import { getSession } from "@application/hub/requests/get-session"
@@ -20,7 +19,7 @@ export async function clientLoader({ request }: Pick<Route.ClientLoaderArgs, "re
   return workspace
 }
 
-export default function HomeRoute({ loaderData }: Pick<Route.ComponentProps, "loaderData">) {
+export default function Home({ loaderData }: Pick<Route.ComponentProps, "loaderData">) {
   const location = useLocation()
   if (loaderData === null) return <HubApplication />
   return (

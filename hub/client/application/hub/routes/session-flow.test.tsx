@@ -3,9 +3,9 @@ import { http, HttpResponse } from "msw"
 import { setupServer } from "msw/node"
 import { describe, expect, it, vi } from "vitest"
 
-import { createMockHandlers } from "../mocks/create-handlers"
-import { createMockStore } from "../mocks/create-store"
-import { renderHubFlow } from "./test-fixture"
+import { createMockHandlers } from "../mocks/create-mock-handlers"
+import { createMockStore } from "../mocks/create-mock-store"
+import { renderHubFlow } from "./fixtures/render-hub-flow"
 
 describe("Hub mock session flow", () => {
   // The complete sign-in/redirect/sign-out flow exceeded 5s with two Windows workers.

@@ -1,7 +1,7 @@
 .hub-toast-region {
   position: fixed;
   inset: auto 1rem 1rem auto;
-  z-index: 10015;
+  z-index: var(--hub-layer-toast);
   display: flex;
   inline-size: min(28rem, calc(100vw - 2rem));
   max-block-size: calc(100dvh - 2rem);

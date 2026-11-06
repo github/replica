@@ -14,18 +14,18 @@ import {
 } from "react-router"
 
 import { HubThemeProvider } from "@hooks/use-hub-theme"
-import "@/tokens/base.css"
 
 import type { Route } from "./+types/root"
 import type { SessionResponse } from "./session-contracts/types"
 import { DevelopmentTools } from "./development-tools"
 import { isAuthenticationRoute } from "./is-authentication-route"
-import { HubNavigation } from "./navigation"
+import { HubNavigation } from "./hub-navigation"
 import { ApiContractError } from "./requests/api-contract-error"
 import { ApiRequestError } from "./requests/api-request-error"
 import { getSession } from "./requests/get-session"
 import { RouteFeedback } from "./route-feedback"
 
+import "@/tokens/base.css"
 import "./styles.css"
 
 export async function clientLoader({

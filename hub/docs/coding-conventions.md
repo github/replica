@@ -21,7 +21,7 @@ React Router Framework entry modules under `application/hub/` are the exception 
 
 Keep reusable request functions and view-model adapters in their own function directories.
 
-Route loaders, actions, and their URL readers can throw a `Response` to select React Router's status-aware error feedback. The lint exception is limited to those entry points; ordinary request and application errors remain `Error` instances.
+Route loaders, actions, and their URL or form readers can throw a `Response` to select React Router's status-aware error feedback. The lint exception is limited to those entry points; ordinary request and application errors remain `Error` instances.
 
 ## Frontend layers
 

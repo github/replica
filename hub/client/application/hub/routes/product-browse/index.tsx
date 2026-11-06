@@ -6,13 +6,16 @@ import { useHubTheme } from "@hooks/use-hub-theme"
 import { usePreviewBridge } from "@hooks/use-preview-bridge"
 import { ReplicaBrowsePage } from "@pages/replica-browse-page"
 import type { AnchorReference } from "@utils/review-anchor/types"
+import type { WorkspaceResponse } from "@application/hub/contracts/types"
+import {
+  productTemplateIdSchema,
+  productTemplateResponseSchema,
+} from "@application/hub/product-contracts"
+import type { ProductTemplateResponse } from "@application/hub/product-contracts/types"
+import { readRouteIdentifier } from "@application/hub/read-route-identifier"
+import { productBrowseData } from "@application/hub/view-models/product-browse-data"
 
-import type { WorkspaceResponse } from "../../contracts/types"
-import { productTemplateIdSchema, productTemplateResponseSchema } from "../../product-contracts"
-import type { ProductTemplateResponse } from "../../product-contracts/types"
-import { readRouteIdentifier } from "../../read-route-identifier"
-import { productBrowseData } from "../../view-models/product-browse"
-import { requestProductJson } from "../product-request"
+import { requestProductJson } from "../request-product-json"
 
 const EMPTY_ANCHORS: AnchorReference[] = []
 
@@ -37,11 +40,7 @@ export function meta({ loaderData }: { loaderData?: ProductTemplateResponse }) {
   ]
 }
 
-export default function ProductBrowseRoute({
-  loaderData,
-}: {
-  loaderData: ProductTemplateResponse
-}) {
+export default function ProductBrowse({ loaderData }: { loaderData: ProductTemplateResponse }) {
   const workspace = useOutletContext<WorkspaceResponse>()
   const location = useLocation()
   const iframeRef = useRef<HTMLIFrameElement>(null)

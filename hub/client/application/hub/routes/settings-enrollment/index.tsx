@@ -1,4 +1,5 @@
-import { SettingsRouteScreen } from "../../screens/settings-route-screen"
+import { SettingsRouteScreen } from "@application/hub/screens/settings-route-screen"
+
 import { settingsController } from "../settings-controller"
 import type { SettingsRouteData } from "../settings-controller/types"
 import { settingsMeta } from "../settings-meta"
@@ -9,6 +10,6 @@ export function meta({ loaderData }: { loaderData?: SettingsRouteData }) {
   return settingsMeta("enrollment", loaderData)
 }
 
-export default function SettingsEnrollmentRoute({ loaderData }: { loaderData: SettingsRouteData }) {
+export default function SettingsEnrollment({ loaderData }: { loaderData: SettingsRouteData }) {
   return <SettingsRouteScreen section="enrollment" data={loaderData} />
 }

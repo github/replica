@@ -5,7 +5,7 @@ import { PrototypeMetadataManagement } from "."
 import type { PrototypeMetadataManagementData } from "./types"
 
 const data: PrototypeMetadataManagementData = {
-  heading: "Manage prototypes",
+  heading: "Edit prototype listings",
   unlistedHeading: "Available branches",
   unlistedDescription:
     "Add a branch to Hub to make your prototype available for others to explore.",

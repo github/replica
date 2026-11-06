@@ -3,8 +3,8 @@ import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { getWorkspace } from "../requests/get-workspace"
 import { settingsQuerySchema } from "../settings-contracts"
-import { createMockHandlers } from "./create-handlers"
-import { createMockStore } from "./create-store"
+import { createMockHandlers } from "./create-mock-handlers"
+import { createMockStore } from "./create-mock-store"
 
 describe("expanded mock state", () => {
   it("acknowledges historical review activity without hiding newer activity or regressing the cursor", () => {
@@ -60,6 +60,11 @@ describe("expanded mock state", () => {
     store.product.revokeShareLink(2001, 1, first.shareId)
     expect(store.product.getPublicShare(first.shareId).state).toBe("revoked")
     store.session.select("admin")
+    expect(() =>
+      // @ts-expect-error Exercise runtime validation of an unsupported operation.
+      store.product.updateSharingSettings({ operation: "unsupported", confirmed: true }),
+    ).toThrow(/enable.*disable/)
+    expect(store.product.getSharingSettings().enabled).toBe(true)
     store.product.updateSharingSettings({ operation: "disable", confirmed: true })
     expect(store.product.getPublicShare(second.shareId)).not.toHaveProperty("previewUrl")
     store.product.updateSharingSettings({ operation: "enable", confirmed: true })

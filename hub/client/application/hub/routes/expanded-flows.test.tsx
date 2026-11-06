@@ -4,8 +4,8 @@ import { setupServer } from "msw/node"
 import { useLoaderData, type RouteObject } from "react-router"
 import { describe, expect, it, vi } from "vitest"
 
-import { createMockHandlers } from "../mocks/create-handlers"
-import { createMockStore } from "../mocks/create-store"
+import { createMockHandlers } from "../mocks/create-mock-handlers"
+import { createMockStore } from "../mocks/create-mock-store"
 import { mockDiagnostics } from "../mocks/diagnostics"
 import { settingsQuerySchema, settingsWorkspaceResponseSchema } from "../settings-contracts"
 import ProductManagementRoute, {
@@ -36,7 +36,7 @@ import SettingsWelcomeRoute, {
   clientAction as hideWelcome,
   clientLoader as loadWelcome,
 } from "./settings-welcome"
-import { renderHubFlow } from "./test-fixture"
+import { renderHubFlow } from "./fixtures/render-hub-flow"
 
 function ProductNewComponent() {
   return <ProductNewRoute loaderData={useLoaderData<typeof loadCatalog>()} />
@@ -240,7 +240,7 @@ describe("Hub expanded frontend flows", () => {
     store.session.select("reader")
     const server = setupServer(...createMockHandlers(store))
     const router = await renderHubFlow(server, "/repositories/2001", { workspaceRoutes })
-    expect(screen.queryByRole("link", { name: "Manage prototypes" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("link", { name: "Edit prototype listings" })).not.toBeInTheDocument()
     expect(screen.queryByRole("link", { name: "Create" })).not.toBeInTheDocument()
 
     await router.settle(() => router.navigate("/repositories/2001/new"))
@@ -257,7 +257,7 @@ describe("Hub expanded frontend flows", () => {
     const selectedBuild = store.getPrototype(2001, 1).selectedBuild?.number
     const server = setupServer(...createMockHandlers(store))
     const router = await renderHubFlow(server, "/repositories/2001", { workspaceRoutes })
-    const manage = screen.getByRole("link", { name: "Manage prototypes" })
+    const manage = screen.getByRole("link", { name: "Edit prototype listings" })
     expect(manage).toHaveAttribute("href", "/repositories/2001/prototypes/manage")
     await router.settle(() => fireEvent.click(manage))
     expect(router.state.location.pathname).toBe("/repositories/2001/prototypes/manage")

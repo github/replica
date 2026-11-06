@@ -1,5 +1,6 @@
-import { buildHistoryResponseSchema } from "../../contracts"
-import { readRouteQuery } from "../../read-route-query"
+import { buildHistoryResponseSchema } from "@application/hub/contracts"
+import { readRouteQuery } from "@application/hub/read-route-query"
+
 import { requestJson } from "../request-json"
 
 export function getBuildHistory(request: Request, repositoryId: number, prototypeId: number) {

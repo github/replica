@@ -1,7 +1,7 @@
 import type { WelcomePageData } from "@pages/welcome-page/types"
+import type { WorkspaceResponse } from "@application/hub/contracts/types"
+import type { SettingsWorkspaceResponse } from "@application/hub/settings-contracts/types"
 
-import type { WorkspaceResponse } from "../../contracts/types"
-import type { SettingsWorkspaceResponse } from "../../settings-contracts/types"
 import { resourcePath } from "../resource-path"
 import { settingsWorkspace } from "../settings-workspace"
 

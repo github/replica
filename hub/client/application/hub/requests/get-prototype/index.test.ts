@@ -2,7 +2,7 @@ import { http, HttpResponse } from "msw"
 import { setupServer } from "msw/node"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
-import { createMockStore } from "../../mocks/create-store"
+import { createMockStore } from "@application/hub/mocks/create-mock-store"
 
 import { getPrototype } from "."
 

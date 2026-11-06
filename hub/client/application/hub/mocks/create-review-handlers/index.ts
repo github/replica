@@ -5,13 +5,12 @@ import { createByteLimitedStringSchema } from "@utils/create-byte-limited-string
 import { REVIEW_ANCHOR_SCHEMA } from "@utils/review-anchor/schemas"
 import { REACTION_CONTENT_SCHEMA } from "@utils/review-comment/schemas"
 
-import { routeIdentifierSchema } from "@application/hub/contracts"
-
 import type { ReviewMockStore } from "../create-review-store/types"
-import { readMockJson } from "../read-json"
-import { respondMock as respondWithSession } from "../respond"
+import { readMockJson } from "../read-mock-json"
+import { respondMock as respondWithSession } from "../respond-mock"
+import { parseMockIdentifier } from "../parse-mock-identifier"
+import type { MockSession } from "../create-mock-session/types"
 import { MockStoreError } from "../store-error"
-import type { MockSession } from "../create-session/types"
 
 const bodySchema = createByteLimitedStringSchema(10_000, { required: true })
 const commentBody = z.object({ review_comment: z.object({ body: bodySchema }) })
@@ -30,9 +29,7 @@ export function createReviewHandlers(
     return respondWithSession(request, operation, session)
   }
   function id(value: unknown) {
-    const parsed = routeIdentifierSchema.safeParse(value)
-    if (!parsed.success) throw new MockStoreError(400, "Invalid review identifier.")
-    return parsed.data
+    return parseMockIdentifier(value, "Invalid review identifier.")
   }
   return [
     http.get(base, ({ request, params }) =>

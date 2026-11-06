@@ -1,6 +1,6 @@
 import type { HubWorkspaceData } from "@features/hub-workspace/types"
+import type { WorkspaceResponse } from "@application/hub/contracts/types"
 
-import type { WorkspaceResponse } from "../../contracts/types"
 import { resourcePath } from "../resource-path"
 
 export function workspaceNavigation(
@@ -10,9 +10,6 @@ export function workspaceNavigation(
 ): Omit<HubWorkspaceData, "repository"> {
   const admin = workspace.capabilities?.administerHub
   const unreadCount = workspace.navigation?.notificationsUnreadCount ?? 0
-  function path(pathname: string) {
-    return resourcePath(pathname, search, { repositoryId })
-  }
   return {
     accountMenuLabel: `Account menu for @${workspace.viewer.login}`,
     authenticityToken: "",
@@ -31,19 +28,41 @@ export function workspaceNavigation(
     signOutPath: "/session",
     systemThemeLabel: "System",
     welcomeLabel: "Welcome",
-    welcomePath: workspace.navigation?.welcomeHidden ? null : path("/welcome"),
+    welcomePath: workspace.navigation?.welcomeHidden
+      ? null
+      : resourcePath("/welcome", search, { repositoryId }),
     notificationsLabel: "Notifications",
-    notificationsPath: path("/notifications"),
+    notificationsPath: resourcePath("/notifications", search, { repositoryId }),
     notificationsUnread: unreadCount > 0,
     notificationsUnreadCount: unreadCount,
     notificationsUnreadLabel: `Notifications, ${unreadCount} unread`,
     administrationLinks: admin
       ? [
-          { section: "admins", label: "Hub administrators", path: path("/settings/admins") },
-          { section: "sharing", label: "Public sharing", path: path("/settings/sharing") },
-          { section: "sessions", label: "End all Hub sessions", path: path("/settings/sessions") },
-          { section: "github", label: "GitHub App", path: path("/settings/github") },
-          { section: "copilot", label: "Copilot connection", path: path("/settings/copilot") },
+          {
+            section: "admins",
+            label: "Hub administrators",
+            path: resourcePath("/settings/admins", search, { repositoryId }),
+          },
+          {
+            section: "sharing",
+            label: "Public sharing",
+            path: resourcePath("/settings/sharing", search, { repositoryId }),
+          },
+          {
+            section: "sessions",
+            label: "End all Hub sessions",
+            path: resourcePath("/settings/sessions", search, { repositoryId }),
+          },
+          {
+            section: "github",
+            label: "GitHub App",
+            path: resourcePath("/settings/github", search, { repositoryId }),
+          },
+          {
+            section: "copilot",
+            label: "Copilot connection",
+            path: resourcePath("/settings/copilot", search, { repositoryId }),
+          },
         ]
       : [],
     securityAuditLabel: "Security audit",

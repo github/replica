@@ -8,8 +8,8 @@ import { getRepository } from "../requests/get-repository"
 import { getSession } from "../requests/get-session"
 import { settingsRequest } from "../requests/settings-request"
 import { settingsWorkspaceResponseSchema } from "../settings-contracts"
-import { createMockHandlers } from "./create-handlers"
-import { createMockStore } from "./create-store"
+import { createMockHandlers } from "./create-mock-handlers"
+import { createMockStore } from "./create-mock-store"
 
 describe("mock collection pagination", () => {
   it("serves complete 24-prototype pages and applies search and author filters before paging", async () => {

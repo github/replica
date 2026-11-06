@@ -1,4 +1,5 @@
-import { sessionResponseSchema } from "../../session-contracts"
+import { sessionResponseSchema } from "@application/hub/session-contracts"
+
 import { requestJson } from "../request-json"
 
 export function getSession(request: Request) {

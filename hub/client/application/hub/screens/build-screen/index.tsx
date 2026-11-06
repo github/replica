@@ -1,9 +1,8 @@
 import { useLocation } from "react-router"
 
 import { BuildsShowPage } from "@pages/builds-show-page"
-
-import type { BuildResponse, WorkspaceResponse } from "../../contracts/types"
-import { buildShowData } from "../../view-models/build-show"
+import type { BuildResponse, WorkspaceResponse } from "@application/hub/contracts/types"
+import { buildShowData } from "@application/hub/view-models/build-show-data"
 
 export function BuildScreen({
   workspace,

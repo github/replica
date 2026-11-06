@@ -1,7 +1,10 @@
 import type { GithubAppForm, GithubAppPageData } from "@pages/github-app-page/types"
+import type { WorkspaceResponse } from "@application/hub/contracts/types"
+import type {
+  SettingsQuery,
+  SettingsWorkspaceResponse,
+} from "@application/hub/settings-contracts/types"
 
-import type { WorkspaceResponse } from "../../contracts/types"
-import type { SettingsQuery, SettingsWorkspaceResponse } from "../../settings-contracts/types"
 import { resourcePath } from "../resource-path"
 import { settingsAdministration } from "../settings-administration"
 
@@ -98,7 +101,7 @@ export function settingsGithub(
     paragraphs:
       change === "reset"
         ? [
-            "Users, administrator roles, Builds, files, reviews and audit history remain.",
+            "Hub keeps all existing data and administrator roles.",
             "Retained public links may resume under existing policy after reinstall.",
           ]
         : !installed

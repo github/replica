@@ -1,9 +1,8 @@
 import { useLocation } from "react-router"
 
 import { BuildsIndexPage } from "@pages/builds-index-page"
-
-import type { BuildHistoryResponse, WorkspaceResponse } from "../../contracts/types"
-import { buildHistoryData } from "../../view-models/build-history"
+import type { BuildHistoryResponse, WorkspaceResponse } from "@application/hub/contracts/types"
+import { buildHistoryData } from "@application/hub/view-models/build-history-data"
 
 export function BuildHistoryScreen({
   workspace,

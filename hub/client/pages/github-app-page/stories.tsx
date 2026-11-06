@@ -167,7 +167,7 @@ export const Reset: Story = {
       heading: "Reset local GitHub App?",
       description: "Sign everyone out. The remote App is not changed.",
       paragraphs: [
-        "Users, administrator roles, Builds, files, reviews and audit history remain.",
+        "Hub keeps all existing data and administrator roles.",
         "Retained public links may resume under existing policy after reinstall.",
       ],
       links: [],

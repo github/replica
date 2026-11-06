@@ -17,7 +17,9 @@ describe("PrototypeManagementPage()", () => {
     const back = screen.getByRole("link", { name: data.backLabel })
     expect(back).toHaveAttribute("href", data.prototypesPath)
     expect(back.textContent).toBe("")
-    expect(screen.getByRole("heading", { name: "Manage prototypes", level: 2 })).toBeInTheDocument()
+    expect(
+      screen.getByRole("heading", { name: "Edit prototype listings", level: 2 }),
+    ).toBeInTheDocument()
     expect(
       screen.getByRole("heading", { name: "Available branches", level: 3 }),
     ).toBeInTheDocument()

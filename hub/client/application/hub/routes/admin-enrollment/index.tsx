@@ -10,6 +10,6 @@ export function clientLoader({ request }: Pick<Route.ClientLoaderArgs, "request"
   return null
 }
 
-export default function AdminEnrollmentRoute() {
+export default function AdminEnrollment() {
   return <HubApplication />
 }

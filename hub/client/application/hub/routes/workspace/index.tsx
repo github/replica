@@ -16,6 +16,6 @@ export async function clientLoader({ request }: Pick<Route.ClientLoaderArgs, "re
   }
 }
 
-export default function WorkspaceRoute({ loaderData }: Pick<Route.ComponentProps, "loaderData">) {
+export default function Workspace({ loaderData }: Pick<Route.ComponentProps, "loaderData">) {
   return <Outlet key={loaderData.viewer.login} context={loaderData} />
 }

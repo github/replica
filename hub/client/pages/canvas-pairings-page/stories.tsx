@@ -15,7 +15,7 @@ const approval: CanvasPairingsPageData = {
   repositoryLabel: "Repository",
   repository: "local/example",
   permissions:
-    "The canvas can read Build details and review conversations, edit prototype details, and participate in conversations with your Hub account. It can create review threads when the local checkout matches an imported Build. The connection also lets Copilot add the learnings this repository's administrators accepted to your prompts.",
+    "The canvas can read Build details and review conversations. It can edit prototype details and post as your Hub account. It can create review threads when the local checkout matches an imported Build. The connection also lets Copilot add the learnings this repository's administrators accepted to your prompts.",
   learningsConsentVersion: "1",
   expiration:
     "Connections expire after seven days. Hub checks your current repository access on every request. You can revoke access from",

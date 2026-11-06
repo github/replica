@@ -13,11 +13,13 @@
     "paths": {
       "@/*": ["./client/*"],
       "@application/*": ["./client/application/*"],
+      "@assets/*": ["./public/*"],
       "@components/*": ["./client/components/*"],
       "@features/*": ["./client/features/*"],
       "@hooks/*": ["./client/hooks/*"],
       "@pages/*": ["./client/pages/*"],
-      "@utils/*": ["./client/utils/*"]
+      "@utils/*": ["./client/utils/*"],
+      "@replica-extension/*": ["../.github/extensions/replica-prototype/*"]
     },
     "resolveJsonModule": true,
     "rootDirs": [".", "./.react-router/types"],

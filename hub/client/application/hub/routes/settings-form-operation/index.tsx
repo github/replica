@@ -1,5 +1,9 @@
-import { settingsOperationSchema } from "../../settings-contracts"
-import type { SettingsOperation, SettingsSection } from "../../settings-contracts/types"
+import { settingsOperationSchema } from "@application/hub/settings-contracts"
+import type { SettingsOperation, SettingsSection } from "@application/hub/settings-contracts/types"
+
+import { readFormField } from "../read-form-field"
+import { readNumericFormField } from "../read-numeric-form-field"
+import { requireFormDestination } from "../require-form-destination"
 
 export function settingsFormOperation(
   section: SettingsSection,
@@ -7,16 +11,6 @@ export function settingsFormOperation(
   form: FormData,
   params: Record<string, string | undefined>,
 ): SettingsOperation {
-  function field(name: string) {
-    const value = form.get(name)
-    if (value !== null && typeof value !== "string") {
-      throw new Response("File submission is not connected yet. No request was sent.", {
-        status: 501,
-      })
-    }
-    return value ?? ""
-  }
-
   for (const name of form.keys()) {
     if (/secret|credentials|private_key/.test(name)) {
       throw new Response("Credential submission is not connected yet. No request was sent.", {
@@ -24,46 +18,34 @@ export function settingsFormOperation(
       })
     }
   }
-  function numberField(name: string) {
-    const value = field(name)
-    if (!/^\d+$/.test(value)) {
-      throw new Response(`A numeric ${name} is required.`, { status: 422 })
-    }
-    return Number(value)
-  }
-  const declaredMethod = field("_formMethod")
+  const declaredMethod = readFormField(form, "_formMethod")
   if (declaredMethod && declaredMethod !== "POST") {
     throw new Response("Only explicit POST forms are supported.", { status: 405 })
   }
-  const source = new URL(field("_action") || requestUrl.href, requestUrl)
+  const source = new URL(readFormField(form, "_action") || requestUrl.href, requestUrl)
   if (source.origin !== requestUrl.origin) {
     throw new Response("External form destinations are not supported.", { status: 422 })
   }
-  const method = field("_method") || "post"
-  const confirmed = field("confirmed") === "1"
+  const method = readFormField(form, "_method") || "post"
+  const confirmed = readFormField(form, "confirmed") === "1"
   const repositoryId = Number(params.repositoryId ?? source.searchParams.get("repositoryId"))
   let input: unknown
 
-  function requirePath(path: string, methods: string[]) {
-    if (source.pathname !== path || !methods.includes(method)) {
-      throw new Response(
-        `This page requires a ${methods.map((value) => value.toUpperCase()).join(" or ")} form targeting ${path}.`,
-        { status: 422 },
-      )
-    }
-  }
-
   switch (section) {
     case "welcome":
-      requirePath("/welcome", ["patch"])
+      requireFormDestination(source, method, "/welcome", ["patch"])
       input = { operation: "welcome-hide" }
       break
     case "analytics": {
-      requirePath(`/repositories/${params.repositoryId}/analytics`, ["post", "patch", "delete"])
+      requireFormDestination(source, method, `/repositories/${params.repositoryId}/analytics`, [
+        "post",
+        "patch",
+        "delete",
+      ])
       const destinationId = source.searchParams.has("destinationId")
         ? Number(source.searchParams.get("destinationId"))
         : undefined
-      const change = field("operation")
+      const change = readFormField(form, "operation")
       if (method === "delete" || change === "pause" || change === "resume") {
         input = {
           operation: "analytics-state",
@@ -73,56 +55,56 @@ export function settingsFormOperation(
         }
       } else {
         if (change) throw new Response("Unknown analytics operation.", { status: 422 })
-        const provider = field("destination[provider]")
+        const provider = readFormField(form, "destination[provider]")
         input = {
           operation: "analytics-save",
           repositoryId,
           destinationId,
           configuration: {
             provider,
-            region: provider === "custom" ? "custom" : field("destination[region]"),
-            name: field("destination[name]"),
+            region: provider === "custom" ? "custom" : readFormField(form, "destination[region]"),
+            name: readFormField(form, "destination[name]"),
             eventTypes: form.getAll("destination[event_types][]").filter((value) => value !== ""),
-            history: field("destination[history]") || "new",
+            history: readFormField(form, "destination[history]") || "new",
           },
         }
       }
       break
     }
     case "canvas-approval":
-      requirePath("/settings/canvas/approve", ["post"])
+      requireFormDestination(source, method, "/settings/canvas/approve", ["post"])
       input = {
         operation: "canvas-approve",
         repositoryId,
-        consentVersion: field("learnings_consent_version"),
+        consentVersion: readFormField(form, "learnings_consent_version"),
       }
       break
     case "canvas":
-      requirePath("/settings/canvas", ["delete"])
+      requireFormDestination(source, method, "/settings/canvas", ["delete"])
       input = { operation: "canvas-revoke", grantId: Number(source.searchParams.get("grantId")) }
       break
     case "copilot":
-      requirePath("/settings/copilot", ["post", "delete"])
+      requireFormDestination(source, method, "/settings/copilot", ["post", "delete"])
       input = {
         operation: method === "delete" ? "copilot-disconnect" : "copilot-connect",
         confirmed,
       }
       break
     case "github-setup":
-      requirePath("/settings/github/setup", ["post"])
-      input = { operation: "github-setup", organization: field("organization") }
+      requireFormDestination(source, method, "/settings/github/setup", ["post"])
+      input = { operation: "github-setup", organization: readFormField(form, "organization") }
       break
     case "github-register":
-      requirePath("/settings/github/register", ["post"])
+      requireFormDestination(source, method, "/settings/github/register", ["post"])
       input = { operation: "github-register" }
       break
     case "github-installed":
-      requirePath("/settings/github/installed", ["post"])
+      requireFormDestination(source, method, "/settings/github/installed", ["post"])
       input = { operation: "github-install" }
       break
     case "github": {
-      requirePath("/settings/github", ["post", "patch", "delete"])
-      const expectedVersion = numberField("expected_version")
+      requireFormDestination(source, method, "/settings/github", ["post", "patch", "delete"])
+      const expectedVersion = readNumericFormField(form, "expected_version")
       const change = source.searchParams.get("change")
       if (change === "credentials" && method === "patch") {
         input = { operation: "github-credentials", expectedVersion, confirmed }
@@ -131,14 +113,14 @@ export function settingsFormOperation(
           operation: "github-rotation",
           expectedVersion,
           confirmed,
-          phase: method === "delete" ? "finish" : field("operation"),
+          phase: method === "delete" ? "finish" : readFormField(form, "operation"),
         }
       } else if (change === "reset" && method === "delete") {
         input = {
           operation: "github-reset",
           expectedVersion,
           confirmed,
-          confirmation: field("confirmation"),
+          confirmation: readFormField(form, "confirmation"),
         }
       } else {
         throw new Response("Choose an App change.", { status: 422 })
@@ -146,7 +128,7 @@ export function settingsFormOperation(
       break
     }
     case "admins":
-      requirePath("/settings/admins", ["post"])
+      requireFormDestination(source, method, "/settings/admins", ["post"])
       input = {
         operation: "admin-add",
         userIds: form.getAll("user_ids[]").map((value) => Number(value)),
@@ -154,8 +136,13 @@ export function settingsFormOperation(
       }
       break
     case "admin-confirmation":
-      requirePath(`/settings/admins/${params.userId ?? ""}/${params.operation ?? ""}`, ["patch"])
-      if (field("operation") !== params.operation) {
+      requireFormDestination(
+        source,
+        method,
+        `/settings/admins/${params.userId ?? ""}/${params.operation ?? ""}`,
+        ["patch"],
+      )
+      if (readFormField(form, "operation") !== params.operation) {
         throw new Response("The confirmation does not match this role-change route.", {
           status: 422,
         })
@@ -168,18 +155,20 @@ export function settingsFormOperation(
       }
       break
     case "enrollment":
-      requirePath("/settings/enroll", ["post"])
+      requireFormDestination(source, method, "/settings/enroll", ["post"])
       input = { operation: "enroll" }
       break
     case "authorize":
-      requirePath("/settings/authorize", ["post", "delete"])
+      requireFormDestination(source, method, "/settings/authorize", ["post", "delete"])
       input = {
         operation: method === "delete" ? "authorization-cancel" : "authorize",
-        continuationId: field("authorization_continuation_id"),
+        continuationId: readFormField(form, "authorization_continuation_id"),
       }
       break
     case "learnings": {
-      requirePath(`/repositories/${params.repositoryId}/learnings`, ["post"])
+      requireFormDestination(source, method, `/repositories/${params.repositoryId}/learnings`, [
+        "post",
+      ])
       const operation = source.searchParams.get("operation")
       input =
         operation === "run"
@@ -191,10 +180,10 @@ export function settingsFormOperation(
               operation: "learning-decide",
               repositoryId,
               learningId: source.searchParams.get("learningId"),
-              decision: field("decision"),
-              digest: field("digest") || undefined,
-              content: form.has("content") ? field("content") : undefined,
-              reason: form.has("reason") ? field("reason") : undefined,
+              decision: readFormField(form, "decision"),
+              digest: readFormField(form, "digest") || undefined,
+              content: form.has("content") ? readFormField(form, "content") : undefined,
+              reason: form.has("reason") ? readFormField(form, "reason") : undefined,
             }
       if (operation && operation !== "run") {
         throw new Response("Unknown learning operation.", { status: 422 })
@@ -202,21 +191,21 @@ export function settingsFormOperation(
       break
     }
     case "notifications":
-      requirePath("/notifications", ["post"])
-      if (!["true", "false"].includes(field("read"))) {
+      requireFormDestination(source, method, "/notifications", ["post"])
+      if (!["true", "false"].includes(readFormField(form, "read"))) {
         throw new Response("Choose an explicit notification read state.", { status: 422 })
       }
       input = {
         operation: "notification-read",
-        notificationId: numberField("notificationId"),
-        version: numberField("version"),
-        read: field("read") === "true",
+        notificationId: readNumericFormField(form, "notificationId"),
+        version: readNumericFormField(form, "version"),
+        read: readFormField(form, "read") === "true",
       }
       break
     case "sessions":
-      requirePath("/settings/sessions", ["post"])
+      requireFormDestination(source, method, "/settings/sessions", ["post"])
       input =
-        field("cancelled") === "1"
+        readFormField(form, "cancelled") === "1"
           ? { operation: "session-cancel" }
           : { operation: "session-revoke", confirmed }
       break

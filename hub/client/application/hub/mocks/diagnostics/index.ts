@@ -1,16 +1,7 @@
 import { mockProfileSchema, mockScenarioSchema } from "../contracts"
 import type { MockProfile, MockScenario } from "../contracts/types"
 
-interface Diagnostic {
-  id: number
-  message: string
-}
-
-interface Snapshot {
-  profile: MockProfile
-  scenario: MockScenario
-  messages: Diagnostic[]
-}
+import type { Snapshot } from "./types"
 
 const profileKey = "replica:mock-profile"
 const scenarioKey = "replica:mock-scenario"

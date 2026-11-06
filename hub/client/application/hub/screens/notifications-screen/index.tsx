@@ -2,10 +2,9 @@ import { useEffect, useRef } from "react"
 
 import { useNotificationInbox } from "@hooks/use-notification-inbox"
 import { NotificationsPage } from "@pages/notifications-page"
-
-import type { WorkspaceResponse } from "../../contracts/types"
-import type { SettingsWorkspaceResponse } from "../../settings-contracts/types"
-import { settingsNotifications } from "../../view-models/settings-notifications"
+import type { WorkspaceResponse } from "@application/hub/contracts/types"
+import type { SettingsWorkspaceResponse } from "@application/hub/settings-contracts/types"
+import { settingsNotifications } from "@application/hub/view-models/settings-notifications"
 
 export function NotificationsScreen({
   workspace,

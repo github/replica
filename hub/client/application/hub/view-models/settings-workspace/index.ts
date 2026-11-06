@@ -1,14 +1,9 @@
 import type { HubWorkspaceData } from "@features/hub-workspace/types"
+import type { WorkspaceResponse } from "@application/hub/contracts/types"
 
-import type { WorkspaceResponse } from "../../contracts/types"
-import type { SettingsWorkspaceResponse } from "../../settings-contracts/types"
 import { repositoryWorkspace } from "../repository-workspace"
 import { workspaceNavigation } from "../workspace-navigation"
-
-type NavigationState = Pick<SettingsWorkspaceResponse, "repository" | "welcomeHidden"> & {
-  session: { capabilities: WorkspaceResponse["capabilities"] }
-  notifications: Pick<SettingsWorkspaceResponse["notifications"], "unreadCount">
-}
+import type { NavigationState } from "./types"
 
 export function settingsWorkspace(
   workspace: WorkspaceResponse,

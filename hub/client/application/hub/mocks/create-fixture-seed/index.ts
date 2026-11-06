@@ -1,6 +1,16 @@
+import { createFixtureBuild } from "../create-fixture-build"
+import {
+  buildCountVariation,
+  minimumBuildCount,
+  originalWelcomeBuildCount,
+  screenshotsUrl,
+} from "../create-fixture-build/constants"
+import type { FixtureBuild } from "../create-fixture-build/types"
 import seed from "../seed.json"
 
-const screenshotsUrl = "/previews/screenshots.svg"
+const welcomeBuildCount = 57
+const firstGeneratedPrototypeId = 4
+const noBuildPrototypeInterval = 11
 
 const authors = [
   ["avery-chen", "Avery Chen"],
@@ -50,73 +60,26 @@ const areas = [
   "Security alerts",
 ] as const
 
-const views = ["overview", "search", "activity", "settings", "planning", "welcome"] as const
-
-type FixtureBuild = Omit<(typeof seed.builds)[number], "startedAt"> & {
-  startedAt: string | null
-}
-
 export function createFixtureSeed() {
   const data: Omit<typeof seed, "builds"> & { builds: FixtureBuild[] } = structuredClone(seed)
   data.users.push(...authors.map(([login, name]) => ({ id: login, login, name, avatarUrl: null })))
-
-  function build(
-    prototypeId: number,
-    number: number,
-    authorLogin: string,
-    name: string,
-  ): FixtureBuild {
-    const created =
-      Date.parse("2026-10-28T15:00:00Z") +
-      (prototypeId === 1 ? (number - 3) * 120 : prototypeId * 45 + number * 120) * 60_000
-    const isLatest = prototypeId !== 1 && number === 2 + (prototypeId % 4)
-    const state = isLatest
-      ? ["successful", "successful", "failed", "queued", "running", "superseded"][prototypeId % 6]!
-      : number % 13 === 0
-        ? "failed"
-        : number % 9 === 0
-          ? "superseded"
-          : "successful"
-    const view = views[prototypeId % views.length]!
-    return {
-      number,
-      repositoryId: 2001,
-      prototypeId,
-      state,
-      commitSha: (prototypeId * 1000 + number).toString(16).padStart(40, "0"),
-      commitAuthorLogin: authorLogin,
-      createdAt: new Date(created).toISOString(),
-      startedAt: state === "queued" ? null : new Date(created + 10_000).toISOString(),
-      finishedAt:
-        state === "queued" || state === "running"
-          ? null
-          : new Date(created + 45_000 + (number % 5) * 12_000).toISOString(),
-      previewUrl:
-        state === "successful"
-          ? `/previews/index.html?prototype=${encodeURIComponent(name)}&build=${number}`
-          : null,
-      desktopScreenshotUrl: state === "successful" ? `${screenshotsUrl}#${view}` : null,
-      narrowScreenshotUrl: state === "successful" ? `${screenshotsUrl}#${view}-narrow` : null,
-      failureSummary:
-        state === "failed"
-          ? "Type checking failed: the form submit handler needs an event type."
-          : null,
-    }
-  }
 
   for (const original of data.builds) {
     if (original.desktopScreenshotUrl) original.desktopScreenshotUrl = `${screenshotsUrl}#welcome`
     if (original.narrowScreenshotUrl)
       original.narrowScreenshotUrl = `${screenshotsUrl}#welcome-narrow`
   }
-  for (let number = 4; number <= 57; number += 1) {
-    data.builds.push(build(1, number, data.users[number % data.users.length]!.login, "Welcome"))
+  for (let number = originalWelcomeBuildCount + 1; number <= welcomeBuildCount; number += 1) {
+    data.builds.push(
+      createFixtureBuild(1, number, data.users[number % data.users.length]!.login, "Welcome"),
+    )
   }
   for (const [areaIndex, area] of areas.entries()) {
-    for (const [variant, suffix] of ["overview", "search", "activity"].entries()) {
-      const id = 4 + areaIndex * 3 + variant
+    const variants = ["overview", "search", "activity"] as const
+    for (const [variant, suffix] of variants.entries()) {
+      const id = firstGeneratedPrototypeId + areaIndex * variants.length + variant
       const name = `${area} ${suffix}`
-      const authorLogin = data.users[(id - 4) % data.users.length]!.login
+      const authorLogin = data.users[(id - firstGeneratedPrototypeId) % data.users.length]!.login
       data.prototypes.push({
         id,
         repositoryId: 2001,
@@ -129,9 +92,9 @@ export function createFixtureSeed() {
         ][variant]!,
         authorLogin,
       })
-      if (id % 11 === 0) continue
-      for (let number = 1; number <= 2 + (id % 4); number += 1) {
-        data.builds.push(build(id, number, authorLogin, name))
+      if (id % noBuildPrototypeInterval === 0) continue
+      for (let number = 1; number <= minimumBuildCount + (id % buildCountVariation); number += 1) {
+        data.builds.push(createFixtureBuild(id, number, authorLogin, name))
       }
     }
   }

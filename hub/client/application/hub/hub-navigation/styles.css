@@ -1,0 +1,17 @@
+.hub-application {
+  min-block-size: 100vh;
+}
+
+.hub-application main:focus {
+  outline: none;
+}
+
+.hub-action-warning {
+  position: fixed;
+  inset: 1rem 1rem auto;
+  z-index: var(--hub-layer-action-warning);
+  max-inline-size: 42rem;
+  margin-inline: auto;
+  outline: none;
+  box-shadow: var(--hub-shadow-floating);
+}

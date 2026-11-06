@@ -5,12 +5,11 @@ import { useHubTheme } from "@hooks/use-hub-theme"
 import { usePrototypeReview } from "@hooks/use-prototype-review"
 import { PrototypesShowPage } from "@pages/prototypes-show-page"
 import type { PrototypeDetailsInput } from "@pages/prototypes-show-page/types"
-
-import type { PrototypeResponse, WorkspaceResponse } from "../../contracts/types"
-import { prototypeShowData } from "../../view-models/prototype-show"
-import { createReviewTransport } from "../../review-transport"
-import type { SessionResponse } from "../../session-contracts/types"
-import { readReviewQuery } from "../../read-review-query"
+import type { PrototypeResponse, WorkspaceResponse } from "@application/hub/contracts/types"
+import { prototypeShowData } from "@application/hub/view-models/prototype-show-data"
+import { createReviewTransport } from "@application/hub/create-review-transport"
+import type { SessionResponse } from "@application/hub/session-contracts/types"
+import { readReviewQuery } from "@application/hub/read-review-query"
 
 export function PrototypeScreen({
   workspace,

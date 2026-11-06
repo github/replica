@@ -1,4 +1,5 @@
-import { workspaceResponseSchema } from "../../contracts"
+import { workspaceResponseSchema } from "@application/hub/contracts"
+
 import { requestJson } from "../request-json"
 
 export function getWorkspace(request: Request) {

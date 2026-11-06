@@ -1,8 +1,7 @@
 import type { PropsWithChildren } from "react"
 
 import { HubVisuallyHidden } from "@components/hub-visually-hidden"
-
-import { FormBoundary } from "../../form-boundary"
+import { FormBoundary } from "@application/hub/form-boundary"
 
 import "./styles.css"
 

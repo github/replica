@@ -1,7 +1,7 @@
 import type { RepositoryWorkspaceData } from "@features/repository-workspace/types"
+import type { WorkspaceResponse } from "@application/hub/contracts/types"
+import type { SettingsWorkspaceResponse } from "@application/hub/settings-contracts/types"
 
-import type { WorkspaceResponse } from "../../contracts/types"
-import type { SettingsWorkspaceResponse } from "../../settings-contracts/types"
 import { settingsWorkspace } from "../settings-workspace"
 
 export function settingsRepositoryWorkspace(

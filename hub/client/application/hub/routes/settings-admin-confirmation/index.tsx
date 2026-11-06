@@ -1,4 +1,5 @@
 import { SettingsRouteScreen } from "@application/hub/screens/settings-route-screen"
+
 import { settingsController } from "../settings-controller"
 import type { SettingsRouteData } from "../settings-controller/types"
 import { settingsMeta } from "../settings-meta"
@@ -9,7 +10,7 @@ export function meta({ loaderData }: { loaderData?: SettingsRouteData }) {
   return settingsMeta("admin-confirmation", loaderData)
 }
 
-export default function SettingsAdminConfirmationRoute({
+export default function SettingsAdminConfirmation({
   loaderData,
 }: {
   loaderData: SettingsRouteData

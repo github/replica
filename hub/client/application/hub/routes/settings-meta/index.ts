@@ -1,4 +1,5 @@
-import type { SettingsSection } from "../../settings-contracts/types"
+import type { SettingsSection } from "@application/hub/settings-contracts/types"
+
 import type { SettingsRouteData } from "../settings-controller/types"
 
 export function settingsMeta(section: SettingsSection, loaderData?: SettingsRouteData) {

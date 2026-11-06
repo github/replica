@@ -1,9 +1,10 @@
 import { redirect } from "react-router"
 import { z } from "zod"
 
+import { sessionResponseSchema } from "@application/hub/session-contracts"
+import { requestJson } from "@application/hub/requests/request-json"
+
 import type { Route } from "./+types/index"
-import { sessionResponseSchema } from "../../session-contracts"
-import { requestJson } from "../../requests/request-json"
 
 export async function clientAction({ request }: Pick<Route.ClientActionArgs, "request">) {
   if (request.method.toUpperCase() !== "POST") {
@@ -19,6 +20,6 @@ export async function clientAction({ request }: Pick<Route.ClientActionArgs, "re
   return redirect(intent.data === "sign-out" ? "/sign-in" : "/")
 }
 
-export default function SessionRoute() {
+export default function Session() {
   return null
 }

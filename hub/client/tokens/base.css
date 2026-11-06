@@ -46,6 +46,10 @@
   --hub-shadow-selection: 0 0.0625rem 0.1875rem rgb(0 0 0 / 12%);
   --hub-shadow-review-overlay: 0 0.75rem 2rem rgb(1 4 9 / 30%);
   --hub-shadow-review-marker: 0 0 2px rgb(1 4 9 / 21%), 0 3px 5px rgb(1 4 9 / 19.6%);
+  --hub-layer-mock-tools: 10000;
+  --hub-layer-loading: 10010;
+  --hub-layer-toast: 10015;
+  --hub-layer-action-warning: 10020;
   --hub-space-4: var(--base-size-4);
   --hub-space-8: var(--base-size-8);
   --hub-space-12: var(--base-size-12);

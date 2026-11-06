@@ -1,8 +1,8 @@
 import { data } from "react-router"
 
-import type { ProductActionResult } from "../../product-contracts/types"
-import { ApiContractError } from "../../requests/api-contract-error"
-import { ApiRequestError } from "../../requests/api-request-error"
+import type { ProductActionResult } from "@application/hub/product-contracts/types"
+import { ApiContractError } from "@application/hub/requests/api-contract-error"
+import { ApiRequestError } from "@application/hub/requests/api-request-error"
 
 export function productActionError(error: unknown) {
   if (error instanceof ApiRequestError) {

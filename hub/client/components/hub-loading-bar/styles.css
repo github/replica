@@ -1,7 +1,7 @@
 .hub-loading-bar {
   position: fixed;
   inset: 0 0 auto;
-  z-index: 10010;
+  z-index: var(--hub-layer-loading);
   block-size: 0.1875rem;
   overflow: hidden;
   pointer-events: none;

@@ -6,13 +6,19 @@
     <title>Team workspace</title>
     <style>
       :root {
+        --preview-canvas-default: light-dark(white, #151b23);
+        --preview-canvas-subtle: light-dark(#f6f8fa, #0d1117);
+        --preview-fg-default: light-dark(#1f2328, #f0f6fc);
+        --preview-fg-muted: light-dark(#59636e, #9198a1);
+        --preview-fg-link: light-dark(#0969da, #79c0ff);
+        --preview-border-default: light-dark(#d1d9e0, #3d444d);
         color-scheme: light dark;
         font-family: system-ui, sans-serif;
       }
       body {
         margin: 0;
-        background: light-dark(#f6f8fa, #0d1117);
-        color: light-dark(#1f2328, #f0f6fc);
+        background: var(--preview-canvas-subtle);
+        color: var(--preview-fg-default);
       }
       header,
       main {
@@ -23,10 +29,10 @@
       header {
         display: flex;
         justify-content: space-between;
-        border-bottom: 1px solid light-dark(#d1d9e0, #3d444d);
+        border-bottom: 1px solid var(--preview-border-default);
       }
       a {
-        color: light-dark(#0969da, #79c0ff);
+        color: var(--preview-fg-link);
       }
       h1 {
         font-size: clamp(2rem, 5vw, 4rem);
@@ -40,13 +46,13 @@
         margin-block: 2rem;
       }
       article {
-        background: light-dark(white, #151b23);
+        background: var(--preview-canvas-default);
         padding: 1.5rem;
-        border: 1px solid light-dark(#d1d9e0, #3d444d);
+        border: 1px solid var(--preview-border-default);
         border-radius: 0.75rem;
       }
       .notice {
-        color: light-dark(#59636e, #9198a1);
+        color: var(--preview-fg-muted);
       }
     </style>
   </head>

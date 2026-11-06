@@ -80,7 +80,7 @@ export function meta({ loaderData }: Route.MetaArgs) {
   return [{ title: loaderData ? `${loaderData.prototype.name} - Replica Hub` : "Replica Hub" }]
 }
 
-export default function PrototypeRoute({ loaderData }: Pick<Route.ComponentProps, "loaderData">) {
+export default function Prototype({ loaderData }: Pick<Route.ComponentProps, "loaderData">) {
   const workspace = useOutletContext<WorkspaceResponse>()
   // React Router retains fetcher data; keep save feedback scoped to this prototype.
   const fetcher = useFetcher<PrototypeActionResult>({

@@ -1,10 +1,10 @@
 import type { HubAdminConfirmationPageData } from "@pages/hub-admin-confirmation-page/types"
-
-import type { WorkspaceResponse } from "../../contracts/types"
+import type { WorkspaceResponse } from "@application/hub/contracts/types"
 import type {
   SettingsCandidateResponse,
   SettingsWorkspaceResponse,
-} from "../../settings-contracts/types"
+} from "@application/hub/settings-contracts/types"
+
 import { resourcePath } from "../resource-path"
 import { settingsAdministration } from "../settings-administration"
 
