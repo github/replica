@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width">
+  <title>Replica wizard design capture</title>
+  <link rel="stylesheet" href="/assets/xterm.css">
+  <style>
+    body { margin: 24px; background: #f3f5f7; color: #182230; font: 16px system-ui; }
+    h1 { font-size: 24px; }
+    button, select { font: inherit; padding: 8px; }
+    nav { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+    select { max-width: 70vw; }
+    #viewport { overflow: auto; margin: 24px 0; }
+    #terminal-frame { padding: 16px; width: max-content; background: #0d1117; }
+    #notes { max-width: 1100px; white-space: pre-wrap; }
+    #status { font-weight: bold; white-space: pre-wrap; }
+    .xterm-viewport { overflow: hidden !important; }
+  </style>
+  <h1>Replica wizard design capture</h1>
+  <p>All cloud data, errors, plans and results are synthetic. These screens use the real Ink presentation components. No cloud commands or private configuration are used.</p>
+  <nav>
+    <button id="generate" disabled>Generate all screens and PDF</button>
+    <label>Preview screen <select id="scene" disabled></select></label>
+  </nav>
+  <p id="status" role="status" aria-live="polite">Loading synthetic screens...</p>
+  <div id="result"></div>
+  <div id="viewport"><div id="terminal-frame"><div id="terminal"></div></div></div>
+  <section id="notes" aria-label="Screen annotations"></section>
+  <script src="/assets/xterm.js"></script>
+  <script src="/assets/html-to-image.js"></script>
+  <script src="/assets/capture.js"></script>
+</html>
