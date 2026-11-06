@@ -30,7 +30,23 @@ const data: HomeIndexPageData = {
 const meta = {
   title: "Hub/Pages/Home",
   component: HomeIndexPage,
-  args: { colorMode: "dark", data, enableAnimation: false },
+  args: { colorMode: "dark", data },
+  beforeEach: () => {
+    const originalMatchMedia = window.matchMedia.bind(window)
+    window.matchMedia = (query) => ({
+      matches: query === "(prefers-reduced-motion: reduce)",
+      media: query,
+      onchange: null,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+      addListener: () => undefined,
+      removeListener: () => undefined,
+      dispatchEvent: () => true,
+    })
+    return () => {
+      window.matchMedia = originalMatchMedia
+    }
+  },
   argTypes: {
     colorMode: { control: false, table: { disable: true } },
   },
@@ -53,6 +69,19 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Default: Story = {}
+
+export const ReducedMotion: Story = {
+  beforeEach() {
+    const matchMedia = window.matchMedia.bind(window)
+    window.matchMedia = (query) =>
+      Object.assign(matchMedia(query), {
+        matches: query === "(prefers-reduced-motion: reduce)",
+      })
+    return () => {
+      window.matchMedia = matchMedia
+    }
+  },
+}
 
 export const MicrosoftEntra: Story = {
   args: {

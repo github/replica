@@ -42,11 +42,9 @@ const HOME_COLOR_THEMES = {
 export function HomeIndexPage({
   colorMode,
   data,
-  enableAnimation = true,
 }: {
   colorMode: HubResolvedColorMode
   data: HomeIndexPageData
-  enableAnimation?: boolean
 }) {
   const colorTheme = HOME_COLOR_THEMES[colorMode]
   const initialPalette = colorTheme.palettes[0]
@@ -66,7 +64,7 @@ export function HomeIndexPage({
     function updatePlayback() {
       window.clearInterval(timer)
       timer = undefined
-      const enabled = enableAnimation && !paused && !reducedMotion.matches && !document.hidden
+      const enabled = !paused && !reducedMotion.matches && !document.hidden
       setEyebrowAnimated(enabled)
       if (enabled) {
         timer = window.setInterval(() => setEyebrowSequence((sequence) => sequence + 1), 6000)
@@ -82,7 +80,7 @@ export function HomeIndexPage({
       reducedMotion.removeEventListener("change", updatePlayback)
       document.removeEventListener("visibilitychange", updatePlayback)
     }
-  }, [enableAnimation, paused])
+  }, [paused])
 
   return (
     <main className="home">
@@ -96,12 +94,12 @@ export function HomeIndexPage({
             <Hero
               variant="gridline"
               align="start"
-              enableAnimation={enableAnimation}
+              enableAnimation
               className="home__hero"
               aria-labelledby={headingId}
             >
               <Hero.Label
-                animate={enableAnimation}
+                animate
                 animationDelay={eyebrowSequence === 0 ? 1000 : 0}
                 initialText={previousEyebrowText}
                 className="home__eyebrow"

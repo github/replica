@@ -121,17 +121,6 @@ describe("HomeIndexPage()", () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
-  it("keeps animation disabled when the caller opts out", async () => {
-    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] })
-    render(<HomeIndexPage colorMode="dark" data={PAGE_DATA} enableAnimation={false} />)
-
-    await act(() => vi.advanceTimersByTime(24_000))
-
-    expect(screen.getByText(PAGE_DATA.badge)).toBeInTheDocument()
-    expect(screen.queryByText(PAGE_DATA.badgeAlternate)).not.toBeInTheDocument()
-    expect(vi.getTimerCount()).toBe(0)
-  })
-
   it("introduces Replica Hub without deployment details", () => {
     renderHome()
 
