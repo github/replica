@@ -31,6 +31,8 @@ Publishing is an explicit operator step, not a side effect of CI. From the appro
 
 Configuration errors stop startup without printing credentials. Logging and optional tracing retain their existing [logging](logging.md) and [telemetry](telemetry.md) contracts.
 
+Entra role removal is observed only when Entra later emits updated role-free authentication evidence; Entra may briefly return cached role claims even during a fresh login. Existing Hub sessions may remain valid until their 12-hour expiry or another Hub/provider revocation event. Disabling a provider, increasing its provider revision, or advancing global session revocation are revoke-all controls; Hub does not implement immediate per-user Entra lifecycle synchronization.
+
 The runtime serves built frontend navigation and static files on the API port. Unknown `/api` endpoints remain JSON 404 responses. Missing files with extensions do not return the frontend document.
 
 `/api/health` is liveness. `/api/ready` returns 503 during initialization, shutdown, or a failed dependency check. In combined mode it requires both workers to initialize and a successful PostgreSQL query. Worker readiness records initialization only, not continuous consumer health: a later worker connection error can be logged while readiness still succeeds. The PostgreSQL query checks current database availability. When [artifact storage](artifact-storage.md) is configured, both API and combined modes also require its bounded, non-writing availability check. Readiness is an operational signal, not authorization.
