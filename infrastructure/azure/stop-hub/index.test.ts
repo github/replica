@@ -23,12 +23,16 @@ for (const adapter of ["synchronous", "asynchronous"]) {
     const sleep = mock.method(timers, "setTimeout", async () => undefined)
     const execute = (...args: string[]) => {
       events.push(args)
-      if (args.slice(0, 3).join(" ") === "containerapp revision list")
-        return [
+      if (args.slice(0, 3).join(" ") === "containerapp revision list") {
+        const revisions = [
           { name: "hub-current", properties: { active: true } },
           { name: "hub-old", properties: { active: false } },
           { name: "hub-empty", properties: { active: true } },
         ]
+        return args.includes("--all")
+          ? revisions
+          : revisions.filter((revision) => revision.properties.active)
+      }
       if (args[2] === "deactivate") return null
       if (args[1] === "replica") {
         const revision = option(args, "--revision")
@@ -111,15 +115,10 @@ for (const { description, revisions } of [
     )
 
     assert.equal(command.mock.callCount(), 1)
-    assert.deepEqual(command.mock.calls[0].arguments, [
-      "containerapp",
-      "revision",
-      "list",
-      "--name",
-      "hub",
-      "--resource-group",
-      "group",
-    ])
+    assert.deepEqual(
+      command.mock.calls[0].arguments.filter((arg) => arg !== "--all"),
+      ["containerapp", "revision", "list", "--name", "hub", "--resource-group", "group"],
+    )
   })
 }
 
@@ -222,3 +221,29 @@ it("shares the five-minute drain deadline across active and inactive revisions",
     false,
   )
 })
+
+for (const elapsed of [300_000, 305_000]) {
+  it(`accepts a drained final revision after ${elapsed} milliseconds of the shared budget`, async () => {
+    let now = 0
+    mock.method(performance, "now", () => now)
+    const sleep = mock.method(timers, "setTimeout", async () => undefined)
+    const inspected: string[] = []
+    const command = (...args: string[]) => {
+      if (args[1] === "revision")
+        return [
+          { name: "hub-first", properties: { active: false } },
+          { name: "hub-last", properties: { active: false } },
+        ]
+      const revision = option(args, "--revision")
+      inspected.push(revision)
+      now += revision === "hub-first" ? 200_000 : elapsed - 200_000
+      return []
+    }
+
+    await stopHub({ name: "hub", resourceGroup: "group", command })
+
+    assert.deepEqual(inspected, ["hub-first", "hub-last"])
+    assert.equal(now, elapsed)
+    assert.equal(sleep.mock.callCount(), 0)
+  })
+}

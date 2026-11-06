@@ -6,7 +6,7 @@ import { dirname, join, relative, resolve } from "node:path"
 import { trace } from "@opentelemetry/api"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { CommandExecutionError } from "../command/index.ts"
+import { CommandExecutionError, runCommand } from "../command/index.ts"
 import type { InstallerUI, RunCommand, WizardUI } from "../types.ts"
 import { startInstallerTelemetry } from "./index.ts"
 
@@ -65,6 +65,49 @@ afterEach(async () => {
 })
 
 describe("private installer telemetry", () => {
+  it("records only safe command status when real diagnostic details are explicitly displayed", async () => {
+    const telemetry = await start(await target())
+    const secret = "synthetic-explicit-diagnostic-secret"
+    const run = telemetry.command(runCommand)
+    const failure: unknown = await run(
+      process.execPath,
+      [
+        "-e",
+        `process.stderr.write(${JSON.stringify(secret)}, () => process.exit(29))`,
+      ],
+      { label: "Synthetic diagnostic step" },
+    ).catch((error: unknown) => error)
+    expect(failure).toBeInstanceOf(CommandExecutionError)
+    const error = failure as CommandExecutionError
+    const displayed: string[] = []
+    const observed = telemetry.observe({
+      status: vi.fn(),
+      confirm: vi.fn(async () => true),
+      wait: vi.fn(async (message: string) => {
+        displayed.push(message)
+      }),
+    })
+    const details = error.details()
+    if (details === undefined) throw new Error("Expected explicit diagnostic details")
+
+    await observed.wait(details)
+    await telemetry.close(error)
+
+    expect(displayed).toEqual([secret])
+    expect(error.message).toContain("Synthetic diagnostic step")
+    expect(error.message).not.toContain(secret)
+    const saved = await readFile(telemetry.path, "utf8")
+    expect(saved).not.toContain(secret)
+    const commands = (await records(telemetry.path)).filter(
+      (entry) => entry.event === "span.completed" && entry.name.startsWith("installer.command."),
+    )
+    expect(commands).toHaveLength(1)
+    expect(commands[0]!).toMatchObject({
+      status: "error",
+      attributes: { exit_code: 29, outcome: "failed" },
+    })
+  })
+
   it("uses a private per-run file beside the selected config and closes only once without replacing the global provider", async () => {
     const configPath = await target()
     const otherConfig = await target()

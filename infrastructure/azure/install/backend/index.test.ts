@@ -104,6 +104,7 @@ async function scenario({
   const ui: InstallerUI = {
     status: vi.fn(),
     confirm: vi.fn(async () => true),
+    select: vi.fn(async (_message, options) => options[0]!.value),
     wait: vi.fn(async () => {
       throw new Error("Unexpected retry")
     }),
@@ -213,6 +214,23 @@ it("leaves an existing account unchanged when the operator cancels network migra
   await expect(prepareBackend(s.context)).rejects.toThrow()
 
   expect(s.ui.confirm).toHaveBeenCalledOnce()
+  expect(s.storage).toEqual(before)
+  expect(
+    s.commands.some(
+      (args) => args.includes("update") || args.includes("create") || args.includes("add"),
+    ),
+  ).toBe(false)
+})
+
+it("does not treat unattended deployment approval as consent to relax legacy state networking", async () => {
+  const s = await scenario({ existing: true })
+  s.storage.networkRuleSet.defaultAction = "Deny"
+  delete s.ui.select
+  const before = structuredClone(s.storage)
+
+  await expect(prepareBackend(s.context)).rejects.toThrow(/interactive/i)
+
+  expect(s.ui.confirm).not.toHaveBeenCalled()
   expect(s.storage).toEqual(before)
   expect(
     s.commands.some(

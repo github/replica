@@ -1,4 +1,3 @@
-import { mkdir, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
 
 import { parseConfig } from "../../installer/config/index.ts"
@@ -15,6 +14,13 @@ import { verifyInstallationGroup } from "./group/index.ts"
 import { recoverLease } from "./lease/recover/index.ts"
 import { deploymentResult } from "./result/index.ts"
 import type { AzureInstallation, DeploymentResult, Foundation, Installation } from "./types.ts"
+import { openInstallationWorkspace } from "./workspace/index.ts"
+import { readInstallationInputs } from "./inputs/index.ts"
+import {
+  privateDirectory,
+  privateFile,
+  writePrivateFile,
+} from "../../installer/private-files/index.ts"
 
 export async function installAzure(
   input: DeploymentConfig,
@@ -32,6 +38,39 @@ export async function installAzure(
 ): Promise<DeploymentResult> {
   const config = parseConfig(input)
   await verifyAzureTarget(config, run)
+  const workspace = await openInstallationWorkspace(config, directory)
+  try {
+    return await install(config, { directory: workspace.directory, run, ui, saveNpmRegistry })
+  } finally {
+    await workspace.close()
+  }
+}
+
+async function install(
+  config: DeploymentConfig,
+  {
+    directory,
+    run,
+    ui,
+    saveNpmRegistry,
+  }: {
+    directory: string
+    run: RunCommand
+    ui: InstallerUI
+    saveNpmRegistry?(registry: string): Promise<void>
+  },
+): Promise<DeploymentResult> {
+  const operatorInputs = await readInstallationInputs(directory, config)
+  for (const file of [
+    "foundation.tfvars.json",
+    "provision.tfvars.json",
+    "foundation-backend.hcl",
+    "app-backend.hcl",
+    "provision-backend.hcl",
+  ])
+    await privateFile(join(directory, file))
+  for (const module of ["foundation", "app", "provision"])
+    await privateDirectory(join(directory, "terraform", module))
   const env: NodeJS.ProcessEnv = {
     ARM_SUBSCRIPTION_ID: config.azure.subscriptionId,
     ARM_TENANT_ID: config.azure.tenantId,
@@ -83,7 +122,6 @@ export async function installAzure(
     throw new Error("Installation cancelled before cloud changes.")
   }
   await ui.phase?.("provision")
-  await mkdir(directory, { recursive: true, mode: 0o700 })
   for (const namespace of [
     "Microsoft.App",
     "Microsoft.OperationalInsights",
@@ -141,7 +179,7 @@ export async function installAzure(
       )
     }
     const foundationVariables = join(directory, "foundation.tfvars.json")
-    await writeFile(
+    await writePrivateFile(
       foundationVariables,
       JSON.stringify({
         subscription_id: config.azure.subscriptionId,
@@ -152,7 +190,6 @@ export async function installAzure(
         registry_name: names.registry,
         vault_name: names.vault,
       }),
-      { mode: 0o600 },
     )
     ui.status("Preparing registry and Key Vault")
     await foundation.apply(foundationVariables)
@@ -189,7 +226,7 @@ export async function installAzure(
       runtime_database_secret: { key_vault_id: resources.vault_id, secret_id: secrets.runtimeUrl },
       setup_database_secret: { key_vault_id: resources.vault_id, secret_id: secrets.migrationUrl },
     }
-    await writeFile(variables, JSON.stringify(inputs), { mode: 0o600 })
+    await writePrivateFile(variables, JSON.stringify({ ...inputs, ...operatorInputs }))
     if (!appCreated) {
       ui.status("Bootstrapping infrastructure with Hub stopped")
       await app.apply(variables)

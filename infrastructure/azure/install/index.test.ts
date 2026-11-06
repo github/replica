@@ -1,8 +1,20 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  open,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises"
 import { join } from "node:path"
 import { afterEach, expect, it, vi } from "vitest"
 
 import { CommandExecutionError } from "../../installer/command/index.ts"
+import { installationWorkspace } from "../../installer/workspace/index.ts"
 import type { DeploymentConfig, InstallerUI, RunCommand } from "../../installer/types.ts"
 import { installAzure } from "./index.ts"
 import type { DeploymentResult } from "./types.ts"
@@ -253,6 +265,264 @@ async function scenario({
     released: () => released,
   }
 }
+
+function installationChanges(events: { command: string[] }[]) {
+  return events.filter(
+    ({ command }) =>
+      command[0] === process.execPath ||
+      command.some((argument) =>
+        [
+          "create",
+          "update",
+          "delete",
+          "set",
+          "start",
+          "register",
+          "login",
+          "build",
+          "apply",
+          "plan",
+          "init",
+          "break",
+          "release",
+          "acquire",
+        ].includes(argument),
+      ),
+  )
+}
+
+it("preserves supported runtime, database and TLS customization in privately replaced installation inputs", async () => {
+  const s = await scenario({ existing: true })
+  await installAzure(s.config, s)
+  const workspace = installationWorkspace(s.config, s.directory)
+  const filename = join(workspace, "installation.tfvars.json")
+  const original = JSON.parse(await readFile(filename, "utf8")) as Record<string, unknown>
+  const customization = {
+    runtime_secret_references: {
+      SERVICE_API_KEY: {
+        key_vault_id: `/subscriptions/${s.config.azure.subscriptionId}/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/service`,
+        secret_id: `https://service.vault.azure.net/secrets/api-key/${"c".repeat(32)}`,
+      },
+    },
+    postgres_sku: "B_Standard_B2s",
+    postgres_version: "16",
+    backup_retention_days: 21,
+    custom_hostname: "hub.example.com",
+    certificate_id: `${s.installation.environment_id}/certificates/hub-tls`,
+  }
+  const previous = `${JSON.stringify({ ...original, ...customization }, null, 2)}\n  \n`
+  await writeFile(filename, previous, { mode: 0o600 })
+  const reader = await open(filename, "r")
+
+  try {
+    await expect(installAzure(s.config, s)).resolves.toEqual(s.expectedResult())
+
+    const replacement = await readFile(filename, "utf8")
+    expect(JSON.parse(replacement)).toMatchObject(customization)
+    expect(replacement).not.toBe(previous)
+    expect(await reader.readFile("utf8")).toBe(previous)
+    expect((await stat(filename)).mode & 0o777).toBe(0o600)
+    expect((await stat(workspace)).mode & 0o777).toBe(0o700)
+    expect(await readdir(s.directory)).toEqual([workspace.slice(s.directory.length + 1)])
+  } finally {
+    await reader.close()
+  }
+})
+
+it.each([
+  { reason: "unknown customization", change: { unsupported_runtime_setting: "synthetic-value" } },
+  { reason: "invalid PostgreSQL SKU", change: { postgres_sku: "invalid" } },
+  { reason: "unknown PostgreSQL SKU model", change: { postgres_sku: "B_Standard_B999ms" } },
+  { reason: "unsupported PostgreSQL version", change: { postgres_version: "1" } },
+  {
+    reason: "PostgreSQL version outside the pinned provider contract",
+    change: { postgres_version: "18" },
+  },
+  { reason: "invalid backup retention", change: { backup_retention_days: 0 } },
+  { reason: "different stored installation name", change: { name: "another-hub" } },
+  { reason: "different stored ownership", change: { owner: "another-team" } },
+  { reason: "different stored region", change: { location: "westus2" } },
+  { reason: "unpaired hostname", change: { custom_hostname: "hub.example.com" } },
+  {
+    reason: "invalid runtime secret URL",
+    change: {
+      runtime_secret_references: {
+        SERVICE_API_KEY: {
+          key_vault_id:
+            "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/service",
+          secret_id: "http://service.vault.azure.net/secrets/api-key",
+        },
+      },
+    },
+  },
+  {
+    reason: "different stored target",
+    change: { subscription_id: "cccccccc-dddd-4eee-8fff-aaaaaaaaaaaa" },
+  },
+])("refuses $reason before changing cloud resources or saved inputs", async ({ change }) => {
+  const s = await scenario({ existing: true })
+  await installAzure(s.config, s)
+  const workspace = installationWorkspace(s.config, s.directory)
+  const filename = join(workspace, "installation.tfvars.json")
+  const original = JSON.parse(await readFile(filename, "utf8")) as Record<string, unknown>
+  const previous = `${JSON.stringify({ ...original, ...change }, null, 2)}\n`
+  await writeFile(filename, previous, { mode: 0o600 })
+  const files = await readdir(workspace)
+  s.events.length = 0
+
+  await expect(installAzure(s.config, s)).rejects.toThrow()
+
+  expect(installationChanges(s.events)).toEqual([])
+  expect(await readFile(filename, "utf8")).toBe(previous)
+  expect(await readdir(workspace)).toEqual(files)
+})
+
+it("preserves a legacy name-only workspace and requires manual migration review before cloud changes", async () => {
+  const s = await scenario()
+  const legacy = join(s.directory, s.config.name)
+  await mkdir(legacy, { mode: 0o700 })
+  const filename = join(legacy, "terraform.tfstate")
+  const previous = '{"synthetic":"preserve-legacy-assets"}\n'
+  await writeFile(filename, previous, { mode: 0o600 })
+
+  await expect(installAzure(s.config, s)).rejects.toThrow(
+    /manual.*migration|reviewed.*migration|migration.*review/i,
+  )
+
+  expect(installationChanges(s.events)).toEqual([])
+  expect(await readFile(filename, "utf8")).toBe(previous)
+  expect(await readdir(s.directory)).toEqual([s.config.name])
+})
+
+it.each(["parent", "workspace"] as const)(
+  "refuses a precreated shared %s directory without silently changing its permissions",
+  async (path) => {
+    const s = await scenario()
+    const directory =
+      path === "parent" ? s.directory : installationWorkspace(s.config, s.directory)
+    if (path === "workspace") await mkdir(directory, { mode: 0o700 })
+    await chmod(directory, 0o777)
+
+    await expect(installAzure(s.config, s)).rejects.toThrow()
+
+    expect(installationChanges(s.events)).toEqual([])
+    expect((await stat(directory)).mode & 0o777).toBe(0o777)
+    expect(await readdir(directory)).toEqual([])
+  },
+)
+
+it("refuses a symlinked generated workspace without changing its target", async () => {
+  const s = await scenario()
+  const target = join(s.directory, "unrelated-assets")
+  await mkdir(target, { mode: 0o700 })
+  const filename = join(target, "keep.json")
+  await writeFile(filename, '{"synthetic":"keep"}\n', { mode: 0o600 })
+  await symlink(target, installationWorkspace(s.config, s.directory), "dir")
+
+  await expect(installAzure(s.config, s)).rejects.toThrow()
+
+  expect(installationChanges(s.events)).toEqual([])
+  expect(await readFile(filename, "utf8")).toBe('{"synthetic":"keep"}\n')
+  expect(await readdir(target)).toEqual(["keep.json"])
+})
+
+it("refuses a private configuration parent beneath a shared writable ancestor", async () => {
+  const s = await scenario()
+  const shared = join(s.directory, "shared")
+  const parent = join(shared, "private")
+  await mkdir(parent, { recursive: true, mode: 0o700 })
+  await chmod(shared, 0o777)
+
+  await expect(installAzure(s.config, { ...s, directory: parent })).rejects.toThrow()
+
+  expect(installationChanges(s.events)).toEqual([])
+  expect((await stat(shared)).mode & 0o777).toBe(0o777)
+  expect((await stat(parent)).mode & 0o777).toBe(0o700)
+  expect(await readdir(parent)).toEqual([])
+})
+
+it("refuses a symlinked generated input file without reading or replacing the linked private assets", async () => {
+  const s = await scenario({ existing: true })
+  await installAzure(s.config, s)
+  const workspace = installationWorkspace(s.config, s.directory)
+  const filename = join(workspace, "installation.tfvars.json")
+  const target = join(s.directory, "unrelated-inputs.json")
+  const previous = await readFile(filename, "utf8")
+  await writeFile(target, previous, { mode: 0o600 })
+  await rm(filename)
+  await symlink(target, filename)
+  s.events.length = 0
+
+  await expect(installAzure(s.config, s)).rejects.toThrow()
+
+  expect(installationChanges(s.events)).toEqual([])
+  expect(await readFile(target, "utf8")).toBe(previous)
+  expect((await stat(target)).mode & 0o777).toBe(0o600)
+})
+
+it("rejects another local writer for the same target even when configuration objects are independent", async () => {
+  const s = await scenario()
+  const entered = Promise.withResolvers<void>()
+  const continueFirst = Promise.withResolvers<void>()
+  const firstRun: RunCommand = async (executable, args, options) => {
+    if (executable === "az" && args.slice(0, 2).join(" ") === "group create") {
+      entered.resolve()
+      await continueFirst.promise
+    }
+    return s.run(executable, args, options)
+  }
+  const first = installAzure(s.config, { ...s, run: firstRun })
+  const secondRun = vi.fn<RunCommand>(s.run)
+  try {
+    await entered.promise
+
+    await expect(
+      installAzure(structuredClone(s.config), { ...s, run: secondRun }),
+    ).rejects.toThrow(/workspace|writer|lock/i)
+
+    const secondEvents = secondRun.mock.calls.map(([executable, args]) => ({
+      command: [executable, ...args],
+    }))
+    expect(installationChanges(secondEvents)).toEqual([])
+  } finally {
+    continueFirst.resolve()
+    const result = await first
+    expect(result).toEqual(s.expectedResult())
+  }
+})
+
+it("accepts the correct mixed-case signed-in Azure target and rejects a true mismatch before cloud changes", async () => {
+  const s = await scenario()
+  s.config.azure.subscriptionId = "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff"
+  s.config.azure.tenantId = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+  const mixedRun: RunCommand = async (executable, args, options) => {
+    if (executable === "az" && args.slice(0, 2).join(" ") === "account show")
+      return JSON.stringify({
+        id: s.config.azure.subscriptionId.toUpperCase(),
+        tenantId: s.config.azure.tenantId.toUpperCase(),
+      })
+    return s.run(executable, args, options)
+  }
+  const stopped = new Error("Synthetic stop at the first permitted cloud write")
+  const run: RunCommand = async (executable, args, options) => {
+    if (executable === "az" && args.slice(0, 2).join(" ") === "group create") throw stopped
+    return mixedRun(executable, args, options)
+  }
+
+  await expect(installAzure(s.config, { ...s, run })).rejects.toBe(stopped)
+
+  s.events.length = 0
+  const mismatchRun: RunCommand = async (executable, args, options) => {
+    if (executable === "az" && args.slice(0, 2).join(" ") === "account show")
+      return JSON.stringify({
+        id: "cccccccc-dddd-4eee-8fff-aaaaaaaaaaaa",
+        tenantId: s.config.azure.tenantId,
+      })
+    return s.run(executable, args, options)
+  }
+  await expect(installAzure(s.config, { ...s, run: mismatchRun })).rejects.toThrow()
+  expect(installationChanges(s.events)).toEqual([])
+})
 
 it("publishes through the chosen registry, provisions privately, removes temporary access, then invokes the guarded release", async () => {
   const s = await scenario()

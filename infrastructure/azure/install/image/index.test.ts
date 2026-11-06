@@ -286,20 +286,37 @@ it("requires fresh dirty-source consent after retry even when the previous build
   expect(await readdir(s.context.directory)).toEqual([])
 })
 
+it("cancels dirty-source publication without ACR login or a build when only unattended approval is available", async () => {
+  const build = vi.fn(async (args: string[]) => {
+    await writeDigest(args, digest)
+    return ""
+  })
+  const s = await scenario(build)
+  const run = s.context.run
+  s.context.run = async (executable, args, options) => {
+    const result = await run(executable, args, options)
+    return executable === "git" && args[0] === "status" ? " M Dockerfile" : result
+  }
+
+  await expect(publishImage(s.context, foundation)).rejects.toMatchObject({ name: "AbortError" })
+
+  expect(s.context.ui.confirm).not.toHaveBeenCalled()
+  expect(s.azure).not.toHaveBeenCalled()
+  expect(build).not.toHaveBeenCalled()
+  expect(await readdir(s.context.directory)).toEqual([])
+})
+
 it.each(["retry", "cancel"] as const)(
   "shows full error details without another attempt before choosing to %s",
   async (next) => {
     const registry = "https://packages.example/npm/"
     const headline = "Docker build failed (exit code 1)."
-    const failure = new CommandExecutionError(
-      [
-        headline,
-        ...Array.from({ length: 80 }, (_, index) => `Synthetic build output ${index}`),
-        "npm ERR! ECONNRESET registry.npmjs.org",
-      ].join("\n"),
-      false,
-      1,
-    )
+    const diagnostic = [
+      ...Array.from({ length: 80 }, (_, index) => `Synthetic build output ${index}`),
+      "npm ERR! ECONNRESET registry.npmjs.org",
+    ].join("\n")
+    const failure = new CommandExecutionError(headline, false, 1, diagnostic)
+    const details = vi.spyOn(failure, "details")
     const cancelled = new DOMException("Cancelled while inspecting build details", "AbortError")
     let attempts = 0
     const s = await scenario(async (args) => {
@@ -310,7 +327,7 @@ it.each(["retry", "cancel"] as const)(
     s.context.config.npmRegistry = registry
     let detailsRead = false
     s.context.ui.wait = vi.fn(async (message) => {
-      expect(message).toContain(failure.message)
+      expect(message).toContain(diagnostic)
       expect(message).toContain(registry)
       expect(s.run).toHaveBeenCalledTimes(3)
       expect(s.azure).toHaveBeenCalledTimes(1)
@@ -330,7 +347,10 @@ it.each(["retry", "cancel"] as const)(
       expect(notice).toContain(headline)
       expect(notice).toMatch(/proxy.*configured/i)
       expect(notice).not.toContain("Synthetic build output")
-      if (++menus === 1) return "details"
+      if (++menus === 1) {
+        expect(details).not.toHaveBeenCalled()
+        return "details"
+      }
       expect(detailsRead).toBe(true)
       return menus === 2 ? "retry" : "exit"
     })
@@ -346,6 +366,7 @@ it.each(["retry", "cancel"] as const)(
       expect(s.context.ui.select).toHaveBeenCalledTimes(2)
     }
     expect(s.context.ui.wait).toHaveBeenCalledTimes(1)
+    expect(details).toHaveBeenCalled()
     expect(await readdir(s.context.directory)).toEqual([])
   },
 )

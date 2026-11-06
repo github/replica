@@ -1,8 +1,8 @@
-import { writeFile } from "node:fs/promises"
 import { join } from "node:path"
 
 import { installationNames } from "../settings.ts"
 import type { AzureInstallation } from "../types.ts"
+import { writePrivateFile } from "../../../installer/private-files/index.ts"
 
 type StateAccount = {
   id: string
@@ -115,6 +115,10 @@ export async function prepareBackend(context: AzureInstallation) {
   let storage = await readStorage()
   verifyStorage(storage)
   if (storage.networkRuleSet.defaultAction === "Deny") {
+    if (!ui.select)
+      throw new Error(
+        "Changing the existing state account's network restriction requires separate interactive consent. Rerun setup interactively; deployment approval does not authorize this change. Account network settings were not changed.",
+      )
     if (
       !(await ui.confirm(
         `State account ${names.stateAccount} restricts network access. Remove its network restriction and use Azure authentication and Blob data permissions instead? Shared-key and anonymous access will remain disabled.`,
@@ -209,7 +213,7 @@ export async function prepareBackend(context: AzureInstallation) {
   }
   const backend = async (key: string) => {
     const path = join(directory, `${key}-backend.hcl`)
-    await writeFile(
+    await writePrivateFile(
       path,
       [
         `resource_group_name = ${JSON.stringify(names.stateGroup)}`,
@@ -221,7 +225,6 @@ export async function prepareBackend(context: AzureInstallation) {
         `subscription_id = ${JSON.stringify(config.azure.subscriptionId)}`,
         `tenant_id = ${JSON.stringify(config.azure.tenantId)}`,
       ].join("\n") + "\n",
-      { mode: 0o600 },
     )
     return path
   }

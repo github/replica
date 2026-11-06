@@ -1,4 +1,5 @@
 import type { InstallerUI } from "../types.ts"
+import { CommandExecutionError } from "../command/index.ts"
 
 export async function promptForRecovery(
   ui: InstallerUI,
@@ -28,8 +29,9 @@ export async function promptForRecovery(
       { label: "Exit and keep saved progress", value: "exit" },
     ])
     if (choice === "details") {
+      const diagnostic = error instanceof CommandExecutionError ? error.details() : undefined
       await ui.wait(
-        `${error.message}\n\n${details}\nScroll to inspect the output, then press Enter to return to recovery choices. This does not retry the step.`,
+        `${error.message}${diagnostic ? `\n${diagnostic}` : ""}\n\n${details}\nScroll to inspect the output, then press Enter to return to recovery choices. This does not retry the step.`,
       )
       continue
     }

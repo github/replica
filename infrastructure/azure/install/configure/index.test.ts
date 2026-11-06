@@ -379,3 +379,40 @@ it("rejects an unavailable tenant before asking for a subscription", async () =>
     false,
   )
 })
+
+it("normalizes mixed-case account identifiers before selection and scoped Azure discovery", async () => {
+  const subscriptionId = "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff"
+  const tenantId = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+  const { accounts, ui, run } = setup(subscriptionId)
+  accounts.splice(1)
+  accounts[0]!.id = subscriptionId.toUpperCase()
+  accounts[0]!.tenantId = tenantId.toUpperCase()
+
+  const config = await configureAzure(ui, run)
+
+  expect(config.azure).toMatchObject({ subscriptionId, tenantId })
+  const selections = vi.mocked(ui.select).mock.calls
+  expect(selections[0]![1].map(({ value }) => value)).toEqual([tenantId])
+  expect(selections[1]![1].map(({ value }) => value)).toEqual([subscriptionId])
+  const discovery = run.mock.calls.filter(
+    ([, args]) => args[0] === "rest" || args[0] === "provider",
+  )
+  expect(discovery).toHaveLength(5)
+  for (const [, args] of discovery)
+    expect(args[args.indexOf("--subscription") + 1]).toBe(subscriptionId)
+})
+
+it.each(["id", "tenantId"] as const)(
+  "rejects malformed discovered %s before offering it as a deployment target",
+  async (field) => {
+    const { accounts, ui, run } = setup()
+    accounts[0]![field] = `${accounts[0]![field]}\n`
+
+    await expect(configureAzure(ui, run)).rejects.toThrow()
+
+    expect(ui.select).not.toHaveBeenCalled()
+    expect(run.mock.calls.some(([, args]) => args[0] === "rest" || args[0] === "provider")).toBe(
+      false,
+    )
+  },
+)
