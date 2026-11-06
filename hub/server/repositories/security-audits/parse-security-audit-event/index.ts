@@ -146,7 +146,13 @@ const eventSchema = z.discriminatedUnion("type", [
       id: z.uuid(),
       type: z.literal("provider_revision_denied"),
       providerKey: z.unknown(),
-      reason: z.enum(["invariant", "revision_gap", "rollback", "same_revision_drift"]),
+      reason: z.enum([
+        "invariant",
+        "reactivation_requires_revision",
+        "revision_gap",
+        "rollback",
+        "same_revision_drift",
+      ]),
       revision: z.number().int().positive(),
     })
     .strict(),

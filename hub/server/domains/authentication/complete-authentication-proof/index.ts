@@ -128,11 +128,23 @@ export async function completeAuthenticationProof(
     )
     throw error
   }
-  const identity = await dependencies.resolveOrCreateIdentity({
-    provider: evidence.identity.provider,
-    issuer: evidence.identity.issuer,
-    subject: evidence.identity.subject,
-  })
+  let identity
+  try {
+    identity = await dependencies.resolveOrCreateIdentity({
+      authorizationAttemptId: attempt.id,
+      provider: evidence.identity.provider,
+      issuer: evidence.identity.issuer,
+      providerRevisionId: attempt.providerRevisionId,
+      sessionRevocationRevision: attempt.sessionRevocationRevision,
+      subject: evidence.identity.subject,
+    })
+  } catch (error) {
+    if (!(error instanceof AuthenticationProofError)) throw error
+    await recordAuthenticationDenial(error, () =>
+      dependencies.writeDenialAudit("configuration_changed"),
+    )
+    throw error
+  }
   return {
     providerAssignment: evidence.providerAssignment
       ? {

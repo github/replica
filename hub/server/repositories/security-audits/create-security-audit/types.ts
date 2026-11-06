@@ -117,7 +117,12 @@ export interface ProviderRevisionValidationFailedAudit extends SecurityAuditEven
 export interface ProviderRevisionDeniedAudit extends SecurityAuditEvent {
   type: "provider_revision_denied"
   providerKey: string
-  reason: "invariant" | "revision_gap" | "rollback" | "same_revision_drift"
+  reason:
+    | "invariant"
+    | "reactivation_requires_revision"
+    | "revision_gap"
+    | "rollback"
+    | "same_revision_drift"
   revision: number
 }
 

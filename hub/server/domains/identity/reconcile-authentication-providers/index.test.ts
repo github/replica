@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 import { describe, expect, it, vi } from "vitest"
 
 import {
@@ -8,6 +8,7 @@ import {
   ProviderRevisionGapError,
   ProviderRevisionInvariantError,
   ProviderRevisionRollbackError,
+  ProviderReactivationRevisionError,
 } from "../errors"
 import type { AuthenticationProviderReconciliationRepositories } from "../run-provider-revision-transaction/types"
 import { reconcileAuthenticationProviders } from "."
@@ -40,11 +41,11 @@ function candidate(revision: number) {
 
 describe("reconcileAuthenticationProviders()", () => {
   it.each([
-    ["rollback", 2, 1, ProviderRevisionRollbackError],
-    ["gap", 1, 3, ProviderRevisionGapError],
+    ["rollback", 2, 1, "rollback", ProviderRevisionRollbackError],
+    ["gap", 1, 3, "revision_gap", ProviderRevisionGapError],
   ] as const)(
     "rejects a provider revision %s",
-    async (_case, currentRevision, nextRevision, error) => {
+    async (_case, currentRevision, nextRevision, reason, error) => {
       const records = repositories([
         {
           configurationDigest: "a".repeat(64),
@@ -66,9 +67,10 @@ describe("reconcileAuthenticationProviders()", () => {
       ).rejects.toBeInstanceOf(error)
       expect(writeAudit).toHaveBeenCalledWith(
         expect.objectContaining({
-          providerKeys: ["github"],
-          reason: "transaction_error",
-          type: "authentication_providers_reconcile_failed",
+          providerKey: "github",
+          reason,
+          revision: nextRevision,
+          type: "provider_revision_denied",
         }),
       )
     },
@@ -76,15 +78,24 @@ describe("reconcileAuthenticationProviders()", () => {
 
   it("requires a new provider to begin at revision one", async () => {
     const records = repositories([])
+    const writeAudit = vi.fn()
 
     await expect(
       reconcileAuthenticationProviders([candidate(2)], {
         createId: randomUUID,
         runTransaction: (operation) => operation(records),
-        writeAudit: vi.fn(),
+        writeAudit,
       }),
     ).rejects.toBeInstanceOf(ProviderRevisionGapError)
     expect(records.createAuthenticationProvider).not.toHaveBeenCalled()
+    expect(writeAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerKey: "github",
+        reason: "revision_gap",
+        revision: 2,
+        type: "provider_revision_denied",
+      }),
+    )
   })
 
   it("rejects same-revision configuration drift without mutating provider state", async () => {
@@ -114,9 +125,46 @@ describe("reconcileAuthenticationProviders()", () => {
     expect(records.createSecurityAudit).not.toHaveBeenCalled()
     expect(writeAudit).toHaveBeenCalledWith(
       expect.objectContaining({
-        providerKeys: ["github"],
-        reason: "transaction_error",
-        type: "authentication_providers_reconcile_failed",
+        providerKey: "github",
+        reason: "same_revision_drift",
+        revision: 1,
+        type: "provider_revision_denied",
+      }),
+    )
+  })
+
+  it("denies same-revision reactivation with typed audit evidence", async () => {
+    const records = repositories([
+      {
+        configurationDigest: createHash("sha256")
+          .update(candidate(1).canonicalPublicConfiguration)
+          .digest("hex"),
+        enabled: false,
+        id: randomUUID(),
+        key: "github",
+        revision: 1,
+        revisionId: randomUUID(),
+      },
+    ])
+    const writeAudit = vi.fn()
+
+    await expect(
+      reconcileAuthenticationProviders([candidate(1)], {
+        createId: randomUUID,
+        runTransaction: (operation) => operation(records),
+        writeAudit,
+      }),
+    ).rejects.toBeInstanceOf(ProviderReactivationRevisionError)
+
+    expect(records.createAuthenticationProviderRevision).not.toHaveBeenCalled()
+    expect(records.enableAuthenticationProvider).not.toHaveBeenCalled()
+    expect(records.createSecurityAudit).not.toHaveBeenCalled()
+    expect(writeAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerKey: "github",
+        reason: "reactivation_requires_revision",
+        revision: 1,
+        type: "provider_revision_denied",
       }),
     )
   })

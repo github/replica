@@ -85,6 +85,14 @@ describe("completeAuthenticationProof()", () => {
       codeVerifier: "pkce-verifier",
       nonce: "nonce-value",
     })
+    expect(scoped.resolveOrCreateIdentity).toHaveBeenCalledWith({
+      authorizationAttemptId: "00000000-0000-4000-8000-000000000010",
+      issuer: "https://github.com",
+      provider: "github",
+      providerRevisionId: revision.id,
+      sessionRevocationRevision: 0,
+      subject: "123",
+    })
     expect(result).toEqual({
       proof: {
         authorizationAttemptId: "00000000-0000-4000-8000-000000000010",

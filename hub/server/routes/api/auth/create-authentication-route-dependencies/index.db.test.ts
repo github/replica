@@ -198,15 +198,17 @@ describe("createAuthenticationRouteDependencies()", () => {
     await expect(
       prisma.securityAudit.findMany({
         orderBy: { createdAt: "asc" },
-        where: { outcome: "FAILURE" },
+        where: { action: "identity.provider_revision.denied" },
       }),
     ).resolves.toEqual([
       expect.objectContaining({
-        action: "identity.authentication_providers.reconcile_failed",
+        action: "identity.provider_revision.denied",
         context: {
-          providerKeys: ["entra", "github"],
-          reason: "transaction_error",
+          provider: "github",
+          reason: "same_revision_drift",
+          revision: 1,
         },
+        outcome: "DENIED",
       }),
     ])
   })
@@ -351,51 +353,63 @@ describe("createAuthenticationRouteDependencies()", () => {
     },
   )
 
-  it("does not reactivate removed authority when the same provider revision is re-added", async () => {
+  it("denies same-revision reactivation without changing disabled provider state", async () => {
     await createAuthenticationRouteDependencies(
       environment({ entra: true, github: true }),
       validDiscovery,
     )
-    const digest = "c".repeat(64)
-    await createProviderSession("entra", digest)
-
-    const withoutEntra = await createAuthenticationRouteDependencies(
-      environment({ github: true }),
-      validDiscovery,
-    )
-    await expect(withoutEntra.currentSession.restore(digest)).resolves.toBeNull()
-    await expect(
-      prisma.securityAudit.count({ where: { action: "session.revocation.advanced" } }),
-    ).resolves.toBe(1)
-    await expect(
-      prisma.securityAudit.findMany({
-        select: { action: true, context: true },
-        where: { action: "identity.authentication_provider.disabled" },
-      }),
-    ).resolves.toEqual([
-      {
-        action: "identity.authentication_provider.disabled",
-        context: { provider: "entra" },
+    await createAuthenticationRouteDependencies(environment({ github: true }), validDiscovery)
+    const disabled = await prisma.authenticationProvider.findUniqueOrThrow({
+      where: { key: "entra" },
+      select: {
+        enabled: true,
+        selectedRevisionId: true,
+        revisions: {
+          orderBy: { revision: "asc" },
+          select: { id: true, revision: true },
+        },
       },
-    ])
+    })
+    const attemptCount = await prisma.authorizationAttempt.count()
+    const sessionCount = await prisma.hubSession.count()
 
-    const readded = await createAuthenticationRouteDependencies(
-      environment({ entra: true, github: true }),
-      validDiscovery,
-    )
-    await expect(readded.currentSession.restore(digest)).resolves.toBeNull()
     await expect(
-      prisma.securityAudit.count({ where: { action: "session.revocation.advanced" } }),
-    ).resolves.toBe(1)
+      createAuthenticationRouteDependencies(
+        environment({ entra: true, github: true }),
+        validDiscovery,
+      ),
+    ).rejects.toThrow()
+
+    await expect(
+      prisma.authenticationProvider.findUniqueOrThrow({
+        where: { key: "entra" },
+        select: {
+          enabled: true,
+          selectedRevisionId: true,
+          revisions: {
+            orderBy: { revision: "asc" },
+            select: { id: true, revision: true },
+          },
+        },
+      }),
+    ).resolves.toEqual(disabled)
+    await expect(prisma.authorizationAttempt.count()).resolves.toBe(attemptCount)
+    await expect(prisma.hubSession.count()).resolves.toBe(sessionCount)
     await expect(
       prisma.securityAudit.findMany({
-        select: { action: true, context: true },
-        where: { action: "identity.authentication_provider.enabled" },
+        orderBy: { createdAt: "desc" },
+        select: { action: true, context: true, outcome: true },
+        take: 1,
       }),
     ).resolves.toEqual([
       {
-        action: "identity.authentication_provider.enabled",
-        context: { provider: "entra" },
+        action: "identity.provider_revision.denied",
+        context: {
+          provider: "entra",
+          reason: "reactivation_requires_revision",
+          revision: 1,
+        },
+        outcome: "DENIED",
       },
     ])
   })
@@ -468,16 +482,17 @@ describe("createAuthenticationRouteDependencies()", () => {
     ).resolves.toBe(2)
 
     const reenabled = await createAuthenticationRouteDependencies(
-      environment({ entra: true, github: true }),
+      environment({ entra: true, entraRevision: 2, github: true, githubRevision: 2 }),
       validDiscovery,
     )
 
-    await expect(
-      prisma.authenticationProvider.findMany({
-        orderBy: { key: "asc" },
-        select: { key: true, selectedRevisionId: true },
-      }),
-    ).resolves.toEqual(selectedBefore)
+    const selectedAfter = await prisma.authenticationProvider.findMany({
+      orderBy: { key: "asc" },
+      select: { key: true, selectedRevisionId: true },
+    })
+    expect(selectedAfter.map(({ key }) => key)).toEqual(selectedBefore.map(({ key }) => key))
+    expect(selectedAfter[0]!.selectedRevisionId).not.toBe(selectedBefore[0]!.selectedRevisionId)
+    expect(selectedAfter[1]!.selectedRevisionId).not.toBe(selectedBefore[1]!.selectedRevisionId)
     await expect(reenabled.currentSession.restore(entraDigest)).resolves.toBeNull()
     await expect(reenabled.currentSession.restore(githubDigest)).resolves.toBeNull()
     const entraAttempt = await reenabled.entra!.signIn.start()

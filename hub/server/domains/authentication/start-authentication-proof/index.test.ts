@@ -34,12 +34,14 @@ function dependencies(overrides: Partial<StartAuthenticationProofDependencies> =
     deleteExpiredArtifacts: vi.fn(),
     encryptCodeVerifier: vi.fn(() => "encrypted-verifier"),
     encryptNonce: vi.fn(() => "encrypted-nonce"),
-    getSessionRevocationRevision: vi.fn(() => Promise.resolve(0)),
-    getSelectedProviderRevision: () =>
+    getAuthenticationProofState: () =>
       Promise.resolve({
-        id: "00000000-0000-4000-8000-000000000011",
-        revision: 1,
-        configurationDigest: "a".repeat(64),
+        selectedProviderRevision: {
+          id: "00000000-0000-4000-8000-000000000011",
+          revision: 1,
+          configurationDigest: "a".repeat(64),
+        },
+        sessionRevocationRevision: 0,
       }),
     writeDenialAudit: vi.fn(),
     ...overrides,
@@ -103,13 +105,24 @@ describe("startAuthenticationProof()", () => {
     )
   })
 
-  it("snapshots the current global session revocation revision", async () => {
+  it("reads provider selection and global revocation through one atomic snapshot", async () => {
     const scoped = dependencies({
-      getSessionRevocationRevision: vi.fn(() => Promise.resolve(7)),
+      getAuthenticationProofState: vi.fn(() =>
+        Promise.resolve({
+          selectedProviderRevision: {
+            configurationDigest: "a".repeat(64),
+            id: "00000000-0000-4000-8000-000000000011",
+            revision: 1,
+          },
+          sessionRevocationRevision: 7,
+        }),
+      ),
     })
 
-    await startAuthenticationProof({ purpose: "SIGN_IN" }, scoped.values)
+    const result = await startAuthenticationProof({ purpose: "SIGN_IN" }, scoped.values)
+    expect(result.authorizationUrl).toContain("https://provider.test/authorize")
 
+    expect(scoped.values.getAuthenticationProofState).toHaveBeenCalledOnce()
     expect(scoped.createAttempt).toHaveBeenCalledWith(
       expect.objectContaining({ sessionRevocationRevision: 7 }),
     )
@@ -143,6 +156,30 @@ describe("startAuthenticationProof()", () => {
       code: "configuration_changed",
     })
     expect(scoped.createAttempt).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["missing snapshot", null],
+    [
+      "disabled provider",
+      {
+        selectedProviderRevision: null,
+        sessionRevocationRevision: 1,
+      },
+    ],
+  ] as const)("fails closed without creating state for %s", async (_case, proofState) => {
+    const scoped = dependencies({
+      getAuthenticationProofState: vi.fn(() => Promise.resolve(proofState)),
+    })
+
+    await expect(
+      startAuthenticationProof({ purpose: "SIGN_IN" }, scoped.values),
+    ).rejects.toMatchObject({
+      code: "configuration_changed",
+    })
+
+    expect(scoped.createAttempt).not.toHaveBeenCalled()
+    expect(scoped.createAuthorizationUrl).not.toHaveBeenCalled()
   })
 
   it("preserves revision denial and audit failure without creating state", async () => {

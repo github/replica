@@ -31,8 +31,11 @@ export interface CompleteAuthenticationProofDependencies {
     sessionRevocationRevision: number
   } | null>
   resolveOrCreateIdentity(input: {
+    authorizationAttemptId: string
     issuer: string
     provider: string
+    providerRevisionId: string
+    sessionRevocationRevision: number
     subject: string
   }): Promise<{ externalIdentityId: string; userId: string }>
   writeDenialAudit(

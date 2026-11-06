@@ -125,6 +125,25 @@ async function waitForMembershipLock(inspector: pg.Client) {
   return null
 }
 
+async function waitForAuthenticationCompletionLock(inspector: pg.Client, lockerPid: number) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const result = await inspector.query<{ pid: number }>(
+      `SELECT pid
+       FROM pg_stat_activity
+       WHERE datname = current_database()
+         AND pid <> $1
+         AND state = 'active'
+         AND wait_event_type = 'Lock'
+       ORDER BY query_start DESC
+       LIMIT 1`,
+      [lockerPid],
+    )
+    if (result.rows[0]) return result.rows[0].pid
+    await Promise.resolve()
+  }
+  return null
+}
+
 describe("Hub admission and session flow", () => {
   it("audits malformed verification state before provider or admission work", async () => {
     const records: string[] = []
@@ -405,12 +424,11 @@ describe("Hub admission and session flow", () => {
     }
   })
 
-  it("permanently denies a stale callback after disable and identical re-enable", async () => {
+  it("denies old-version admission after disable and identical revision-two reactivation", async () => {
     const environment = runtimeEnvironment()
     const original = await openServer([], undefined, environment)
-    let staleAttempt: Awaited<ReturnType<typeof startAuthentication>>
     try {
-      staleAttempt = await startAuthentication(
+      await startAuthentication(
         original.baseUrl,
         "/api/auth/github/admin-enrollment/start",
         new URLSearchParams({
@@ -428,16 +446,46 @@ describe("Hub admission and session flow", () => {
     ).selectedRevisionId
 
     await disableAuthenticationProviders()
-    const reenabled = await openServer([701], undefined, environment)
+    const oldVersionAttempt = {
+      browserCookie: `old-version-browser-${"b".repeat(32)}`,
+      state: `old-version-state-${"s".repeat(32)}`,
+    }
+    await prisma.authorizationAttempt.create({
+      data: {
+        bootstrapSecretDigest: createHash("sha256")
+          .update("bootstrap-secret-that-is-at-least-32-characters")
+          .digest("hex"),
+        browserBindingDigest: createHash("sha256")
+          .update(oldVersionAttempt.browserCookie)
+          .digest("hex"),
+        codeVerifierCiphertext: "old-version-encrypted-verifier",
+        expiresAt: new Date(Date.now() + 60_000),
+        id: randomUUID(),
+        nonceCiphertext: "old-version-encrypted-nonce",
+        providerRevisionId: selectedRevisionId!,
+        purpose: "ADMIN_ENROLLMENT",
+        sessionRevocationRevision: 1,
+        stateDigest: createHash("sha256").update(oldVersionAttempt.state).digest("hex"),
+      },
+    })
+    const reenabled = await openServer([701], undefined, {
+      ...environment,
+      GITHUB_PROVIDER_REVISION: "2",
+    })
     try {
-      await expect(
-        prisma.authenticationProvider.findUniqueOrThrow({
-          where: { key: "github" },
-          select: { enabled: true, selectedRevisionId: true },
-        }),
-      ).resolves.toEqual({ enabled: true, selectedRevisionId })
+      const provider = await prisma.authenticationProvider.findUniqueOrThrow({
+        where: { key: "github" },
+        select: {
+          enabled: true,
+          selectedRevision: { select: { id: true, revision: true } },
+        },
+      })
+      expect(provider.enabled).toBe(true)
+      expect(provider.selectedRevision?.revision).toBe(2)
+      expect(typeof provider.selectedRevision?.id).toBe("string")
+      expect(provider.selectedRevision!.id).not.toBe(selectedRevisionId)
 
-      const stale = await completeAuthentication(reenabled.baseUrl, staleAttempt)
+      const stale = await completeAuthentication(reenabled.baseUrl, oldVersionAttempt)
 
       expect(stale.headers.get("location")).toBe("/?authentication=denied")
       expect(cookieValue(stale, "hub_session")).toBeNull()
@@ -448,7 +496,7 @@ describe("Hub admission and session flow", () => {
       expect(await prisma.membershipAssignment.count()).toBe(0)
       expect(await prisma.hubSession.count()).toBe(0)
 
-      const replay = await completeAuthentication(reenabled.baseUrl, staleAttempt)
+      const replay = await completeAuthentication(reenabled.baseUrl, oldVersionAttempt)
       expect(replay.headers.get("location")).toBe("/?authentication=denied")
       expect(reenabled.providerRequest).not.toHaveBeenCalled()
 
@@ -515,6 +563,79 @@ describe("Hub admission and session flow", () => {
     } finally {
       tokenResponse.resolve(Response.json({ access_token: "unused", token_type: "bearer" }))
       await server.close()
+    }
+  })
+
+  it("creates no identity when revocation advances immediately before identity mutation", async () => {
+    const providerStarted = deferred<void>()
+    const tokenResponse = deferred<Response>()
+    const providerRequest = vi.fn<typeof fetch>((input) => {
+      const url = input instanceof Request ? input.url : input.toString()
+      if (url === "https://github.com/login/oauth/access_token") {
+        providerStarted.resolve()
+        return tokenResponse.promise
+      }
+      if (url === "https://api.github.com/user") {
+        return Promise.resolve(Response.json({ id: 703 }))
+      }
+      throw new Error(`Unexpected provider request: ${url}`)
+    })
+    const server = await openServer([703], undefined, runtimeEnvironment(), providerRequest)
+    const locker = new pg.Client({ connectionString: getDatabaseUrl() })
+    const inspector = new pg.Client({ connectionString: getDatabaseUrl() })
+    await Promise.all([locker.connect(), inspector.connect()])
+    const lockerPid = (await locker.query<{ pid: number }>(`SELECT pg_backend_pid() AS pid`))
+      .rows[0]!.pid
+    try {
+      const attempt = await startAuthentication(
+        server.baseUrl,
+        "/api/auth/github/admin-enrollment/start",
+        new URLSearchParams({
+          bootstrap_secret: "bootstrap-secret-that-is-at-least-32-characters",
+        }),
+      )
+      await locker.query("BEGIN")
+      await locker.query(`SELECT id FROM authentication_providers WHERE key = 'github' FOR UPDATE`)
+      await locker.query(`LOCK TABLE users IN ACCESS EXCLUSIVE MODE`)
+
+      const completion = completeAuthentication(server.baseUrl, attempt)
+      await providerStarted.promise
+      tokenResponse.resolve(Response.json({ access_token: "provider-token", token_type: "bearer" }))
+      expect(await waitForAuthenticationCompletionLock(inspector, lockerPid)).not.toBeNull()
+      await locker.query(
+        `UPDATE session_revocation_states
+         SET revision = revision + 1, updated_at = clock_timestamp()
+         WHERE key = 'global'`,
+      )
+      await locker.query("COMMIT")
+
+      const response = await completion
+
+      expect(response.headers.get("location")).toBe("/?authentication=denied")
+      expect(cookieValue(response, "hub_session")).toBeNull()
+      expect(await prisma.user.count()).toBe(0)
+      expect(await prisma.externalIdentity.count()).toBe(0)
+      expect(await prisma.membership.count()).toBe(0)
+      expect(await prisma.membershipAssignment.count()).toBe(0)
+      expect(await prisma.hubSession.count()).toBe(0)
+      expect(
+        await prisma.securityAudit.count({
+          where: {
+            action: {
+              in: [
+                "identity.external.created",
+                "membership.created",
+                "membership.assignment.created",
+                "session.created",
+              ],
+            },
+          },
+        }),
+      ).toBe(0)
+    } finally {
+      tokenResponse.resolve(Response.json({ access_token: "unused", token_type: "bearer" }))
+      await Promise.allSettled([locker.query("ROLLBACK")])
+      await Promise.all([locker.end(), inspector.end(), server.close()])
     }
   })
 

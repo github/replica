@@ -18,7 +18,7 @@ export async function endProviderAssignment(
     UPDATE "membership_assignments"
     SET
       "lifecycle" = ${parsed.lifecycle}::"MembershipAssignmentLifecycle",
-      "updated_at" = clock_timestamp()
+      "updated_at" = GREATEST(clock_timestamp(), "updated_at" + interval '1 millisecond')
     WHERE "id" = ${parsed.id}::uuid
       AND "source" = 'AUTHENTICATION_PROVIDER'
       AND "lifecycle" = 'ACTIVE'

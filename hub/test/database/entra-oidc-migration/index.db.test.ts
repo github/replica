@@ -56,6 +56,11 @@ describe("Entra OIDC migration compatibility", () => {
             ),
           )
         }
+        await database.query(
+          `UPDATE session_revocation_states
+           SET revision = revision + 1, updated_at = clock_timestamp()
+           WHERE key = 'global'`,
+        )
 
         const providerId = "00000000-0000-4000-8000-000000000010"
         const revisionId = "00000000-0000-4000-8000-000000000011"
@@ -144,6 +149,64 @@ describe("Entra OIDC migration compatibility", () => {
           ]),
         ).resolves.toMatchObject({ rows: [{ enabled: true }] })
 
+        const secondRevisionId = "00000000-0000-4000-8000-000000000022"
+        await database.query("BEGIN")
+        await database.query(
+          `UPDATE authentication_providers
+           SET enabled = false, selected_revision_id = NULL
+           WHERE id = $1`,
+          [providerId],
+        )
+        await expect(
+          database.query(
+            `SELECT enabled, selected_revision_id, last_disabled_revision_id
+             FROM authentication_providers
+             WHERE id = $1`,
+            [providerId],
+          ),
+        ).resolves.toMatchObject({
+          rows: [
+            {
+              enabled: false,
+              last_disabled_revision_id: revisionId,
+              selected_revision_id: null,
+            },
+          ],
+        })
+        await database.query("SAVEPOINT same_revision_reactivation")
+        await expect(
+          database.query(
+            `UPDATE authentication_providers
+             SET enabled = true, selected_revision_id = $2
+             WHERE id = $1`,
+            [providerId, revisionId],
+          ),
+        ).rejects.toThrow(/Re-enabling an authentication provider requires a new revision/)
+        await database.query("ROLLBACK TO SAVEPOINT same_revision_reactivation")
+        await database.query(
+          `INSERT INTO authentication_provider_revisions
+             (id, provider_id, revision, configuration_digest)
+           VALUES ($1, $2, 2, $3)`,
+          [secondRevisionId, providerId, "a".repeat(64)],
+        )
+        await database.query(
+          `UPDATE authentication_providers
+           SET enabled = true, selected_revision_id = $2
+           WHERE id = $1`,
+          [providerId, secondRevisionId],
+        )
+        await expect(
+          database.query(
+            `SELECT enabled, selected_revision_id
+             FROM authentication_providers
+             WHERE id = $1`,
+            [providerId],
+          ),
+        ).resolves.toMatchObject({
+          rows: [{ enabled: true, selected_revision_id: secondRevisionId }],
+        })
+        await database.query("ROLLBACK")
+
         await database.query("SET enable_seqscan = off")
         const providerAssignmentPlan = await database.query<{ "QUERY PLAN": string }>(
           `EXPLAIN (COSTS OFF)
@@ -226,12 +289,20 @@ describe("Entra OIDC migration compatibility", () => {
         ).resolves.toMatchObject({
           rows: [{ nonce_ciphertext: null, session_revocation_revision: 0 }],
         })
+        const migrationSql = await readFile(
+          join(hubRoot, "schema/migrations/20261104190000_entra_oidc_authentication/migration.sql"),
+          "utf8",
+        )
+        expect(migrationSql).not.toContain('DISABLE TRIGGER "authorization_attempts_protected"')
+        expect(migrationSql).not.toContain(
+          'DISABLE TRIGGER "authorization_attempts_authority_protected"',
+        )
         await expect(
           database.query(
             `UPDATE authorization_attempts SET nonce_ciphertext = 'changed' WHERE id = $1`,
             [attemptId],
           ),
-        ).rejects.toThrow(/Authorization attempt nonce is immutable/)
+        ).rejects.toThrow(/Authorization attempt history is immutable/)
         await expect(
           database.query(
             `UPDATE authorization_attempts
@@ -239,7 +310,7 @@ describe("Entra OIDC migration compatibility", () => {
              WHERE id = $1`,
             [attemptId],
           ),
-        ).rejects.toThrow(/Authorization attempt session revocation revision is immutable/)
+        ).rejects.toThrow(/Authorization attempt history is immutable/)
         await expect(
           database.query(
             `UPDATE authorization_attempts

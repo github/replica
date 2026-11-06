@@ -16,23 +16,21 @@ import { readAuthenticationConfigurationState } from "../../../../domains/authen
 import { createSharedAuthenticationContext } from "../../../../domains/authentication/create-shared-authentication-context/index.ts"
 import { decryptAuthenticationValue } from "../../../../domains/authentication/decrypt-authentication-value/index.ts"
 import { encryptAuthenticationValue } from "../../../../domains/authentication/encrypt-authentication-value/index.ts"
+import { AuthenticationProofError } from "../../../../domains/authentication/errors.ts"
 import { hashAuthenticationValue } from "../../../../domains/authentication/hash-authentication-value/index.ts"
 import { startAuthenticationProof } from "../../../../domains/authentication/start-authentication-proof/index.ts"
 import type { AuthenticationProviderAdapter } from "../../../../domains/authentication/types.ts"
 import { ProviderConfigurationValidationError } from "../../../../domains/identity/errors.ts"
-import { getSelectedProviderRevision } from "../../../../domains/identity/get-selected-provider-revision/index.ts"
 import { reconcileAuthenticationProviders } from "../../../../domains/identity/reconcile-authentication-providers/index.ts"
 import { resolveOrCreateExternalIdentity } from "../../../../domains/identity/resolve-or-create-external-identity/index.ts"
 import { runIdentityCreationTransaction } from "../../../../domains/identity/run-identity-creation-transaction/index.ts"
 import { runProviderRevisionTransaction } from "../../../../domains/identity/run-provider-revision-transaction/index.ts"
 import { prisma } from "../../../../integrations/prisma/index.ts"
-import { findAuthenticationProvider } from "../../../../repositories/authentication-providers/find-authentication-provider/index.ts"
 import { getAuthenticationProofState } from "../../../../repositories/authentication-providers/get-authentication-proof-state/index.ts"
 import { consumeAuthorizationAttempt } from "../../../../repositories/authorization-attempts/consume-authorization-attempt/index.ts"
 import { createAuthorizationAttempt } from "../../../../repositories/authorization-attempts/create-authorization-attempt/index.ts"
 import { deleteExpiredAuthorizationAttempts } from "../../../../repositories/authorization-attempts/delete-expired-authorization-attempts/index.ts"
 import { createSecurityAudit } from "../../../../repositories/security-audits/create-security-audit/index.ts"
-import { getSessionRevocationState } from "../../../../repositories/session-revocation-states/get-session-revocation-state/index.ts"
 import type {
   AuthenticationRouteDependencies,
   ProviderAuthenticationRouteDependencies,
@@ -118,13 +116,6 @@ export async function createAuthenticationRouteDependencies(
   function createProviderDependencies(
     context: AuthenticationContext,
   ): ProviderAuthenticationRouteDependencies {
-    async function selectedRevision() {
-      const provider = await findAuthenticationProvider(prisma, context.adapter.providerKey)
-      if (!provider?.enabled) return null
-      return getSelectedProviderRevision(context.adapter.providerKey, {
-        findAuthenticationProvider: () => Promise.resolve(provider),
-      })
-    }
     function writeAuthenticationDenial(
       reason: Parameters<CompleteAuthenticationProofDependencies["writeDenialAudit"]>[0],
     ) {
@@ -158,9 +149,8 @@ export async function createAuthenticationRouteDependencies(
             encryptCodeVerifier: (value) =>
               encryptAuthenticationValue(value, context.encryptionKey),
             encryptNonce: (value) => encryptAuthenticationValue(value, context.encryptionKey),
-            getSelectedProviderRevision: selectedRevision,
-            getSessionRevocationRevision: async () =>
-              (await getSessionRevocationState(prisma))?.revision ?? null,
+            getAuthenticationProofState: () =>
+              getAuthenticationProofState(prisma, context.adapter.providerKey),
             writeDenialAudit: writeAuthenticationDenial,
           },
         )
@@ -220,11 +210,38 @@ export async function createAuthenticationRouteDependencies(
             getAuthenticationProofState: () =>
               getAuthenticationProofState(prisma, context.adapter.providerKey),
             resolveOrCreateIdentity: (value) =>
-              resolveOrCreateExternalIdentity(value, {
-                createId: randomUUID,
-                runTransaction: (operation) => runIdentityCreationTransaction(prisma, operation),
-                writeAudit: (event) => createSecurityAudit(prisma, event),
-              }),
+              resolveOrCreateExternalIdentity(
+                {
+                  issuer: value.issuer,
+                  provider: value.provider,
+                  subject: value.subject,
+                },
+                {
+                  createId: randomUUID,
+                  isExpectedTransactionDenial: (error) => error instanceof AuthenticationProofError,
+                  runTransaction: (operation) => runIdentityCreationTransaction(prisma, operation),
+                  validateTransaction: async (repositories) => {
+                    const provider = await repositories.lockProvider(context.adapter.providerKey)
+                    const revocation = await repositories.lockRevocation()
+                    const attempt = await repositories.lockAttempt(value.authorizationAttemptId)
+                    if (
+                      !provider?.enabled ||
+                      !revocation ||
+                      !attempt?.consumedAt ||
+                      provider.selectedRevisionId !== value.providerRevisionId ||
+                      attempt.providerRevisionId !== value.providerRevisionId ||
+                      revocation.revision !== value.sessionRevocationRevision ||
+                      attempt.sessionRevocationRevision !== value.sessionRevocationRevision
+                    ) {
+                      throw new AuthenticationProofError(
+                        "configuration_changed",
+                        "The authentication provider configuration changed during this attempt.",
+                      )
+                    }
+                  },
+                  writeAudit: (event) => createSecurityAudit(prisma, event),
+                },
+              ),
             writeDenialAudit: writeAuthenticationDenial,
           }),
         admit: (input) =>

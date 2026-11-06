@@ -23,10 +23,10 @@ export async function startAuthenticationProof(
 ): Promise<StartAuthenticationProofResult> {
   const parsed = inputSchema.parse(input)
   await dependencies.deleteExpiredArtifacts()
-  const sessionRevocationRevision = await dependencies.getSessionRevocationRevision()
-  const selectedRevision = await dependencies.getSelectedProviderRevision()
+  const proofState = await dependencies.getAuthenticationProofState()
+  const selectedRevision = proofState?.selectedProviderRevision
   if (
-    sessionRevocationRevision === null ||
+    !proofState ||
     !selectedRevision ||
     selectedRevision.revision !== dependencies.expectedRevision ||
     selectedRevision.configurationDigest !== dependencies.configurationDigest
@@ -55,7 +55,7 @@ export async function startAuthenticationProof(
     lifetimeSeconds: ATTEMPT_LIFETIME_MS / 1_000,
     nonceCiphertext: dependencies.encryptNonce(nonce),
     purpose: parsed.purpose,
-    sessionRevocationRevision,
+    sessionRevocationRevision: proofState.sessionRevocationRevision,
   })
 
   const authorizationUrl = await dependencies.adapter.createAuthorizationUrl({

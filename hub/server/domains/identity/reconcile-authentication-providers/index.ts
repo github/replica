@@ -4,7 +4,9 @@ import { z } from "zod"
 import { parseProviderKey } from "../../../utils/parse-provider-key/index.ts"
 import {
   IdentityTransactionConflictError,
+  ProviderReactivationRevisionError,
   ProviderRevisionConflictError,
+  ProviderRevisionDeniedError,
   ProviderRevisionDriftError,
   ProviderRevisionGapError,
   ProviderRevisionInvariantError,
@@ -61,15 +63,21 @@ export async function reconcileAuthenticationProviders(
               providerId = current.id
               revisionId = current.revisionId
               if (candidate.revision < current.revision) {
-                throw new ProviderRevisionRollbackError()
+                throw new ProviderRevisionRollbackError(candidate.providerKey, candidate.revision)
               }
               if (candidate.revision === current.revision) {
                 if (candidate.configurationDigest !== current.configurationDigest) {
-                  throw new ProviderRevisionDriftError()
+                  throw new ProviderRevisionDriftError(candidate.providerKey, candidate.revision)
+                }
+                if (!current.enabled) {
+                  throw new ProviderReactivationRevisionError(
+                    candidate.providerKey,
+                    candidate.revision,
+                  )
                 }
               } else {
                 if (candidate.revision !== current.revision + 1) {
-                  throw new ProviderRevisionGapError()
+                  throw new ProviderRevisionGapError(candidate.providerKey, candidate.revision)
                 }
                 revisionId = dependencies.createId()
                 await repositories.createAuthenticationProviderRevision({
@@ -105,7 +113,9 @@ export async function reconcileAuthenticationProviders(
                 })
               }
             } else {
-              if (candidate.revision !== 1) throw new ProviderRevisionGapError()
+              if (candidate.revision !== 1) {
+                throw new ProviderRevisionGapError(candidate.providerKey, candidate.revision)
+              }
               providerId = dependencies.createId()
               revisionId = dependencies.createId()
               await repositories.createAuthenticationProvider({
@@ -172,12 +182,22 @@ export async function reconcileAuthenticationProviders(
     const conflict = error instanceof IdentityTransactionConflictError
     const reported = conflict ? new ProviderRevisionConflictError({ cause: error }) : error
     try {
-      await dependencies.writeAudit({
-        id: dependencies.createId(),
-        type: "authentication_providers_reconcile_failed",
-        providerKeys: parsed.map((candidate) => candidate.providerKey),
-        reason: conflict ? "retry_exhausted" : "transaction_error",
-      })
+      await dependencies.writeAudit(
+        error instanceof ProviderRevisionDeniedError
+          ? {
+              id: dependencies.createId(),
+              type: "provider_revision_denied",
+              providerKey: error.providerKey,
+              reason: error.auditReason,
+              revision: error.revision,
+            }
+          : {
+              id: dependencies.createId(),
+              type: "authentication_providers_reconcile_failed",
+              providerKeys: parsed.map((candidate) => candidate.providerKey),
+              reason: conflict ? "retry_exhausted" : "transaction_error",
+            },
+      )
     } catch (auditError) {
       throw new AggregateError(
         [reported, auditError],

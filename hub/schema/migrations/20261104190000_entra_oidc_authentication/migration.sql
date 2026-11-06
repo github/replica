@@ -3,32 +3,81 @@ ALTER TYPE "MembershipAssignmentLifecycle" ADD VALUE 'SUPERSEDED' BEFORE 'REVOKE
 
 ALTER TABLE "authorization_attempts"
 ADD COLUMN "nonce_ciphertext" VARCHAR(500),
-ADD COLUMN "session_revocation_revision" INTEGER;
+ADD COLUMN "session_revocation_revision" INTEGER NOT NULL DEFAULT 0;
 
 ALTER TABLE "authorization_attempts"
-DISABLE TRIGGER "authorization_attempts_protected";
-ALTER TABLE "authorization_attempts"
-DISABLE TRIGGER "authorization_attempts_authority_protected";
-
-UPDATE "authorization_attempts"
-SET "session_revocation_revision" = (
-    SELECT "revision"
-    FROM "session_revocation_states"
-    WHERE "key" = 'global'
-);
-
-ALTER TABLE "authorization_attempts"
-ENABLE TRIGGER "authorization_attempts_authority_protected";
-ALTER TABLE "authorization_attempts"
-ENABLE TRIGGER "authorization_attempts_protected";
-
-ALTER TABLE "authorization_attempts"
-ALTER COLUMN "session_revocation_revision" SET NOT NULL,
+ALTER COLUMN "session_revocation_revision" DROP DEFAULT,
 ADD CONSTRAINT "authorization_attempts_session_revocation_revision_nonnegative"
 CHECK ("session_revocation_revision" >= 0);
 
+CREATE OR REPLACE FUNCTION protect_authorization_attempt()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        IF OLD."consumed_at" IS NULL AND OLD."expires_at" > CURRENT_TIMESTAMP THEN
+            RAISE EXCEPTION 'Unexpired authorization attempts cannot be deleted.';
+        END IF;
+        IF OLD."consumed_at" IS NOT NULL
+           AND OLD."consumed_at" > CURRENT_TIMESTAMP - interval '10 minutes' THEN
+            RAISE EXCEPTION 'Recently consumed authorization attempts cannot be deleted.';
+        END IF;
+        RETURN OLD;
+    END IF;
+    IF NEW."id" <> OLD."id"
+       OR NEW."provider_revision_id" <> OLD."provider_revision_id"
+       OR NEW."state_digest" <> OLD."state_digest"
+       OR NEW."browser_binding_digest" <> OLD."browser_binding_digest"
+       OR NEW."code_verifier_ciphertext" <> OLD."code_verifier_ciphertext"
+       OR NEW."nonce_ciphertext" IS DISTINCT FROM OLD."nonce_ciphertext"
+       OR NEW."session_revocation_revision" <> OLD."session_revocation_revision"
+       OR NEW."expires_at" <> OLD."expires_at"
+       OR NEW."created_at" <> OLD."created_at"
+       OR OLD."consumed_at" IS NOT NULL
+       OR NEW."consumed_at" IS NULL THEN
+        RAISE EXCEPTION 'Authorization attempt history is immutable except for first consumption.';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
 ALTER TABLE "authentication_providers"
-ADD COLUMN "enabled" BOOLEAN NOT NULL DEFAULT true;
+ADD COLUMN "enabled" BOOLEAN NOT NULL DEFAULT true,
+ADD COLUMN "last_disabled_revision_id" UUID;
+
+CREATE UNIQUE INDEX "authentication_providers_last_disabled_revision_id_key"
+ON "authentication_providers"("last_disabled_revision_id");
+
+ALTER TABLE "authentication_providers"
+ADD CONSTRAINT "authentication_providers_last_disabled_revision_id_fkey"
+FOREIGN KEY ("last_disabled_revision_id") REFERENCES "authentication_provider_revisions"("id")
+ON DELETE RESTRICT ON UPDATE CASCADE;
+
+CREATE FUNCTION track_authentication_provider_disablement()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    IF OLD."enabled" AND NOT NEW."enabled" THEN
+        NEW."last_disabled_revision_id" := OLD."selected_revision_id";
+    ELSIF NEW."last_disabled_revision_id" IS DISTINCT FROM OLD."last_disabled_revision_id" THEN
+        RAISE EXCEPTION 'Authentication provider disablement history is database-owned.';
+    END IF;
+
+    IF NOT OLD."enabled"
+       AND NEW."enabled"
+       AND NEW."selected_revision_id" IS NOT DISTINCT FROM OLD."last_disabled_revision_id" THEN
+        RAISE EXCEPTION 'Re-enabling an authentication provider requires a new revision.';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER "authentication_provider_disablement_tracked"
+BEFORE UPDATE OF "enabled", "selected_revision_id", "last_disabled_revision_id"
+ON "authentication_providers"
+FOR EACH ROW EXECUTE FUNCTION track_authentication_provider_disablement();
 
 CREATE OR REPLACE FUNCTION enforce_selected_revision_provider()
 RETURNS trigger
@@ -36,10 +85,11 @@ LANGUAGE plpgsql
 AS $$
 DECLARE
     selected_revision UUID;
+    last_disabled_revision UUID;
     provider_enabled BOOLEAN;
 BEGIN
-    SELECT "selected_revision_id", "enabled"
-    INTO selected_revision, provider_enabled
+    SELECT "selected_revision_id", "last_disabled_revision_id", "enabled"
+    INTO selected_revision, last_disabled_revision, provider_enabled
     FROM "authentication_providers"
     WHERE "id" = NEW."id";
 
@@ -57,6 +107,15 @@ BEGIN
              AND "provider_id" = NEW."id"
        ) THEN
         RAISE EXCEPTION 'Selected revision must belong to its authentication provider.';
+    END IF;
+    IF last_disabled_revision IS NOT NULL
+       AND NOT EXISTS (
+           SELECT 1
+           FROM "authentication_provider_revisions"
+           WHERE "id" = last_disabled_revision
+             AND "provider_id" = NEW."id"
+       ) THEN
+        RAISE EXCEPTION 'Last disabled revision must belong to its authentication provider.';
     END IF;
     RETURN NEW;
 END;
@@ -134,38 +193,6 @@ ALTER TABLE "provider_evidence_states"
 ADD CONSTRAINT "provider_evidence_states_external_identity_id_fkey"
 FOREIGN KEY ("external_identity_id") REFERENCES "external_identities"("id")
 ON DELETE RESTRICT ON UPDATE CASCADE;
-
-CREATE FUNCTION protect_authorization_attempt_nonce()
-RETURNS trigger
-LANGUAGE plpgsql
-AS $$
-BEGIN
-    IF NEW."nonce_ciphertext" IS DISTINCT FROM OLD."nonce_ciphertext" THEN
-        RAISE EXCEPTION 'Authorization attempt nonce is immutable.';
-    END IF;
-    RETURN NEW;
-END;
-$$;
-
-CREATE TRIGGER "authorization_attempts_nonce_protected"
-BEFORE UPDATE ON "authorization_attempts"
-FOR EACH ROW EXECUTE FUNCTION protect_authorization_attempt_nonce();
-
-CREATE FUNCTION protect_authorization_attempt_session_revocation_revision()
-RETURNS trigger
-LANGUAGE plpgsql
-AS $$
-BEGIN
-    IF NEW."session_revocation_revision" <> OLD."session_revocation_revision" THEN
-        RAISE EXCEPTION 'Authorization attempt session revocation revision is immutable.';
-    END IF;
-    RETURN NEW;
-END;
-$$;
-
-CREATE TRIGGER "authorization_attempts_global_revocation_revision_protected"
-BEFORE UPDATE ON "authorization_attempts"
-FOR EACH ROW EXECUTE FUNCTION protect_authorization_attempt_session_revocation_revision();
 
 CREATE OR REPLACE FUNCTION protect_membership_assignment()
 RETURNS trigger

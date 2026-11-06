@@ -27,8 +27,10 @@ export interface StartAuthenticationProofDependencies {
   deleteExpiredArtifacts(): Promise<void>
   encryptCodeVerifier(value: string): string
   encryptNonce(value: string): string
-  getSelectedProviderRevision(): Promise<SelectedProviderRevision | null>
-  getSessionRevocationRevision(): Promise<number | null>
+  getAuthenticationProofState(): Promise<{
+    selectedProviderRevision: SelectedProviderRevision | null
+    sessionRevocationRevision: number
+  } | null>
   writeDenialAudit(reason: "configuration_changed"): Promise<unknown>
 }
 
