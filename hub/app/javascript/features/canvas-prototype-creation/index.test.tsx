@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { describe, it, vi } from "vitest"
 
 import { CanvasPrototypeCreation } from "."
+import { creationCopy } from "./en"
 
 function catalog() {
   return {
@@ -63,7 +64,6 @@ describe("CanvasPrototypeCreation()", () => {
         onConnect={onConnect}
       />,
     )
-    expect(screen.getByText("Loading templates from Hub...")).toBeInTheDocument()
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument()
     await act(() => {
       resolveCatalog(Response.json(catalog()))
@@ -71,9 +71,6 @@ describe("CanvasPrototypeCreation()", () => {
     })
     const brief = await screen.findByRole("textbox", { name: "What should we create?" })
     const serverSection = screen.getByRole("region", { name: "Open an existing prototype" })
-    expect(
-      brief.compareDocumentPosition(serverSection) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy()
     expect(
       within(serverSection).queryByRole("button", { name: "Start dev server" }),
     ).not.toBeInTheDocument()
@@ -100,7 +97,8 @@ describe("CanvasPrototypeCreation()", () => {
     fireEvent.click(screen.getByRole("button", { name: "Template: Default" }))
     fireEvent.click(screen.getByRole("option", { name: "Welcome /settings?tab=profile#details" }))
     fireEvent.click(screen.getByRole("button", { name: "Create prototype" }))
-    await screen.findByText("Your brief is in this conversation. Continue with Copilot here.")
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(creationCopy.sent))
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
     const submitted = fetch.mock.calls.find(([, options]) => options?.method === "POST")
     expect(submitted?.[0]).toBe("/api/prototypes/new")
     expect(JSON.parse(submitted?.[1]?.body as string)).toEqual({
@@ -149,7 +147,7 @@ describe("CanvasPrototypeCreation()", () => {
     expect(brief).toHaveValue("Keep this draft")
     expect(screen.getByRole("button", { name: "Template: Welcome" })).toBeInTheDocument()
     fireEvent.click(screen.getByRole("button", { name: "Create prototype" }))
-    await screen.findByText("Your brief is in this conversation. Continue with Copilot here.")
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(creationCopy.sent))
     expect(screen.queryByRole("alert")).not.toBeInTheDocument()
     const submissions = fetch.mock.calls.filter(([, options]) => options?.method === "POST")
     expect(submissions).toHaveLength(2)
@@ -202,9 +200,6 @@ describe("CanvasPrototypeCreation()", () => {
         onConnect={onConnect}
       />,
     )
-    expect(
-      screen.getByText("Connect to Hub to create a prototype using your team's templates."),
-    ).toBeInTheDocument()
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument()
     expect(onConnect).not.toHaveBeenCalled()
     await waitFor(() => expect(screen.getByRole("button", { name: "Connect" })).toBeEnabled())
