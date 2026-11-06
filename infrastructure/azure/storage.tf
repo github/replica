@@ -26,12 +26,14 @@ resource "azurerm_storage_container" "artifacts" {
   name                  = "artifacts"
   storage_account_id    = azurerm_storage_account.artifacts.id
   container_access_type = "private"
+  depends_on            = [azurerm_role_assignment.deployment_storage]
 }
 
 resource "azurerm_storage_container" "releases" {
   name                  = "releases"
   storage_account_id    = azurerm_storage_account.artifacts.id
   container_access_type = "private"
+  depends_on            = [azurerm_role_assignment.deployment_storage]
 }
 
 resource "azurerm_storage_blob" "release_lock" {
