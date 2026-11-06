@@ -5,6 +5,7 @@ import type { AzureInstallation, Foundation } from "../types.ts"
 import { installationNames } from "../settings.ts"
 import { CommandExecutionError } from "../../../installer/command/index.ts"
 import { promptForField } from "../../../installer/prompt-for-field/index.ts"
+import { promptForRecovery } from "../../../installer/prompt-for-recovery/index.ts"
 
 export async function publishImage(
   context: AzureInstallation,
@@ -63,39 +64,27 @@ export async function publishImage(
     } finally {
       await rm(metadata, { force: true })
     }
-    if (!ui.select) throw failure
-    while (true) {
-      const headline =
-        failure.message.split("\n", 1)[0]?.slice(0, 180) || "Image publication failed."
-      const message = `${headline}\nContainer npm proxy: ${config.npmRegistry ? "configured" : "not configured; public npm access is required"}. Docker does not inherit host npm settings.\nRetry affects image publication only, not infrastructure or database work. A previous attempt may already have published a candidate image.`
-      if (ui.notice) ui.notice("error", message)
-      else ui.status(message)
-      const choice = await ui.select("How would you like to recover image publication?", [
+    const choice = await promptForRecovery(ui, {
+      error: failure,
+      question: "How would you like to recover image publication?",
+      message: `Container npm proxy: ${config.npmRegistry ? "configured" : "not configured; public npm access is required"}. Docker does not inherit host npm settings.\nRetry affects image publication only, not infrastructure or database work. A previous attempt may already have published a candidate image.`,
+      actions: [
         { label: "Retry image build and publication", value: "retry" },
         ...(saveNpmRegistry && (ui.field || ui.text)
           ? [{ label: "Set or change the npm proxy, then retry", value: "registry" }]
           : []),
-        { label: "Show full error details", value: "details" },
-        { label: "Exit and keep saved progress", value: "exit" },
-      ])
-      if (choice === "details") {
-        await ui.wait(
-          `${failure.message}\n\nContainer npm registry: ${config.npmRegistry ?? "not configured; public npm access is required"}.\nCheck the build error, Docker/Buildx, network access, and ACR push permissions. A previous attempt may have published a candidate image.\nScroll to inspect the output, then press Enter to return to recovery choices. This does not retry the build.`,
-        )
-        continue
-      }
-      if (choice === "exit") throw failure
-      if (choice === "registry" && saveNpmRegistry && (ui.field || ui.text)) {
-        const registry = await promptForField(ui, "npmRegistry", config.npmRegistry)
-        await saveNpmRegistry(registry)
-        config.npmRegistry = registry
-        ui.status("Saved the npm proxy for this installation. Retrying image publication.")
-      } else if (choice !== "retry") {
-        throw new Error("Choose a supported image recovery action.")
-      }
-      if (ui.notice) ui.notice("info", "Retrying image build and publication.")
-      else ui.status("Retrying image build and publication.")
-      break
+      ],
+      details: `Container npm registry: ${config.npmRegistry ?? "not configured; public npm access is required"}.\nCheck the build error, Docker/Buildx, network access, and ACR push permissions. A previous attempt may have published a candidate image.`,
+    })
+    if (choice === "registry" && saveNpmRegistry && (ui.field || ui.text)) {
+      const registry = await promptForField(ui, "npmRegistry", config.npmRegistry)
+      await saveNpmRegistry(registry)
+      config.npmRegistry = registry
+      ui.status("Saved the npm proxy for this installation. Retrying image publication.")
+    } else if (choice !== "retry") {
+      throw new Error("Choose a supported image recovery action.")
     }
+    if (ui.notice) ui.notice("info", "Retrying image build and publication.")
+    else ui.status("Retrying image build and publication.")
   }
 }

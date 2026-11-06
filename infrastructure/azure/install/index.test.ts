@@ -348,6 +348,134 @@ it("corrects an image-build proxy under the same installation lease without repl
   expect(releases[0]).toContain(s.image)
 })
 
+it("replans a failed application step under the same lease without replaying earlier or downstream work", async () => {
+  const s = await scenario()
+  const failure = new CommandExecutionError(
+    "Synthetic release-lock Blob authorization failure",
+    false,
+    1,
+  )
+  const approvals: number[] = []
+  let attempts = 0
+  let failedAt = -1
+  let succeededAt = -1
+  s.ui.confirm = vi.fn(async () => {
+    const command = s.events.at(-1)?.command
+    if (command?.[0] === "terraform" && command[1]!.endsWith("/azure") && command[2] === "show")
+      approvals.push(s.events.length)
+    return true
+  })
+  const run: RunCommand = async (executable, args, options) => {
+    const result = await s.run(executable, args, options)
+    if (executable !== "terraform" || !args[0]!.endsWith("/azure")) return result
+    if (args[1] === "show")
+      return JSON.stringify({
+        resource_changes: [
+          { address: "azurerm_storage_blob.release_lock", change: { actions: ["create"] } },
+        ],
+      })
+    if (args[1] === "apply") {
+      expect(approvals).toHaveLength(++attempts)
+      if (attempts === 1) {
+        failedAt = s.events.length - 1
+        throw failure
+      }
+      succeededAt = s.events.length - 1
+    }
+    return result
+  }
+  s.ui.select = vi.fn<NonNullable<InstallerUI["select"]>>(async (_message, actions) => {
+    expect(actions.map(({ value }) => value)).toContain("retry")
+    expect(attempts).toBe(1)
+    expect(s.events).toHaveLength(failedAt + 1)
+    const commands = s.events.map(({ command }) => command)
+    expect(
+      commands.filter(
+        (command) =>
+          command.slice(0, 5).join(" ") === "az storage blob lease acquire" &&
+          command.includes(`${s.config.name}/installer.lock`),
+      ),
+    ).toHaveLength(1)
+    expect(
+      commands.some(
+        (command) =>
+          command.slice(0, 5).join(" ") === "az storage blob lease release" ||
+          command.slice(0, 5).join(" ") === "az storage blob lease break" ||
+          (command[0] === "terraform" && command[1]!.endsWith("/provision")) ||
+          command.slice(0, 4).join(" ") === "az containerapp job start" ||
+          command[0] === process.execPath,
+      ),
+    ).toBe(false)
+    return "retry"
+  })
+
+  await expect(installAzure(s.config, { ...s, run })).resolves.toBe("https://hub.example.com")
+
+  expect(s.ui.select).toHaveBeenCalledOnce()
+  expect(approvals).toHaveLength(2)
+  const commands = s.events.map(({ command }) => command)
+  const retry = commands.slice(failedAt + 1, succeededAt + 1)
+  expect(retry.map((command) => command.slice(0, 3))).toEqual([
+    ["terraform", expect.stringMatching(/\/azure$/), "plan"],
+    ["terraform", expect.stringMatching(/\/azure$/), "show"],
+    ["terraform", expect.stringMatching(/\/azure$/), "apply"],
+  ])
+  const applicationPlans = commands.filter(
+    (command) =>
+      command[0] === "terraform" && command[1]!.endsWith("/azure") && command[2] === "plan",
+  )
+  expect(applicationPlans).toHaveLength(2)
+  const plans = applicationPlans.map((command) =>
+    command.find((argument) => argument.startsWith("-out="))!.slice(5),
+  )
+  expect(plans[0]).not.toBe(plans[1])
+  expect(retry[1]!.at(-1)).toBe(plans[1])
+  expect(retry[2]!.at(-1)).toBe(plans[1])
+  expect(approvals[0]).toBe(failedAt)
+  expect(approvals[1]).toBe(succeededAt)
+  expect(
+    commands.filter(
+      (command) =>
+        command[0] === "terraform" && command[1]!.endsWith("/foundation") && command[2] === "apply",
+    ),
+  ).toHaveLength(1)
+  expect(commands.filter((command) => command[0] === "docker")).toHaveLength(1)
+  const secretWrites = commands.filter(
+    (command) => command.slice(0, 4).join(" ") === "az keyvault secret set",
+  )
+  expect(secretWrites.length).toBeGreaterThan(0)
+  const secretNames = secretWrites.map((command) => command[command.indexOf("--name") + 1])
+  expect(new Set(secretNames).size).toBe(secretNames.length)
+  const jobs = commands
+    .map((command, index) =>
+      command.slice(0, 4).join(" ") === "az containerapp job start" ? index : -1,
+    )
+    .filter((index) => index >= 0)
+  const releases = commands
+    .map((command, index) => (command[0] === process.execPath ? index : -1))
+    .filter((index) => index >= 0)
+  expect(jobs).toHaveLength(1)
+  expect(releases).toHaveLength(1)
+  const cleanup = commands.findIndex(
+    (command) =>
+      command[0] === "terraform" &&
+      command[1]!.endsWith("/provision") &&
+      command.includes("-destroy"),
+  )
+  expect(jobs[0]).toBeGreaterThan(succeededAt)
+  expect(cleanup).toBeGreaterThan(jobs[0]!)
+  expect(releases[0]).toBeGreaterThan(cleanup)
+  const installationLeases = commands.filter(
+    (command) =>
+      command.slice(0, 4).join(" ") === "az storage blob lease" &&
+      command.includes(`${s.config.name}/installer.lock`),
+  )
+  expect(installationLeases.map((command) => command[4])).toEqual(["acquire", "release"])
+  expect(commands.indexOf(installationLeases[1]!)).toBeGreaterThan(releases[0]!)
+  expect(installationLeases[1]).toContain("--lease-id")
+  expect(s.secretValues.get("database-provisioned")).toBe(s.config.azure.resourceGroup)
+})
+
 it("propagates cancellation from ACR image recovery without downstream work or releasing the installation lease", async () => {
   const s = await scenario()
   const cancelled = new DOMException("Cancelled from image recovery", "AbortError")

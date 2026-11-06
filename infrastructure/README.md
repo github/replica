@@ -105,6 +105,14 @@ A corrected proxy is validated and saved to both the draft and complete configur
 
 The current installation lease stays held while you repair and retry. The wizard does not repeat Terraform, rotate stored credentials, run database setup, or clear locks for an image retry. Exiting retains saved answers and the existing lease for normal interrupted-installation recovery. Cancellation stops immediately, and non-interactive execution never retries or edits settings automatically.
 
+### Recovering Terraform steps
+
+A failed command during normal Terraform planning, plan inspection, or apply offers **Replan and review this Terraform step**, **Show full error details**, or **Exit and keep saved progress**. Terraform may have created some resources before returning an error. The wizard does not roll back those resources or assume the failed apply completed.
+
+The wizard removes the previous sensitive plan before offering recovery. Retry prepares a new plan against current state and asks for approval before applying remaining resource changes. It never reapplies the failed plan or restarts earlier installation steps. The installation lease remains held, deletion and replacement guards still apply, and database jobs and releases are not replayed. Cancellation, declined approval, unsafe or unreadable plan data, and temporary provisioning cleanup/destroy failures stop instead of entering this retry flow. Non-interactive execution remains fail-fast.
+
+For a Storage 403 while creating `deployment.lock`, inspect Blob data permissions as well as resource-management permissions. The wizard grants its deployment identity `Storage Blob Data Contributor` on the application storage account, but creating that role assignment does not mean Blob authorization has propagated. Terraform's dependency ordering waits for the role assignment resource, not for successful Blob data requests. After allowing propagation or repairing permissions, choose **Replan and review this Terraform step**. If access remains denied, check the selected identity, role scope and conditions, network rules, and subscription policy. Do not enable shared keys or change network policy to bypass a denial.
+
 ### Azure discovery failures
 
 The wizard names each region and provider lookup before running it. Region discovery uses a read-only ARM request with the selected subscription in both the URL and authentication context; it does not change your Azure CLI default subscription.

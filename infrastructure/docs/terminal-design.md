@@ -163,6 +163,14 @@ Keep the current installation lock while the user repairs a build failure. Show 
 
 Offer a correction only when the interface can validate the field and the workflow can persist it. Save the draft and complete configuration before retrying, keep consent out of both, and block further work when persistence fails. A corrected setting must survive a later build failure or process restart. Do not turn a narrowly retryable image step into permission to repeat Terraform, rotate credentials, or replay setup. Non-interactive execution and cancellation never enter automatic retry loops.
 
+### Reviewing a new Terraform plan after failure
+
+Use the shared `installer/prompt-for-recovery/` control for bounded error summaries, full details, explicit actions, and exit. It only returns the selected action; orchestration still decides whether and how a step can be retried. Reading details must never start work. Image publication and Terraform share these controls without sharing their retry boundaries.
+
+A failed Terraform apply can leave partial changes. Name the recovery action **Replan and review this Terraform step**, not simply Retry. Remove the failed plan before offering recovery, then generate a fresh plan from current state and require approval for remaining resource changes. Keep the installation lease, module, variables, and environment; preserve deletion and replacement guards. Never reuse the failed plan, repeat earlier installation phases, replay SQL or release work, or infer approval from the failed attempt. Cancellation, declined approval, unsafe or unreadable plan data, and cleanup/destroy failures retain their existing stop behavior.
+
+Explain eventual permission propagation without treating every authorization failure as temporary. A visible role assignment does not prove that data requests are authorized. Give the user a way to inspect the full error, repair access or wait, and explicitly replan. Do not add blind sleeps, automatically retry the mutation, force-unlock state, or weaken authentication and network policy.
+
 ### Minimal local diagnostics
 
 Use the same OpenTelemetry SDK and Pino libraries as Hub, with an installer-specific adapter rather than importing Hub server code. Keep one private local JSONL file per process run beside the configuration, separate from the resumable draft. Do not initialize a global tracer provider or a remote exporter.
