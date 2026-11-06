@@ -10,7 +10,7 @@ export async function stopHub({
   command(...args: string[]): unknown | Promise<unknown>
 }): Promise<void> {
   const args = ["--name", name, "--resource-group", resourceGroup]
-  const revisions: unknown = await command("containerapp", "revision", "list", ...args)
+  const revisions: unknown = await command("containerapp", "revision", "list", "--all", ...args)
   const record = (value: unknown): value is Record<string, unknown> =>
     typeof value === "object" && value !== null && !Array.isArray(value)
   if (
@@ -43,9 +43,9 @@ export async function stopHub({
       )
       if (!Array.isArray(replicas))
         throw new Error("Azure did not return a Hub replica list. Shutdown was not verified.")
+      if (!replicas.length) break
       if (performance.now() >= deadline)
         throw new Error("Old replicas have not stopped. Hub remains in maintenance.")
-      if (!replicas.length) break
       await timers.setTimeout(5_000)
     }
   }
