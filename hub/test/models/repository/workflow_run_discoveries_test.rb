@@ -120,7 +120,7 @@ class Repository::WorkflowRunDiscoveriesTest < ActiveSupport::TestCase
       workflow_run(status: "completed", conclusion: "action_required")
     )
     original.prototype.update!(current_build: original)
-    travel_to original.workflow_created_at + 1.minute do
+    travel_to original.workflow_created_at + 0.2.seconds, with_usec: true do
       repository.branch_presence.record_missing! \
         branch_name: "prototype/welcome",
         observed: repository.branch_presence.observations.fetch("prototype/welcome")

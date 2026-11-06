@@ -105,16 +105,16 @@ class Build::WorkflowRunTest < ActiveSupport::TestCase
 
   test "an older attempt cannot change a newer attempt's state" do
     build = builds.create
-    build.workflow_run.record!(**run_attributes(2), stage: "completed", conclusion: "success")
-    completed_at = build.workflow_completed_at
+    build.workflow_run.record!(**run_attributes(2), stage: "in_progress", conclusion: nil)
 
     build.workflow_run.record!(**run_attributes(1), stage: "completed", conclusion: "action_required")
     build.workflow_run.record!(**run_attributes(1), stage: "in_progress", conclusion: nil)
 
     assert_equal "running", build.reload.state
     assert_equal 2, build.github_workflow_run_attempt
-    assert_equal completed_at, build.workflow_completed_at
-    assert_predicate build.package_import, :pending?
+    assert_nil build.workflow_completed_at
+    assert_nil build.finished_at
+    assert_nil build.failure_summary
   end
 
   test "a newer attempt cannot replace successful workflow output" do

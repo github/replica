@@ -1,5 +1,8 @@
 # Polls GitHub for current branch commits and Replica workflow states.
 class GithubAppConfiguration::BuildDiscovery < ActiveRecord::AssociatedObject
+  # Keeps exact saved-run lookups to one page per repository poll.
+  SAVED_RUN_RECONCILIATION_LIMIT = 100
+
   # Refreshes repositories and records their current branch and workflow state.
   def poll!(repository = nil)
     record.synchronize_repositories!
@@ -68,11 +71,12 @@ class GithubAppConfiguration::BuildDiscovery < ActiveRecord::AssociatedObject
   def reconcile_saved_workflow_runs!(repository, observed_run_ids, installation:)
     builds = Build.joins(:prototype).where \
       prototypes: { repository_id: repository.id },
-      state: %w[queued running],
+      state: %w[queued running failed],
       workflow_completed_at: nil
     builds = builds.where.not(github_workflow_run_id: nil)
     builds = builds.where.not(github_workflow_run_id: observed_run_ids) if observed_run_ids.any?
-    builds.find_each do |build|
+    builds.order(Arel.sql("COALESCE(builds.workflow_created_at, builds.created_at) DESC"), id: :desc)
+      .limit(SAVED_RUN_RECONCILIATION_LIMIT).each do |build|
       run = record.github_client.actions.workflow_run \
         repository,
         build.github_workflow_run_id,

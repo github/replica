@@ -229,8 +229,12 @@ class GithubAppConfiguration::BuildDiscoveryTest < ActiveSupport::TestCase
     github_repositories.define_singleton_method(:branches) do |_repository, token:|
       [ { "name" => "prototype/welcome", "commit" => { "sha" => "a" * 40 } } ]
     end
-    actions.define_singleton_method(:workflow_runs) { |_repository, token:| [ approved_run ] }
-    actions.define_singleton_method(:workflow_run) { |*_args| raise "the observed run was fetched twice" }
+    exact_lookups = []
+    actions.define_singleton_method(:workflow_runs) { |_repository, token:| [] }
+    actions.define_singleton_method(:workflow_run) do |_repository, run_id, token:|
+      exact_lookups << run_id
+      approved_run
+    end
     client.define_singleton_method(:repositories) { github_repositories }
     client.define_singleton_method(:actions) { actions }
     configuration.define_singleton_method(:github_client) { client }
@@ -239,6 +243,7 @@ class GithubAppConfiguration::BuildDiscoveryTest < ActiveSupport::TestCase
       configuration.build_discovery.poll!(repository)
     end
 
+    assert_equal [ 9001 ], exact_lookups
     assert_equal "running", build.reload.state
     assert_equal 2, build.github_workflow_run_attempt
     assert_predicate build.package_import, :pending?

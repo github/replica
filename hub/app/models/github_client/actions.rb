@@ -27,6 +27,17 @@ class GithubClient::Actions
     transport.request(:get, "/repos/#{repository.github_path}/actions/runs/#{run_id.to_i}", token:)
   end
 
+  # Fetches one attempt of a workflow run.
+  def workflow_run_attempt(repository, run_id, run_attempt, token:)
+    raise ArgumentError, "Workflow run ID must be positive" if run_id.to_i <= 0
+    raise ArgumentError, "Workflow run attempt must be positive" if run_attempt.to_i <= 0
+
+    transport.request \
+      :get,
+      "/repos/#{repository.github_path}/actions/runs/#{run_id.to_i}/attempts/#{run_attempt.to_i}",
+      token:
+  end
+
   # Lists every fixed-name artifact created by one workflow run.
   def artifacts(repository, run_id, name:, token:)
     raise ArgumentError, "Workflow run ID must be positive" if run_id.to_i <= 0
