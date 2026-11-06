@@ -14,6 +14,8 @@ Compose starts the app container after PostgreSQL is healthy. Both images use De
 
 The repository is mounted at `/workspaces/replica`, with `hub/` as the working directory. Compose supplies `DATABASE_URL` with the `db` service hostname. Local database credentials in Compose are for development only. The database port is published only on host loopback.
 
+After the container opens and PostgreSQL is healthy, run `npm run setup` before starting `npm run dev:api`. Run setup again after pulling new migrations.
+
 ## Local Node.js
 
 Use npm and a Node.js version supported by `engines.node` in `hub/package.json`. From `hub/`, start only the database and copy the local configuration:
@@ -47,7 +49,7 @@ Open <http://127.0.0.1:5173>. React Router's Vite development server forwards `/
 
 The API registers authentication routes when `HUB_APPLICATION_ORIGIN` and at least one complete GitHub or Entra profile are configured. Set the shared encryption key and bootstrap secret at the same time. See `.env.example` and [Microsoft Entra OIDC](entra-oidc.md). Both development servers accept connections only from this machine. Stop each with Ctrl+C.
 
-No authentication-provider database seed is required. The first sign-in start validates the configured GitHub adapter and persists only its provider key, revision number, and public-configuration digest.
+No authentication-provider database seed is required. API startup validates each configured provider adapter and persists only its provider key, revision number, and public-configuration digest.
 
 Vite also forwards WebSocket upgrades under `/api`. The `/api/realtime` endpoint rejects connections until application access checks are connected; see [WebSocket updates](websockets.md). Stopping the API closes its WebSocket connections as well.
 
