@@ -26,6 +26,8 @@ class CanvasApi::TemplatesController < CanvasApi::BaseController
   private
 
   def templates_unavailable
-    render json: { error: "Hub could not load this repository's templates. Try again." }, status: :service_unavailable
+    render json: {
+      error: "Hub could not read templates.json from the latest successful default-branch Build. Try again."
+    }, status: :service_unavailable
   end
 end
