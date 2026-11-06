@@ -10,6 +10,15 @@ import { terraformModule } from "./index.ts"
 
 const directories: string[] = []
 type Select = NonNullable<InstallerUI["select"]>
+type ResourceChange = {
+  address: string
+  change: {
+    actions: string[]
+    replace_paths?: (string | number)[][]
+    before?: unknown
+    after?: unknown
+  }
+}
 
 afterEach(async () => {
   await Promise.all(
@@ -23,12 +32,14 @@ async function scenario({
   failure,
   error = new Error("Synthetic Terraform failure"),
   failureCount = Infinity,
+  resourceChanges,
 }: {
   actions?: string[]
   approved?: boolean
   failure?: "plan" | "show" | "apply"
   error?: Error
   failureCount?: number
+  resourceChanges?: ResourceChange[]
 } = {}) {
   const root = path.resolve(`.installer-terraform-test-${randomUUID()}`)
   directories.push(root)
@@ -61,7 +72,7 @@ async function scenario({
     if (operation === "output") return JSON.stringify({ value: "non-secret-output" })
     if (operation === "show") {
       return JSON.stringify({
-        resource_changes: [
+        resource_changes: resourceChanges ?? [
           {
             address: "azurerm_resource_group.hub",
             change: { actions, before: { password: secret }, after: { password: secret } },
@@ -136,6 +147,81 @@ describe("Terraform module", () => {
       expect(await readdir(test.dataDirectory)).toEqual([])
     },
   )
+
+  it("explains every blocked action and replacement path without exposing plan values or offering retry", async () => {
+    const secret = "synthetic-blocked-plan-secret"
+    const test = await scenario({
+      resourceChanges: [
+        {
+          address: "azurerm_container_app_environment.hub",
+          change: {
+            actions: ["delete", "create"],
+            replace_paths: [["infrastructure_resource_group_name"]],
+            before: { infrastructure_resource_group_name: secret },
+            after: { infrastructure_resource_group_name: null },
+          },
+        },
+        {
+          address: "azurerm_container_app_job.setup",
+          change: {
+            actions: ["create", "delete"],
+            replace_paths: [
+              ["container_app_environment_id"],
+              ["template", 0, "container", 0, "image"],
+            ],
+            before: { password: secret },
+            after: { password: secret },
+          },
+        },
+        {
+          address: "azurerm_role_assignment.obsolete",
+          change: { actions: ["delete"], before: { principal_id: secret }, after: null },
+        },
+        {
+          address: "azurerm_storage_blob.release_lock",
+          change: { actions: ["create"], after: { content: secret } },
+        },
+      ],
+    })
+    test.ui.notice = vi.fn()
+    test.ui.select = vi.fn(async () => "exit")
+    const error = await test.module.apply("installation.tfvars").catch((error: unknown) => error)
+
+    expect(error).toBeInstanceOf(Error)
+    const message = (error as Error).message
+    for (const resource of [
+      "azurerm_container_app_environment.hub",
+      "azurerm_container_app_job.setup",
+      "azurerm_role_assignment.obsolete",
+    ])
+      expect(message).toContain(resource)
+    for (const attribute of [
+      "infrastructure_resource_group_name",
+      "container_app_environment_id",
+      "template",
+      "container",
+      "image",
+    ])
+      expect(message).toContain(attribute)
+    expect(message).toMatch(/template[^a-z0-9]+0[^a-z0-9]+container[^a-z0-9]+0[^a-z0-9]+image/)
+    expect(message).toMatch(/delete.*create/)
+    expect(message).toMatch(/create.*delete/)
+    const displayed = JSON.stringify({
+      message,
+      status: vi.mocked(test.ui.status).mock.calls,
+      notices: vi.mocked(test.ui.notice).mock.calls,
+      confirmations: vi.mocked(test.ui.confirm).mock.calls,
+      details: vi.mocked(test.ui.wait).mock.calls,
+    })
+    expect(displayed).not.toContain(secret)
+    expect(displayed).not.toContain(test.secret)
+    expect(displayed).not.toMatch(/"(?:before|after|output_changes)"\s*:/)
+    expect(test.ui.confirm).not.toHaveBeenCalled()
+    expect(test.ui.select).not.toHaveBeenCalled()
+    expect(test.ui.wait).not.toHaveBeenCalled()
+    expect(test.events).toEqual(["plan", "show"])
+    expect(await readdir(test.dataDirectory)).toEqual([])
+  })
 
   it("does not apply when the operator refuses, and removes the sensitive plan", async () => {
     const test = await scenario({ approved: false })

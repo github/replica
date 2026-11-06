@@ -57,15 +57,23 @@ export function terraformModule({
             ...(destroy ? ["-destroy"] : []),
           ])
           const plan = JSON.parse(await execute(["show", "-json", path])) as {
-            resource_changes?: { address: string; change: { actions: string[] } }[]
+            resource_changes?: {
+              address: string
+              change: { actions: string[]; replace_paths?: (string | number)[][] }
+            }[]
           }
           const changes = (plan.resource_changes ?? []).filter(({ change }) =>
             change.actions.some((action) => action !== "no-op" && action !== "read"),
           )
-          if (!destroy && changes.some(({ change }) => change.actions.includes("delete"))) {
-            throw new Error(
-              "This installation plan deletes or replaces resources. Review recovery separately.",
-            )
+          const destructive = changes.filter(({ change }) => change.actions.includes("delete"))
+          if (!destroy && destructive.length) {
+            const details = destructive.map(({ address, change }) => {
+              const paths = change.replace_paths?.map((path) => path.join("."))
+              return `${change.actions.join("/")} ${address}${paths?.length ? ` (replacement attributes: ${paths.join(", ")})` : ""}`
+            })
+            const message = `Terraform plan blocked: it deletes or replaces existing resources.\n${details.join("\n")}\nNo changes from this plan were applied. Review the Terraform configuration and state before retrying.`
+            ui.notice?.("error", message)
+            throw new Error(message)
           }
           for (const change of changes)
             ui.status(`${change.change.actions.join("/")} ${change.address}`)

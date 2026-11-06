@@ -14,6 +14,11 @@ resource "azurerm_postgresql_flexible_server" "database" {
   private_dns_zone_id           = azurerm_private_dns_zone.database.id
   tags                          = local.tags
   depends_on                    = [azurerm_private_dns_zone_virtual_network_link.database]
+
+  lifecycle {
+    # Azure selects the zone because this module does not pin one.
+    ignore_changes = [zone]
+  }
 }
 
 resource "azurerm_postgresql_flexible_server_configuration" "tls" {

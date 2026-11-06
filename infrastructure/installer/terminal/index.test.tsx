@@ -185,6 +185,21 @@ it("does not resolve close until Ink has finished terminal restoration", async (
   expect(closed).toBe(true)
 })
 
+it.each(["info", "success"] as const)(
+  "does not reuse a stale %s notice as the summary after a later failure",
+  async (level) => {
+    const abort = new AbortController()
+    const ui = open(abort, { fullscreen: false })
+    ui.notice!(level, "Synthetic earlier step completed")
+
+    abort.abort(new Error("Synthetic later step failed"))
+
+    expect(ui.summary()).toBeUndefined()
+    ui.notice!("error", "Synthetic actionable recovery instructions")
+    expect(ui.summary()).toBe("Synthetic actionable recovery instructions")
+  },
+)
+
 it.each(["cloud", "resume"])(
   "shows the startup welcome beside the %s question until the first answer",
   async (question) => {

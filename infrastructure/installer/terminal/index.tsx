@@ -135,7 +135,10 @@ export function createTerminalUI(
       view.history = [...view.history.slice(-19), plain(message)]
       draw()
     },
-    summary: () => view.notice?.message,
+    summary: () =>
+      view.notice?.level === "error" || view.notice?.level === "warning"
+        ? view.notice.message
+        : undefined,
     async close() {
       abort.signal.removeEventListener("abort", cancelled)
       instance.unmount()

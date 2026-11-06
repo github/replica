@@ -61,6 +61,8 @@ Provide an inline fallback for limited terminals and screen-reader use, with an 
 
 Own cleanup in one entry-point lifecycle boundary. On cancellation and catchable failures, request command cancellation through the existing abort controller. Stop timers, finish owned-command cleanup, unmount the renderer, and await terminal restoration before printing the final result or recovery summary to the normal shell. Include the draft path and retained-lock guidance when relevant. Do not rely on teardown-time Ink output surviving alternate-screen exit.
 
+A failure summary may preserve a relevant warning or error, but must not repeat an earlier success or informational notice as the explanation for a later failure. Print an identical failure and notice only once.
+
 Hard termination or power loss cannot guarantee terminal cleanup. Recovery must rely on previously saved checkpoints, not an exit handler successfully running.
 
 ### Semantic presentation, not colored log strings
@@ -169,6 +171,8 @@ Use the shared `installer/prompt-for-recovery/` control for bounded error summar
 
 A failed Terraform apply can leave partial changes. Name the recovery action **Replan and review this Terraform step**, not simply Retry. Remove the failed plan before offering recovery, then generate a fresh plan from current state and require approval for remaining resource changes. Keep the installation lease, module, variables, and environment; preserve deletion and replacement guards. Never reuse the failed plan, repeat earlier installation phases, replay SQL or release work, or infer approval from the failed attempt. Cancellation, declined approval, unsafe or unreadable plan data, and cleanup/destroy failures retain their existing stop behavior.
 
+When a deletion or replacement blocks a normal plan, show the affected resource addresses, actions, and replacement-triggering attribute paths. State that no changes from that plan were applied. Do not print attribute values or the raw plan, offer a bypass, or disguise the policy refusal as a failed Terraform command.
+
 Explain eventual permission propagation without treating every authorization failure as temporary. A visible role assignment does not prove that data requests are authorized. Give the user a way to inspect the full error, repair access or wait, and explicitly replan. Do not add blind sleeps, automatically retry the mutation, force-unlock state, or weaken authentication and network policy.
 
 ### Minimal local diagnostics
@@ -193,15 +197,18 @@ For this first version, the timer restarts when the process restarts. The resume
 
 ## Module boundaries
 
-| Boundary                                                  | Owns                                                                                                               | Must not own                                                          |
-| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------- |
-| `installer/terminal/` and focused presentation components | Layout, semantic styling, keyboard interaction, field feedback, progress rendering, timer, and terminal lifecycle. | Azure commands, Terraform policy, or persistence decisions.           |
-| Existing field definitions and prompt helpers             | Validation, normalization, contextual help, and accepted-answer behavior.                                          | Terminal colors or resource creation.                                 |
-| A small `installer/session/` boundary                     | Draft schema, private serialized persistence, writer ownership, and recovery choices.                              | Cloud credentials, deployment approval, or proof of cloud completion. |
-| `installer/wizard/`                                       | Connects questions, validated answers, checkpoints, and high-level progress.                                       | Resource-specific deployment logic.                                   |
-| `azure/install/` and `terraform/`                         | Discovery, ownership checks, resource reconciliation, approvals, and safe operation order.                         | React components or terminal escape sequences.                        |
+| Boundary                                                  | Owns                                                                                                               | Must not own                                                              |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------- |
+| `installer/terminal/` and focused presentation components | Layout, semantic styling, keyboard interaction, field feedback, progress rendering, timer, and terminal lifecycle. | Azure commands, Terraform policy, or persistence decisions.               |
+| Existing field definitions and prompt helpers             | Validation, normalization, contextual help, and accepted-answer behavior.                                          | Terminal colors or resource creation.                                     |
+| A small `installer/session/` boundary                     | Draft schema, private serialized persistence, writer ownership, and recovery choices.                              | Cloud credentials, deployment approval, or proof of cloud completion.     |
+| `installer/wizard/`                                       | Connects questions, validated answers, checkpoints, and high-level progress.                                       | Resource-specific deployment logic.                                       |
+| `azure/install/` and `terraform/`                         | Discovery, ownership checks, module invocation, plan review, approvals, and safe operation order.                  | Duplicated Terraform resource reconciliation, React, or terminal styling. |
+| Terraform root modules                                    | Resource definitions, dependencies, and reconciliation, including Azure-assigned defaults.                         | Ink, React, wizard sessions, or terminal prompts.                         |
 
 Use plain TypeScript contracts and the existing asynchronous UI bridge. Keep one source of truth for accepted answers and explicit phase changes. Do not add a plugin registry, global event bus, state-management dependency, or resource-graph abstraction. Extract small components when a coherent responsibility or real reuse justifies them, not to fill a predetermined folder tree.
+
+Keep the terminal a thin front end to independently usable Terraform modules. Fix Terraform-managed infrastructure behavior in those modules, not with wizard-side resource adoption, state patching, or out-of-band repairs. The [installation guide](../README.md#guided-installation) describes the separate bootstrap, credential, publication, and release responsibilities.
 
 ## Delivery order
 

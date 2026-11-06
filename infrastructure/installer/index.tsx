@@ -138,15 +138,10 @@ if (values.help) {
     }
   }
   if (failure) {
-    console.error(
-      styleText(
-        "red",
-        `Error: ${failure instanceof Error ? failure.message : "Installation failed."}`,
-        { stream: process.stderr },
-      ),
-    )
+    const failureMessage = failure instanceof Error ? failure.message : "Installation failed."
+    console.error(styleText("red", `Error: ${failureMessage}`, { stream: process.stderr }))
     const notice = terminal?.summary()
-    if (notice) console.error(notice)
+    if (notice && notice !== failureMessage) console.error(notice)
     if (session?.draft || session?.problem)
       console.error(
         `Session preserved at ${session.path}. Restart setup to resume. Review retained cloud leases before retrying an interrupted deployment.`,
