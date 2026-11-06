@@ -11,6 +11,7 @@ export async function configureAzure(
   existing?: DeploymentConfig,
   session?: WizardSession,
 ): Promise<DeploymentConfig> {
+  if (existing) existing = parseConfig(existing)
   const remember = async <K extends keyof DraftAnswers>(key: K, value: DraftAnswers[K]) => {
     await session?.answer(key, value)
     return value

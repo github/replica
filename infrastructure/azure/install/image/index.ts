@@ -21,6 +21,11 @@ export async function publishImage(
       const dirty = await run("git", ["status", "--porcelain", "--untracked-files=normal"], {
         cwd: repository,
       })
+      if (dirty && !ui.select)
+        throw new DOMException(
+          "Unattended image publication requires a clean source checkout. Commit or remove the intended changes, or rerun interactively for separate working-tree consent. Deployment approval does not authorize dirty-source publication.",
+          "AbortError",
+        )
       if (
         dirty &&
         !(await ui.confirm(

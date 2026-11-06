@@ -80,6 +80,36 @@ describe("deployment configuration", () => {
     expect(() => parseConfig(config)).toThrow()
   })
 
+  it("normalizes Azure UUIDs to lowercase before saving or reloading configuration", async () => {
+    const directory = await configDirectory()
+    const filename = path.join(directory, "config.json")
+    const expected = configuration()
+    expected.azure.subscriptionId = "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff"
+    const mixed = {
+      ...expected,
+      azure: {
+        ...expected.azure,
+        subscriptionId: expected.azure.subscriptionId.toUpperCase(),
+        tenantId: expected.azure.tenantId.toUpperCase(),
+      },
+    }
+
+    expect(parseConfig(mixed)).toEqual(expected)
+    await saveConfig(filename, mixed)
+
+    expect(JSON.parse(await readFile(filename, "utf8"))).toEqual(expected)
+    expect(await loadConfig(filename)).toEqual(expected)
+  })
+
+  it.each(["subscriptionId", "tenantId"] as const)(
+    "rejects trailing UUID whitespace in %s rather than accepting a different target representation",
+    (field) => {
+      const config = configuration()
+      config.azure[field] += "\n"
+      expect(() => parseConfig(config)).toThrow()
+    },
+  )
+
   it("normalizes legacy version 1 state access configuration without retaining the retired field", () => {
     const config = configuration()
     const legacy = { ...config, azure: { ...config.azure, stateAllowedIp: "192.0.2.0/24" } }

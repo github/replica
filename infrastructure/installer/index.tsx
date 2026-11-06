@@ -24,7 +24,7 @@ const { values } = parseArgs({
 })
 if (values.help) {
   console.log(
-    "Usage: npm run setup:server -- [--config FILE] [--configure-only] [--no-fullscreen]\nConfig paths are relative to infrastructure/ when using the root shortcut.\nInteractive progress is saved in a private companion draft; restart to resume.\nAutomation: --config FILE --non-interactive --approve-deployment\nApproval includes billable resources, role assignments, image publication, temporary provisioning cleanup, and a maintenance-window release.",
+    "Usage: npm run setup:server -- [--config FILE] [--configure-only] [--no-fullscreen]\nConfig paths are relative to infrastructure/ when using the root shortcut.\nInteractive progress is saved in a private companion draft; restart to resume.\nAutomation: --config FILE --non-interactive --approve-deployment\nApproval includes billable resources, role assignments, image publication, temporary provisioning cleanup, and a maintenance-window release.\nAutomation requires a clean source checkout and does not authorize removing state network restrictions; rerun interactively for separate consent.",
   )
 } else {
   const abort = new AbortController()
@@ -80,7 +80,7 @@ if (values.help) {
       await azurePreflight(run, ui)
       message = formatDeploymentSummary(
         await installAzure(existing, {
-          directory: join(dirname(path), existing.name),
+          directory: dirname(path),
           run,
           ui,
         }),
@@ -142,7 +142,12 @@ if (values.help) {
     }
   }
   if (failure) {
-    const failureMessage = failure instanceof Error ? failure.message : "Installation failed."
+    const failureMessage =
+      failure instanceof SyntaxError
+        ? "Setup received invalid JSON data. Review the failed operation locally before retrying; data was not printed."
+        : failure instanceof Error
+          ? failure.message
+          : "Installation failed."
     console.error(styleText("red", `Error: ${failureMessage}`, { stream: process.stderr }))
     const notice = terminal?.summary()
     if (notice && notice !== failureMessage) console.error(notice)

@@ -1,4 +1,5 @@
 import type { DeploymentConfig, InstallerUI, RunCommand } from "../../../installer/types.ts"
+import { parseAzureId } from "../../../installer/config/fields/index.ts"
 
 export async function azurePreflight(run: RunCommand, ui: InstallerUI) {
   for (const [executable, args, instructions] of [
@@ -61,7 +62,12 @@ export async function azurePreflight(run: RunCommand, ui: InstallerUI) {
     const enabled = accounts.filter(
       ({ state, name }) => state === "Enabled" && name !== "N/A(tenant level account)",
     )
-    if (enabled.length) return enabled
+    if (enabled.length)
+      return enabled.map((account) => ({
+        ...account,
+        id: parseAzureId(account.id),
+        tenantId: parseAzureId(account.tenantId),
+      }))
     await ui.wait(
       "No enabled deployment subscriptions are available. Sign in in a separate terminal with az login (or az login --tenant TENANT_ID for another directory), then continue to reload subscriptions. Tenant-only sign-in is not a deployment target. Sign-in is not automated.",
     )
@@ -80,8 +86,8 @@ export async function verifyAzureTarget(config: DeploymentConfig, run: RunComman
     ]),
   ) as { id: string; tenantId: string }
   if (
-    account.id.toLowerCase() !== config.azure.subscriptionId.toLowerCase() ||
-    account.tenantId.toLowerCase() !== config.azure.tenantId.toLowerCase()
+    parseAzureId(account.id) !== parseAzureId(config.azure.subscriptionId) ||
+    parseAzureId(account.tenantId) !== parseAzureId(config.azure.tenantId)
   ) {
     throw new Error(
       "Azure returned a different subscription or tenant. Check installation configuration.",

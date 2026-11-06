@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto"
 import { lstat, mkdir, readFile, rename, rm } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
 
-import { configurationFields, InputValidationError } from "../config/fields/index.ts"
+import { configurationFields, InputValidationError, parseAzureId } from "../config/fields/index.ts"
 import { wizardPhases, type WizardPhase } from "../types.ts"
 import { writePrivateJson } from "../write-private-json/index.ts"
 import { lockSession } from "./lock/index.ts"
@@ -74,12 +74,7 @@ function parseAnswer(key: keyof DraftAnswers, value: unknown): string | boolean 
   }
   if (key === "cloud" && value === "azure") return value
   if (key === "useProxy" && typeof value === "boolean") return value
-  if (
-    (key === "tenantId" || key === "subscriptionId") &&
-    typeof value === "string" &&
-    uuid.test(value)
-  )
-    return value
+  if (key === "tenantId" || key === "subscriptionId") return parseAzureId(value)
   if (key === "location" && typeof value === "string" && /^[a-z][a-z0-9]+$/.test(value))
     return value
   throw new InputValidationError(

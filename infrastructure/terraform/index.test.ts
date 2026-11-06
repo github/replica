@@ -46,7 +46,7 @@ async function scenario({
   const directory = path.join(root, "module")
   const dataDirectory = path.join(root, "installation-data")
   await mkdir(directory, { recursive: true })
-  await mkdir(dataDirectory)
+  await mkdir(dataDirectory, { mode: 0o700 })
   const events: string[] = []
   const calls: { executable: string; args: string[]; options?: CommandOptions }[] = []
   const secret = "synthetic-sensitive-plan-value"
