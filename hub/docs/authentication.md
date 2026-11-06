@@ -1,24 +1,26 @@
 # Authentication and Hub sessions
 
-Hub exposes a same-request GitHub sign-in flow. The provider proof remains internal; the callback immediately rereads authoritative records, decides admission, and issues a Hub session when access is allowed.
+Hub exposes same-request GitHub and Microsoft Entra sign-in flows. An installation may configure either or both providers. The provider proof remains internal; each callback immediately rereads authoritative records, applies current provider evidence, decides admission, and issues a Hub session when access is allowed. Hub never falls back from one provider to another.
 
 ## Proof flow
 
-The start primitive selects the configured GitHub provider revision, creates opaque state, browser binding, and a PKCE verifier, and persists one short-lived authorization attempt. PostgreSQL owns attempt creation, expiry, locking, and one-use consumption time. The stored attempt contains digests plus the encrypted verifier, not raw state, browser binding, or provider tokens.
+The start primitive selects the configured provider revision, snapshots the global session revocation revision, creates opaque state, browser binding, PKCE verifier, and nonce, and persists one short-lived authorization attempt. PostgreSQL owns attempt creation, expiry, locking, and one-use consumption time. The stored attempt contains digests plus encrypted verifier and nonce state, not raw state, browser binding, or provider tokens.
 
-GitHub and future provider adapters are defined in code, not discovered from database records. On the first configured start, Hub validates the adapter's public configuration and creates and selects revision 1 through the identity kernel. A later configuration uses the next accepted revision. Operators do not seed provider rows. Failed validation or replacement leaves the current selected revision usable, while older replicas and attempts fail closed when their local revision no longer matches the selected revision.
+GitHub and Entra adapters are defined in code, not discovered from database records. Startup validates every configured adapter before one serializable transaction creates, selects, enables, or disables provider revisions. Operators do not seed provider rows. Failed validation or reconciliation leaves every current provider selection unchanged. Removing a previously selected provider disables its authority and advances the global session revocation revision. Re-enabling it requires the next consecutive provider revision, even when its validated configuration is otherwise unchanged, so previous-version replicas also reject pre-removal attempts.
 
-Increment `GITHUB_PROVIDER_REVISION` when an intentional provider configuration or credential generation change must invalidate in-flight attempts and stale replicas. Keep the revision unchanged for an ordinary restart with the same validated provider settings.
+Increment `GITHUB_PROVIDER_REVISION` when an intentional provider configuration or credential generation change must invalidate in-flight attempts and stale replicas, and before re-enabling a removed provider. Keep the revision unchanged for an ordinary restart with the same validated enabled provider settings.
 
-The completion primitive consumes the browser-bound attempt before provider work, confirms that the selected provider revision and digest match the local validated adapter, exchanges the bounded authorization code, reads the public github.com current user, and resolves the immutable external identity through the identity kernel. GitHub's numeric user ID is the immutable subject. Profile and presentation data are outside this foundation.
+The completion primitive consumes the browser-bound attempt before provider work, confirms that the selected provider revision and digest match the local validated adapter, and requires the attempt's global revocation revision to remain current before and after the provider exchange. It then validates provider evidence. External identity resolution runs in a serializable transaction that locks the provider, global revocation state, and consumed attempt in admission order before creating identity records. GitHub's numeric user ID is its immutable subject. Entra uses canonical issuer plus `sub`; signed tenant `oid` is assignment provenance. Profile and presentation data are outside this foundation.
 
 Completion returns a minimal provider-neutral proof value in memory containing only the consumed authorization attempt ID and resolved external identity ID. This value is internal-only, is not a session or authority, and is never reconstructed from browser request data.
 
-The callback passes that value directly to admission in the same process. Admission rereads the immutable external identity and locks the consumed attempt, selected provider revision, global session revocation state, membership, and active assignments before creating a session.
+The callback passes that value directly to admission in the same process. Entra completion passes current app-role evidence and the signed token issue time beside the minimal proof, not inside it. Admission rereads the immutable external identity and locks the consumed attempt, selected provider revision, global session revocation state, provider-evidence order, membership, and active assignments before changing authority or creating a session. Older signed evidence is denied before authority mutation or session issuance. Evidence with the same issue time is accepted only when it strictly reduces authority; identical evidence, conflicting evidence, and authority increases are denied, including after assignment revocation or supersession.
 
 ## Admission
 
-Normal sign-in requires an active membership with an active assignment. Unknown identities, suspended memberships, removed memberships, and identities without active assignments are denied without creating a session.
+Normal GitHub sign-in requires an active membership with an active assignment. Entra may create an active membership and provider-owned assignment from exact `Hub.User` or `Hub.Administrator` evidence. `Hub.Administrator` wins when both values are present. Suspended and removed memberships remain denied.
+
+One provider assignment is active for an external identity. Hub persists the newest signed evidence marker independently from assignment lifecycle so stale callbacks cannot recreate revoked or downgraded authority. When revocation leaves no authority, the ordering marker, transition, session termination, and denial audit commit together without a new session. Bootstrap assignments remain separate, and provider evidence never rewrites Hub-owned provenance. See [Microsoft Entra OIDC](entra-oidc.md#app-roles-and-membership) for the assignment-version triggers, when role changes become observable, when bootstrap authority may still admit the user, and how long sessions can remain valid.
 
 The administrator enrollment start requires `HUB_BOOTSTRAP_SECRET` before OAuth begins. The configured secret must contain at least 32 characters and is compared in constant time. The secret authorizes each browser-bound, one-use authorization attempt; it is not stored, audited, logged, or globally consumed.
 
@@ -26,7 +28,7 @@ A started enrollment stores only a digest of the configured bootstrap secret. Ro
 
 A successful enrollment creates or restores an active administrator assignment owned by the verified external identity. The same secret can enroll another administrator or restore a previous administrator, including when another administrator still exists. Repository permissions do not affect Hub admission.
 
-Membership lifecycle and assignment provenance are separate. The schema supports active, suspended, and removed memberships, and freezes administrator and member role values for compatibility. This version creates and admits only bootstrap-owned administrator assignments; member admission, member UI, and provider-owned assignment synchronization remain deferred.
+Membership lifecycle and assignment provenance are separate. The schema supports active, suspended, and removed memberships, bootstrap-owned administrators, and Entra-owned member or administrator assignment versions. Hub does not provide generic manual assignment administration.
 
 Membership ownership and creation history are immutable. Bootstrap enrollment writes a separate membership-created or membership-restored audit whenever it changes membership lifecycle; an already active membership creates no duplicate lifecycle audit.
 
@@ -34,9 +36,9 @@ Membership ownership and creation history are immutable. Bootstrap enrollment wr
 
 Hub creates a fresh opaque session value only after admission succeeds. The browser receives the value in an `HttpOnly`, `SameSite=Lax` cookie with a bounded lifetime; HTTPS origins also set `Secure`. The database stores only its SHA-256 digest.
 
-Every current-session restore rereads the global revocation revision, session expiry and termination state, membership lifecycle, and active assignment. A retained cookie stops authorizing access after sign-out, expiry, suspension, removal, assignment revocation, or a global revision change.
+Every current-session restore rereads the global revocation revision, session expiry and termination state, membership lifecycle, and active assignments, then returns the current effective member or administrator role. Provider-owned authority is active only while its provider remains enabled and its revision remains selected. A retained cookie stops authorizing access after sign-out, expiry, suspension, removal, assignment revocation, provider removal, or a global revision change. Provider revision replacement removes authority from the old revision and stops the cookie only when no other active authority remains.
 
-Suspension, removal, assignment revocation, and global revision changes are enforced when read, but this version does not expose runtime operations that initiate them.
+These expiry, lifecycle, assignment, provider, and global-revision checks are enforced when read. Current Entra evidence may supersede or revoke its own provider assignment and end that membership's sessions; this version does not expose general membership lifecycle operations. The [Entra operator guide](entra-oidc.md#app-roles-and-membership) owns the provider-specific observation and revocation contract.
 
 The migration owns the single global revocation row. Its identity and history are immutable, its revision can only increment by one, and runtime code never recreates a missing row. Admission and restoration fail closed when that authority is missing. Admissions use shared locks for provider selection and revocation authority so unrelated users can proceed concurrently while authority mutations wait.
 
@@ -45,6 +47,8 @@ The migration owns the single global revocation row. Its identity and history ar
 ## HTTP boundary
 
 `POST /api/auth/github/start` begins normal sign-in. `POST /api/auth/github/admin-enrollment/start` verifies the reusable bootstrap secret before beginning administrator enrollment. `GET /api/auth/github/callback` consumes GitHub's callback and redirects with a generic success or denial result.
+
+`POST /api/auth/entra/start`, `POST /api/auth/entra/admin-enrollment/start`, and `GET /api/auth/entra/callback` provide the equivalent explicit Entra flow. Entra administrator enrollment requests a fresh provider login and requires signed `auth_time` evidence from after the saved attempt start.
 
 Start and sign-out requests require the exact configured application origin. Authentication routes use database-backed per-address-digest rate limits, disable response storage, and omit query, form, and cookie payloads from request completion logs. Callback rate limiting runs before callback parsing.
 
@@ -56,12 +60,12 @@ Administrator-enrollment rate limits write at most one durable denial audit for 
 
 ## Database enforcement
 
-Database guards cover invariants that application validation alone cannot protect across concurrent writers or future code paths. They keep membership ownership and history immutable, keep assignment ownership, provenance, and role immutable, require an assignment identity to belong to the membership user, permit only first session termination, protect the global revocation identity and exact revision increment, and keep an authorization attempt's server-selected purpose and bootstrap-secret generation immutable. Ordinary value-shape and time-order checks remain in the application contracts.
+Database guards cover invariants that application validation alone cannot protect across concurrent writers or future code paths. They keep membership ownership and history immutable, keep assignment ownership, provenance, and role immutable, require an assignment identity to belong to the membership user, keep external evidence ordering state immutable and monotonic, permit only first session termination, protect the global revocation identity and exact revision increment, and keep an authorization attempt's server-selected purpose, bootstrap-secret generation, nonce, and revocation generation immutable. Ordinary value-shape and time-order checks remain in the application contracts.
 
 ## Safety boundaries
 
-GitHub configuration is explicit and revisioned. Only the public github.com authorization, token, and user endpoints are accepted. Provider requests have fixed deadlines, reject redirects, and discard access tokens after the user lookup.
+GitHub and Entra configuration are explicit and independently revisioned. Only the public github.com endpoints and the exact configured single-tenant Entra issuer are accepted. Provider requests have fixed deadlines, reject redirects, and discard provider tokens and client assertions after validation.
 
 ## Not implemented
 
-Hub does not provide invitations, member administration, recovery secrets, setup-only bootstrap consumption, provider assignment synchronization, repository admission, refresh tokens, or provider logout.
+Hub does not provide invitations, member administration, recovery secrets, setup-only bootstrap consumption, background provider synchronization, repository admission, refresh tokens, provider logout, account linking, generic OIDC, multi-tenant OIDC, or Entra tenant setup automation.

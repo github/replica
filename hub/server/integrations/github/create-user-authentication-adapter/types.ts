@@ -22,10 +22,18 @@ export interface GitHubUserAuthenticationAdapter {
   canonicalPublicConfiguration: string
   callbackUri: string
   providerKey: string
-  createAuthorizationUrl(input: { callbackUri: string; codeChallenge: string; state: string }): URL
+  createAuthorizationUrl(input: {
+    callbackUri: string
+    codeChallenge: string
+    freshAuthentication: boolean
+    nonce: string
+    state: string
+  }): URL
   completeAuthenticationProof(input: {
+    authenticatedAfter?: Date
     callbackUri: string
     code: string
     codeVerifier: string
-  }): Promise<GitHubUserIdentityEvidence>
+    nonce: string
+  }): Promise<{ identity: GitHubUserIdentityEvidence }>
 }

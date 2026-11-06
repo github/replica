@@ -10,17 +10,23 @@ import type {
   StartAuthenticationProofResult,
 } from "./types.ts"
 
-const inputSchema = z.object({}).strict()
+const inputSchema = z
+  .object({
+    purpose: z.enum(["SIGN_IN", "ADMIN_ENROLLMENT"]),
+  })
+  .strict()
 const ATTEMPT_LIFETIME_MS = 10 * 60 * 1_000
 
 export async function startAuthenticationProof(
   input: StartAuthenticationProofInput,
   dependencies: StartAuthenticationProofDependencies,
 ): Promise<StartAuthenticationProofResult> {
-  inputSchema.parse(input)
+  const parsed = inputSchema.parse(input)
   await dependencies.deleteExpiredArtifacts()
-  const selectedRevision = await dependencies.getSelectedProviderRevision()
+  const proofState = await dependencies.getAuthenticationProofState()
+  const selectedRevision = proofState?.selectedProviderRevision
   if (
+    !proofState ||
     !selectedRevision ||
     selectedRevision.revision !== dependencies.expectedRevision ||
     selectedRevision.configurationDigest !== dependencies.configurationDigest
@@ -38,6 +44,7 @@ export async function startAuthenticationProof(
   const state = dependencies.createOpaqueValue()
   const browserBinding = dependencies.createOpaqueValue()
   const codeVerifier = dependencies.createOpaqueValue()
+  const nonce = dependencies.createOpaqueValue()
   const codeChallenge = createHash("sha256").update(codeVerifier).digest("base64url")
   const { expiresAt } = await dependencies.createAttempt({
     id: dependencies.createId(),
@@ -46,16 +53,20 @@ export async function startAuthenticationProof(
     browserBindingDigest: hashAuthenticationValue(browserBinding),
     codeVerifierCiphertext: dependencies.encryptCodeVerifier(codeVerifier),
     lifetimeSeconds: ATTEMPT_LIFETIME_MS / 1_000,
+    nonceCiphertext: dependencies.encryptNonce(nonce),
+    purpose: parsed.purpose,
+    sessionRevocationRevision: proofState.sessionRevocationRevision,
   })
 
+  const authorizationUrl = await dependencies.adapter.createAuthorizationUrl({
+    callbackUri: dependencies.callbackUri,
+    codeChallenge,
+    freshAuthentication: parsed.purpose === "ADMIN_ENROLLMENT",
+    nonce,
+    state,
+  })
   return {
-    authorizationUrl: dependencies.adapter
-      .createAuthorizationUrl({
-        callbackUri: dependencies.callbackUri,
-        codeChallenge,
-        state,
-      })
-      .toString(),
+    authorizationUrl: authorizationUrl.toString(),
     browserBinding,
     expiresAt,
   }

@@ -1,7 +1,10 @@
 import { Prisma } from "../../../generated/prisma/client.ts"
 import { createExternalIdentity } from "../../../repositories/external-identities/create-external-identity/index.ts"
 import { findExternalIdentity } from "../../../repositories/external-identities/find-external-identity/index.ts"
+import { lockSelectedAuthenticationProvider } from "../../../repositories/authentication-providers/lock-selected-authentication-provider/index.ts"
+import { lockConsumedAuthorizationAttempt } from "../../../repositories/authorization-attempts/lock-consumed-authorization-attempt/index.ts"
 import { createSecurityAudit } from "../../../repositories/security-audits/create-security-audit/index.ts"
+import { lockSessionRevocationState } from "../../../repositories/session-revocation-states/lock-session-revocation-state/index.ts"
 import { createUser } from "../../../repositories/users/create-user/index.ts"
 import { classifyPrismaTransactionError } from "../../../integrations/prisma/classify-transaction-error/index.ts"
 import { IdentityTransactionConflictError } from "../errors.ts"
@@ -24,6 +27,9 @@ export function runIdentityCreationTransaction<Result>(
           createSecurityAudit: (input) => createSecurityAudit(transaction, input),
           createUser: (input) => createUser(transaction, input),
           findExternalIdentity: (tuple) => findIdentity(transaction, tuple),
+          lockAttempt: (id) => lockConsumedAuthorizationAttempt(transaction, id),
+          lockProvider: (key) => lockSelectedAuthenticationProvider(transaction, key),
+          lockRevocation: () => lockSessionRevocationState(transaction),
         }),
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     )

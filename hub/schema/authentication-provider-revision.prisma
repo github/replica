@@ -6,7 +6,9 @@ model AuthenticationProviderRevision {
   // Relations
   provider              AuthenticationProvider  @relation("AuthenticationProviderRevisions", fields: [providerId], references: [id], onDelete: Restrict)
   selectedBy            AuthenticationProvider? @relation("SelectedAuthenticationProviderRevision")
+  lastDisabledBy        AuthenticationProvider? @relation("LastDisabledAuthenticationProviderRevision")
   authorizationAttempts AuthorizationAttempt[]
+  membershipAssignments MembershipAssignment[]
 
   // Attribute columns
   revision            Int

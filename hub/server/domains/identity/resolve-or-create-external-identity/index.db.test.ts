@@ -221,6 +221,9 @@ describe("resolveOrCreateExternalIdentity()", () => {
             createSecurityAudit: (input) => createSecurityAudit(transaction, input),
             createUser: (input) => createUser(transaction, input),
             findExternalIdentity: (input) => findExternalIdentity(transaction, input),
+            lockAttempt: () => Promise.resolve(null),
+            lockProvider: () => Promise.resolve(null),
+            lockRevocation: () => Promise.resolve(null),
           }),
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
       )

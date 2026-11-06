@@ -13,20 +13,40 @@ const data: HomeIndexPageData = {
   description:
     "Replica Hub turns GitHub branches into shareable prototypes where your team can review changes and leave feedback.",
   heading: "Build and review prototypes with your team.",
-  localMode: false,
   notice: null,
   footerNote: "\u00a9 2026 GitHub, Inc.",
   pageTitle: "Replica Hub",
   pauseAnimationLabel: "Pause animation",
   resumeAnimationLabel: "Resume animation",
-  signInLabel: "Sign in with GitHub",
-  signInPath: "/api/auth/github/start",
+  signInActions: [
+    {
+      label: "Sign in with GitHub",
+      path: "/api/auth/github/start",
+      provider: "github",
+    },
+  ],
 }
 
 const meta = {
   title: "Hub/Pages/Home",
   component: HomeIndexPage,
   args: { colorMode: "dark", data },
+  beforeEach: () => {
+    const originalMatchMedia = window.matchMedia.bind(window)
+    window.matchMedia = (query) => ({
+      matches: query === "(prefers-reduced-motion: reduce)",
+      media: query,
+      onchange: null,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+      addListener: () => undefined,
+      removeListener: () => undefined,
+      dispatchEvent: () => true,
+    })
+    return () => {
+      window.matchMedia = originalMatchMedia
+    }
+  },
   argTypes: {
     colorMode: { control: false, table: { disable: true } },
   },
@@ -39,7 +59,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "Signed-out Hero with Primer's full entrance sequence, rotating label, size-2 heading, and GitHub sign-in icon.",
+          "Signed-out Hero with Primer's full entrance sequence, rotating label, size-2 heading, and explicit configured provider actions.",
       },
     },
   },
@@ -50,12 +70,43 @@ type Story = StoryObj<typeof meta>
 
 export const Default: Story = {}
 
+export const MicrosoftEntra: Story = {
+  args: {
+    data: {
+      ...data,
+      signInActions: [
+        {
+          label: "Sign in with Microsoft Entra",
+          path: "/api/auth/entra/start",
+          provider: "entra",
+        },
+      ],
+    },
+  },
+}
+
+export const GitHubAndMicrosoftEntra: Story = {
+  args: {
+    data: {
+      ...data,
+      signInActions: [
+        ...data.signInActions,
+        {
+          label: "Sign in with Microsoft Entra",
+          path: "/api/auth/entra/start",
+          provider: "entra",
+        },
+      ],
+    },
+  },
+}
+
 export const AuthorizationFailed: Story = {
   args: {
     data: {
       ...data,
       alert:
-        "GitHub could not complete sign-in, or this account is not an active Hub member. Start a new sign-in to try again.",
+        "Sign-in could not be completed, or this account is not an active Hub member. Start a new sign-in to try again.",
     },
   },
 }

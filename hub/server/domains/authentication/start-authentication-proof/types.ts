@@ -16,18 +16,27 @@ export interface StartAuthenticationProofDependencies {
     codeVerifierCiphertext: string
     id: string
     lifetimeSeconds: number
+    nonceCiphertext: string
+    purpose: "SIGN_IN" | "ADMIN_ENROLLMENT"
     providerRevisionId: string
+    sessionRevocationRevision: number
     stateDigest: string
   }): Promise<{ expiresAt: Date }>
   createId(): string
   createOpaqueValue(): string
   deleteExpiredArtifacts(): Promise<void>
   encryptCodeVerifier(value: string): string
-  getSelectedProviderRevision(): Promise<SelectedProviderRevision | null>
+  encryptNonce(value: string): string
+  getAuthenticationProofState(): Promise<{
+    selectedProviderRevision: SelectedProviderRevision | null
+    sessionRevocationRevision: number
+  } | null>
   writeDenialAudit(reason: "configuration_changed"): Promise<unknown>
 }
 
-export type StartAuthenticationProofInput = Record<string, never>
+export interface StartAuthenticationProofInput {
+  purpose: "SIGN_IN" | "ADMIN_ENROLLMENT"
+}
 
 export interface StartAuthenticationProofResult {
   authorizationUrl: string

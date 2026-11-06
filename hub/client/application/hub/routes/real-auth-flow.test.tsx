@@ -61,8 +61,19 @@ describe("Real authentication route integration", () => {
       mode: "development",
       dev: true,
       authenticated: false,
+      providers: ["github"],
       button: "Sign in with GitHub",
       action: "/api/auth/github/start",
+    },
+    {
+      label: "signed-out Entra home in real development",
+      path: "/",
+      mode: "development",
+      dev: true,
+      authenticated: false,
+      providers: ["entra"],
+      button: "Sign in with Microsoft Entra",
+      action: "/api/auth/entra/start",
     },
     {
       label: "restored home in a production build, even with mock mode selected",
@@ -70,6 +81,7 @@ describe("Real authentication route integration", () => {
       mode: "mock",
       dev: false,
       authenticated: true,
+      providers: ["github"],
       button: "Sign out",
       action: "/api/auth/session/sign-out",
     },
@@ -79,19 +91,33 @@ describe("Real authentication route integration", () => {
       mode: "development",
       dev: true,
       authenticated: false,
+      providers: ["github"],
       button: "Verify with GitHub",
       action: "/api/auth/github/admin-enrollment/start",
     },
+    {
+      label: "Entra administrator enrollment in real development",
+      path: "/admin-enrollment",
+      mode: "development",
+      dev: true,
+      authenticated: false,
+      providers: ["entra"],
+      button: "Verify with Microsoft Entra",
+      action: "/api/auth/entra/admin-enrollment/start",
+    },
   ])(
     "connects $label to the real session shell and leaves its POST native",
-    async ({ path, mode, dev, authenticated, button, action }) => {
+    async ({ path, mode, dev, authenticated, providers, button, action }) => {
       vi.stubEnv("MODE", mode)
       vi.stubEnv("DEV", dev)
       const requests: string[] = []
       const server = setupServer(
+        http.get(`${window.location.origin}/api/auth/providers`, () =>
+          HttpResponse.json({ providers }),
+        ),
         http.get(`${window.location.origin}/api/auth/session`, () =>
           authenticated
-            ? HttpResponse.json({ authenticated: true })
+            ? HttpResponse.json({ authenticated: true, role: "ADMINISTRATOR" })
             : new HttpResponse(null, { status: 401 }),
         ),
       )
@@ -121,27 +147,46 @@ describe("Real authentication route integration", () => {
 
       const submit = await screen.findByRole("button", { name: button })
       await vi.waitFor(() => {
-        expect(requests).toContain("GET /api/auth/session")
+        expect(requests).toEqual(
+          expect.arrayContaining(["GET /api/auth/providers", "GET /api/auth/session"]),
+        )
         expect(router.state.initialized).toBe(true)
         expect(router.state.navigation.state).toBe("idle")
       })
-      expect(requests.every((request) => request === "GET /api/auth/session")).toBe(true)
+      expect(
+        requests.every((request) =>
+          ["GET /api/auth/providers", "GET /api/auth/session"].includes(request),
+        ),
+      ).toBe(true)
       expect(router.state.location.pathname).toBe(path)
-      const form = submit.closest("form")
+      const form = submit instanceof HTMLButtonElement ? submit.form : submit.closest("form")
       if (!form) throw new Error("The authentication control must submit a native form.")
       expect(form.method).toBe("post")
-      expect(new URL(form.action).pathname).toBe(action)
+      const submitAction =
+        submit instanceof HTMLButtonElement
+          ? (submit.getAttribute("formaction") ?? form.action)
+          : form.action
+      expect(new URL(submitAction, window.location.href).pathname).toBe(action)
       if (path === "/admin-enrollment") {
         fireEvent.change(screen.getByLabelText(/^Bootstrap secret/), {
           target: { value: "local-test-bootstrap-secret" },
         })
       }
 
-      expect(fireEvent.submit(form, { submitter: submit })).toBe(true)
+      const submitEvent = new SubmitEvent("submit", {
+        bubbles: true,
+        cancelable: true,
+        submitter: submit,
+      })
+      expect(form.dispatchEvent(submitEvent)).toBe(true)
 
       expect(router.state.location.pathname).toBe(path)
       expect(screen.getByRole("button", { name: button })).toBeInTheDocument()
-      expect(requests.every((request) => request === "GET /api/auth/session")).toBe(true)
+      expect(
+        requests.every((request) =>
+          ["GET /api/auth/providers", "GET /api/auth/session"].includes(request),
+        ),
+      ).toBe(true)
     },
     15_000,
   )

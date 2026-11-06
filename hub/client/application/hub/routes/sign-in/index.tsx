@@ -38,9 +38,13 @@ export default function SignIn() {
           heading: "Build and review prototypes with your team.",
           description:
             "Replica Hub turns GitHub branches into shareable prototypes where your team can review changes and leave feedback.",
-          signInLabel: "Sign in with GitHub",
-          signInPath: "/session",
-          localMode: false,
+          signInActions: [
+            {
+              label: "Sign in with GitHub",
+              path: "/session",
+              provider: "github",
+            },
+          ],
           pageTitle: "Replica Hub",
           footerNote: "\u00a9 2026 GitHub, Inc.",
           pauseAnimationLabel: "Pause animation",
