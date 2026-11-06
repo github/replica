@@ -53,7 +53,7 @@ function reviewFixture() {
     activeBatch: null,
   }
   fetch.mockImplementation(async (path, options) => {
-    if (path === "/api/hub/comments")
+    if (path === "/api/hub/comments" || path.startsWith("/api/hub/comments?"))
       return Response.json({ comments: [comment], hasMore: false, nextCursor: null })
     if (path === "/api/improvement-notes/capture")
       return Response.json({ identity: saved.identity, sourceId: "selected-source" })
