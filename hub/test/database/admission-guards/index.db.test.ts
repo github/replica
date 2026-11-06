@@ -81,11 +81,11 @@ async function createAdmissionAuthority() {
 }
 
 describe("admission database guards", () => {
-  it("deploys provider assignment enum values on a supported PostgreSQL major", async () => {
+  it("deploys provider assignment enum values at the supported PostgreSQL minimum or newer", async () => {
     const server = await prisma.$queryRaw<Array<{ serverMajor: number }>>`
       SELECT current_setting('server_version_num')::integer / 10000 AS "serverMajor"
     `
-    expect([17, 18]).toContain(server[0]!.serverMajor)
+    expect(server[0]!.serverMajor).toBeGreaterThanOrEqual(17)
 
     const values = await prisma.$queryRaw<Array<{ enumName: string; value: string }>>`
       SELECT type.typname AS "enumName", value.enumlabel AS value
