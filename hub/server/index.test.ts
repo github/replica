@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
+import { Prisma } from "./generated/prisma/client.ts"
 import { logger } from "./integrations/pino"
 import { runApi } from "./run-api"
 import { startServerProcesses } from "./start-server-processes"
@@ -126,6 +127,35 @@ describe("server runtime", () => {
       expect(runner).toHaveBeenCalledWith(expect.objectContaining({ authentication: undefined }))
     },
   )
+
+  it("reports that setup is required when authentication tables are missing", async () => {
+    const disableAuthenticationProviders = vi.fn().mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError(
+        'The table "public.authentication_providers" does not exist in the current database.',
+        {
+          code: "P2021",
+          clientVersion: "test",
+          meta: { table: "public.authentication_providers" },
+        },
+      ),
+    )
+    vi.mocked(parseRuntimeConfig).mockReturnValue({
+      ...apiConfiguration,
+      databaseUrl: "postgresql://hub.example.test/replica",
+    })
+    vi.doMock("./routes/api/auth/create-authentication-route-dependencies/index.ts", () => ({
+      createAuthenticationRouteDependencies: vi.fn(),
+      disableAuthenticationProviders,
+    }))
+
+    await expect(import("./index.ts")).rejects.toThrow("Unexpected process exit: 1")
+
+    expect(disableAuthenticationProviders).toHaveBeenCalledOnce()
+    expect(runApi).not.toHaveBeenCalled()
+    expect(logger.fatal).toHaveBeenCalledWith(
+      "Hub database setup is required before API startup. Run npm run setup.",
+    )
+  })
 
   it("loads route-owned authentication composition when auth is configured", async () => {
     const createAuthenticationRouteDependencies = vi.fn()

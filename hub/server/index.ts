@@ -4,6 +4,7 @@ import { createConfiguredArtifactStorage } from "./domains/artifacts/create-conf
 import { readAuthenticationConfigurationState } from "./domains/authentication/read-authentication-configuration-state/index.ts"
 import { startTelemetry } from "./integrations/opentelemetry/start-telemetry/index.ts"
 import { logger } from "./integrations/pino/index.ts"
+import { isMissingDatabaseSchema } from "./integrations/prisma/is-missing-database-schema/index.ts"
 import { runApi } from "./run-api/index.ts"
 import { setup } from "./scripts/setup/index.ts"
 import { startServerProcesses } from "./start-server-processes/index.ts"
@@ -67,10 +68,19 @@ try {
       if (configuration.databaseUrl) {
         const { createAuthenticationRouteDependencies, disableAuthenticationProviders } =
           await import("./routes/api/auth/create-authentication-route-dependencies/index.ts")
-        if (authenticationConfiguration.providerConfigured) {
-          authentication = await createAuthenticationRouteDependencies(process.env)
-        } else {
-          await disableAuthenticationProviders()
+        try {
+          if (authenticationConfiguration.providerConfigured) {
+            authentication = await createAuthenticationRouteDependencies(process.env)
+          } else {
+            await disableAuthenticationProviders()
+          }
+        } catch (error) {
+          if (isMissingDatabaseSchema(error)) {
+            throw new AuthenticationConfigurationError(
+              "Hub database setup is required before API startup. Run npm run setup.",
+            )
+          }
+          throw error
         }
       }
     }

@@ -22,9 +22,12 @@ Use npm and a Node.js version supported by `engines.node` in `hub/package.json`.
 docker compose -f .devcontainer/compose.yaml up -d db
 cp .env.example .env
 npm ci --engine-strict
+npm run setup
 ```
 
-The example URL connects to PostgreSQL on `127.0.0.1:5432`. To use another development database, set `DATABASE_URL` in `.env` instead. Do not commit credentials. The health route does not query the database. Authentication routes require the database and remain unavailable until their settings are configured.
+The example URL connects to PostgreSQL on `127.0.0.1:5432`. To use another development database, set `DATABASE_URL` in `.env` instead. Do not commit credentials. With `DATABASE_URL` set, API startup requires a reachable, migrated database so it can reconcile configured providers and durably disable removed providers before serving requests. Run `npm run setup` after creating or updating the database and before `npm run dev:api`.
+
+For a true process-only health check without database or authentication composition, leave `DATABASE_URL` and all authentication settings unset. The health route itself does not query the database, but a database-backed API still fails closed at startup when the database is unreachable or its schema has not been set up.
 
 ## Start with the real API
 
