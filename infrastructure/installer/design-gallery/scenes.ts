@@ -1966,7 +1966,7 @@ export const scenes: Scene[] = [
     "id": "another-local-setup-session-owns-the-draft",
     "group": "Shell output and exit states",
     "title": "Another local setup session owns the draft",
-    "source": "infrastructure/installer/terminal/shell/index.tsx",
+    "source": "infrastructure/installer/session/lock/index.ts:13",
     "kind": "shell",
     "message": "Error: Another setup session owns /demo/replica/infrastructure/.local/installation.json.draft.json.lock. Close that session before retrying. Do not remove Azure installation or release locks.\nSetup diagnostics: /demo/logs/setup.jsonl",
     "purpose": "Protects local session writing independently of Azure installation and release leases.",
@@ -2011,7 +2011,7 @@ export const scenes: Scene[] = [
     "id": "ambiguous-prior-database-provisioning",
     "group": "Shell output and exit states",
     "title": "Ambiguous prior database provisioning",
-    "source": "infrastructure/installer/terminal/shell/index.tsx",
+    "source": "infrastructure/azure/install/provision/index.ts:106",
     "kind": "shell",
     "message": "Error: Database provisioning has prior executions but no completion marker. Inspect the database and exact job execution; do not rerun fresh-database provisioning blindly.\nLock retained at replicademohub/releases/deployment.lock.\nSession preserved at /demo/replica/infrastructure/.local/installation.json.draft.json.\nSetup diagnostics: /demo/logs/setup.jsonl",
     "purpose": "Stops a database setup whose prior execution outcome is not proven by a completion marker.",
@@ -2195,6 +2195,7 @@ export const scenes: Scene[] = [
 
 export const sourceBindings: Record<string, string> = {
   "infrastructure/installer/wizard/index.ts": "cb0bc6ccb3cc52d2ef18625efc74dab18012d28d1d3cf7ef02ffbbaab442dab1",
+  "infrastructure/installer/session/lock/index.ts": "02a5cf77649308c8b5b295d624638e54c2842acfda29db440377a45320f29078",
   "infrastructure/azure/install/preflight/index.ts": "a7b835c5886b78b8bf03efab321bf7bdc769422e815234867a14cf5a181975d7",
   "infrastructure/azure/install/configure/index.ts": "fba25677a3c9bee1b813eb672c894b83678a21fc93336501b7b89f771787a97e",
   "infrastructure/installer/config/fields/index.ts": "f936a98350a6cd093b7b1fd1ec092ac82b2849a2a95ff13ed60e28d5b8e3df38",
@@ -2203,6 +2204,7 @@ export const sourceBindings: Record<string, string> = {
   "infrastructure/terraform/index.ts": "bb81895279879a78c3f7671704cfc762d03f735d15ecb5e08a5d616b2a868252",
   "infrastructure/azure/install/secrets/index.ts": "40243a4dec330344ec6d54cb945cec89f0f9342b30d5cf0960a246fb1ca36f9d",
   "infrastructure/azure/install/image/index.ts": "c2118d1837b133ac8b90a6bd6cb27df3dc795cc6acfa42b91c65b4bb491017ff",
+  "infrastructure/azure/install/provision/index.ts": "f2edc025c8435e30ff475ef952e19c849ce604c96bd89a78f94abcb2616fd65e",
   "infrastructure/installer/deployment-summary/index.ts": "1adabb9e093d0396210351a78457f77db974d4dadb5b346afe0c3f6b0423e9d2",
   "infrastructure/installer/prompt-for-recovery/index.ts": "a38f6d5c4f56abb996d1fd05b75869087527a1fd3dcb62537a5d7efb1e679a98",
   "infrastructure/azure/install/lease/recover/index.ts": "375248ee671e21b88638815882680666764572d8bd5d0158fc2b78b4b7e4886c",

@@ -69,7 +69,7 @@ async function show(scene) {
     link.hidden = !exported
     link.href = `/gallery/screens/${scene.id}.${extension}`
   }
-  history.replaceState(null, "", `#${scene.id}`)
+  history.replaceState(null, "", `#${new URLSearchParams({ token, scene: scene.id })}`)
 }
 
 async function post(path, body) {
@@ -84,6 +84,7 @@ async function post(path, body) {
 }
 
 generate.onclick = async () => {
+  if (busy || exported) return
   const selected = current
   busy = true
   controls()
@@ -115,6 +116,7 @@ generate.onclick = async () => {
 }
 
 async function navigate(index) {
+  if (busy) return
   busy = true
   controls()
   try {
@@ -132,11 +134,15 @@ previous.onclick = () => navigate(current - 1)
 next.onclick = () => navigate(current + 1)
 
 async function load() {
+  const access = new URLSearchParams(location.hash.slice(1))
+  token = access.get("token")
+  if (!token || !/^[a-f0-9]{64}$/.test(token)) {
+    throw new Error("Open the complete URL printed by wizard:design, including its access fragment.")
+  }
   const response = await fetch("/scenes.json")
   if (!response.ok) throw new Error(`Could not load catalog (${response.status}).`)
   const data = await response.json()
   scenes = data.scenes
-  token = data.token
   for (const scene of scenes) {
     const option = document.createElement("option")
     option.value = scene.id
@@ -144,7 +150,7 @@ async function load() {
     select.append(option)
   }
   document.getElementById("summary").textContent = `${scenes.length} synthetic states · source ${data.revision} · no Azure commands · real Ink presentation`
-  const initial = scenes.findIndex(scene => scene.id === location.hash.slice(1))
+  const initial = scenes.findIndex(scene => scene.id === access.get("scene"))
   await show(scenes[initial < 0 ? 0 : initial])
   status.textContent = "Browse the screens, or generate the complete offline gallery and PDF. Keep this page open during export."
   busy = false

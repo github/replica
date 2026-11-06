@@ -22,7 +22,7 @@ export async function run() {
   const directory = await mkdtemp(join(root, "run-"))
   const { stdout } = await promisify(execFile)("git", ["rev-parse", "--short=12", "HEAD"], { cwd: repository })
   const server = await startGallery({ directory, scenes, revision: stdout.trim() })
-  console.log(`Open ${server.url} in an ordinary browser, then choose Generate all screens and PDF.`)
+  console.log(`Open ${server.url}/#token=${server.token} in an ordinary browser, then choose Generate all screens and PDF.`)
   console.log(`Output: ${directory}\nKeep this command running until export completes. Ctrl+C stops the local server.`)
   const stop = () => {
     void server.close().catch(error => {

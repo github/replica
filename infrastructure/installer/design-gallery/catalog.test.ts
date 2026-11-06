@@ -1,7 +1,17 @@
+import { randomUUID } from "node:crypto"
+import { appendFile, copyFile, mkdir, rm } from "node:fs/promises"
+import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it } from "vitest"
 
 import { orderedScenes, verifySources } from "./catalog.ts"
+import { sourceBindings } from "./scenes.ts"
+
+const directories: string[] = []
+
+afterEach(async () => {
+  await Promise.all(directories.splice(0).map(directory => rm(directory, { recursive: true, force: true })))
+})
 
 describe("wizard design catalog", () => {
   it("keeps all 100 synthetic scenes individually identified and annotated", () => {
@@ -55,5 +65,31 @@ describe("wizard design catalog", () => {
     const repository = fileURLToPath(new URL("../../../", import.meta.url))
 
     await expect(verifySources(repository)).resolves.toBeUndefined()
+  })
+
+  it.each([
+    {
+      id: "another-local-setup-session-owns-the-draft",
+      source: "infrastructure/installer/session/lock/index.ts",
+    },
+    {
+      id: "ambiguous-prior-database-provisioning",
+      source: "infrastructure/azure/install/provision/index.ts",
+    },
+  ])("detects copied message drift for $id at its actual source", async ({ id, source }) => {
+    const repository = fileURLToPath(new URL("../../../", import.meta.url))
+    const directory = resolve(`.design-gallery-source-test-${randomUUID()}`)
+    directories.push(directory)
+    for (const path of new Set([...Object.keys(sourceBindings), source])) {
+      const destination = join(directory, path)
+      await mkdir(dirname(destination), { recursive: true })
+      await copyFile(join(repository, path), destination)
+    }
+    await expect(verifySources(directory)).resolves.toBeUndefined()
+
+    await appendFile(join(directory, source), "\n// Synthetic source drift.\n")
+
+    await expect(verifySources(directory)).rejects.toThrow(`Design fixture source changed: ${source}.`)
+    expect(orderedScenes().find(scene => scene.id === id)?.source.split(":")[0]).toBe(source)
   })
 })
