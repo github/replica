@@ -171,7 +171,7 @@ function scenario({ existing = false, release = false, canonical = false } = {})
         ({ name }) => name === option(args, "--revision"),
       )!.active = false
       draining = true
-      return "{}"
+      return ""
     }
     if (operation === "storage blob lease") {
       if (args[3] === "break") {

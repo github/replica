@@ -25,6 +25,7 @@ function installationScenario({
   revisionResponse = { name: "test-hub--latest", properties: { active: true } },
   httpStatuses = [200],
   commandFailure,
+  commandOutput,
 }: {
   appCreated?: boolean
   setupStatus?: string
@@ -34,6 +35,7 @@ function installationScenario({
   revisionResponse?: unknown
   httpStatuses?: number[]
   commandFailure?: { args: string[]; error: Error; occurrence?: number }
+  commandOutput?: { args: string[]; stdout: string }
 } = {}) {
   const installation = {
     name: "test-hub",
@@ -65,6 +67,8 @@ function installationScenario({
       matchingCommands += 1
       if (matchingCommands === (commandFailure.occurrence ?? 1)) throw commandFailure.error
     }
+    if (file === "az" && commandOutput?.args.every((argument, index) => args[index] === argument))
+      return commandOutput.stdout
     if (file === "terraform") {
       switch (args[1]) {
         case "output":
@@ -113,7 +117,7 @@ function installationScenario({
           return JSON.stringify("lease-id")
         }
         if (args.includes("release") && releaseError) throw releaseError
-        return "null"
+        return ""
       case "containerapp revision list":
         return JSON.stringify([
           { name: "old-active", properties: { active: true } },
@@ -131,7 +135,7 @@ function installationScenario({
         return JSON.stringify({ name: "setup-execution" })
       case "containerapp revision deactivate":
       case "containerapp revision activate":
-        return "null"
+        return ""
       case "containerapp revision show":
         return JSON.stringify(revisionResponse)
       default:
@@ -168,6 +172,9 @@ function installationScenario({
 describe("deployHub()", () => {
   it("drains all old revisions and completes setup before rollout, readiness, and lease release", async () => {
     const { args, events, replicaReads, commandOptions } = installationScenario()
+    const output: unknown[][] = []
+    mock.method(console, "error", (...args: unknown[]) => output.push(args))
+    const completion = mock.method(console, "log", () => events.push(["complete"]))
 
     await deployHub(args)
 
@@ -222,6 +229,9 @@ describe("deployHub()", () => {
       ),
     )
     assert.ok(release > ready)
+    assert.equal(completion.mock.callCount(), 1)
+    assert.ok(events.findIndex((event) => event[0] === "complete") > release)
+    assert.doesNotMatch(JSON.stringify(output), /lease is retained/)
     assert.ok(
       commandOptions.every(
         ({ stdio }) =>
@@ -500,6 +510,66 @@ describe("deployHub()", () => {
     assert.ok(!events.some((event) => event[0] === "terraform" && event[2] === "apply"))
   })
 
+  for (const response of [
+    {
+      name: "empty lease acquisition output",
+      args: ["storage", "blob", "lease", "acquire"],
+      stdout: "",
+      retainsLease: false,
+    },
+    {
+      name: "malformed job start output",
+      args: ["containerapp", "job", "start"],
+      stdout:
+        'synthetic-private-output {"credential":"synthetic-private-credential","lease":"lease-id"}',
+      retainsLease: true,
+    },
+  ]) {
+    it(`rejects ${response.name} with a safe operation label and no deployment completion`, async () => {
+      const { args, events } = installationScenario({ commandOutput: response })
+      const output: unknown[][] = []
+      mock.method(console, "error", (...args: unknown[]) => output.push(args))
+      const completion = mock.method(console, "log", (...args: unknown[]) => output.push(args))
+
+      await assert.rejects(deployHub(args), (error: unknown) => {
+        assert.ok(error instanceof Error)
+        assert.ok(error.message.includes(describeCommand("az", response.args).label))
+        assert.equal(error.cause, undefined)
+        const rendered = inspect([error, output], { depth: 10, showHidden: true })
+        for (const value of [
+          "synthetic-private-output",
+          "synthetic-private-credential",
+          "lease-id",
+          "test-subscription",
+          "test-hub",
+          "hub.example.com",
+        ])
+          assert.ok(!rendered.includes(value))
+        return true
+      })
+
+      assert.ok(
+        events.some((event) =>
+          response.args.every((argument, index) => event[index + 1] === argument),
+        ),
+      )
+      assert.equal(
+        events.filter((event) => event.slice(0, 4).join(" ") === "az containerapp job start")
+          .length,
+        response.retainsLease ? 1 : 0,
+      )
+      assert.equal(
+        events.filter((event) => event[0] === "terraform" && event[2] === "apply").length,
+        response.retainsLease ? 1 : 0,
+      )
+      assert.equal(JSON.stringify(output).includes("lease is retained"), response.retainsLease)
+      assert.ok(!events.some((event) => event.includes("activate")))
+      assert.ok(!events.some((event) => event[0] === "HTTPS"))
+      assert.ok(!events.some((event) => event.includes("release")))
+      assert.equal(completion.mock.callCount(), 0)
+    })
+  }
+
   it("redacts child diagnostics and retains the lock warning when lease release fails", async () => {
     const leaseId = "lease-id"
     const privateOutput = `private-credential ${leaseId}`
@@ -547,5 +617,30 @@ describe("deployHub()", () => {
       ),
     )
     assert.ok(!events.some((event) => event[0] === "terraform" && event[2] === "apply"))
+  })
+
+  it("completes confirmed teardown after a successful blob deletion with empty output", async () => {
+    const { args, events } = installationScenario({
+      appCreated: false,
+      commandOutput: { args: ["storage", "blob", "delete"], stdout: "" },
+    })
+    args[0] = "destroy"
+    args.push("--confirm", "test-hub")
+    mock.method(console, "log", () => events.push(["complete"]))
+
+    await deployHub(args)
+
+    const plan = events.findIndex((event) => event[0] === "terraform" && event[2] === "plan")
+    const deleted = events.findIndex(
+      (event) => event.slice(0, 4).join(" ") === "az storage blob delete",
+    )
+    const applied = events.findIndex((event) => event[0] === "terraform" && event[2] === "apply")
+    assert.ok(plan >= 0 && events[plan].includes("-destroy"))
+    assert.ok(deleted > plan)
+    assert.ok(applied > deleted)
+    assert.ok(events.findIndex((event) => event[0] === "complete") > applied)
+    assert.ok(!events.some((event) => event.includes("release") || event.includes("activate")))
+    assert.ok(!events.some((event) => event.slice(0, 4).join(" ") === "az containerapp job start"))
+    assert.ok(!events.some((event) => event[0] === "HTTPS"))
   })
 })

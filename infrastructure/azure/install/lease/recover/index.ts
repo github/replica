@@ -185,6 +185,7 @@ export async function recoverLease(
             resourceGroup: config.azure.resourceGroup,
             command: async (...args) => {
               const output = await azure(...args)
+              if (args[2] === "deactivate") return
               try {
                 return JSON.parse(output)
               } catch {

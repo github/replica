@@ -86,25 +86,29 @@ export async function deployHub(args: string[] = process.argv.slice(2)): Promise
   function terraform(arguments_: string[], capture = false): string {
     return command("terraform", [`-chdir=${root}`, ...arguments_], capture)
   }
-  function parseOutput<T>(output: string): T {
+  function parseOutput<T>(output: string, operation: string): T {
     try {
       return JSON.parse(output) as T
     } catch {
-      throw new Error("Deployment tooling returned an invalid response.")
+      throw new Error(
+        `${operation} returned invalid JSON. Tool output remains private; inspect the installation through authorized tooling.`,
+      )
     }
   }
-  function azure<T>(...arguments_: string[]): T {
-    return parseOutput<T>(
-      command(
-        "az",
-        [...arguments_, "--subscription", subscriptionId, "--only-show-errors", "--output", "json"],
-        true,
-      ),
+  function azureCommand(...arguments_: string[]): string {
+    return command(
+      "az",
+      [...arguments_, "--subscription", subscriptionId, "--only-show-errors", "--output", "json"],
+      true,
     )
+  }
+  function azure<T>(...arguments_: string[]): T {
+    return parseOutput<T>(azureCommand(...arguments_), describeCommand("az", arguments_).label)
   }
   function readInstallation(): Installation {
     const installation = parseOutput<Installation>(
       terraform(["output", "-json", "installation"], true),
+      describeCommand("terraform", ["output", "-json", "installation"]).label,
     )
     if (installation.subscription_id !== subscription) {
       throw new Error("The selected subscription does not match this Terraform state.")
@@ -164,7 +168,10 @@ export async function deployHub(args: string[] = process.argv.slice(2)): Promise
     if (target) arguments_.push(`-target=${target}`)
     if (destroy) arguments_.push("-destroy")
     terraform(arguments_)
-    const planned = parseOutput<DeploymentPlan>(terraform(["show", "-json", planPath], true))
+    const planned = parseOutput<DeploymentPlan>(
+      terraform(["show", "-json", planPath], true),
+      describeCommand("terraform", ["show", "-json", planPath]).label,
+    )
     if (!destroy) {
       if (planned.resource_changes?.some(({ change }) => change.actions.includes("delete"))) {
         throw new Error(
@@ -230,7 +237,7 @@ export async function deployHub(args: string[] = process.argv.slice(2)): Promise
       )
     }
     if (!current.properties.active) {
-      azure(
+      azureCommand(
         "containerapp",
         "revision",
         "activate",
@@ -320,11 +327,19 @@ export async function deployHub(args: string[] = process.argv.slice(2)): Promise
       await stopHub({
         name: installation.app_name,
         resourceGroup: installation.resource_group,
-        command: (...args) => azure<unknown>(...args),
+        command: (...args) =>
+          args[2] === "deactivate" ? azureCommand(...args) : azure<unknown>(...args),
       })
     if (operation === "destroy") {
       plan(installation.app_created, installation, undefined, true)
-      azure("storage", "blob", "delete", ...blobArguments(installation, true), "--lease-id", lease)
+      azureCommand(
+        "storage",
+        "blob",
+        "delete",
+        ...blobArguments(installation, true),
+        "--lease-id",
+        lease,
+      )
       lease = undefined
       apply()
       console.log("Terraform-tracked installation resources were destroyed.")
@@ -338,7 +353,7 @@ export async function deployHub(args: string[] = process.argv.slice(2)): Promise
     apply()
     installation = readInstallation()
     await waitReady(installation)
-    azure(
+    azureCommand(
       "storage",
       "blob",
       "lease",

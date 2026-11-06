@@ -278,6 +278,8 @@ Terraform owns the image in both resources. Neither resource uses `ignore_change
 
 Azure can activate the revision during Terraform rollout. Requesting activation again can return `RevisionAlreadyInRequestedState`; the release script checks that exact revision rather than treating an already-active revision as a failed release. Unknown or mismatched activation state still blocks completion. An active revision alone is not success: readiness checks must pass before the lease is released.
 
+Successful Azure operations that return no data, such as lease release, are checked by exit status rather than parsed as JSON. Responses used for deployment decisions still require valid JSON. Invalid replies name the operation without disclosing tool output.
+
 Plans reject resource deletion and replacement during normal releases. A database major upgrade, region move, rename, or replacement needs a reviewed migration/recovery plan, not an override of that guard. The release script deletes its sensitive saved plan on exit and retains an acquired lease on failure. A failure after stopping old revisions but before rollout leaves Hub stopped; a failure after rollout can leave the new revision running. The script never reactivates an older process automatically against a possibly migrated schema.
 
 ### Recover a failed release
