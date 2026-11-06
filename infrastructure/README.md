@@ -10,6 +10,8 @@ Every full-screen launch welcomes you with a cyan ASCII GitHub mark and magenta 
 
 The wizard uses a separate terminal screen and restores your shell on completion, cancellation, and catchable errors. Use Page Up and Page Down to scroll long notices or approval details. Narrow screens show the current stage and position instead of the full map. Use `npm run setup:server -- --no-fullscreen` for inline mode. Limited terminals and `INK_SCREEN_READER=true` also use inline mode, without welcome art or an animated timer.
 
+For offline design work, run `npm run wizard:design --prefix infrastructure` from the repository root after installing the infrastructure development dependencies. Open its loopback capture page in a browser to regenerate the 100-state synthetic screen gallery, individual PNGs and annotated PDF. See [the design capture workflow](docs/terminal-design.md#regenerate-the-wizard-design-gallery) for setup, output paths and catalog maintenance. This command never starts a deployment or reads private installation files.
+
 From the repository root, install the wizard's dependencies and start it:
 
 ```sh

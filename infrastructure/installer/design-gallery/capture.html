@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width">
+  <title>Replica wizard design capture</title>
+  <link rel="stylesheet" href="/assets/xterm.css">
+  <link rel="stylesheet" href="/assets/gallery.css">
+  <header>
+    <h1>Replica Hub installation wizard</h1>
+    <p id="summary">Synthetic states · no Azure commands · real Ink presentation</p>
+    <nav aria-label="Screen navigation">
+      <button id="previous" disabled>Previous</button>
+      <select id="scene" aria-label="Screen" disabled></select>
+      <button id="next" disabled>Next</button>
+      <button id="generate" disabled>Generate all screens and PDF</button>
+    </nav>
+    <p id="status" role="status" aria-live="polite">Loading synthetic screens...</p>
+    <div id="result"></div>
+  </header>
+  <main>
+    <section>
+      <h2 id="title"></h2>
+      <div id="viewport"><div id="terminal-scale"><div id="terminal-frame"><div id="terminal"></div></div></div></div>
+      <p class="screen-links"><a id="original" hidden>Original 2x PNG</a><a id="transcript" hidden>Visible terminal transcript</a></p>
+      <details><summary>Visible terminal text</summary><pre id="visible-text"></pre></details>
+    </section>
+    <aside aria-label="Screen annotations">
+      <p id="group"></p>
+      <dl id="notes"></dl>
+      <small id="source"></small>
+      <p id="page"></p>
+      <p>Staged terminal state, not a live cloud deployment. Sign-in, authorization and accessibility are not audited.</p>
+    </aside>
+  </main>
+  <script src="/assets/xterm.js"></script>
+  <script src="/assets/html-to-image.js"></script>
+  <script src="/assets/capture.js"></script>
+</html>

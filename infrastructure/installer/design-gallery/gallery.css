@@ -1,0 +1,38 @@
+* { box-sizing: border-box; }
+body { margin: 0; background: #f5f7fc; color: #18233e; font: 15px/1.5 system-ui, sans-serif; }
+header { position: sticky; top: 0; z-index: 1; padding: 20px 32px 24px; background: #fff; border-bottom: 1px solid #d9dfec; }
+h1 { margin: 0 0 10px; font-size: 24px; }
+header p { margin: 8px 0 16px; }
+nav { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+button, select { padding: 8px 10px; font: inherit; border: 1px solid transparent; border-radius: 6px; background: #ececec; color: #222; }
+button { cursor: pointer; }
+button:disabled { cursor: default; opacity: .5; }
+select { width: 420px; max-width: 100%; }
+button:focus-visible, select:focus-visible, a:focus-visible { outline: 2px solid #6d28d9; outline-offset: 2px; }
+a { color: #6d28d9; }
+#generate { margin-left: 12px; color: #fff; background: #6d28d9; }
+#status { margin-bottom: 0; font-size: 13px; white-space: pre-wrap; }
+#result { display: flex; gap: 16px; flex-wrap: wrap; }
+main { display: grid; grid-template-columns: minmax(0, 3fr) minmax(260px, 1fr); gap: 24px; padding: 28px 32px 40px; }
+main > section { min-width: 0; }
+h2 { margin: 10px 0 14px; font-size: 22px; }
+aside { padding-top: 12px; overflow-wrap: anywhere; }
+aside p { margin: 0 0 20px; }
+dt { margin: 24px 0 12px; color: #6d28d9; font-size: 13px; font-weight: 700; text-transform: uppercase; }
+dd { margin: 0; white-space: pre-wrap; }
+#source { display: block; margin-top: 24px; font: 12px/1.5 ui-monospace, monospace; overflow-wrap: anywhere; }
+#screen { display: block; width: 100%; height: auto; background: #0d1117; border-radius: 10px; }
+#viewport { overflow: hidden; width: 100%; border-radius: 10px; }
+#terminal-scale { width: max-content; transform-origin: top left; }
+#terminal-frame { padding: 16px; width: max-content; background: #0d1117; }
+.xterm-viewport { overflow: hidden !important; }
+pre { overflow: auto; font-size: 12px; white-space: pre; }
+.screen-links { margin-top: 20px; }
+.screen-links a { margin-right: 12px; }
+[hidden] { display: none !important; }
+@media (max-width: 850px) {
+  header { position: static; padding: 20px; }
+  main { grid-template-columns: 1fr; padding: 20px; }
+  #generate { margin-left: 0; }
+  aside { padding-top: 0; }
+}
