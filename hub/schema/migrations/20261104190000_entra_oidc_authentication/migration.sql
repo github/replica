@@ -65,9 +65,8 @@ BEGIN
         RAISE EXCEPTION 'Authentication provider disablement history is database-owned.';
     END IF;
 
-    IF NOT OLD."enabled"
-       AND NEW."enabled"
-       AND NEW."selected_revision_id" IS NOT DISTINCT FROM OLD."last_disabled_revision_id" THEN
+    IF NEW."enabled"
+       AND NEW."selected_revision_id" IS NOT DISTINCT FROM NEW."last_disabled_revision_id" THEN
         RAISE EXCEPTION 'Re-enabling an authentication provider requires a new revision.';
     END IF;
     RETURN NEW;
@@ -98,6 +97,10 @@ BEGIN
     END IF;
     IF NOT provider_enabled AND selected_revision IS NOT NULL THEN
         RAISE EXCEPTION 'Disabled authentication provider cannot have a selected revision.';
+    END IF;
+    IF provider_enabled
+       AND selected_revision IS NOT DISTINCT FROM last_disabled_revision THEN
+        RAISE EXCEPTION 'Enabled authentication provider cannot select its last disabled revision.';
     END IF;
     IF selected_revision IS NOT NULL
        AND NOT EXISTS (

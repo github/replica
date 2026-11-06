@@ -205,6 +205,16 @@ describe("Entra OIDC migration compatibility", () => {
         ).resolves.toMatchObject({
           rows: [{ enabled: true, selected_revision_id: secondRevisionId }],
         })
+        await database.query("SAVEPOINT rollback_to_disabled_revision")
+        await expect(
+          database.query(
+            `UPDATE authentication_providers
+             SET selected_revision_id = $2
+             WHERE id = $1`,
+            [providerId, revisionId],
+          ),
+        ).rejects.toThrow(/Re-enabling an authentication provider requires a new revision/)
+        await database.query("ROLLBACK TO SAVEPOINT rollback_to_disabled_revision")
         await database.query("ROLLBACK")
 
         await database.query("SET enable_seqscan = off")
