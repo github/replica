@@ -33,7 +33,7 @@ import type { ReviewComment, ReviewReactionContent } from "@utils/review-comment
 import type { ReviewCommentMutation } from "@hooks/use-review-comments/types"
 import { reviewThreadMatchesFilters } from "@utils/review-thread-matches-filters"
 import { MENTION_CANDIDATES_SCHEMA } from "@utils/mention-candidate/schemas"
-import { request } from "@utils/prototype-canvas-request"
+import { prototypeCanvasRequest } from "@utils/prototype-canvas-request"
 import { copy } from "@utils/prototype-canvas/en"
 import { BranchPublication } from "@components/prototype-branch-publication"
 import { CommentingRecovery } from "@components/prototype-commenting-recovery"
@@ -127,7 +127,7 @@ export function PrototypeCanvasHubPanel({
         if (!mentionConnected || !mentionHubOrigin) throw new Error(copy.mentionSuggestionsError)
 
         return MENTION_CANDIDATES_SCHEMA.parse(
-          await request(
+          await prototypeCanvasRequest(
             `/api/hub/mention-candidates?repositoryId=${mentionRepositoryId}&prototypeId=${mentionPrototypeId}`,
             config.token,
           ),
@@ -442,7 +442,7 @@ export function PrototypeCanvasHubPanel({
     setCommentsLoadFailed(false)
     try {
       const collection = REVIEW_COMMENTS_SCHEMA.parse(
-        await request(
+        await prototypeCanvasRequest(
           `/api/hub/comments${
             draftRevisionId
               ? `?${new URLSearchParams({ local_revision_id: String(draftRevisionId) })}`
@@ -599,7 +599,7 @@ export function PrototypeCanvasHubPanel({
       setSelectionMode(mode)
       onClose()
       try {
-        const next = await request<HubStatus>("/api/hub/status", config.token)
+        const next = await prototypeCanvasRequest<HubStatus>("/api/hub/status", config.token)
         if (
           identityRef.current !== requestedIdentity ||
           selectionRequestRef.current !== selectionRequest
@@ -885,7 +885,7 @@ export function PrototypeCanvasHubPanel({
     setRateLimitMessage("")
     setCommentError("")
     try {
-      const result = await request(`/api/hub/comments/${path}`, config.token, {
+      const result = await prototypeCanvasRequest(`/api/hub/comments/${path}`, config.token, {
         method,
         ...(body ? { body: JSON.stringify(body) } : {}),
       })
@@ -935,7 +935,7 @@ export function PrototypeCanvasHubPanel({
     setCommentError("")
     try {
       const result = REVIEW_COMMENT_MUTATION_SCHEMA.parse(
-        await request("/api/hub/comments", config.token, {
+        await prototypeCanvasRequest("/api/hub/comments", config.token, {
           method: "POST",
           body: JSON.stringify({
             review_revision: selectedRevision,
@@ -1097,7 +1097,7 @@ export function PrototypeCanvasHubPanel({
               onClick={() => {
                 setResettingHub(true)
                 setError("")
-                void request<HubStatus>("/api/hub/discovery", config.token, {
+                void prototypeCanvasRequest<HubStatus>("/api/hub/discovery", config.token, {
                   method: "POST",
                   body: "{}",
                 })
@@ -1301,7 +1301,7 @@ export function PrototypeCanvasHubPanel({
                   className="canvas-hub-publication__form"
                   onSubmit={(event) => {
                     event.preventDefault()
-                    void request("/api/hub/metadata", config.token, {
+                    void prototypeCanvasRequest("/api/hub/metadata", config.token, {
                       method: "PATCH",
                       body: JSON.stringify({ name, description, startPage }),
                     })
@@ -1477,7 +1477,7 @@ export function PrototypeCanvasHubPanel({
                   variant="subtle"
                   onClick={() => {
                     setDisconnectWarning("")
-                    void request("/api/hub/disconnect", config.token, {
+                    void prototypeCanvasRequest("/api/hub/disconnect", config.token, {
                       method: "POST",
                       body: "{}",
                     })

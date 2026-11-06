@@ -95,7 +95,7 @@ export function PrototypeCreationForm({
     addDetailsButton.current?.focus()
   }
 
-  function handleDialogKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+  function closeOrTrapFocus(event: KeyboardEvent<HTMLDivElement>) {
     if (event.key === "Escape") {
       event.preventDefault()
       closeDetails()
@@ -180,7 +180,7 @@ export function PrototypeCreationForm({
             aria-modal="true"
             aria-labelledby={detailsHeadingId}
             aria-describedby={detailsDescriptionId}
-            onKeyDown={handleDialogKeyDown}
+            onKeyDown={closeOrTrapFocus}
           >
             <div className="new-prototype__dialog-header">
               <Heading as="h2" size="6" id={detailsHeadingId}>

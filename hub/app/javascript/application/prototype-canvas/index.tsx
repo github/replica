@@ -8,7 +8,7 @@ import { ControlsPanel } from "@components/prototype-controls-panel"
 import type { ControlsPanelLayout } from "@components/prototype-controls-panel/types"
 import { PrototypeCanvasHubPanel } from "@features/prototype-canvas-hub-panel"
 import { copy } from "@utils/prototype-canvas/en"
-import { request } from "@utils/prototype-canvas-request"
+import { prototypeCanvasRequest } from "@utils/prototype-canvas-request"
 import { resolveShareReadiness } from "@utils/resolve-prototype-share-readiness"
 import { Toolbar } from "@components/prototype-canvas-toolbar"
 import type { CanvasConfig } from "@utils/prototype-canvas/types"
@@ -172,7 +172,10 @@ export function App({ config }: Props) {
       if (checking) return
       checking = true
       try {
-        const status = await request<{ available: boolean }>("/api/prototype/status", config.token)
+        const status = await prototypeCanvasRequest<{ available: boolean }>(
+          "/api/prototype/status",
+          config.token,
+        )
         if (!disposed && status.available !== Boolean(config.prototypeUrl)) window.location.reload()
       } catch (cause) {
         if (!disposed) setError(cause instanceof Error ? cause.message : String(cause))
@@ -233,7 +236,7 @@ export function App({ config }: Props) {
     setImprovingContext(true)
     setFeedbackMessage(null)
     try {
-      const result = await request<{ requested: boolean }>(
+      const result = await prototypeCanvasRequest<{ requested: boolean }>(
         "/api/hub/feedback-review",
         config.token,
         {
@@ -279,7 +282,7 @@ export function App({ config }: Props) {
             onForward={() => travel(navigation.index + 1)}
             onNavigate={navigate}
             onOpenTab={async () => {
-              await request("/api/prototype/open", config.token, {
+              await prototypeCanvasRequest("/api/prototype/open", config.token, {
                 method: "POST",
                 body: JSON.stringify({ url: address }),
               })
@@ -408,7 +411,7 @@ export function App({ config }: Props) {
               onLayoutChange={setControlsLayout}
               diagnosisTarget={address}
               onDiagnose={() =>
-                request("/api/controls/diagnose", config.token, {
+                prototypeCanvasRequest("/api/controls/diagnose", config.token, {
                   method: "POST",
                   body: JSON.stringify({
                     status: controlsState.status,

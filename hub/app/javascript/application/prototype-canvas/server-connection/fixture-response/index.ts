@@ -1,7 +1,4 @@
-export function serverConnectionFixtureResponse(
-  scenario: string,
-  path: string,
-): Response | Promise<Response> {
+export function fixtureResponse(scenario: string, path: string): Response | Promise<Response> {
   if (path === "/api/servers") {
     if (scenario === "scanning") return new Promise<Response>(() => {})
     if (scenario === "scan-failed")

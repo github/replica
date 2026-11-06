@@ -2,7 +2,7 @@ import { ActionMenu, Button, Heading } from "@primer/react-brand/esm"
 import { useEffect, useState } from "react"
 
 import { HubAlert } from "@components/hub-alert"
-import { request } from "@utils/prototype-canvas-request"
+import { prototypeCanvasRequest } from "@utils/prototype-canvas-request"
 
 import { serverCopy as copy } from "./en"
 import "./styles.css"
@@ -31,7 +31,9 @@ export function CanvasServerConnection({ token }: { token: string }) {
       if (checking) return
       checking = true
       try {
-        const next = await request<Servers>("/api/servers", token, { signal: controller.signal })
+        const next = await prototypeCanvasRequest<Servers>("/api/servers", token, {
+          signal: controller.signal,
+        })
         if (controller.signal.aborted) return
         setData(next)
         setScanError("")
@@ -66,7 +68,10 @@ export function CanvasServerConnection({ token }: { token: string }) {
       if (checking) return
       checking = true
       try {
-        const result = await request<{ startup?: { output: string } }>("/api/server/status", token)
+        const result = await prototypeCanvasRequest<{ startup?: { output: string } }>(
+          "/api/server/status",
+          token,
+        )
         if (!disposed) setOutput(result.startup?.output ?? "")
       } catch (cause) {
         if (!disposed) setError(cause instanceof Error ? cause.message : String(cause))
@@ -87,7 +92,7 @@ export function CanvasServerConnection({ token }: { token: string }) {
     setError("")
     setOutput("")
     try {
-      await request(path, token, { method: "POST", body: JSON.stringify(body) })
+      await prototypeCanvasRequest(path, token, { method: "POST", body: JSON.stringify(body) })
       window.location.reload()
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))

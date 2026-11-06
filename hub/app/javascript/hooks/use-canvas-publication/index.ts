@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 
 import { presentPrototypeState } from "@utils/present-prototype-state"
-import { request } from "@utils/prototype-canvas-request"
+import { prototypeCanvasRequest } from "@utils/prototype-canvas-request"
 import { resolvePublication, type Publication } from "@utils/resolve-prototype-publication"
 import { publicationCopy } from "@utils/resolve-prototype-publication/en"
 import { publishChangesCopy } from "@hooks/use-canvas-publish-preference/en"
@@ -108,10 +108,14 @@ export function useCanvasPublication({
     setError("")
     setPublishDialogError("")
     try {
-      const preparation = await request<PublishPreparation>("/api/publish/prepare", token, {
-        method: "POST",
-        body: "{}",
-      })
+      const preparation = await prototypeCanvasRequest<PublishPreparation>(
+        "/api/publish/prepare",
+        token,
+        {
+          method: "POST",
+          body: "{}",
+        },
+      )
       if (
         preparation.workingTree === "unavailable" ||
         (preparation.workingTree === "changed" && !preparation.remember)
@@ -157,7 +161,7 @@ export function useCanvasPublication({
     setPublishDialogError("")
     setError("")
     try {
-      const result = await request<{ message: string }>("/api/publish", token, {
+      const result = await prototypeCanvasRequest<{ message: string }>("/api/publish", token, {
         method: "POST",
         body: JSON.stringify({
           target: preparation.target,

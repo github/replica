@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react"
 
-import { request } from "@utils/prototype-canvas-request"
+import { prototypeCanvasRequest } from "@utils/prototype-canvas-request"
 
 export function useCommentingRecovery({
   identity,
@@ -44,7 +44,7 @@ export function useCommentingRecovery({
     setFixError("")
     setBusy(true)
     try {
-      await request("/api/commenting/fix", token, { method: "POST" })
+      await prototypeCanvasRequest("/api/commenting/fix", token, { method: "POST" })
       if (current.current === target) setRequested(true)
     } catch (cause) {
       if (current.current === target)

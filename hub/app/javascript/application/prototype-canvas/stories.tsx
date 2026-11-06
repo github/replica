@@ -10,7 +10,7 @@ import type { HubStatus, PrototypeState, PublishPreparation } from "@utils/proto
 import type { ReviewComment } from "@utils/review-comment/types"
 import createPageMeta from "@pages/new-prototype-page/stories"
 
-import { serverConnectionFixtureResponse } from "./server-connection/fixture-response"
+import { fixtureResponse } from "./server-connection/fixture-response"
 
 import "./stories.css"
 
@@ -129,7 +129,7 @@ function PublicationDemo({
           }
         }
       } else if (withoutPreview && (path === "/api/servers" || path.startsWith("/api/server/")))
-        return serverConnectionFixtureResponse(serverState, path)
+        return fixtureResponse(serverState, path)
       else if (path === "/api/state" || path === "/api/refresh") data = state
       else if (path === "/api/hub/status") data = hub
       else if (path === "/api/hub/open" || path === "/api/hub/activity") data = hub

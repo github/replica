@@ -3,7 +3,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 
 import { CanvasServerConnection } from "@features/canvas-server-connection"
 
-import { serverConnectionFixtureResponse } from "./fixture-response"
+import { fixtureResponse } from "./fixture-response"
 
 function ServerConnection({ scenario }: { scenario: string }) {
   const [ready, setReady] = useState(false)
@@ -12,7 +12,7 @@ function ServerConnection({ scenario }: { scenario: string }) {
     window.fetch = async (input) => {
       const path =
         typeof input === "string" ? input : input instanceof URL ? input.pathname : input.url
-      return serverConnectionFixtureResponse(scenario, path)
+      return fixtureResponse(scenario, path)
     }
     const timer = window.setTimeout(() => setReady(true), 0)
     return () => {

@@ -7,7 +7,7 @@ import { CanvasServerConnection } from "@features/canvas-server-connection"
 import { PrototypeCreationForm } from "@features/prototype-creation-form"
 import type { PrototypeCreationData } from "@features/prototype-creation-form/types"
 import type { HubStatus } from "@utils/prototype-canvas/types"
-import { request } from "@utils/prototype-canvas-request"
+import { prototypeCanvasRequest } from "@utils/prototype-canvas-request"
 
 import { creationCopy as copy } from "./en"
 import "./styles.css"
@@ -65,7 +65,9 @@ export function CanvasPrototypeCreation({
       setLoading(true)
       setCatalogError("")
       try {
-        const result = catalogSchema.parse(await request<unknown>("/api/prototypes/new", token))
+        const result = catalogSchema.parse(
+          await prototypeCanvasRequest<unknown>("/api/prototypes/new", token),
+        )
         if (!disposed) setData(result)
       } catch (cause) {
         if (!disposed) setCatalogError(cause instanceof Error ? cause.message : String(cause))
@@ -97,7 +99,7 @@ export function CanvasPrototypeCreation({
               setSent(false)
               setSubmissionError("")
               try {
-                await request("/api/prototypes/new", token, {
+                await prototypeCanvasRequest("/api/prototypes/new", token, {
                   method: "POST",
                   body: JSON.stringify({ brief, details, templateId }),
                 })
