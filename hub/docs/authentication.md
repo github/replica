@@ -40,7 +40,7 @@ Every current-session restore rereads the global revocation revision, session ex
 
 Suspension, removal, assignment revocation, and global revision changes are enforced when read. Current Entra evidence may supersede or revoke its own provider assignment and end that membership's sessions; this version does not expose general membership lifecycle operations.
 
-Disabling a provider, selecting a new provider revision, or advancing global session revocation are revoke-all controls. Hub does not implement immediate per-user Entra lifecycle synchronization.
+Disabling a provider or selecting a new provider revision revokes that provider's authority and sessions that rely solely on it; separate bootstrap authority may remain valid. Advancing global session revocation invalidates every Hub session. Hub does not implement immediate per-user Entra lifecycle synchronization.
 
 The migration owns the single global revocation row. Its identity and history are immutable, its revision can only increment by one, and runtime code never recreates a missing row. Admission and restoration fail closed when that authority is missing. Admissions use shared locks for provider selection and revocation authority so unrelated users can proceed concurrently while authority mutations wait.
 
