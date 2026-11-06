@@ -83,7 +83,9 @@ A field error must never disappear because six newer log lines arrived. A failed
 
 Keep severity separate from recovery behavior. A validation error allows editing; a read-only discovery failure may allow retry; an ambiguous migration or ownership failure requires review. Red text must not imply that the application always exits, and a generic retry button must not repeat unsafe operations.
 
-When a recovery action is blocked, put the reason in the next active question and make clear that recovery did not complete. Do not keep offering the same success-sounding action. Offer a safety recheck or exit, retaining fresh confirmation before any mutation. Distinguish a known refusal from an ambiguous command result that still needs verification.
+When a recovery action is blocked, put the reason in the next active question and make clear that recovery did not complete. Do not keep offering the same success-sounding action. Offer a safety recheck or exit, retaining fresh confirmation before any mutation. Offer a corrective action only when verified inspection proves that it addresses the remaining blocker without bypassing another safety check. Distinguish a known refusal from an ambiguous command result that still needs verification.
+
+Hub-only recovery shutdown is a separate, explicit downtime decision. Show the verified app, subscription, resource group, and consequences before asking permission. Changed inspection evidence requires fresh review and approval. Do not reuse shutdown permission to clear a lock: inspect again and request separate clearing consent. Explain that Hub can remain stopped after cancellation or a later failure. Never infer permission to cancel database jobs, delete resources, or stop unrelated workloads.
 
 ### A reusable field contract
 

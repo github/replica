@@ -7,6 +7,7 @@ export default defineConfig({
       "installer/**/*.test.ts",
       "installer/**/*.test.tsx",
       "azure/install/**/*.test.ts",
+      "azure/stop-hub/**/*.test.ts",
       "terraform/**/*.test.ts",
     ],
     restoreMocks: true,

@@ -29,6 +29,13 @@ export interface Installation {
   url: string | null
 }
 
+export interface RecoveryInspection {
+  blockers: string[]
+  databaseReview: boolean
+  evidence: string
+  hub?: { name: string; id: string }
+}
+
 export interface DeploymentResult {
   name: string
   url: string

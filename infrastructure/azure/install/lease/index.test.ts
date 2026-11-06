@@ -1,3 +1,4 @@
+import timers from "node:timers/promises"
 import { expect, it, vi } from "vitest"
 
 import { CommandExecutionError } from "../../../installer/command/index.ts"
@@ -17,7 +18,7 @@ function option(args: string[], name: string) {
   return index < 0 ? undefined : args[index + 1]
 }
 
-function scenario({ existing = false, release = false } = {}) {
+function scenario({ existing = false, release = false, canonical = false } = {}) {
   const config: DeploymentConfig = {
     version: 1,
     cloud: "azure",
@@ -82,17 +83,39 @@ function scenario({ existing = false, release = false } = {}) {
       "hub-old": [],
       "worker-old": [],
     } as Record<string, unknown>,
+    hub: {
+      id: `/subscriptions/${config.azure.subscriptionId}/resourceGroups/${config.azure.resourceGroup}/providers/Microsoft.App/containerApps/${config.name}-hub`,
+      name: `${config.name}-hub`,
+      tags: { ...ownedTags },
+    } as unknown,
+  }
+  if (canonical) {
+    evidence.appExists = true
+    evidence.apps = [`${config.name}-hub`]
+    evidence.revisions = {
+      [`${config.name}-hub`]: [
+        { name: "canonical-current", active: true },
+        { name: "canonical-old", active: false },
+      ],
+    }
+    evidence.replicas = {
+      "canonical-current": ["current-replica"],
+      "canonical-old": ["terminating-replica"],
+    }
   }
   const commands: string[][] = []
   const messages: string[] = []
+  const notices: { level: string; message: string }[] = []
   const choices: string[] = []
   const menus: string[][] = []
   let onSelect: ((value: string) => void) | undefined
-  let onConfirm: (() => boolean) | undefined
+  let onConfirm: ((message: string) => boolean) | undefined
   let onCommand: ((args: string[]) => void) | undefined
   let breakError: Error | undefined
   let acquireFailures = 0
   let afterBreak: (() => void) | undefined
+  let draining = false
+  let stuck = false
   const azure = vi.fn(async (...args: string[]) => {
     commands.push([...args])
     onCommand?.(args)
@@ -124,10 +147,32 @@ function scenario({ existing = false, release = false } = {}) {
     if (operation === "containerapp job execution" && args[3] === "list")
       return JSON.stringify(evidence.executions[option(args, "--name")!])
     if (args.slice(0, 2).join(" ") === "containerapp list") return JSON.stringify(evidence.apps)
-    if (operation === "containerapp revision list")
-      return JSON.stringify(evidence.revisions[option(args, "--name")!])
-    if (operation === "containerapp replica list")
-      return JSON.stringify(evidence.replicas[option(args, "--revision")!])
+    if (args.slice(0, 2).join(" ") === "containerapp show") return JSON.stringify(evidence.hub)
+    if (operation === "containerapp revision list") {
+      const revisions = evidence.revisions[option(args, "--name")!]
+      return JSON.stringify(
+        option(args, "--query")
+          ? revisions
+          : revisions?.map(({ name, active }) => ({ name, properties: { active } })),
+      )
+    }
+    if (operation === "containerapp replica list") {
+      const revision = option(args, "--revision")!
+      const replicas = evidence.replicas[revision]
+      if (draining && !stuck) evidence.replicas[revision] = []
+      return JSON.stringify(
+        option(args, "--query") || !Array.isArray(replicas)
+          ? replicas
+          : replicas.map((name) => ({ name })),
+      )
+    }
+    if (operation === "containerapp revision deactivate") {
+      evidence.revisions[option(args, "--name")!]!.find(
+        ({ name }) => name === option(args, "--revision"),
+      )!.active = false
+      draining = true
+      return "{}"
+    }
     if (operation === "storage blob lease") {
       if (args[3] === "break") {
         if (breakError) throw breakError
@@ -151,10 +196,13 @@ function scenario({ existing = false, release = false } = {}) {
   })
   const ui: InstallerUI = {
     status: (message) => messages.push(message),
-    notice: (_level, message) => messages.push(message),
+    notice: (level, message) => {
+      messages.push(message)
+      notices.push({ level, message })
+    },
     confirm: vi.fn(async (message: string) => {
       messages.push(message)
-      return onConfirm?.() ?? true
+      return onConfirm?.(message) ?? true
     }),
     wait: vi.fn(async () => {
       throw new Error("Recovery must use explicit recheck or exit controls")
@@ -187,6 +235,7 @@ function scenario({ existing = false, release = false } = {}) {
     evidence,
     commands,
     messages,
+    notices,
     choices,
     menus,
     ui,
@@ -195,13 +244,16 @@ function scenario({ existing = false, release = false } = {}) {
       commands.filter((args) => args.slice(0, 4).join(" ") === "storage blob lease break"),
     acquisitions: () =>
       commands.filter((args) => args.slice(0, 4).join(" ") === "storage blob lease acquire"),
+    deactivations: () =>
+      commands.filter((args) => args.slice(0, 3).join(" ") === "containerapp revision deactivate"),
     onSelect: (callback: (value: string) => void) => (onSelect = callback),
-    onConfirm: (callback: () => boolean) => (onConfirm = callback),
+    onConfirm: (callback: (message: string) => boolean) => (onConfirm = callback),
     onCommand: (callback: (args: string[]) => void) => (onCommand = callback),
     failBreak: (error: Error) => (breakError = error),
     failAcquisition: () => (acquireFailures = 1),
     afterBreak: (callback: () => void) => (afterBreak = callback),
     unlock: () => (evidence.lease = unlocked()),
+    stallDrain: () => (stuck = true),
   }
 }
 
@@ -276,6 +328,8 @@ it("rechecks and acquires normally when the other owner releases the lease", asy
   expect(s.breaks()).toHaveLength(0)
   expect(s.acquisitions()).toHaveLength(1)
   expect(s.ui.confirm).not.toHaveBeenCalled()
+  expect(s.menus.flat()).not.toContain("stop-hub")
+  expect(s.deactivations()).toHaveLength(0)
 })
 
 it("does not treat non-interactive deployment approval as permission to recover a lease", async () => {
@@ -285,6 +339,8 @@ it("does not treat non-interactive deployment approval as permission to recover 
   await expect(s.acquire()).rejects.toThrow("Lease is still owned")
 
   expect(s.ui.confirm).not.toHaveBeenCalled()
+  expect(s.menus.flat()).not.toContain("stop-hub")
+  expect(s.deactivations()).toHaveLength(0)
   expect(s.breaks()).toHaveLength(0)
 })
 
@@ -300,13 +356,459 @@ it.each(["Terraform state", "another state account", "another release blob"])(
     await expect(s.acquire()).rejects.toThrow()
 
     expect(s.ui.confirm).not.toHaveBeenCalled()
+    expect(s.menus.flat()).not.toContain("stop-hub")
+    expect(s.deactivations()).toHaveLength(0)
     expect(s.breaks()).toHaveLength(0)
     expect(s.acquisitions()).toHaveLength(0)
   },
 )
 
+it.each([false, true])(
+  "stops only the verified Hub after downtime consent, then separately clears the selected lease (release=%s)",
+  async (release) => {
+    const s = scenario({ canonical: true, release })
+    s.choices.push("recover", "stop-hub")
+    vi.spyOn(timers, "setTimeout").mockResolvedValue(undefined)
+    const events: string[] = []
+    s.onCommand((args) => {
+      events.push(args.slice(0, args[0] === "storage" ? 4 : 3).join(" "))
+    })
+    s.onConfirm(() => {
+      events.push("consent")
+      return true
+    })
+
+    const lock = await s.acquire()
+
+    expect(s.menus[0]).not.toContain("stop-hub")
+    const shutdownMenu = vi
+      .mocked(s.ui.select!)
+      .mock.calls.find(([, options]) => options.some(({ value }) => value === "stop-hub"))!
+    expect(shutdownMenu[1]).toContainEqual({
+      label: expect.stringMatching(/stop Hub.*recovery.*continue/i),
+      value: "stop-hub",
+    })
+    expect(shutdownMenu[1].map(({ value }) => value)).toEqual(
+      expect.arrayContaining(["retry", "stop-hub", "exit"]),
+    )
+    expect(s.ui.confirm).toHaveBeenCalledTimes(2)
+    const [downtime, clearing] = vi.mocked(s.ui.confirm).mock.calls.map(([message]) => message)
+    expect(downtime).toMatch(/downtime|maintenance|unavailable/i)
+    expect(downtime).toContain(`${s.config.name}-hub`)
+    for (const required of [
+      /installer/i,
+      /Terraform/i,
+      /release/i,
+      /database|DB/i,
+      /session/i,
+      /review/i,
+    ])
+      expect(downtime).toMatch(required)
+    expect(clearing).toMatch(/clear/i)
+    expect(clearing).toContain(`${s.target.account}/${s.target.container}/${s.target.blob}`)
+    const consents = events.flatMap((event, index) => (event === "consent" ? [index] : []))
+    const stopped = events.indexOf("containerapp revision deactivate")
+    const broken = events.indexOf("storage blob lease break")
+    expect(stopped).toBeGreaterThan(consents[0]!)
+    expect(consents[1]!).toBeGreaterThan(stopped)
+    expect(broken).toBeGreaterThan(consents[1]!)
+    for (const inspection of [
+      "storage blob list --account-name",
+      "containerapp job list",
+      "containerapp show --name",
+      "storage blob show --account-name",
+    ])
+      expect(events.slice(consents[0]! + 1, stopped)).toContain(inspection)
+    expect(events.slice(stopped + 1, consents[1])).toContain("containerapp replica list")
+    expect(events.slice(consents[1]! + 1, broken)).toContain("storage blob list --account-name")
+    expect(events.slice(consents[1]! + 1, broken)).toContain("storage blob show --account-name")
+    expect(s.deactivations()).toHaveLength(1)
+    expect(option(s.deactivations()[0]!, "--revision")).toBe("canonical-current")
+    const appCommands = s.commands.filter((args) => args[0] === "containerapp" && args[1] !== "job")
+    for (const args of appCommands.filter((args) => option(args, "--name"))) {
+      expect(option(args, "--name")).toBe(`${s.config.name}-hub`)
+      expect(option(args, "--resource-group")).toBe(s.config.azure.resourceGroup)
+    }
+    const drainCommands = s.commands.slice(s.commands.indexOf(s.deactivations()[0]!) + 1)
+    expect(
+      new Set(
+        drainCommands
+          .filter((args) => args.slice(0, 3).join(" ") === "containerapp replica list")
+          .map((args) => option(args, "--revision")),
+      ),
+    ).toEqual(new Set(["canonical-current", "canonical-old"]))
+    expect(s.breaks()).toHaveLength(1)
+    expect(option(s.breaks()[0]!, "--account-name")).toBe(s.target.account)
+    expect(option(s.breaks()[0]!, "--container-name")).toBe(s.target.container)
+    expect(option(s.breaks()[0]!, "--blob-name")).toBe(s.target.blob)
+    if (release)
+      expect(s.evidence.stateBlobs.at(-1)!.lease).toEqual({
+        state: "leased",
+        status: "locked",
+        duration: "infinite",
+      })
+    expect(s.commands.some((args) => args.includes("delete") || args.includes("activate"))).toBe(
+      false,
+    )
+    expect(s.commands.some((args) => args.slice(0, 3).join(" ") === "containerapp job start")).toBe(
+      false,
+    )
+    expect(s.acquisitions()).toHaveLength(1)
+    await lock.release()
+  },
+)
+
+it.each([
+  {
+    description: "another app",
+    change: (s: ReturnType<typeof scenario>) => {
+      s.evidence.apps = [`${s.config.name}-hub`, "another-app"]
+      s.evidence.revisions["another-app"] = [{ name: "another-current", active: true }]
+      s.evidence.replicas["another-current"] = []
+    },
+  },
+  {
+    description: "unknown Hub revision activity",
+    change: (s: ReturnType<typeof scenario>) => {
+      delete s.evidence.revisions[`${s.config.name}-hub`]![1]!.active
+    },
+  },
+  {
+    description: "unknown Hub replica inventory",
+    change: (s: ReturnType<typeof scenario>) => {
+      s.evidence.replicas["canonical-old"] = null
+    },
+  },
+  {
+    description: "a failed ownership inspection",
+    change: (s: ReturnType<typeof scenario>) => {
+      s.onCommand((args) => {
+        if (args.slice(0, 2).join(" ") === "containerapp show")
+          throw new CommandExecutionError("Hub ownership inspection denied")
+      })
+    },
+  },
+])("does not authorize shutdown when inspection finds $description", async ({ change }) => {
+  const s = scenario({ canonical: true })
+  change(s)
+  s.choices.push("recover", "exit")
+
+  await expect(s.acquire()).rejects.toThrow()
+
+  expect(s.menus.flat()).not.toContain("stop-hub")
+  expect(s.ui.confirm).not.toHaveBeenCalled()
+  expect(s.deactivations()).toHaveLength(0)
+  expect(s.breaks()).toHaveLength(0)
+})
+
+it.each([
+  "application",
+  "installation",
+  "owner",
+  "managed_by",
+  "subscription",
+  "resource group",
+  "full app ID",
+  "app name",
+  "unknown app metadata",
+])("requires matching app ownership and identity rather than group tags: %s", async (field) => {
+  const s = scenario({ canonical: true })
+  const hub = s.evidence.hub as { id: string; name: string; tags: Record<string, string> }
+  if (field in hub.tags) hub.tags[field] = "foreign"
+  else if (field === "subscription")
+    hub.id = hub.id.replace(s.config.azure.subscriptionId, "foreign")
+  else if (field === "resource group")
+    hub.id = hub.id.replace(s.config.azure.resourceGroup, "foreign")
+  else if (field === "full app ID") hub.id = `${hub.id}/revisions/other`
+  else if (field === "app name") hub.name = "foreign-hub"
+  else s.evidence.hub = null
+  s.choices.push("recover", "exit")
+
+  await expect(s.acquire()).rejects.toThrow()
+
+  expect(s.menus.flat()).not.toContain("stop-hub")
+  expect(s.ui.confirm).not.toHaveBeenCalled()
+  expect(s.deactivations()).toHaveLength(0)
+  expect(s.breaks()).toHaveLength(0)
+})
+
+it("refreshes shutdown eligibility before asking for downtime approval", async () => {
+  const s = scenario({ canonical: true })
+  s.choices.push("recover", "stop-hub", "exit")
+  vi.spyOn(timers, "setTimeout").mockResolvedValue(undefined)
+  s.onSelect((value) => {
+    if (value === "stop-hub") s.evidence.executions.setup![0]!.status = "Running"
+  })
+
+  await expect(s.acquire()).rejects.toThrow()
+
+  expect(s.menus.flat()).toContain("stop-hub")
+  expect(s.ui.confirm).not.toHaveBeenCalled()
+  expect(s.deactivations()).toHaveLength(0)
+  expect(s.breaks()).toHaveLength(0)
+})
+
+it("removes Hub shutdown eligibility after a fresh post-consent inspection fails", async () => {
+  const s = scenario({ canonical: true })
+  s.choices.push("recover", "stop-hub", "exit")
+  let consentAccepted = false
+  s.onConfirm(() => {
+    consentAccepted = true
+    return true
+  })
+  s.onCommand((args) => {
+    if (consentAccepted && args.slice(0, 3).join(" ") === "storage blob list")
+      throw new CommandExecutionError("Fresh recovery inspection denied")
+  })
+
+  await expect(s.acquire()).rejects.toThrow("Fresh recovery inspection denied")
+
+  expect(s.menus.some((menu) => menu.includes("stop-hub"))).toBe(true)
+  expect(s.menus.at(-1)).toEqual(["retry", "exit"])
+  expect(s.ui.confirm).toHaveBeenCalledTimes(1)
+  expect(s.deactivations()).toHaveLength(0)
+  expect(s.breaks()).toHaveLength(0)
+  expect(s.acquisitions()).toHaveLength(0)
+})
+
+it("keeps shutdown optional and returns to diagnostics after downtime approval is declined", async () => {
+  const s = scenario({ canonical: true })
+  s.choices.push("recover", "stop-hub", "exit")
+  s.onConfirm(() => false)
+
+  await expect(s.acquire()).rejects.toThrow()
+
+  expect(s.ui.confirm).toHaveBeenCalledTimes(1)
+  expect(s.menus.at(-1)).toEqual(expect.arrayContaining(["retry", "exit"]))
+  expect(s.deactivations()).toHaveLength(0)
+  expect(s.breaks()).toHaveLength(0)
+  expect(s.acquisitions()).toHaveLength(0)
+})
+
+it.each([
+  "state",
+  "job",
+  "ownership",
+  "selected lease",
+  "Hub activity",
+  "a new Hub revision",
+  "replica identity",
+  "terminal job execution",
+])("does not mutate after downtime consent when %s evidence changes", async (field) => {
+  const s = scenario({ canonical: true })
+  s.choices.push("recover", "stop-hub", "exit")
+  vi.spyOn(timers, "setTimeout").mockResolvedValue(undefined)
+  let consents = 0
+  s.onConfirm(() => {
+    if (++consents > 1) return false
+    if (field === "state") s.evidence.stateBlobs[0]!.lease = { state: "leased", status: "locked" }
+    else if (field === "job") s.evidence.executions.provision![0]!.status = "Running"
+    else if (field === "ownership")
+      (s.evidence.hub as { tags: Record<string, string> }).tags.owner = "foreign"
+    else if (field === "selected lease")
+      s.evidence.lease = { state: "breaking", status: "locked", duration: "infinite" }
+    else if (field === "Hub activity") {
+      s.evidence.revisions[`${s.config.name}-hub`]![0]!.active = false
+      s.evidence.replicas["canonical-current"] = []
+      s.evidence.replicas["canonical-old"] = []
+    } else if (field === "a new Hub revision") {
+      s.evidence.revisions[`${s.config.name}-hub`]!.push({
+        name: "canonical-new",
+        active: true,
+      })
+      s.evidence.replicas["canonical-new"] = []
+    } else if (field === "replica identity")
+      s.evidence.replicas["canonical-old"] = ["replacement-replica"]
+    else s.evidence.executions.setup![0]!.status = "Failed"
+    return true
+  })
+
+  await expect(s.acquire()).rejects.toThrow()
+
+  expect(s.deactivations()).toHaveLength(0)
+  expect(s.breaks()).toHaveLength(0)
+  expect(s.acquisitions()).toHaveLength(0)
+  expect(s.ui.confirm).toHaveBeenCalledTimes(1)
+})
+
+it("continues approved recovery when Azure only reorders inspection lists during consent", async () => {
+  const s = scenario({ canonical: true })
+  s.evidence.replicas["canonical-old"] = ["older-replica", "terminating-replica"]
+  s.choices.push("recover", "stop-hub")
+  vi.spyOn(timers, "setTimeout").mockResolvedValue(undefined)
+  s.onConfirm(() => {
+    s.evidence.stateBlobs.reverse()
+    const jobs = s.evidence.jobs as string[]
+    jobs.reverse()
+    for (const executions of Object.values(s.evidence.executions)) executions.reverse()
+    s.evidence.revisions[`${s.config.name}-hub`]!.reverse()
+    for (const replicas of Object.values(s.evidence.replicas)) (replicas as string[]).reverse()
+    return true
+  })
+
+  const lock = await s.acquire()
+
+  expect(s.ui.confirm).toHaveBeenCalledTimes(2)
+  expect(s.deactivations()).toHaveLength(1)
+  expect(option(s.deactivations()[0]!, "--revision")).toBe("canonical-current")
+  expect(s.breaks()).toHaveLength(1)
+  expect(s.acquisitions()).toHaveLength(1)
+  await lock.release()
+})
+
+it("does not reuse downtime approval as permission to clear the lease", async () => {
+  const s = scenario({ canonical: true })
+  s.choices.push("recover", "stop-hub", "exit")
+  vi.spyOn(timers, "setTimeout").mockResolvedValue(undefined)
+  let consents = 0
+  s.onConfirm(() => ++consents === 1)
+
+  await expect(s.acquire()).rejects.toThrow()
+
+  expect(s.deactivations()).toHaveLength(1)
+  expect(s.ui.confirm).toHaveBeenCalledTimes(2)
+  expect(s.breaks()).toHaveLength(0)
+  expect(s.acquisitions()).toHaveLength(0)
+})
+
+it("does not clear after a terminal execution changes during separate clearing consent", async () => {
+  const s = scenario({ canonical: true })
+  s.choices.push("recover", "stop-hub", "exit")
+  vi.spyOn(timers, "setTimeout").mockResolvedValue(undefined)
+  let consents = 0
+  s.onConfirm(() => {
+    if (++consents === 2) s.evidence.executions.setup![0]!.status = "Failed"
+    return true
+  })
+
+  await expect(s.acquire()).rejects.toThrow()
+
+  expect(s.deactivations()).toHaveLength(1)
+  expect(s.ui.confirm).toHaveBeenCalledTimes(2)
+  expect(s.breaks()).toHaveLength(0)
+  expect(s.acquisitions()).toHaveLength(0)
+})
+
+it("rechecks all safety gates after shutdown rather than trusting a completed drain", async () => {
+  const s = scenario({ canonical: true })
+  s.choices.push("recover", "stop-hub", "exit")
+  vi.spyOn(timers, "setTimeout").mockResolvedValue(undefined)
+  s.onCommand((args) => {
+    if (args.slice(0, 3).join(" ") === "containerapp revision deactivate")
+      s.evidence.executions.setup![0]!.status = "Running"
+  })
+
+  await expect(s.acquire()).rejects.toThrow()
+
+  expect(s.deactivations()).toHaveLength(1)
+  expect(s.ui.confirm).toHaveBeenCalledTimes(1)
+  expect(s.breaks()).toHaveLength(0)
+  expect(s.acquisitions()).toHaveLength(0)
+})
+
+it.each(["after drain", "during clearing consent"])(
+  "preserves the lock when verified Hub ownership changes %s",
+  async (when) => {
+    const s = scenario({ canonical: true })
+    s.choices.push("recover", "stop-hub", "exit")
+    vi.spyOn(timers, "setTimeout").mockResolvedValue(undefined)
+    const changeOwnership = () =>
+      ((s.evidence.hub as { tags: Record<string, string> }).tags.owner = "another-team")
+    if (when === "after drain") {
+      s.onCommand((args) => {
+        if (args.slice(0, 3).join(" ") === "containerapp revision deactivate") changeOwnership()
+      })
+    } else {
+      let consents = 0
+      s.onConfirm(() => {
+        if (++consents === 2) changeOwnership()
+        return true
+      })
+    }
+
+    await expect(s.acquire()).rejects.toThrow(/ownership|identity|verified/i)
+
+    expect(s.deactivations()).toHaveLength(1)
+    expect(s.ui.confirm).toHaveBeenCalledTimes(when === "after drain" ? 1 : 2)
+    expect(s.breaks()).toHaveLength(0)
+    expect(s.acquisitions()).toHaveLength(0)
+    expect(s.menus.at(-1)).toEqual(["retry", "exit"])
+  },
+)
+
+it.each(["deactivation", "replica inspection", "timeout", "cancellation"])(
+  "does not clear or acquire the lease, or report successful shutdown, after drain %s",
+  async (failure) => {
+    const s = scenario({ canonical: true })
+    s.choices.push("recover", "stop-hub", "exit")
+    vi.spyOn(timers, "setTimeout").mockResolvedValue(undefined)
+    let now = 0
+    if (failure === "timeout") {
+      s.stallDrain()
+      vi.spyOn(performance, "now").mockImplementation(() => now)
+      vi.spyOn(timers, "setTimeout").mockImplementation(async () => {
+        now += 5_000
+      })
+    }
+    s.onCommand((args) => {
+      const operation = args.slice(0, 3).join(" ")
+      if (operation === "containerapp revision deactivate") {
+        if (failure === "deactivation") throw new CommandExecutionError("Deactivation denied")
+        if (failure === "cancellation") throw new CommandExecutionError("Cancelled", true)
+      }
+      if (
+        failure === "replica inspection" &&
+        operation === "containerapp replica list" &&
+        s.deactivations().length
+      )
+        throw new CommandExecutionError("Drain inspection denied")
+    })
+
+    await expect(s.acquire()).rejects.toThrow()
+
+    expect(s.ui.confirm).toHaveBeenCalledTimes(1)
+    expect(s.breaks()).toHaveLength(0)
+    expect(s.acquisitions()).toHaveLength(0)
+    expect(
+      s.notices.some(
+        ({ level, message }) => level === "success" && /stopp|shutdown/i.test(message),
+      ),
+    ).toBe(false)
+    if (failure !== "cancellation")
+      expect(s.menus.at(-1)).toEqual(expect.arrayContaining(["retry", "exit"]))
+    else expect(s.choices).toEqual(["exit"])
+  },
+)
+
+it("propagates cancelled downtime consent without stopping Hub", async () => {
+  const s = scenario({ canonical: true })
+  s.choices.push("recover", "stop-hub", "exit")
+  const cancelled = new DOMException("Cancelled", "AbortError")
+  s.ui.confirm = vi.fn(async () => {
+    throw cancelled
+  })
+
+  await expect(s.acquire()).rejects.toBe(cancelled)
+
+  expect(s.choices).toEqual(["exit"])
+  expect(s.deactivations()).toHaveLength(0)
+  expect(s.breaks()).toHaveLength(0)
+  expect(s.acquisitions()).toHaveLength(0)
+})
+
+it("does not stop an active canonical Hub in a noninteractive approved deployment", async () => {
+  const s = scenario({ canonical: true })
+  delete s.ui.select
+
+  await expect(s.acquire()).rejects.toThrow()
+
+  expect(s.ui.confirm).not.toHaveBeenCalled()
+  expect(s.deactivations()).toHaveLength(0)
+  expect(s.breaks()).toHaveLength(0)
+})
+
 it("refuses to recover a release lock in a storage account owned by another installation", async () => {
-  const s = scenario({ existing: true, release: true })
+  const s = scenario({ canonical: true, release: true })
   s.evidence.accountTags.owner = "another-team"
   s.choices.push("recover", "retry", "exit")
 
@@ -314,6 +816,8 @@ it("refuses to recover a release lock in a storage account owned by another inst
 
   expect(s.choices).toHaveLength(0)
   expect(s.ui.confirm).not.toHaveBeenCalled()
+  expect(s.menus.flat()).not.toContain("stop-hub")
+  expect(s.deactivations()).toHaveLength(0)
   expect(s.breaks()).toHaveLength(0)
   expect(s.acquisitions()).toHaveLength(0)
 })
@@ -356,7 +860,7 @@ it.each([
   },
   { description: "unknown lease metadata", lease: {} },
 ])("offers only recheck and exit for $description", async ({ lease }) => {
-  const s = scenario()
+  const s = scenario({ canonical: true })
   s.evidence.lease = lease
   s.choices.push("retry", "exit")
 
@@ -366,6 +870,7 @@ it.each([
   for (const menu of s.menus) {
     expect(menu).toEqual(expect.arrayContaining(["retry", "exit"]))
     expect(menu).not.toContain("recover")
+    expect(menu).not.toContain("stop-hub")
   }
   expect(s.breaks()).toHaveLength(0)
   expect(s.acquisitions()).toHaveLength(0)
@@ -715,3 +1220,32 @@ it("retries a failed normal acquisition only on an explicit retry choice", async
   expect(s.menus).toEqual([expect.arrayContaining(["retry", "exit"])])
   expect(s.menus[0]).not.toContain("recover")
 })
+
+it.each(
+  blockers.filter(({ description }) =>
+    [
+      "foreign foundation ownership",
+      "foreign app ownership",
+      "missing ownership metadata",
+      "a leased Terraform state",
+      "unknown Terraform lease metadata",
+      "a running job",
+      "an unknown job status",
+      "an incomplete app inventory",
+    ].includes(description),
+  ),
+)(
+  "does not offer Hub shutdown with canonical Hub activity and $description",
+  async ({ change }) => {
+    const s = scenario({ canonical: true })
+    change(s)
+    s.choices.push("recover", "exit")
+
+    await expect(s.acquire()).rejects.toThrow()
+
+    expect(s.menus.flat()).not.toContain("stop-hub")
+    expect(s.ui.confirm).not.toHaveBeenCalled()
+    expect(s.deactivations()).toHaveLength(0)
+    expect(s.breaks()).toHaveLength(0)
+  },
+)

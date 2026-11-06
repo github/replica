@@ -7,6 +7,7 @@ import { pathToFileURL } from "node:url"
 import { parseArgs } from "node:util"
 
 import { describeCommand } from "../../installer/command/describe/index.ts"
+import { stopHub } from "../stop-hub/index.ts"
 import type { ContainerApp, DeploymentPlan, Installation, JobExecution, Revision } from "./types.ts"
 
 export async function deployHub(args: string[] = process.argv.slice(2)): Promise<void> {
@@ -181,46 +182,6 @@ export async function deployHub(args: string[] = process.argv.slice(2)): Promise
   function apply(): void {
     terraform(["apply", "-input=false", "-lock-timeout=60s", planPath])
   }
-  async function stopHub(installation: Installation): Promise<void> {
-    if (!installation.app_created) return
-    const revisions = azure<Revision[]>(
-      "containerapp",
-      "revision",
-      "list",
-      ...appArguments(installation),
-    )
-    for (const revision of revisions) {
-      if (revision.properties.active) {
-        azure(
-          "containerapp",
-          "revision",
-          "deactivate",
-          ...appArguments(installation),
-          "--revision",
-          revision.name,
-        )
-      }
-    }
-    const deadline = performance.now() + 300_000
-    // Inactive revisions may still have terminating replicas.
-    for (const revision of revisions) {
-      while (
-        azure<unknown[]>(
-          "containerapp",
-          "replica",
-          "list",
-          ...appArguments(installation),
-          "--revision",
-          revision.name,
-        ).length
-      ) {
-        if (performance.now() >= deadline) {
-          throw new Error("Old replicas have not stopped. Hub remains in maintenance.")
-        }
-        await timers.setTimeout(5_000)
-      }
-    }
-  }
   async function setup(installation: Installation): Promise<void> {
     const execution = azure<JobExecution>(
       "containerapp",
@@ -355,7 +316,12 @@ export async function deployHub(args: string[] = process.argv.slice(2)): Promise
     ) {
       throw new Error("A setup execution is still running; do not start another release.")
     }
-    await stopHub(installation)
+    if (installation.app_created)
+      await stopHub({
+        name: installation.app_name,
+        resourceGroup: installation.resource_group,
+        command: (...args) => azure<unknown>(...args),
+      })
     if (operation === "destroy") {
       plan(installation.app_created, installation, undefined, true)
       azure("storage", "blob", "delete", ...blobArguments(installation, true), "--lease-id", lease)
