@@ -22,11 +22,11 @@ This change does not include Microsoft Graph setup automation. The team will cho
 
 Role values are exact and case-sensitive. `Hub.Administrator` wins when a token contains both accepted roles. Other role values do not contribute Hub authority.
 
-Hub stores one active Entra assignment for an external identity. A role or provider-revision change creates a new immutable assignment version and supersedes the prior version. Hub observes role loss on the user's next Entra authentication; once observed, losing both accepted roles revokes the Entra assignment and ends that membership's open Hub sessions atomically.
+Hub stores one active Entra assignment for an external identity. A role or provider-revision change creates a new immutable assignment version and supersedes the prior version. Hub observes role loss only when a later Entra authentication emits updated role-free evidence; once observed, losing both accepted roles revokes the Entra assignment and ends that membership's open Hub sessions atomically.
 
 The enterprise application must allow an unassigned user to authenticate so Hub can receive signed evidence that accepted roles were removed. Hub then denies admission and revokes provider-owned authority in the same transaction. Requiring Entra assignment would block the callback before Hub could observe role loss.
 
-This version does not use Microsoft Graph or SCIM lifecycle sync, polling, webhooks, or refresh tokens. Hub observes role removal only when Entra later emits updated role-free authentication evidence, and Entra may briefly return cached role claims even during a fresh login. Until updated evidence arrives, an existing Hub cookie can remain valid until its 12-hour expiry, provider removal, provider revision or global session revocation, or Hub membership suspension or removal.
+This version does not use Microsoft Graph or SCIM lifecycle sync, polling, webhooks, or refresh tokens. Entra may briefly return cached role claims even during a fresh login. Until updated role-free evidence arrives, an existing Hub cookie can remain valid until its 12-hour expiry, provider removal, provider revision or global session revocation, or Hub membership suspension or removal.
 
 Disabling Entra or increasing its provider revision revokes Entra-owned authority and sessions that rely solely on it; separate bootstrap authority may remain valid. Advancing global session revocation invalidates every Hub session. Immediate per-user Entra lifecycle synchronization is not implemented.
 
