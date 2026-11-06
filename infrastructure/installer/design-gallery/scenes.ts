@@ -744,19 +744,19 @@ export const scenes: Scene[] = [
     "message": "Authorize resource creation, role assignments, image publication, and a maintenance-window deployment in this subscription?",
     "purpose": "Collects explicit approval for billable resources, role assignments, image publication and a maintenance-window deployment.",
     "decision": "Yes proceeds; No is the default and stops before cloud changes.",
-    "consequence": "This is broad installation authorization, not the later fresh downtime confirmation. The warning also states that Hub has no sign-in or hosted review yet.",
+    "consequence": "This is broad installation authorization, not the later fresh downtime confirmation. Hub sign-in requires manual configuration; hosted previews and reviews are unavailable. HTTPS readiness does not verify authorization.",
     "phase": "review",
     "columns": 112,
     "rows": 38,
     "welcome": false,
     "notice": {
       "level": "warning",
-      "message": "Target: 22222222-2222-4222-8222-222222222222 / westus2. App group: replica-demo-hub. State group: replica-demo-state. Foundation group: replica-demo-foundation.\nThis creates billable PostgreSQL, Container Apps, Blob Storage, ACR, Key Vault and logs, publishes an image, and requires a maintenance window. Hub has no sign-in or hosted review features yet."
+      "message": "Target: 22222222-2222-4222-8222-222222222222 / westus2. App group: replica-demo-hub. State group: replica-demo-state. Foundation group: replica-demo-foundation.\nThis creates billable PostgreSQL, Container Apps, Blob Storage, ACR, Key Vault and logs, publishes an image, and requires a maintenance window. Hub sign-in requires manual configuration; hosted previews and reviews are not available yet. HTTPS readiness does not verify authorization."
     },
     "history": [
       "Target: 22222222-2222-4222-8222-222222222222 / westus2. App group: replica-demo-hub. State group: replica-demo-state. Foundation group: replica-demo-foundation.",
       "State access: Azure authentication and Blob data permissions, without IP restrictions. npm registry: https://packagefeedproxy.microsoft.io/npm/. ACR: replicademo. Key Vault: replica-demo-vault.",
-      "This creates billable PostgreSQL, Container Apps, Blob Storage, ACR, Key Vault and logs. It is not high availability, and this Hub has no sign-in or hosted review features yet."
+      "This creates billable PostgreSQL, Container Apps, Blob Storage, ACR, Key Vault and logs. It is not high availability. Hub sign-in requires manual configuration; hosted previews and reviews are not available yet."
     ]
   },
   {
@@ -1072,7 +1072,7 @@ export const scenes: Scene[] = [
     "message": "",
     "purpose": "Continues the normal-shell receipt with resource-specific Azure portal links.",
     "decision": "Read the result in the restored shell; there is no form input.",
-    "consequence": "Readiness is not sign-in or authorization. The sample service domain is deliberately non-resolvable.",
+    "consequence": "HTTPS readiness does not verify sign-in or authorization; Hub sign-in requires manual configuration. The sample service domain is deliberately non-resolvable.",
     "phase": "configure",
     "columns": 112,
     "rows": 28,
@@ -2198,12 +2198,12 @@ export const sourceBindings: Record<string, string> = {
   "infrastructure/azure/install/preflight/index.ts": "a7b835c5886b78b8bf03efab321bf7bdc769422e815234867a14cf5a181975d7",
   "infrastructure/azure/install/configure/index.ts": "fba25677a3c9bee1b813eb672c894b83678a21fc93336501b7b89f771787a97e",
   "infrastructure/installer/config/fields/index.ts": "f936a98350a6cd093b7b1fd1ec092ac82b2849a2a95ff13ed60e28d5b8e3df38",
-  "infrastructure/azure/install/index.ts": "07f6fce834fd2b1f20b4f373774bbf1cfd9450215738dff0f6529fca9cd9edb2",
+  "infrastructure/azure/install/index.ts": "e979b00e6cb9276ba3fc93be1ae8c5153e820401121302302ef29fbd145e741c",
   "infrastructure/azure/install/backend/index.ts": "223e80bc84447ee1f47e44d6e4c7aa7702b895849f228c4793cacd6c062170e5",
   "infrastructure/terraform/index.ts": "bb81895279879a78c3f7671704cfc762d03f735d15ecb5e08a5d616b2a868252",
   "infrastructure/azure/install/secrets/index.ts": "40243a4dec330344ec6d54cb945cec89f0f9342b30d5cf0960a246fb1ca36f9d",
   "infrastructure/azure/install/image/index.ts": "c2118d1837b133ac8b90a6bd6cb27df3dc795cc6acfa42b91c65b4bb491017ff",
-  "infrastructure/installer/deployment-summary/index.ts": "cad73985d717bdfc252cb531f743b051cd656e496737be51f148abc8883298b7",
+  "infrastructure/installer/deployment-summary/index.ts": "1adabb9e093d0396210351a78457f77db974d4dadb5b346afe0c3f6b0423e9d2",
   "infrastructure/installer/prompt-for-recovery/index.ts": "a38f6d5c4f56abb996d1fd05b75869087527a1fd3dcb62537a5d7efb1e679a98",
   "infrastructure/azure/install/lease/recover/index.ts": "375248ee671e21b88638815882680666764572d8bd5d0158fc2b78b4b7e4886c",
   "infrastructure/azure/install/lease/inspect/index.ts": "1b06bc38a2415b35639f52f94688f577844840e697496291cbbcd52dbc51b89d",
