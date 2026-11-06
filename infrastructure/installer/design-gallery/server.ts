@@ -51,12 +51,14 @@ export async function startGallery({
   const assets = new Map<string, [URL, string]>([
     ["/", [new URL("./capture.html", import.meta.url), "text/html"]],
     ["/assets/capture.js", [new URL("./capture.js", import.meta.url), "text/javascript"]],
+    ["/assets/gallery.css", [new URL("./gallery.css", import.meta.url), "text/css"]],
     ["/assets/xterm.js", [new URL("../../node_modules/@xterm/xterm/lib/xterm.js", import.meta.url), "text/javascript"]],
     ["/assets/xterm.css", [new URL("../../node_modules/@xterm/xterm/css/xterm.css", import.meta.url), "text/css"]],
     ["/assets/html-to-image.js", [new URL("../../node_modules/html-to-image/dist/html-to-image.js", import.meta.url), "text/javascript"]],
   ])
   const outputs = new Map<string, [string, string]>([
     ["/gallery/index.html", ["index.html", "text/html"]],
+    ["/gallery/gallery.css", ["gallery.css", "text/css"]],
     ["/gallery/manifest.json", ["manifest.json", "application/json"]],
     ["/gallery/Replica-wizard-design-guide.pdf", ["Replica-wizard-design-guide.pdf", "application/pdf"]],
   ])
@@ -78,7 +80,7 @@ export async function startGallery({
     if (request.headers.host !== new URL(url).host) throw new RequestError(403, "Unknown request host.")
     const path = request.url ?? ""
     if (request.method === "GET") {
-      if (path === "/scenes.json") return json(response, 200, { scenes, token })
+      if (path === "/scenes.json") return json(response, 200, { scenes, token, revision })
       const asset = assets.get(path)
       if (asset) {
         response.writeHead(200, { "Content-Type": asset[1] })

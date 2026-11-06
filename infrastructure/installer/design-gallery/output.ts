@@ -1,4 +1,4 @@
-import { writeFile, mkdir } from "node:fs/promises"
+import { writeFile, mkdir, readFile } from "node:fs/promises"
 import { join } from "node:path"
 import { PDFDocument, PDFName, StandardFonts, rgb } from "pdf-lib"
 import type { PDFFont, PDFPage } from "pdf-lib"
@@ -46,14 +46,14 @@ export function scriptJson(value: unknown) {
 export function galleryHtml(scenes: readonly RenderedScene[]) {
   return `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width">
 <title>Replica wizard design gallery</title>
-<style>body{margin:24px;background:#f3f5f7;color:#182230;font:16px system-ui}nav{display:flex;gap:12px;align-items:center;flex-wrap:wrap}select{max-width:70vw}button,select{font:inherit;padding:8px}main{display:grid;grid-template-columns:minmax(0,3fr) minmax(240px,1fr);gap:24px;margin-top:24px}img{width:100%;height:auto;background:#0d1117}h1{font-size:24px}dt{font-weight:bold;margin-top:20px}dd{margin:6px 0;white-space:pre-wrap}small{overflow-wrap:anywhere}@media(max-width:850px){main{display:block}}</style>
-<h1>Replica wizard design gallery</h1><p>${evidence}</p>
-<nav><button id="previous">Previous</button><label>Screen <select id="scene"></select></label><button id="next">Next</button><a href="Replica-wizard-design-guide.pdf">Annotated PDF</a></nav>
-<main><section><h2 id="title"></h2><img id="screen" alt=""><p><a id="transcript">Visible-text transcript</a></p></section><aside><p id="group"></p><dl id="notes"></dl><small id="source"></small></aside></main>
+<link rel="stylesheet" href="gallery.css">
+<header><h1>Replica Hub installation wizard</h1><p>${scenes.length} synthetic states · no Azure commands · real Ink presentation</p>
+<nav aria-label="Screen navigation"><button id="previous">Previous</button><select id="scene" aria-label="Screen"></select><button id="next">Next</button><a href="Replica-wizard-design-guide.pdf">Annotated PDF</a></nav></header>
+<main><section><h2 id="title"></h2><img id="screen" alt=""><p class="screen-links"><a id="original">Original 2x PNG</a><a id="transcript">Visible terminal transcript</a></p></section><aside><p id="group"></p><dl id="notes"></dl><small id="source"></small><p id="page"></p><p>${evidence}</p></aside></main>
 <script>const scenes=${scriptJson(scenes.map(({ ansi, ...scene }) => scene))};
 const select=document.getElementById('scene');let current=0;
 for(const s of scenes){let o=document.createElement('option');o.value=s.id;o.textContent=s.label;select.append(o)}
-function show(index){current=Math.max(0,Math.min(scenes.length-1,index));const s=scenes[current];select.value=s.id;document.getElementById('title').textContent=s.label;document.getElementById('group').textContent=s.group;document.getElementById('source').textContent='Source: '+s.source+' | Stable ID: '+s.id;const img=document.getElementById('screen');img.src='screens/'+s.id+'.png';img.alt=s.title;document.getElementById('transcript').href='screens/'+s.id+'.txt';const notes=document.getElementById('notes');notes.replaceChildren();for(const [heading,key] of [['Purpose','purpose'],['Decision / input','decision'],['Consequence / next','consequence']]){const dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=heading;dd.textContent=s[key];notes.append(dt,dd)}document.getElementById('previous').disabled=current===0;document.getElementById('next').disabled=current===scenes.length-1;history.replaceState(null,'','#'+s.id)}
+function show(index){current=Math.max(0,Math.min(scenes.length-1,index));const s=scenes[current];select.value=s.id;document.getElementById('title').textContent=String(s.ordinal).padStart(3,'0')+' / '+s.title;document.getElementById('group').textContent=s.group;document.getElementById('source').textContent='Source: '+s.source+' | Stable ID: '+s.id;document.getElementById('page').textContent='PDF page '+(2+Math.ceil(scenes.length/25)+current);const img=document.getElementById('screen');img.src='screens/'+s.id+'.png';img.alt=s.title;document.getElementById('original').href=img.src;document.getElementById('transcript').href='screens/'+s.id+'.txt';const notes=document.getElementById('notes');notes.replaceChildren();for(const [heading,key] of [['Purpose','purpose'],['Decision / input','decision'],['Consequence / next','consequence']]){const dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=heading;dd.textContent=s[key];notes.append(dt,dd)}document.getElementById('previous').disabled=current===0;document.getElementById('next').disabled=current===scenes.length-1;history.replaceState(null,'','#'+s.id)}
 select.addEventListener('change',()=>show(scenes.findIndex(s=>s.id===select.value)));document.getElementById('previous').onclick=()=>show(current-1);document.getElementById('next').onclick=()=>show(current+1);const initial=scenes.findIndex(s=>s.id===location.hash.slice(1));show(initial<0?0:initial);
 </script></html>`
 }
@@ -133,7 +133,7 @@ export async function writeDesignPack(
   const cover = document.addPage([1190.55, 841.89])
   paragraph(cover, bold, "Replica wizard design guide", 48, 770, 1000, 30)
   paragraph(cover, font, evidence, 48, 700, 900, 16)
-  paragraph(cover, font, `Source revision: ${revision}\n${scenes.length} distinct synthetic states. One canonical catalog order supplies all displayed numbers.\nStable scene IDs are file names and links, not display numbers.\nThe following contents link to individual screens. Keep index.html, manifest.json and screens/ together for offline use.`, 48, 580, 900, 14)
+  paragraph(cover, font, `Source revision: ${revision}\n${scenes.length} distinct synthetic states. One canonical catalog order supplies all displayed numbers.\nStable scene IDs are file names and links, not display numbers.\nThe following contents link to individual screens. Keep index.html, gallery.css, manifest.json and screens/ together for offline use.`, 48, 580, 900, 14)
   const contents = Array.from({ length: Math.ceil(scenes.length / 25) }, () => document.addPage([1190.55, 841.89]))
   const screenPages: PDFPage[] = []
   for (const scene of scenes) {
@@ -180,4 +180,5 @@ export async function writeDesignPack(
     scenes: scenes.map(({ ansi, ...scene }) => ({ ...scene, pdfPage: 2 + contents.length + scene.ordinal - 1 })),
   }, null, 2) + "\n")
   await writeFile(join(directory, "index.html"), galleryHtml(scenes))
+  await writeFile(join(directory, "gallery.css"), await readFile(new URL("./gallery.css", import.meta.url)))
 }
