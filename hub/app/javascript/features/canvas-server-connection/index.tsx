@@ -1,5 +1,5 @@
 import { ActionMenu, Button, Heading } from "@primer/react-brand/esm"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 
 import { HubAlert } from "@components/hub-alert"
 import { prototypeCanvasRequest } from "@utils/prototype-canvas-request"
@@ -23,6 +23,10 @@ export function CanvasServerConnection({ token }: { token: string }) {
   const [scanError, setScanError] = useState("")
   const [error, setError] = useState("")
   const [output, setOutput] = useState("")
+  // Script IDs change whenever package.json or a lockfile changes. Starting a script after
+  // such a change needs a fresh choice, so a background scan cannot swap in new code.
+  const approvedScripts = useRef<string[] | null>(null)
+  const [scriptsChanged, setScriptsChanged] = useState(false)
 
   useEffect(() => {
     if (busy) return
@@ -38,6 +42,9 @@ export function CanvasServerConnection({ token }: { token: string }) {
         if (controller.signal.aborted) return
         setData(next)
         setScanError("")
+        const ids = next.development?.scripts.map((entry) => entry.id) ?? []
+        if (!approvedScripts.current?.length) approvedScripts.current = ids
+        else if (ids.some((id) => !approvedScripts.current?.includes(id))) setScriptsChanged(true)
         setScript((selected) =>
           next.development?.scripts.some((entry) => entry.id === selected)
             ? selected
@@ -97,6 +104,18 @@ export function CanvasServerConnection({ token }: { token: string }) {
       window.location.reload()
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))
+      // A script can fail before the first output poll, so read its last lines once more.
+      if ("script" in body) {
+        try {
+          const result = await prototypeCanvasRequest<{ startup?: { output: string } }>(
+            "/api/server/status",
+            token,
+          )
+          if (result.startup?.output) setOutput(result.startup.output)
+        } catch {
+          // The startup error above already explains the failure.
+        }
+      }
     } finally {
       setOperation(null)
     }
@@ -153,7 +172,7 @@ export function CanvasServerConnection({ token }: { token: string }) {
                 type="button"
                 variant="secondary"
                 size="small"
-                disabled={busy}
+                disabled={busy || scriptsChanged}
                 onClick={() => void connect("/api/server/start", { script })}
               >
                 {operation === "start" ? copy.starting : copy.start}
@@ -179,6 +198,27 @@ export function CanvasServerConnection({ token }: { token: string }) {
             </li>
           ))}
         </ul>
+      ) : null}
+      {scriptsChanged && !data?.servers.length && data?.development?.scripts.length ? (
+        <HubAlert
+          variant="warning"
+          layout="compact"
+          title={copy.scriptsChanged}
+          action={
+            <Button
+              type="button"
+              variant="secondary"
+              size="small"
+              disabled={busy}
+              onClick={() => {
+                approvedScripts.current = data.development?.scripts.map((entry) => entry.id) ?? []
+                setScriptsChanged(false)
+              }}
+            >
+              {copy.allowScripts}
+            </Button>
+          }
+        />
       ) : null}
       {data?.warnings.map((warning, index) => (
         <HubAlert key={index} variant="warning" layout="compact" title={warning} />

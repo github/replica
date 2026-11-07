@@ -9,4 +9,7 @@ export const serverCopy = {
   script: "Dev server script",
   output: "Dev server output",
   refresh: "Checks again automatically every 30 seconds.",
+  scriptsChanged:
+    "Dev scripts changed in this checkout. Review package.json and lockfile changes before starting.",
+  allowScripts: "Allow changed scripts",
 }

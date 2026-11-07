@@ -125,6 +125,74 @@ describe("CanvasServerConnection()", () => {
     expect(screen.queryByRole("button", { name: "Start dev server" })).not.toBeInTheDocument()
   })
 
+  it("shows the last startup output when the script fails before the first output check", async () => {
+    const fetch = vi.fn((url: string) => {
+      if (url === "/api/servers")
+        return Promise.resolve(
+          Response.json({
+            servers: [],
+            warnings: [],
+            development: { scripts: [{ id: "dev", invocation: "npm run dev" }], message: "" },
+          }),
+        )
+      if (url === "/api/server/start")
+        return Promise.resolve(
+          Response.json({ error: "npm run dev exited (code 1)." }, { status: 503 }),
+        )
+      if (url === "/api/server/status")
+        return Promise.resolve(
+          Response.json({ startup: { output: "Error: Cannot find module 'vite'" } }),
+        )
+      throw new Error(`Unexpected request: ${url}`)
+    })
+    vi.stubGlobal("fetch", fetch)
+    render(<CanvasServerConnection token="canvas-token" />)
+    fireEvent.click(await screen.findByRole("button", { name: "Start dev server" }))
+
+    expect(await screen.findByLabelText("Dev server output")).toHaveTextContent(
+      "Error: Cannot find module 'vite'",
+    )
+    expect(screen.getByRole("alert")).toHaveTextContent("npm run dev exited (code 1).")
+  })
+
+  it("requires a fresh choice before starting scripts that changed after the first scan", async () => {
+    vi.useFakeTimers()
+    function scan(id: string) {
+      return Response.json({
+        servers: [],
+        warnings: [],
+        development: { scripts: [{ id, invocation: "npm run dev" }], message: "" },
+      })
+    }
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(scan("before:dev"))
+      .mockResolvedValueOnce(scan("after:dev"))
+      .mockResolvedValue(Response.json({ error: "Stop here." }, { status: 503 }))
+    vi.stubGlobal("fetch", fetch)
+    render(<CanvasServerConnection token="canvas-token" />)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    expect(screen.getByRole("button", { name: "Start dev server" })).toBeEnabled()
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30_000)
+    })
+    expect(screen.getByRole("button", { name: "Start dev server" })).toBeDisabled()
+    expect(screen.getByText(/Dev scripts changed in this checkout/)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("button", { name: "Allow changed scripts" }))
+    fireEvent.click(screen.getByRole("button", { name: "Start dev server" }))
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0)
+    })
+    expect(fetch.mock.calls[2]).toEqual([
+      "/api/server/start",
+      expect.objectContaining({ body: JSON.stringify({ script: "after:dev" }) }),
+    ])
+  })
+
   it("refreshes servers every 30 seconds without overlapping scans or resetting the chosen script", async () => {
     vi.useFakeTimers()
     let finish!: (response: Response) => void
