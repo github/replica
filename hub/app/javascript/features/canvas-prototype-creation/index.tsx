@@ -57,6 +57,9 @@ export function CanvasPrototypeCreation({
   const [busy, setBusy] = useState(false)
   const sending = useRef(false)
   const connected = status?.state === "connected" || status?.state === "undiscovered"
+  // A failed status poll is often a brief outage, so keep the user's draft and only
+  // disable it. Other states mean the connection itself changed.
+  const showForm = Boolean(data) && (connected || status?.state === "unavailable")
 
   useEffect(() => {
     if (!connected) return
@@ -84,10 +87,10 @@ export function CanvasPrototypeCreation({
   return (
     <div className="canvas-prototype-creation">
       <div className="canvas-prototype-creation__content">
-        {connected && data ? (
+        {showForm && data ? (
           <PrototypeCreationForm
             data={data}
-            busy={busy || loading || Boolean(catalogError)}
+            busy={busy || loading || !connected || Boolean(catalogError)}
             onChange={() => {
               setSent(false)
               setSubmissionError("")

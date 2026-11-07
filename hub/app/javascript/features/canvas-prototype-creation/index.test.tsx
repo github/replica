@@ -112,6 +112,49 @@ describe("CanvasPrototypeCreation()", () => {
     expect(onConnect).not.toHaveBeenCalled()
   })
 
+  it("keeps the draft through a temporary Hub outage", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) => {
+        if (url === "/api/servers") return Promise.resolve(Response.json(servers()))
+        if (url === "/api/prototypes/new") return Promise.resolve(Response.json(catalog()))
+        throw new Error(`Unexpected request: ${url}`)
+      }),
+    )
+    const { rerender } = render(
+      <CanvasPrototypeCreation
+        token="canvas-token"
+        status={{ state: "connected" }}
+        onConnect={vi.fn()}
+      />,
+    )
+    const brief = await screen.findByRole("textbox", { name: "What should we create?" })
+    fireEvent.change(brief, { target: { value: "Simplify account settings." } })
+
+    rerender(
+      <CanvasPrototypeCreation
+        token="canvas-token"
+        status={{ state: "unavailable" }}
+        onConnect={vi.fn()}
+      />,
+    )
+    expect(screen.getByRole("textbox", { name: "What should we create?" })).toBeDisabled()
+
+    rerender(
+      <CanvasPrototypeCreation
+        token="canvas-token"
+        status={{ state: "connected" }}
+        onConnect={vi.fn()}
+      />,
+    )
+    await waitFor(() =>
+      expect(screen.getByRole("textbox", { name: "What should we create?" })).toBeEnabled(),
+    )
+    expect(screen.getByRole("textbox", { name: "What should we create?" })).toHaveValue(
+      "Simplify account settings.",
+    )
+  })
+
   it("retains the brief and template after failed dispatch so the same draft can be retried", async () => {
     let attempts = 0
     const fetch = vi.fn((url: string, options?: RequestInit) => {
