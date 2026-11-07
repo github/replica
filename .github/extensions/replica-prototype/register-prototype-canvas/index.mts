@@ -1293,19 +1293,53 @@ export async function registerPrototypeCanvas(
     if (!entry.context?.normalizedUrl || !entry.prototype)
       throw new Error("The connected prototype has no canvas context.")
     const context = entry.context
+    const prototype = entry.prototype
     const status = await checkServer(entry.context.normalizedUrl)
     if (entry.context !== context || entry.connecting || entry.closed) return { available: true }
-    if (!status.available) {
+    if (status.available) return status
+    // Holding the connection lock stops a reconnect from finishing halfway through this
+    // switch and then being replaced by the disconnected view.
+    entry.connecting = true
+    try {
+      const next = await disconnectedContext(entry)
+      if (entry.closed) return status
+      const disconnected = retainRepositoryState(next.context, context)
+      // Switch the page first so a failure here leaves the panel connected and the next
+      // health check can try again.
+      await prototype.setContext(disconnected)
+      entry.input = next.input
+      entry.context = disconnected
       entry.kind = "missing"
       entry.disconnect()
-      const disconnected = retainRepositoryState(
-        await createCanvasContext({ ...entry.input, ...entry.contextOptions, prototypeUrl: null }),
-        entry.context,
-      )
-      await entry.prototype.setContext(disconnected)
-      entry.context = disconnected
+    } finally {
+      entry.connecting = false
     }
     return status
+  }
+
+  // Builds the creation view's context after the preview stops. Saved branch, repository,
+  // and commit hints can go stale while connected, for example after a branch switch.
+  // Dropping them keeps the user able to reach the creation view.
+  async function disconnectedContext(entry: Entry) {
+    try {
+      const context = await createCanvasContext({
+        ...entry.input,
+        ...entry.contextOptions,
+        prototypeUrl: null,
+      })
+      return { input: entry.input, context }
+    } catch {
+      const input = { ...entry.input }
+      delete input.repository
+      delete input.branch
+      delete input.commitSha
+      const context = await createCanvasContext({
+        ...input,
+        ...entry.contextOptions,
+        prototypeUrl: null,
+      })
+      return { input, context }
+    }
   }
 
   function openResult(entry: Entry) {

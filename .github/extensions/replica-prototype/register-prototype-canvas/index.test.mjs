@@ -2190,6 +2190,52 @@ esac
     })
   })
 
+  it("returns to setup when a server stops after the checkout leaves the saved branch", async () => {
+    await withContext(async (context) => {
+      execFileSync("git", ["remote", "add", "origin", "https://github.com/github/replica.git"], {
+        cwd: context.repositoryPath,
+      })
+      const preview = createServer((_request, response) => {
+        response.writeHead(200, { "Content-Type": "text/html" })
+        response.end("<!doctype html><title>Prototype</title>")
+      })
+      await new Promise((resolve) => preview.listen(0, "127.0.0.1", resolve))
+      const canvas = await register(context, [], checkPrototypeServer)
+      const openContext = {
+        instanceId: "stale-branch",
+        sessionId: "test-session",
+        session: { workingDirectory: context.repositoryPath },
+      }
+      try {
+        const opened = await canvas.open({
+          ...openContext,
+          input: {
+            prototypeUrl: `http://127.0.0.1:${preview.address().port}/`,
+            branch: "prototype",
+          },
+        })
+        const html = await (await fetch(opened.url)).text()
+        const { token } = JSON.parse(html.match(/window\.__REPLICA_CANVAS__ = ([^;]+);/)[1])
+        execFileSync("git", ["checkout", "-qb", "replacement"], { cwd: context.repositoryPath })
+        await new Promise((resolve) => preview.close(resolve))
+
+        const status = await fetch(new URL("/api/prototype/status", opened.url), {
+          headers: { "X-Replica-Canvas-Token": token },
+        })
+        assert.equal((await status.json()).available, false)
+        const setup = await (await fetch(opened.url)).text()
+        assert.equal(
+          JSON.parse(setup.match(/window\.__REPLICA_CANVAS__ = ([^;]+);/)[1]).prototypeUrl,
+          null,
+        )
+        assert.equal((await canvas.open(openContext)).status, "Ready to connect")
+      } finally {
+        await canvas.onClose(openContext)
+        if (preview.listening) await new Promise((resolve) => preview.close(resolve))
+      }
+    })
+  })
+
   for (const [label, saved] of [
     ["a non-object connection", ["http://localhost:5173"]],
     ["a non-string URL", { prototypeUrl: 5173 }],
