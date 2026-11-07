@@ -9,10 +9,12 @@ function ServerConnection({ scenario }: { scenario: string }) {
   const [ready, setReady] = useState(false)
   useEffect(() => {
     const original = window.fetch.bind(window)
+    let scans = 0
     window.fetch = async (input) => {
       const path =
         typeof input === "string" ? input : input instanceof URL ? input.pathname : input.url
-      return fixtureResponse(scenario, path)
+      if (path === "/api/servers") scans += 1
+      return fixtureResponse(scenario, path, scans)
     }
     const timer = window.setTimeout(() => setReady(true), 0)
     return () => {
@@ -67,3 +69,10 @@ export const Starting: Story = {
   },
 }
 export const StartFailed: Story = { ...Starting, args: { scenario: "start-failed" } }
+export const ScriptsChanged: Story = {
+  args: { scenario: "scripts-changed" },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(await canvas.findByRole("button", { name: "Start dev server" }))
+    await canvas.findByRole("button", { name: "Allow changed scripts" })
+  },
+}

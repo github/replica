@@ -1,4 +1,9 @@
-export function fixtureResponse(scenario: string, path: string): Response | Promise<Response> {
+// `scans` counts server checks so a story can show scripts changing between checks.
+export function fixtureResponse(
+  scenario: string,
+  path: string,
+  scans = 1,
+): Response | Promise<Response> {
   if (path === "/api/servers") {
     if (scenario === "scanning") return new Promise<Response>(() => {})
     if (scenario === "scan-failed")
@@ -20,11 +25,20 @@ export function fixtureResponse(scenario: string, path: string): Response | Prom
           ? ["http://127.0.0.1:4173/ did not return an HTML page (HTTP 503)."]
           : [],
       development: {
-        scripts: ["empty", "scripts", "starting", "start-failed", "single", "multiple"].includes(
-          scenario,
-        )
+        scripts: [
+          "empty",
+          "scripts",
+          "scripts-changed",
+          "starting",
+          "start-failed",
+          "single",
+          "multiple",
+        ].includes(scenario)
           ? [
-              { id: "dev", invocation: "npm run dev" },
+              {
+                id: scenario === "scripts-changed" && scans > 1 ? "dev-updated" : "dev",
+                invocation: "npm run dev",
+              },
               ...(scenario === "scripts" ? [{ id: "start", invocation: "npm start" }] : []),
             ]
           : [],
@@ -36,6 +50,11 @@ export function fixtureResponse(scenario: string, path: string): Response | Prom
     })
   }
   if (path === "/api/server/start" || path === "/api/server/connect") {
+    if (scenario === "scripts-changed")
+      return Response.json(
+        { error: "Dev scripts changed. Scan again before starting." },
+        { status: 409 },
+      )
     if (scenario.endsWith("-failed"))
       return Response.json(
         {
