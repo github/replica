@@ -7,14 +7,14 @@ class Build::PackageExtraction
   MAXIMUM_DIST_FILES = 2_000
   MAXIMUM_FILE_BYTES = 25.megabytes
   MAXIMUM_SCREENSHOT_BYTES = 25.megabytes
-  MAXIMUM_TOTAL_BYTES = 150.megabytes
   REQUIRED_FILES = %w[dist/index.html screenshots/desktop.png screenshots/narrow.png].freeze
 
   class InvalidPackage < StandardError; end
 
   # Uses provider-neutral storage for one package extraction.
-  def initialize(artifact_store:)
+  def initialize(artifact_store:, maximum_bytes: Rails.configuration.x.maximum_package_bytes)
     @artifact_store = artifact_store
+    @maximum_bytes = maximum_bytes
   end
 
   # Streams safe dist and screenshot files into the Build's storage prefix.
@@ -28,8 +28,7 @@ class Build::PackageExtraction
       validate_controls!(files)
       total = 0
       files.each do |entry|
-        total += write(entry, prefix:)
-        raise InvalidPackage, "package files total more than 150 MiB" if total > MAXIMUM_TOTAL_BYTES
+        total += write(entry, prefix:, remaining_bytes: maximum_bytes - total)
       end
       total
     end
@@ -45,7 +44,7 @@ class Build::PackageExtraction
 
   private
 
-  attr_reader :artifact_store
+  attr_reader :artifact_store, :maximum_bytes
 
   # Checks the retained definitions rather than trusting the prototype's build scripts.
   def validate_controls!(files)
@@ -81,8 +80,8 @@ class Build::PackageExtraction
     end
 
     total = files.sum(&:size)
-    if total > MAXIMUM_TOTAL_BYTES
-      raise InvalidPackage, "package files total more than 150 MiB"
+    if total > maximum_bytes
+      raise InvalidPackage, BuildPackageLimit.limit_message(maximum_bytes)
     end
 
     files
@@ -155,10 +154,14 @@ class Build::PackageExtraction
   end
 
   # Streams one package file into retained storage and returns its byte count.
-  def write(entry, prefix:)
+  def write(entry, prefix:, remaining_bytes:)
     entry.get_input_stream do |source|
       maximum = file_limit(entry.name)
-      bounded_source = BoundedSource.new(source, maximum_bytes: maximum)
+      bounded_source = BoundedSource.new \
+        source,
+        maximum_bytes: maximum,
+        remaining_bytes: remaining_bytes,
+        total_limit: maximum_bytes
       bytes = artifact_store.write("#{prefix}/#{entry.name}", source: bounded_source)
       raise InvalidPackage, "package file ended before its declared size" if bytes != entry.size
 
@@ -169,9 +172,11 @@ class Build::PackageExtraction
   # Stops decompression when one file exceeds its storage limit.
   class BoundedSource
     # Wraps one ZIP entry stream with a decompressed-byte limit.
-    def initialize(source, maximum_bytes:)
+    def initialize(source, maximum_bytes:, remaining_bytes:, total_limit:)
       @source = source
       @maximum_bytes = maximum_bytes
+      @remaining_bytes = remaining_bytes
+      @total_limit = total_limit
       @bytes = 0
     end
 
@@ -182,6 +187,7 @@ class Build::PackageExtraction
 
       @bytes += chunk.bytesize
       raise InvalidPackage, "package contains a file larger than its limit" if @bytes > @maximum_bytes
+      raise InvalidPackage, BuildPackageLimit.limit_message(@total_limit) if @bytes > @remaining_bytes
 
       chunk
     end

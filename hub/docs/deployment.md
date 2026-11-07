@@ -348,6 +348,22 @@ Updates are intentional. Replica Hub does not install new images automatically, 
 
 Take a [consistent backup](backups-and-restore.md#take-a-consistent-compose-backup) before updating. An immutable digest keeps selecting the same image, and a locally built tag cannot be updated through a registry pull. Follow [manual updates](manual-updates.md) to select and verify a different release or source-built image; that walkthrough uses explicit Compose options to avoid an unintended pull or rebuild.
 
+## Configure the Build package limit
+
+Hub accepts complete unpacked Build packages up to **150 MiB** by default, including app files, screenshots, and package metadata. To change it, add one positive whole number of MiB to the deployment's private `.env` or platform environment:
+
+```text
+REPLICA_MAXIMUM_PACKAGE_MIB=250
+```
+
+One MiB is 1,048,576 bytes. The setting belongs to Hub, not a prototype repository or workflow. Unset means 150 MiB; empty, zero, negative, decimal, or malformed values prevent startup rather than silently selecting the default.
+
+With the Compose bundle, run `./replica down`, then `./replica up` to recreate Hub with the changed environment while retaining deployment data. On another platform, restart or redeploy every Hub web and background process with the same setting. Check health and logs after restarting. Do not initialize the deployment again or change its encryption secrets.
+
+The new limit applies only to future imports. Existing successful Builds and their previews remain unchanged. Hub derives its bounded ZIP download allowance from this same value; there is no second size setting. A workflow can succeed before Hub rejects an oversized import, so the failed Build explains how to reduce the output or ask the operator to change the environment setting.
+
+Repositories must also use a reviewed build Action commit containing configurable output and removal of the old aggregate caps. Changing Hub alone does not upgrade existing workflow pins. See [GitHub Actions builds](github-actions-builds.md#hub-package-limit) for Action upgrades and the remaining per-file, path, and entry-count protections.
+
 ## Contain public sharing
 
 Public sharing is off by default on both new and upgraded deployments. The public-sharing upgrade permanently revokes existing links and pending preview handoffs. An enrolled Hub administrator can enable **new** links from `/sharing_settings`, with fresh GitHub proof and explicit confirmation. Disabling later revokes all links again. See [Share links](share-links.md) before upgrading a deployment that uses public URLs; do not promise those URLs will survive the upgrade.

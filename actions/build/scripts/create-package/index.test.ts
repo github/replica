@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises"
+import { mkdir, open, readFile, stat, writeFile } from "node:fs/promises"
 import path from "node:path"
 
 import { describe, expect, it } from "vitest"
@@ -11,6 +11,34 @@ import { MAX_SCREENSHOT_BYTES, MAX_SCREENSHOT_HEIGHT } from "../constants.ts"
 import { createPackage } from "./index.ts"
 
 describe("createPackage()", () => {
+  it("packages more than 150 MiB without imposing a total upload limit", async () => {
+    const root = await temporaryDirectory()
+    const screenshots = await temporaryDirectory()
+    const output = path.join(await temporaryDirectory(), "package")
+    await mkdir(path.join(root, "dist"))
+    await writeFile(path.join(root, "dist", "index.html"), "<!doctype html>")
+    const fileBytes = 25 * 1024 * 1024
+    for (let index = 0; index < 6; index++) {
+      const file = await open(path.join(root, "dist", `asset-${index}.bin`), "w")
+      try {
+        await file.truncate(fileBytes)
+      } finally {
+        await file.close()
+      }
+    }
+    await writePng(path.join(screenshots, "desktop.png"), 1440, 900)
+    await writePng(path.join(screenshots, "narrow.png"), 390, 844)
+
+    expect(await createPackage(root, screenshots, output)).toBe(7)
+    for (let index = 0; index < 6; index++) {
+      expect((await stat(path.join(output, "dist", `asset-${index}.bin`))).size).toBe(fileBytes)
+    }
+    expect(await readFile(path.join(output, "dist", "index.html"), "utf8")).toBe("<!doctype html>")
+    expect(await readFile(path.join(output, "screenshots", "desktop.png"))).toStrictEqual(
+      await readFile(path.join(screenshots, "desktop.png")),
+    )
+  })
+
   it("rejects incomplete dark captures instead of publishing a partial set", async () => {
     const root = await temporaryDirectory()
     const screenshots = await temporaryDirectory()

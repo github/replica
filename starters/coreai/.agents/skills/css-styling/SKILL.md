@@ -10,7 +10,7 @@ description: 'CSS Modules conventions, design tokens, container queries, and CSS
 **REQUIRED STEP**: Before making any changes to a `.css` file, you MUST read the corresponding `.tsx` file(s) that use it:
 
 1. Look for `.tsx` files with the same base name (e.g., `ComponentName.tsx` for `ComponentName.module.css`)
-2. Search for imports of the CSS file using grep with pattern: `import.*from.*'\.\/.*\.module\.css'`
+2. Search for imports of the exact CSS filename, including side-effect imports.
 3. Read ALL `.tsx` files that import the CSS file before proceeding with edits
 
 You may also need to edit the matching `.tsx` file and its structure to properly edit CSS.

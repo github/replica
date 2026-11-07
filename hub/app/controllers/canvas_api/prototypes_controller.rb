@@ -19,7 +19,7 @@ class CanvasApi::PrototypesController < CanvasApi::BaseController
     return branch_not_found if prototype.nil?
     if !prototype.registered?
       reason = @repository.prototype_candidates.registration_ineligibility_reason \
-        prototype, Current.user, permission: @repository_permission, fresh: true
+        prototype, permission: @repository_permission
       if reason
         return render json: { error: "This branch is not eligible for registration in Hub.", registrationReason: reason },
           status: :not_found
@@ -121,7 +121,7 @@ class CanvasApi::PrototypesController < CanvasApi::BaseController
       expires_in: 1.minute
     ) do
       @repository.prototype_candidates.registration_ineligibility_reason \
-        prototype, Current.user, permission: @repository_permission
+        prototype, permission: @repository_permission
     end
   end
 

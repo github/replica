@@ -3,7 +3,6 @@ require "tempfile"
 # Downloads and retains one completed Build's GitHub Actions package.
 class Build::PackageImport < ActiveRecord::AssociatedObject
   ARTIFACT_NAME = Repository::WorkflowRunDiscoveries::ARTIFACT_NAME
-  MAXIMUM_PACKAGE_BYTES = 155.megabytes
 
   class ArtifactMissing < StandardError; end
   class ArtifactExpired < StandardError; end
@@ -11,6 +10,7 @@ class Build::PackageImport < ActiveRecord::AssociatedObject
 
   # Downloads one Actions package and publishes its dist and screenshots.
   def download!(configuration: GithubAppConfiguration.current, artifact_store: ArtifactStore.current)
+    maximum_bytes = Rails.configuration.x.maximum_package_bytes
     build.reload
     return if !importable?
 
@@ -24,7 +24,7 @@ class Build::PackageImport < ActiveRecord::AssociatedObject
     client = configuration.github_client
     token = configuration.tokens.installation
     artifact_id = build.github_artifact_id || select_artifact_id(client, token, repository)
-    import_package(client, token, repository, artifact_id, artifact_store:)
+    import_package(client, token, repository, artifact_id, artifact_store:, maximum_bytes:)
   rescue ArtifactMissing
     fail!("GitHub Actions did not provide the replica-build-v1 artifact.")
   rescue ArtifactExpired
@@ -34,7 +34,9 @@ class Build::PackageImport < ActiveRecord::AssociatedObject
   rescue Build::PackageExtraction::InvalidPackage => error
     fail!("The replica-build-v1 artifact cannot be stored: #{error.message}")
   rescue GithubClient::DownloadTooLarge
-    fail!("The replica-build-v1 artifact exceeds Hub's 155 MiB download limit.")
+    fail! \
+      "The replica-build-v1 archive is too large to download safely. " \
+      "#{BuildPackageLimit.limit_message(maximum_bytes)}"
   rescue GithubClient::Gone
     fail!("The GitHub download expired before Hub could finish it.")
   rescue GithubClient::NotFound
@@ -65,7 +67,7 @@ class Build::PackageImport < ActiveRecord::AssociatedObject
   end
 
   # Downloads the selected package and replaces any incomplete retained prefix.
-  def import_package(client, token, repository, artifact_id, artifact_store:)
+  def import_package(client, token, repository, artifact_id, artifact_store:, maximum_bytes:)
     prefix = "builds/#{build.id}"
     Tempfile.create([ "replica-build-", ".zip" ], binmode: true) do |package|
       client.actions.download_artifact \
@@ -73,14 +75,14 @@ class Build::PackageImport < ActiveRecord::AssociatedObject
         artifact_id,
         token:,
         destination: package,
-        maximum_bytes: MAXIMUM_PACKAGE_BYTES
+        maximum_bytes: BuildPackageLimit.maximum_download_bytes(maximum_bytes)
       package.flush
       build.reload
       return if !importable?
       return if build.github_artifact_id.nil? && !record_artifact!(artifact_id)
 
       artifact_store.delete_prefix(prefix)
-      bytes = Build::PackageExtraction.new(artifact_store:).extract!(package, prefix:)
+      bytes = Build::PackageExtraction.new(artifact_store:, maximum_bytes:).extract!(package, prefix:)
       publish!(prefix:, bytes:)
     end
   rescue StandardError
@@ -125,18 +127,33 @@ class Build::PackageImport < ActiveRecord::AssociatedObject
 
   # Returns the one Actions artifact ID selected from the completed workflow run.
   def select_artifact_id(client, token, repository)
+    attempt = client.actions.workflow_run_attempt \
+      repository,
+      build.github_workflow_run_id,
+      build.github_workflow_run_attempt,
+      token: token
+    if attempt.fetch("run_attempt") != build.github_workflow_run_attempt
+      raise GithubClient::InvalidResponse, "GitHub returned a different workflow attempt"
+    end
+    attempt_started_at = Time.iso8601(attempt.fetch("run_started_at"))
+
     artifacts = client.actions.artifacts \
       repository,
       build.github_workflow_run_id,
       name: ARTIFACT_NAME,
       token: token
-    artifact = select_artifact(artifacts)
+    artifact = select_artifact(artifacts, attempt_started_at:)
     artifact.fetch("id")
+  rescue KeyError, TypeError, ArgumentError
+    raise GithubClient::InvalidResponse, "GitHub returned incomplete workflow attempt data"
   end
 
-  # Returns the one unexpired fixed-name artifact for this workflow run.
-  def select_artifact(artifacts)
-    matches = artifacts.select { _1["name"] == ARTIFACT_NAME }
+  # Returns the one unexpired fixed-name artifact created during this attempt.
+  def select_artifact(artifacts, attempt_started_at:)
+    matches = artifacts.select do |artifact|
+      artifact["name"] == ARTIFACT_NAME &&
+        Time.iso8601(artifact.fetch("created_at")) > attempt_started_at
+    end
     raise ArtifactMissing if matches.empty?
     raise ArtifactAmbiguous if matches.many?
 
@@ -149,5 +166,7 @@ class Build::PackageImport < ActiveRecord::AssociatedObject
     artifact
   rescue KeyError, TypeError
     raise GithubClient::InvalidResponse, "GitHub returned incomplete artifact data"
+  rescue ArgumentError
+    raise GithubClient::InvalidResponse, "GitHub returned an invalid artifact creation time"
   end
 end

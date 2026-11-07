@@ -114,73 +114,61 @@ class PrototypeRegistrationsTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "reuses comparison caches but checks authorship freshly on registration" do
-    original_cache = Rails.cache
-    Rails.cache = ActiveSupport::Cache::MemoryStore.new
+  test "writers and maintainers can list and register branches without attributable unique commits" do
     payload = repository_payload(2001, "github/prototype")
     stub_github_sign_in(repositories: [ payload ], permissions: { 2001 => "push" })
     sign_in
     repository = Repository.find_by!(github_id: 2001)
-    branch = prototypes.create(repository:, branch_name: "prototype/new")
-    stub_branches(repository, "main" => "a" * 40, branch.branch_name => "b" * 40)
-    stub_comparison(repository, "a" * 40, "b" * 40, author_ids: [ 1001 ])
-    get_management(repository)
-    assert_response :success
-    assert_includes response.body, branch.branch_name
-    WebMock.reset_executed_requests!
+    stub_request(:get, %r{/compare/}).to_timeout
 
-    get_management(repository)
-    assert_response :success
-    assert_includes response.body, branch.branch_name
+    %w[push maintain].each do |permission|
+      stub_github_permissions([ payload ], { 2001 => permission })
+      branch = prototypes.create(repository:, branch_name: "feature/#{permission}")
+      unlinked_build = builds.create(prototype: branch, commit_author_name: "Unlinked author")
+      branch.update!(current_build: unlinked_build)
+      stub_branches(repository, "main" => "a" * 40, branch.branch_name => "a" * 40)
+
+      get_management(repository)
+      assert_response :success
+      assert_includes response.body, %("branchName":"#{branch.branch_name}")
+
+      patch repository_prototype_registration_path(repository.route_id, branch),
+        params: { prototype: { name: "Navigation" } }
+      assert_response :see_other
+      assert branch.reload.registered?
+      assert_equal User.find_by!(github_id: 1001), branch.author
+      assert_nil unlinked_build.reload.commit_author_github_id
+    end
     assert_not_requested :get, %r{/compare/}
-
-    stub_comparison(repository, "a" * 40, "b" * 40, author_ids: [ 1002 ])
-    patch repository_prototype_registration_path(repository.route_id, branch),
-      params: { prototype: { name: "Not eligible now" } }
-    assert_response :not_found
-    assert_not branch.reload.registered?
-    assert_requested :get, %r{/compare/}, times: 1
-
-    stub_branches(repository, "main" => "c" * 40, branch.branch_name => "b" * 40)
-    stub_comparison(repository, "c" * 40, "b" * 40, author_ids: [ 1002 ])
-    get_management(repository)
-    assert_response :success
-    assert_not_includes response.body, branch.branch_name
-    assert_requested :get, %r{/compare/#{"c" * 40}}, times: 1
-
-    stub_branches(repository, "main" => "c" * 40, branch.branch_name => "d" * 40)
-    stub_comparison(repository, "c" * 40, "d" * 40, author_ids: [ 1001 ])
-    get_management(repository)
-    assert_response :success
-    assert_includes response.body, branch.branch_name
-    assert_requested :get, %r{/compare/#{"c" * 40}\.\.\.#{"d" * 40}}, times: 1
-  ensure
-    Rails.cache = original_cache
   end
 
-  test "retries branch comparisons after an upstream failure instead of caching an empty result" do
-    original_cache = Rails.cache
-    Rails.cache = ActiveSupport::Cache::MemoryStore.new
+  test "retries live branch discovery after an upstream failure" do
     payload = repository_payload(2001, "github/prototype")
     stub_github_sign_in(repositories: [ payload ], permissions: { 2001 => "push" })
     sign_in
     repository = Repository.find_by!(github_id: 2001)
     prototype = prototypes.create(repository:, branch_name: "prototype/retry")
-    stub_branches(repository, "main" => "a" * 40, prototype.branch_name => "b" * 40)
-    stub_request(:get, %r{/compare/}).to_timeout
+    stub_request(:get, "#{GITHUB_API_URL}/repos/#{repository.github_path}/branches")
+      .with(query: { "per_page" => "100", "page" => "1" })
+      .to_timeout
 
     get_management(repository)
     assert_response :success
     assert_includes response.body, '"candidateCheckFailed":true'
     assert_not_includes response.body, '"branchName":"prototype/retry"'
 
-    stub_comparison(repository, "a" * 40, "b" * 40, author_ids: [ 1001 ])
+    patch \
+      repository_prototype_registration_path(repository.route_id, prototype),
+      params: { prototype: { name: "Retry" } }
+    assert_response :service_unavailable
+    assert_not prototype.reload.registered?
+
+    stub_branches(repository, "main" => "a" * 40, prototype.branch_name => "b" * 40)
     get_management(repository)
     assert_response :success
     assert_includes response.body, '"candidateCheckFailed":false'
     assert_includes response.body, '"branchName":"prototype/retry"'
-  ensure
-    Rails.cache = original_cache
+    assert_not_requested :get, %r{/compare/}
   end
 
   test "retired histories leave lists but keep their exact review and history links" do
@@ -231,7 +219,6 @@ class PrototypeRegistrationsTest < ActionDispatch::IntegrationTest
     prototype = prototypes.create(repository:, branch_name: "prototype/welcome")
     path = repository_prototype_registration_path(repository.github_id, prototype)
     stub_branches(repository, "main" => "a" * 40, "prototype/welcome" => "b" * 40)
-    stub_comparison(repository, "a" * 40, "b" * 40, author_ids: [ 1002, 1001 ])
     stub_activity(repository, [ push_activity("prototype/welcome") ])
 
     get repository_path(repository.github_id)
@@ -422,16 +409,22 @@ class PrototypeRegistrationsTest < ActionDispatch::IntegrationTest
     assert_equal "Updated", prototype.reload.name
   end
 
-  test "hides other writers' branches but lets a writer edit an existing prototype" do
+  test "lets a writer register another person's branch and edit an existing prototype" do
     payload = repository_payload(2001, "github/prototype")
     stub_github_sign_in(repositories: [ payload ], permissions: { 2001 => "push" })
     sign_in
     repository = Repository.find_by!(github_id: 2001)
     unlisted = prototypes.create(repository:, branch_name: "prototype/someone-else")
+    other_build = builds.create \
+      prototype: unlisted,
+      commit_sha: "b" * 40,
+      commit_author_name: "Another writer",
+      commit_author_github_id: 1002,
+      commit_author_login: "another-writer"
+    unlisted.update!(current_build: other_build)
     registered = prototypes.create(repository:, branch_name: "prototype/existing")
     registered.register!(name: "Existing")
     stub_branches(repository, "main" => "a" * 40, "prototype/someone-else" => "b" * 40)
-    stub_comparison(repository, "a" * 40, "b" * 40, author_ids: [ 1002 ])
 
     get repository_path(repository.github_id)
     assert_response :success
@@ -440,18 +433,21 @@ class PrototypeRegistrationsTest < ActionDispatch::IntegrationTest
 
     get_management(repository)
     assert_response :success
-    assert_not_includes response.body, "prototype/someone-else"
+    assert_includes response.body, "prototype/someone-else"
     assert_includes response.body, "prototype/existing"
 
     patch repository_prototype_registration_path(repository.github_id, unlisted),
-      params: { prototype: { name: "Not mine" } }
-    assert_response :not_found
-    assert_not unlisted.reload.registered?
+      params: { prototype: { name: "Shared branch" } }
+    assert_response :see_other
+    assert unlisted.reload.registered?
+    assert_equal User.find_by!(github_id: 1001), unlisted.author
+    assert_equal 1002, other_build.reload.commit_author_github_id
 
     patch repository_prototype_registration_path(repository.github_id, registered),
       params: { prototype: { name: "Updated" } }
     assert_response :see_other
     assert_equal "Updated", registered.reload.name
+    assert_not_requested :get, %r{/compare/}
   end
 
   test "gallery offers every eligible branch recently pushed by the current person" do
@@ -463,8 +459,6 @@ class PrototypeRegistrationsTest < ActionDispatch::IntegrationTest
     prototypes.create(repository:, branch_name: "prototype/second")
     stub_branches(repository, "main" => "a" * 40,
       "prototype/first" => "b" * 40, "prototype/second" => "c" * 40)
-    stub_comparison(repository, "a" * 40, "b" * 40, author_ids: [ 1001 ])
-    stub_comparison(repository, "a" * 40, "c" * 40, author_ids: [ 1001 ])
     stub_activity(repository, [ push_activity("prototype/first"), push_activity("prototype/second"),
       push_activity("prototype/first", timestamp: 2.hours.ago) ])
 
@@ -487,8 +481,6 @@ class PrototypeRegistrationsTest < ActionDispatch::IntegrationTest
     other_user = users.create(github_id: 1002, login: "someone-else")
     stub_branches(repository, "main" => "a" * 40,
       declined.branch_name => "b" * 40, "prototype/other" => "c" * 40)
-    stub_comparison(repository, "a" * 40, "b" * 40, author_ids: [ 1001, 1002 ])
-    stub_comparison(repository, "a" * 40, "c" * 40, author_ids: [ 1001 ])
     stub_activity(repository, [ push_activity(declined.branch_name), push_activity("prototype/other") ])
     path = repository_prototype_branch_banner_dismissal_path(repository.route_id, declined)
 
@@ -615,7 +607,6 @@ class PrototypeRegistrationsTest < ActionDispatch::IntegrationTest
     prototype = prototypes.create(repository:, branch_name: "prototype/new")
     stub_activity(repository, [ push_activity(prototype.branch_name) ])
     stub_branches(repository, "main" => "a" * 40, prototype.branch_name => "b" * 40)
-    stub_comparison(repository, "a" * 40, "b" * 40, author_ids: [ 1001 ])
 
     get repository_path(repository.github_id)
     assert_includes response.body, '"registrationPath":'
@@ -638,7 +629,6 @@ class PrototypeRegistrationsTest < ActionDispatch::IntegrationTest
     path = repository_prototype_registration_path(repository.github_id, prototype)
     stub_activity(repository, [ push_activity(prototype.branch_name) ])
     stub_branches(repository, "main" => "a" * 40, prototype.branch_name => "b" * 40)
-    stub_comparison(repository, "a" * 40, "b" * 40, author_ids: [ 1001 ])
 
     get repository_path(repository.github_id)
     assert_includes response.body, '"registrationPath":'
@@ -658,17 +648,16 @@ class PrototypeRegistrationsTest < ActionDispatch::IntegrationTest
     assert_equal saved, prototype.reload.attributes
   end
 
-  test "direct-add preserves a registration saved during its fresh GitHub eligibility check" do
+  test "direct-add preserves a registration saved during its live branch check" do
     payload = repository_payload(2001, "github/prototype")
     stub_github_sign_in(repositories: [ payload ], permissions: { 2001 => "push" })
     sign_in
     repository = Repository.find_by!(github_id: 2001)
     prototype = prototypes.create(repository:, branch_name: "prototype/new")
     first_author = users.create(github_id: 1002, login: "first-writer")
-    stub_branches(repository, "main" => "a" * 40, prototype.branch_name => "b" * 40)
     saved = nil
     transaction_depth = ActiveRecord::Base.connection.open_transactions
-    stub_request(:get, "#{GITHUB_API_URL}/repos/#{repository.name_with_owner}/compare/#{"a" * 40}...#{"b" * 40}")
+    stub_request(:get, "#{GITHUB_API_URL}/repos/#{repository.name_with_owner}/branches")
       .with(query: { "per_page" => "100", "page" => "1" })
       .to_return do
         assert_equal transaction_depth, ActiveRecord::Base.connection.open_transactions
@@ -679,7 +668,11 @@ class PrototypeRegistrationsTest < ActionDispatch::IntegrationTest
           start_page: "/first?step=2#intro",
           author: first_author
         saved = winner.reload.attributes
-        { status: 200, body: JSON.generate(total_commits: 1, commits: [ { author: { id: 1001 } } ]),
+        heads = [
+          { name: "main", commit: { sha: "a" * 40 } },
+          { name: prototype.branch_name, commit: { sha: "b" * 40 } }
+        ]
+        { status: 200, body: JSON.generate(heads),
           headers: { "Content-Type" => "application/json" } }
       end
 
@@ -694,30 +687,24 @@ class PrototypeRegistrationsTest < ActionDispatch::IntegrationTest
     assert_equal first_author, prototype.author
   end
 
-  test "recent pushes do not bypass ownership and registration rechecks the current branch" do
+  test "registration rechecks live branch existence after a recent push is offered" do
     payload = repository_payload(2001, "github/prototype")
     stub_github_sign_in(repositories: [ payload ], permissions: { 2001 => "push" })
     sign_in
     repository = Repository.find_by!(github_id: 2001)
-    prototype = prototypes.create(repository:, branch_name: "prototype/not-mine")
+    prototype = prototypes.create(repository:, branch_name: "prototype/recent")
     stub_activity(repository, [ push_activity(prototype.branch_name) ])
     stub_branches(repository, "main" => "a" * 40, prototype.branch_name => "b" * 40)
-    stub_comparison(repository, "a" * 40, "b" * 40, author_ids: [ 1002 ])
 
     get repository_path(repository.github_id)
-    assert_includes response.body, '"recentBranches":[]'
-    patch repository_prototype_registration_path(repository.github_id, prototype),
-      params: { intent: "register_only", return_to: "repository", prototype: { name: prototype.branch_name } }
-    assert_response :not_found
-    assert_not prototype.reload.registered?
-
-    stub_comparison(repository, "a" * 40, "b" * 40, author_ids: [ 1001 ])
-    get repository_path(repository.github_id)
+    assert_response :success
+    assert_includes response.body, %("branchName":"#{prototype.branch_name}")
     stub_branches(repository, "main" => "a" * 40)
     patch repository_prototype_registration_path(repository.github_id, prototype),
       params: { intent: "register_only", return_to: "repository", prototype: { name: prototype.branch_name } }
     assert_response :not_found
     assert_not prototype.reload.registered?
+    assert_not_requested :get, %r{/compare/}
   end
 
   test "follows cursor pagination for recent push activity" do
@@ -795,9 +782,9 @@ class PrototypeRegistrationsTest < ActionDispatch::IntegrationTest
     assert_includes response.body, '"recentBranches":[]'
   end
 
-  test "lets an admin add any live non-default branch without a commit comparison" do
+  test "lets a writer add any live non-default branch while retaining branch safety checks" do
     payload = repository_payload(2001, "github/prototype")
-    stub_github_sign_in(repositories: [ payload ], permissions: { 2001 => "admin" })
+    stub_github_sign_in(repositories: [ payload ], permissions: { 2001 => "push" })
     sign_in
     repository = Repository.find_by!(github_id: 2001)
     branch = prototypes.create(repository:, branch_name: "feature/navigation")
@@ -824,31 +811,10 @@ class PrototypeRegistrationsTest < ActionDispatch::IntegrationTest
       params: { prototype: { name: "Navigation" } }
     assert_response :see_other
     assert branch.reload.registered?
+    assert_not_requested :get, %r{/compare/}
   end
 
-  test "finds a writer's attributed commit after the first comparison page" do
-    payload = repository_payload(2001, "github/prototype")
-    stub_github_sign_in(repositories: [ payload ], permissions: { 2001 => "push" })
-    sign_in
-    repository = Repository.find_by!(github_id: 2001)
-    prototype = prototypes.create(repository:, branch_name: "prototype/long-history")
-    stub_branches(repository, "main" => "a" * 40, "prototype/long-history" => "b" * 40)
-    stub_comparison(repository, "a" * 40, "b" * 40,
-      author_ids: Array.new(100, 1002), page: 1, total: 101)
-    stub_comparison(repository, "a" * 40, "b" * 40,
-      author_ids: [ 1001 ], page: 2, total: 101)
-
-    get_management(repository)
-    assert_response :success
-    assert_includes response.body, "prototype/long-history"
-
-    patch repository_prototype_registration_path(repository.github_id, prototype),
-      params: { prototype: { name: "Long history" } }
-    assert_response :see_other
-    assert prototype.reload.registered?
-  end
-
-  test "paginates eligible branches even when earlier unlisted branches are ineligible" do
+  test "paginates all live available branches without checking commit history" do
     payload = repository_payload(2001, "github/prototype")
     stub_github_sign_in(repositories: [ payload ], permissions: { 2001 => "push" })
     sign_in
@@ -859,7 +825,6 @@ class PrototypeRegistrationsTest < ActionDispatch::IntegrationTest
       sha = format("%040x", index + 1)
       heads[name] = sha
       prototypes.create(repository:, branch_name: name)
-      stub_comparison(repository, "a" * 40, sha, author_ids: [ index < 11 ? 1002 : 1001 ])
     end
     stub_branches(repository, heads)
     path = repository_prototype_management_path(repository.github_id)
@@ -869,26 +834,36 @@ class PrototypeRegistrationsTest < ActionDispatch::IntegrationTest
 
     assert_response :success
     assert_equal 10, response.body.scan(/"branchName":"prototype\/branch-/).size
-    assert_includes response.body, '"branchName":"prototype/branch-12"'
-    assert_includes response.body, '"branchName":"prototype/branch-21"'
-    assert_not_includes response.body, '"branchName":"prototype/branch-01"'
+    assert_includes response.body, '"branchName":"prototype/branch-01"'
+    assert_includes response.body, '"branchName":"prototype/branch-10"'
+    assert_not_includes response.body, '"branchName":"prototype/branch-11"'
     assert_not_includes response.body, '"branchName":"prototype/branch-22"'
     assert_includes response.body, '"candidatePage":1'
-    assert_includes response.body, '"candidatePageCount":2'
+    assert_includes response.body, '"candidatePageCount":3'
     assert_includes response.body, %("candidatePagePath":"#{path}")
-    assert_requested :get, %r{/compare/}, times: 22
+    assert_not_requested :get, %r{/compare/}
     assert_requested :post, "#{GITHUB_API_URL}/app/installations/456/access_tokens", times: 1
 
     get_management(repository, page: 2)
 
     assert_response :success
-    assert_equal 1, response.body.scan(/"branchName":"prototype\/branch-/).size
-    assert_includes response.body, '"branchName":"prototype/branch-22"'
+    assert_equal 10, response.body.scan(/"branchName":"prototype\/branch-/).size
+    assert_includes response.body, '"branchName":"prototype/branch-11"'
+    assert_includes response.body, '"branchName":"prototype/branch-20"'
     assert_includes response.body, '"candidatePage":2'
-    assert_includes response.body, '"candidatePageCount":2'
+    assert_includes response.body, '"candidatePageCount":3'
 
     get_management(repository, page: 3)
+    assert_response :success
+    assert_equal 2, response.body.scan(/"branchName":"prototype\/branch-/).size
+    assert_includes response.body, '"branchName":"prototype/branch-21"'
+    assert_includes response.body, '"branchName":"prototype/branch-22"'
+    assert_includes response.body, '"candidatePage":3'
+    assert_includes response.body, '"candidatePageCount":3'
+
+    get_management(repository, page: 4)
     assert_response :not_found
+    assert_not_requested :get, %r{/compare/}
   end
 
   test "does not show a page for branches the writer cannot add" do
@@ -896,9 +871,8 @@ class PrototypeRegistrationsTest < ActionDispatch::IntegrationTest
     stub_github_sign_in(repositories: [ payload ], permissions: { 2001 => "push" })
     sign_in
     repository = Repository.find_by!(github_id: 2001)
-    prototypes.create(repository:, branch_name: "prototype/someone-else")
-    stub_branches(repository, "main" => "a" * 40, "prototype/someone-else" => "b" * 40)
-    stub_comparison(repository, "a" * 40, "b" * 40, author_ids: [ 1002 ])
+    prototypes.create(repository:, branch_name: "prototype/deleted")
+    stub_branches(repository, "main" => "a" * 40)
     path = repository_prototype_management_path(repository.github_id)
 
     get_management(repository)
@@ -914,27 +888,6 @@ class PrototypeRegistrationsTest < ActionDispatch::IntegrationTest
 
     get path, params: { page: "later" }
     assert_response :not_found
-  end
-
-  test "does not offer or register a branch when comparison history is incomplete" do
-    payload = repository_payload(2001, "github/prototype")
-    stub_github_sign_in(repositories: [ payload ], permissions: { 2001 => "push" })
-    sign_in
-    repository = Repository.find_by!(github_id: 2001)
-    prototype = prototypes.create(repository:, branch_name: "prototype/incomplete")
-    stub_branches(repository, "main" => "a" * 40, "prototype/incomplete" => "b" * 40)
-    stub_comparison(repository, "a" * 40, "b" * 40,
-      author_ids: [ 1001 ], total: 101)
-
-    get_management(repository)
-    assert_response :success
-    assert_includes response.body, "could not check which branches"
-    assert_not_includes response.body, '"branchName":"prototype/incomplete"'
-
-    patch repository_prototype_registration_path(repository.github_id, prototype),
-      params: { prototype: { name: "Incomplete" } }
-    assert_response :service_unavailable
-    assert_not prototype.reload.registered?
   end
 
   test "keeps registered cards available when GitHub cannot check branch eligibility" do
@@ -1021,7 +974,6 @@ class PrototypeRegistrationsTest < ActionDispatch::IntegrationTest
     repository = Repository.find_by!(github_id: 2001)
     prototype = prototypes.create(repository:)
     stub_branches(repository, "main" => "a" * 40, prototype.branch_name => "b" * 40)
-    stub_comparison(repository, "a" * 40, "b" * 40, author_ids: [ 1001 ])
 
     patch repository_prototype_registration_path(repository.github_id, prototype),
       params: { prototype: { name: "  ", description: "Hello" } }
@@ -1039,7 +991,6 @@ class PrototypeRegistrationsTest < ActionDispatch::IntegrationTest
     repository = Repository.find_by!(github_id: 2001)
     prototype = prototypes.create(repository:)
     stub_branches(repository, "main" => "a" * 40, prototype.branch_name => "b" * 40)
-    stub_comparison(repository, "a" * 40, "b" * 40, author_ids: [ 1001 ])
 
     patch repository_prototype_registration_path(repository.github_id, prototype),
       params: { prototype: { description: "Hello" } }
@@ -1077,17 +1028,6 @@ class PrototypeRegistrationsTest < ActionDispatch::IntegrationTest
         body: JSON.generate(heads.map { |name, sha| { name:, commit: { sha: } } }),
         headers: { "Content-Type" => "application/json" }
   end
-
-  def stub_comparison(repository, base, head, author_ids:, page: 1, total: author_ids.length)
-    stub_request(:get, "#{GITHUB_API_URL}/repos/#{repository.name_with_owner}/compare/#{base}...#{head}")
-      .with(query: { "per_page" => "100", "page" => page.to_s })
-      .to_return \
-        status: 200,
-        body: JSON.generate(total_commits: total,
-          commits: author_ids.map { |id| { author: { id: } } }),
-        headers: { "Content-Type" => "application/json" }
-  end
-
   def sign_in
     sign_in_to_hub
   end

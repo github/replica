@@ -665,15 +665,16 @@ it("retains every preview pin for collections larger than 200 threads", async ()
     },
     <iframe ref={frameRef} title="Prototype preview" src="about:blank" />,
   )
-  await screen.findByRole("button", { name: /^Comments, 201/ })
   const post = vi.spyOn(frameRef.current!.contentWindow!, "postMessage")
   fireEvent.load(frameRef.current!)
-  expect(post).toHaveBeenCalledWith(
-    expect.objectContaining({
-      type: "replica:canvas:resolve",
-      anchors: comments.toReversed().map(({ id, anchor }) => ({ id, anchor })),
-    }),
-    "http://localhost:4321",
+  await waitFor(() =>
+    expect(post).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "replica:canvas:resolve",
+        anchors: comments.toReversed().map(({ id, anchor }) => ({ id, anchor })),
+      }),
+      "http://localhost:4321",
+    ),
   )
   act(() => {
     window.dispatchEvent(
@@ -690,9 +691,10 @@ it("retains every preview pin for collections larger than 200 threads", async ()
       }),
     )
   })
+  const pins = view.container.querySelectorAll<HTMLButtonElement>("button[data-review-thread-id]")
   expect(
-    screen.queryAllByRole("button", { name: "Unread thread started by @octocat" }),
-  ).toHaveLength(comments.length)
+    Array.from(pins, (pin) => Number(pin.dataset.reviewThreadId)).sort((a, b) => a - b),
+  ).toEqual(comments.map(({ id }) => id))
   view.unmount()
 })
 

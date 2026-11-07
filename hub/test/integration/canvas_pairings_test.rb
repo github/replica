@@ -264,6 +264,7 @@ class CanvasPairingsTest < ActionDispatch::IntegrationTest
   end
 
   test "automatically registers an imported checkout and preserves later metadata edits" do
+    stub_github_permissions([ repository_payload(2001, "github/prototype") ], { 2001 => "push" })
     token = connect_canvas
     repository = Repository.find_by!(github_id: 2001)
     prototype = prototypes.create(repository:, branch_name: "prototype/welcome", start_page: "/welcome")
@@ -296,6 +297,7 @@ class CanvasPairingsTest < ActionDispatch::IntegrationTest
     assert_equal "Keep this description", prototype.description
     assert_equal "/custom", JSON.parse(response.body).fetch("startPage")
     assert_equal registered_at, prototype.registered_at
+    assert_not_requested :get, %r{/compare/}
   end
 
   test "automatic registration still requires write access and an eligible branch" do
@@ -325,12 +327,9 @@ class CanvasPairingsTest < ActionDispatch::IntegrationTest
     prototype = prototypes.create(repository:, branch_name: "prototype/welcome")
     headers = { "Authorization" => "Bearer #{token}" }
     stub_branches(repository)
-    stub_request(:get, "https://api.github.com/repos/#{repository.github_path}/compare/#{"a" * 40}...#{"b" * 40}")
-      .with(query: { "page" => "1", "per_page" => "100" })
-      .to_return status: 200, body: { total_commits: 0, commits: [] }.to_json,
-        headers: { "Content-Type" => "application/json" }
 
-    { "pull" => "write_access_required", "push" => "branch_authorship_required", "admin" => nil }.each do |permission, reason|
+    { "pull" => "write_access_required", "triage" => "write_access_required",
+      "push" => nil, "maintain" => nil, "admin" => nil }.each do |permission, reason|
       stub_github_permissions([ repository_payload(2001, "github/prototype") ], { 2001 => permission })
       get canvas_api_prototype_path, params: { branch: prototype.branch_name }, headers: headers
       assert_response :success
@@ -346,10 +345,17 @@ class CanvasPairingsTest < ActionDispatch::IntegrationTest
 
       patch canvas_api_prototype_path, params: { branch: prototype.branch_name, name: "Welcome" },
         headers: headers, as: :json
-      assert_response(permission == "pull" ? :forbidden : :not_found)
+      assert_response :forbidden
       assert_equal reason, JSON.parse(response.body).fetch("registrationReason")
       assert_not prototype.reload.registered?
     end
+
+    stub_github_permissions([ repository_payload(2001, "github/prototype") ], { 2001 => "maintain" })
+    patch canvas_api_prototype_path, params: { branch: prototype.branch_name, name: "Welcome" },
+      headers: headers, as: :json
+    assert_response :success
+    assert prototype.reload.registered?
+    assert_not_requested :get, %r{/compare/}
   end
 
   test "distinguishes missing remote heads from excluded and undiscovered branches" do

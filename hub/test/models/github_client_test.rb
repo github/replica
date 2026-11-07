@@ -343,6 +343,11 @@ class GithubClientTest < ActiveSupport::TestCase
       .to_return(status: 200, body: JSON.generate(workflow_runs: []))
     stub_request(:get, "#{GITHUB_API_URL}/repos/github/prototype/actions/runs/9001")
       .to_return(status: 200, body: JSON.generate(id: 9001))
+    stub_request(:get, "#{GITHUB_API_URL}/repos/github/prototype/actions/runs/9001/attempts/2")
+      .to_return(
+        status: 200,
+        body: JSON.generate(run_attempt: 2, run_started_at: "2026-09-17T18:03:00Z")
+      )
     stub_request(:get, "#{GITHUB_API_URL}/repos/github/prototype/actions/runs/9001/artifacts")
       .with(query: { "name" => "replica-build-v1", "page" => "1", "per_page" => "100" })
       .to_return(status: 200, body: JSON.generate(artifacts: []))
@@ -350,6 +355,9 @@ class GithubClientTest < ActiveSupport::TestCase
 
     assert_empty client.workflow_runs(repository, token: "installation-token")
     assert_equal 9001, client.workflow_run(repository, 9001, token: "installation-token").fetch("id")
+    attempt = client.workflow_run_attempt(repository, 9001, 2, token: "installation-token")
+    assert_equal "2026-09-17T18:03:00Z", attempt.fetch("run_started_at")
+    assert_equal 2, attempt.fetch("run_attempt")
     artifacts = client.artifacts \
       repository, 9001, name: "replica-build-v1", token: "installation-token"
     assert_empty artifacts

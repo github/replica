@@ -192,7 +192,36 @@ class Repository::WorkflowInstallationTest < ActiveSupport::TestCase
     assert_raises(Repository::WorkflowInstallation::AlreadyInstalled) do
       repository.workflow_installation.create_pull_request!(configuration:)
     end
+
     assert_not_requested :get, reference_url(repository, "main")
+  end
+
+  test "does not overwrite customized auth build steps or action inputs even for a known old release pin" do
+    repository = repositories.create
+    configuration = github_app_configurations.create_installed
+    stub_github_installation_token
+    old_action = "github/replica/actions/build@#{"b" * 40}"
+    Rails.configuration.x.build_action_revisions = Set.new([ "b" * 40 ])
+    generated = expected_workflow(repository).sub(BUILD_ACTION, old_action)
+    customizations = [
+      generated.sub("- uses: #{old_action}", "- run: ./scripts/authenticate.sh\n      - uses: #{old_action}"),
+      generated.sub("- uses: #{old_action}", "- run: make site\n      - uses: #{old_action}"),
+      generated.sub("- uses: #{old_action}", "- uses: #{old_action}\n        with:\n          skip-build: 'true'\n          output-directory: website/public")
+    ]
+
+    customizations.each do |workflow|
+      stub_request(:get, workflow_url(repository))
+        .with(query: { "ref" => "main" })
+        .to_return(status: 200, body: workflow_payload(workflow, "d" * 40))
+
+      assert_includes [ :present, :current ], repository.workflow_installation.status(configuration:)
+      assert_raises(Repository::WorkflowInstallation::AlreadyInstalled) do
+        repository.workflow_installation.create_pull_request!(configuration:)
+      end
+    end
+    assert_not_requested :get, reference_url(repository, "main")
+    assert_not_requested :put, workflow_url(repository)
+    assert_not_requested :post, "#{GITHUB_API_URL}/repos/#{repository.name_with_owner}/pulls"
   end
 
   test "reminds for a changed custom Action pin" do
@@ -217,11 +246,10 @@ class Repository::WorkflowInstallationTest < ActiveSupport::TestCase
     Rails.configuration.x.build_action_revisions = Set.new([ "b" * 40 ])
     workflow = expected_workflow(repository)
     old_action = "github/replica/actions/build@#{"b" * 40}"
-    customized_workflow = workflow.sub(BUILD_ACTION, old_action)
-      .sub("name: Replica", "name: Customized Replica")
+    previous_workflow = workflow.sub(BUILD_ACTION, old_action)
     stub_request(:get, workflow_url(repository))
       .with(query: { "ref" => "main" })
-      .to_return(status: 200, body: workflow_payload(customized_workflow, "d" * 40))
+      .to_return(status: 200, body: workflow_payload(previous_workflow, "d" * 40))
     stub_request(:get, reference_url(repository, "main"))
       .to_return(status: 200, body: reference_payload("b" * 40))
     stub_request(:get, reference_url(repository, "replica/install-workflow"))

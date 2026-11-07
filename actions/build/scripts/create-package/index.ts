@@ -2,12 +2,7 @@ import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 
-import {
-  MAX_PACKAGE_BYTES,
-  MAX_SCREENSHOT_BYTES,
-  MAX_SCREENSHOT_HEIGHT,
-  VIEWPORTS,
-} from "../constants.ts"
+import { MAX_SCREENSHOT_BYTES, MAX_SCREENSHOT_HEIGHT, VIEWPORTS } from "../constants.ts"
 import { pngDimensions } from "../png-dimensions/index.ts"
 import { readTemplates } from "../read-templates/index.ts"
 import { requiredPathArgument } from "../required-path-argument/index.ts"
@@ -17,7 +12,6 @@ import { validateBuildOutput } from "../validate-build-output/index.ts"
 export async function createPackage(root: string, screenshots: string, output: string) {
   const buildOutput = await validateBuildOutput(root)
   const manifest = await readTemplates(screenshots, "templates.json")
-  let totalBytes = buildOutput.bytes
 
   await rm(output, { force: true, recursive: true })
   await mkdir(path.join(output, "dist"), { recursive: true })
@@ -74,11 +68,6 @@ export async function createPackage(root: string, screenshots: string, output: s
           )
         }
 
-        totalBytes += bytes.length
-        if (totalBytes > MAX_PACKAGE_BYTES) {
-          throw new Error("Replica package files total more than 150 MiB.")
-        }
-
         const destination = path.join(output, "screenshots", name)
         await mkdir(path.dirname(destination), { recursive: true })
         await writeFile(destination, bytes)
@@ -88,9 +77,6 @@ export async function createPackage(root: string, screenshots: string, output: s
 
   if (manifest) {
     const bytes = JSON.stringify(manifest)
-    if (totalBytes + Buffer.byteLength(bytes) > MAX_PACKAGE_BYTES) {
-      throw new Error("Replica package files total more than 150 MiB.")
-    }
     await writeFile(path.join(output, "templates.json"), bytes)
   }
 
