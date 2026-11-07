@@ -12,9 +12,9 @@ import {
 } from "../startup-error/index.mjs"
 
 const SCAN_ERROR =
-  "Could not scan for running servers. Check that lsof is installed and can inspect this checkout, then scan again."
+  "Could not check for servers. Check that lsof is installed and can inspect this checkout."
 const CONNECT_ERROR =
-  "Could not connect to that server. Make sure it is running, then scan again or choose another server."
+  "Could not connect to that server. Make sure it is running, then try again or choose another server."
 const DISCONNECTED_MESSAGE =
   "Prototype server unavailable. Start it again or choose another server."
 
@@ -94,7 +94,7 @@ export async function startMissingPrototypeServer({
         const script = requestUrl.searchParams.get("script")
         if (script === null)
           throw new StartupError(
-            "Dev scripts changed or are unavailable. Scan again before starting.",
+            "Dev scripts changed or are unavailable. Wait for the server list to refresh before starting.",
           )
         const url = await devServer.start(script)
         try {
@@ -136,7 +136,8 @@ export async function startMissingPrototypeServer({
               response,
               409,
               JSON.stringify({
-                error: "This server is no longer available in this checkout. Scan again.",
+                error:
+                  "This server is no longer available in this checkout. The server list will refresh automatically.",
               }),
               "application/json",
             )
@@ -190,6 +191,27 @@ export async function startMissingPrototypeServer({
 
   return {
     url: `http://127.0.0.1:${address.port}/?document=${documentToken}`,
+    async request(route: string, method = "GET") {
+      const response = await fetch(`http://127.0.0.1:${address.port}${route}`, {
+        method,
+        headers: { "X-Replica-Canvas-Token": token },
+        redirect: "error",
+      })
+      const result: unknown = await response.json()
+      if (!response.ok)
+        throw Object.assign(
+          new Error(
+            result &&
+              typeof result === "object" &&
+              "error" in result &&
+              typeof result.error === "string"
+              ? result.error
+              : "The server request failed.",
+          ),
+          { statusCode: response.status },
+        )
+      return result
+    },
     connect(url: string) {
       prototypeUrl = url
       message = ""
@@ -209,10 +231,9 @@ function publicWarning(warning: unknown) {
     /^(http:\/\/(?:127(?:\.\d+){3}|\[::1\]):\d+\/) (?:did not return an HTML page \(HTTP (\d{3})\)\.|could not be checked:[\s\S]*)$/.exec(
       warning,
     )
-  if (!match)
-    return "A server could not be checked. Make sure it is running and serves HTML, then scan again."
+  if (!match) return "A server could not be checked. Make sure it is running and serves HTML."
   if (match[2]) return `${match[1]} did not return an HTML page (HTTP ${match[2]}).`
-  return `${match[1]} could not be checked. Make sure it is running, then scan again.`
+  return `${match[1]} could not be checked. Make sure it is running.`
 }
 
 function renderMissingPrototypeHtml(token: string) {

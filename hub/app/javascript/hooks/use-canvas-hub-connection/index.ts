@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 
 import { copy } from "@utils/prototype-canvas/en"
-import { request } from "@utils/prototype-canvas-request"
+import { prototypeCanvasRequest } from "@utils/prototype-canvas-request"
 import type { HubStatus } from "@utils/prototype-canvas/types"
 
 type Props = {
@@ -58,7 +58,7 @@ export function useHubConnection({ token, status, onStatusChange, onSelectHub }:
       if (polling) return
       polling = true
       try {
-        const result = await request<{ status: string }>("/api/hub/poll", token, {
+        const result = await prototypeCanvasRequest<{ status: string }>("/api/hub/poll", token, {
           method: "POST",
           body: "{}",
         })
@@ -101,11 +101,9 @@ export function useHubConnection({ token, status, onStatusChange, onSelectHub }:
     setPollFailed(false)
     try {
       if (!status.hubOrigin && origin) await onSelectHub(origin)
-      const result = await request<NonNullable<HubStatus["pairing"]> & { browserError?: string }>(
-        "/api/hub/connect",
-        token,
-        { method: "POST", body: "{}" },
-      )
+      const result = await prototypeCanvasRequest<
+        NonNullable<HubStatus["pairing"]> & { browserError?: string }
+      >("/api/hub/connect", token, { method: "POST", body: "{}" })
       setStarted({
         repository: status.repository,
         hubOrigin: new URL(result.verificationUrl).origin,

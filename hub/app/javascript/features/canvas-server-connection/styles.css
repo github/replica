@@ -1,0 +1,63 @@
+.canvas-server-connection {
+  width: 100%;
+  padding: 1.5rem;
+  border: 1px solid var(--hub-border-default);
+  border-radius: var(--hub-radius-large);
+}
+
+.canvas-server-connection h2 {
+  margin: 0;
+}
+
+.canvas-server-connection > p {
+  margin: 0.75rem 0;
+  color: var(--hub-fg-muted);
+  font-size: 0.875rem;
+}
+
+.canvas-server-connection p:empty {
+  display: none;
+}
+
+.canvas-server-connection__actions,
+.canvas-server-connection__servers > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.canvas-server-connection__servers > li {
+  justify-content: space-between;
+  margin-top: 1rem;
+  overflow-wrap: anywhere;
+}
+
+.canvas-server-connection__servers {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.canvas-server-connection__actions {
+  align-items: flex-end;
+}
+
+.canvas-server-connection > .hub-alert {
+  margin-top: 0.75rem;
+}
+
+.canvas-server-connection__output {
+  max-height: 12rem;
+  margin: 0.75rem 0 0;
+  padding: 1rem;
+  overflow: auto;
+  border: 1px solid var(--hub-border-muted);
+  border-radius: var(--hub-radius-small);
+  background: var(--hub-canvas-muted);
+  color: var(--hub-fg-default);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

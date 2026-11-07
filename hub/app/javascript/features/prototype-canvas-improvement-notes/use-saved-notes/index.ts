@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 
-import { request } from "@utils/prototype-canvas-request"
+import { prototypeCanvasRequest } from "@utils/prototype-canvas-request"
 import { copy } from "../en"
 import type { Note } from "../types"
 
@@ -41,15 +41,19 @@ export function useSavedNotes(token: string | undefined) {
       refreshing = true
       const started = generation.current
       try {
-        const value = await request<SavedNotes>("/api/improvement-notes", token!)
+        const value = await prototypeCanvasRequest<SavedNotes>("/api/improvement-notes", token!)
         if (pending.current || started !== generation.current || cancelled) return
         accept(value)
         if (Date.now() - lastSync > 15_000) {
           lastSync = Date.now()
-          const syncing = request<SavedNotes>("/api/improvement-notes/sync", token!, {
-            method: "POST",
-            body: JSON.stringify({ identity: value.identity, revision: value.revision }),
-          }).then((value) => {
+          const syncing = prototypeCanvasRequest<SavedNotes>(
+            "/api/improvement-notes/sync",
+            token!,
+            {
+              method: "POST",
+              body: JSON.stringify({ identity: value.identity, revision: value.revision }),
+            },
+          ).then((value) => {
             if (!cancelled) accept(value)
           })
           backgroundSync.current = syncing
@@ -108,7 +112,7 @@ export function useSavedNotes(token: string | undefined) {
           .join(",") !== requestedWork
       )
         throw new Error(copy.workChanged)
-      const value = await request<SavedNotes>(
+      const value = await prototypeCanvasRequest<SavedNotes>(
         operation === "fix" ? "/api/improvement-notes/fix" : "/api/improvement-notes",
         token,
         {
@@ -136,7 +140,9 @@ export function useSavedNotes(token: string | undefined) {
     if (!token) return null
     setError("")
     try {
-      return await request("/api/improvement-notes/capture", token, { method: "POST" })
+      return await prototypeCanvasRequest("/api/improvement-notes/capture", token, {
+        method: "POST",
+      })
     } catch (problem) {
       setError(
         `${problem instanceof Error ? problem.message : String(problem)} ${copy.sourceUnavailable}`,

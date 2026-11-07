@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { request } from "."
+import { prototypeCanvasRequest } from "."
 
 afterEach(() => vi.unstubAllGlobals())
 
-describe("request()", () => {
+describe("prototypeCanvasRequest()", () => {
   it("sends the canvas token and returns a successful response", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
@@ -12,7 +12,9 @@ describe("request()", () => {
     })
     vi.stubGlobal("fetch", fetchMock)
 
-    await expect(request<{ name: string }>("/api/state", "local-token")).resolves.toEqual({
+    await expect(
+      prototypeCanvasRequest<{ name: string }>("/api/state", "local-token"),
+    ).resolves.toEqual({
       name: "Demo",
     })
     expect(fetchMock).toHaveBeenCalledWith("/api/state", {
@@ -32,9 +34,9 @@ describe("request()", () => {
       }),
     )
 
-    await expect(request("/api/refresh", "expired", { method: "POST" })).rejects.toThrow(
-      "Invalid canvas request token.",
-    )
+    await expect(
+      prototypeCanvasRequest("/api/refresh", "expired", { method: "POST" }),
+    ).rejects.toThrow("Invalid canvas request token.")
   })
   it("preserves sharing error codes and status for explicit recovery", async () => {
     vi.stubGlobal(
@@ -46,7 +48,7 @@ describe("request()", () => {
       }),
     )
     await expect(
-      request("/api/hub/share-links/create", "local", { method: "POST" }),
+      prototypeCanvasRequest("/api/hub/share-links/create", "local", { method: "POST" }),
     ).rejects.toMatchObject({
       message: "Delivery unknown.",
       code: "share_delivery_unknown",

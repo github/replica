@@ -373,10 +373,23 @@ export const publicationExamples: Record<
     hub: { ...publicationHub, branch: "prototype/previous" },
   },
   "Default branch": {
-    state: publicationState,
+    state: {
+      ...publicationState,
+      stats: {
+        ...publicationState.stats,
+        branch: "main",
+        remoteBranch: { ...publicationState.stats.remoteBranch!, branch: "main" },
+        workflow: {
+          state: "succeeded",
+          detail: "Success",
+          run: { ...run, headBranch: "main", status: "completed", conclusion: "success" },
+        },
+      },
+    },
     hub: {
       ...publicationHub,
-      discovery: { ...publicationHub.discovery!, defaultBranch: publicationState.stats.branch },
+      branch: "main",
+      repositoryAuthorized: true,
       registrationReason: "branch_not_reviewable",
     },
   },

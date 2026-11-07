@@ -1,5 +1,5 @@
 import { ThemeProvider } from "@primer/react-brand/esm"
-import { lazy, Suspense, useCallback, useLayoutEffect, useRef, useState } from "react"
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
 
 import { AppDialogs } from "@features/prototype-canvas-dialogs"
 import { BrowserBar } from "@components/prototype-browser-bar"
@@ -8,7 +8,7 @@ import { ControlsPanel } from "@components/prototype-controls-panel"
 import type { ControlsPanelLayout } from "@components/prototype-controls-panel/types"
 import { PrototypeCanvasHubPanel } from "@features/prototype-canvas-hub-panel"
 import { copy } from "@utils/prototype-canvas/en"
-import { request } from "@utils/prototype-canvas-request"
+import { prototypeCanvasRequest } from "@utils/prototype-canvas-request"
 import { resolveShareReadiness } from "@utils/resolve-prototype-share-readiness"
 import { Toolbar } from "@components/prototype-canvas-toolbar"
 import type { CanvasConfig } from "@utils/prototype-canvas/types"
@@ -24,7 +24,9 @@ import { useShareControlSettings } from "@hooks/use-prototype-share-control-sett
 import { useShareIntent } from "@hooks/use-canvas-share-intent"
 import { useShareLinks } from "@hooks/use-canvas-share-links"
 import { controlsStatus } from "@utils/prototype-controls-status"
+import { CanvasPrototypeCreation } from "@features/canvas-prototype-creation"
 
+import { PROTOTYPE_HEALTH_INTERVAL_MS } from "./constants"
 import "./styles.css"
 
 type Props = { config: CanvasConfig }
@@ -163,6 +165,31 @@ export function App({ config }: Props) {
     preferenceSaving: publishPreference.saving,
   })
   const readiness = resolveShareReadiness(state, hub.status, publication.publication)
+  useEffect(() => {
+    if (!config.monitorPrototype) return
+    let disposed = false
+    let checking = false
+    async function check() {
+      if (checking) return
+      checking = true
+      try {
+        const status = await prototypeCanvasRequest<{ available: boolean }>(
+          "/api/prototype/status",
+          config.token,
+        )
+        if (!disposed && status.available !== Boolean(config.prototypeUrl)) window.location.reload()
+      } catch (cause) {
+        if (!disposed) setError(cause instanceof Error ? cause.message : String(cause))
+      } finally {
+        checking = false
+      }
+    }
+    const timer = window.setInterval(() => void check(), PROTOTYPE_HEALTH_INTERVAL_MS)
+    return () => {
+      disposed = true
+      window.clearInterval(timer)
+    }
+  }, [config.monitorPrototype, config.prototypeUrl, config.token, setError])
   const shareContext = sharing.state.context
   const shareControlSettings = useShareControlSettings(
     shareContext
@@ -210,7 +237,7 @@ export function App({ config }: Props) {
     setImprovingContext(true)
     setFeedbackMessage(null)
     try {
-      const result = await request<{ requested: boolean }>(
+      const result = await prototypeCanvasRequest<{ requested: boolean }>(
         "/api/hub/feedback-review",
         config.token,
         {
@@ -245,6 +272,7 @@ export function App({ config }: Props) {
       >
         <CanvasReviewFeedback>
           <BrowserBar
+            connected={Boolean(config.prototypeUrl)}
             address={address}
             addressRef={addressRef}
             canGoBack={navigation.index > 0}
@@ -255,7 +283,7 @@ export function App({ config }: Props) {
             onForward={() => travel(navigation.index + 1)}
             onNavigate={navigate}
             onOpenTab={async () => {
-              await request("/api/prototype/open", config.token, {
+              await prototypeCanvasRequest("/api/prototype/open", config.token, {
                 method: "POST",
                 body: JSON.stringify({ url: address }),
               })
@@ -281,7 +309,7 @@ export function App({ config }: Props) {
             onBuildDetails={() => setBuildDetailsOpen(true)}
             controlsButtonRef={controlsButtonRef}
             controlsOpen={controlsOpen}
-            onControls={() => setControlsOpen(!controlsOpen)}
+            onControls={config.prototypeUrl ? () => setControlsOpen(!controlsOpen) : undefined}
             onPublish={() => void publication.publish()}
             onShare={handleShare}
             onImproveContext={canReviewFeedback ? () => void handleImproveContext() : undefined}
@@ -297,17 +325,26 @@ export function App({ config }: Props) {
             }}
           />
 
-          <iframe
-            key={frameKey}
-            ref={frameRef}
-            className="prototype-frame"
-            title={copy.prototypeFrameTitle(config.name)}
-            src={source}
-            style={{
-              colorScheme: appearance,
-              backgroundColor: "var(--hub-canvas-default)",
-            }}
-          />
+          {config.prototypeUrl ? (
+            <iframe
+              key={frameKey}
+              ref={frameRef}
+              className="prototype-frame"
+              title={copy.prototypeFrameTitle(config.name)}
+              src={source}
+              style={{
+                colorScheme: appearance,
+                backgroundColor: "var(--hub-canvas-default)",
+              }}
+            />
+          ) : (
+            <CanvasPrototypeCreation
+              key={`${hub.status?.repository}:${hub.status?.hubOrigin}`}
+              token={config.token}
+              status={hub.status}
+              onConnect={connection.showAndConnect}
+            />
+          )}
 
           <PrototypeCanvasHubPanel
             config={config}
@@ -338,7 +375,7 @@ export function App({ config }: Props) {
             <Suspense fallback={<p role="status">{copy.improvementNotesLoading}</p>}>
               <PrototypeCanvasThreadSample />
             </Suspense>
-          ) : config.pickAndPolish ? (
+          ) : config.pickAndPolish && config.prototypeUrl ? (
             <Suspense
               fallback={
                 <p className="visually-hidden" role="status">
@@ -375,7 +412,7 @@ export function App({ config }: Props) {
               onLayoutChange={setControlsLayout}
               diagnosisTarget={address}
               onDiagnose={() =>
-                request("/api/controls/diagnose", config.token, {
+                prototypeCanvasRequest("/api/controls/diagnose", config.token, {
                   method: "POST",
                   body: JSON.stringify({
                     status: controlsState.status,

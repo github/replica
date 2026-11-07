@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 
-import { request } from "@utils/prototype-canvas-request"
+import { prototypeCanvasRequest } from "@utils/prototype-canvas-request"
 import type { PublishPreparation } from "@utils/prototype-canvas/types"
 import { publishChangesCopy as copy } from "./en"
 
@@ -40,10 +40,14 @@ export function usePublishPreference({
       await writing.current
       if (requestId !== revision.current) return
 
-      const preparation = await request<PublishPreparation>("/api/publish/prepare", token, {
-        method: "POST",
-        body: "{}",
-      })
+      const preparation = await prototypeCanvasRequest<PublishPreparation>(
+        "/api/publish/prepare",
+        token,
+        {
+          method: "POST",
+          body: "{}",
+        },
+      )
       if (requestId !== revision.current) return
       if (preparation.target.repository !== repository || preparation.target.branch !== branch)
         throw new Error(copy.preferenceTargetChanged)
@@ -78,10 +82,14 @@ export function usePublishPreference({
     const preparation = current.preparation
     const pending = (async () => {
       try {
-        const result = await request<{ remember: boolean }>("/api/publish/preference", token, {
-          method: "POST",
-          body: JSON.stringify({ target: preparation.target, remember }),
-        })
+        const result = await prototypeCanvasRequest<{ remember: boolean }>(
+          "/api/publish/preference",
+          token,
+          {
+            method: "POST",
+            body: JSON.stringify({ target: preparation.target, remember }),
+          },
+        )
         if (result.remember !== remember) throw new Error(copy.invalidPreference)
         if (requestId === revision.current)
           setRecord({

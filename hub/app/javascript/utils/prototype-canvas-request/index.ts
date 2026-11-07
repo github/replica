@@ -1,6 +1,10 @@
 import { copy } from "../prototype-canvas/en"
 
-export async function request<T>(path: string, token: string, options: RequestInit = {}) {
+export async function prototypeCanvasRequest<T>(
+  path: string,
+  token: string,
+  options: RequestInit = {},
+) {
   const response = await fetch(path, {
     ...options,
     headers: {

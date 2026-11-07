@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, type RefObject } from "react"
 
-import { request } from "@utils/prototype-canvas-request"
+import { prototypeCanvasRequest } from "@utils/prototype-canvas-request"
 import { controlsStatus } from "@utils/prototype-controls-status"
 import type { ControlsConnection, PanelState } from "@utils/prototype-controls-connection"
 import type {
@@ -12,7 +12,7 @@ import { agentCopy } from "./en"
 
 type Props = {
   token: string
-  prototypeUrl: string
+  prototypeUrl: string | null
   previewUrl?: string
   frameRef: RefObject<HTMLIFrameElement | null>
   addressRef: RefObject<HTMLInputElement | null>
@@ -34,6 +34,8 @@ export function useCanvasAgent(props: Props) {
   })
 
   useEffect(() => {
+    if (!prototypeUrl) return
+    const connectedPrototypeUrl = prototypeUrl
     rendererId.current ??= crypto.randomUUID()
     const headers = { "X-Replica-Renderer-Id": rendererId.current }
     let busy = false
@@ -175,7 +177,7 @@ export function useCanvasAgent(props: Props) {
         throw new Error(agentCopy.bridgeUnavailable)
       const url = new URL(result.url)
       if (url.origin !== origin) throw new Error(agentCopy.routeChanged)
-      const original = new URL(prototypeUrl)
+      const original = new URL(connectedPrototypeUrl)
       url.protocol = original.protocol
       url.host = original.host
       const panel = await waitForControlsPanel(deadline)
@@ -228,7 +230,7 @@ export function useCanvasAgent(props: Props) {
 
       busy = true
       try {
-        const { command, prototypeUrl: connectedUrl } = await request<{
+        const { command, prototypeUrl: connectedUrl } = await prototypeCanvasRequest<{
           prototypeUrl?: string
           command: {
             id: string
@@ -241,7 +243,7 @@ export function useCanvasAgent(props: Props) {
             }
           } | null
         }>("/api/agent/next", token, {
-          headers: { ...headers, "X-Replica-Prototype-Url": prototypeUrl },
+          headers: { ...headers, "X-Replica-Prototype-Url": connectedPrototypeUrl },
         })
         if (!stopped && connectedUrl && connectedUrl !== prototypeUrl) {
           window.location.reload()
@@ -251,7 +253,7 @@ export function useCanvasAgent(props: Props) {
 
         let result: { id: string; ok: boolean; value?: unknown; error?: string }
         try {
-          await request("/api/agent/progress", token, {
+          await prototypeCanvasRequest("/api/agent/progress", token, {
             method: "POST",
             headers,
             body: JSON.stringify({ id: command.id, stage: "handler started" }),
@@ -281,7 +283,7 @@ export function useCanvasAgent(props: Props) {
             value = { reloaded: true, address: navigation.entries[navigation.index]! }
           } else if (command.type === "controls-status") {
             value = await readControlsStatus(command.input.timeoutMs ?? 0)
-            await request("/api/agent/progress", token, {
+            await prototypeCanvasRequest("/api/agent/progress", token, {
               method: "POST",
               headers,
               body: JSON.stringify({ id: command.id, stage: "status collected" }),
@@ -298,7 +300,7 @@ export function useCanvasAgent(props: Props) {
           }
         }
         try {
-          await request("/api/agent/result", token, {
+          await prototypeCanvasRequest("/api/agent/result", token, {
             method: "POST",
             headers,
             body: JSON.stringify(result),
@@ -307,7 +309,7 @@ export function useCanvasAgent(props: Props) {
           if (!(cause instanceof Error) || !("statusCode" in cause) || cause.statusCode !== 422)
             throw cause
           // Reject the action explicitly; never replay a command after its outcome was collected.
-          await request("/api/agent/result", token, {
+          await prototypeCanvasRequest("/api/agent/result", token, {
             method: "POST",
             headers,
             body: JSON.stringify({ id: command.id, ok: false, error: agentCopy.replyRejected }),

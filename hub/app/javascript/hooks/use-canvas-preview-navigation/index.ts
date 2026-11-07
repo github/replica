@@ -5,7 +5,7 @@ import type { HubStatus } from "@utils/prototype-canvas/types"
 import type { PendingPreviewClick, PreviewNavigation, PreviewRoute } from "./types"
 
 type Props = {
-  prototypeUrl: string
+  prototypeUrl: string | null
   previewUrl?: string
   shellRef: RefObject<HTMLElement | null>
   cancelClick: PendingPreviewClick
@@ -19,8 +19,8 @@ export function usePreviewNavigation({ prototypeUrl, previewUrl, shellRef, cance
   }))
   const [preview, setPreview] = useState({ input: prototypeUrl, url: prototypeUrl })
   const [navigation, setNavigation] = useState<PreviewNavigation>({
-    input: prototypeUrl,
-    entries: [prototypeUrl],
+    input: prototypeUrl ?? "",
+    entries: prototypeUrl ? [prototypeUrl] : [],
     index: 0,
   })
   const [appearance, setAppearance] = useState<"light" | "dark">(() =>
@@ -31,12 +31,12 @@ export function usePreviewNavigation({ prototypeUrl, previewUrl, shellRef, cance
   const currentNavigation =
     navigation.input === prototypeUrl
       ? navigation
-      : { input: prototypeUrl, entries: [prototypeUrl], index: 0 }
-  const address = currentNavigation.entries[currentNavigation.index]!
+      : { input: prototypeUrl ?? "", entries: prototypeUrl ? [prototypeUrl] : [], index: 0 }
+  const address = currentNavigation.entries[currentNavigation.index] ?? ""
   const cancelPendingClick = useCallback(() => cancelClick.current?.(), [cancelClick])
   const replaceAddress = useCallback(
     (address: string) => {
-      if (new URL(address).origin !== new URL(prototypeUrl).origin)
+      if (!prototypeUrl || new URL(address).origin !== new URL(prototypeUrl).origin)
         throw new Error(copy.startPageOrigin)
       setNavigation((current) => {
         const entries = [...current.entries]
@@ -49,7 +49,7 @@ export function usePreviewNavigation({ prototypeUrl, previewUrl, shellRef, cance
 
   const initialize = useCallback(
     (status: HubStatus) => {
-      if (initialized.current === prototypeUrl) return
+      if (!prototypeUrl || initialized.current === prototypeUrl) return
       initialized.current = prototypeUrl
       const url = new URL(prototypeUrl)
       const ownsStartPage =
@@ -78,6 +78,7 @@ export function usePreviewNavigation({ prototypeUrl, previewUrl, shellRef, cance
   }
 
   function navigate(url: string) {
+    if (!prototypeUrl) return
     if (url === address) {
       reload()
       return
@@ -104,6 +105,7 @@ export function usePreviewNavigation({ prototypeUrl, previewUrl, shellRef, cance
 
   const reportRoute = useCallback(
     (route: PreviewRoute, replace = false) => {
+      if (!prototypeUrl) return
       setLiveRoute(route)
       const url = new URL(prototypeUrl)
       url.pathname = route.pathname
@@ -162,7 +164,7 @@ export function usePreviewNavigation({ prototypeUrl, previewUrl, shellRef, cance
 
   useEffect(() => {
     const frame = frameRef.current
-    if (!frame) return
+    if (!frame || !prototypeUrl) return
 
     const origin = new URL(previewUrl ?? prototypeUrl).origin
     const nonce = crypto.randomUUID()
@@ -196,8 +198,9 @@ export function usePreviewNavigation({ prototypeUrl, previewUrl, shellRef, cance
     }
   }, [appearance, prototypeUrl, previewUrl, frameRef, shellRef])
 
-  const source = new URL(preview.input === prototypeUrl ? preview.url : prototypeUrl)
-  if (previewUrl) {
+  const destination = preview.input === prototypeUrl ? preview.url : prototypeUrl
+  const source = destination ? new URL(destination) : null
+  if (previewUrl && source) {
     const proxy = new URL(previewUrl)
     source.protocol = proxy.protocol
     source.host = proxy.host
@@ -206,7 +209,7 @@ export function usePreviewNavigation({ prototypeUrl, previewUrl, shellRef, cance
   return {
     frameRef,
     frameKey,
-    source: source.href,
+    source: source?.href,
     navigation: currentNavigation,
     address,
     replaceAddress,
