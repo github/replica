@@ -37,3 +37,8 @@ jobs:
       - run: npm test
       - run: npm run demo
       - run: npm run demo:agent-memory-repo
+      # The environment's tests use only the Python standard library, so they need no install.
+      - name: Brand check environment tests
+        if: matrix.node == 24
+        working-directory: packages/learning/environments/brand-check
+        run: python3 -m unittest discover -s tests -t .
