@@ -134,5 +134,5 @@ Learning happens in explicit, inspectable memory. A training-purpose export is t
 2. Complete the security review of the operator-provided Copilot token and subprocess boundary, and verify the deployed connection with a least-privileged token.
 3. Add scenario contracts, a scenario runner, and capture adapters. The event types for tool calls, voice turns, UI states, and agent-to-agent messages are already reserved.
 4. Add an experience approval record and a read-only conformance checker for shipped work.
-5. Add trainer, serving, and environment interfaces behind one promotion gate. Training data leaves only through a training-purpose export.
+5. Add trainer, serving, and environment interfaces behind one promotion gate. Training data leaves only through a training-purpose export. [ADR 0002](0002-decision-model-and-rl-environment.md) proposes the first environment.
 6. Decide distribution: publish the package, or keep shipping it inside Hub's image.
