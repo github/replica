@@ -74,6 +74,15 @@ json.copy do
   json.runColumns do
     %w[started started_by result usage].each { json.set! _1.camelize(:lower), t("learnings.runs.columns.#{_1}") }
   end
+  json.decisionModel do
+    json.heading t("learnings.decision_model.heading")
+    json.description t("learnings.decision_model.description")
+    json.questionsEmpty t("learnings.decision_model.questions.empty")
+    json.modelLegend t("learnings.decision_model.model_legend")
+    json.environmentLegend t("learnings.decision_model.environment_legend")
+    json.modelCard t("learnings.decision_model.model_card")
+    json.save t("learnings.decision_model.save")
+  end
 end
 
 json.status do
@@ -172,6 +181,58 @@ end
 json.recall do
   json.text @overview.dig(:recall, :text)
   json.count @overview.dig(:recall, :count)
+end
+
+json.decisionModel do
+  catalog = @decision_models
+  chosen = @decision_model
+  questions = @overview.dig(:decision, :questions)
+  json.path repository_learnings_decision_model_path(@repository.route_id)
+  json.models do
+    json.array! catalog do |model|
+      json.id model[:id]
+      json.name model[:name]
+      json.url model[:url]
+      json.facts t("learnings.decision_model.facts", maker: model[:maker], parameters: model[:parameters])
+      json.readout t("learnings.decision_model.readouts.#{model[:readout]}")
+      json.license model[:license]
+      json.licenseUrl model[:license_url]
+      json.commercialUse t("learnings.decision_model.commercial_use.#{model[:commercial_use]}")
+    end
+  end
+  json.environments do
+    json.array! Learning::DecisionModel::ENVIRONMENTS do |environment|
+      json.id environment
+      json.label t("learnings.decision_model.environments.#{environment}.label")
+      json.description t("learnings.decision_model.environments.#{environment}.description")
+    end
+  end
+  json.selected do
+    json.baseModel chosen&.base_model || catalog.first&.fetch(:id) || ""
+    json.trainingEnvironment chosen&.training_environment || Learning::DecisionModel::DEFAULT_ENVIRONMENT
+  end
+  json.status(
+    if chosen
+      t \
+        chosen.chosen_by ? "learnings.decision_model.chosen" : "learnings.decision_model.chosen_by_someone",
+        login: chosen.chosen_by&.login,
+        model: catalog.find { _1[:id] == chosen.base_model }&.fetch(:name) || chosen.base_model,
+        date: chosen.updated_at.to_date.to_fs(:long),
+        environment: t("learnings.decision_model.environments.#{chosen.training_environment}.short")
+    else
+      t("learnings.decision_model.not_chosen")
+    end
+  )
+  consent = @overview.dig(:decision, :trainingConsent) ? "recorded" : "missing"
+  json.consent t("learnings.decision_model.consent.#{consent}")
+  json.questionsSummary t("learnings.decision_model.questions.summary", count: questions.size)
+  json.questions(questions.map do |key, question|
+    {
+      key:,
+      instructions: question.fetch("instructions"),
+      answer: t("learnings.decision_model.questions.#{question.fetch("type")}", count: Array(question["criteria"]).size)
+    }
+  end)
 end
 
 json.runs do

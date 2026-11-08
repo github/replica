@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_29_190000) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_07_220000) do
   create_table "analytics_deliveries", force: :cascade do |t|
     t.integer "attempts", default: 0, null: false
     t.datetime "created_at", null: false
@@ -361,6 +361,19 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_29_190000) do
     t.check_constraint "anchor IS NULL OR (json_valid(anchor) AND json_type(anchor) = 'object' AND length(CAST(anchor AS BLOB)) <= 16384)", name: "improvement_comments_anchor"
     t.check_constraint "author_snapshot IS NULL OR (json_valid(author_snapshot) AND json_type(author_snapshot) = 'object')", name: "improvement_comments_author"
     t.check_constraint "length(local_id) = 36 AND length(thread_key) = 36", name: "improvement_comments_local_id"
+  end
+
+  create_table "learning_decision_models", force: :cascade do |t|
+    t.integer "repository_id", null: false
+    t.integer "chosen_by_id"
+    t.string "base_model", null: false
+    t.string "training_environment", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["chosen_by_id"], name: "index_learning_decision_models_on_chosen_by_id"
+    t.index ["repository_id"], name: "index_learning_decision_models_on_repository_id", unique: true
+    t.check_constraint "length(base_model) BETWEEN 1 AND 200", name: "learning_decision_models_base_model"
+    t.check_constraint "training_environment IN ('container', 'managed')", name: "learning_decision_models_training_environment"
   end
 
   create_table "learning_runs", force: :cascade do |t|
@@ -775,6 +788,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_29_190000) do
   add_foreign_key "improvement_comments", "improvement_comments", column: ["root_id", "prototype_id", "user_id", "thread_key"], primary_key: ["id", "prototype_id", "user_id", "local_id"], on_delete: :restrict
   add_foreign_key "improvement_comments", "prototypes", on_delete: :restrict
   add_foreign_key "improvement_comments", "users", on_delete: :restrict
+  add_foreign_key "learning_decision_models", "repositories", on_delete: :cascade
+  add_foreign_key "learning_decision_models", "users", column: "chosen_by_id", on_delete: :nullify
   add_foreign_key "learning_runs", "repositories", on_delete: :cascade
   add_foreign_key "learning_runs", "users", column: "requested_by_id", on_delete: :nullify
   add_foreign_key "notification_resources", "notifications", on_delete: :cascade

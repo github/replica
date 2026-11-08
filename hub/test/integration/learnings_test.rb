@@ -270,7 +270,69 @@ class LearningsIntegrationTest < ActionDispatch::IntegrationTest
       decision_repository_learnings_path(@repository.route_id, "mem_#{"0" * 24}"),
       params: { decision: "retire", reason: "No longer true." }
     assert_response :not_found
+    patch \
+      repository_learnings_decision_model_path(@repository.route_id),
+      params: { base_model: "LiquidAI/d1-2B", training_environment: "container" }
+    assert_response :not_found
     assert_empty Learning::Run.all
+    assert_empty Learning::DecisionModel.all
+  end
+
+  test "a repository administrator chooses the decision model's base model and where training runs" do
+    path = repository_learnings_decision_model_path(@repository.route_id)
+    get @path, as: :json
+    decision = data.fetch("decisionModel")
+    assert_equal Learning::DecisionModel.catalog.pluck(:id), decision.fetch("models").pluck("id")
+    assert_equal({ "baseModel" => "LiquidAI/d1-2B", "trainingEnvironment" => "container" }, decision.fetch("selected"))
+    assert_equal I18n.t("learnings.decision_model.not_chosen"), decision.fetch("status")
+    assert_equal I18n.t("learnings.decision_model.consent.missing"), decision.fetch("consent")
+
+    patch path, params: { base_model: "LiquidAI/d1-omni-600M", training_environment: "managed" }
+    assert_redirected_to @path
+    assert_equal I18n.t("learnings.decision_model.saved"), flash[:notice]
+    patch path, params: { base_model: "google/gemma-3-4b-it", training_environment: "container" }
+    patch path, params: { base_model: "someone/unlisted-model", training_environment: "container" }
+    assert_equal I18n.t("learnings.decision_model.invalid"), flash[:alert]
+
+    choice = Learning::DecisionModel.sole
+    assert_equal [ "google/gemma-3-4b-it", "container", "octocat" ], [ choice.base_model, choice.training_environment, choice.chosen_by.login ]
+    get @path, as: :json
+    decision = data.fetch("decisionModel")
+    assert_equal({ "baseModel" => "google/gemma-3-4b-it", "trainingEnvironment" => "container" }, decision.fetch("selected"))
+    assert_match(/\A@octocat chose Gemma 3 4B on .+\. Training runs in your own container\.\z/, decision.fetch("status"))
+    assert_equal \
+      %w[succeeded succeeded denied],
+      SecurityAuditEvent.where(repository: @repository, action: "learning.decision_model").order(:id).pluck(:outcome)
+  end
+
+  test "a replica-learning that cannot list base models leaves the page readable and the choice unchanged" do
+    ENV["REPLICA_LEARNING_CLI"] = Rails.root.join("test/fixtures/files/fake-replica-learning.mjs").to_s
+
+    get @path, as: :json
+    assert_response :success
+    assert_match(/does not know decision/, data.fetch("loadError"))
+    assert_empty data.dig("decisionModel", "models")
+    patch \
+      repository_learnings_decision_model_path(@repository.route_id),
+      params: { base_model: "LiquidAI/d1-2B", training_environment: "container" }
+    assert_match(/\AHub could not save the decision model choice: .*does not know decision/, flash[:alert])
+    assert_empty Learning::DecisionModel.all
+    assert SecurityAuditEvent.exists?(repository: @repository, action: "learning.decision_model", outcome: "failed")
+  end
+
+  test "the decision model answers one yes-or-no question for each accepted learning" do
+    Learning::Run.request!(repository: @repository, user: User.find_by!(github_id: 1001)).find_learnings!
+    get @path, as: :json
+    assert_empty data.dig("decisionModel", "questions")
+    suggestion = data.fetch("suggestions").sole
+    post suggestion.fetch("decisionPath"), params: { decision: "accept", digest: suggestion.fetch("digest") }
+
+    get @path, as: :json
+    learning = data.fetch("learnings").sole
+    questions = data.dig("decisionModel", "questions")
+    assert_equal [ learning.fetch("id"), "most_clearly_broken", "severity" ], questions.pluck("key")
+    assert_includes questions.first.fetch("instructions"), learning.fetch("content")
+    assert_equal [ "Yes or no", "One of 2 options", "4 levels" ], questions.pluck("answer")
   end
 
   test "after Copilot refuses the connection, people still decide but cannot start a run" do

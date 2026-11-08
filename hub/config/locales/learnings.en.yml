@@ -113,3 +113,49 @@ en:
         retire: Retired. Agents no longer get this learning.
     load_error: "Hub could not read this repository's learnings: %{reason}"
     identity_notice: Earlier suggestions or accepted learnings need identity revalidation. Hub keeps their history, but agents cannot use those versions. Find learnings again, then review any rebuilt suggestions.
+    decision_model:
+      heading: Decision model
+      description: A decision model is a small vision model that looks at screenshots of a Build's pages and answers questions about your accepted learnings with probabilities instead of text. Choose a base model to post-train with reinforcement learning on this repository's review outcomes.
+      not_chosen: No base model chosen yet.
+      chosen: "@%{login} chose %{model} on %{date}. Training runs %{environment}."
+      chosen_by_someone: "A repository administrator chose %{model} on %{date}. Training runs %{environment}."
+      consent:
+        recorded: Training consent is recorded for this repository's review comments.
+        missing: Training consent is not recorded yet. An operator records it with replica-learning before anyone exports training tasks.
+      questions:
+        summary:
+          zero: No questions yet
+          one: The model answers 1 question about each page
+          other: "The model answers %{count} questions about each page"
+        empty: Accept a learning to give the model a question to answer.
+        noul: Yes or no
+        choice:
+          one: One of 1 option
+          other: "One of %{count} options"
+        score:
+          one: 1 level
+          other: "%{count} levels"
+      model_legend: Base model
+      environment_legend: Where training runs
+      facts: "%{maker}, %{parameters} parameters"
+      readouts:
+        decision: Answers with probabilities as released
+        generative: Needs a probability readout added in training
+      commercial_use:
+        allowed: Commercial use allowed
+        limited: Commercial use limited by company revenue
+        terms: Commercial use under the maker's terms
+      model_card: Model card
+      environments:
+        container:
+          label: Your own container
+          short: in your own container
+          description: Run Replica's brand-check environment with Docker or Podman on a GPU machine your team controls. Any trainer that speaks OpenEnv can connect to it.
+        managed:
+          label: A managed service
+          short: on a managed service
+          description: Run the same container on a managed service that supports OpenEnv. Your training consent must cover sending the data there.
+      save: Save choice
+      saved: Saved the decision model choice.
+      invalid: Choose a base model from the list and where training runs. Nothing changed.
+      failed: "Hub could not save the decision model choice: %{reason}"

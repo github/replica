@@ -44,6 +44,30 @@ export interface LearningRun {
   usage: string
 }
 
+/** A base model a repository administrator can choose to post-train as the decision model. */
+export interface DecisionModelOption {
+  id: string
+  name: string
+  url: string
+  facts: string
+  readout: string
+  license: string
+  licenseUrl: string
+  commercialUse: string
+}
+
+/** The decision model choice, and the questions the model answers about each screenshot. */
+export interface DecisionModelData {
+  path: string
+  models: DecisionModelOption[]
+  environments: Array<{ id: string; label: string; description: string }>
+  selected: { baseModel: string; trainingEnvironment: string }
+  status: string
+  consent: string
+  questionsSummary: string
+  questions: Array<{ key: string; instructions: string; answer: string }>
+}
+
 export interface LearningsPageData extends RepositoryWorkspaceData {
   pageTitle: string
   alert: string | null
@@ -77,7 +101,19 @@ export interface LearningsPageData extends RepositoryWorkspaceData {
     | "runsHeading"
     | "runsEmpty",
     string
-  > & { runColumns: Record<"started" | "startedBy" | "result" | "usage", string> }
+  > & {
+    runColumns: Record<"started" | "startedBy" | "result" | "usage", string>
+    decisionModel: Record<
+      | "heading"
+      | "description"
+      | "questionsEmpty"
+      | "modelLegend"
+      | "environmentLegend"
+      | "modelCard"
+      | "save",
+      string
+    >
+  }
   status: { message: string; refused: boolean; activity: string | null; usage: string }
   run: { path: string; available: boolean }
   loadError: string | null
@@ -85,5 +121,6 @@ export interface LearningsPageData extends RepositoryWorkspaceData {
   suggestions: LearningSuggestion[]
   learnings: AcceptedLearning[]
   recall: { text: string; count: number }
+  decisionModel: DecisionModelData
   runs: LearningRun[]
 }

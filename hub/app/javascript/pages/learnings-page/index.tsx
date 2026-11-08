@@ -1,5 +1,14 @@
 import { type ReactNode, type RefObject, useRef, useState } from "react"
-import { Button, FormControl, Heading, Text, Textarea } from "@primer/react-brand/esm"
+import {
+  Button,
+  FormControl,
+  Heading,
+  InlineLink,
+  Radio,
+  RadioGroup,
+  Text,
+  Textarea,
+} from "@primer/react-brand/esm"
 
 import { HubAlert } from "@components/hub-alert"
 import { HubContentPageHeader } from "@components/hub-content-page-header"
@@ -8,12 +17,17 @@ import { HubUserAvatar } from "@components/hub-user-avatar"
 import { RepositoryWorkspace } from "@features/repository-workspace"
 import { ReviewRelativeTime } from "@features/review-relative-time"
 
-import type { AcceptedLearning, LearningSuggestion, LearningsPageData } from "./types"
+import type {
+  AcceptedLearning,
+  DecisionModelData,
+  LearningSuggestion,
+  LearningsPageData,
+} from "./types"
 import "./styles.css"
 
 type Copy = LearningsPageData["copy"]
 
-/** Shows what Hub suggests and what agents get, so a repository administrator decides both. */
+/** Shows what Hub suggests, what agents get, and the decision model to train, so a repository administrator decides each. */
 export function LearningsPage({ data }: { data: LearningsPageData }) {
   const copy = data.copy
 
@@ -116,6 +130,12 @@ export function LearningsPage({ data }: { data: LearningsPageData }) {
             <Text as="p">{copy.recallEmpty}</Text>
           )}
         </section>
+
+        <DecisionModel
+          data={data.decisionModel}
+          copy={copy.decisionModel}
+          authenticityToken={data.authenticityToken}
+        />
 
         <section className="learnings-page__section" aria-labelledby="learnings-runs">
           <Heading as="h2" size="5" id="learnings-runs">
@@ -392,6 +412,116 @@ function Learning({
         </div>
       )}
     </article>
+  )
+}
+
+/** The decision model to post-train, the questions it answers, and where its training runs. */
+function DecisionModel({
+  data,
+  copy,
+  authenticityToken,
+}: {
+  data: DecisionModelData
+  copy: Copy["decisionModel"]
+  authenticityToken: string
+}) {
+  return (
+    <section className="learnings-page__section" aria-labelledby="learnings-decision-model">
+      <Heading as="h2" size="5" id="learnings-decision-model">
+        {copy.heading}
+      </Heading>
+      <Text as="p">{copy.description}</Text>
+      <div className="learnings-page__notes">
+        <Text as="p" size="200" variant="muted">
+          {data.status}
+        </Text>
+        <Text as="p" size="200" variant="muted">
+          {data.consent}
+        </Text>
+      </div>
+
+      {data.questions.length ? (
+        <details className="learnings-page__evidence">
+          <summary>{data.questionsSummary}</summary>
+          <ol className="learnings-page__questions">
+            {data.questions.map((question) => (
+              <li key={question.key}>
+                <Text as="p">{question.instructions}</Text>
+                <Text as="p" size="200" variant="muted">
+                  {question.answer}
+                </Text>
+              </li>
+            ))}
+          </ol>
+        </details>
+      ) : (
+        <Text as="p">{copy.questionsEmpty}</Text>
+      )}
+
+      {data.models.length ? (
+        <form action={data.path} method="post" className="learnings-page__form">
+          <input type="hidden" name="_method" value="patch" />
+          <input type="hidden" name="authenticity_token" value={authenticityToken} />
+          <RadioGroup>
+            <RadioGroup.Label>{copy.modelLegend}</RadioGroup.Label>
+            <div className="learnings-page__choices">
+              {data.models.map((model, index) => (
+                <FormControl
+                  key={model.id}
+                  id={`decision-model-${index}`}
+                  className="learnings-page__choice"
+                >
+                  <Radio
+                    id={`decision-model-${index}`}
+                    name="base_model"
+                    value={model.id}
+                    defaultChecked={model.id === data.selected.baseModel}
+                  />
+                  <FormControl.Label>{model.name}</FormControl.Label>
+                  <FormControl.Hint className="learnings-page__choice-hint">
+                    <span>{model.facts}</span>
+                    <span>{model.readout}</span>
+                    <span>
+                      <InlineLink href={model.licenseUrl}>{model.license}</InlineLink>
+                    </span>
+                    <span>{model.commercialUse}</span>
+                    <span>
+                      <InlineLink href={model.url}>{copy.modelCard}</InlineLink>
+                    </span>
+                  </FormControl.Hint>
+                </FormControl>
+              ))}
+            </div>
+          </RadioGroup>
+          <RadioGroup>
+            <RadioGroup.Label>{copy.environmentLegend}</RadioGroup.Label>
+            <div className="learnings-page__choices">
+              {data.environments.map((environment) => (
+                <FormControl
+                  key={environment.id}
+                  id={`decision-environment-${environment.id}`}
+                  className="learnings-page__choice"
+                >
+                  <Radio
+                    id={`decision-environment-${environment.id}`}
+                    name="training_environment"
+                    value={environment.id}
+                    defaultChecked={environment.id === data.selected.trainingEnvironment}
+                  />
+                  <FormControl.Label>{environment.label}</FormControl.Label>
+                  <FormControl.Hint>{environment.description}</FormControl.Hint>
+                </FormControl>
+              ))}
+            </div>
+          </RadioGroup>
+          <div className="learnings-page__actions">
+            <Button type="submit" variant="secondary">
+              {copy.save}
+            </Button>
+          </div>
+        </form>
+      ) : null}
+    </section>
   )
 }
 
