@@ -29,6 +29,11 @@ export declare function weekTwoLog(overrides?: Record<string, unknown>): {
   kind: string
   calls: unknown[]
 }
+/** Week one's threads a week later, for building a log of a later week with collectionLog. */
+export declare function weekTwoThreads(): Array<{
+  root: Record<string, unknown>
+  replies: unknown[]
+}>
 export declare function weekOneLabels(): { labels: unknown[] }
 export declare function weekOneSecondPassLabels(): { labels: unknown[] }
 export declare function designer(scope?: { repository: string }): {

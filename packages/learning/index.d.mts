@@ -935,3 +935,68 @@ export declare function readHubReviewCollection(
   log: unknown,
   expected: { repository: string },
 ): HubReviewCollection
+
+/** A typed question a decision model answers with a probability for every option. */
+export type DecisionQuestion =
+  | { type: "noul"; instructions: string; criteria?: { true?: string; false?: string } }
+  | { type: "choice"; instructions: string; criteria: Record<string, string> }
+  | { type: "score"; instructions: string; criteria: string[] }
+export interface DecisionModel {
+  /** The Hugging Face model ID, such as LiquidAI/d1-2B */
+  id: string
+  name: string
+  maker: string
+  parameters: string
+  /** decision answers typed questions directly; generative learns a decision readout in training */
+  readout: "decision" | "generative"
+  license: { name: string; url: string; commercialUse: "allowed" | "limited" | "terms" }
+  url: string
+}
+export interface DecisionTaskPlan {
+  scope: Scope
+  exportId: string
+  learnings: Array<{ id: string; content: string }>
+  tasks: Array<{
+    id: string
+    split: "train" | "dev" | "test"
+    prototypeId: number
+    buildNumber: number
+    route: string
+    /** The page's screenshots from the Builds file: desktop before narrow, light before dark. */
+    screenshots: Array<{ size: "desktop" | "narrow"; theme: "light" | "dark"; path: string }>
+    /** true when the Build follows the learning, false when it breaks it. */
+    labels: Record<string, boolean>
+    evidence: Array<{
+      learningId: string
+      outcome: "breaks" | "follows"
+      episodeId: string
+      eventIds: string[]
+    }>
+  }>
+  /** Review evidence that did not become a label, counted by reason. */
+  skipped: Record<string, number>
+}
+export interface DecisionTasksetManifest {
+  schemaVersion: "replica.decision-taskset/v1"
+  exportId: string
+  scope: Scope
+  createdAt: Timestamp
+  learnings: number
+  counts: Record<"tasks" | "train" | "dev" | "test" | "follows" | "breaks", number>
+  skipped: Record<string, number>
+}
+export declare const DECISION_MODEL_CATALOG: {
+  schemaVersion: "replica.decision-models/v1"
+  checkedAt: string
+  models: DecisionModel[]
+}
+export declare function brandCheckQuestions(learnings: Array<{ id: string; content: string }>): {
+  questions: Record<string, DecisionQuestion>
+  rules: Array<{ id: string; text: string }>
+}
+/** Plan labeled tasks from a training export and a replica.decision-builds/v1 Builds file. */
+export declare function planDecisionTasks(bundle: unknown, builds: unknown): DecisionTaskPlan
+export declare function writeDecisionTaskset(
+  plan: DecisionTaskPlan,
+  options: { directory: string; baseDirectory: string; brandSheet?: string; createdAt: Timestamp },
+): Promise<DecisionTasksetManifest>
