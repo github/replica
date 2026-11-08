@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest"
 import { LearningsPage } from "."
 import story, {
   CopilotRefused,
+  DecisionModelChosen,
   FirstVisit,
   IdentityRevalidation,
   MissingMetadata,
@@ -97,6 +98,9 @@ describe("LearningsPage()", () => {
     expect(screen.getByText(/Agents get nothing yet/)).toBeInTheDocument()
     expect(screen.getByText(/Hub has not looked for learnings/)).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Find learnings now" })).toBeInTheDocument()
+    expect(
+      screen.getByText("Accept a learning to give the model a question to answer."),
+    ).toBeVisible()
   })
 
   it("separates opposing comments and reports opposing evidence Hub cannot show", () => {
@@ -164,5 +168,33 @@ describe("LearningsPage()", () => {
     ).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "Find learnings now" })).not.toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Accept" })).toBeInTheDocument()
+  })
+
+  it("saves the decision model's base model and training location to the repository", () => {
+    renderPage(DecisionModelChosen.args!.data!)
+    const models = screen.getByRole("group", { name: "Base model" })
+    const chosen = within(models).getByRole("radio", { name: "d1-omni-600M" })
+    const form = chosen.closest("form")
+
+    expect(within(models).getAllByRole("radio")).toHaveLength(6)
+    expect(chosen).toBeChecked()
+    expect(chosen).toHaveAttribute("name", "base_model")
+    expect(chosen).toHaveAccessibleDescription(/Liquid AI, 0\.6B parameters/)
+    expect(
+      within(screen.getByRole("group", { name: "Where training runs" })).getByRole("radio", {
+        name: "A managed service",
+      }),
+    ).toBeChecked()
+    expect(form).toHaveAttribute("action", "/repositories/2001/learnings/decision_model")
+    expect(form?.querySelector('[name="_method"]')).toHaveValue("patch")
+    expect(form?.querySelector('[name="authenticity_token"]')).toHaveValue("storybook-token")
+    expect(screen.getByText(/@mona chose d1-omni-600M/)).toBeVisible()
+  })
+
+  it("lists the questions the decision model answers and whether training consent exists", () => {
+    renderPage(story.args.data)
+    const questions = screen.getByText("The model answers 3 questions about each page")
+    expect(questions.closest("details")).toHaveTextContent(/Use one primary button per form/)
+    expect(screen.getByText(/Training consent is not recorded yet/)).toBeVisible()
   })
 })
