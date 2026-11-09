@@ -1,13 +1,14 @@
 import { spawnSync } from "node:child_process"
 import { randomUUID } from "node:crypto"
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises"
-import { dirname, join, resolve } from "node:path"
-import { expect, it } from "vitest"
+import { join, resolve } from "node:path"
+import { expect, it, vi } from "vitest"
+
+import type { WizardUI } from "./types.ts"
 
 it("keeps synthetic command diagnostics out of unattended CLI output and local telemetry", async () => {
   const directory = resolve(`.installer-cli-test-${randomUUID()}`)
-  const bin = join(directory, "bin")
-  await mkdir(bin, { recursive: true, mode: 0o700 })
+  await mkdir(directory, { mode: 0o700 })
   const configPath = join(directory, "installation.json")
   const secret = "synthetic-unattended-stderr-secret"
   await writeFile(
@@ -26,14 +27,25 @@ it("keeps synthetic command diagnostics out of unattended CLI output and local t
     }),
     { mode: 0o600 },
   )
-  for (const [executable, program] of [
-    ["az", `process.stderr.write(${JSON.stringify(secret)}, () => process.exit(37))`],
-    ["terraform", 'process.stdout.write(JSON.stringify({ terraform_version: "1.17.1" }))'],
-    ["docker", "process.exit(0)"],
-  ])
-    await writeFile(join(bin, executable!), `#!${process.execPath}\n${program}\n`, {
-      mode: 0o700,
-    })
+  const commands = join(directory, "offline-commands.mjs")
+  await writeFile(commands, `
+    import { createRequire, syncBuiltinESMExports } from "node:module";
+    const childProcess = createRequire(import.meta.url)("node:child_process");
+    const spawn = childProcess.spawn;
+    const programs = ${JSON.stringify({
+      az: `process.stderr.write(${JSON.stringify(secret)}, () => process.exit(37))`,
+      terraform: 'process.stdout.write(JSON.stringify({ terraform_version: "1.17.1" }))',
+      docker: "process.exit(0)",
+    })};
+    childProcess.spawn = (executable, args, options) => {
+      if (!Object.hasOwn(programs, executable)) throw new Error("Unexpected offline command");
+      return spawn(process.execPath, ["--eval", programs[executable]], options);
+    };
+    syncBuiltinESMExports();
+  `, { mode: 0o600 })
+  const draft = `${configPath}.draft.json`
+  const draftContents = "synthetic draft that unattended execution must not consume\n"
+  await writeFile(draft, draftContents, { mode: 0o600 })
 
   try {
     const child = spawnSync(
@@ -41,6 +53,8 @@ it("keeps synthetic command diagnostics out of unattended CLI output and local t
       [
         "--import",
         "tsx",
+        "--import",
+        commands,
         "installer/index.tsx",
         "--config",
         configPath,
@@ -49,7 +63,7 @@ it("keeps synthetic command diagnostics out of unattended CLI output and local t
       ],
       {
         cwd: process.cwd(),
-        env: { ...process.env, PATH: `${bin}:${dirname(process.execPath)}` },
+        env: { ...process.env, PATH: "", TSX_DISABLE_CACHE: "1" },
         encoding: "utf8",
         timeout: 15_000,
       },
@@ -78,7 +92,120 @@ it("keeps synthetic command diagnostics out of unattended CLI output and local t
       status: "error",
       attributes: expect.objectContaining({ exit_code: 37 }),
     }))
+    expect(await readFile(draft, "utf8")).toBe(draftContents)
+    expect(await readdir(directory)).not.toContain("installation.json.draft.json.lock")
   } finally {
     await rm(directory, { recursive: true, force: true })
   }
 })
+
+it.each(["exit", "create"] as const)(
+  "runs the actual CLI entry %s before local writers, diagnostics, or commands",
+  async (action) => {
+    vi.resetModules()
+    const directory = resolve(`.installer-cli-entry-test-${randomUUID()}`)
+    await mkdir(directory, { mode: 0o700 })
+    const path = join(directory, "new.json")
+    const argv = process.argv
+    const exitCode = process.exitCode
+    const stdinTTY = Object.getOwnPropertyDescriptor(process.stdin, "isTTY")
+    const stdoutTTY = Object.getOwnPropertyDescriptor(process.stdout, "isTTY")
+    const events: string[] = []
+    try {
+      process.argv = [process.execPath, resolve("installer/index.tsx"), "--config", path]
+      process.exitCode = undefined
+      Object.defineProperty(process.stdin, "isTTY", { configurable: true, value: true })
+      Object.defineProperty(process.stdout, "isTTY", { configurable: true, value: true })
+      const entry = await import("./entry/index.ts")
+      const terminal = await import("./terminal/index.tsx")
+      const session = await import("./session/index.ts")
+      const telemetry = await import("./telemetry/index.ts")
+      const command = await import("./command/index.ts")
+      const wizard = await import("./wizard/index.ts")
+      const select = entry.selectInstallerEntry
+      const open = session.openSession
+      const validate = entry.validateInstallerEntry
+      const startTelemetry = telemetry.startInstallerTelemetry
+      const ui: WizardUI & { close(): Promise<void>; summary(): undefined } = {
+        cloud: vi.fn(),
+        text: vi.fn(),
+        confirm: vi.fn(),
+        wait: vi.fn(),
+        status: vi.fn(),
+        welcome: vi.fn(),
+        select: vi.fn<WizardUI["select"]>(async (_message, options) => {
+          events.push("entry menu")
+          expect(options.map(({ value }) => value)).toContain(action)
+          expect(await readdir(directory)).toEqual([])
+          return action
+        }),
+        close: vi.fn(async () => { events.push("terminal restored") }),
+        summary: () => undefined,
+      }
+      vi.spyOn(terminal, "createTerminalUI").mockReturnValue(ui)
+      vi.spyOn(entry, "selectInstallerEntry").mockImplementation(async (terminalUI, options) => {
+        expect(options.configPath).toBe(path)
+        return select(terminalUI, { ...options, directory })
+      })
+      const writer = vi.spyOn(session, "openSession").mockImplementation(async (...args) => {
+        events.push("writer opened")
+        return open(...args)
+      })
+      const validation = vi.spyOn(entry, "validateInstallerEntry").mockImplementation(async (...args) => {
+        await validate(...args)
+        events.push("selection validated")
+      })
+      const diagnostics = vi.spyOn(telemetry, "startInstallerTelemetry").mockImplementation(async (...args) => {
+        events.push("diagnostics started")
+        return startTelemetry(...args)
+      })
+      const run = vi.spyOn(command, "runCommand").mockImplementation(async () => {
+        throw new Error("Startup test must not invoke a real command")
+      })
+      const questionnaire = vi.spyOn(wizard, "runWizard").mockImplementation(async (options) => {
+        events.push("questionnaire")
+        expect(options.entryAction).toBe("create")
+        expect(options.path).toBe(path)
+        expect(options.existing).toBeUndefined()
+        expect(options.session?.draft).toBeUndefined()
+        return "Synthetic questionnaire completed"
+      })
+      const output = vi.spyOn(console, "log").mockImplementation(() => { events.push("shell report") })
+      const errors = vi.spyOn(console, "error").mockImplementation(() => undefined)
+
+      await import("./index.tsx")
+
+      expect(process.exitCode ?? 0).toBe(0)
+      expect(run).not.toHaveBeenCalled()
+      expect(ui.close).toHaveBeenCalledOnce()
+      expect(events.indexOf("shell report")).toBeGreaterThan(events.indexOf("terminal restored"))
+      if (action === "exit") {
+        expect(events).toEqual(["entry menu", "terminal restored", "shell report"])
+        expect(writer).not.toHaveBeenCalled()
+        expect(validation).not.toHaveBeenCalled()
+        expect(diagnostics).not.toHaveBeenCalled()
+        expect(questionnaire).not.toHaveBeenCalled()
+        expect(errors).not.toHaveBeenCalled()
+        expect(output).toHaveBeenCalledWith(expect.stringMatching(/exited|no local files/i))
+        expect(await readdir(directory)).toEqual([])
+      } else {
+        expect(events).toEqual([
+          "entry menu", "writer opened", "selection validated", "diagnostics started",
+          "questionnaire", "terminal restored", "shell report",
+        ])
+        expect(writer).toHaveBeenCalledWith(path, { fresh: true })
+        expect(diagnostics).toHaveBeenCalledWith(path)
+        expect(await readdir(directory)).toEqual(["logs"])
+      }
+    } finally {
+      process.argv = argv
+      process.exitCode = exitCode
+      if (stdinTTY) Object.defineProperty(process.stdin, "isTTY", stdinTTY)
+      else Reflect.deleteProperty(process.stdin, "isTTY")
+      if (stdoutTTY) Object.defineProperty(process.stdout, "isTTY", stdoutTTY)
+      else Reflect.deleteProperty(process.stdout, "isTTY")
+      vi.restoreAllMocks()
+      await rm(directory, { recursive: true, force: true })
+    }
+  },
+)

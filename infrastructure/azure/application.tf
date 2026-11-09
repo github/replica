@@ -10,6 +10,10 @@ locals {
     AZURE_STORAGE_ACCOUNT     = azurerm_storage_account.artifacts.name
     AZURE_STORAGE_CONTAINER   = azurerm_storage_container.artifacts.name
     AZURE_CLIENT_ID           = azurerm_user_assigned_identity.hub.client_id
+    AZURE_KEY_VAULT_SECRET_REFERENCES = jsonencode(merge(
+      { DATABASE_URL = var.runtime_database_secret.secret_id },
+      { for name, reference in var.runtime_secret_references : name => reference.secret_id },
+    ))
   }
 }
 
@@ -35,21 +39,6 @@ resource "azurerm_container_app" "hub" {
     }
   }
 
-  secret {
-    name                = "database-url"
-    key_vault_secret_id = var.runtime_database_secret.secret_id
-    identity            = azurerm_user_assigned_identity.hub.id
-  }
-
-  dynamic "secret" {
-    for_each = var.runtime_secret_references
-    content {
-      name                = "runtime-${substr(sha256(secret.key), 0, 12)}"
-      key_vault_secret_id = secret.value.secret_id
-      identity            = azurerm_user_assigned_identity.hub.id
-    }
-  }
-
   ingress {
     external_enabled           = true
     allow_insecure_connections = false
@@ -67,29 +56,17 @@ resource "azurerm_container_app" "hub" {
     termination_grace_period_seconds = 60
 
     container {
-      name   = "hub"
-      image  = var.image
-      cpu    = 0.5
-      memory = "1Gi"
+      name    = "hub"
+      image   = var.image
+      cpu     = 0.5
+      memory  = "1Gi"
+      command = ["node", "dist/server/scripts/azure-entrypoint/index.js", "runtime"]
 
       dynamic "env" {
         for_each = local.runtime_environment
         content {
           name  = env.key
           value = env.value
-        }
-      }
-
-      env {
-        name        = "DATABASE_URL"
-        secret_name = "database-url"
-      }
-
-      dynamic "env" {
-        for_each = var.runtime_secret_references
-        content {
-          name        = env.key
-          secret_name = "runtime-${substr(sha256(env.key), 0, 12)}"
         }
       }
 

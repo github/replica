@@ -105,31 +105,24 @@ resource "azurerm_container_app_job" "provision" {
       identity = azurerm_user_assigned_identity.provision.id
     }
   }
-  dynamic "secret" {
-    for_each = var.secret_urls
-    content {
-      name                = lower(replace(secret.key, "_", "-"))
-      key_vault_secret_id = secret.value
-      identity            = azurerm_user_assigned_identity.provision.id
-    }
-  }
   template {
     container {
       name    = "provision"
       image   = var.image
       cpu     = 0.5
       memory  = "1Gi"
-      command = ["node", "dist/server/scripts/provision-database-access/index.js"]
+      command = ["node", "dist/server/scripts/azure-entrypoint/index.js", "provision"]
       env {
         name  = "NODE_ENV"
         value = "production"
       }
-      dynamic "env" {
-        for_each = var.secret_urls
-        content {
-          name        = env.key
-          secret_name = lower(replace(env.key, "_", "-"))
-        }
+      env {
+        name  = "AZURE_CLIENT_ID"
+        value = azurerm_user_assigned_identity.provision.client_id
+      }
+      env {
+        name  = "AZURE_KEY_VAULT_SECRET_REFERENCES"
+        value = jsonencode(var.secret_urls)
       }
     }
   }

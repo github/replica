@@ -1,8 +1,21 @@
-import { readFile } from "node:fs/promises"
-
 import type { DeploymentConfig } from "../types.ts"
 import { configurationFields, parseAzureId } from "./fields/index.ts"
 import { writePrivateJson } from "../write-private-json/index.ts"
+import { readPrivateFile } from "../private-files/index.ts"
+import type { WizardDraft } from "../session/index.ts"
+
+export function assertDraftMatchesConfig(config: DeploymentConfig, draft?: WizardDraft): void {
+  const fixed = { cloud: config.cloud, name: config.name, owner: config.owner, ...config.azure }
+  if (
+    draft &&
+    (Object.keys(fixed) as (keyof typeof fixed)[]).some(
+      (key) => draft.answers[key] !== undefined && draft.answers[key] !== fixed[key],
+    )
+  )
+    throw new Error(
+      "The draft conflicts with the saved installation target or owner. Both files were preserved. Restore the matching configuration or review the draft before resuming; use a new configuration path for another installation.",
+    )
+}
 
 export function parseConfig(value: unknown): DeploymentConfig {
   function record(input: unknown): Record<string, unknown> {
@@ -56,9 +69,16 @@ export function parseConfig(value: unknown): DeploymentConfig {
 }
 
 export async function loadConfig(path: string): Promise<DeploymentConfig> {
-  return parseConfig(JSON.parse(await readFile(path, "utf8")))
+  const content = await readPrivateFile(path, { createDirectory: false })
+  if (content === undefined)
+    throw Object.assign(new Error(`Configuration file not found: ${path}.`), { code: "ENOENT" })
+  return parseConfig(JSON.parse(content))
 }
 
-export async function saveConfig(path: string, config: DeploymentConfig): Promise<void> {
-  await writePrivateJson(path, parseConfig(config))
+export async function saveConfig(
+  path: string,
+  config: DeploymentConfig,
+  options?: { exclusive?: boolean },
+): Promise<void> {
+  await writePrivateJson(path, parseConfig(config), options)
 }

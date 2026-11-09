@@ -140,7 +140,7 @@ run "bootstrap_keeps_hub_stopped" {
   }
   assert {
     condition = (
-      azurerm_container_app_job.setup.template[0].container[0].command == tolist(["node", "dist/server/scripts/setup/index.js"]) &&
+      azurerm_container_app_job.setup.template[0].container[0].command == tolist(["node", "dist/server/scripts/azure-entrypoint/index.js", "setup"]) &&
       azurerm_container_app_job.setup.manual_trigger_config[0].parallelism == 1 &&
       azurerm_container_app_job.setup.replica_retry_limit == 0
     )
@@ -221,6 +221,7 @@ run "combined_release_uses_one_image_and_bounded_shutdown" {
       azurerm_container_app.hub[0].revision_mode == "Multiple" &&
       azurerm_container_app.hub[0].template[0].termination_grace_period_seconds >= 35 &&
       azurerm_container_app.hub[0].template[0].termination_grace_period_seconds <= 60 &&
+      azurerm_container_app.hub[0].template[0].container[0].command == tolist(["node", "dist/server/scripts/azure-entrypoint/index.js", "runtime"]) &&
       azurerm_container_app.hub[0].template[0].container[0].image == azurerm_container_app_job.setup.template[0].container[0].image &&
       azurerm_role_assignment.image_pull[0].scope == var.acr_id
     )
@@ -284,34 +285,40 @@ run "setup_and_runtime_have_separate_secret_access" {
   }
   assert {
     condition = (
-      length(azurerm_container_app.hub[0].secret) == 2 &&
-      toset([for secret in azurerm_container_app.hub[0].secret : secret.key_vault_secret_id]) == toset([
-        var.runtime_database_secret.secret_id,
-        var.runtime_secret_references.SERVICE_API_KEY.secret_id,
+      length(azurerm_container_app.hub[0].secret) == 0 &&
+      length(azurerm_container_app_job.setup.secret) == 0 &&
+      alltrue([for env in azurerm_container_app.hub[0].template[0].container[0].env :
+        (env.secret_name == null || env.secret_name == "") &&
+        !contains(["DATABASE_URL", "SERVICE_API_KEY", "HUB_MIGRATION_PASSWORD", "HUB_RUNTIME_PASSWORD"], env.name)
       ]) &&
-      alltrue([for secret in azurerm_container_app.hub[0].secret :
-        secret.identity == azurerm_user_assigned_identity.hub.id &&
-        (secret.value == null || secret.value == "")
+      alltrue([for env in azurerm_container_app_job.setup.template[0].container[0].env :
+        env.secret_name == null || env.secret_name == ""
       ]) &&
-      length(azurerm_container_app_job.setup.secret) == 1 &&
-      one(azurerm_container_app_job.setup.secret).key_vault_secret_id == var.setup_database_secret.secret_id &&
-      one(azurerm_container_app_job.setup.secret).identity == azurerm_user_assigned_identity.setup.id &&
-      (one(azurerm_container_app_job.setup.secret).value == null || one(azurerm_container_app_job.setup.secret).value == "")
+      one([for env in azurerm_container_app.hub[0].template[0].container[0].env : env.value if env.name == "AZURE_CLIENT_ID"]) == azurerm_user_assigned_identity.hub.client_id &&
+      one([for env in azurerm_container_app_job.setup.template[0].container[0].env : env.value if env.name == "AZURE_CLIENT_ID"]) == azurerm_user_assigned_identity.setup.client_id &&
+      tomap(jsondecode(one([for env in azurerm_container_app.hub[0].template[0].container[0].env : env.value if env.name == "AZURE_KEY_VAULT_SECRET_REFERENCES"]))) == tomap({
+        DATABASE_URL    = var.runtime_database_secret.secret_id
+        SERVICE_API_KEY = var.runtime_secret_references.SERVICE_API_KEY.secret_id
+      }) &&
+      tomap(jsondecode(one([for env in azurerm_container_app_job.setup.template[0].container[0].env : env.value if env.name == "AZURE_KEY_VAULT_SECRET_REFERENCES"]))) == tomap({
+        DATABASE_URL = var.setup_database_secret.secret_id
+      })
     )
-    error_message = "Containers must resolve only their own Key Vault references without raw secret values."
+    error_message = "Each container must receive only its explicit identity and URI-only startup metadata, without platform secrets, secret-name bindings, or resolved secret values."
   }
   assert {
     condition = (
-      length(azurerm_container_app_job.setup.template[0].container[0].env) == 4 &&
+      toset([for env in azurerm_container_app_job.setup.template[0].container[0].env : env.name]) == toset([
+        "NODE_ENV", "RUNTIME_MODE", "DATABASE_RUNTIME_ROLE", "AZURE_CLIENT_ID", "AZURE_KEY_VAULT_SECRET_REFERENCES",
+      ]) &&
       alltrue([for name, value in {
         NODE_ENV              = "production"
         RUNTIME_MODE          = "setup"
         DATABASE_RUNTIME_ROLE = "replica_runtime"
         } : one([for env in azurerm_container_app_job.setup.template[0].container[0].env : env.value if env.name == name]) == value
-      ]) &&
-      one([for env in azurerm_container_app_job.setup.template[0].container[0].env : env.secret_name if env.name == "DATABASE_URL"]) == one(azurerm_container_app_job.setup.secret).name
+      ])
     )
-    error_message = "Setup must receive only its migration URL, production mode, setup mode, and fixed runtime grant target."
+    error_message = "Setup must receive only production/setup mode, its identity and migration URI metadata, and the fixed runtime grant target."
   }
 }
 
@@ -330,6 +337,32 @@ run "runtime_cannot_receive_the_migration_secret" {
       EXTRA_DATABASE_URL = {
         key_vault_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/database"
         secret_id    = "https://database.vault.azure.net/secrets/setup-database"
+      }
+    }
+  }
+  expect_failures = [var.runtime_secret_references]
+}
+
+run "runtime_cannot_override_azure_secret_metadata" {
+  command = plan
+  variables {
+    runtime_secret_references = {
+      AZURE_KEY_VAULT_SECRET_REFERENCES = {
+        key_vault_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/service"
+        secret_id    = "https://service.vault.azure.net/secrets/metadata-override/cccccccccccccccccccccccccccccccc"
+      }
+    }
+  }
+  expect_failures = [var.runtime_secret_references]
+}
+
+run "runtime_cannot_override_the_managed_identity" {
+  command = plan
+  variables {
+    runtime_secret_references = {
+      AZURE_CLIENT_ID = {
+        key_vault_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/service"
+        secret_id    = "https://service.vault.azure.net/secrets/identity-override/cccccccccccccccccccccccccccccccc"
       }
     }
   }

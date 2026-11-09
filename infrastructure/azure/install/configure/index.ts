@@ -1,4 +1,4 @@
-import { parseConfig } from "../../../installer/config/index.ts"
+import { assertDraftMatchesConfig, parseConfig } from "../../../installer/config/index.ts"
 import { CommandExecutionError } from "../../../installer/command/index.ts"
 import { promptForField } from "../../../installer/prompt-for-field/index.ts"
 import type { DeploymentConfig, RunCommand, WizardUI } from "../../../installer/types.ts"
@@ -11,7 +11,10 @@ export async function configureAzure(
   existing?: DeploymentConfig,
   session?: WizardSession,
 ): Promise<DeploymentConfig> {
-  if (existing) existing = parseConfig(existing)
+  if (existing) {
+    existing = parseConfig(existing)
+    assertDraftMatchesConfig(existing, session?.draft)
+  }
   const remember = async <K extends keyof DraftAnswers>(key: K, value: DraftAnswers[K]) => {
     await session?.answer(key, value)
     return value
@@ -21,6 +24,14 @@ export async function configureAzure(
     label: string,
     options: { label: string; value: string }[],
   ): Promise<string> => {
+    if (existing) {
+      const fixed = existing.azure[key]
+      if (!options.some(({ value }) => value === fixed))
+        throw new Error(
+          `The saved ${label.toLowerCase()} is not available for this installation. Restore access or service support before retrying; its target will not be changed.`,
+        )
+      return fixed
+    }
     const saved = session?.draft?.answers[key]
     if (saved && options.some(({ value }) => value === saved)) return saved
     if (saved) {
@@ -170,9 +181,16 @@ export async function configureAzure(
         label: `${displayName} (${name})${name === existing?.azure.location ? " - saved region" : ""}`,
       })),
   )
-  const name = await field("name", existing?.name)
-  const owner = await field("owner", existing?.owner)
-  const resourceGroup = await field("resourceGroup", existing?.azure.resourceGroup ?? `${name}-hub`)
+  if (existing) {
+    await remember("tenantId", tenantId)
+    await remember("subscriptionId", subscriptionId)
+    await remember("location", location)
+  }
+  const name = existing ? (await remember("name", existing.name))! : await field("name")
+  const owner = existing ? (await remember("owner", existing.owner))! : await field("owner")
+  const resourceGroup = existing
+    ? (await remember("resourceGroup", existing.azure.resourceGroup))!
+    : await field("resourceGroup", `${name}-hub`)
   ui.status(
     "Terraform state uses Azure sign-in and Blob data permissions, without an IP allowlist. Shared-key and anonymous blob access remain disabled.",
   )

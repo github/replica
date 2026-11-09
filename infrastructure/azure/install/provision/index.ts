@@ -22,6 +22,7 @@ export async function provisionDatabase(
     run,
     ui,
     env,
+    preapproved: context.approval !== undefined,
   })
   await module.init(backend)
   const complete = await secrets.provisioned()
@@ -148,7 +149,17 @@ export async function provisionDatabase(
         throw new Error("Provisioning timed out. Check the execution before releasing any lock.")
       await secrets.markProvisioned()
     }
-    await module.apply(variables, { destroy: true })
+    await module.apply(variables, {
+      destroy: true,
+      allowedDeletions: [
+        "azurerm_container_app_job.provision",
+        "azurerm_user_assigned_identity.provision",
+        "azurerm_role_assignment.image[0]",
+        'azurerm_role_assignment.secrets["DATABASE_URL"]',
+        'azurerm_role_assignment.secrets["HUB_MIGRATION_PASSWORD"]',
+        'azurerm_role_assignment.secrets["HUB_RUNTIME_PASSWORD"]',
+      ],
+    })
     await lease.release()
   } finally {
     lease.reportRetained()

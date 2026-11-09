@@ -13,6 +13,7 @@ export async function publishImage(
 ): Promise<string> {
   const { run, azure, config, directory, ui, saveNpmRegistry } = context
   const repository = resolve(import.meta.dirname, "../../../..")
+  let approval = context.approval
   while (true) {
     const metadata = join(directory, `image-${randomUUID()}.json`)
     let failure: Error
@@ -21,6 +22,11 @@ export async function publishImage(
       const dirty = await run("git", ["status", "--porcelain", "--untracked-files=normal"], {
         cwd: repository,
       })
+      if (approval && (approval.sourceRevision !== commit || approval.sourceStatus !== dirty))
+        throw new DOMException(
+          "The source revision or working-tree status changed after deployment approval. Restart to review the source before publishing.",
+          "AbortError",
+        )
       if (dirty && !ui.select)
         throw new DOMException(
           "Unattended image publication requires a clean source checkout. Commit or remove the intended changes, or rerun interactively for separate working-tree consent. Deployment approval does not authorize dirty-source publication.",
@@ -28,6 +34,7 @@ export async function publishImage(
         )
       if (
         dirty &&
+        !approval &&
         !(await ui.confirm(
           "The source checkout has uncommitted changes. Build and publish this working tree?",
         ))
@@ -89,6 +96,7 @@ export async function publishImage(
     } else if (choice !== "retry") {
       throw new Error("Choose a supported image recovery action.")
     }
+    approval = undefined
     if (ui.notice) ui.notice("info", "Retrying image build and publication.")
     else ui.status("Retrying image build and publication.")
   }

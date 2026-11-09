@@ -1,6 +1,7 @@
 import { expect, it, vi } from "vitest"
 
 import { CommandExecutionError } from "../../../installer/command/index.ts"
+import type { DraftAnswers, WizardSession } from "../../../installer/session/index.ts"
 import type { DeploymentConfig, RunCommand, WizardUI } from "../../../installer/types.ts"
 import { configureAzure } from "./index.ts"
 
@@ -330,7 +331,7 @@ it("offers only regions advertised by all four required Azure providers", async 
   expect(config.azure.location).toBe("eastus2")
 })
 
-it("puts the saved tenant and subscription first when reopening configuration", async () => {
+it("rechecks the fixed saved target without offering editable target or identity prompts", async () => {
   const { accounts, ui, run } = setup("00000000-0000-0000-0000-000000000003")
   const existing: DeploymentConfig = {
     version: 1,
@@ -347,13 +348,109 @@ it("puts the saved tenant and subscription first when reopening configuration", 
 
   const config = await configureAzure(ui, run, existing)
 
-  const selections = vi.mocked(ui.select).mock.calls
-  expect(selections[0]![0]).toBe("Azure tenant")
-  expect(selections[0]![1][0]!.value).toBe(existing.azure.tenantId)
-  expect(selections[1]![0]).toBe("Azure subscription")
-  expect(selections[1]![1][0]!.value).toBe(existing.azure.subscriptionId)
+  expect(ui.select).not.toHaveBeenCalled()
+  expect(ui.text).not.toHaveBeenCalled()
+  expect(run.mock.calls.filter(([, args]) => args[0] === "account" && args[1] === "list")).toHaveLength(1)
+  const discovery = run.mock.calls.filter(([, args]) => args[0] === "rest" || args[0] === "provider")
+  expect(discovery).toHaveLength(5)
+  for (const [, args] of discovery)
+    expect(args[args.indexOf("--subscription") + 1]).toBe(existing.azure.subscriptionId)
   expect(config).toEqual(existing)
 })
+
+function savedConfig(): DeploymentConfig {
+  return {
+    version: 1, cloud: "azure", name: "test-hub", owner: "test-team",
+    azure: {
+      tenantId: "00000000-0000-0000-0000-000000000010",
+      subscriptionId: "00000000-0000-0000-0000-000000000001",
+      location: "eastus2", resourceGroup: "test-hub-rg",
+    },
+  }
+}
+
+function savedSession(answers: DraftAnswers): WizardSession {
+  return {
+    path: "/synthetic/installation.json.draft.json",
+    problem: undefined,
+    draft: {
+      version: 1,
+      id: "00000000-0000-0000-0000-000000000099",
+      configPath: "/synthetic/installation.json",
+      createdAt: "2026-11-01T10:00:00Z",
+      updatedAt: "2026-11-02T10:00:00Z",
+      phase: "configure",
+      deploymentStarted: false,
+      answers,
+    },
+    answer: vi.fn(), clear: vi.fn(), phase: vi.fn(),
+    restart: vi.fn(), complete: vi.fn(), close: vi.fn(),
+  }
+}
+
+it("refuses lost access to a saved subscription without offering another target or rewriting answers", async () => {
+  const { accounts, ui, run } = setup()
+  const existing = savedConfig()
+  accounts.shift()
+  const session = savedSession({ name: existing.name })
+
+  await expect(configureAzure(ui, run, existing, session)).rejects.toThrow(/saved.*subscription|restore access/i)
+
+  expect(ui.select).not.toHaveBeenCalled()
+  expect(ui.text).not.toHaveBeenCalled()
+  expect(ui.confirm).not.toHaveBeenCalled()
+  expect(session.answer).not.toHaveBeenCalled()
+  expect(session.clear).not.toHaveBeenCalled()
+  expect(run.mock.calls.some(([, args]) => args[0] === "rest" || args[0] === "provider")).toBe(false)
+})
+
+it.each(["Microsoft.App", "Microsoft.DBforPostgreSQL", "Microsoft.ContainerRegistry", "Microsoft.KeyVault"])(
+  "refuses the existing region missing from %s before editable prompts or draft-answer writes",
+  async (namespace) => {
+    const { locations, providers, ui, run } = setup()
+    const existing = savedConfig()
+    locations.push({ name: "westus2", displayName: "West US 2" })
+    for (const [name, provider] of providers)
+      provider.locations.splice(0, provider.locations.length, ...(name === namespace ? [] : ["East US 2"]), "West US 2")
+    const session = savedSession({
+      tenantId: existing.azure.tenantId, subscriptionId: existing.azure.subscriptionId,
+      location: existing.azure.location, name: existing.name,
+    })
+
+    await expect(configureAzure(ui, run, existing, session)).rejects.toThrow(/saved.*region|not available/i)
+
+    expect(run.mock.calls.filter(([, args]) => args[0] === "provider")).toHaveLength(4)
+    expect(ui.select).not.toHaveBeenCalled()
+    expect(ui.text).not.toHaveBeenCalled()
+    expect(ui.confirm).not.toHaveBeenCalled()
+    expect(session.answer).not.toHaveBeenCalled()
+    expect(session.clear).not.toHaveBeenCalled()
+  },
+)
+
+it.each([
+  ["name", "other-hub"],
+  ["owner", "other-team"],
+  ["tenantId", "00000000-0000-0000-0000-000000000020"],
+  ["subscriptionId", "00000000-0000-0000-0000-000000000002"],
+  ["location", "westus2"],
+  ["resourceGroup", "other-hub-rg"],
+] as const)(
+  "refuses a conflicting saved draft %s before any cloud command or checkpoint",
+  async (field, value) => {
+    const { ui, run } = setup()
+    const session = savedSession({ [field]: value })
+
+    await expect(configureAzure(ui, run, savedConfig(), session)).rejects.toThrow(/draft|conflict|match/i)
+
+    expect(run).not.toHaveBeenCalled()
+    expect(ui.select).not.toHaveBeenCalled()
+    expect(ui.text).not.toHaveBeenCalled()
+    expect(session.answer).not.toHaveBeenCalled()
+    expect(session.phase).not.toHaveBeenCalled()
+    expect(session.clear).not.toHaveBeenCalled()
+  },
+)
 
 it("rejects a subscription from another tenant before querying its services", async () => {
   const { accounts, ui, run } = setup()

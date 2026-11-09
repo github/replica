@@ -1,4 +1,4 @@
-import { resolve, dirname, join } from "node:path"
+import { resolve, dirname } from "node:path"
 import { parseArgs, styleText } from "node:util"
 
 import { installAzure } from "../azure/install/index.ts"
@@ -11,6 +11,7 @@ import { runWizard } from "./wizard/index.ts"
 import { openSession, type WizardSession } from "./session/index.ts"
 import { startInstallerTelemetry } from "./telemetry/index.ts"
 import { formatDeploymentSummary } from "./deployment-summary/index.ts"
+import { selectInstallerEntry, validateInstallerEntry, type InstallerEntry } from "./entry/index.ts"
 
 const { values } = parseArgs({
   options: {
@@ -24,13 +25,13 @@ const { values } = parseArgs({
 })
 if (values.help) {
   console.log(
-    "Usage: npm run setup:server -- [--config FILE] [--configure-only] [--no-fullscreen]\nConfig paths are relative to infrastructure/ when using the root shortcut.\nInteractive progress is saved in a private companion draft; restart to resume.\nAutomation: --config FILE --non-interactive --approve-deployment\nApproval includes billable resources, role assignments, image publication, temporary provisioning cleanup, and a maintenance-window release.\nAutomation requires a clean source checkout and does not authorize removing state network restrictions; rerun interactively for separate consent.",
+    "Usage: npm run setup:server -- [--config FILE] [--configure-only] [--no-fullscreen]\nStart by choosing Create, Update, Resume (when available), or Exit without local writes or Azure calls.\nConfig paths are relative to infrastructure/ when using the root shortcut.\nCreate keeps previous files and uses a fresh path; --config FILE uses that path only when unused.\nUpdate/Resume can select local configurations or an explicit config-file path.\nInteractive progress is saved in a private companion draft; restart to resume.\nAutomation: --config FILE --non-interactive --approve-deployment\nApproval includes billable resources, role assignments, image publication, temporary provisioning cleanup, and a maintenance-window release.\nAutomation requires a clean source checkout and does not authorize removing state network restrictions; rerun interactively for separate consent.",
   )
 } else {
   const abort = new AbortController()
   const execute: RunCommand = (executable, args, options) =>
     runCommand(executable, args, { ...options, signal: abort.signal })
-  const path = resolve(values.config ?? resolve(import.meta.dirname, "../.local/installation.json"))
+  let path = resolve(values.config ?? resolve(import.meta.dirname, "../.local/installation.json"))
   let terminal: ReturnType<typeof createTerminalUI> | undefined
   let session: WizardSession | undefined
   let telemetry: Awaited<ReturnType<typeof startInstallerTelemetry>> | undefined
@@ -41,51 +42,14 @@ if (values.help) {
   process.once("SIGINT", interrupt)
   process.once("SIGTERM", interrupt)
   try {
-    telemetry = await startInstallerTelemetry(path)
-    const observed = telemetry.command(execute)
-    const run: RunCommand = async (executable, args, options) => {
-      try {
-        return await observed(executable, args, options)
-      } catch (error) {
-        if (error instanceof CommandExecutionError && !error.aborted)
-          terminal?.notice?.("error", error.message)
-        throw error
-      }
-    }
     let existing: DeploymentConfig | undefined
-    try {
-      existing = await loadConfig(path)
-    } catch (error) {
-      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error
-    }
+    let entry: InstallerEntry | undefined
     if (values["non-interactive"]) {
-      if (
-        !existing ||
-        !values.config ||
-        !values["approve-deployment"] ||
-        values["configure-only"]
-      ) {
+      if (!values.config || !values["approve-deployment"] || values["configure-only"])
         throw new Error(
           "Non-interactive deployment requires --config, --approve-deployment, and an existing complete configuration.",
         )
-      }
-      const ui: InstallerUI = telemetry.observe({
-        status: (value) => console.log(value),
-        confirm: async () => true,
-        wait: async (value) => {
-          throw new Error(value)
-        },
-      })
-      await ui.phase?.("checks")
-      await azurePreflight(run, ui)
-      message = formatDeploymentSummary(
-        await installAzure(existing, {
-          directory: dirname(path),
-          run,
-          ui,
-        }),
-        path,
-      )
+      existing = await loadConfig(path)
     } else {
       if (!process.stdin.isTTY || !process.stdout.isTTY) {
         throw new Error(
@@ -96,17 +60,62 @@ if (values.help) {
         fullscreen: !values["no-fullscreen"],
         configureOnly: values["configure-only"],
       })
-      const ui = telemetry.observe(terminal)
-      session = await openSession(path)
-      message = await runWizard({
-        ui,
-        run,
-        path,
-        directory: dirname(path),
-        existing,
-        configureOnly: values["configure-only"],
-        session,
+      entry = await selectInstallerEntry(terminal, {
+        directory: resolve(import.meta.dirname, "../.local"),
+        configPath: values.config,
       })
+      if (entry) {
+        path = entry.path
+        existing = entry.existing
+        session = await openSession(path, { fresh: entry.action === "create" })
+        await validateInstallerEntry(entry, session)
+      } else message = "Setup exited. No local files or Azure resources were changed."
+    }
+    if (values["non-interactive"] || entry) {
+      telemetry = await startInstallerTelemetry(path)
+      const observed = telemetry.command(execute)
+      const run: RunCommand = async (executable, args, options) => {
+        try {
+          return await observed(executable, args, options)
+        } catch (error) {
+          if (error instanceof CommandExecutionError && !error.aborted)
+            terminal?.notice?.("error", error.message)
+          throw error
+        }
+      }
+      if (values["non-interactive"]) {
+        if (!existing) throw new Error("An existing complete configuration is required.")
+        const ui: InstallerUI = telemetry.observe({
+          status: (value) => console.log(value),
+          confirm: async () => true,
+          wait: async (value) => {
+            throw new Error(value)
+          },
+        })
+        await ui.phase?.("checks")
+        await azurePreflight(run, ui)
+        message = formatDeploymentSummary(
+          await installAzure(existing, {
+            directory: dirname(path),
+            run,
+            ui,
+          }),
+          path,
+        )
+      } else {
+        if (!terminal || !entry) throw new Error("Select a setup action before continuing.")
+        const ui = telemetry.observe(terminal)
+        message = await runWizard({
+          ui,
+          run,
+          path,
+          directory: dirname(path),
+          existing,
+          configureOnly: values["configure-only"],
+          session,
+          entryAction: entry.action,
+        })
+      }
     }
   } catch (error) {
     failure = error

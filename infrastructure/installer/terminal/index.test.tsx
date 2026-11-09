@@ -1,9 +1,16 @@
+import { randomUUID } from "node:crypto"
+import { mkdir, readdir, rm } from "node:fs/promises"
+import { resolve } from "node:path"
 import { setImmediate } from "node:timers/promises"
 import type { ReactNode } from "react"
 import { cleanup, render } from "ink-testing-library"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 
+import { approveDeployment } from "../../azure/install/approval/index.ts"
+import { installationNames } from "../../azure/install/settings.ts"
 import { configurationFields } from "../config/fields/index.ts"
+import { selectInstallerEntry } from "../entry/index.ts"
+import type { DeploymentConfig, RunCommand } from "../types.ts"
 import { createTerminalUI } from "./index.tsx"
 
 const boundary = vi.hoisted(() => ({
@@ -39,6 +46,14 @@ vi.mock("ink", async (importOriginal) => {
 })
 
 const terminals: ReturnType<typeof createTerminalUI>[] = []
+const directories: string[] = []
+
+async function entryDirectory() {
+  const directory = resolve(`.installer-terminal-entry-test-${randomUUID()}`)
+  directories.push(directory)
+  await mkdir(directory, { mode: 0o700 })
+  return directory
+}
 
 function open(abort: AbortController, options: Parameters<typeof createTerminalUI>[1] = {}) {
   const ui = createTerminalUI(abort, options)
@@ -64,6 +79,7 @@ beforeEach(() => {
 afterEach(async () => {
   await Promise.all(terminals.splice(0).map((ui) => ui.close()))
   cleanup()
+  await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })))
 })
 
 it.each(["full-screen", "inline"])(
@@ -133,6 +149,78 @@ it("rejects the pending question when Ctrl+C cancels the owned terminal", async 
   expect(abort.signal.aborted).toBe(true)
 })
 
+it("keeps the deployment inventory and consent reachable with page keys before declining in a 24-row viewport", async () => {
+  vi.stubEnv("TERM", "xterm")
+  vi.stubEnv("INK_SCREEN_READER", "false")
+  const abort = new AbortController()
+  const ui = open(abort, { fullscreen: true })
+  const terminal = show()
+  vi.spyOn(terminal.stdout, "columns", "get").mockReturnValue(80)
+  Object.defineProperty(terminal.stdout, "rows", { get: () => 24 })
+  terminal.stdout.emit("resize")
+  const config: DeploymentConfig = {
+    version: 1,
+    cloud: "azure",
+    name: "synthetic-hub",
+    owner: "synthetic-team",
+    azure: {
+      tenantId: "00000000-0000-0000-0000-000000000001",
+      subscriptionId: "00000000-0000-0000-0000-000000000002",
+      location: "eastus2",
+      resourceGroup: "synthetic-hub-rg",
+    },
+  }
+  const run = vi.fn<RunCommand>(async (executable, args) => {
+    if (executable === "git" && args[0] === "rev-parse") return "a".repeat(40)
+    if (executable === "git" && args[0] === "status") return " M hub/server/index.ts"
+    throw new Error("The deployment review must not run a cloud command")
+  })
+  const pending = approveDeployment({ config, run, ui })
+  const rejected = expect(pending).rejects.toThrow(/cancel/i)
+  const settled = vi.fn()
+  void pending.then(settled, settled)
+  const names = installationNames(config)
+  const consentKeys = /\by\/n\b/i
+  await vi.waitFor(() => expect(terminal.lastFrame()).toContain(names.stateGroup))
+  expect(terminal.lastFrame()).not.toMatch(consentKeys)
+  const visited = [terminal.lastFrame()!]
+  const scrollUntil = async (key: string, expected: string | RegExp) => {
+    const visible = () =>
+      typeof expected === "string"
+        ? terminal.lastFrame()!.includes(expected)
+        : expected.test(terminal.lastFrame()!)
+    for (let page = 0; page < 8 && !visible(); page++) {
+      const previous = terminal.lastFrame()
+      terminal.stdin.write(key)
+      await vi.waitFor(() => expect(terminal.lastFrame()).not.toBe(previous))
+      const frame = terminal.lastFrame()!
+      expect(frame.split("\n").length).toBeLessThanOrEqual(24)
+      visited.push(frame)
+    }
+    expect(terminal.lastFrame()).toMatch(expected)
+  }
+
+  await scrollUntil("\u001b[6~", consentKeys)
+
+  for (const resource of [
+    ...Object.values(names),
+    config.azure.resourceGroup,
+    `${config.name}-postgres`,
+    `${config.name}-provision`,
+  ])
+    expect(visited.join("\n")).toContain(resource)
+  expect(settled).not.toHaveBeenCalled()
+  await scrollUntil("\u001b[5~", names.stateGroup)
+  expect(terminal.lastFrame()).not.toMatch(consentKeys)
+  expect(settled).not.toHaveBeenCalled()
+  await scrollUntil("\u001b[6~", consentKeys)
+  terminal.stdin.write("n")
+
+  await rejected
+  expect(abort.signal.aborted).toBe(false)
+  expect(run.mock.calls.every(([executable]) => executable === "git")).toBe(true)
+})
+
 it("keeps warning and error notices distinct from ordinary status even after activity rolls over", async () => {
   const abort = new AbortController()
   const ui = open(abort, { fullscreen: false })
@@ -200,23 +288,33 @@ it.each(["info", "success"] as const)(
   },
 )
 
-it.each(["cloud", "resume"])(
+it.each(["cloud", "entry"])(
   "shows the startup welcome beside the %s question until the first answer",
   async (question) => {
     vi.stubEnv("TERM", "xterm")
     vi.stubEnv("INK_SCREEN_READER", "false")
     const abort = new AbortController()
     const ui = open(abort)
-    ui.welcome!(true)
+    const directory = await entryDirectory()
+    if (question === "cloud") ui.welcome!(true)
     const pending =
       question === "cloud"
         ? ui.cloud()
-        : ui.select("Resume setup?", [{ label: "Resume setup", value: "resume" }])
+        : selectInstallerEntry(ui, { directory })
     const terminal = show()
     await vi.waitFor(() => expect(terminal.lastFrame()).toContain("GitHub"))
+    if (question === "entry") {
+      expect(terminal.lastFrame()).toContain("Create a new installation")
+      expect(terminal.lastFrame()).toContain("Update existing installation")
+      expect(terminal.lastFrame()).toContain("Exit and do nothing")
+      expect(terminal.lastFrame()).not.toContain("Resume in progress setup")
+      terminal.stdin.write("Exit")
+      await vi.waitFor(() => expect(terminal.lastFrame()).toMatch(/Search:\s*Exit/))
+    }
 
     terminal.stdin.write("\r")
-    await expect(pending).resolves.toBe(question === "cloud" ? "azure" : "resume")
+    await expect(pending).resolves.toBe(question === "cloud" ? "azure" : undefined)
+    expect(await readdir(directory)).toEqual([])
     const next = ui.text("Next setup question")
     const rejected = expect(next).rejects.toThrow(/cancel/i)
     await vi.waitFor(() => {
@@ -255,8 +353,8 @@ it("keeps the first question and its input usable while the welcome banner resiz
   vi.stubEnv("TERM", "xterm")
   vi.stubEnv("INK_SCREEN_READER", "false")
   const ui = open(new AbortController())
-  ui.welcome!(true)
-  const pending = ui.select("Resume setup?", [{ label: "Resume setup", value: "resume" }])
+  const directory = await entryDirectory()
+  const pending = selectInstallerEntry(ui, { directory })
   const settled = vi.fn()
   void pending.then(settled, settled)
   const terminal = show()
@@ -265,7 +363,8 @@ it("keeps the first question and its input usable while the welcome banner resiz
   Object.defineProperty(terminal.stdout, "rows", { get: () => dimensions.rows })
   terminal.stdout.emit("resize")
   await vi.waitFor(() => expect(terminal.lastFrame()).toContain("GitHub"))
-  terminal.stdin.write("Res")
+  terminal.stdin.write("Up")
+  await vi.waitFor(() => expect(terminal.lastFrame()).toMatch(/Search:\s*Up/))
 
   for (const size of [
     { columns: 80, rows: 36, art: true },
@@ -277,8 +376,9 @@ it("keeps the first question and its input usable while the welcome banner resiz
     terminal.stdout.emit("resize")
     await vi.waitFor(() => {
       const frame = terminal.lastFrame()!
-      expect(frame).toContain("Resume setup?")
-      expect(frame).toMatch(/Search:\s*Res/)
+      expect(frame).toContain("What would you like to do?")
+      expect(frame).toContain("Update existing installation")
+      expect(frame).toMatch(/Search:\s*Up/)
       expect(frame.includes("GitHub")).toBe(size.art)
       expect(frame.split("\n").length).toBeLessThanOrEqual(size.rows)
     })
@@ -286,5 +386,20 @@ it("keeps the first question and its input usable while the welcome banner resiz
 
   expect(settled).not.toHaveBeenCalled()
   terminal.stdin.write("\r")
-  await expect(pending).resolves.toBe("resume")
+  await vi.waitFor(() => {
+    expect(terminal.lastFrame()).toContain("Enter a config-file path")
+    expect(terminal.lastFrame()).not.toContain("GitHub")
+  })
+  terminal.stdin.write("Back")
+  await vi.waitFor(() => expect(terminal.lastFrame()).toMatch(/Search:\s*Back/))
+  terminal.stdin.write("\r")
+  await vi.waitFor(() => {
+    expect(terminal.lastFrame()).toContain("Exit and do nothing")
+    expect(terminal.lastFrame()).not.toContain("GitHub")
+  })
+  terminal.stdin.write("Exit")
+  await vi.waitFor(() => expect(terminal.lastFrame()).toMatch(/Search:\s*Exit/))
+  terminal.stdin.write("\r")
+  await expect(pending).resolves.toBeUndefined()
+  expect(await readdir(directory)).toEqual([])
 })

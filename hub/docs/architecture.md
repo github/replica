@@ -10,7 +10,7 @@ The API responds to a health check, and the frontend displays the logo with ligh
 
 Contributors can use PostgreSQL and Prisma locally or in the devcontainer. The database has a provider-neutral identity transaction foundation and a public GitHub sign-in flow. A reusable deployment bootstrap secret can enroll verified GitHub identities as Hub administrators. Deployment and product APIs have not been built. This app cannot yet find repositories, import Builds, host previews, save product data, or support reviews.
 
-The [production runtime](deployment.md) serves the built frontend and API and runs both workers in one image. Deployment runs database and job setup separately before starting that image.
+The [production runtime](deployment.md) serves the built frontend and API and runs both workers in one image. Deployment runs database and job setup separately before starting that image. The Azure installation uses an explicit startup entrypoint to retrieve configured Key Vault values through each workload's managed identity before importing provisioning, setup, or runtime code. Local entrypoints and direct environment configuration remain unchanged.
 
 ## Backend
 

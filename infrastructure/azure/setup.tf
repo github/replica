@@ -26,25 +26,23 @@ resource "azurerm_container_app_job" "setup" {
     }
   }
 
-  secret {
-    name                = "database-url"
-    key_vault_secret_id = var.setup_database_secret.secret_id
-    identity            = azurerm_user_assigned_identity.setup.id
-  }
-
   template {
     container {
       name    = "setup"
       image   = var.image
       cpu     = 0.5
       memory  = "1Gi"
-      command = ["node", "dist/server/scripts/setup/index.js"]
+      command = ["node", "dist/server/scripts/azure-entrypoint/index.js", "setup"]
 
       dynamic "env" {
         for_each = {
           NODE_ENV              = "production"
           RUNTIME_MODE          = "setup"
           DATABASE_RUNTIME_ROLE = "replica_runtime"
+          AZURE_CLIENT_ID       = azurerm_user_assigned_identity.setup.client_id
+          AZURE_KEY_VAULT_SECRET_REFERENCES = jsonencode({
+            DATABASE_URL = var.setup_database_secret.secret_id
+          })
         }
         content {
           name  = env.key
@@ -52,10 +50,6 @@ resource "azurerm_container_app_job" "setup" {
         }
       }
 
-      env {
-        name        = "DATABASE_URL"
-        secret_name = "database-url"
-      }
     }
   }
 

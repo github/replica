@@ -4,6 +4,7 @@ mock_provider "azurerm" {
     defaults = {
       id           = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/test-hub/providers/Microsoft.ManagedIdentity/userAssignedIdentities/provision"
       principal_id = "00000000-0000-0000-0000-000000000001"
+      client_id    = "00000000-0000-0000-0000-000000000002"
     }
   }
 }
@@ -35,15 +36,15 @@ run "fresh_database_job_is_explicit_and_has_separate_access" {
     condition = (
       azurerm_container_app_job.provision.replica_retry_limit == 0 &&
       azurerm_container_app_job.provision.manual_trigger_config[0].parallelism == 1 &&
-      azurerm_container_app_job.provision.template[0].container[0].command == tolist(["node", "dist/server/scripts/provision-database-access/index.js"]) &&
-      length(azurerm_container_app_job.provision.secret) == 3 &&
+      azurerm_container_app_job.provision.manual_trigger_config[0].replica_completion_count == 1 &&
+      azurerm_container_app_job.provision.template[0].container[0].command == tolist(["node", "dist/server/scripts/azure-entrypoint/index.js", "provision"]) &&
+      length(azurerm_container_app_job.provision.secret) == 0 &&
       length(azurerm_role_assignment.secrets) == 3 &&
-      alltrue([for secret in azurerm_container_app_job.provision.secret :
-        secret.identity == azurerm_user_assigned_identity.provision.id &&
-        (secret.value == null || secret.value == "")
+      alltrue([for env in azurerm_container_app_job.provision.template[0].container[0].env :
+        env.secret_name == null || env.secret_name == ""
       ])
     )
-    error_message = "Fresh provisioning must use its own identity and Key Vault references, and never retry automatically."
+    error_message = "Fresh provisioning must use its Azure startup wrapper, run once without automatic retries, and never configure platform secrets or secret-name bindings."
   }
   assert {
     condition = (
@@ -72,16 +73,14 @@ run "fresh_database_job_is_explicit_and_has_separate_access" {
         grant.principal_id == azurerm_user_assigned_identity.provision.principal_id &&
         grant.role_definition_name == "Key Vault Secrets User"
       ]) &&
-      toset([for secret in azurerm_container_app_job.provision.secret : secret.key_vault_secret_id]) == toset(values(var.secret_urls)) &&
       toset([for env in azurerm_container_app_job.provision.template[0].container[0].env : env.name]) == toset([
-        "NODE_ENV", "DATABASE_URL", "HUB_MIGRATION_PASSWORD", "HUB_RUNTIME_PASSWORD",
+        "NODE_ENV", "AZURE_CLIENT_ID", "AZURE_KEY_VAULT_SECRET_REFERENCES",
       ]) &&
-      alltrue([for name, url in var.secret_urls :
-        one([for env in azurerm_container_app_job.provision.template[0].container[0].env : env.secret_name if env.name == name]) ==
-        one([for secret in azurerm_container_app_job.provision.secret : secret.name if secret.key_vault_secret_id == url])
-      ])
+      one([for env in azurerm_container_app_job.provision.template[0].container[0].env : env.value if env.name == "NODE_ENV"]) == "production" &&
+      one([for env in azurerm_container_app_job.provision.template[0].container[0].env : env.value if env.name == "AZURE_CLIENT_ID"]) == azurerm_user_assigned_identity.provision.client_id &&
+      tomap(jsondecode(one([for env in azurerm_container_app_job.provision.template[0].container[0].env : env.value if env.name == "AZURE_KEY_VAULT_SECRET_REFERENCES"]))) == var.secret_urls
     )
-    error_message = "Only the isolated provisioning job may receive its three secret-scoped grants and reference-backed administrator settings."
+    error_message = "Only the isolated provisioning identity may receive three secret-scoped grants; its container must contain only production mode, its explicit client ID, and the exact URI-only administrator/password map."
   }
 }
 
@@ -115,7 +114,7 @@ run "matching_vault_names_are_case_insensitive" {
     condition = (
       length(azurerm_role_assignment.secrets) == 3 &&
       alltrue([for grant in azurerm_role_assignment.secrets : startswith(grant.scope, "${var.vault_id}/secrets/")]) &&
-      toset([for secret in azurerm_container_app_job.provision.secret : secret.key_vault_secret_id]) == toset(values(var.secret_urls))
+      tomap(jsondecode(one([for env in azurerm_container_app_job.provision.template[0].container[0].env : env.value if env.name == "AZURE_KEY_VAULT_SECRET_REFERENCES"]))) == var.secret_urls
     )
     error_message = "Matching DNS vault names must be accepted regardless of case, without changing the configured secret references or grant scopes."
   }

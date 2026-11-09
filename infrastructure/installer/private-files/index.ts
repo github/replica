@@ -1,34 +1,19 @@
 import { randomUUID } from "node:crypto"
 import { constants } from "node:fs"
-import { lstat, mkdir, open, rename, rm } from "node:fs/promises"
+import { link, lstat, mkdir, open, rename, rm } from "node:fs/promises"
 import { dirname, resolve } from "node:path"
 
-export async function privateDirectory(path: string): Promise<void> {
-  const directory = resolve(path)
-  let metadata
-  try {
-    metadata = await lstat(directory)
-  } catch (error) {
-    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error
-    await privateDirectory(dirname(directory))
-    try {
-      await mkdir(directory, { mode: 0o700 })
-    } catch (error) {
-      if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error
-    }
-    metadata = await lstat(directory)
-  }
-  if (
-    !metadata.isDirectory() ||
-    metadata.uid !== process.getuid?.() ||
-    (metadata.mode & 0o077) !== 0
-  )
-    throw new Error(
-      `Setup requires a current-user-owned private directory (0700): ${directory}. Existing paths were not changed.`,
-    )
+async function trustedParents(directory: string): Promise<void> {
   let ancestor = dirname(directory)
   while (ancestor !== dirname(ancestor)) {
-    const boundary = await lstat(ancestor)
+    let boundary
+    try {
+      boundary = await lstat(ancestor)
+    } catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error
+      ancestor = dirname(ancestor)
+      continue
+    }
     if (
       (boundary.isSymbolicLink() && boundary.uid !== 0) ||
       (!boundary.isSymbolicLink() && !boundary.isDirectory()) ||
@@ -42,6 +27,37 @@ export async function privateDirectory(path: string): Promise<void> {
       )
     ancestor = dirname(ancestor)
   }
+}
+
+export async function privateDirectory(
+  path: string,
+  { create = true }: { create?: boolean } = {},
+): Promise<boolean> {
+  const directory = resolve(path)
+  let metadata
+  try {
+    metadata = await lstat(directory)
+  } catch (error) {
+    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error
+    if (!create) return false
+    await trustedParents(directory)
+    try {
+      await mkdir(directory, { recursive: true, mode: 0o700 })
+    } catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error
+    }
+    metadata = await lstat(directory)
+  }
+  if (
+    !metadata.isDirectory() ||
+    metadata.uid !== process.getuid?.() ||
+    (metadata.mode & 0o077) !== 0
+  )
+    throw new Error(
+      `Setup requires a current-user-owned private directory (0700): ${directory}. Existing paths were not changed.`,
+    )
+  await trustedParents(directory)
+  return true
 }
 
 export async function privateFile(path: string): Promise<boolean> {
@@ -63,8 +79,11 @@ export async function privateFile(path: string): Promise<boolean> {
   }
 }
 
-export async function readPrivateFile(path: string): Promise<string | undefined> {
-  await privateDirectory(dirname(path))
+export async function readPrivateFile(
+  path: string,
+  { createDirectory = true }: { createDirectory?: boolean } = {},
+): Promise<string | undefined> {
+  if (!(await privateDirectory(dirname(path), { create: createDirectory }))) return undefined
   if (!(await privateFile(path))) return undefined
   const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW)
   try {
@@ -82,7 +101,11 @@ export async function readPrivateFile(path: string): Promise<string | undefined>
   }
 }
 
-export async function writePrivateFile(path: string, content: string): Promise<void> {
+export async function writePrivateFile(
+  path: string,
+  content: string,
+  { exclusive = false }: { exclusive?: boolean } = {},
+): Promise<void> {
   await privateDirectory(dirname(path))
   await privateFile(path)
   const temporary = `${path}.${randomUUID()}.tmp`
@@ -95,7 +118,8 @@ export async function writePrivateFile(path: string, content: string): Promise<v
       await file.close()
     }
     await privateFile(path)
-    await rename(temporary, path)
+    if (exclusive) await link(temporary, path)
+    else await rename(temporary, path)
   } finally {
     await rm(temporary, { force: true })
   }

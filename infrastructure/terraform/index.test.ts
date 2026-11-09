@@ -33,6 +33,7 @@ async function scenario({
   error = new Error("Synthetic Terraform failure"),
   failureCount = Infinity,
   resourceChanges,
+  preapproved,
 }: {
   actions?: string[]
   approved?: boolean
@@ -40,6 +41,7 @@ async function scenario({
   error?: Error
   failureCount?: number
   resourceChanges?: ResourceChange[]
+  preapproved?: boolean
 } = {}) {
   const root = path.resolve(`.installer-terraform-test-${randomUUID()}`)
   directories.push(root)
@@ -91,6 +93,7 @@ async function scenario({
     env: { REPLICA_TEST_ENV: "installation-value", TF_DATA_DIR: "wrong-directory" },
     run,
     ui,
+    preapproved,
   })
   return { module, run, calls, events, ui, directory, dataDirectory, secret }
 }
@@ -134,9 +137,9 @@ describe("Terraform module", () => {
     { actions: ["delete", "create"] },
     { actions: ["create", "delete"] },
   ])(
-    "rejects destructive normal-plan actions $actions before confirmation or apply",
+    "rejects destructive normal-plan actions $actions even after deployment approval",
     async ({ actions }) => {
-      const test = await scenario({ actions })
+      const test = await scenario({ actions, preapproved: true })
       test.ui.select = vi.fn(async () => "exit")
 
       await expect(test.module.apply("installation.tfvars")).rejects.toThrow()
@@ -235,25 +238,125 @@ describe("Terraform module", () => {
     expect(await readdir(test.dataDirectory)).toEqual([])
   })
 
-  it("shows only resource actions and addresses, without plan values or unchanged resources", async () => {
-    const test = await scenario()
+  it.each([false, true])(
+    "displays safe creation and update plans without values, and honors preapproval %s",
+    async (preapproved) => {
+      const secret = "synthetic-safe-plan-secret"
+      const test = await scenario({
+        preapproved,
+        resourceChanges: [
+          {
+            address: "azurerm_resource_group.hub",
+            change: { actions: ["create"], after: { password: secret } },
+          },
+          {
+            address: "azurerm_key_vault.hub",
+            change: {
+              actions: ["update"],
+              before: { password: secret },
+              after: { password: secret },
+            },
+          },
+          { address: "azurerm_storage_account.unchanged", change: { actions: ["no-op"] } },
+          { address: "data.azurerm_client_config.current", change: { actions: ["read"] } },
+        ],
+      })
 
-    await test.module.apply("installation.tfvars")
+      await test.module.apply("installation.tfvars")
 
-    const status = vi.mocked(test.ui.status).mock.calls.flat().join("\n")
-    expect(status).toContain("create")
-    expect(status).toContain("azurerm_resource_group.hub")
-    expect(status).not.toContain(test.secret)
-    expect(status).not.toContain("unchanged")
-    expect(status).not.toContain("data.azurerm_client_config")
-    expect(JSON.stringify(vi.mocked(test.ui.confirm).mock.calls)).not.toContain(test.secret)
+      const status = vi.mocked(test.ui.status).mock.calls.flat().join("\n")
+      expect(status).toContain("create azurerm_resource_group.hub")
+      expect(status).toContain("update azurerm_key_vault.hub")
+      expect(status).not.toContain(secret)
+      expect(status).not.toContain(test.secret)
+      expect(status).not.toContain("unchanged")
+      expect(status).not.toContain("data.azurerm_client_config")
+      expect(test.ui.confirm).toHaveBeenCalledTimes(preapproved ? 0 : 1)
+      expect(test.events).toContain("apply")
+      expect(JSON.stringify(vi.mocked(test.ui.confirm).mock.calls)).not.toContain(secret)
+      expect(JSON.stringify(vi.mocked(test.ui.confirm).mock.calls)).not.toContain(test.secret)
+      expect(await readdir(test.dataDirectory)).toEqual([])
+    },
+  )
+
+  it("removes only explicitly allowed temporary resources without another deployment confirmation", async () => {
+    const allowedDeletions = [
+      "azurerm_container_app_job.provision",
+      "azurerm_user_assigned_identity.provision",
+    ]
+    const test = await scenario({
+      preapproved: true,
+      resourceChanges: allowedDeletions.map((address) => ({
+        address,
+        change: { actions: ["delete"] },
+      })),
+    })
+
+    await test.module.apply("installation.tfvars", { destroy: true, allowedDeletions })
+
+    expect(test.calls.find(({ args }) => args[1] === "plan")?.args).toContain("-destroy")
+    expect(test.ui.confirm).not.toHaveBeenCalled()
+    expect(test.events).toEqual(["plan", "show", "apply"])
+    expect(await readdir(test.dataDirectory)).toEqual([])
   })
 
+  it.each([
+    {
+      kind: "persistent resource",
+      address: "azurerm_postgresql_flexible_server.hub",
+      actions: ["delete"],
+    },
+    {
+      kind: "different indexed grant",
+      address: "azurerm_role_assignment.image[1]",
+      actions: ["delete"],
+    },
+    {
+      kind: "delete-before-create replacement",
+      address: "azurerm_role_assignment.image[0]",
+      actions: ["delete", "create"],
+    },
+    {
+      kind: "create-before-delete replacement",
+      address: "azurerm_role_assignment.image[0]",
+      actions: ["create", "delete"],
+    },
+    { kind: "update", address: "azurerm_role_assignment.image[0]", actions: ["update"] },
+    {
+      kind: "missing allowlist",
+      address: "azurerm_role_assignment.image[0]",
+      actions: ["delete"],
+    },
+  ])(
+    "blocks a preapproved cleanup containing a $kind without applying or offering recovery",
+    async ({ kind, address, actions }) => {
+      const test = await scenario({
+        preapproved: true,
+        resourceChanges: [{ address, change: { actions } }],
+      })
+      test.ui.select = vi.fn(async () => "exit")
+
+      await expect(
+        test.module.apply("installation.tfvars", {
+          destroy: true,
+          ...(kind === "missing allowlist"
+            ? {}
+            : { allowedDeletions: ["azurerm_role_assignment.image[0]"] }),
+        }),
+      ).rejects.toThrow()
+
+      expect(test.ui.confirm).not.toHaveBeenCalled()
+      expect(test.ui.select).not.toHaveBeenCalled()
+      expect(test.events).toEqual(["plan", "show"])
+      expect(await readdir(test.dataDirectory)).toEqual([])
+    },
+  )
+
   it.each(["plan", "show", "apply"] as const)(
-    "fails immediately and removes the sensitive plan without a recovery menu if %s fails",
+    "fails immediately without automatic retry when a preapproved %s fails without recovery controls",
     async (failure) => {
       const error = new CommandExecutionError("Synthetic Terraform failure", false, 1)
-      const test = await scenario({ failure, error })
+      const test = await scenario({ failure, error, preapproved: true })
 
       await expect(test.module.apply("installation.tfvars")).rejects.toBe(error)
 
@@ -264,14 +367,14 @@ describe("Terraform module", () => {
   )
 
   it.each(["plan", "show", "apply"] as const)(
-    "replans only the current Terraform step after an explicit retry of a failed %s",
+    "requires fresh-plan approval after explicitly retrying a failed preapproved %s",
     async (failure) => {
       const error = new CommandExecutionError(
         "Synthetic Azure Blob authorization failure",
         false,
         1,
       )
-      const test = await scenario({ failure, error, failureCount: 1 })
+      const test = await scenario({ failure, error, failureCount: 1, preapproved: true })
       const run = test.run.getMockImplementation()!
       test.run.mockImplementation(async (executable, args, options) => {
         const result = await run(executable, args, options)
@@ -283,6 +386,7 @@ describe("Terraform module", () => {
       test.ui.select = vi.fn<Select>(async (_question, actions) => {
         expect(await readdir(test.dataDirectory)).toEqual([])
         expect(test.events.filter((event) => event === "plan")).toHaveLength(1)
+        expect(test.ui.confirm).not.toHaveBeenCalled()
         expect(actions).toContainEqual({
           label: expect.stringMatching(/replan.*review/i),
           value: "retry",
@@ -295,7 +399,7 @@ describe("Terraform module", () => {
       await expect(test.module.apply(variables)).resolves.toBeUndefined()
 
       expect(test.ui.select).toHaveBeenCalledOnce()
-      expect(test.ui.confirm).toHaveBeenCalledTimes(failure === "apply" ? 2 : 1)
+      expect(test.ui.confirm).toHaveBeenCalledOnce()
       const plans = test.calls.filter(({ args }) => args[1] === "plan")
       const savedPlans = plans.map(({ args }) =>
         args.find((argument) => argument.startsWith("-out="))?.slice(5),
@@ -381,6 +485,7 @@ describe("Terraform module", () => {
       failure: "apply",
       error: new CommandExecutionError("Synthetic partial apply", false, 1),
       failureCount: 1,
+      preapproved: true,
     })
     test.ui.select = vi.fn(async () => {
       actions.splice(0, actions.length, "delete", "create")
@@ -389,9 +494,9 @@ describe("Terraform module", () => {
 
     await expect(test.module.apply("installation.tfvars")).rejects.toThrow(/delete|replace/i)
 
-    expect(test.events).toEqual(["plan", "show", "confirm", "apply", "plan", "show"])
+    expect(test.events).toEqual(["plan", "show", "apply", "plan", "show"])
     expect(test.ui.select).toHaveBeenCalledOnce()
-    expect(test.ui.confirm).toHaveBeenCalledOnce()
+    expect(test.ui.confirm).not.toHaveBeenCalled()
     expect(await readdir(test.dataDirectory)).toEqual([])
   })
 
@@ -400,13 +505,14 @@ describe("Terraform module", () => {
       failure: "apply",
       error: new CommandExecutionError("Synthetic partial apply", false, 1),
       failureCount: 1,
+      preapproved: true,
     })
     test.ui.select = vi.fn(async () => "retry")
-    test.ui.confirm = vi.fn().mockResolvedValueOnce(true).mockResolvedValue(false)
+    test.ui.confirm = vi.fn(async () => false)
 
     await expect(test.module.apply("installation.tfvars")).rejects.toThrow(/cancel/i)
 
-    expect(test.ui.confirm).toHaveBeenCalledTimes(2)
+    expect(test.ui.confirm).toHaveBeenCalledOnce()
     expect(test.ui.select).toHaveBeenCalledOnce()
     expect(test.events.filter((event) => event === "apply")).toHaveLength(1)
     expect(await readdir(test.dataDirectory)).toEqual([])
@@ -446,10 +552,20 @@ describe("Terraform module", () => {
     "keeps temporary-resource destroy fail-fast if %s fails even with a recovery menu",
     async (failure) => {
       const error = new CommandExecutionError("Synthetic destroy failure", false, 1)
-      const test = await scenario({ actions: ["delete"], failure, error })
+      const allowedDeletions = ["azurerm_container_app_job.provision"]
+      const test = await scenario({
+        failure,
+        error,
+        preapproved: true,
+        resourceChanges: [
+          { address: allowedDeletions[0]!, change: { actions: ["delete"] } },
+        ],
+      })
       test.ui.select = vi.fn(async () => "exit")
 
-      await expect(test.module.apply("installation.tfvars", { destroy: true })).rejects.toBe(error)
+      await expect(
+        test.module.apply("installation.tfvars", { destroy: true, allowedDeletions }),
+      ).rejects.toBe(error)
 
       expect(test.ui.select).not.toHaveBeenCalled()
       expect(test.events.filter((event) => event === "plan")).toHaveLength(1)

@@ -19,6 +19,8 @@ This work does not add AWS deployment, arbitrary backward navigation, automatic 
 | Feedback              | Required outcome                                                                                                             |
 | --------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | Startup welcome       | Show fun ASCII art on each interactive launch when space permits, without adding an unnecessary confirmation step.           |
+| Entry actions         | Choose Create, Update, Resume when available, or Exit before writable setup activity or cloud commands.                       |
+| Deployment approval   | Review resources, charges, source publication, downtime, and temporary cleanup once; keep exceptional recovery consent separate. |
 | Terminal ownership    | Use the available terminal space rather than appending an expanding conversation to the shell.                               |
 | Subway-style progress | Show a subtle indication of completed, current, and upcoming wizard stages.                                                  |
 | Draft recovery        | Detect an unfinished session after restart and offer to resume it.                                                           |
@@ -32,7 +34,7 @@ This work does not add AWS deployment, arbitrary backward navigation, automatic 
 
 [`prompt-for-field/`](../installer/prompt-for-field/index.ts) supplies shared field definitions to the terminal. The field component renders editing guidance and adjacent errors; the same strict parsers guard submission, configuration, and restored answers.
 
-[`session/`](../installer/session/index.ts) stores validated answers and phase checkpoints separately from complete configuration. [`wizard/`](../installer/wizard/index.ts) connects recovery, questions, checkpoints, and orchestration. Complete configuration is still saved before provisioning.
+[`entry/`](../installer/entry/index.ts) discovers configurations and drafts without writes, presents actions and file pickers, and checks that selected files still match after acquiring the writer. [`session/`](../installer/session/index.ts) stores validated answers and phase checkpoints separately from complete configuration. [`wizard/`](../installer/wizard/index.ts) connects the selected action, questions, checkpoints, recovery acknowledgement, and orchestration. Complete configuration is still saved before provisioning.
 
 Extend these Ink, Ink UI, parser, and persistence patterns rather than replacing them with a second UI or state-management library.
 
@@ -60,6 +62,8 @@ Measure terminal rows and columns and respond to resizing. Reduce decoration and
 Provide an inline fallback for limited terminals and screen-reader use, with an explicit `--no-fullscreen` escape hatch. Preserve the existing requirement for complete configuration and explicit approval in non-interactive mode. Piped output must not contain a full-screen interface, animated clock, or terminal-control sequences.
 
 Own cleanup in one entry-point lifecycle boundary. On cancellation and catchable failures, request command cancellation through the existing abort controller. Stop timers, finish owned-command cleanup, unmount the renderer, and await terminal restoration before printing the final result or recovery summary to the normal shell. Include the draft path and retained-lock guidance when relevant. Do not rely on teardown-time Ink output surviving alternate-screen exit.
+
+Show the entry action menu before opening diagnostics or an interactive writer. Discovery checks existing private files without creating directories, changing permissions, acquiring local locks, recovering stale writers, or running prerequisite commands. **Exit and do nothing** must restore the terminal successfully with no local writes or Azure calls. Keep welcome art above this menu until the first answer; later questions must not restart it.
 
 A failure summary may preserve a relevant warning or error, but must not repeat an earlier success or informational notice as the explanation for a later failure. Print an identical failure and notice only once.
 
@@ -108,11 +112,23 @@ Keep read-only remote checks separate from local syntax validation. Do not call 
 
 Preserve the current sensitive-input rule: rejected credential-bearing registry URLs must not be copied into help, notices, logs, or drafts. Clear the rejected registry attempt on submission as today. Drafts contain committed, validated answers, not raw keystrokes or search queries.
 
+### One deployment review
+
+After configuration and read-only checks, show one scrollable review before cloud mutations. Identify the installation, tenant, subscription, region, and resource inventory. Explain ongoing charges, local-source publication including uncommitted Hub changes, maintenance downtime and setup, and removal of the temporary provisioning job, identity, and grants. Keep the full review in the confirmation question so bounded activity history cannot hide it.
+
+[`azure/install/approval/`](../azure/install/approval/index.ts) obtains this run's approval. Pass it only to normal Terraform and image-publication operations; never replace the whole UI's confirmation handler with an automatic answer. Plans remain visible, persistent-resource deletion and replacement remain blocked, and automatic cleanup accepts only the exact temporary provisioning resources. Direct Terraform consumers retain per-plan confirmation by default.
+
+Recheck the source revision and working-tree status before the first publication; changed metadata stops for a new review. A failed operation retains its existing recovery menu. Replanning after a failure requires fresh plan approval, and a failed image build retains fresh dirty-source consent on retry. Do not add automatic retries, clear retained leases, relax existing network restrictions, or replay ambiguous database work using the initial approval.
+
+Keep deployment approval in memory, never in configuration, drafts, or diagnostic payloads. Resume warns about the interruption and revalidates the target without a separate acknowledgment prompt; its initial deployment review and any actual lock recovery still obtain fresh consent. Configuration-only and Exit paths do not request deployment approval.
+
 ### A separate draft-session contract
 
 Keep the reusable deployment configuration and the unfinished wizard session separate. Do not make the deployment schema accept arbitrary partial objects.
 
-Use a versioned companion draft beside the selected configuration, derived from its absolute path, such as `<config path>.draft.json`. Different `--config` targets must not share a draft. Continue to keep real default files under ignored `.local/`.
+Use a versioned companion draft beside the selected configuration, derived from its absolute path, such as `<config path>.draft.json`. Different configuration paths must not share a draft. Continue to keep real default files under ignored `.local/`.
+
+Create chooses a fresh configuration/draft path and starts without saved answers. Preserve all previous files, including invalid drafts and stale writer records. An unused explicit `--config` path may be used; an occupied path gets a uniquely named sibling instead. Use exclusive first-file publication and the existing same-directory atomic writer so a concurrent file cannot be overwritten. New local configuration is not permission to adopt existing Azure resources.
 
 The draft contains only:
 
@@ -127,11 +143,13 @@ Save after each accepted answer and meaningful phase transition. Await the check
 
 If saving fails, show a distinct notice and allow the operator to repair the local problem and retry. Keep the previous good draft and in-memory answers. Do not silently claim that progress is saved or start the next cloud-changing operation.
 
-At startup, offer `Resume setup`, `Start over`, and `Exit` when a compatible unfinished draft exists. Show its safe target summary and last-save time. Reject a draft associated with another configuration path rather than rebinding the session. Starting over requires confirmation and discards only the local draft; it does not delete cloud resources or break leases. Preserve an unreadable or unsupported draft and explain the problem rather than silently deleting it.
+At startup, offer **Create a new installation**, **Update existing installation**, and **Exit and do nothing**. Add **Resume in progress setup** only when read-only discovery finds a compatible unfinished draft. Update and Resume use local configurations/drafts under `.local/` plus explicit config-file paths, not a separate catalog. Picker labels identify the installation, subscription, region, and path. Distinguish saved configuration, unfinished setup, and files needing attention; none proves deployment.
 
-On resume, revalidate saved answers and requery sign-in, tenants, subscriptions, and region choices before relying on them. If a parent choice becomes invalid or changes, invalidate its dependent choices and derived defaults. Keep independent answers where safe. Do not silently switch to another tenant or subscription. Preserve the existing saved-installation target and owner restrictions: lost access to a committed installation requires restored access or a different configuration path, not retargeting the existing installation.
+Resume shows the draft's target and last-save time. Reject a draft associated with another configuration path rather than rebinding it. Update must not discard or consume a draft: direct the operator back to Resume, or require manual review for invalid or conflicting files. Entering an external config-file path with a compatible draft makes Resume available at the entry menu. Preserve invalid or untrusted files without printing their contents. Starting a new installation uses another path rather than deleting an old draft.
 
-For questionnaire interruptions, return to the first unresolved question after revalidation. For deployment interruptions, restore configuration and show a recovery review; do not jump directly to the recorded command. Run the existing reconciliation and approval flow, and preserve its refusal to proceed when leases or database provisioning state require operator review.
+On resume, revalidate saved answers and requery sign-in, tenants, subscriptions, and region choices before relying on them. If a parent choice becomes invalid or changes, invalidate its dependent choices and derived defaults. Keep independent answers where safe. Do not silently switch to another tenant or subscription. Updates and resumes with complete saved configuration display and keep the name, owner, tenant, subscription, region, and resource group fixed; do not ask editable identity/target questions and reject their answers afterward. Lost access or service support requires restored access or another configuration path, not retargeting the existing installation. Refuse conflicting draft answers before checkpoints or cloud checks, preserving both files.
+
+For questionnaire interruptions, return to the first unresolved question after revalidation. For deployment interruptions, require the saved complete configuration and show a recovery review; do not jump directly to the recorded command or infer empty state when that configuration is missing. Run the existing reconciliation and approval flow, and preserve its refusal to proceed when leases or database provisioning state require operator review.
 
 The draft's progress marker is a hint for the interface, never evidence that a cloud operation succeeded. A local writer lock is not an Azure installation or release lease. Recovering a stale local writer must never clear a cloud lease.
 
@@ -149,7 +167,7 @@ Keep detailed operations, such as image publication or temporary database-access
 
 Distinguish pending, current, completed, skipped, and blocked states. Advance only after the relevant operation actually returns successfully. Do not invent percentages or mark an operation complete because its command started. Use the actual path for configuration-only runs and existing-installation updates; stages not requested or not needed must not appear successful.
 
-After resume, distinguish restored answers from operations verified in this run. An interrupted deployment requires a warning and recovery acknowledgement before returning to configuration checks. Only the existing deployment engine can establish resource state; the saved phase cannot skip reconciliation.
+After resume, distinguish restored answers from operations verified in this run. An interrupted deployment shows a warning before returning to configuration checks, followed by this run's deployment review and any required operational recovery. Only the existing deployment engine can establish resource state; the saved phase cannot skip reconciliation.
 
 ### Guided operational recovery
 
@@ -183,7 +201,7 @@ Explain eventual permission propagation without treating every authorization fai
 
 ### Minimal local diagnostics
 
-Use the same OpenTelemetry SDK and Pino libraries as Hub, with an installer-specific adapter rather than importing Hub server code. Keep one private local JSONL file per process run beside the configuration, separate from the resumable draft. Do not initialize a global tracer provider or a remote exporter.
+Use the same OpenTelemetry SDK and Pino libraries as Hub, with an installer-specific adapter rather than importing Hub server code. Open a private local JSONL file beside the selected configuration only after accepting a non-exit action and acquiring its writer, separate from the resumable draft. Read-only entry discovery and Exit create no diagnostics. Non-interactive deployment starts diagnostics after accepting explicit configuration and approval. Do not initialize a global tracer provider or a remote exporter.
 
 Record a run span, phase spans, and command or prompt spans. Use static identifiers rather than user-provided labels. Write a start record before each action so a crash leaves a useful breadcrumb; write the final status, duration, parent IDs, and numeric exit code when it finishes. Flush records as they are written and end open phase/run spans after normal terminal and session cleanup. Report persistence failures explicitly.
 
@@ -193,7 +211,7 @@ Terminal diagnostics and persisted telemetry have different disclosure rules. De
 
 ### Welcome and time
 
-Show the ASCII GitHub silhouette beside Replica's wordmark above the first question on every full-screen launch, including existing installations and draft recovery. The silhouette is adapted from the MIT-licensed Primer Octicons mark. Use the expanded block-letter banner at 80 columns by 36 rows or larger and the compact mark and name below that size. Reserve the banner's actual height before sizing the question panel. Enable it before offering recovery choices, not after reading or changing the draft. The terminal dismisses it when the first question resolves. Keep the existing first action: cloud selection for a new questionnaire or recovery choices for an unfinished session. Avoid animation or a separate "press Enter to begin" screen.
+Show the ASCII GitHub silhouette beside Replica's wordmark above the entry menu on every full-screen launch, including existing installations and draft recovery. The silhouette is adapted from the MIT-licensed Primer Octicons mark. Use the expanded block-letter banner at 80 columns by 36 rows or larger and the compact mark and name below that size. Reserve the banner's actual height before sizing the question panel. Enable it before presenting entry actions, without changing the draft. The terminal dismisses it when the first question resolves. Cloud selection and resume revalidation follow the selected entry action without restarting the welcome. Avoid animation or a separate "press Enter to begin" screen.
 
 Inline mode and screen-reader use keep a compact header without art. Full-screen terminals smaller than 60 columns by 24 rows also omit the art. Keep the product name and instructions.
 
@@ -207,7 +225,8 @@ For this first version, the timer restarts when the process restarts. The resume
 | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------- |
 | `installer/terminal/` and focused presentation components | Layout, semantic styling, keyboard interaction, field feedback, progress rendering, timer, and terminal lifecycle. | Azure commands, Terraform policy, or persistence decisions.               |
 | Existing field definitions and prompt helpers             | Validation, normalization, contextual help, and accepted-answer behavior.                                          | Terminal colors or resource creation.                                     |
-| A small `installer/session/` boundary                     | Draft schema, private serialized persistence, writer ownership, and recovery choices.                              | Cloud credentials, deployment approval, or proof of cloud completion.     |
+| A small `installer/session/` boundary                     | Draft schema, private serialized persistence, writer ownership, and safe read-only restoration.                     | Cloud credentials, deployment approval, or proof of cloud completion.     |
+| `installer/entry/`                                        | Read-only local discovery, entry actions, config-file selection, and fresh-path selection.                           | Azure discovery, writable setup before an action, or deleting drafts.     |
 | `installer/wizard/`                                       | Connects questions, validated answers, checkpoints, and high-level progress.                                       | Resource-specific deployment logic.                                       |
 | `azure/install/` and `terraform/`                         | Discovery, ownership checks, module invocation, plan review, approvals, and safe operation order.                  | Duplicated Terraform resource reconciliation, React, or terminal styling. |
 | Terraform root modules                                    | Resource definitions, dependencies, and reconciliation, including Azure-assigned defaults.                         | Ink, React, wizard sessions, or terminal prompts.                         |
@@ -236,7 +255,8 @@ Use existing Vitest and Ink testing tools. Follow the [test-writing skill](../..
 
 | Area                 | Required evidence                                                                                                                                                                                       |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Startup              | Each full-screen launch shows the welcome above its first question when space permits, including cloud selection and draft recovery. It disappears after the first answer.                              |
+| Startup              | Each full-screen launch shows welcome above the entry menu when space permits. Exit creates no files/locks/logs and runs no commands. Welcome disappears after the first answer.                        |
+| Entry selection      | Fresh Create paths preserve previous files; Update fixes saved identity/target; Resume is conditional and selects only the associated draft; invalid/external paths remain safe and actionable.          |
 | Fields               | Typing and paste update local feedback; errors stay with their input; invalid Enter does not advance; correction works; registry credentials never enter saved or diagnostic data.                      |
 | Drafts               | Restart restores accepted answers; writes are ordered and private; a failed write preserves the previous draft; concurrent writers are refused; corrupt or unsupported drafts are preserved.            |
 | Changed targets      | Lost authorization or a changed tenant/subscription invalidates dependent choices without changing independent answers or silently retargeting deployment.                                              |

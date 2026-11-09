@@ -1,7 +1,6 @@
 import { configureAzure } from "../../azure/install/configure/index.ts"
-import { parseConfig } from "../config/index.ts"
+import { assertDraftMatchesConfig, loadConfig, parseConfig, saveConfig } from "../config/index.ts"
 import { installAzure } from "../../azure/install/index.ts"
-import { saveConfig } from "../config/index.ts"
 import type { DeploymentConfig, RunCommand, WizardUI } from "../types.ts"
 import type { WizardSession } from "../session/index.ts"
 import { formatDeploymentSummary } from "../deployment-summary/index.ts"
@@ -14,6 +13,7 @@ export async function runWizard({
   existing,
   configureOnly = false,
   session: originalSession,
+  entryAction = originalSession?.draft ? "resume" : existing ? "update" : "create",
 }: {
   ui: WizardUI
   run: RunCommand
@@ -22,8 +22,19 @@ export async function runWizard({
   existing?: DeploymentConfig
   configureOnly?: boolean
   session?: WizardSession
+  entryAction?: "create" | "update" | "resume"
 }): Promise<string> {
   if (existing) existing = parseConfig(existing)
+  if (originalSession?.problem) throw new Error(originalSession.problem)
+  if (existing) assertDraftMatchesConfig(existing, originalSession?.draft)
+  if (
+    (entryAction === "create" && (existing || originalSession?.draft)) ||
+    (entryAction === "update" && (!existing || originalSession?.draft)) ||
+    (entryAction === "resume" && !originalSession?.draft)
+  )
+    throw new Error(
+      "Selected setup does not match the entry action. Configuration and draft were preserved.",
+    )
   const checkpoint = async <T>(action: () => Promise<T>): Promise<T> => {
     while (true) {
       try {
@@ -66,45 +77,18 @@ export async function runWizard({
       await terminal.phase?.(phase)
     },
   }
-  ui.welcome?.(true)
-  if (session?.draft || session?.problem) {
-    const draft = session.draft
-    if (session.problem) {
-      if (ui.notice) ui.notice("error", session.problem)
-      else ui.status(session.problem)
-    }
-    const message = draft
-      ? `An unfinished setup was saved ${draft.updatedAt}.\nInstallation: ${draft.answers.name ?? "not named"}; last stage: ${draft.phase}.\nTarget: Azure / ${draft.answers.tenantId ?? "tenant not selected"} / ${draft.answers.subscriptionId ?? "subscription not selected"} / ${draft.answers.location ?? "region not selected"}.\nResume setup?`
-      : "The saved session needs attention. Choose how to continue."
-    const choice = await ui.select(message, [
-      ...(draft ? [{ label: "Resume setup", value: "resume" }] : []),
-      { label: "Start over (local draft only)", value: "start-over" },
-      { label: "Exit and keep the draft", value: "exit" },
-    ])
-    if (choice === "exit") throw new Error("Setup stopped. The saved draft was preserved.")
-    if (choice === "start-over") {
-      if (
-        !(await ui.confirm(
-          "Discard this local draft? Cloud resources and installation/release locks will not be changed.",
-        ))
-      ) {
-        throw new Error("Setup stopped. The saved draft was preserved.")
-      }
-      await session.restart()
-    } else if (choice !== "resume" || !draft)
-      throw new Error("Choose a supported session recovery action.")
-    if (session.draft?.deploymentStarted) {
-      const warning =
-        "This setup was interrupted during deployment. A saved stage does not prove that the operation completed. After revalidating the target, the wizard can inspect retained installation/release locks and guide recovery with fresh consent. It never automatically clears a lock or replays ambiguous database provisioning."
-      if (ui.notice) ui.notice("warning", warning)
-      else ui.status(warning)
-      await ui.wait(
-        "Continue to revalidate your configuration. Retained locks will offer recovery checks before proceeding; deployment and lock recovery still require fresh approval.",
+  if (entryAction === "resume" && session?.draft?.deploymentStarted) {
+    if (!existing)
+      throw new Error(
+        "Restore the saved configuration before resuming an interrupted deployment. The draft was preserved.",
       )
-    }
+    const warning =
+      "This setup was interrupted during deployment. A saved stage does not prove that the operation completed. After revalidating the target, the wizard can inspect retained installation/release locks and guide recovery with fresh consent. It never automatically clears a lock or replays ambiguous database provisioning."
+    if (ui.notice) ui.notice("warning", warning)
+    else ui.status(warning)
   }
   await ui.phase?.("cloud")
-  const cloud = session?.draft?.answers.cloud ?? (await ui.cloud())
+  const cloud = existing?.cloud ?? session?.draft?.answers.cloud ?? (await ui.cloud())
   if (cloud !== "azure") throw new Error("This cloud is not available yet.")
   await session?.answer("cloud", cloud)
   const config = await configureAzure(ui, run, existing, session)
@@ -121,7 +105,15 @@ export async function runWizard({
     )
   }
   await ui.phase?.("review")
-  await checkpoint(() => saveConfig(path, config))
+  const save = async (next: DeploymentConfig, previous?: DeploymentConfig) =>
+    checkpoint(async () => {
+      if (previous && JSON.stringify(await loadConfig(path)) !== JSON.stringify(previous))
+        throw new Error(
+          "The saved configuration changed during setup. It was not overwritten; restart to review it.",
+        )
+      await saveConfig(path, next, { exclusive: !previous })
+    })
+  await save(config, existing)
   ui.status(`Saved non-secret configuration to ${path}`)
   if (configureOnly) {
     await session?.complete()
@@ -135,7 +127,7 @@ export async function runWizard({
     async saveNpmRegistry(registry) {
       await session?.answer("useProxy", true)
       await session?.answer("npmRegistry", registry)
-      await checkpoint(() => saveConfig(path, { ...config, npmRegistry: registry }))
+      await save({ ...config, npmRegistry: registry }, config)
       config.npmRegistry = registry
     },
   })

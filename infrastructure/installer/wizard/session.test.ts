@@ -1,15 +1,26 @@
 import { randomUUID } from "node:crypto"
-import { mkdir, readFile, rm } from "node:fs/promises"
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { setImmediate } from "node:timers/promises"
 import { afterEach, expect, it, vi } from "vitest"
 
 import { openSession } from "../session/index.ts"
-import type { RunCommand, WizardPhase, WizardUI } from "../types.ts"
+import type { DeploymentConfig, RunCommand, WizardPhase, WizardUI } from "../types.ts"
 import { runWizard } from "./index.ts"
 
 const directories: string[] = []
 const sessions: Awaited<ReturnType<typeof openSession>>[] = []
+
+function savedConfiguration(): DeploymentConfig {
+  return {
+    version: 1, cloud: "azure", name: "team-hub", owner: "platform-team",
+    azure: {
+      tenantId: "00000000-0000-0000-0000-000000000001",
+      subscriptionId: "00000000-0000-0000-0000-000000000002",
+      location: "eastus2", resourceGroup: "team-hub-rg",
+    },
+  }
+}
 
 async function target() {
   const directory = resolve(`.installer-wizard-session-test-${randomUUID()}`)
@@ -128,12 +139,6 @@ it("resumes accepted answers after failure, rechecks Azure choices, and complete
       return field.parse("team-hub-rg")
     }),
     select: vi.fn<WizardUI["select"]>(async (_message, options) => {
-      if (options.some(({ value }) => value === "resume")) {
-        expect(options.map(({ value }) => value)).toEqual(
-          expect.arrayContaining(["resume", "start-over", "exit"]),
-        )
-        return "resume"
-      }
       expect(options.map(({ value }) => value)).toEqual(["westus2"])
       return "westus2"
     }),
@@ -149,11 +154,11 @@ it("resumes accepted answers after failure, rechecks Azure choices, and complete
   })
 
   expect(resumed.cloud).not.toHaveBeenCalled()
-  expect(resumed.welcome).toHaveBeenCalledWith(true)
+  expect(resumed.welcome).not.toHaveBeenCalled()
   expect(prerequisitePhases).toEqual(["checks"])
   expect(checkpointPhases).toEqual(["checks"])
   expect(resumed.field).toHaveBeenCalledOnce()
-  expect(resumed.select).toHaveBeenCalledTimes(2)
+  expect(resumed.select).toHaveBeenCalledOnce()
   expect(run.mock.calls.some(([, args]) => args[0] === "account" && args[1] === "list")).toBe(true)
   expect(run.mock.calls.some(([, args]) => args[0] === "rest")).toBe(true)
   expect(run.mock.calls.filter(([, args]) => args[0] === "provider")).toHaveLength(4)
@@ -167,23 +172,24 @@ it("resumes accepted answers after failure, rechecks Azure choices, and complete
   await expect(readFile(activeSession.path, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
 })
 
-it("requires a recovery acknowledgement for an interrupted deployment without reusing cloud approval", async () => {
+it("warns and obtains fresh deployment consent after interruption without a separate resume acknowledgement", async () => {
   const { directory, path, session } = await target()
+  const existing = savedConfiguration()
+  await writeFile(path, JSON.stringify(existing), { mode: 0o600 })
   await session.answer("cloud", "azure")
-  await session.answer("name", "team-hub")
-  await session.phase("provision")
-  await session.close()
-  const reopened = await openSession(path)
-  sessions.push(reopened)
+  await session.answer("useProxy", false)
   const events: string[] = []
-  const stop = new Error("Synthetic stop at fresh prerequisite checks")
+  const interrupted = new Error("Synthetic interruption at the first cloud write")
   const ui: WizardUI = {
     cloud: vi.fn(async () => "azure" as const),
     text: vi.fn(),
-    select: vi.fn(async () => "resume"),
-    confirm: vi.fn(),
+    select: vi.fn(async () => { throw new Error("Entry already selected Resume") }),
+    confirm: vi.fn(async () => {
+      events.push("approval")
+      return true
+    }),
     wait: vi.fn(async () => {
-      events.push("acknowledged")
+      throw new Error("Resume must not require another acknowledgement")
     }),
     status: vi.fn(),
     notice: vi.fn((level) => {
@@ -191,81 +197,125 @@ it("requires a recovery acknowledgement for an interrupted deployment without re
     }),
   }
   const run = vi.fn<RunCommand>(async (executable, args) => {
-    events.push("checks")
-    if (args[0] === "account" && args[1] === "list") throw stop
-    if (executable === "terraform") return JSON.stringify({ terraform_version: "1.13.4" })
-    return executable === "az" && args[0] === "version" ? "{}" : ""
+    if (executable === "git") {
+      events.push("source")
+      return args[0] === "rev-parse" ? "a".repeat(40) : ""
+    }
+    if (executable === "terraform" && args[0] === "version")
+      return JSON.stringify({ terraform_version: "1.13.4" })
+    if (executable === "docker" && !args.some((arg) => ["build", "push", "login"].includes(arg)))
+      return ""
+    if (executable === "az") {
+      if (args[0] === "version" || args.includes("--help")) return "{}"
+      if (args[0] === "account" && args[1] === "list") {
+        events.push("checks")
+        return JSON.stringify([{
+          id: existing.azure.subscriptionId,
+          tenantId: existing.azure.tenantId,
+          name: "Authorized subscription",
+          state: "Enabled",
+        }])
+      }
+      if (args[0] === "account" && args[1] === "show") return JSON.stringify({
+        id: existing.azure.subscriptionId,
+        tenantId: existing.azure.tenantId,
+      })
+      if (args[0] === "rest")
+        return JSON.stringify([{ name: "eastus2", displayName: "East US 2" }])
+      if (args[0] === "provider" && args[1] === "show")
+        return JSON.stringify({
+          registrationState: "Registered",
+          resourceTypes: ["managedEnvironments", "flexibleServers", "registries", "vaults"].map(
+            (resourceType) => ({ resourceType, locations: ["East US 2"] }),
+          ),
+        })
+      if (args[0] === "group" && args[1] === "exists") return "false"
+      if (args[0] === "group" && args[1] === "create") throw interrupted
+    }
+    throw new Error(`Unexpected operation ${executable} ${args.join(" ")}`)
   })
 
-  await expect(runWizard({ ui, run, path, directory, session: reopened })).rejects.toBe(stop)
-
-  expect(events.indexOf("notice:warning")).toBeGreaterThanOrEqual(0)
-  expect(events.indexOf("acknowledged")).toBeGreaterThan(events.indexOf("notice:warning"))
-  expect(events.indexOf("checks")).toBeGreaterThan(events.indexOf("acknowledged"))
-  expect(ui.confirm).not.toHaveBeenCalled()
-  expect(reopened.draft?.deploymentStarted).toBe(true)
-  expect(await readFile(reopened.path, "utf8")).toContain('"deploymentStarted": true')
-})
-
-it.each(["exit", "start-over"])(
-  "preserves the draft without cloud discovery when choosing %s without confirming a restart",
-  async (choice) => {
-    const { directory, path, session } = await target()
-    await session.answer("name", "team-hub")
-    await session.answer("owner", "platform-team")
-    const previous = await readFile(session.path, "utf8")
-    const run = vi.fn<RunCommand>()
-    const ui: WizardUI = {
-      cloud: vi.fn(),
-      text: vi.fn(),
-      select: vi.fn<WizardUI["select"]>(async (_message, options) => {
-        expect(options.map(({ value }) => value)).toEqual(
-          expect.arrayContaining(["resume", "start-over", "exit"]),
-        )
-        return "exit"
-      }),
-      confirm: vi.fn(async () => false),
-      wait: vi.fn(),
-      status: vi.fn(),
-    }
-    vi.mocked(ui.select).mockResolvedValueOnce(choice)
-
-    await runWizard({ ui, run, path, directory, session, configureOnly: true }).catch(
-      () => undefined,
-    )
-
-    expect(ui.select).toHaveBeenCalled()
-    expect(ui.confirm).toHaveBeenCalledTimes(choice === "start-over" ? 1 : 0)
-    expect(ui.cloud).not.toHaveBeenCalled()
-    expect(run).not.toHaveBeenCalled()
-    expect(await readFile(session.path, "utf8")).toBe(previous)
-  },
-)
-
-it("restarts the local questionnaire only after confirmation and does not inherit the discarded answers", async () => {
-  const { directory, path, session } = await target()
-  await session.answer("name", "discarded-hub")
-  await session.answer("owner", "discarded-team")
-  const stop = new Error("Stop at the new cloud choice")
-  const run = vi.fn<RunCommand>()
-  const ui: WizardUI = {
-    cloud: vi.fn(async () => {
-      throw stop
-    }),
-    text: vi.fn(),
-    select: vi.fn(async () => "start-over"),
-    confirm: vi.fn(async () => true),
-    wait: vi.fn(),
-    status: vi.fn(),
-  }
-
-  await expect(runWizard({ ui, run, path, directory, session, configureOnly: true })).rejects.toBe(
-    stop,
-  )
+  await expect(runWizard({ ui, run, path, directory, existing, session })).rejects.toBe(interrupted)
 
   expect(ui.confirm).toHaveBeenCalledOnce()
-  expect(ui.cloud).toHaveBeenCalledOnce()
-  expect(session.draft?.answers.name).toBeUndefined()
-  expect(session.draft?.answers.owner).toBeUndefined()
-  expect(run).not.toHaveBeenCalled()
+  expect(session.draft?.deploymentStarted).toBe(true)
+  const persisted = JSON.parse(await readFile(session.path, "utf8"))
+  expect(persisted).not.toHaveProperty("approval")
+  expect(persisted.answers).not.toHaveProperty("approval")
+  expect(JSON.parse(await readFile(path, "utf8"))).toEqual(existing)
+  await session.close()
+  const reopened = await openSession(path)
+  sessions.push(reopened)
+  events.length = 0
+  run.mockClear()
+  ui.confirm = vi.fn(async () => {
+    events.push("approval")
+    return false
+  })
+
+  await expect(
+    runWizard({ ui, run, path, directory, existing, session: reopened }),
+  ).rejects.toThrow(/cancel/i)
+
+  expect(events.indexOf("notice:warning")).toBeGreaterThanOrEqual(0)
+  expect(events.indexOf("checks")).toBeGreaterThan(events.indexOf("notice:warning"))
+  expect(events.indexOf("approval")).toBeGreaterThan(events.lastIndexOf("source"))
+  expect(run.mock.calls.some(([, args]) => args[0] === "account" && args[1] === "show")).toBe(true)
+  expect(run.mock.calls.some(([executable]) => executable === "git")).toBe(true)
+  expect(run.mock.calls.some(([, args]) => args[0] === "group" && args[1] === "create")).toBe(false)
+  expect(ui.confirm).toHaveBeenCalledOnce()
+  expect(ui.wait).not.toHaveBeenCalled()
+  expect(ui.select).not.toHaveBeenCalled()
+  expect(ui.cloud).not.toHaveBeenCalled()
+  expect(ui.text).not.toHaveBeenCalled()
+  expect(reopened.draft?.deploymentStarted).toBe(true)
+  expect(JSON.parse(await readFile(reopened.path, "utf8"))).not.toHaveProperty("approval")
+  expect(JSON.parse(await readFile(path, "utf8"))).toEqual(existing)
 })
+
+it.each(["invalid draft", "conflicting draft", "update with draft", "deployment without config"] as const)(
+  "preserves %s before cloud discovery, checkpoints, or a destructive recovery menu",
+  async (kind) => {
+    const { directory, path, session } = await target()
+    let active = session
+    let existing: DeploymentConfig | undefined
+    if (kind === "invalid draft") {
+      await session.close()
+      await writeFile(session.path, '{"version":', { mode: 0o600 })
+      active = await openSession(path)
+      sessions.push(active)
+    } else {
+      await session.answer("name", "team-hub")
+      await session.answer("owner", kind === "conflicting draft" ? "other-team" : "platform-team")
+      if (kind === "deployment without config") await session.phase("provision")
+      else {
+        existing = savedConfiguration()
+        await writeFile(path, JSON.stringify(existing), { mode: 0o600 })
+      }
+    }
+    const previous = await readFile(active.path, "utf8")
+    const phase = vi.spyOn(active, "phase")
+    const answer = vi.spyOn(active, "answer")
+    const restart = vi.spyOn(active, "restart")
+    const run = vi.fn<RunCommand>()
+    const ui: WizardUI = {
+      cloud: vi.fn(), text: vi.fn(), select: vi.fn(), confirm: vi.fn(),
+      wait: vi.fn(), status: vi.fn(),
+    }
+
+    await expect(runWizard({
+      ui, run, path, directory, session: active, existing, configureOnly: true,
+      ...(kind === "update with draft" ? { entryAction: "update" as const } : {}),
+    })).rejects.toThrow()
+
+    expect(ui.select).not.toHaveBeenCalled()
+    expect(ui.confirm).not.toHaveBeenCalled()
+    expect(ui.cloud).not.toHaveBeenCalled()
+    expect(phase).not.toHaveBeenCalled()
+    expect(answer).not.toHaveBeenCalled()
+    expect(restart).not.toHaveBeenCalled()
+    expect(run).not.toHaveBeenCalled()
+    expect(await readFile(active.path, "utf8")).toBe(previous)
+    if (existing) expect(JSON.parse(await readFile(path, "utf8"))).toEqual(existing)
+  },
+)

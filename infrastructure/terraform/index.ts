@@ -13,12 +13,14 @@ export function terraformModule({
   env,
   run,
   ui,
+  preapproved = false,
 }: {
   directory: string
   dataDirectory: string
   env: NodeJS.ProcessEnv
   run: RunCommand
   ui: InstallerUI
+  preapproved?: boolean
 }) {
   const command = (args: string[]) =>
     run("terraform", [`-chdir=${directory}`, ...args], {
@@ -35,7 +37,14 @@ export function terraformModule({
     async output<T>(name: string): Promise<T> {
       return JSON.parse(await command(["output", "-json", name])) as T
     },
-    async apply(variables: string, { destroy = false } = {}) {
+    async apply(
+      variables: string,
+      {
+        destroy = false,
+        allowedDeletions,
+      }: { destroy?: boolean; allowedDeletions?: readonly string[] } = {},
+    ) {
+      let requiresConfirmation = !preapproved
       while (true) {
         const path = join(dataDirectory, `${randomUUID()}.tfplan`)
         let failure: CommandExecutionError
@@ -76,6 +85,21 @@ export function terraformModule({
             ui.notice?.("error", message)
             throw new Error(message)
           }
+          if (
+            destroy &&
+            preapproved &&
+            changes.some(
+              ({ address, change }) =>
+                !allowedDeletions?.includes(address) ||
+                change.actions.length !== 1 ||
+                change.actions[0] !== "delete",
+            )
+          ) {
+            const message =
+              "Temporary cleanup plan contains resources or actions outside the approved provisioning job, identity, and grants. No cleanup changes were applied; review the plan and state."
+            ui.notice?.("error", message)
+            throw new Error(message)
+          }
           for (const change of changes)
             ui.status(`${change.change.actions.join("/")} ${change.address}`)
           if (changes.length)
@@ -85,6 +109,7 @@ export function terraformModule({
             )
           if (
             changes.length &&
+            requiresConfirmation &&
             !(await ui.confirm(
               destroy
                 ? "Remove only the temporary database provisioning job, identity, and grants?"
@@ -116,6 +141,7 @@ export function terraformModule({
           details:
             "A failed apply can leave resources recorded in Terraform state. Replanning checks current state before proposing remaining changes; it does not roll back earlier changes or replay database setup.\nFor Azure Storage 403 errors, resource-management access and Blob data access are separate. A newly created Blob data role can take time to authorize requests. Check the deployment identity's Blob data permissions and applicable network rules and policy; do not enable shared keys to bypass denied access.\nState locks, ownership checks, and deletion/replacement guards remain enforced. Cleanup/destroy failures require the existing recovery procedure rather than this retry menu.",
         })
+        requiresConfirmation = true
         if (ui.notice) ui.notice("info", "Preparing a fresh Terraform plan for review.")
         else ui.status("Preparing a fresh Terraform plan for review.")
       }

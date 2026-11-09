@@ -4,7 +4,7 @@ import { join, relative, resolve } from "node:path"
 import { spawnSync } from "node:child_process"
 import { afterEach, describe, expect, it } from "vitest"
 
-import { openSession } from "./index.ts"
+import { openSession, readSession } from "./index.ts"
 
 type Session = Awaited<ReturnType<typeof openSession>>
 const directories: string[] = []
@@ -31,6 +31,90 @@ afterEach(async () => {
 })
 
 describe("wizard draft sessions", () => {
+  it("discovers a missing draft without creating directories or a writer lock", async () => {
+    const { directory } = await target()
+    const missing = join(directory, "not-created", "installation.json")
+
+    expect(await readSession(missing)).toEqual({})
+    expect(await readdir(directory)).toEqual([])
+  })
+
+  it("reads validated answers while another writer is open without taking or replacing its lock", async () => {
+    const { directory, configPath } = await target()
+    const session = await track(configPath)
+    await session.answer("owner", "platform-team")
+    const files = await readdir(directory)
+    const contents = await Promise.all(files.map((name) => readFile(join(directory, name), "utf8")))
+
+    expect(await readSession(configPath)).toEqual({ draft: session.draft })
+    expect(await readdir(directory)).toEqual(files)
+    expect(await Promise.all(files.map((name) => readFile(join(directory, name), "utf8")))).toEqual(
+      contents,
+    )
+    await expect(openSession(configPath)).rejects.toThrow()
+  })
+
+  it.each(["config", "draft", "lock", "recovery lock"] as const)(
+    "refuses a fresh session over an occupied %s without changing the occupied file",
+    async (kind) => {
+      const { directory, configPath } = await target()
+      const path = {
+        config: configPath,
+        draft: `${configPath}.draft.json`,
+        lock: `${configPath}.draft.json.lock`,
+        "recovery lock": `${configPath}.draft.json.lock.recovery`,
+      }[kind]
+      const contents = `synthetic occupied ${kind}\n`
+      await writeFile(path, contents, { mode: 0o600 })
+      const files = await readdir(directory)
+
+      await expect(openSession(configPath, { fresh: true })).rejects.toThrow()
+
+      expect(await readFile(path, "utf8")).toBe(contents)
+      expect(await readdir(directory)).toEqual(files)
+    },
+  )
+
+  it("does not overwrite a draft that appears after opening but before its first checkpoint", async () => {
+    const { configPath } = await target()
+    const session = await openSession(configPath, { fresh: true })
+    sessions.push(session)
+    const contents = "synthetic concurrently created draft\n"
+    await writeFile(session.path, contents, { mode: 0o600 })
+
+    await expect(session.answer("name", "team-hub")).rejects.toThrow()
+
+    expect(await readFile(session.path, "utf8")).toBe(contents)
+    expect(session.draft).toBeUndefined()
+  })
+
+  it.each(["valid replacement", "invalid replacement"] as const)(
+    "preserves an external %s instead of checkpointing, restarting, or completing over it",
+    async (kind) => {
+      const { configPath } = await target()
+      const session = await track(configPath)
+      await session.answer("name", "team-hub")
+      const accepted = session.draft
+      const contents = kind === "valid replacement"
+        ? JSON.stringify({ ...accepted, answers: { name: "team-hub", owner: "external-team" } })
+        : '{"version":'
+      await writeFile(session.path, contents, { mode: 0o600 })
+
+      for (const operation of [
+        () => session.answer("owner", "local-team"),
+        () => session.phase("review"),
+        () => session.clear(["name"]),
+        () => session.restart(),
+        () => session.complete(),
+      ]) {
+        await expect(operation()).rejects.toThrow()
+        expect(await readFile(session.path, "utf8")).toBe(contents)
+      }
+
+      expect(session.draft).toEqual(accepted)
+    },
+  )
+
   it("round-trips validated answers and phase beside the resolved config with private atomic checkpoints", async () => {
     const { configPath } = await target()
     const session = await track(relative(process.cwd(), configPath))
@@ -225,7 +309,7 @@ describe("wizard draft sessions", () => {
          await session.answer("owner", "interrupted-team");
          process.exit(0);`,
       ],
-      { cwd: process.cwd(), encoding: "utf8" },
+      { cwd: process.cwd(), env: { ...process.env, TSX_DISABLE_CACHE: "1" }, encoding: "utf8" },
     )
     expect(child.error).toBeUndefined()
     expect(child.status, child.stderr).toBe(0)
@@ -270,6 +354,11 @@ describe("wizard draft sessions", () => {
                 : {}),
             })
       await writeFile(draftPath, contents, { mode: 0o600 })
+      const discovered = await readSession(configPath)
+      expect(discovered.draft).toBeUndefined()
+      expect(discovered.problem).toEqual(expect.any(String))
+      expect(discovered.problem).not.toContain("synthetic-private-value")
+      expect(await readdir(directory)).toEqual(["installation.json.draft.json"])
       const session = await track(configPath)
 
       expect(session.draft).toBeUndefined()

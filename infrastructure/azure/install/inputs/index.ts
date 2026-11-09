@@ -136,6 +136,7 @@ export async function readInstallationInputs(
       "AZURE_STORAGE_ACCOUNT",
       "AZURE_STORAGE_CONTAINER",
       "AZURE_CLIENT_ID",
+      "AZURE_KEY_VAULT_SECRET_REFERENCES",
     ]
     const setup = reference(inputs.setup_database_secret)
     const identity = (secret: SecretReference) =>

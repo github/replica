@@ -16,6 +16,7 @@ import { deploymentResult } from "./result/index.ts"
 import type { AzureInstallation, DeploymentResult, Foundation, Installation } from "./types.ts"
 import { openInstallationWorkspace } from "./workspace/index.ts"
 import { readInstallationInputs } from "./inputs/index.ts"
+import { approveDeployment } from "./approval/index.ts"
 import {
   privateDirectory,
   privateFile,
@@ -101,26 +102,7 @@ async function install(
   const { azure } = context
   const names = installationNames(config)
   await ui.phase?.("review")
-  ui.status(
-    `Target: ${config.azure.subscriptionId} / ${config.azure.location}. App group: ${config.azure.resourceGroup}. State group: ${names.stateGroup}. Foundation group: ${names.foundationGroup}.`,
-  )
-  ui.status(
-    `State access: Azure authentication and Blob data permissions, without IP restrictions. npm registry: ${config.npmRegistry ?? "npm default"}. ACR: ${names.registry}. Key Vault: ${names.vault}.`,
-  )
-  ui.status(
-    "This creates billable PostgreSQL, Container Apps, Blob Storage, ACR, Key Vault and logs. It is not high availability. Hub sign-in requires manual configuration; hosted previews and reviews are not available yet.",
-  )
-  ui.notice?.(
-    "warning",
-    `Target: ${config.azure.subscriptionId} / ${config.azure.location}. App group: ${config.azure.resourceGroup}. State group: ${names.stateGroup}. Foundation group: ${names.foundationGroup}.\nThis creates billable PostgreSQL, Container Apps, Blob Storage, ACR, Key Vault and logs, publishes an image, and requires a maintenance window. Hub sign-in requires manual configuration; hosted previews and reviews are not available yet. HTTPS readiness does not verify authorization.`,
-  )
-  if (
-    !(await ui.confirm(
-      "Authorize resource creation, role assignments, image publication, and a maintenance-window deployment in this subscription?",
-    ))
-  ) {
-    throw new Error("Installation cancelled before cloud changes.")
-  }
+  context.approval = await approveDeployment(context)
   await ui.phase?.("provision")
   for (const namespace of [
     "Microsoft.App",
@@ -165,6 +147,7 @@ async function install(
         run,
         ui,
         env: environment,
+        preapproved: true,
       })
     await verifyInstallationGroup(context, names.foundationGroup)
     await verifyInstallationGroup(context, config.azure.resourceGroup)
@@ -250,19 +233,6 @@ async function install(
       image,
       await state.backend("provision"),
     )
-    ui.notice?.(
-      "warning",
-      `Release ${image} in subscription ${config.azure.subscriptionId}. Hub will be unavailable while all old revisions stop and setup runs. This requires fresh maintenance-window approval.`,
-    )
-    if (
-      !(await ui.confirm(
-        "Stop all Hub revisions, run setup, and release this image? Hub will be unavailable during this maintenance window.",
-      ))
-    ) {
-      throw new Error(
-        "Release cancelled. Infrastructure remains provisioned; the installation lock is retained for review.",
-      )
-    }
     await ui.phase?.("release")
     await recoverLease(context, installation.storage_account, "releases", "deployment.lock")
     ui.status("Running the serialized maintenance-window release")
