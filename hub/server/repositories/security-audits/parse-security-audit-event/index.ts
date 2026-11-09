@@ -43,6 +43,18 @@ const eventSchema = z.discriminatedUnion("type", [
     .strict(),
   z
     .object({
+      actorMembershipId: z.uuid(),
+      authorizationId: z.uuid(),
+      id: z.uuid(),
+      operation: z.enum(["DESIGNATE_ADMINISTRATORS", "REVOKE_ADMINISTRATOR"]),
+      phase: z.enum(["requested", "verified", "completed", "denied", "expired", "cancelled"]),
+      reason: z.string().min(1).max(100).optional(),
+      targetCount: z.number().int().min(1).max(50),
+      type: z.literal("administrator_authorization"),
+    })
+    .strict(),
+  z
+    .object({
       id: z.uuid(),
       type: z.literal("bootstrap_attempt_denied"),
       reason: z.enum(["invalid_secret", "rate_limited"]),

@@ -89,6 +89,24 @@ export function getSecurityAuditData(
           reason: event.reason,
         },
       }
+    case "administrator_authorization":
+      return {
+        id: event.id,
+        action: `administrator.authorization.${event.phase}`,
+        outcome:
+          event.phase === "denied" || event.phase === "expired"
+            ? SecurityAuditOutcome.DENIED
+            : SecurityAuditOutcome.SUCCESS,
+        targetType: "sensitive_authorization",
+        targetId: event.authorizationId,
+        context: {
+          actorMembershipId: event.actorMembershipId,
+          operation: event.operation.toLowerCase(),
+          phase: event.phase,
+          ...(event.reason ? { reason: event.reason } : {}),
+          targetCount: event.targetCount,
+        },
+      }
     case "session_created":
     case "session_ended":
       return {

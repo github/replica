@@ -12,9 +12,21 @@ import type {
 
 const inputSchema = z
   .object({
-    purpose: z.enum(["SIGN_IN", "ADMIN_ENROLLMENT"]),
+    purpose: z.enum(["SIGN_IN", "ADMIN_ENROLLMENT", "ADMINISTRATOR_MANAGEMENT"]),
+    sensitiveAuthorizationId: z.uuid().optional(),
   })
   .strict()
+  .superRefine((value, context) => {
+    if (
+      (value.purpose === "ADMINISTRATOR_MANAGEMENT") !==
+      (value.sensitiveAuthorizationId !== undefined)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Administrator management attempts require one sensitive authorization.",
+      })
+    }
+  })
 const ATTEMPT_LIFETIME_MS = 10 * 60 * 1_000
 
 export async function startAuthenticationProof(
@@ -46,8 +58,9 @@ export async function startAuthenticationProof(
   const codeVerifier = dependencies.createOpaqueValue()
   const nonce = dependencies.createOpaqueValue()
   const codeChallenge = createHash("sha256").update(codeVerifier).digest("base64url")
+  const authorizationAttemptId = dependencies.createId()
   const { expiresAt } = await dependencies.createAttempt({
-    id: dependencies.createId(),
+    id: authorizationAttemptId,
     providerRevisionId: selectedRevision.id,
     stateDigest: hashAuthenticationValue(state),
     browserBindingDigest: hashAuthenticationValue(browserBinding),
@@ -55,17 +68,19 @@ export async function startAuthenticationProof(
     lifetimeSeconds: ATTEMPT_LIFETIME_MS / 1_000,
     nonceCiphertext: dependencies.encryptNonce(nonce),
     purpose: parsed.purpose,
+    sensitiveAuthorizationId: parsed.sensitiveAuthorizationId,
     sessionRevocationRevision: proofState.sessionRevocationRevision,
   })
 
   const authorizationUrl = await dependencies.adapter.createAuthorizationUrl({
     callbackUri: dependencies.callbackUri,
     codeChallenge,
-    freshAuthentication: parsed.purpose === "ADMIN_ENROLLMENT",
+    freshAuthentication: parsed.purpose !== "SIGN_IN",
     nonce,
     state,
   })
   return {
+    authorizationAttemptId,
     authorizationUrl: authorizationUrl.toString(),
     browserBinding,
     expiresAt,

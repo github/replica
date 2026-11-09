@@ -1,4 +1,5 @@
 enum AuthorizationAttemptPurpose {
   SIGN_IN
   ADMIN_ENROLLMENT
+  ADMINISTRATOR_MANAGEMENT
 }

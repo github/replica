@@ -82,6 +82,16 @@ export interface AdministratorManagementFailedAudit extends SecurityAuditEvent {
   reason: "retry_exhausted" | "transaction_error"
 }
 
+export interface AdministratorAuthorizationAudit extends SecurityAuditEvent {
+  type: "administrator_authorization"
+  actorMembershipId: string
+  authorizationId: string
+  operation: "DESIGNATE_ADMINISTRATORS" | "REVOKE_ADMINISTRATOR"
+  phase: "requested" | "verified" | "completed" | "denied" | "expired" | "cancelled"
+  reason?: string
+  targetCount: number
+}
+
 export interface SessionCreatedAudit extends SecurityAuditEvent {
   type: "session_created"
   sessionId: string
@@ -191,6 +201,7 @@ export type CreateSecurityAuditEvent =
   | AdministratorMembershipAssignmentAudit
   | AdministratorManagementDeniedAudit
   | AdministratorManagementFailedAudit
+  | AdministratorAuthorizationAudit
   | AdmissionDeniedAudit
   | AdmissionFailedAudit
   | ExternalIdentityCreatedAudit

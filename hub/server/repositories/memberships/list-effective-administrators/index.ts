@@ -55,15 +55,29 @@ export async function listEffectiveAdministrators(
       ],
     },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-    select: { createdAt: true, id: true, userId: true },
+    select: {
+      createdAt: true,
+      id: true,
+      userId: true,
+      user: {
+        select: {
+          profile: {
+            select: { login: true, name: true, provider: true },
+          },
+        },
+      },
+    },
     take: parsed.limit + 1,
   })
   const administrators = rows.slice(0, parsed.limit)
   const last = administrators.at(-1)
   return {
-    administrators: administrators.map(({ createdAt, id, userId }) => ({
+    administrators: administrators.map(({ createdAt, id, user, userId }) => ({
       createdAt,
+      login: user.profile?.login ?? null,
       membershipId: id,
+      name: user.profile?.name ?? null,
+      provider: user.profile?.provider ?? null,
       userId,
     })),
     nextCursor:

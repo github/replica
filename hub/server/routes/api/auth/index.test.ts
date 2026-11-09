@@ -15,6 +15,7 @@ function routeDependencies() {
   const startEnrollment = vi.fn()
   const endSession = vi.fn()
   const completeProof = vi.fn()
+  const verifyAdministratorAuthorization = vi.fn().mockResolvedValue(true)
   const admitSession = vi.fn()
   const restoreSession = vi.fn()
   const verifyBootstrapSecret = vi.fn().mockReturnValue(false)
@@ -39,6 +40,7 @@ function routeDependencies() {
         checkRateLimit,
         secureCookie: false,
         complete: completeProof,
+        verifyAdministratorAuthorization,
         admit: admitSession,
       },
     },
@@ -60,6 +62,7 @@ function routeDependencies() {
     restoreSession,
     startEnrollment,
     startSignIn,
+    verifyAdministratorAuthorization,
     verifyBootstrapSecret,
   }
 }
@@ -296,6 +299,74 @@ describe("authenticationRoutes()", () => {
         code: "provider-code",
         state,
       })
+    })
+  })
+
+  it("continues fresh administrator authorization without issuing a new Hub session", async () => {
+    const { admitSession, completeProof, dependencies, verifyAdministratorAuthorization } =
+      routeDependencies()
+    const sensitiveAuthorizationId = "00000000-0000-4000-8000-000000000020"
+    completeProof.mockResolvedValue({
+      purpose: "ADMINISTRATOR_MANAGEMENT",
+      sensitiveAuthorizationId,
+      proof: {
+        authorizationAttemptId: "00000000-0000-4000-8000-000000000010",
+        externalIdentityId: "00000000-0000-4000-8000-000000000012",
+      },
+    })
+
+    await withServer(dependencies, async (baseUrl) => {
+      const response = await fetch(
+        `${baseUrl}/api/auth/github/callback?code=provider-code&state=${"s".repeat(32)}`,
+        {
+          headers: {
+            cookie: `hub_auth_browser=${"b".repeat(32)}; hub_session=retained-session`,
+          },
+          redirect: "manual",
+        },
+      )
+
+      expect(response.status).toBe(303)
+      expect(response.headers.get("location")).toBe(
+        `/settings/administrators/confirm?authorizationId=${sensitiveAuthorizationId}`,
+      )
+      expect(verifyAdministratorAuthorization).toHaveBeenCalledWith({
+        authorizationAttemptId: "00000000-0000-4000-8000-000000000010",
+        externalIdentityId: "00000000-0000-4000-8000-000000000012",
+        sessionDigest: createHash("sha256").update("retained-session").digest("hex"),
+        sensitiveAuthorizationId,
+      })
+      expect(admitSession).not.toHaveBeenCalled()
+      expect(response.headers.get("set-cookie")).not.toContain("hub_session=")
+    })
+  })
+
+  it("denies fresh administrator authorization without the current Hub session cookie", async () => {
+    const { admitSession, completeProof, dependencies, verifyAdministratorAuthorization } =
+      routeDependencies()
+    completeProof.mockResolvedValue({
+      purpose: "ADMINISTRATOR_MANAGEMENT",
+      sensitiveAuthorizationId: "00000000-0000-4000-8000-000000000020",
+      proof: {
+        authorizationAttemptId: "00000000-0000-4000-8000-000000000010",
+        externalIdentityId: "00000000-0000-4000-8000-000000000012",
+      },
+    })
+
+    await withServer(dependencies, async (baseUrl) => {
+      const response = await fetch(
+        `${baseUrl}/api/auth/github/callback?code=provider-code&state=${"s".repeat(32)}`,
+        {
+          headers: { cookie: `hub_auth_browser=${"b".repeat(32)}` },
+          redirect: "manual",
+        },
+      )
+
+      expect(response.status).toBe(303)
+      expect(response.headers.get("location")).toBe("/?authentication=denied")
+      expect(verifyAdministratorAuthorization).not.toHaveBeenCalled()
+      expect(admitSession).not.toHaveBeenCalled()
+      expect(response.headers.get("set-cookie")).not.toContain("hub_session=")
     })
   })
 

@@ -1,0 +1,1 @@
+ALTER TYPE "AuthorizationAttemptPurpose" ADD VALUE 'ADMINISTRATOR_MANAGEMENT';

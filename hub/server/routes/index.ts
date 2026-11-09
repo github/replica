@@ -11,6 +11,13 @@ import { post as handleSignOutPost } from "./api/auth/session/sign-out/post/inde
 import { post as handleAuthenticationStartPost } from "./api/auth/start/post/index.ts"
 import { get as handleApiHealthGet } from "./api/health/get/index.ts"
 import { get as handleApiReadyGet } from "./api/ready/get/index.ts"
+import { get as handleAdministratorsGet } from "./api/administrators/get/index.ts"
+import { get as handleAdministratorCandidatesGet } from "./api/administrators/candidates/get/index.ts"
+import { post as handleAdministratorAuthorizationStartPost } from "./api/administrators/authorizations/start/post/index.ts"
+import { post as handleAdministratorAuthorizationContinuePost } from "./api/administrators/authorizations/continue/post/index.ts"
+import { post as handleAdministratorAuthorizationCancelPost } from "./api/administrators/authorizations/cancel/post/index.ts"
+import { get as handleAdministratorAuthorizationGet } from "./api/administrators/authorizations/get/index.ts"
+import { rateLimit as administratorAuthorizationRateLimit } from "./api/administrators/authorizations/start/rate-limit/index.ts"
 import type { RouteDependencies } from "./types.ts"
 
 /** Keep endpoint registration separate from the app's shared middleware. */
@@ -21,6 +28,36 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
     handleApiReadyGet(request, response, { isReady, logger }),
   )
   if (authentication) {
+    if (authentication.administrators) {
+      app.get("/api/administrators", handleAdministratorsGet(authentication.administrators))
+      app.get(
+        "/api/administrators/candidates",
+        handleAdministratorCandidatesGet(authentication.administrators),
+      )
+      app.post(
+        "/api/administrators/authorizations/start",
+        requireOrigin(authentication.administrators.applicationOrigin),
+        administratorAuthorizationRateLimit(authentication.administrators),
+        express.json({ limit: "4kb", strict: true }),
+        handleAdministratorAuthorizationStartPost(authentication.administrators),
+      )
+      app.get(
+        "/api/administrators/authorizations/:id",
+        handleAdministratorAuthorizationGet(authentication.administrators),
+      )
+      app.post(
+        "/api/administrators/authorizations/continue",
+        requireOrigin(authentication.administrators.applicationOrigin),
+        express.json({ limit: "4kb", strict: true }),
+        handleAdministratorAuthorizationContinuePost(authentication.administrators),
+      )
+      app.post(
+        "/api/administrators/authorizations/cancel",
+        requireOrigin(authentication.administrators.applicationOrigin),
+        express.json({ limit: "4kb", strict: true }),
+        handleAdministratorAuthorizationCancelPost(authentication.administrators),
+      )
+    }
     app.get(
       "/api/auth/providers",
       handleAuthenticationProvidersGet([

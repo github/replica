@@ -47,6 +47,34 @@ export function get(dependencies: AuthenticationCallbackDependencies): RequestHa
         code: query.data.code,
         state: query.data.state,
       })
+      if (completed.purpose === "ADMINISTRATOR_MANAGEMENT") {
+        const hubSessionValue = readCookie(request, hubSessionCookieName)
+        if (
+          !completed.sensitiveAuthorizationId ||
+          !hubSessionValue ||
+          !dependencies.verifyAdministratorAuthorization ||
+          !(await dependencies.verifyAdministratorAuthorization({
+            authorizationAttemptId: completed.proof.authorizationAttemptId,
+            externalIdentityId: completed.proof.externalIdentityId,
+            sessionDigest: hashAuthenticationValue(hubSessionValue),
+            sensitiveAuthorizationId: completed.sensitiveAuthorizationId,
+          }))
+        ) {
+          throw new AuthenticationProofError(
+            "attempt_invalid",
+            "The administrator authorization is no longer available.",
+          )
+        }
+        response.setHeader(
+          "Set-Cookie",
+          clearAuthenticationCookie(browserAuthenticationCookieName, dependencies.secureCookie),
+        )
+        response.redirect(
+          303,
+          `/settings/administrators/confirm?authorizationId=${completed.sensitiveAuthorizationId}`,
+        )
+        return
+      }
       const sessionValue = createOpaqueValue()
       const admitted = await dependencies.admit({
         proof: completed.proof,

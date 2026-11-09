@@ -12,6 +12,10 @@ export interface ProviderAssignmentEvidence {
 
 export interface AuthenticationCompletionEvidence {
   identity: ImmutableIdentityEvidence
+  profile?: {
+    login: string
+    name: string | null
+  }
   providerAssignment?: ProviderAssignmentEvidence
 }
 

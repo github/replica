@@ -249,9 +249,11 @@ async function admitWithinTransaction(
   if (!authority) throw new AdmissionPersistenceError()
   const session = await repositories.createHubSession({
     digest: input.sessionDigest,
+    externalIdentityId: input.proof.externalIdentityId,
     id: input.sessionId,
     lifetimeSeconds: input.sessionLifetimeSeconds,
     membershipId: authority.membershipId,
+    providerRevisionId: attempt.providerRevisionId,
     revocationRevision: revocation.revision,
   })
   await repositories.createSecurityAudit({

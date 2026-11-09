@@ -33,8 +33,9 @@ export async function consumeAuthorizationAttempt(
           code_verifier_ciphertext: string
           created_at: Date
           nonce_ciphertext: string | null
-          purpose: "SIGN_IN" | "ADMIN_ENROLLMENT"
+          purpose: "SIGN_IN" | "ADMIN_ENROLLMENT" | "ADMINISTRATOR_MANAGEMENT"
           provider_revision_id: string
+          sensitive_authorization_id: string | null
           session_revocation_revision: number
         }>
       >`
@@ -51,6 +52,7 @@ export async function consumeAuthorizationAttempt(
           "nonce_ciphertext",
           "purpose",
           "provider_revision_id",
+          "sensitive_authorization_id",
           "session_revocation_revision"
       `
       const attempt = consumed[0]
@@ -62,6 +64,9 @@ export async function consumeAuthorizationAttempt(
             nonceCiphertext: attempt.nonce_ciphertext,
             purpose: attempt.purpose,
             providerRevisionId: attempt.provider_revision_id,
+            ...(attempt.sensitive_authorization_id
+              ? { sensitiveAuthorizationId: attempt.sensitive_authorization_id }
+              : {}),
             sessionRevocationRevision: attempt.session_revocation_revision,
           }
         : null

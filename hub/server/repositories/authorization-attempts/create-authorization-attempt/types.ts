@@ -9,8 +9,9 @@ export interface CreateAuthorizationAttemptInput {
   id: string
   lifetimeSeconds: number
   nonceCiphertext: string
-  purpose: "SIGN_IN" | "ADMIN_ENROLLMENT"
+  purpose: "SIGN_IN" | "ADMIN_ENROLLMENT" | "ADMINISTRATOR_MANAGEMENT"
   providerRevisionId: string
+  sensitiveAuthorizationId?: string
   sessionRevocationRevision: number
   stateDigest: string
 }

@@ -8,6 +8,7 @@ model AuthenticationProviderRevision {
   selectedBy            AuthenticationProvider? @relation("SelectedAuthenticationProviderRevision")
   lastDisabledBy        AuthenticationProvider? @relation("LastDisabledAuthenticationProviderRevision")
   authorizationAttempts AuthorizationAttempt[]
+  hubSessions HubSession[]
   membershipAssignments MembershipAssignment[]
 
   // Attribute columns

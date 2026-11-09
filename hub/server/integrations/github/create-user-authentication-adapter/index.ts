@@ -21,6 +21,8 @@ const tokenResponseSchema = z.looseObject({
 })
 const userResponseSchema = z.looseObject({
   id: z.number().int().positive(),
+  login: z.string().min(1).max(200).optional(),
+  name: z.string().min(1).max(200).nullable().optional(),
 })
 const providerRequestTimeoutMs = 10_000
 
@@ -115,6 +117,7 @@ export function createGitHubUserAuthenticationAdapter(
           issuer: "https://github.com",
           subject: String(user.id),
         },
+        ...(user.login ? { profile: { login: user.login, name: user.name ?? null } } : {}),
       }
     },
   }

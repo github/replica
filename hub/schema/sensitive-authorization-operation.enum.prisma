@@ -1,0 +1,4 @@
+enum SensitiveAuthorizationOperation {
+  DESIGNATE_ADMINISTRATORS
+  REVOKE_ADMINISTRATOR
+}
