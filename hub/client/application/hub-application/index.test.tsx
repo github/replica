@@ -17,6 +17,16 @@ function requestUrl(input: RequestInfo | URL) {
   return input instanceof Request ? input.url : input.toString()
 }
 
+const restoredAdministrator = {
+  authenticated: true,
+  membershipId: "11111111-1111-4111-8111-111111111111",
+  userId: "22222222-2222-4222-8222-222222222222",
+  provider: "github",
+  login: "octocat",
+  name: "The Octocat",
+  role: "ADMINISTRATOR",
+} as const
+
 describe("HubApplication()", () => {
   it("shows loading until current-session restoration finishes", async () => {
     let resolveResponse!: (response: Response) => void
@@ -51,7 +61,7 @@ describe("HubApplication()", () => {
         Promise.resolve(
           requestUrl(input).endsWith("/api/auth/providers")
             ? Response.json({ providers: ["github", "entra"] })
-            : Response.json({ authenticated: true, role: "ADMINISTRATOR" }),
+            : Response.json(restoredAdministrator),
         ),
       ),
     )
@@ -62,6 +72,10 @@ describe("HubApplication()", () => {
     expect(
       screen.getByText("Sign-in succeeded and Replica Hub restored your active session."),
     ).toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "Manage Hub administrators" })).toHaveAttribute(
+      "href",
+      "/settings/administrators",
+    )
     expect(screen.queryByRole("button", { name: "Sign in with GitHub" })).toBeNull()
   })
 
@@ -189,7 +203,7 @@ describe("HubApplication()", () => {
         Promise.resolve(
           requestUrl(input).endsWith("/api/auth/providers")
             ? new Response(null, { status: 500 })
-            : Response.json({ authenticated: true, role: "ADMINISTRATOR" }),
+            : Response.json(restoredAdministrator),
         ),
       ),
     )

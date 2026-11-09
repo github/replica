@@ -99,6 +99,7 @@ async function createProviderSession(providerKey: "entra" | "github", digest: st
     await transaction.hubSession.create({
       data: {
         digest,
+        externalIdentityId,
         expiresAt: new Date("2099-01-01T00:00:00Z"),
         id: randomUUID(),
         membershipId,
@@ -106,6 +107,7 @@ async function createProviderSession(providerKey: "entra" | "github", digest: st
       },
     })
   })
+  return { externalIdentityId, membershipId, userId }
 }
 
 describe("createAuthenticationRouteDependencies()", () => {
@@ -514,8 +516,8 @@ describe("createAuthenticationRouteDependencies()", () => {
     )
     const entraDigest = "d".repeat(64)
     const githubDigest = "e".repeat(64)
-    await createProviderSession("entra", entraDigest)
-    await createProviderSession("github", githubDigest)
+    const entraSession = await createProviderSession("entra", entraDigest)
+    const githubSession = await createProviderSession("github", githubDigest)
 
     const dependencies = await createAuthenticationRouteDependencies(
       environment({ entra: true, github: true }),
@@ -523,9 +525,19 @@ describe("createAuthenticationRouteDependencies()", () => {
     )
 
     await expect(dependencies.currentSession.restore(entraDigest)).resolves.toEqual({
+      membershipId: entraSession.membershipId,
+      userId: entraSession.userId,
+      provider: "entra",
+      login: "entra-subject",
+      name: null,
       role: "MEMBER",
     })
     await expect(dependencies.currentSession.restore(githubDigest)).resolves.toEqual({
+      membershipId: githubSession.membershipId,
+      userId: githubSession.userId,
+      provider: "github",
+      login: "github-subject",
+      name: null,
       role: "MEMBER",
     })
   })

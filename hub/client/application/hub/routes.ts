@@ -9,6 +9,12 @@ export default [
   route("sign-in", "routes/sign-in/index.tsx"),
   route("session", "routes/session/index.tsx"),
   route("repositories", "routes/repositories/index.tsx"),
+  route("settings/administrators", "routes/settings-administrators/index.tsx"),
+  route("settings/administrators/confirm", "routes/settings-administrator-authorization/index.tsx"),
+  route(
+    "settings/administrators/:membershipId/:operation",
+    "routes/settings-administrator-confirmation/index.tsx",
+  ),
   ...productPublicRoutes,
   ...settingsPublicRoutes,
   layout("routes/workspace/index.tsx", [

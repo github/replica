@@ -117,7 +117,15 @@ describe("Real authentication route integration", () => {
         ),
         http.get(`${window.location.origin}/api/auth/session`, () =>
           authenticated
-            ? HttpResponse.json({ authenticated: true, role: "ADMINISTRATOR" })
+            ? HttpResponse.json({
+                authenticated: true,
+                membershipId: "11111111-1111-4111-8111-111111111111",
+                userId: "22222222-2222-4222-8222-222222222222",
+                provider: "github",
+                login: "octocat",
+                name: "The Octocat",
+                role: "ADMINISTRATOR",
+              })
             : new HttpResponse(null, { status: 401 }),
         ),
       )

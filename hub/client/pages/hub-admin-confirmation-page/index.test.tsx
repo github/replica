@@ -42,6 +42,34 @@ describe("HubAdminConfirmationPage()", () => {
     expect(screen.getByText(data.verification)).toBeInTheDocument()
   })
 
+  it("submits a UUID target to the native provider authorization endpoint", () => {
+    const membershipId = "22222222-2222-4222-8222-222222222222"
+    render(
+      <ThemeProvider>
+        <HubAdminConfirmationPage
+          data={{
+            ...data,
+            operation: "REVOKE_ADMINISTRATOR",
+            targetMembershipId: membershipId,
+            submitPath: "/api/administrators/authorizations/start",
+            cancelPath: "/settings/administrators",
+          }}
+        />
+      </ThemeProvider>,
+    )
+
+    const form = screen.getByRole("button", { name: data.submitLabel }).closest("form")
+    expect(form).toHaveAttribute("action", "/api/administrators/authorizations/start")
+    expect(form?.querySelector('[name="operation"]')).toHaveValue("REVOKE_ADMINISTRATOR")
+    expect(form?.querySelector('[name="targetMembershipIds"]')).toHaveValue(membershipId)
+    expect(form?.querySelector('[name="_method"]')).toBeNull()
+    expect(form?.querySelector('[name="authenticity_token"]')).toBeNull()
+    expect(screen.getByRole("link", { name: "Cancel" })).toHaveAttribute(
+      "href",
+      "/settings/administrators",
+    )
+  })
+
   it("explains final administrator protection and disables removal", () => {
     render(
       <ThemeProvider>

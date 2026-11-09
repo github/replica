@@ -7,7 +7,13 @@ import type { HubAdminConfirmationPageData } from "./types"
 import "./styles.css"
 
 /** Makes the target and consequence explicit before a CSRF-protected role change. */
-export function HubAdminConfirmationPage({ data }: { data: HubAdminConfirmationPageData }) {
+export function HubAdminConfirmationPage({
+  data,
+  pending = false,
+}: {
+  data: HubAdminConfirmationPageData
+  pending?: boolean
+}) {
   return (
     <HubAdministrationPage data={data}>
       <section aria-label={data.target.login}>
@@ -20,9 +26,16 @@ export function HubAdminConfirmationPage({ data }: { data: HubAdminConfirmationP
       {data.blockedLabel ? <HubAlert variant="warning" title={data.blockedLabel} /> : null}
 
       <form action={data.submitPath} method="post" className="hub-admin-confirmation-page__form">
-        <input type="hidden" name="_method" value="patch" />
-        <input type="hidden" name="authenticity_token" value={data.authenticityToken} />
+        {data.targetMembershipId ? null : (
+          <>
+            <input type="hidden" name="_method" value="patch" />
+            <input type="hidden" name="authenticity_token" value={data.authenticityToken} />
+          </>
+        )}
         <input type="hidden" name="operation" value={data.operation} />
+        {data.targetMembershipId ? (
+          <input type="hidden" name="targetMembershipIds" value={data.targetMembershipId} />
+        ) : null}
 
         <label className="hub-admin-confirmation-page__confirmation">
           <input
@@ -30,7 +43,7 @@ export function HubAdminConfirmationPage({ data }: { data: HubAdminConfirmationP
             name="confirmed"
             value="1"
             required
-            disabled={!!data.blockedLabel}
+            disabled={!!data.blockedLabel || pending}
           />
           <span>{data.confirmLabel}</span>
         </label>
@@ -39,7 +52,7 @@ export function HubAdminConfirmationPage({ data }: { data: HubAdminConfirmationP
           <Button as="a" href={data.cancelPath} variant="secondary">
             {data.cancelLabel}
           </Button>
-          <Button type="submit" variant="primary" disabled={!!data.blockedLabel}>
+          <Button type="submit" variant="primary" disabled={!!data.blockedLabel || pending}>
             {data.submitLabel}
           </Button>
         </div>

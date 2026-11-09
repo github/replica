@@ -7,12 +7,14 @@ export async function lockRestorableHubSession(
   const rows = await database.$queryRaw<
     Array<{
       id: string
+      externalIdentityId: string | null
       membershipId: string
       revocationRevision: number
     }>
   >`
     SELECT
       "id",
+      "external_identity_id" AS "externalIdentityId",
       "membership_id" AS "membershipId",
       "revocation_revision" AS "revocationRevision"
     FROM "hub_sessions"

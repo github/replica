@@ -75,8 +75,10 @@ describe("HubAdminsPage()", () => {
     )
     expect(screen.getByRole("heading", { name: "2 administrators" })).toBeInTheDocument()
     fireEvent.click(screen.getByRole("button", { name: "Add administrator" }))
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "atlas" } })
     await screen.findByRole("checkbox", { name: "Atlas Bloom @atlas" })
-    expect(screen.getByText(addHubAdministratorsData.moreLabel)).toBeInTheDocument()
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "" } })
+    expect(await screen.findByText(addHubAdministratorsData.loadingLabel)).toBeInTheDocument()
     fireEvent.change(screen.getByRole("searchbox"), { target: { value: "nova" } })
     fireEvent.click(await screen.findByRole("checkbox", { name: "Nova Pixel @nova" }))
     fireEvent.change(screen.getByRole("searchbox"), { target: { value: "luna" } })
@@ -84,7 +86,10 @@ describe("HubAdminsPage()", () => {
     const form = screen
       .getByRole("button", { name: "Add selected administrators" })
       .closest("form")!
-    expect(new FormData(form).getAll("user_ids[]")).toEqual(["3", "4"])
+    expect(new FormData(form).getAll("targetMembershipIds")).toEqual([
+      "00000000-0000-4000-8000-000000000003",
+      "00000000-0000-4000-8000-000000000004",
+    ])
     fireEvent.change(screen.getByRole("searchbox"), { target: { value: "zenith-wisp" } })
     fireEvent.click(await screen.findByRole("checkbox", { name: "Zenith Wisp @zenith-wisp" }))
     expect(
@@ -93,7 +98,11 @@ describe("HubAdminsPage()", () => {
     expect(screen.getAllByRole("checkbox", { name: "Nova Pixel @nova" })).toHaveLength(1)
     expect(screen.getByRole("checkbox", { name: "Nova Pixel @nova" })).toBeChecked()
     expect(screen.getByRole("checkbox", { name: "Luna Sketch @luna" })).toBeChecked()
-    expect(new FormData(form).getAll("user_ids[]")).toEqual(["3", "4", "72"])
+    expect(new FormData(form).getAll("targetMembershipIds")).toEqual([
+      "00000000-0000-4000-8000-000000000003",
+      "00000000-0000-4000-8000-000000000004",
+      "00000000-0000-4000-8000-000000000072",
+    ])
   })
 
   it("explains an empty list without offering identity provisioning", () => {
@@ -108,6 +117,8 @@ describe("HubAdminsPage()", () => {
   })
 
   it("lists administrators and links to removal confirmation without mutating roles", () => {
+    const membershipId = "22222222-2222-4222-8222-222222222222"
+    const cursor = "opaque+/cursor=="
     render(
       <ThemeProvider>
         <HubAdminsPage
@@ -115,16 +126,17 @@ describe("HubAdminsPage()", () => {
           data={{
             ...data,
             administratorsLabel: "1 administrator",
-            nextPath: "/hub_admins?before=1",
+            nextPath: `/settings/administrators?before=${encodeURIComponent(cursor)}`,
             users: [
               {
-                id: 2,
+                id: membershipId,
+                provider: "github",
                 login: "mona",
                 name: "Mona Lisa",
-                identity: "GitHub identity 1002 - Hub user 2",
+                identity: `GitHub membership ${membershipId}`,
                 role: "Hub administrator",
                 actionLabel: "Remove administrator",
-                confirmationPath: "/hub_admins/2/edit",
+                confirmationPath: `/settings/administrators/${membershipId}/revoke`,
               },
             ],
           }}
@@ -135,12 +147,12 @@ describe("HubAdminsPage()", () => {
     expect(screen.getByRole("heading", { name: "1 administrator" })).toBeInTheDocument()
     expect(screen.getByRole("link", { name: "Remove administrator" })).toHaveAttribute(
       "href",
-      "/hub_admins/2/edit",
+      `/settings/administrators/${membershipId}/revoke`,
     )
     expect(screen.queryByRole("button", { name: "Remove administrator" })).not.toBeInTheDocument()
     expect(screen.getByRole("link", { name: "Next page" })).toHaveAttribute(
       "href",
-      "/hub_admins?before=1",
+      `/settings/administrators?before=${encodeURIComponent(cursor)}`,
     )
   })
 

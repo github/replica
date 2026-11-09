@@ -101,7 +101,14 @@ async function createAdministratorSignIn(input: { withMemberFallback: boolean })
       writeAudit: (event) => createSecurityAudit(prisma, event),
     },
   )
-  return { managedAssignmentId, result, sessionDigest }
+  return {
+    externalIdentityId,
+    managedAssignmentId,
+    membershipId,
+    result,
+    sessionDigest,
+    userId,
+  }
 }
 
 function restore(digest: string) {
@@ -125,7 +132,12 @@ describe("administrator-managed admission authority", () => {
     const records = await createAdministratorSignIn({ withMemberFallback: false })
 
     expect(records.result).toMatchObject({ role: "ADMINISTRATOR" })
-    await expect(restore(records.sessionDigest)).resolves.toEqual({ role: "ADMINISTRATOR" })
+    await expect(restore(records.sessionDigest)).resolves.toEqual({
+      externalIdentityId: records.externalIdentityId,
+      membershipId: records.membershipId,
+      userId: records.userId,
+      role: "ADMINISTRATOR",
+    })
 
     await revokeManagedAssignment(records.managedAssignmentId)
 
@@ -138,6 +150,11 @@ describe("administrator-managed admission authority", () => {
     expect(records.result).toMatchObject({ role: "ADMINISTRATOR" })
     await revokeManagedAssignment(records.managedAssignmentId)
 
-    await expect(restore(records.sessionDigest)).resolves.toEqual({ role: "MEMBER" })
+    await expect(restore(records.sessionDigest)).resolves.toEqual({
+      externalIdentityId: records.externalIdentityId,
+      membershipId: records.membershipId,
+      userId: records.userId,
+      role: "MEMBER",
+    })
   })
 })

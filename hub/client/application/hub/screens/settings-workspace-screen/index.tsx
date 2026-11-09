@@ -44,7 +44,19 @@ export function SettingsWorkspaceScreen({
   const onSearch = useCallback((q: string) => {
     const url = new URL(window.location.href)
     url.searchParams.set("q", q)
-    return settingsRequest(new Request(url), "admin-candidates", settingsCandidateResponseSchema)
+    return settingsRequest(
+      new Request(url),
+      "admin-candidates",
+      settingsCandidateResponseSchema,
+    ).then((response) => ({
+      users: response.users.map((user) => ({
+        id: String(user.id),
+        provider: "github",
+        login: user.login,
+        name: user.name,
+      })),
+      more: response.more,
+    }))
   }, [])
 
   function changeInbox(values: Record<string, string>) {

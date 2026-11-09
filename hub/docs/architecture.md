@@ -36,7 +36,7 @@ Domain operations receive only the transaction-scoped repositories they need. A 
 
 The [authentication and session flow](authentication.md) uses this foundation to validate explicit GitHub and [Microsoft Entra OIDC](entra-oidc.md) configuration, complete provider user authentication, resolve the immutable external identity, apply current provider-owned assignment evidence, decide current Hub admission, and issue an opaque browser session. An installation may configure either or both providers, and provider network work remains outside identity transactions.
 
-The administrator-management API lists and searches Hub users, designates one to 50 administrators, and revokes one administrator-managed assignment. Sensitive role changes reuse the current session's GitHub or Entra authorization flow and bind one short-lived, one-use continuation to the live session, external identity, operation, and target memberships. The callback and mutation reread current authority before changing roles. The retained administrator frontend is not connected yet.
+The administrator-management API and retained frontend list and search existing Hub users, designate one to 50 administrators, and revoke one administrator-managed assignment. Sensitive role changes reuse the current session's GitHub or Entra authorization flow and bind one short-lived, one-use continuation to the live session, external identity, operation, and target memberships. The callback and mutation reread current authority before changing roles. This surface does not invite users or manage general membership lifecycle.
 
 ## Frontend
 

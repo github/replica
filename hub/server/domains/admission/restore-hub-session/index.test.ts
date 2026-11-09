@@ -6,7 +6,13 @@ import { restoreHubSession } from "."
 function repositories(
   overrides: Partial<SessionRestoreRepositories> = {},
 ): SessionRestoreRepositories {
+  const membership = {
+    id: "membership-id",
+    lifecycle: "ACTIVE" as const,
+    userId: "user-id",
+  }
   const session = {
+    externalIdentityId: "external-identity-id",
     id: "session-id",
     membershipId: "membership-id",
     revocationRevision: 0,
@@ -20,10 +26,7 @@ function repositories(
       .mockResolvedValue([
         { id: "assignment-id", role: "MEMBER", source: "AUTHENTICATION_PROVIDER" },
       ]),
-    lockMembership: vi.fn().mockResolvedValue({
-      id: "membership-id",
-      lifecycle: "ACTIVE",
-    }),
+    lockMembership: vi.fn().mockResolvedValue(membership),
     lockProvider: vi.fn().mockResolvedValue({ enabled: true, id: "provider-id" }),
     lockSession: vi.fn().mockResolvedValue(session),
     ...overrides,
@@ -38,7 +41,12 @@ describe("restoreHubSession()", () => {
       restoreHubSession("a".repeat(64), {
         runTransaction: (operation) => operation(records),
       }),
-    ).resolves.toEqual({ role: "MEMBER" })
+    ).resolves.toEqual({
+      externalIdentityId: "external-identity-id",
+      membershipId: "membership-id",
+      userId: "user-id",
+      role: "MEMBER",
+    })
   })
 
   it("locks each provider before locking membership authority", async () => {
@@ -54,6 +62,7 @@ describe("restoreHubSession()", () => {
         return Promise.resolve({
           id: "membership-id",
           lifecycle: "ACTIVE",
+          userId: "user-id",
         })
       }),
     })
@@ -148,6 +157,7 @@ describe("restoreHubSession()", () => {
         lockMembership: vi.fn().mockResolvedValue({
           id: "membership-id",
           lifecycle,
+          userId: "user-id",
         }),
       })
 
@@ -172,6 +182,11 @@ describe("restoreHubSession()", () => {
       restoreHubSession("a".repeat(64), {
         runTransaction: (operation) => operation(records),
       }),
-    ).resolves.toEqual({ role: "ADMINISTRATOR" })
+    ).resolves.toEqual({
+      externalIdentityId: "external-identity-id",
+      membershipId: "membership-id",
+      userId: "user-id",
+      role: "ADMINISTRATOR",
+    })
   })
 })

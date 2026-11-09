@@ -11,21 +11,22 @@ const data: HubAdminConfirmationPageData = {
   heading: "Designate Hub administrator?",
   description:
     "This user will be able to designate and remove Hub administrators and read deployment security records. Their GitHub repository permissions will not change.",
-  target: { login: "mona", name: "Mona Lisa", identity: "GitHub identity 1002 - Hub user 2" },
-  operation: "designate",
-  submitPath: "/hub_admins/2",
+  target: { login: "mona", name: "Mona Lisa", identity: "Microsoft Entra account" },
+  operation: "DESIGNATE_ADMINISTRATORS",
+  targetMembershipId: "22222222-2222-4222-8222-222222222222",
+  submitPath: "/api/administrators/authorizations/start",
   submitLabel: "Designate administrator",
   confirmLabel: "I confirm this Hub administrator role change.",
   cancelLabel: "Cancel",
-  cancelPath: "/hub_admins",
+  cancelPath: "/settings/administrators",
   verification:
-    "A role change requires GitHub to have verified this browser's account within the last five minutes. If verification is required, Hub continues your confirmed change after it succeeds.",
+    "Hub will ask the provider for this session to verify the same account before continuing the confirmed role change.",
   blockedLabel: null,
 }
 
 const removalData: HubAdminConfirmationPageData = {
   ...data,
-  operation: "revoke",
+  operation: "REVOKE_ADMINISTRATOR",
   pageTitle: "Remove Hub administrator?",
   heading: "Remove Hub administrator?",
   description:

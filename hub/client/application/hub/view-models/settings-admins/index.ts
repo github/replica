@@ -34,7 +34,6 @@ export function settingsAdmins(
       ? null
       : {
           submitPath: resourcePath("/settings/admins", search),
-          searchPath: "/api/settings/admin-candidates",
           heading: "Add administrator",
           description:
             "Select existing Hub users to give them administrator controls and access to deployment security records. Their GitHub repository permissions will not change.",
@@ -52,6 +51,8 @@ export function settingsAdmins(
         },
     users: state.administrators.users.map((user) => ({
       ...user,
+      id: String(user.id),
+      provider: "github",
       identity: `Hub user ${user.id}`,
       role: "Hub administrator",
       actionLabel: "Remove administrator",

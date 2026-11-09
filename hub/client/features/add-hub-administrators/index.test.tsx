@@ -5,7 +5,16 @@ import { describe, expect, it, vi } from "vitest"
 import { addHubAdministratorsData } from "@/storybook/fixtures/hub-administration"
 
 import { AddHubAdministrators } from "."
-import type { HubAdministratorSearchResults } from "./types"
+import type { HubAdministratorCandidate, HubAdministratorSearchResults } from "./types"
+
+function candidate(index: number, login: string, name: string): HubAdministratorCandidate {
+  return {
+    id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+    provider: "github",
+    login,
+    name,
+  }
+}
 
 describe("AddHubAdministrators()", () => {
   it("tracks independent dialog and result fades as searches, selections and viewport size change", async () => {
@@ -38,10 +47,7 @@ describe("AddHubAdministrators()", () => {
         ? 220
         : this.querySelectorAll("li").length * 40
     })
-    const users = [
-      { id: 1, login: "octocat", name: "The Octocat" },
-      { id: 2, login: "mona", name: "Mona Lisa" },
-    ]
+    const users = [candidate(1, "octocat", "The Octocat"), candidate(2, "mona", "Mona Lisa")]
     const { container, unmount } = render(
       <ThemeProvider>
         <AddHubAdministrators
@@ -98,10 +104,7 @@ describe("AddHubAdministrators()", () => {
   it("searches on opening and requires selection and deliberate confirmation", async () => {
     const onSearch = vi.fn(() =>
       Promise.resolve({
-        users: [
-          { id: 1, login: "octocat", name: "The Octocat" },
-          { id: 2, login: "mona", name: "Mona Lisa" },
-        ],
+        users: [candidate(1, "octocat", "The Octocat"), candidate(2, "mona", "Mona Lisa")],
         more: false,
       }),
     )
@@ -137,7 +140,7 @@ describe("AddHubAdministrators()", () => {
       Array.from(container.querySelectorAll<HTMLInputElement>('input[name="user_ids[]"]')).map(
         (input) => input.value,
       ),
-    ).toEqual(["2", "1"])
+    ).toEqual([candidate(2, "mona", "Mona Lisa").id, candidate(1, "octocat", "The Octocat").id])
     expect(container.querySelector("form")).toHaveAttribute("action", "/hub_admins")
     expect(container.querySelector("form")).toHaveAttribute("method", "post")
     expect(onSearch).toHaveBeenCalledWith("")
@@ -164,8 +167,8 @@ describe("AddHubAdministrators()", () => {
     const onSearch = vi.fn((query: string) =>
       Promise.resolve({
         users: query
-          ? [{ id: 2, login: "mona", name: "Mona Lisa" }]
-          : [{ id: 1, login: "octocat", name: "The Octocat" }],
+          ? [candidate(2, "mona", "Mona Lisa")]
+          : [candidate(1, "octocat", "The Octocat")],
         more: !query,
       }),
     )
@@ -206,7 +209,7 @@ describe("AddHubAdministrators()", () => {
   it("reports search failures explicitly and retries without losing selections", async () => {
     const onSearch = vi
       .fn()
-      .mockResolvedValueOnce({ users: [{ id: 2, login: "mona", name: "Mona Lisa" }], more: false })
+      .mockResolvedValueOnce({ users: [candidate(2, "mona", "Mona Lisa")], more: false })
       .mockRejectedValueOnce(new Error("Unavailable"))
       .mockResolvedValueOnce({ users: [], more: false })
     render(
@@ -232,11 +235,9 @@ describe("AddHubAdministrators()", () => {
   })
 
   it("caps selections at 50 across searches while allowing deselection", async () => {
-    const users = Array.from({ length: 50 }, (_, index) => ({
-      id: index + 1,
-      login: `pixel-${index}`,
-      name: `Pixel Sprite ${index}`,
-    }))
+    const users = Array.from({ length: 50 }, (_, index) =>
+      candidate(index + 1, `pixel-${index}`, `Pixel Sprite ${index}`),
+    )
     render(
       <ThemeProvider>
         <AddHubAdministrators
@@ -244,7 +245,7 @@ describe("AddHubAdministrators()", () => {
           authenticityToken="token"
           onSearch={(query) =>
             Promise.resolve({
-              users: query ? [{ id: 51, login: "nova", name: "Nova Pixel" }] : users,
+              users: query ? [candidate(51, "nova", "Nova Pixel")] : users,
               more: !query,
             })
           }
@@ -295,19 +296,27 @@ describe("AddHubAdministrators()", () => {
     await waitFor(() => expect(onSearch).toHaveBeenCalledWith(""))
     fireEvent.change(screen.getByRole("searchbox"), { target: { value: "missing" } })
     expect(await screen.findByText(addHubAdministratorsData.emptyLabel)).toBeInTheDocument()
-    finish?.({ users: [{ id: 2, login: "mona", name: "Mona Lisa" }], more: false })
+    finish?.({ users: [candidate(2, "mona", "Mona Lisa")], more: false })
     await waitFor(() => expect(screen.queryByText("@mona")).not.toBeInTheDocument())
   })
 
   it("prevents submission without confirmation and duplicate submissions", async () => {
+    const membershipId = "22222222-2222-4222-8222-222222222222"
     render(
       <ThemeProvider>
         <AddHubAdministrators
-          data={addHubAdministratorsData}
+          data={{ ...addHubAdministratorsData, operation: "DESIGNATE_ADMINISTRATORS" }}
           authenticityToken="token"
           onSearch={() =>
             Promise.resolve({
-              users: [{ id: 2, login: "mona", name: "Mona Lisa" }],
+              users: [
+                {
+                  id: membershipId,
+                  provider: "github",
+                  login: "mona",
+                  name: "Mona Lisa",
+                },
+              ],
               more: false,
             })
           }
@@ -319,12 +328,14 @@ describe("AddHubAdministrators()", () => {
       .getByRole("button", { name: "Add selected administrators" })
       .closest("form")!
     expect(fireEvent.submit(form)).toBe(false)
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "mona" } })
     fireEvent.click(await screen.findByRole("checkbox", { name: "Mona Lisa @mona" }))
     expect(fireEvent.submit(form)).toBe(false)
     fireEvent.click(screen.getByRole("checkbox", { name: addHubAdministratorsData.confirmLabel }))
     expect(fireEvent.submit(form)).toBe(true)
-    expect(new FormData(form).get("confirmed")).toBe("1")
-    expect(new FormData(form).getAll("user_ids[]")).toEqual(["2"])
+    expect(new FormData(form).get("confirmed")).toBeNull()
+    expect(new FormData(form).get("operation")).toBe("DESIGNATE_ADMINISTRATORS")
+    expect(new FormData(form).getAll("targetMembershipIds")).toEqual([membershipId])
     expect(screen.getByRole("button", { name: "Add selected administrators" })).toBeDisabled()
     expect(fireEvent.submit(form)).toBe(false)
   })

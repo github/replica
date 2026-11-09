@@ -19,10 +19,12 @@ import type { Route } from "./+types/root"
 import type { SessionResponse } from "./session-contracts/types"
 import { DevelopmentTools } from "./development-tools"
 import { isAuthenticationRoute } from "./is-authentication-route"
+import { isAdministratorRoute } from "./is-administrator-route"
 import { HubNavigation } from "./hub-navigation"
 import { ApiContractError } from "./requests/api-contract-error"
 import { ApiRequestError } from "./requests/api-request-error"
 import { getSession } from "./requests/get-session"
+import { getCurrentHubSession } from "./requests/get-current-hub-session"
 import { RouteFeedback } from "./route-feedback"
 
 import "@/tokens/base.css"
@@ -40,6 +42,23 @@ export async function clientLoader({
         reviewPrototypes: false,
         manageSharing: false,
         administerHub: false,
+      },
+    }
+  }
+  if (isAdministratorRoute(request) && !(import.meta.env.DEV && import.meta.env.MODE === "mock")) {
+    const session = await getCurrentHubSession(request)
+    return {
+      viewer: {
+        id: session.userId,
+        login: session.login,
+        name: session.name,
+        avatarUrl: null,
+      },
+      capabilities: {
+        createPrototypes: false,
+        reviewPrototypes: false,
+        manageSharing: false,
+        administerHub: session.role === "ADMINISTRATOR",
       },
     }
   }

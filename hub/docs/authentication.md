@@ -54,7 +54,7 @@ These expiry, lifecycle, assignment, provider, and global-revision checks are en
 
 The migration owns the single global revocation row. Its identity and history are immutable, its revision can only increment by one, and runtime code never recreates a missing row. Admission and restoration fail closed when that authority is missing. Admissions use shared locks for provider selection and revocation authority so unrelated users can proceed concurrently while authority mutations wait.
 
-`GET /api/auth/session` restores the current session. `POST /api/auth/session/sign-out` ends it and clears the cookie. Hub does not issue refresh tokens, perform provider logout, or support step-up authentication.
+`GET /api/auth/session` restores the current session and returns its current role plus the membership's provider-neutral presentation identity. `POST /api/auth/session/sign-out` ends it and clears the cookie. Hub does not issue refresh tokens, perform provider logout, or support step-up authentication.
 
 ## HTTP boundary
 
@@ -70,6 +70,8 @@ Administrator management exposes:
 - `GET /api/administrators/authorizations/:id` for the verified, unconsumed confirmation contract.
 - `POST /api/administrators/authorizations/continue` with the authorization UUID and the exact operation and targets.
 - `POST /api/administrators/authorizations/cancel` with the authorization UUID.
+
+The retained administrator frontend uses `/settings/administrators` for the roster and candidate search. It starts authorization through the JSON API, validates the returned provider URL and then leaves the app through native browser navigation. The provider callback returns to `/settings/administrators/confirm?authorizationId=<uuid>`, where the frontend rereads the server-owned authorization before continuing or cancelling it through the JSON API. A successful self-removal immediately restores the session, removes administrator navigation, and keeps the completion result visible.
 
 All administrator routes require a live effective-administrator session. Mutations require the exact configured application origin. The start and provider callback use the existing database-backed authentication rate limits. Responses use `400` for invalid bounded input, `403` for missing current authority, `409` for stale or conflicting operations, `410` for an unavailable confirmation, and `429` for exhausted authorization attempts.
 
@@ -91,4 +93,4 @@ GitHub and Entra configuration are explicit and independently revisioned. Only t
 
 ## Not implemented
 
-Hub does not provide invitations, general member administration, recovery secrets, setup-only bootstrap consumption, background provider synchronization, repository admission, refresh tokens, provider logout, account linking, generic OIDC, multi-tenant OIDC, or Entra tenant setup automation. The retained administrator frontend is not connected to these APIs yet.
+Hub does not provide invitations, general member administration, membership lifecycle management, recovery secrets, setup-only bootstrap consumption, background provider synchronization, repository admission, refresh tokens, provider logout, account linking, generic OIDC, multi-tenant OIDC, or Entra tenant setup automation.

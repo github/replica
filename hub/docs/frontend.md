@@ -32,7 +32,7 @@ The dataset includes `octocat`, `mona`, additional fictional collaborators, `git
 
 In mock mode, the neutral root reads the simulated session. Private pages load their workspace in a separate layout; public shared previews and signed-out pages do not load a private workspace. These provisional product contracts are not adapters for real authentication or authorization.
 
-In real mode, `/` and `/admin-enrollment` render the authentication shell under `client/application/hub-application/`. The public route boundary carries no product identity or permissions and skips the provisional `/api/session` and private workspace requests. The shell owns actual authentication session restoration and its failure feedback; its sign-in, enrollment, and sign-out forms submit natively to the configured API. Other real product routes retain explicit API failures. In mock mode, `/` keeps the product entry flow, and `/admin-enrollment` redirects to the mock `/settings/enroll` flow.
+In real mode, `/` and `/admin-enrollment` render the authentication shell under `client/application/hub-application/`. The public route boundary carries no product identity or permissions and skips the provisional `/api/session` and private workspace requests. The shell owns actual authentication session restoration and its failure feedback; its sign-in, enrollment, and sign-out forms submit natively to the configured API. Administrators can continue to `/settings/administrators`, which uses the real administrator and authentication APIs without loading provisional product workspace data. Other real product routes retain explicit API failures. In mock mode, `/` keeps the product entry flow, and `/admin-enrollment` redirects to the mock `/settings/enroll` flow.
 
 Product screens retain product-facing copy from the retained pages and their original fixtures. They do not describe mock data, simulations, or synthetic accounts. The bottom-right test toolbar is the only orange development surface and the only place for mock-only warnings, request diagnostics, and explanations of local actions. It can be collapsed on any viewport. Normal product validation, access-denied, and failure feedback remain in the product UI.
 
@@ -50,6 +50,9 @@ Start the mock development server before opening these examples. The links use t
 | `/repositories` | Selects the first accessible repository, or shows an empty workspace | Uses the same selection behavior as Home; no separate repository-list screen | [Repositories](http://127.0.0.1:5173/repositories) |
 | `/sign-in` | Mock sign-in using the retained home page | Already signed-in viewers return to their workspace | [Sign-in](http://127.0.0.1:5173/sign-in) |
 | `/session` | Sign-in/out action; POST only, not a page | `intent` selects sign-in or sign-out | [Sign-in form](http://127.0.0.1:5173/sign-in); persona changes use the separate test toolbar |
+| `/settings/administrators` | Real administrator roster, candidate search, and bounded opaque-cursor pagination | `before` is the server cursor; `result` carries completion feedback | Requires a configured real-mode administrator session |
+| `/settings/administrators/:membershipId/revoke` | Explicit confirmation before provider authorization | Membership IDs are UUIDs; `before` retains the authoritative list page | Requires a configured real-mode administrator session |
+| `/settings/administrators/confirm` | Continue or cancel the provider-verified role change | `authorizationId` is the server authorization UUID | Provider callback destination |
 | `/repositories/:repositoryId` | Repository prototypes | `q`, `author`, `page`, `view` | [github/prototype](http://127.0.0.1:5173/repositories/2001) |
 | `/repositories/:repositoryId/prototypes/:prototypeId` | Preview, metadata, and review conversations | `build` pins the preview; `comment` opens a conversation | [Welcome review](http://127.0.0.1:5173/repositories/2001/prototypes/1?build=3&comment=1) |
 | `/repositories/:repositoryId/prototypes/:prototypeId/builds` | Build history | `page` | [Welcome build history](http://127.0.0.1:5173/repositories/2001/prototypes/1/builds) |
@@ -128,7 +131,7 @@ Use this map to find the frontend destination when converting a Rails page. The 
 | Learnings | `/repositories/:repo/learnings` | `/repositories/:repo/learnings` |
 | Notifications | `/notifications` | `/notifications` |
 | Public shared Build | `/share/:public_id` | `/shared/:shareId` |
-| Hub administrators | `/hub_admins` | `/settings/admins` |
+| Hub administrators | `/hub_admins` | `/settings/administrators` |
 | Public sharing | `/sharing_settings` | `/settings/sharing` |
 | End all Hub sessions | `/session_revocation` | `/settings/sessions` |
 | Copilot connection | `/copilot` | `/settings/copilot` |
@@ -152,6 +155,7 @@ Compatibility redirects cover earlier React URLs, not every Rails URL:
 | `/settings/analytics?repositoryId=:repo` | `/repositories/:repo/analytics` |
 | `/settings/learnings?repositoryId=:repo` | `/repositories/:repo/learnings` |
 | `/admin/sharing` | `/settings/sharing` |
+| `/settings/admins` | `/settings/administrators` |
 
 These redirects retain other query parameters. The repository-settings redirects remove `repositoryId` after moving it into the path; without it, they select the first accessible repository. Explicit invalid or unavailable repository context remains an error.
 
@@ -164,7 +168,7 @@ These redirects retain other query parameters. The repository-settings redirects
 - **Review:** the existing preview bridge supports element and area selection. All conversation changes share one mock review store. Ordinary failed saves retain the draft for retry. Denied or unavailable review writes refresh access; loaded comments are removed if the refresh reports access loss. The read-only profile can inspect conversations but cannot change them. This is not a live multi-user review service.
 - **Share:** create and revoke local links pinned to successful Builds. `demo-active`, `demo-expired`, and `demo-revoked` exercise public states. New links open in the same tab because another document receives a fresh mock store. Disabling mock sharing revokes existing local links; re-enabling permits new links. This is provisional demo behavior, not an accepted production sharing policy.
 - **Account and setup:** inspect normal sign-in/out, welcome, connection, GitHub App setup, confirmation, enrollment, and session screens with canned API state. Do not enter real credentials or secrets. No provider authorization, installation, key rotation, or real session revocation occurs.
-- **Administration and activity:** administrator controls submit requests, but adding, designating, or removing an administrator returns 501 Not Implemented. The orange test toolbar records the attempted operation; the roster and permissions do not change. Notifications, activity filters, analytics destinations, and learning actions retain their local behavior. A learning request returns a completed fixture run and suggestion rather than implementing a background-job simulator. No real telemetry export, durable security audit, model run, or background job is performed.
+- **Administration and activity:** the retained `/settings/admins` mock flow still records administrator mutation attempts as 501 responses without changing fixture roles. Real mode redirects that list path to `/settings/administrators`, where the retained pages use the implemented administrator APIs and provider authorization continuation. Notifications, activity filters, analytics destinations, and learning actions retain their local mock behavior. A learning request returns a completed fixture run and suggestion rather than implementing a background-job simulator. No real telemetry export, durable security audit, model run, or background job is performed.
 
 Use the administrator mock profile for administrative mutation states. Other profiles demonstrate the existing read-only and access-denied presentation. Profile changes and error scenarios are test controls, not security boundaries.
 
@@ -198,6 +202,18 @@ These are frontend/mock contracts under [the application contracts](../client/ap
 | `GET /api/settings/workspace`, `/api/settings/public`, `/api/settings/admin-candidates` | Settings records and synthetic page capabilities |
 | `POST /api/settings/actions` | Explicitly named local actions; administrator role changes return 501 without changing state |
 
+Real administrator management does not use the provisional settings contracts:
+
+| HTTP interface | Result |
+| --- | --- |
+| `GET /api/auth/session` | Current role, membership UUID, user UUID, provider, login, and name |
+| `GET /api/administrators?limit=&before=` | Effective administrators and the next opaque cursor |
+| `GET /api/administrators/candidates?query=&limit=` | Existing active non-administrator memberships matched by provider login or name |
+| `POST /api/administrators/authorizations/start` | Provider URL, authorization UUID and expiry bound to the exact operation and one to 50 membership UUIDs |
+| `GET /api/administrators/authorizations/:id` | Verified unconsumed operation and targets for callback confirmation |
+| `POST /api/administrators/authorizations/continue` | Exact JSON continuation; stale and conflicting role changes remain visible errors |
+| `POST /api/administrators/authorizations/cancel` | Cancel the server-owned authorization without changing roles |
+
 Errors use an HTTP status and `{ "error": "..." }`. Request schemas and the same response schemas check the JSON fixtures and HTTP boundary. Server-side input validation and authorization remain separate backend responsibilities.
 
 The [product contracts](../client/application/hub/product-contracts/index.ts), [settings contracts](../client/application/hub/settings-contracts/index.ts), and [session contracts](../client/application/hub/session-contracts/index.ts) define those provisional records. The review adapter injects this request boundary into the retained review hooks without changing their default consumers. Persona selection, scenarios, diagnostics, fixture generation, and local mutation rules belong to the mock runtime, not these contracts.
@@ -226,7 +242,7 @@ npm run dev:api
 npm run dev
 ```
 
-Run those in separate terminals. Real mode proxies `/api` to Express and never starts MSW or falls back to fixtures. Open `/` for configured GitHub sign-in or `/admin-enrollment` for administrator enrollment. Express exposes health, readiness, and configured authentication routes, but product routes show explicit API failures until their real endpoints exist.
+Run those in separate terminals. Real mode proxies `/api` to Express and never starts MSW or falls back to fixtures. Open `/` for configured GitHub or Entra sign-in, `/admin-enrollment` for administrator enrollment, or `/settings/administrators` after restoring an administrator session. Express exposes health, readiness, authentication, and existing-user administrator-management routes. Other product routes show explicit API failures until their real endpoints exist.
 
 The [authentication guide](authentication.md) owns real sign-in, admission, and session behavior. Those routes and the backend's [telemetry](telemetry.md) and [WebSocket](websockets.md) foundations do not change the provisional mock product contracts. WebSocket upgrades are denied until application access checks are supplied. Mock sign-in and review actions remain local simulations.
 
@@ -259,14 +275,14 @@ GitHub App setup, registration, and installation pages can be opened directly wi
 | [Analytics](../client/pages/analytics-page/) | `/repositories/:repositoryId/analytics` | [Repository analytics](http://127.0.0.1:5173/repositories/2001/analytics) |
 | [Canvas pairings](../client/pages/canvas-pairings-page/) | `/settings/canvas` and `/settings/canvas/approve` | [Connections](http://127.0.0.1:5173/settings/canvas?repositoryId=2001) and [approval](http://127.0.0.1:5173/settings/canvas/approve?repositoryId=2001) |
 | [Copilot connection](../client/pages/copilot-connection-page/) | `/settings/copilot` | [Mock Copilot connection](http://127.0.0.1:5173/settings/copilot) |
-| [Fresh authorization](../client/pages/fresh-authorization-page/) | `/settings/authorize` | [Confirmation after starting a continuation](http://127.0.0.1:5173/settings/authorize) |
+| [Fresh authorization](../client/pages/fresh-authorization-page/) | Mock `/settings/authorize`; real `/settings/administrators/confirm?authorizationId=:uuid` | [Administrator continuation in Storybook](http://localhost:6006/?path=/story/hub-pages-security-fresh-authorization--continuing) |
 | [GitHub App](../client/pages/github-app-page/) | `/settings/github` | [Mock App settings](http://127.0.0.1:5173/settings/github) |
 | [GitHub App install](../client/pages/github-app-setup-install-page/) | `/settings/github/installed` | [Installation after registration](http://127.0.0.1:5173/settings/github/installed) |
 | [GitHub App register](../client/pages/github-app-setup-register-page/) | `/settings/github/register` | [Registration after setup](http://127.0.0.1:5173/settings/github/register) |
 | [GitHub App setup](../client/pages/github-app-setup-show-page/) | `/settings/github/setup` | [Start mock App setup](http://127.0.0.1:5173/settings/github/setup) |
-| [Admin confirmation](../client/pages/hub-admin-confirmation-page/) | Request-only `/settings/admins/:userId/:operation`; roles stay unchanged | [Designate request](http://127.0.0.1:5173/settings/admins/2/designate) and [removal request](http://127.0.0.1:5173/settings/admins/1/revoke) |
+| [Admin confirmation](../client/pages/hub-admin-confirmation-page/) | Real `/settings/administrators/:membershipId/:operation`; mock retained route stays request-only | [Confirmation states in Storybook](http://localhost:6006/?path=/story/hub-pages-security-hub-administrator-confirmation--remove) |
 | [Admin enrollment](../client/pages/hub-admin-enrollment-page/) | `/settings/enroll` | [Mock enrollment](http://127.0.0.1:5173/settings/enroll) |
-| [Admins](../client/pages/hub-admins-page/) | `/settings/admins` | [Administrator roster](http://127.0.0.1:5173/settings/admins) |
+| [Admins](../client/pages/hub-admins-page/) | Real `/settings/administrators`; mock `/settings/admins` | [Administrator roster in Storybook](http://localhost:6006/?path=/story/hub-pages-security-hub-administrators--multiple) |
 | [Learnings](../client/pages/learnings-page/) | `/repositories/:repositoryId/learnings` | [Repository learnings](http://127.0.0.1:5173/repositories/2001/learnings) |
 | [New prototype](../client/pages/new-prototype-page/) | `/repositories/:repositoryId/new` | [Create a prototype](http://127.0.0.1:5173/repositories/2001/new) |
 | [Notifications](../client/pages/notifications-page/) | `/notifications` | [Notifications](http://127.0.0.1:5173/notifications) |

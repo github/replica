@@ -473,13 +473,25 @@ describe("authenticationRoutes()", () => {
       expect(staleDenial.status).toBe(401)
       expect(staleDenial.headers.get("set-cookie")).toBeNull()
 
-      restoreSession.mockResolvedValueOnce({ role: "ADMINISTRATOR" })
+      restoreSession.mockResolvedValueOnce({
+        membershipId: "11111111-1111-4111-8111-111111111111",
+        userId: "22222222-2222-4222-8222-222222222222",
+        provider: "github",
+        login: "octocat",
+        name: "The Octocat",
+        role: "ADMINISTRATOR",
+      })
       const current = await fetch(`${baseUrl}/api/auth/session`, {
         headers: { cookie: `hub_session=${issued}` },
       })
       expect(current.status).toBe(200)
       expect(await current.json()).toEqual({
         authenticated: true,
+        membershipId: "11111111-1111-4111-8111-111111111111",
+        userId: "22222222-2222-4222-8222-222222222222",
+        provider: "github",
+        login: "octocat",
+        name: "The Octocat",
         role: "ADMINISTRATOR",
       })
       expect(restoreSession).toHaveBeenLastCalledWith(

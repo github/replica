@@ -1,7 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 
 import {
-  authenticatedHubWorkspaceData,
   addHubAdministratorsData,
   hubAdministrationData,
 } from "@/storybook/fixtures/hub-administration"
@@ -10,13 +9,14 @@ import { HubAdminsPage } from "."
 import type { HubAdminsPageData } from "./types"
 
 const octocat = {
-  id: 1,
+  id: "11111111-1111-4111-8111-111111111111",
+  provider: "github",
   login: "octocat",
   name: "The Octocat",
-  identity: "GitHub identity 1001 - Hub user 1",
+  identity: "GitHub account",
   role: "Hub administrator",
   actionLabel: "Remove administrator",
-  confirmationPath: "/hub_admins/1/edit",
+  confirmationPath: "/settings/administrators/11111111-1111-4111-8111-111111111111/revoke",
 }
 
 const data: HubAdminsPageData = {
@@ -27,28 +27,63 @@ const data: HubAdminsPageData = {
   nextPath: null,
   addLabel: "Add administrator",
   administratorsLabel: "0 administrators",
-  addAdministrator: addHubAdministratorsData,
+  addAdministrator: {
+    ...addHubAdministratorsData,
+    submitPath: "/api/administrators/authorizations/start",
+    operation: "DESIGNATE_ADMINISTRATORS",
+  },
   users: [],
 }
 
 const candidates = [
-  { id: 3, login: "nova", name: "Nova Pixel" },
-  { id: 4, login: "luna", name: "Luna Sketch" },
-  { id: 5, login: "atlas", name: "Atlas Bloom" },
-  { id: 6, login: "echo", name: "Echo Finch" },
-  { id: 7, login: "pip", name: "Pip Willow" },
-  { id: 8, login: "sage", name: "Sage Cloud" },
+  {
+    id: "00000000-0000-4000-8000-000000000003",
+    provider: "github",
+    login: "nova",
+    name: "Nova Pixel",
+  },
+  {
+    id: "00000000-0000-4000-8000-000000000004",
+    provider: "entra",
+    login: "luna",
+    name: "Luna Sketch",
+  },
+  {
+    id: "00000000-0000-4000-8000-000000000005",
+    provider: "github",
+    login: "atlas",
+    name: "Atlas Bloom",
+  },
+  {
+    id: "00000000-0000-4000-8000-000000000006",
+    provider: "entra",
+    login: "echo",
+    name: "Echo Finch",
+  },
+  {
+    id: "00000000-0000-4000-8000-000000000007",
+    provider: "github",
+    login: "pip",
+    name: "Pip Willow",
+  },
+  {
+    id: "00000000-0000-4000-8000-000000000008",
+    provider: "entra",
+    login: "sage",
+    name: "Sage Cloud",
+  },
   ...["Comet", "Doodle", "Ember", "Fable", "Glitter", "Nimbus", "Orbit", "Zenith"].flatMap(
     (first, firstIndex) =>
       ["Acorn", "Bubble", "Clover", "Drift", "Feather", "Pebble", "Sprout", "Wisp"].map(
         (last, lastIndex) => ({
-          id: 9 + firstIndex * 8 + lastIndex,
+          id: `00000000-0000-4000-8000-${String(9 + firstIndex * 8 + lastIndex).padStart(12, "0")}`,
+          provider: firstIndex % 2 === 0 ? "github" : "entra",
           login: `${first}-${last}`.toLowerCase(),
           name: `${first} ${last}`,
         }),
       ),
   ),
-].sort((a, b) => (a.login < b.login ? -1 : a.login > b.login ? 1 : a.id - b.id))
+].sort((a, b) => (a.login < b.login ? -1 : a.login > b.login ? 1 : a.id.localeCompare(b.id)))
 
 const meta = {
   title: "Hub/Pages/Security/Hub administrators",
@@ -89,13 +124,14 @@ export const Multiple: Story = {
       users: [
         octocat,
         {
-          id: 2,
+          id: "22222222-2222-4222-8222-222222222222",
+          provider: "entra",
           login: "mona",
           name: "Mona Lisa",
-          identity: "GitHub identity 1002 - Hub user 2",
+          identity: "Microsoft Entra account",
           role: "Hub administrator",
           actionLabel: "Remove administrator",
-          confirmationPath: "/hub_admins/2/edit",
+          confirmationPath: "/settings/administrators/22222222-2222-4222-8222-222222222222/revoke",
         },
       ],
     },
@@ -118,16 +154,17 @@ export const AccessRemoved: Story = {
       ...data,
       auditPath: null,
       administrationWorkspace: null,
+      authenticatedWorkspace: null,
       addAdministrator: null,
       administratorsLabel: null,
-      authenticatedWorkspace: authenticatedHubWorkspaceData,
       hubAdminsPath: null,
       sharingSettingsPath: null,
       githubAppPath: null,
       sessionRevocationPath: null,
-      emptyLabel:
-        "Your GitHub repository permissions are unchanged. Hub administrator controls and deployment security records are not available to this account.",
-      alert: "Your account is no longer a Hub administrator. No role changes were made.",
+      emptyLabel: "Administrator navigation has been removed from this session.",
+      notice:
+        "Your Hub administrator access was removed. Your account is no longer a Hub administrator.",
+      alert: null,
     },
   },
 }

@@ -52,6 +52,10 @@ export function AddHubAdministrators({
   useEffect(() => {
     let active = true
     const timer = setTimeout(() => {
+      if (data.operation && !query.trim()) {
+        setResults({ users: [], more: false })
+        return
+      }
       onSearch(query).then(
         (value) => {
           if (active) setResults(value)
@@ -65,7 +69,7 @@ export function AddHubAdministrators({
       active = false
       clearTimeout(timer)
     }
-  }, [onSearch, query, retry])
+  }, [data.operation, onSearch, query, retry])
 
   function toggle(user: HubAdministratorCandidate) {
     setSelected((current) =>
@@ -182,10 +186,21 @@ export function AddHubAdministrators({
               if (pending === undefined) setSubmitting(true)
             }}
           >
-            <input type="hidden" name="authenticity_token" value={authenticityToken} />
-            <input type="hidden" name="confirmed" value={confirmed ? "1" : "0"} />
+            {data.operation ? (
+              <input type="hidden" name="operation" value={data.operation} />
+            ) : (
+              <>
+                <input type="hidden" name="authenticity_token" value={authenticityToken} />
+                <input type="hidden" name="confirmed" value={confirmed ? "1" : "0"} />
+              </>
+            )}
             {selected.map((user) => (
-              <input key={user.id} type="hidden" name="user_ids[]" value={user.id} />
+              <input
+                key={user.id}
+                type="hidden"
+                name={data.operation ? "targetMembershipIds" : "user_ids[]"}
+                value={user.id}
+              />
             ))}
             {selected.length ? (
               <label className="add-hub-administrators__confirmation">
