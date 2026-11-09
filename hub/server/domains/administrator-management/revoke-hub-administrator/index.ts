@@ -24,6 +24,9 @@ async function revokeWithinTransaction(
 ) {
   await repositories.lockEffectiveAdministratorProviders()
   const administrators = await repositories.lockEffectiveAdministrators()
+  await repositories.lockEffectiveAdministratorAssignments(
+    administrators.map(({ membershipId }) => membershipId),
+  )
   const administratorIds = new Set(administrators.map(({ membershipId }) => membershipId))
   if (!administratorIds.has(input.actorMembershipId)) {
     throw new AdministratorManagementDeniedError("not_authorized")

@@ -6,7 +6,7 @@ import { createSecurityAudit } from "../../repositories/security-audits/create-s
 import { admitAuthenticationProof } from "./admit-authentication-proof"
 import { AdmissionPersistenceError } from "./errors"
 import { runAdmissionTransaction } from "./run-admission-transaction"
-import { withFailingSecurityAudit } from "./test/with-failing-security-audit"
+import { withFailingSecurityAudit } from "../../../test/database/with-failing-security-audit"
 
 describe("admission success audit rollback", () => {
   it("rolls back restored authority and session replacement when an ended-session audit fails", async () => {

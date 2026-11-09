@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto"
 
-import { prisma } from "../../../../integrations/prisma/index.ts"
+import { prisma } from "../../../server/integrations/prisma/index.ts"
 
 export async function withFailingSecurityAudit<T>(
   action: string,
   operation: () => Promise<T>,
 ): Promise<T> {
-  if (!/^[a-z.]+$/.test(action)) throw new Error("Security audit action is invalid.")
+  if (!/^[a-z._]+$/.test(action)) throw new Error("Security audit action is invalid.")
   const suffix = randomUUID().replaceAll("-", "_")
   const functionName = `fail_security_audit_${suffix}`
   const triggerName = `fail_security_audit_${suffix}`

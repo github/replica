@@ -3,12 +3,12 @@ import { describe, expect, it } from "vitest"
 
 import { prisma } from "../../integrations/prisma"
 import { createSecurityAudit } from "../../repositories/security-audits/create-security-audit"
+import { withFailingSecurityAudit } from "../../../test/database/with-failing-security-audit"
 import { admitAuthenticationProof } from "./admit-authentication-proof"
 import { AdmissionPersistenceError } from "./errors"
 import { restoreHubSession } from "./restore-hub-session"
 import { runAdmissionTransaction } from "./run-admission-transaction"
 import { runSessionRestoreTransaction } from "./run-session-restore-transaction"
-import { withFailingSecurityAudit } from "./test/with-failing-security-audit"
 
 async function createProviderAttempt(input: { existingMembership: boolean }) {
   const providerId = randomUUID()

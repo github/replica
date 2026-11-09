@@ -4,6 +4,7 @@ import { lockEffectiveAdministratorProviders } from "../../../repositories/authe
 import { endOpenHubSessionsForMembership } from "../../../repositories/hub-sessions/end-open-hub-sessions-for-membership/index.ts"
 import { createAdministratorAssignment } from "../../../repositories/membership-assignments/create-administrator-assignment/index.ts"
 import { lockActiveAdministratorAssignment } from "../../../repositories/membership-assignments/lock-active-administrator-assignment/index.ts"
+import { lockEffectiveAdministratorAssignments } from "../../../repositories/membership-assignments/lock-effective-administrator-assignments/index.ts"
 import { revokeAdministratorAssignment } from "../../../repositories/membership-assignments/revoke-administrator-assignment/index.ts"
 import { lockAdministratorManagementTargets } from "../../../repositories/memberships/lock-administrator-management-targets/index.ts"
 import { lockEffectiveAdministrators } from "../../../repositories/memberships/lock-effective-administrators/index.ts"
@@ -29,6 +30,8 @@ export function runAdministratorManagementTransaction<Result>(
             endOpenHubSessionsForMembership(transaction, membershipId),
           lockActiveAssignment: (membershipId) =>
             lockActiveAdministratorAssignment(transaction, membershipId),
+          lockEffectiveAdministratorAssignments: (membershipIds) =>
+            lockEffectiveAdministratorAssignments(transaction, membershipIds),
           lockEffectiveAdministratorProviders: () =>
             lockEffectiveAdministratorProviders(transaction),
           lockEffectiveAdministrators: () => lockEffectiveAdministrators(transaction),

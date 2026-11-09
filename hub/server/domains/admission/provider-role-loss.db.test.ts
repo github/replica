@@ -3,9 +3,9 @@ import { describe, expect, it } from "vitest"
 
 import { prisma } from "../../integrations/prisma"
 import { createSecurityAudit } from "../../repositories/security-audits/create-security-audit"
+import { withFailingSecurityAudit } from "../../../test/database/with-failing-security-audit"
 import { admitAuthenticationProof } from "./admit-authentication-proof"
 import { runAdmissionTransaction } from "./run-admission-transaction"
-import { withFailingSecurityAudit } from "./test/with-failing-security-audit"
 
 async function createProviderRoleSession() {
   const providerId = randomUUID()

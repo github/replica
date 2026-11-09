@@ -4,6 +4,9 @@ import { describe, expect, it } from "vitest"
 
 import { prisma } from "../../integrations/prisma"
 import { createSecurityAudit } from "../../repositories/security-audits/create-security-audit"
+import { getDatabaseUrl } from "../../../test/database/get-database-url"
+import { waitForDatabaseLock } from "../../../test/database/wait-for-database-lock"
+import { withFailingSecurityAudit } from "../../../test/database/with-failing-security-audit"
 import { countEffectiveAdministrators } from "./count-effective-administrators"
 import { designateHubAdministrators } from "./designate-hub-administrators"
 import { AdministratorManagementPersistenceError } from "./errors"
@@ -118,7 +121,8 @@ function dependencies(): AdministratorManagementDependencies {
 
 function auditContext(value: unknown) {
   return value as {
-    actorMembershipId?: string
+    actorMembershipId?: string | null
+    operation?: string
     reason?: string
     targetMembershipId?: string
   }
@@ -409,7 +413,7 @@ describe("administrator management", () => {
     ).resolves.toBe(0)
   })
 
-  it("denies revocation by a revoked actor without changing the target or auditing success", async () => {
+  it("denies revocation by a revoked actor with one terminal denial audit", async () => {
     const staleActor = await createMembership({})
     const target = await createMembership({})
     const remainingAdministrator = await createMembership({})
@@ -446,6 +450,22 @@ describe("administrator management", () => {
       }),
     ).resolves.toEqual({ lifecycle: "ACTIVE" })
     await expect(administratorAuditTargets(staleActor.membershipId)).resolves.toEqual([])
+    await expect(
+      prisma.securityAudit.findMany({
+        select: { action: true, context: true, outcome: true },
+        where: { outcome: "DENIED" },
+      }),
+    ).resolves.toEqual([
+      {
+        action: "membership.administrator_management.denied",
+        context: {
+          actorMembershipId: staleActor.membershipId,
+          operation: "revoke",
+          reason: "not_authorized",
+        },
+        outcome: "DENIED",
+      },
+    ])
   })
 
   it("rolls back a designation when its success audit fails", async () => {
@@ -457,24 +477,8 @@ describe("administrator management", () => {
       source: "BOOTSTRAP",
     })
 
-    await prisma.$executeRawUnsafe(`
-      CREATE FUNCTION fail_administrator_management_audit()
-      RETURNS trigger AS $$
-      BEGIN
-        IF NEW.action = 'membership.assignment.administrator_created' THEN
-          RAISE EXCEPTION 'administrator management audit unavailable';
-        END IF;
-        RETURN NEW;
-      END;
-      $$ LANGUAGE plpgsql
-    `)
-    await prisma.$executeRawUnsafe(`
-      CREATE TRIGGER fail_administrator_management_audit
-      BEFORE INSERT ON security_audits
-      FOR EACH ROW EXECUTE FUNCTION fail_administrator_management_audit()
-    `)
-    try {
-      await expect(
+    await withFailingSecurityAudit("membership.assignment.administrator_created", () =>
+      expect(
         designateHubAdministrators(
           {
             actorMembershipId: actor.membershipId,
@@ -482,13 +486,8 @@ describe("administrator management", () => {
           },
           dependencies(),
         ),
-      ).rejects.toBeInstanceOf(AdministratorManagementPersistenceError)
-    } finally {
-      await prisma.$executeRawUnsafe(
-        `DROP TRIGGER fail_administrator_management_audit ON security_audits`,
-      )
-      await prisma.$executeRawUnsafe(`DROP FUNCTION fail_administrator_management_audit()`)
-    }
+      ).rejects.toBeInstanceOf(AdministratorManagementPersistenceError),
+    )
 
     await expect(
       prisma.membershipAssignment.count({
@@ -577,24 +576,8 @@ describe("administrator management", () => {
         revocationRevision: 0,
       },
     })
-    await prisma.$executeRawUnsafe(`
-      CREATE FUNCTION fail_session_ended_audit()
-      RETURNS trigger AS $$
-      BEGIN
-        IF NEW.action = 'session.ended' THEN
-          RAISE EXCEPTION 'session-ended audit unavailable';
-        END IF;
-        RETURN NEW;
-      END;
-      $$ LANGUAGE plpgsql
-    `)
-    await prisma.$executeRawUnsafe(`
-      CREATE TRIGGER fail_session_ended_audit
-      BEFORE INSERT ON security_audits
-      FOR EACH ROW EXECUTE FUNCTION fail_session_ended_audit()
-    `)
-    try {
-      await expect(
+    await withFailingSecurityAudit("session.ended", () =>
+      expect(
         designateHubAdministrators(
           {
             actorMembershipId: actor.membershipId,
@@ -602,11 +585,8 @@ describe("administrator management", () => {
           },
           dependencies(),
         ),
-      ).rejects.toBeInstanceOf(AdministratorManagementPersistenceError)
-    } finally {
-      await prisma.$executeRawUnsafe(`DROP TRIGGER fail_session_ended_audit ON security_audits`)
-      await prisma.$executeRawUnsafe(`DROP FUNCTION fail_session_ended_audit()`)
-    }
+      ).rejects.toBeInstanceOf(AdministratorManagementPersistenceError),
+    )
 
     await expect(
       prisma.hubSession.findUniqueOrThrow({
@@ -769,8 +749,7 @@ describe("administrator management", () => {
       providerRevisionId,
       source: "AUTHENTICATION_PROVIDER",
     })
-    const databaseUrl = process.env.DATABASE_URL
-    if (!databaseUrl) throw new Error("DATABASE_URL is required.")
+    const databaseUrl = getDatabaseUrl()
     const locker = new pg.Client({ connectionString: databaseUrl })
     await locker.connect()
     try {
@@ -788,14 +767,7 @@ describe("administrator management", () => {
         },
         dependencies(),
       )
-      const initialState = await Promise.race([
-        designation.then(
-          () => "settled",
-          () => "settled",
-        ),
-        new Promise<"waiting">((resolve) => setTimeout(() => resolve("waiting"), 100)),
-      ])
-      expect(initialState).toBe("waiting")
+      await waitForDatabaseLock(databaseUrl)
 
       await locker.query("COMMIT")
       await expect(designation).rejects.toMatchObject({ reason: "not_authorized" })
@@ -811,5 +783,52 @@ describe("administrator management", () => {
         },
       }),
     ).resolves.toBe(0)
+  })
+
+  it("does not authorize an assignment revoked while designation waits for its lock", async () => {
+    const actor = await createMembership({})
+    const target = await createMembership({})
+    const actorAssignmentId = await createAssignment({
+      externalIdentityId: actor.externalIdentityId!,
+      membershipId: actor.membershipId,
+      source: "HUB_ADMINISTRATOR",
+    })
+    const databaseUrl = getDatabaseUrl()
+    const locker = new pg.Client({ connectionString: databaseUrl })
+    await locker.connect()
+    try {
+      await locker.query("BEGIN")
+      await locker.query(
+        `UPDATE membership_assignments
+         SET lifecycle = 'REVOKED', updated_at = clock_timestamp()
+         WHERE id = $1`,
+        [actorAssignmentId],
+      )
+      const designation = designateHubAdministrators(
+        {
+          actorMembershipId: actor.membershipId,
+          targetMembershipIds: [target.membershipId],
+        },
+        dependencies(),
+      )
+      await waitForDatabaseLock(databaseUrl)
+
+      await locker.query("COMMIT")
+      await expect(designation).rejects.toMatchObject({ reason: "not_authorized" })
+    } finally {
+      await Promise.allSettled([locker.query("ROLLBACK")])
+      await locker.end()
+    }
+
+    await expect(
+      prisma.membershipAssignment.count({
+        where: {
+          lifecycle: "ACTIVE",
+          membershipId: target.membershipId,
+          source: "HUB_ADMINISTRATOR",
+        },
+      }),
+    ).resolves.toBe(0)
+    await expect(countEffectiveAdministrators(prisma)).resolves.toBe(0)
   })
 })
