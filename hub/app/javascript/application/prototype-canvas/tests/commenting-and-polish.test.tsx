@@ -146,6 +146,9 @@ describe("App()", () => {
         }}
       />,
     )
+    await act(async () => {
+      await vi.dynamicImportSettled()
+    })
     const comments = await screen.findByRole("button", { name: /^Comments, 1/ })
     const improvements = await screen.findByRole("button", {
       name: /^(Open|Close) Notes \(1\)$/,
