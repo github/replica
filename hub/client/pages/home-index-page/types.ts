@@ -1,3 +1,9 @@
+export interface HomeSignInAction {
+  label: string
+  path: string
+  provider: "github" | "entra"
+}
+
 export interface HomeIndexPageData {
   alert: string | null
   authenticityToken: string
@@ -6,11 +12,9 @@ export interface HomeIndexPageData {
   description: string
   footerNote: string
   heading: string
-  localMode: boolean
   notice: string | null
   pageTitle: string
   pauseAnimationLabel: string
   resumeAnimationLabel: string
-  signInLabel: string
-  signInPath: string
+  signInActions: HomeSignInAction[]
 }

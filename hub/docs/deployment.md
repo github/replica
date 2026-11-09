@@ -1,6 +1,6 @@
 # Deploy Hub
 
-The Hub image runs the frontend, API, and both workers together. It can expose GitHub sign-in and reusable administrator enrollment when their settings are configured. It does not yet implement artifact import, preview hosting, or reviews. Do not treat the health endpoint as proof of those product flows.
+The Hub image runs the frontend, API, and both workers together. It can expose GitHub, Microsoft Entra, or both sign-in choices and reusable administrator enrollment when their settings are configured. It does not yet implement artifact import, preview hosting, or reviews. Do not treat the health endpoint as proof of those product flows.
 
 ## Image and runtime
 
@@ -17,14 +17,21 @@ Publishing is an explicit operator step, not a side effect of CI. From the appro
 | `CLIENT_DIRECTORY`                                       | Absolute directory containing built frontend assets and `index.html`; the image uses `/app/dist/client`. Leave unset for the development API.  |
 | `SHUTDOWN_TIMEOUT_MS`                                    | Request and worker drain deadline, default 30000 milliseconds. Allow another five seconds for telemetry flushing.                              |
 | `ON_DEMAND_JOB_CONCURRENCY`, `SCHEDULED_JOB_CONCURRENCY` | Independent worker concurrency, as described in [Background jobs](background-jobs.md).                                                         |
-| `HUB_APPLICATION_ORIGIN`                                 | Exact public HTTP origin. Setting it enables the authentication routes and requires the remaining authentication settings below.                |
+| `HUB_APPLICATION_ORIGIN`                                 | Exact public HTTP origin required with any authentication provider. Provider settings enable routes; any authentication setting also requires `DATABASE_URL`. A database-backed runtime with no provider configured disables retained provider authority and registers no authentication routes. |
 | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`                | GitHub App user-authorization credentials. Keep the secret in protected runtime configuration.                                                 |
-| `GITHUB_PROVIDER_REVISION`                               | Positive configured adapter revision. Hub validates and selects the matching public-configuration digest.                                     |
+| `GITHUB_PROVIDER_REVISION`                               | Positive configured adapter revision. Increment consecutively for configuration changes and before re-enabling a removed provider.             |
+| `ENTRA_OIDC_ISSUER`, `ENTRA_OIDC_CLIENT_ID`              | Exact single-tenant Entra v2 issuer and application client ID. See [Microsoft Entra OIDC](entra-oidc.md).                                      |
+| `ENTRA_OIDC_PROVIDER_REVISION`                           | Positive Entra adapter revision. Increment consecutively for configuration changes and before re-enabling a removed provider.                   |
+| `ENTRA_OIDC_CLIENT_AUTHENTICATION`                       | Exactly `client-secret` or `managed-identity`; Hub never falls back between modes.                                                             |
+| `ENTRA_OIDC_CLIENT_SECRET`                               | Local/test client secret when the selected mode is `client-secret`.                                                                            |
+| `ENTRA_OIDC_MANAGED_IDENTITY_CLIENT_ID`                  | User-assigned managed identity client ID when the selected mode is `managed-identity`.                                                         |
 | `HUB_AUTHENTICATION_ENCRYPTION_KEY`                      | Base64-encoded 32-byte key used only for short-lived authorization-attempt verifier state.                                                     |
 | `HUB_BOOTSTRAP_SECRET`                                   | Reusable high-entropy secret, at least 32 characters, for administrator enrollment.                                                            |
 | `HUB_TRUSTED_PROXY_HOPS`                                 | Exact protected proxy-chain length, default 0. Configure this for the deployment ingress before enabling authentication.                       |
 
 Configuration errors stop startup without printing credentials. Logging and optional tracing retain their existing [logging](logging.md) and [telemetry](telemetry.md) contracts.
+
+Hub does not implement immediate per-user Entra lifecycle synchronization. Before changing or removing Entra configuration, review [App roles and membership](entra-oidc.md#app-roles-and-membership) for cached claims, the 12-hour session window, and the different blast radii of provider revision and removal controls.
 
 The runtime serves built frontend navigation and static files on the API port. Unknown `/api` endpoints remain JSON 404 responses. Missing files with extensions do not return the frontend document.
 

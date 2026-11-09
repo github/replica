@@ -11,7 +11,8 @@ Hub is being rebuilt. The [Hub overview](../README.md) describes what the baseli
 - [Deployment](deployment.md): production image, runtime roles, setup, and health.
 - [Artifact storage](artifact-storage.md): provider selection and immutable byte storage.
 - [Database](database.md): Prisma schema conventions, migrations, and the shared client.
-- [Authentication and Hub sessions](authentication.md): GitHub proof, reusable administrator enrollment, admission, and browser sessions.
+- [Authentication and Hub sessions](authentication.md): provider-neutral proof, reusable administrator enrollment, admission, and browser sessions.
+- [Microsoft Entra OIDC](entra-oidc.md): single-tenant application, app-role, client-authentication, and manual setup contract.
 - [Logging](logging.md): application events, automatic request records, and payload safety.
 - [Telemetry](telemetry.md): explicit OpenTelemetry spans, safe attributes, and process lifetime.
 - [Background jobs](background-jobs.md): PostgreSQL queues, workers, schedules, setup, and test isolation.

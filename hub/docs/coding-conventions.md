@@ -32,6 +32,7 @@ Preserve the existing `client/{application,pages,features,components,hooks,utils
 ## Interface
 
 - Use Primer Brand components and tokens first. Hub-owned styles use the semantic `--hub-*` mappings in `client/tokens/base.css`.
+- Verify every exact `--hub-*` token exists in the semantic mappings. Stories and tests must use states reachable through the runtime contract rather than inventing presentation-only states.
 - When Brand lacks an app primitive, build a focused, accessible Hub-owned control instead of importing `@primer/react`.
 - Keep `HubThemeProvider` around application and Storybook content so portals inherit the resolved theme.
 - Use Storybook as the presentation workbench and add or update colocated stories for meaningful visual changes.

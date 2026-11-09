@@ -13,10 +13,29 @@ import type {
 const inputSchema = z
   .object({
     browserBinding: z.string().min(32).max(200),
-    code: z.string().min(1).max(1_000),
+    code: z.string().min(1).max(2_048),
     state: z.string().min(32).max(200),
   })
   .strict()
+
+async function configurationChanged(
+  attempt: {
+    providerRevisionId: string
+    sessionRevocationRevision: number
+  },
+  dependencies: CompleteAuthenticationProofDependencies,
+): Promise<boolean> {
+  const state = await dependencies.getAuthenticationProofState()
+  const selected = state?.selectedProviderRevision
+  return (
+    !state ||
+    !selected ||
+    selected.id !== attempt.providerRevisionId ||
+    selected.revision !== dependencies.localRevision ||
+    selected.configurationDigest !== dependencies.localConfigurationDigest ||
+    state.sessionRevocationRevision !== attempt.sessionRevocationRevision
+  )
+}
 
 export async function completeAuthenticationProof(
   input: CompleteAuthenticationProofInput,
@@ -39,13 +58,7 @@ export async function completeAuthenticationProof(
     throw error
   }
 
-  const selectedBeforeProof = await dependencies.getSelectedProviderRevision()
-  if (
-    !selectedBeforeProof ||
-    selectedBeforeProof.id !== attempt.providerRevisionId ||
-    selectedBeforeProof.revision !== dependencies.localRevision ||
-    selectedBeforeProof.configurationDigest !== dependencies.localConfigurationDigest
-  ) {
+  if (await configurationChanged(attempt, dependencies)) {
     const error = new AuthenticationProofError(
       "configuration_changed",
       "The authentication provider configuration changed during this attempt.",
@@ -57,8 +70,11 @@ export async function completeAuthenticationProof(
   }
 
   let codeVerifier
+  let nonce
   try {
     codeVerifier = dependencies.decryptCodeVerifier(attempt.codeVerifierCiphertext)
+    if (!attempt.nonceCiphertext) throw new Error("Missing nonce state.")
+    nonce = dependencies.decryptNonce(attempt.nonceCiphertext)
   } catch {
     const error = new AuthenticationProofError(
       "verification_state_invalid",
@@ -72,13 +88,17 @@ export async function completeAuthenticationProof(
 
   let evidence
   try {
-    evidence = parseImmutableIdentityEvidence(
-      await dependencies.adapter.completeAuthenticationProof({
-        callbackUri: dependencies.callbackUri,
-        code: parsed.code,
-        codeVerifier,
-      }),
-    )
+    const completed = await dependencies.adapter.completeAuthenticationProof({
+      authenticatedAfter: attempt.purpose === "ADMIN_ENROLLMENT" ? attempt.createdAt : undefined,
+      callbackUri: dependencies.callbackUri,
+      code: parsed.code,
+      codeVerifier,
+      nonce,
+    })
+    evidence = {
+      ...completed,
+      identity: parseImmutableIdentityEvidence(completed.identity),
+    }
   } catch {
     const primaryError = new AuthenticationProofError(
       "provider_failed",
@@ -89,7 +109,7 @@ export async function completeAuthenticationProof(
     )
     throw primaryError
   }
-  if (evidence.provider !== dependencies.adapter.providerKey) {
+  if (evidence.identity.provider !== dependencies.adapter.providerKey) {
     const error = new AuthenticationProofError(
       "provider_failed",
       "The authentication provider returned mismatched identity evidence.",
@@ -98,13 +118,7 @@ export async function completeAuthenticationProof(
     throw error
   }
 
-  const selectedAfterProof = await dependencies.getSelectedProviderRevision()
-  if (
-    !selectedAfterProof ||
-    selectedAfterProof.id !== attempt.providerRevisionId ||
-    selectedAfterProof.revision !== dependencies.localRevision ||
-    selectedAfterProof.configurationDigest !== dependencies.localConfigurationDigest
-  ) {
+  if (await configurationChanged(attempt, dependencies)) {
     const error = new AuthenticationProofError(
       "configuration_changed",
       "The authentication provider configuration changed during this attempt.",
@@ -114,12 +128,30 @@ export async function completeAuthenticationProof(
     )
     throw error
   }
-  const identity = await dependencies.resolveOrCreateIdentity({
-    provider: evidence.provider,
-    issuer: evidence.issuer,
-    subject: evidence.subject,
-  })
+  let identity
+  try {
+    identity = await dependencies.resolveOrCreateIdentity({
+      authorizationAttemptId: attempt.id,
+      provider: evidence.identity.provider,
+      issuer: evidence.identity.issuer,
+      providerRevisionId: attempt.providerRevisionId,
+      sessionRevocationRevision: attempt.sessionRevocationRevision,
+      subject: evidence.identity.subject,
+    })
+  } catch (error) {
+    if (!(error instanceof AuthenticationProofError)) throw error
+    await recordAuthenticationDenial(error, () =>
+      dependencies.writeDenialAudit("configuration_changed"),
+    )
+    throw error
+  }
   return {
+    providerAssignment: evidence.providerAssignment
+      ? {
+          ...evidence.providerAssignment,
+          providerRevisionId: attempt.providerRevisionId,
+        }
+      : undefined,
     proof: {
       authorizationAttemptId: attempt.id,
       externalIdentityId: identity.externalIdentityId,

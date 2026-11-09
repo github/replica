@@ -3,11 +3,12 @@ import type { Express } from "express"
 
 import { rateLimit } from "../integrations/express/authentication-rate-limit/index.ts"
 import { requireOrigin } from "../integrations/express/require-origin/index.ts"
-import { get as handleAuthenticationCallbackGet } from "./api/auth/github/callback/get/index.ts"
-import { post as handleAdministratorEnrollmentStartPost } from "./api/auth/github/admin-enrollment/start/post/index.ts"
-import { post as handleAuthenticationStartPost } from "./api/auth/github/start/post/index.ts"
+import { post as handleAdministratorEnrollmentStartPost } from "./api/auth/admin-enrollment/start/post/index.ts"
+import { get as handleAuthenticationCallbackGet } from "./api/auth/callback/get/index.ts"
 import { get as handleCurrentSessionGet } from "./api/auth/session/get/index.ts"
+import { get as handleAuthenticationProvidersGet } from "./api/auth/providers/get/index.ts"
 import { post as handleSignOutPost } from "./api/auth/session/sign-out/post/index.ts"
+import { post as handleAuthenticationStartPost } from "./api/auth/start/post/index.ts"
 import { get as handleApiHealthGet } from "./api/health/get/index.ts"
 import { get as handleApiReadyGet } from "./api/ready/get/index.ts"
 import type { RouteDependencies } from "./types.ts"
@@ -20,25 +21,55 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
     handleApiReadyGet(request, response, { isReady, logger }),
   )
   if (authentication) {
-    app.post(
-      "/api/auth/github/start",
-      requireOrigin(authentication.signIn.applicationOrigin),
-      rateLimit(authentication.signIn, "start"),
-      express.urlencoded({ extended: false, limit: "4kb" }),
-      handleAuthenticationStartPost(authentication.signIn),
-    )
-    app.post(
-      "/api/auth/github/admin-enrollment/start",
-      requireOrigin(authentication.administratorEnrollment.applicationOrigin),
-      rateLimit(authentication.administratorEnrollment, "start"),
-      express.urlencoded({ extended: false, limit: "4kb" }),
-      handleAdministratorEnrollmentStartPost(authentication.administratorEnrollment),
-    )
     app.get(
-      "/api/auth/github/callback",
-      rateLimit(authentication.callback, "callback"),
-      handleAuthenticationCallbackGet(authentication.callback),
+      "/api/auth/providers",
+      handleAuthenticationProvidersGet([
+        ...(authentication.github ? (["github"] as const) : []),
+        ...(authentication.entra ? (["entra"] as const) : []),
+      ]),
     )
+    if (authentication.github) {
+      app.post(
+        "/api/auth/github/start",
+        requireOrigin(authentication.github.signIn.applicationOrigin),
+        rateLimit(authentication.github.signIn, "start"),
+        express.urlencoded({ extended: false, limit: "4kb" }),
+        handleAuthenticationStartPost(authentication.github.signIn),
+      )
+      app.post(
+        "/api/auth/github/admin-enrollment/start",
+        requireOrigin(authentication.github.administratorEnrollment.applicationOrigin),
+        rateLimit(authentication.github.administratorEnrollment, "start"),
+        express.urlencoded({ extended: false, limit: "4kb" }),
+        handleAdministratorEnrollmentStartPost(authentication.github.administratorEnrollment),
+      )
+      app.get(
+        "/api/auth/github/callback",
+        rateLimit(authentication.github.callback, "callback"),
+        handleAuthenticationCallbackGet(authentication.github.callback),
+      )
+    }
+    if (authentication.entra) {
+      app.post(
+        "/api/auth/entra/start",
+        requireOrigin(authentication.entra.signIn.applicationOrigin),
+        rateLimit(authentication.entra.signIn, "start"),
+        express.urlencoded({ extended: false, limit: "4kb" }),
+        handleAuthenticationStartPost(authentication.entra.signIn),
+      )
+      app.post(
+        "/api/auth/entra/admin-enrollment/start",
+        requireOrigin(authentication.entra.administratorEnrollment.applicationOrigin),
+        rateLimit(authentication.entra.administratorEnrollment, "start"),
+        express.urlencoded({ extended: false, limit: "4kb" }),
+        handleAdministratorEnrollmentStartPost(authentication.entra.administratorEnrollment),
+      )
+      app.get(
+        "/api/auth/entra/callback",
+        rateLimit(authentication.entra.callback, "callback"),
+        handleAuthenticationCallbackGet(authentication.entra.callback),
+      )
+    }
     app.get("/api/auth/session", handleCurrentSessionGet(authentication.currentSession))
     app.post(
       "/api/auth/session/sign-out",

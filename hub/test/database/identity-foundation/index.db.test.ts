@@ -35,6 +35,7 @@ describe("identity foundation migration", () => {
     const attempt = {
       id: randomUUID(),
       providerRevisionId: revisionId,
+      sessionRevocationRevision: 0,
       stateDigest: "a".repeat(64),
       browserBindingDigest: "b".repeat(64),
       codeVerifierCiphertext: "encrypted",
@@ -331,7 +332,7 @@ describe("identity foundation migration", () => {
       prisma.authenticationProvider.create({
         data: { id: randomUUID(), key: "unselected" },
       }),
-    ).rejects.toThrow("Authentication provider must have a selected revision")
+    ).rejects.toThrow("Enabled authentication provider must have a selected revision")
   })
 
   it("allows atomic provider creation and selection of the next owned revision", async () => {

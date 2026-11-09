@@ -13,12 +13,12 @@ export function get(dependencies: CurrentSessionDependencies): RequestHandler {
       return
     }
     try {
-      const authenticated = await dependencies.restore(hashAuthenticationValue(value))
-      if (!authenticated) {
+      const session = await dependencies.restore(hashAuthenticationValue(value))
+      if (!session) {
         response.status(401).json({ authenticated: false })
         return
       }
-      response.json({ authenticated: true })
+      response.json({ authenticated: true, role: session.role })
     } catch (error) {
       next(error)
     }

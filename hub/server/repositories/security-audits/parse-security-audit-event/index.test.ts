@@ -48,4 +48,20 @@ describe("parseSecurityAuditEvent()", () => {
 
     expect(parseSecurityAuditEvent(event)).toEqual(event)
   })
+
+  it.each([
+    "provider_membership_assignment_created",
+    "provider_membership_assignment_superseded",
+    "provider_membership_assignment_revoked",
+  ] as const)("accepts bounded provider assignment lifecycle event %s", (type) => {
+    const event = {
+      assignmentId: "5dd31031-6f1c-4c16-87c2-aee5342145cc",
+      id: "df75faa4-ed4c-44ed-8db0-443cc3b426ed",
+      membershipId: "8a2479e7-3ca4-46f8-9749-c35d8e4eb09e",
+      role: "ADMINISTRATOR" as const,
+      type,
+    }
+
+    expect(parseSecurityAuditEvent(event)).toEqual(event)
+  })
 })

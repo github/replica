@@ -9,173 +9,272 @@ import { runSessionRestoreTransaction } from "../../../../domains/admission/run-
 import { verifyBootstrapSecret } from "../../../../domains/admission/verify-bootstrap-secret/index.ts"
 import { completeAuthenticationProof } from "../../../../domains/authentication/complete-authentication-proof/index.ts"
 import type { CompleteAuthenticationProofDependencies } from "../../../../domains/authentication/complete-authentication-proof/types.ts"
-import { createOpaqueValue } from "../../../../domains/authentication/create-opaque-value/index.ts"
+import { createEntraAuthenticationContext } from "../../../../domains/authentication/create-entra-authentication-context/index.ts"
 import { createGitHubAuthenticationContext } from "../../../../domains/authentication/create-github-authentication-context/index.ts"
+import { createOpaqueValue } from "../../../../domains/authentication/create-opaque-value/index.ts"
+import { readAuthenticationConfigurationState } from "../../../../domains/authentication/read-authentication-configuration-state/index.ts"
+import { createSharedAuthenticationContext } from "../../../../domains/authentication/create-shared-authentication-context/index.ts"
 import { decryptAuthenticationValue } from "../../../../domains/authentication/decrypt-authentication-value/index.ts"
 import { encryptAuthenticationValue } from "../../../../domains/authentication/encrypt-authentication-value/index.ts"
+import { AuthenticationProofError } from "../../../../domains/authentication/errors.ts"
 import { hashAuthenticationValue } from "../../../../domains/authentication/hash-authentication-value/index.ts"
 import { startAuthenticationProof } from "../../../../domains/authentication/start-authentication-proof/index.ts"
-import { getSelectedProviderRevision } from "../../../../domains/identity/get-selected-provider-revision/index.ts"
+import type { AuthenticationProviderAdapter } from "../../../../domains/authentication/types.ts"
+import { ProviderConfigurationValidationError } from "../../../../domains/identity/errors.ts"
+import { reconcileAuthenticationProviders } from "../../../../domains/identity/reconcile-authentication-providers/index.ts"
 import { resolveOrCreateExternalIdentity } from "../../../../domains/identity/resolve-or-create-external-identity/index.ts"
 import { runIdentityCreationTransaction } from "../../../../domains/identity/run-identity-creation-transaction/index.ts"
 import { runProviderRevisionTransaction } from "../../../../domains/identity/run-provider-revision-transaction/index.ts"
-import { validateAndPersistProviderRevision } from "../../../../domains/identity/validate-and-persist-provider-revision/index.ts"
 import { prisma } from "../../../../integrations/prisma/index.ts"
-import { findAuthenticationProvider } from "../../../../repositories/authentication-providers/find-authentication-provider/index.ts"
+import { getAuthenticationProofState } from "../../../../repositories/authentication-providers/get-authentication-proof-state/index.ts"
 import { consumeAuthorizationAttempt } from "../../../../repositories/authorization-attempts/consume-authorization-attempt/index.ts"
 import { createAuthorizationAttempt } from "../../../../repositories/authorization-attempts/create-authorization-attempt/index.ts"
 import { deleteExpiredAuthorizationAttempts } from "../../../../repositories/authorization-attempts/delete-expired-authorization-attempts/index.ts"
 import { createSecurityAudit } from "../../../../repositories/security-audits/create-security-audit/index.ts"
-import type { AuthenticationRouteDependencies } from "../types.ts"
+import type {
+  AuthenticationRouteDependencies,
+  ProviderAuthenticationRouteDependencies,
+} from "../types.ts"
 
-export function createAuthenticationRouteDependencies(
+interface AuthenticationContext {
+  adapter: AuthenticationProviderAdapter & {
+    canonicalPublicConfiguration: string
+    validateConfiguration?: () => Promise<void>
+  }
+  applicationOrigin: string
+  bootstrapSecret: string
+  callbackIssuer?: string
+  callbackUri: string
+  configurationDigest: string
+  encryptionKey: Buffer
+  providerRevision: number
+  requiresProviderAssignmentEvidence: boolean
+  secureCookie: boolean
+}
+
+function reconcileConfiguredProviders(
+  candidates: Parameters<typeof reconcileAuthenticationProviders>[0],
+) {
+  return reconcileAuthenticationProviders(candidates, {
+    createId: randomUUID,
+    runTransaction: (operation) => runProviderRevisionTransaction(prisma, operation),
+    writeAudit: (event) => createSecurityAudit(prisma, event),
+  })
+}
+
+export async function disableAuthenticationProviders(): Promise<void> {
+  await reconcileConfiguredProviders([])
+}
+
+export async function createAuthenticationRouteDependencies(
   environment: NodeJS.ProcessEnv,
   request: typeof globalThis.fetch = globalThis.fetch,
-): AuthenticationRouteDependencies {
-  const context = createGitHubAuthenticationContext(environment, request)
-  function selectedRevision() {
-    return getSelectedProviderRevision(context.adapter.providerKey, {
-      findAuthenticationProvider: (key) => findAuthenticationProvider(prisma, key),
-    })
-  }
-  function writeAuthenticationDenial(
-    reason: Parameters<CompleteAuthenticationProofDependencies["writeDenialAudit"]>[0],
-  ) {
-    return createSecurityAudit(prisma, {
-      id: randomUUID(),
-      type: "authentication_attempt_denied",
-      provider: context.adapter.providerKey,
-      reason,
-    })
-  }
-  function ensureProviderRevision() {
-    return validateAndPersistProviderRevision(
-      {
-        configuration: {},
-        providerKey: context.adapter.providerKey,
-        revision: context.providerRevision,
-      },
-      {
-        createId: randomUUID,
-        runTransaction: (operation) => runProviderRevisionTransaction(prisma, operation),
-        validateConfiguration: () =>
-          Promise.resolve({
-            canonicalPublicConfiguration: context.adapter.canonicalPublicConfiguration,
-          }),
-        writeAudit: (event) => createSecurityAudit(prisma, event),
-      },
-    )
-  }
-  function start(purpose: "SIGN_IN" | "ADMIN_ENROLLMENT") {
-    return async () => {
-      await ensureProviderRevision()
-      return startAuthenticationProof(
-        {},
+): Promise<AuthenticationRouteDependencies> {
+  const sharedContext = createSharedAuthenticationContext(environment)
+  const configuration = readAuthenticationConfigurationState(environment)
+  const githubContext = configuration.githubConfigured
+    ? createGitHubAuthenticationContext(environment, request)
+    : undefined
+  const entraContext = configuration.entraConfigured
+    ? createEntraAuthenticationContext(environment, request)
+    : undefined
+  const contexts: AuthenticationContext[] = []
+  if (githubContext) contexts.push(githubContext)
+  if (entraContext) contexts.push(entraContext)
+  await Promise.all(
+    contexts.map(async (context) => {
+      try {
+        await context.adapter.validateConfiguration?.()
+      } catch (error) {
+        const reported = new ProviderConfigurationValidationError({ cause: error })
+        try {
+          await createSecurityAudit(prisma, {
+            id: randomUUID(),
+            type: "provider_revision_validation_failed",
+            providerKey: context.adapter.providerKey,
+            revision: context.providerRevision,
+          })
+        } catch (auditError) {
+          throw new AggregateError(
+            [reported, auditError],
+            "The provider validation failure and its audit could not both be recorded.",
+            { cause: auditError },
+          )
+        }
+        throw reported
+      }
+    }),
+  )
+  await reconcileConfiguredProviders(
+    contexts.map((context) => ({
+      canonicalPublicConfiguration: context.adapter.canonicalPublicConfiguration,
+      providerKey: context.adapter.providerKey,
+      revision: context.providerRevision,
+    })),
+  )
+
+  function createProviderDependencies(
+    context: AuthenticationContext,
+  ): ProviderAuthenticationRouteDependencies {
+    function writeAuthenticationDenial(
+      reason: Parameters<CompleteAuthenticationProofDependencies["writeDenialAudit"]>[0],
+    ) {
+      return createSecurityAudit(prisma, {
+        id: randomUUID(),
+        type: "authentication_attempt_denied",
+        provider: context.adapter.providerKey,
+        reason,
+      })
+    }
+    function start(purpose: "SIGN_IN" | "ADMIN_ENROLLMENT") {
+      return () =>
+        startAuthenticationProof(
+          { purpose },
+          {
+            adapter: context.adapter,
+            callbackUri: context.callbackUri,
+            configurationDigest: context.configurationDigest,
+            expectedRevision: context.providerRevision,
+            createAttempt: (input) =>
+              createAuthorizationAttempt(prisma, {
+                ...input,
+                bootstrapSecretDigest:
+                  input.purpose === "ADMIN_ENROLLMENT"
+                    ? hashAuthenticationValue(context.bootstrapSecret)
+                    : null,
+              }),
+            createId: randomUUID,
+            createOpaqueValue,
+            deleteExpiredArtifacts: () => deleteExpiredAuthorizationAttempts(prisma),
+            encryptCodeVerifier: (value) =>
+              encryptAuthenticationValue(value, context.encryptionKey),
+            encryptNonce: (value) => encryptAuthenticationValue(value, context.encryptionKey),
+            getAuthenticationProofState: () =>
+              getAuthenticationProofState(prisma, context.adapter.providerKey),
+            writeDenialAudit: writeAuthenticationDenial,
+          },
+        )
+    }
+    function checkRateLimit(
+      operation: "start" | "callback",
+      subjectDigest: string,
+      auditFirstDenial = false,
+    ) {
+      return checkAuthenticationRateLimit(
         {
-          adapter: context.adapter,
-          callbackUri: context.callbackUri,
-          configurationDigest: context.configurationDigest,
-          expectedRevision: context.providerRevision,
-          createAttempt: (input) =>
-            createAuthorizationAttempt(prisma, {
-              ...input,
-              bootstrapSecretDigest:
-                purpose === "ADMIN_ENROLLMENT"
-                  ? hashAuthenticationValue(context.bootstrapSecret)
-                  : null,
-              purpose,
-            }),
+          auditFirstDenial,
           createId: randomUUID,
-          createOpaqueValue,
-          deleteExpiredArtifacts: () => deleteExpiredAuthorizationAttempts(prisma),
-          encryptCodeVerifier: (value) => encryptAuthenticationValue(value, context.encryptionKey),
-          getSelectedProviderRevision: selectedRevision,
-          writeDenialAudit: writeAuthenticationDenial,
+          limit: operation === "start" ? 10 : 30,
+          operation,
+          subjectDigest,
+          windowSeconds: 60,
         },
+        prisma,
       )
     }
-  }
-  function checkRateLimit(
-    operation: "start" | "callback",
-    subjectDigest: string,
-    auditFirstDenial = false,
-  ) {
-    return checkAuthenticationRateLimit(
-      {
-        auditFirstDenial,
-        createId: randomUUID,
-        limit: operation === "start" ? 10 : 30,
-        operation,
-        subjectDigest,
-        windowSeconds: 60,
-      },
-      prisma,
-    )
-  }
-  const sharedStart = {
-    applicationOrigin: context.applicationOrigin,
-    checkRateLimit,
-    secureCookie: context.secureCookie,
-  }
-  return {
-    signIn: { ...sharedStart, start: start("SIGN_IN") },
-    administratorEnrollment: {
-      ...sharedStart,
-      checkRateLimit: (operation, subjectDigest) => checkRateLimit(operation, subjectDigest, true),
-      start: start("ADMIN_ENROLLMENT"),
-      verifyBootstrapSecret: (submittedSecret) =>
-        verifyBootstrapSecret(context.bootstrapSecret, submittedSecret),
-      writeBootstrapDenial: (reason) =>
-        createSecurityAudit(prisma, {
-          id: randomUUID(),
-          type: "bootstrap_attempt_denied",
-          reason,
-        }),
-    },
-    callback: {
+    const sharedStart = {
+      applicationOrigin: context.applicationOrigin,
       checkRateLimit,
       secureCookie: context.secureCookie,
-      complete: (input) =>
-        completeAuthenticationProof(input, {
-          adapter: context.adapter,
-          callbackUri: context.callbackUri,
-          consumeAttempt: (value) => consumeAuthorizationAttempt(prisma, value),
-          decryptCodeVerifier: (value) => decryptAuthenticationValue(value, context.encryptionKey),
-          localConfigurationDigest: context.configurationDigest,
-          localRevision: context.providerRevision,
-          getSelectedProviderRevision: selectedRevision,
-          resolveOrCreateIdentity: (value) =>
-            resolveOrCreateExternalIdentity(value, {
+    }
+    return {
+      signIn: { ...sharedStart, start: start("SIGN_IN") },
+      administratorEnrollment: {
+        ...sharedStart,
+        checkRateLimit: (operation, subjectDigest) =>
+          checkRateLimit(operation, subjectDigest, true),
+        start: start("ADMIN_ENROLLMENT"),
+        verifyBootstrapSecret: (submittedSecret) =>
+          verifyBootstrapSecret(context.bootstrapSecret, submittedSecret),
+        writeBootstrapDenial: (reason) =>
+          createSecurityAudit(prisma, {
+            id: randomUUID(),
+            type: "bootstrap_attempt_denied",
+            reason,
+          }),
+      },
+      callback: {
+        callbackIssuer: context.callbackIssuer,
+        checkRateLimit,
+        secureCookie: context.secureCookie,
+        complete: (input) =>
+          completeAuthenticationProof(input, {
+            adapter: context.adapter,
+            callbackUri: context.callbackUri,
+            consumeAttempt: (value) => consumeAuthorizationAttempt(prisma, value),
+            decryptCodeVerifier: (value) =>
+              decryptAuthenticationValue(value, context.encryptionKey),
+            decryptNonce: (value) => decryptAuthenticationValue(value, context.encryptionKey),
+            localConfigurationDigest: context.configurationDigest,
+            localRevision: context.providerRevision,
+            getAuthenticationProofState: () =>
+              getAuthenticationProofState(prisma, context.adapter.providerKey),
+            resolveOrCreateIdentity: (value) =>
+              resolveOrCreateExternalIdentity(
+                {
+                  issuer: value.issuer,
+                  provider: value.provider,
+                  subject: value.subject,
+                },
+                {
+                  createId: randomUUID,
+                  isExpectedTransactionDenial: (error) => error instanceof AuthenticationProofError,
+                  runTransaction: (operation) => runIdentityCreationTransaction(prisma, operation),
+                  validateTransaction: async (repositories) => {
+                    const provider = await repositories.lockProvider(context.adapter.providerKey)
+                    const revocation = await repositories.lockRevocation()
+                    const attempt = await repositories.lockAttempt(value.authorizationAttemptId)
+                    if (
+                      !provider?.enabled ||
+                      !revocation ||
+                      !attempt?.consumedAt ||
+                      provider.selectedRevisionId !== value.providerRevisionId ||
+                      attempt.providerRevisionId !== value.providerRevisionId ||
+                      revocation.revision !== value.sessionRevocationRevision ||
+                      attempt.sessionRevocationRevision !== value.sessionRevocationRevision
+                    ) {
+                      throw new AuthenticationProofError(
+                        "configuration_changed",
+                        "The authentication provider configuration changed during this attempt.",
+                      )
+                    }
+                  },
+                  writeAudit: (event) => createSecurityAudit(prisma, event),
+                },
+              ),
+            writeDenialAudit: writeAuthenticationDenial,
+          }),
+        admit: (input) =>
+          admitAuthenticationProof(
+            {
+              ...input,
+              providerKey: context.adapter.providerKey,
+              requiresProviderAssignmentEvidence: context.requiresProviderAssignmentEvidence,
+              sessionLifetimeSeconds: 12 * 60 * 60,
+            },
+            {
               createId: randomUUID,
-              runTransaction: (operation) => runIdentityCreationTransaction(prisma, operation),
+              getBootstrapSecretDigest: () => hashAuthenticationValue(context.bootstrapSecret),
+              runTransaction: (operation) => runAdmissionTransaction(prisma, operation),
               writeAudit: (event) => createSecurityAudit(prisma, event),
-            }),
-          writeDenialAudit: writeAuthenticationDenial,
-        }),
-      admit: (input) =>
-        admitAuthenticationProof(
-          {
-            ...input,
-            providerKey: context.adapter.providerKey,
-            sessionLifetimeSeconds: 12 * 60 * 60,
-          },
-          {
-            createId: randomUUID,
-            getBootstrapSecretDigest: () => hashAuthenticationValue(context.bootstrapSecret),
-            runTransaction: (operation) => runAdmissionTransaction(prisma, operation),
-            writeAudit: (event) => createSecurityAudit(prisma, event),
-          },
-        ),
-    },
+            },
+          ),
+      },
+    }
+  }
+
+  return {
     currentSession: {
       restore: (sessionDigest) =>
         restoreHubSession(sessionDigest, {
           runTransaction: (operation) => runSessionRestoreTransaction(prisma, operation),
         }),
     },
+    entra: entraContext ? createProviderDependencies(entraContext) : undefined,
+    github: githubContext ? createProviderDependencies(githubContext) : undefined,
     signOut: {
-      applicationOrigin: context.applicationOrigin,
-      secureCookie: context.secureCookie,
+      applicationOrigin: sharedContext.applicationOrigin,
+      secureCookie: sharedContext.secureCookie,
       end: (sessionDigest) =>
         endHubSession(sessionDigest, { createId: randomUUID, database: prisma }),
     },

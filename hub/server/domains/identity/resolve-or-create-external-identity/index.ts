@@ -17,6 +17,7 @@ export async function resolveOrCreateExternalIdentity(
     return await runWithBoundedRetries(
       () =>
         dependencies.runTransaction(async (repositories) => {
+          await dependencies.validateTransaction?.(repositories)
           const existing = await repositories.findExternalIdentity(tuple)
           if (existing) {
             return {
@@ -49,6 +50,7 @@ export async function resolveOrCreateExternalIdentity(
       (error) => error instanceof IdentityTransactionConflictError,
     )
   } catch (error) {
+    if (dependencies.isExpectedTransactionDenial?.(error)) throw error
     const failure =
       error instanceof IdentityTransactionConflictError
         ? new ExternalIdentityCollisionError({ cause: error })

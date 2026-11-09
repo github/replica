@@ -6,6 +6,7 @@ model ExternalIdentity {
   // Relations
   user                  User                   @relation(fields: [userId], references: [id], onDelete: Restrict)
   membershipAssignments MembershipAssignment[]
+  providerEvidenceState ProviderEvidenceState?
 
   // Attribute columns
   provider String @db.VarChar(100)

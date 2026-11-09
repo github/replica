@@ -68,6 +68,8 @@ Prefer Mermaid over ASCII diagrams when a diagram helps explain a flow or relati
 
 Product guides explain what people can do and see. Leave internal fields and thresholds in code or tests unless a contributor or operator needs them. Never include secrets, tokens, private keys, or real private repository data.
 
+Configuration examples must explain when an operator changes a revision, generation, or similar compatibility value and what that change invalidates. Do not list a mutable value without its lifecycle rule.
+
 ## Final review
 
 Collect every changed Markdown file and code comment:

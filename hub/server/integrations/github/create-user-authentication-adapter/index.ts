@@ -110,9 +110,11 @@ export function createGitHubUserAuthenticationAdapter(
       const user = userResponseSchema.parse(await userResponse.json())
 
       return {
-        provider: "github",
-        issuer: "https://github.com",
-        subject: String(user.id),
+        identity: {
+          provider: "github",
+          issuer: "https://github.com",
+          subject: String(user.id),
+        },
       }
     },
   }

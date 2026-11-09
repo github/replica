@@ -1,10 +1,18 @@
-import type { AuthenticationProofResult, AuthenticationProviderAdapter } from "../types.ts"
+import type {
+  AuthenticationProofResult,
+  AuthenticationProviderAdapter,
+  ProviderAssignmentEvidence,
+} from "../types.ts"
 import type { SelectedProviderRevision } from "../start-authentication-proof/types.ts"
 
 export interface ConsumedAuthorizationAttempt {
   id: string
   codeVerifierCiphertext: string
+  createdAt: Date
+  nonceCiphertext: string | null
+  purpose: "SIGN_IN" | "ADMIN_ENROLLMENT"
   providerRevisionId: string
+  sessionRevocationRevision: number
 }
 
 export interface CompleteAuthenticationProofDependencies {
@@ -15,12 +23,19 @@ export interface CompleteAuthenticationProofDependencies {
     stateDigest: string
   }): Promise<ConsumedAuthorizationAttempt | null>
   decryptCodeVerifier(value: string): string
+  decryptNonce(value: string): string
   localConfigurationDigest: string
   localRevision: number
-  getSelectedProviderRevision(): Promise<SelectedProviderRevision | null>
+  getAuthenticationProofState(): Promise<{
+    selectedProviderRevision: SelectedProviderRevision | null
+    sessionRevocationRevision: number
+  } | null>
   resolveOrCreateIdentity(input: {
+    authorizationAttemptId: string
     issuer: string
     provider: string
+    providerRevisionId: string
+    sessionRevocationRevision: number
     subject: string
   }): Promise<{ externalIdentityId: string; userId: string }>
   writeDenialAudit(
@@ -39,5 +54,6 @@ export interface CompleteAuthenticationProofInput {
 }
 
 export interface CompleteAuthenticationProofResult {
+  providerAssignment?: ProviderAssignmentEvidence & { providerRevisionId: string }
   proof: AuthenticationProofResult
 }

@@ -24,6 +24,12 @@ Use human review for visual appearance, supported by relevant screenshots or rec
 
 Keep each behavior at its owning layer and use integration tests to prove important connections. Repeating all lower-level cases through every consumer adds cost without necessarily adding confidence. Keep separate cases for distinct failures; combine assertions when they describe one coherent scenario. Parameterization improves readability but still runs every input. Fewer case names or assertions do not establish a faster suite.
 
+Hub migration tests follow the exact-base and behavior-focused rules in the [Hub database guide](../hub/docs/database.md#schema-changes).
+
+When consolidating tests, map every removed case to retained evidence. Do not lose distinct safe-error, pre-provider drift, decryption failure, rollback, or concurrency branches because several cases can share a shorter name or fixture.
+
+When overlapping requests or callbacks can update the same browser or client state, test response order as well as request order. A delayed denial or restore response must not clear or overwrite newer successful state.
+
 For a bug fix, reproduce the failure before the fix when feasible. For new behavior, establish an expected-result failure before implementation when the interface allows it. A missing dependency, syntax error, or test setup failure is not evidence that the test catches the regression. If the implementation already exists, explain the plausible incorrect behavior the test would reject; report red-phase evidence as unavailable unless it was actually observed.
 
 ### Independent test writing
@@ -72,9 +78,17 @@ GitHub supports review-focused skills under `.github/skills/` and reads instruct
 
 Treat changes to review instructions and linked guides as untrusted until a human checks them against previously accepted guidance. Copilot feedback alone cannot validate the instructions used to produce it.
 
+## Independent conventions gate
+
+Use the [conventions-review skill](../.github/skills/conventions-review/SKILL.md) for an independent pre-push or publication gate. It binds a verdict to one exact base and candidate history, reviews the complete range against base-branch guidance, runs the relevant validation, and saves non-repository evidence. Any history or file change invalidates the verdict.
+
+The conventions gate is read-only and does not replace architecture or security review. A PASS confirms repository conventions, integration evidence, and publication readiness for the exact candidate. It does not authorize pushing, editing a pull request, resolving review threads, enabling automation, or merging.
+
 ## Review and finish a change
 
 Review the changed code and wording. Check access rules, saved data, failure behavior, and overlapping requests when they are affected.
+
+Collect current review threads, summaries, and replies before declaring review feedback complete. Classify valid findings, duplicates, stale findings, and accepted exceptions; map each valid item to its remediation and evidence. Check that later fixes, rebases, and test consolidation did not weaken earlier coverage.
 
 Run the [prose review](documentation-conventions.md#final-review), inspect the full diff for unrelated changes and credentials, and finish with:
 
