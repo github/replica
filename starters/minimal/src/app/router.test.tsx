@@ -16,18 +16,44 @@ describe("createAppRouter()", () => {
     notFoundPageConfig.feedbackUrl = defaultFeedbackUrl
   })
 
-  it("renders the start page and navigates to the sub-page", async () => {
+  it("renders the RTL assessment dashboard and navigates to the sub-page", async () => {
     const router = createAppRouter()
-    render(<RouterProvider router={router} />)
+    const { container } = render(<RouterProvider router={router} />)
 
     await router.navigate({ to: "/" })
-    expect(await screen.findByRole("heading", { name: "Replica Starter" })).toBeInTheDocument()
+    expect(await screen.findByRole("heading", { name: "لوحة التقييم" })).toBeInTheDocument()
+    expect(container.firstElementChild).toHaveAttribute("dir", "rtl")
+    expect(screen.getByRole("navigation", { name: "التنقل الرئيسي" })).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole("link", { name: "Go to the about page" }))
+    fireEvent.click(screen.getByRole("link", { name: "الأنشطة" }))
+    expect(screen.getByRole("link", { name: "الأنشطة" })).toHaveAttribute("aria-current", "page")
+
+    fireEvent.click(screen.getByRole("link", { name: "حول هذا النموذج" }))
     expect(await screen.findByRole("heading", { name: "About" })).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole("link", { name: "Back to start page" }))
-    expect(await screen.findByRole("heading", { name: "Replica Starter" })).toBeInTheDocument()
+    expect(await screen.findByRole("heading", { name: "لوحة التقييم" })).toBeInTheDocument()
+  })
+
+  it("separates official criteria from center requirements and filters students", async () => {
+    const router = createAppRouter()
+    render(<RouterProvider router={router} />)
+    await router.navigate({ to: "/" })
+
+    expect(screen.getByText("متطلبات بيرسون")).toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: "متطلبات المركز" })).toBeInTheDocument()
+    expect(screen.getByText("تحليل أصحاب المصلحة")).toBeInTheDocument()
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "ابحثي عن طالب بالاسم أو الرقم" }), {
+      target: { value: "BT-1048" },
+    })
+    expect(screen.getByText("عمر الحربي")).toBeInTheDocument()
+    expect(screen.queryByText("سارة العتيبي")).not.toBeInTheDocument()
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "ابحثي عن طالب بالاسم أو الرقم" }), {
+      target: { value: "غير موجود" },
+    })
+    expect(screen.getByText("لا يوجد طالب بهذا الاسم أو الرقم.")).toBeInTheDocument()
   })
 
   it("loads the scaffolded activity route from seed data", async () => {
@@ -46,7 +72,7 @@ describe("createAppRouter()", () => {
     const router = createAppRouter()
     render(<RouterProvider router={router} />)
 
-    expect(await screen.findByRole("heading", { name: "Replica Starter" })).toBeInTheDocument()
+    expect(await screen.findByRole("heading", { name: "لوحة التقييم" })).toBeInTheDocument()
     expect(
       screen.queryByRole("heading", { name: "This page isn't built in the prototype yet" }),
     ).not.toBeInTheDocument()
@@ -75,7 +101,7 @@ describe("createAppRouter()", () => {
       expect(screen.getAllByRole("link")).toHaveLength(1)
 
       fireEvent.click(screen.getByRole("link", { name: "Go to start" }))
-      expect(await screen.findByRole("heading", { name: "Replica Starter" })).toBeInTheDocument()
+      expect(await screen.findByRole("heading", { name: "لوحة التقييم" })).toBeInTheDocument()
     },
   )
 
