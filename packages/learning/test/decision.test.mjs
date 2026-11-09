@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import { createHash } from "node:crypto"
 import { execFileSync } from "node:child_process"
+import { createServer } from "node:http"
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
@@ -632,5 +633,203 @@ describe("replica-learning decision", () => {
     )
     assert.match(otherPage.stderr, /Skipped: 4 screenshot-missing/)
     for (const result of [outside, empty, otherPage]) assert.equal(result.code, 1)
+  })
+})
+
+describe("replica-learning decision ask", () => {
+  const LABELS = "mem_aaaaaaaaaaaaaaaaaaaaaaaa"
+  const BLUE = "mem_bbbbbbbbbbbbbbbbbbbbbbbb"
+  const asked = brandCheckQuestions([
+    { id: LABELS, content: "Show a visible label above every form field." },
+    { id: BLUE, content: "Primary buttons use the brand blue." },
+  ])
+  const folder = path.join(work, "ask")
+  mkdirSync(path.join(folder, "screenshots"), { recursive: true })
+  writeFileSync(path.join(folder, "questions.json"), JSON.stringify(asked))
+  writeFileSync(path.join(folder, "brand-sheet.png"), Buffer.from("sheet"))
+  writeFileSync(path.join(folder, "screenshots", "desktop.png"), Buffer.from("desktop"))
+  writeFileSync(path.join(folder, "screenshots", "narrow-dark.png"), Buffer.from("narrow dark"))
+
+  async function ask(args, env, respond, endpointPath = "/score") {
+    const requests = []
+    const server = createServer((request, response) => {
+      let body = ""
+      request.on("data", (chunk) => (body += chunk))
+      request.on("end", () => {
+        requests.push({ url: request.url, headers: request.headers, body: JSON.parse(body) })
+        respond(response)
+      })
+    })
+    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve))
+    let stdout = ""
+    let stderr = ""
+    try {
+      const code = await main(
+        [
+          "decision",
+          "ask",
+          "--endpoint",
+          `http://127.0.0.1:${server.address().port}${endpointPath}`,
+          ...args,
+        ],
+        {
+          cwd: folder,
+          env,
+          stdout: { write: (text) => (stdout += text) },
+          stderr: { write: (text) => (stderr += text) },
+          stdin: Readable.from([]),
+          clock: () => CLOCK,
+        },
+      )
+      return { code, stdout, stderr, requests }
+    } finally {
+      server.close()
+    }
+  }
+
+  it("sends a page the way training showed it and lists the least likely learning first", async () => {
+    const result = await ask(
+      ["--questions", "questions.json", "--screenshots", "screenshots", "--route", "/checkout", "--brand-sheet", "brand-sheet.png", "--json"],
+      { REPLICA_DECISION_KEY: "test-key" },
+      (response) => {
+        response.setHeader("content-type", "application/json")
+        response.end(
+          JSON.stringify({
+            answers: {
+              [LABELS]: { probabilities: { yes: 0.9, no: 0.1 } },
+              [BLUE]: { probabilities: { yes: 0.2, no: 0.8 } },
+            },
+          }),
+        )
+      },
+    )
+    assert.equal(result.code, 0, result.stderr)
+    const [{ headers, body }] = result.requests
+    assert.equal(headers.authorization, "Bearer test-key")
+    assert.deepEqual(body.images, [
+      `data:image/png;base64,${Buffer.from("sheet").toString("base64")}`,
+      `data:image/png;base64,${Buffer.from("desktop").toString("base64")}`,
+      `data:image/png;base64,${Buffer.from("narrow dark").toString("base64")}`,
+    ])
+    assert.equal(
+      body.state.imagesNote,
+      "Image 1 is the team's brand reference sheet. The candidate is the page at route /checkout, shown as image 2 at desktop width in light theme, image 3 at narrow width in dark theme.",
+    )
+    assert.deepEqual(body.state.rules, asked.rules)
+    assert.deepEqual(body.questions, asked.questions)
+    assert.deepEqual(
+      JSON.parse(result.stdout).learnings.map(({ id, follows }) => [id, follows]),
+      [
+        [BLUE, 0.2],
+        [LABELS, 0.9],
+      ],
+    )
+  })
+
+  it("refuses to send the key without encryption, and reports a failed endpoint without it", async () => {
+    const insecure = await main(
+      ["decision", "ask", "--endpoint", "http://example.com/score", "--questions", "questions.json", "--screenshots", "screenshots"],
+      {
+        cwd: folder,
+        env: { REPLICA_DECISION_KEY: "test-key" },
+        stdout: { write: () => {} },
+        stderr: { write: () => {} },
+        stdin: Readable.from([]),
+        clock: () => CLOCK,
+      },
+    )
+    assert.equal(insecure, 1)
+    const missingKey = await ask(["--questions", "questions.json", "--screenshots", "screenshots"], {}, () => {})
+    assert.equal(missingKey.code, 2)
+    assert.equal(missingKey.requests.length, 0)
+    const failed = await ask(
+      ["--questions", "questions.json", "--screenshots", "screenshots"],
+      { REPLICA_DECISION_KEY: "test-key" },
+      (response) => {
+        response.statusCode = 503
+        response.end("model is still loading")
+      },
+    )
+    assert.equal(failed.code, 1)
+    assert.match(failed.stderr, /answered 503: model is still loading/)
+    assert.doesNotMatch(failed.stderr, /test-key/)
+    const partial = await ask(
+      ["--questions", "questions.json", "--screenshots", "screenshots"],
+      { REPLICA_DECISION_KEY: "test-key" },
+      (response) => response.end(JSON.stringify({ answers: { [LABELS]: { probabilities: { yes: 0.9, no: 0.1 } } } })),
+    )
+    assert.equal(partial.code, 1)
+    assert.match(partial.stderr, /did not answer every question/)
+    const redirected = await ask(
+      ["--questions", "questions.json", "--screenshots", "screenshots"],
+      { REPLICA_DECISION_KEY: "test-key" },
+      (response) => {
+        response.writeHead(307, { location: "/elsewhere" })
+        response.end()
+      },
+    )
+    assert.equal(redirected.code, 1)
+    assert.match(redirected.stderr, /redirected the request/)
+    assert.equal(redirected.requests.length, 1)
+  })
+
+  it("asks a chat deployment one learning at a time and reads yes from its log probabilities", async () => {
+    const result = await ask(
+      ["--questions", "questions.json", "--screenshots", "screenshots", "--model", "vlm-brand", "--json"],
+      { REPLICA_DECISION_KEY: "test-key" },
+      (response) => {
+        response.setHeader("content-type", "application/json")
+        response.end(
+          JSON.stringify({
+            choices: [
+              {
+                logprobs: {
+                  content: [
+                    {
+                      token: "Yes",
+                      top_logprobs: [
+                        { token: "Yes", logprob: Math.log(0.6) },
+                        { token: " no", logprob: Math.log(0.2) },
+                        { token: "Maybe", logprob: Math.log(0.1) },
+                      ],
+                    },
+                  ],
+                },
+              },
+            ],
+          }),
+        )
+      },
+      "/openai/v1/",
+    )
+    assert.equal(result.code, 0, result.stderr)
+    assert.equal(result.requests.length, 2)
+    for (const { url, headers, body } of result.requests) {
+      assert.equal(url, "/openai/v1/chat/completions")
+      assert.equal(headers.authorization, "Bearer test-key")
+      assert.equal(body.model, "vlm-brand")
+      assert.equal(body.logprobs, true)
+      assert.equal(body.max_tokens, 1)
+      assert.equal(body.messages[0].content.filter(({ type }) => type === "image_url").length, 2)
+    }
+    assert.match(result.requests[1].body.messages[0].content.at(-1).text, /brand blue/)
+    for (const { follows } of JSON.parse(result.stdout).learnings)
+      assert.ok(Math.abs(follows - 0.75) < 1e-9, `expected 0.75, got ${follows}`)
+  })
+
+  it("does not read an answer missing from the likeliest tokens as impossible", async () => {
+    const result = await ask(
+      ["--questions", "questions.json", "--screenshots", "screenshots", "--model", "vlm-brand", "--json"],
+      { REPLICA_DECISION_KEY: "test-key" },
+      (response) => {
+        const others = Array.from({ length: 9 }, (_, index) => ({ token: `t${index}`, logprob: Math.log(0.09) }))
+        const top_logprobs = [{ token: "Yes", logprob: Math.log(0.1) }, ...others]
+        response.end(JSON.stringify({ choices: [{ logprobs: { content: [{ token: "Yes", top_logprobs }] } }] }))
+      },
+      "/openai/v1",
+    )
+    assert.equal(result.code, 0, result.stderr)
+    for (const { follows } of JSON.parse(result.stdout).learnings)
+      assert.ok(Math.abs(follows - 0.1 / 0.19) < 1e-9, `expected about 53%, got ${follows}`)
   })
 })

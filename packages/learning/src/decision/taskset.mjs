@@ -73,11 +73,6 @@ export async function writeDecisionTaskset(
           size: screenshot.size,
           theme: screenshot.theme,
         })
-      const first = reference ? 2 : 1
-      const views = candidates.map(
-        ({ size, theme }, index) => `image ${first + index} at ${size} width in ${theme} theme`,
-      )
-      const page = `the page at route ${oneLine(task.route).slice(0, 200)}`
       lines.push(
         JSON.stringify({
           schemaVersion: TASK_SCHEMA,
@@ -85,7 +80,7 @@ export async function writeDecisionTaskset(
           split: task.split,
           state: {
             rules,
-            imagesNote: `${reference ? "Image 1 is the team's brand reference sheet. " : ""}The candidate is ${page}, shown as ${views.join(", ")}.`,
+            imagesNote: imagesNote(task.route, candidates, Boolean(reference)),
           },
           images: reference ? [reference, ...candidates] : candidates,
           questions,
@@ -144,22 +139,42 @@ export function skippedText(skipped) {
     : "The export holds no accepted learning with review evidence."
 }
 
-async function copyImage(source, directory, name, role) {
+/**
+ * How a task describes its images, which a request to a trained model must repeat word for word.
+ *
+ * @param {string} route the page's route
+ * @param {Array<{ size: string, theme: string }>} views the page's screenshots, in task order
+ * @param {boolean} reference whether the brand reference sheet comes first
+ */
+export function imagesNote(route, views, reference) {
+  const first = reference ? 2 : 1
+  const shown = views.map(
+    ({ size, theme }, index) => `image ${first + index} at ${size} width in ${theme} theme`,
+  )
+  const page = `the page at route ${oneLine(route).slice(0, 200)}`
+  return `${reference ? "Image 1 is the team's brand reference sheet. " : ""}The candidate is ${page}, shown as ${shown.join(", ")}.`
+}
+
+/** Read a PNG, JPEG, or WebP image of at most 25 MiB. */
+export async function readImage(source) {
   const extension = path.extname(source).toLowerCase()
   const mediaType = MEDIA_TYPES[extension]
   if (!mediaType)
     throw new LearningError("invalid_input", `${source} must be a PNG, JPEG, or WebP image.`)
-  let bytes
   try {
     const info = await stat(source)
     if (!info.isFile()) throw new LearningError("invalid_input", `${source} is not a file.`)
     if (info.size > MAX_IMAGE_BYTES)
       throw new LearningError("invalid_input", `${source} is larger than 25 MiB.`)
-    bytes = await readFile(source)
+    return { bytes: await readFile(source), mediaType, extension }
   } catch (error) {
     if (error instanceof LearningError) throw error
     throw new LearningError("not_found", `Cannot read ${source} (${error.code ?? error.message}).`)
   }
+}
+
+async function copyImage(source, directory, name, role) {
+  const { bytes, mediaType, extension } = await readImage(source)
   const relative = `images/${name}${extension}`
   await writeFile(path.join(directory, relative), bytes, { mode: 0o600, flag: "wx" })
   return {
