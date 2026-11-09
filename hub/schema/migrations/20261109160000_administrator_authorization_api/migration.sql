@@ -18,6 +18,8 @@ ALTER TABLE "hub_sessions"
   ADD COLUMN "external_identity_id" UUID,
   ADD COLUMN "provider_revision_id" UUID;
 
+DROP TRIGGER "hub_sessions_protected" ON "hub_sessions";
+
 WITH session_identity AS (
   SELECT DISTINCT ON (session."id")
     session."id" AS "session_id",
@@ -40,6 +42,10 @@ SET
   "provider_revision_id" = session_identity."provider_revision_id"
 FROM session_identity
 WHERE session."id" = session_identity."session_id";
+
+CREATE TRIGGER "hub_sessions_protected"
+BEFORE UPDATE OR DELETE ON "hub_sessions"
+FOR EACH ROW EXECUTE FUNCTION protect_hub_session();
 
 ALTER TABLE "hub_sessions"
   ADD CONSTRAINT "hub_sessions_external_identity_id_fkey"

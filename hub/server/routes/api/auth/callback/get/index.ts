@@ -56,6 +56,7 @@ export function get(dependencies: AuthenticationCallbackDependencies): RequestHa
           !(await dependencies.verifyAdministratorAuthorization({
             authorizationAttemptId: completed.proof.authorizationAttemptId,
             externalIdentityId: completed.proof.externalIdentityId,
+            providerAssignment: completed.providerAssignment,
             sessionDigest: hashAuthenticationValue(hubSessionValue),
             sensitiveAuthorizationId: completed.sensitiveAuthorizationId,
           }))

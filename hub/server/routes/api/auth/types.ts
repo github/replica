@@ -39,6 +39,12 @@ export interface AuthenticationCallbackDependencies extends RateLimitDependencie
   verifyAdministratorAuthorization?(input: {
     authorizationAttemptId: string
     externalIdentityId: string
+    providerAssignment?: {
+      assignmentSubject: string | null
+      issuedAt: Date
+      providerRevisionId: string
+      role: "MEMBER" | "ADMINISTRATOR" | null
+    }
     sessionDigest: string
     sensitiveAuthorizationId: string
   }): Promise<boolean>

@@ -1,10 +1,32 @@
 import { randomUUID } from "node:crypto"
+import pg from "pg"
 import { describe, expect, it } from "vitest"
 
 import { prisma } from "../../integrations/prisma"
 import { searchAdministratorCandidates } from "../../repositories/memberships/search-administrator-candidates"
+import { createSecurityAudit } from "../../repositories/security-audits/create-security-audit"
 import { cancelSensitiveAuthorization } from "../../repositories/sensitive-authorizations/cancel-sensitive-authorization"
+import { getSensitiveAuthorizationAuditData } from "../../repositories/sensitive-authorizations/get-sensitive-authorization-audit-data"
 import { continueAdministratorAuthorization } from "./continue-administrator-authorization"
+import { runAdministratorAuthorizationVerificationTransaction } from "./run-administrator-authorization-verification-transaction"
+import type { AdministratorAuthorizationVerificationRepositories } from "./run-administrator-authorization-verification-transaction/types"
+import { verifyAdministratorAuthorization } from "./verify-administrator-authorization"
+
+function runVerificationTransaction<Result>(
+  operation: (repositories: AdministratorAuthorizationVerificationRepositories) => Promise<Result>,
+): Promise<Result> {
+  return runAdministratorAuthorizationVerificationTransaction(prisma, operation)
+}
+
+function verificationDependencies() {
+  return {
+    createId: randomUUID,
+    getAuthorizationAuditData: (id: string) => getSensitiveAuthorizationAuditData(prisma, id),
+    runTransaction: runVerificationTransaction,
+    writeAudit: (event: Parameters<typeof createSecurityAudit>[1]) =>
+      createSecurityAudit(prisma, event),
+  }
+}
 
 async function createProvider() {
   const providerId = randomUUID()
@@ -78,6 +100,8 @@ async function createMembership(input: {
 
 async function createAuthorizationFixture(
   operation: "DESIGNATE_ADMINISTRATORS" | "REVOKE_ADMINISTRATOR" = "DESIGNATE_ADMINISTRATORS",
+  verified = true,
+  lifetimeMilliseconds = 60_000,
 ) {
   const providerRevisionId = await createProvider()
   const actor = await createMembership({ administrator: true, login: "actor" })
@@ -87,7 +111,7 @@ async function createAuthorizationFixture(
   await prisma.hubSession.create({
     data: {
       digest: "b".repeat(64),
-      expiresAt: new Date(Date.now() + 60_000),
+      expiresAt: new Date(Date.now() + lifetimeMilliseconds),
       externalIdentityId: actor.externalIdentityId,
       id: hubSessionId,
       membershipId: actor.membershipId,
@@ -104,13 +128,170 @@ async function createAuthorizationFixture(
       id: authorizationId,
       operation,
       targetMembershipIds: [target.membershipId],
-      verifiedAt: new Date(),
+      verifiedAt: verified ? new Date() : null,
     },
   })
-  return { actor, authorizationId, hubSessionId, operation, target }
+  return { actor, authorizationId, hubSessionId, operation, providerRevisionId, target }
+}
+
+async function createConsumedAuthorizationAttempt(input: {
+  authorizationId: string
+  providerRevisionId: string
+}) {
+  const authorizationAttemptId = randomUUID()
+  const createdAt = new Date()
+  await prisma.authorizationAttempt.create({
+    data: {
+      browserBindingDigest: "d".repeat(64),
+      codeVerifierCiphertext: "encrypted-verifier",
+      consumedAt: createdAt,
+      createdAt,
+      expiresAt: new Date(Date.now() + 60_000),
+      id: authorizationAttemptId,
+      nonceCiphertext: "encrypted-nonce",
+      providerRevisionId: input.providerRevisionId,
+      purpose: "ADMINISTRATOR_MANAGEMENT",
+      sensitiveAuthorizationId: input.authorizationId,
+      sessionRevocationRevision: 0,
+      stateDigest: randomUUID().replaceAll("-", "").repeat(2),
+    },
+  })
+  return authorizationAttemptId
 }
 
 describe("administrator authorization persistence", () => {
+  it("verifies the real callback binding before confirmation lookup", async () => {
+    const fixture = await createAuthorizationFixture("DESIGNATE_ADMINISTRATORS", false)
+    const authorizationAttemptId = await createConsumedAuthorizationAttempt({
+      authorizationId: fixture.authorizationId,
+      providerRevisionId: fixture.providerRevisionId,
+    })
+
+    await expect(
+      verifyAdministratorAuthorization(
+        {
+          authorizationAttemptId,
+          externalIdentityId: fixture.actor.externalIdentityId,
+          providerKey: "github",
+          requiresProviderAssignmentEvidence: false,
+          sessionDigest: "b".repeat(64),
+          sensitiveAuthorizationId: fixture.authorizationId,
+        },
+        verificationDependencies(),
+      ),
+    ).resolves.toBe(true)
+    const verified = await prisma.sensitiveAuthorization.findUniqueOrThrow({
+      select: { verifiedAt: true },
+      where: { id: fixture.authorizationId },
+    })
+    expect(verified.verifiedAt).toBeInstanceOf(Date)
+  })
+
+  it("applies fresh Entra role loss before denying administrator authorization", async () => {
+    const providerId = randomUUID()
+    const providerRevisionId = randomUUID()
+    const userId = randomUUID()
+    const externalIdentityId = randomUUID()
+    const membershipId = randomUUID()
+    const hubSessionId = randomUUID()
+    const authorizationId = randomUUID()
+    await prisma.authenticationProvider.create({
+      data: { enabled: false, id: providerId, key: "entra" },
+    })
+    await prisma.authenticationProviderRevision.create({
+      data: {
+        configurationDigest: "e".repeat(64),
+        id: providerRevisionId,
+        providerId,
+        revision: 1,
+      },
+    })
+    await prisma.authenticationProvider.update({
+      data: { enabled: true, selectedRevisionId: providerRevisionId },
+      where: { id: providerId },
+    })
+    await prisma.user.create({ data: { id: userId } })
+    await prisma.externalIdentity.create({
+      data: {
+        id: externalIdentityId,
+        issuer: "https://login.microsoftonline.com/tenant/v2.0",
+        provider: "entra",
+        subject: randomUUID(),
+        userId,
+      },
+    })
+    await prisma.membership.create({ data: { id: membershipId, userId } })
+    const assignmentId = randomUUID()
+    await prisma.membershipAssignment.create({
+      data: {
+        externalIdentityId,
+        id: assignmentId,
+        membershipId,
+        providerAssignmentSubject: randomUUID(),
+        providerRevisionId,
+        role: "ADMINISTRATOR",
+        source: "AUTHENTICATION_PROVIDER",
+      },
+    })
+    await prisma.hubSession.create({
+      data: {
+        digest: "f".repeat(64),
+        expiresAt: new Date(Date.now() + 60_000),
+        externalIdentityId,
+        id: hubSessionId,
+        membershipId,
+        providerRevisionId,
+        revocationRevision: 0,
+      },
+    })
+    await prisma.sensitiveAuthorization.create({
+      data: {
+        actorMembershipId: membershipId,
+        expiresAt: new Date(Date.now() + 60_000),
+        externalIdentityId,
+        hubSessionId,
+        id: authorizationId,
+        operation: "REVOKE_ADMINISTRATOR",
+        targetMembershipIds: [membershipId],
+      },
+    })
+    const authorizationAttemptId = await createConsumedAuthorizationAttempt({
+      authorizationId,
+      providerRevisionId,
+    })
+
+    await expect(
+      verifyAdministratorAuthorization(
+        {
+          authorizationAttemptId,
+          externalIdentityId,
+          providerAssignment: {
+            assignmentSubject: null,
+            issuedAt: new Date(),
+            providerRevisionId,
+            role: null,
+          },
+          providerKey: "entra",
+          requiresProviderAssignmentEvidence: true,
+          sessionDigest: "f".repeat(64),
+          sensitiveAuthorizationId: authorizationId,
+        },
+        verificationDependencies(),
+      ),
+    ).resolves.toBe(false)
+    await expect(
+      prisma.membershipAssignment.findUniqueOrThrow({
+        select: { lifecycle: true },
+        where: { id: assignmentId },
+      }),
+    ).resolves.toEqual({ lifecycle: "REVOKED" })
+    const endedProviderSession = await prisma.hubSession.findUniqueOrThrow({
+      select: { endedAt: true },
+      where: { id: hubSessionId },
+    })
+    expect(endedProviderSession.endedAt).toBeInstanceOf(Date)
+  })
+
   it("binds one-use continuation to the exact session, operation, and ordered targets", async () => {
     const fixture = await createAuthorizationFixture()
     const targetSessionId = randomUUID()
@@ -171,12 +352,11 @@ describe("administrator authorization persistence", () => {
         },
       }),
     ).resolves.toMatchObject({ lifecycle: "ACTIVE", role: "ADMINISTRATOR" })
-    await expect(
-      prisma.hubSession.findUniqueOrThrow({
-        select: { endedAt: true },
-        where: { id: targetSessionId },
-      }),
-    ).resolves.toEqual({ endedAt: expect.any(Date) })
+    const endedTargetSession = await prisma.hubSession.findUniqueOrThrow({
+      select: { endedAt: true },
+      where: { id: targetSessionId },
+    })
+    expect(endedTargetSession.endedAt).toBeInstanceOf(Date)
     await expect(
       continueAdministratorAuthorization(prisma, {
         hubSessionId: fixture.hubSessionId,
@@ -185,6 +365,39 @@ describe("administrator authorization persistence", () => {
         targetMembershipIds: [fixture.target.membershipId],
       }),
     ).rejects.toMatchObject({ reason: "used" })
+  })
+
+  it("rechecks authorization expiry after waiting for administrator locks", async () => {
+    const databaseUrl = process.env.DATABASE_URL
+    if (!databaseUrl) throw new Error("DATABASE_URL is required.")
+    const fixture = await createAuthorizationFixture("DESIGNATE_ADMINISTRATORS", true, 150)
+    const locker = new pg.Client({ connectionString: databaseUrl })
+    await locker.connect()
+    try {
+      await locker.query("BEGIN")
+      await locker.query(`SELECT id FROM memberships WHERE id = $1 FOR UPDATE`, [
+        fixture.actor.membershipId,
+      ])
+      const continuation = continueAdministratorAuthorization(prisma, {
+        hubSessionId: fixture.hubSessionId,
+        id: fixture.authorizationId,
+        operation: fixture.operation,
+        targetMembershipIds: [fixture.target.membershipId],
+      })
+      await new Promise((resolve) => setTimeout(resolve, 250))
+      await locker.query("COMMIT")
+
+      await expect(continuation).rejects.toMatchObject({ reason: "expired" })
+      await expect(
+        prisma.sensitiveAuthorization.findUniqueOrThrow({
+          select: { continuedAt: true },
+          where: { id: fixture.authorizationId },
+        }),
+      ).resolves.toEqual({ continuedAt: null })
+    } finally {
+      await locker.query("ROLLBACK").catch(() => undefined)
+      await locker.end()
+    }
   })
 
   it("cancels only the bound session authorization and prevents later continuation", async () => {

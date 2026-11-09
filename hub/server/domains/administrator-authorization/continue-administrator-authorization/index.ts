@@ -8,6 +8,7 @@ import { getSensitiveAuthorizationAuditData } from "../../../repositories/sensit
 import { lockLiveHubSession } from "../../../repositories/hub-sessions/lock-live-hub-session/index.ts"
 import { lockSensitiveAuthorization } from "../../../repositories/sensitive-authorizations/lock-sensitive-authorization/index.ts"
 import { markSensitiveAuthorizationContinued } from "../../../repositories/sensitive-authorizations/mark-sensitive-authorization-continued/index.ts"
+import { isSensitiveAuthorizationCurrent } from "../../../repositories/sensitive-authorizations/is-sensitive-authorization-current/index.ts"
 import { createAdministratorManagementRepositories } from "../../administrator-management/create-administrator-management-repositories/index.ts"
 import { designateHubAdministratorsWithRepositories } from "../../administrator-management/designate-hub-administrators-with-repositories/index.ts"
 import {
@@ -30,8 +31,11 @@ const inputSchema = z
 
 interface AdministratorAuthorizationDatabase {
   $queryRaw: Prisma.TransactionClient["$queryRaw"]
-  $transaction: Prisma.TransactionClient["$transaction"]
   securityAudit: Prisma.TransactionClient["securityAudit"]
+  $transaction<Result>(
+    operation: (transaction: Prisma.TransactionClient) => Promise<Result>,
+    options?: { isolationLevel?: Prisma.TransactionIsolationLevel },
+  ): Promise<Result>
 }
 
 function sameTargets(left: string[], right: string[]): boolean {
@@ -77,7 +81,6 @@ export async function continueAdministratorAuthorization(
               if (!authorization.verifiedAt) {
                 throw new AdministratorAuthorizationDeniedError("verification_required")
               }
-              await markSensitiveAuthorizationContinued(transaction, input.id)
               const repositories = createAdministratorManagementRepositories(transaction)
               const result =
                 input.operation === "DESIGNATE_ADMINISTRATORS"
@@ -88,6 +91,17 @@ export async function continueAdministratorAuthorization(
                         targetMembershipIds: input.targetMembershipIds,
                       },
                       randomUUID,
+                      async () => {
+                        if (
+                          !(await isSensitiveAuthorizationCurrent(transaction, {
+                            authorizationId: input.id,
+                            hubSessionId: authorization.hubSessionId,
+                          }))
+                        ) {
+                          throw new AdministratorAuthorizationDeniedError("expired")
+                        }
+                        await markSensitiveAuthorizationContinued(transaction, input.id)
+                      },
                     )
                   : await revokeHubAdministratorWithRepositories(
                       repositories,
@@ -96,6 +110,17 @@ export async function continueAdministratorAuthorization(
                         targetMembershipId: input.targetMembershipIds[0]!,
                       },
                       randomUUID,
+                      async () => {
+                        if (
+                          !(await isSensitiveAuthorizationCurrent(transaction, {
+                            authorizationId: input.id,
+                            hubSessionId: authorization.hubSessionId,
+                          }))
+                        ) {
+                          throw new AdministratorAuthorizationDeniedError("expired")
+                        }
+                        await markSensitiveAuthorizationContinued(transaction, input.id)
+                      },
                     )
               await repositories.createSecurityAudit({
                 actorMembershipId: authorization.actorMembershipId,

@@ -26,7 +26,7 @@ describe("createGitHubUserAuthenticationAdapter()", () => {
           JSON.stringify({
             id: 123456,
             login: "octocat",
-            name: "The Octocat",
+            name: "x".repeat(250),
             avatar_url: "https://avatars.example.test/octocat",
             email: "octocat@example.test",
           }),
@@ -82,7 +82,7 @@ describe("createGitHubUserAuthenticationAdapter()", () => {
       },
       profile: {
         login: "octocat",
-        name: "The Octocat",
+        name: "x".repeat(200),
       },
     })
     const tokenRequest = request.mock.calls[0]!

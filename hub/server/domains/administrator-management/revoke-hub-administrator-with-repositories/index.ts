@@ -5,6 +5,7 @@ export async function revokeHubAdministratorWithRepositories(
   repositories: AdministratorManagementRepositories,
   input: { actorMembershipId: string; targetMembershipId: string },
   createId: () => string,
+  validateAfterAuthorityLocks?: () => Promise<void>,
 ) {
   await repositories.lockEffectiveAdministratorProviders()
   const administrators = await repositories.lockEffectiveAdministrators()
@@ -15,6 +16,7 @@ export async function revokeHubAdministratorWithRepositories(
   if (!administratorIds.has(input.actorMembershipId)) {
     throw new AdministratorManagementDeniedError("not_authorized")
   }
+  await validateAfterAuthorityLocks?.()
   const targets = await repositories.lockTargets([input.targetMembershipId])
   const target = targets[0]
   if (

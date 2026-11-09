@@ -333,6 +333,7 @@ describe("authenticationRoutes()", () => {
       expect(verifyAdministratorAuthorization).toHaveBeenCalledWith({
         authorizationAttemptId: "00000000-0000-4000-8000-000000000010",
         externalIdentityId: "00000000-0000-4000-8000-000000000012",
+        providerAssignment: undefined,
         sessionDigest: createHash("sha256").update("retained-session").digest("hex"),
         sensitiveAuthorizationId,
       })

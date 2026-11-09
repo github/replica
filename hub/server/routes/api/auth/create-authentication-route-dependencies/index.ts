@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto"
 
-import { Prisma } from "../../../../generated/prisma/client.ts"
 import { admitAuthenticationProof } from "../../../../domains/admission/admit-authentication-proof/index.ts"
 import { checkAuthenticationRateLimit } from "../../../../domains/admission/check-authentication-rate-limit/index.ts"
 import { endHubSession } from "../../../../domains/admission/end-hub-session/index.ts"
@@ -28,6 +27,8 @@ import { runIdentityCreationTransaction } from "../../../../domains/identity/run
 import { runProviderRevisionTransaction } from "../../../../domains/identity/run-provider-revision-transaction/index.ts"
 import { continueAdministratorAuthorization } from "../../../../domains/administrator-authorization/continue-administrator-authorization/index.ts"
 import { AdministratorAuthorizationDeniedError } from "../../../../domains/administrator-authorization/errors.ts"
+import { verifyAdministratorAuthorization } from "../../../../domains/administrator-authorization/verify-administrator-authorization/index.ts"
+import { runAdministratorAuthorizationVerificationTransaction } from "../../../../domains/administrator-authorization/run-administrator-authorization-verification-transaction/index.ts"
 import { listEffectiveAdministrators } from "../../../../domains/administrator-management/list-effective-administrators/index.ts"
 import { prisma } from "../../../../integrations/prisma/index.ts"
 import { getAuthenticationProofState } from "../../../../repositories/authentication-providers/get-authentication-proof-state/index.ts"
@@ -40,9 +41,8 @@ import { findAdministratorHubSession } from "../../../../repositories/hub-sessio
 import { searchAdministratorCandidates } from "../../../../repositories/memberships/search-administrator-candidates/index.ts"
 import { cancelSensitiveAuthorization } from "../../../../repositories/sensitive-authorizations/cancel-sensitive-authorization/index.ts"
 import { createSensitiveAuthorization } from "../../../../repositories/sensitive-authorizations/create-sensitive-authorization/index.ts"
-import { getSensitiveAuthorization } from "../../../../repositories/sensitive-authorizations/get-sensitive-authorization/index.ts"
 import { getSensitiveAuthorizationAuditData } from "../../../../repositories/sensitive-authorizations/get-sensitive-authorization-audit-data/index.ts"
-import { verifySensitiveAuthorization } from "../../../../repositories/sensitive-authorizations/verify-sensitive-authorization/index.ts"
+import { getSensitiveAuthorization } from "../../../../repositories/sensitive-authorizations/get-sensitive-authorization/index.ts"
 import type {
   AuthenticationRouteDependencies,
   ProviderAuthenticationRouteDependencies,
@@ -315,40 +315,19 @@ export async function createAuthenticationRouteDependencies(
             writeDenialAudit: writeAuthenticationDenial,
           }),
         verifyAdministratorAuthorization: async (input) => {
-          return prisma.$transaction(
-            async (transaction) => {
-              const verified = await verifySensitiveAuthorization(transaction, input)
-              if (!verified) {
-                const authorization = await getSensitiveAuthorizationAuditData(
-                  transaction,
-                  input.sensitiveAuthorizationId,
-                )
-                if (authorization) {
-                  await createSecurityAudit(transaction, {
-                    actorMembershipId: authorization.actorMembershipId,
-                    authorizationId: input.sensitiveAuthorizationId,
-                    id: randomUUID(),
-                    operation: authorization.operation,
-                    phase: authorization.expired ? "expired" : "denied",
-                    reason: "verification_rejected",
-                    targetCount: authorization.targetCount,
-                    type: "administrator_authorization",
-                  })
-                }
-                return false
-              }
-              await createSecurityAudit(transaction, {
-                actorMembershipId: verified.actorMembershipId,
-                authorizationId: verified.id,
-                id: randomUUID(),
-                operation: verified.operation,
-                phase: "verified",
-                targetCount: verified.targetCount,
-                type: "administrator_authorization",
-              })
-              return true
+          return verifyAdministratorAuthorization(
+            {
+              ...input,
+              providerKey: context.adapter.providerKey,
+              requiresProviderAssignmentEvidence: context.requiresProviderAssignmentEvidence,
             },
-            { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+            {
+              createId: randomUUID,
+              getAuthorizationAuditData: (id) => getSensitiveAuthorizationAuditData(prisma, id),
+              runTransaction: (operation) =>
+                runAdministratorAuthorizationVerificationTransaction(prisma, operation),
+              writeAudit: (event) => createSecurityAudit(prisma, event),
+            },
           )
         },
         admit: (input) =>

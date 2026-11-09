@@ -19,7 +19,7 @@ export async function lockLiveHubSession(
       AND membership."lifecycle" = 'ACTIVE'
       AND provider."enabled" = true
       AND provider."selected_revision_id" = revision."id"
-    FOR UPDATE OF session, membership
+    FOR UPDATE OF session
     FOR SHARE OF revocation, revision, provider
   `
   return rows.length === 1

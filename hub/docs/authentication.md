@@ -66,7 +66,7 @@ Administrator management exposes:
 
 - `GET /api/administrators?limit=&before=` for a maximum of 50 effective administrators. `before` is the opaque cursor returned by the previous response.
 - `GET /api/administrators/candidates?query=&limit=` for a maximum of 50 active non-administrators matched against their latest authenticated provider login or name.
-- `POST /api/administrators/authorizations/start` with an operation and one to 50 target membership UUIDs. It redirects to the current session provider and sets the existing browser-binding cookie.
+- `POST /api/administrators/authorizations/start` with an operation and one to 50 target membership UUIDs. It returns the current session provider's `authorizationUrl`, the authorization UUID and expiry while setting the existing browser-binding cookie. The browser navigates to that URL.
 - `GET /api/administrators/authorizations/:id` for the verified, unconsumed confirmation contract.
 - `POST /api/administrators/authorizations/continue` with the authorization UUID and the exact operation and targets.
 - `POST /api/administrators/authorizations/cancel` with the authorization UUID.

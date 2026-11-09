@@ -23,8 +23,9 @@ const session = {
 
 function startDependencies() {
   const checkRateLimit = vi.fn().mockResolvedValue({ allowed: true, auditFailed: false })
+  const authorizationId = randomUUID()
   const start = vi.fn().mockResolvedValue({
-    authorizationId: randomUUID(),
+    authorizationId,
     authorizationUrl: "https://github.com/login/oauth/authorize",
     browserBinding: "browser-binding-with-required-length",
     expiresAt: new Date("2030-01-01T00:00:00Z"),
@@ -35,7 +36,7 @@ function startDependencies() {
     secureCookie: false,
     start,
   }
-  return { checkRateLimit, dependencies, start }
+  return { authorizationId, checkRateLimit, dependencies, start }
 }
 
 function routeDependencies() {
@@ -115,6 +116,7 @@ describe("administratorRoutes()", () => {
       })
 
       expect(response.status).toBe(403)
+      expect(response.headers.get("cache-control")).toBe("no-store")
       expect(findSession).toHaveBeenCalledWith(
         createHash("sha256").update(sessionValue).digest("hex"),
       )
@@ -223,8 +225,13 @@ describe("administratorRoutes()", () => {
         redirect: "manual",
       })
 
-      expect(response.status).toBe(303)
-      expect(response.headers.get("location")).toBe("https://github.com/login/oauth/authorize")
+      expect(response.status).toBe(200)
+      const responseBody: unknown = await response.json()
+      expect(responseBody).toEqual({
+        authorizationId: github.authorizationId,
+        authorizationUrl: "https://github.com/login/oauth/authorize",
+        expiresAt: "2030-01-01T00:00:00.000Z",
+      })
       expect(github.start).toHaveBeenCalledWith({
         actorMembershipId: session.membershipId,
         externalIdentityId: session.externalIdentityId,

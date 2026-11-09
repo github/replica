@@ -16,16 +16,16 @@ export async function getSensitiveAuthorization(
     }>
   >`
     SELECT
-      authorization."operation",
-      authorization."expires_at" AS "expiresAt",
-      authorization."verified_at" AS "verifiedAt",
+      sensitive_authorization."operation",
+      sensitive_authorization."expires_at" AS "expiresAt",
+      sensitive_authorization."verified_at" AS "verifiedAt",
       target."membershipId",
       target."provider",
       target."login",
       target."name"
-    FROM "sensitive_authorizations" authorization
-    JOIN "hub_sessions" session ON session."id" = authorization."hub_session_id"
-    JOIN "memberships" actor ON actor."id" = authorization."actor_membership_id"
+    FROM "sensitive_authorizations" sensitive_authorization
+    JOIN "hub_sessions" session ON session."id" = sensitive_authorization."hub_session_id"
+    JOIN "memberships" actor ON actor."id" = sensitive_authorization."actor_membership_id"
     JOIN "session_revocation_states" revocation ON revocation."key" = 'global'
     JOIN "authentication_provider_revisions" revision
       ON revision."id" = session."provider_revision_id"
@@ -36,23 +36,24 @@ export async function getSensitiveAuthorization(
         profile."provider",
         profile."login",
         profile."name"
-      FROM unnest(authorization."target_membership_ids") WITH ORDINALITY selected("id", "position")
+      FROM unnest(sensitive_authorization."target_membership_ids")
+        WITH ORDINALITY selected("id", "position")
       JOIN "memberships" membership ON membership."id" = selected."id"
       LEFT JOIN "user_profiles" profile ON profile."user_id" = membership."user_id"
       ORDER BY selected."position"
     ) target ON true
-    WHERE authorization."id" = ${input.id}::uuid
-      AND authorization."hub_session_id" = ${input.hubSessionId}::uuid
+    WHERE sensitive_authorization."id" = ${input.id}::uuid
+      AND sensitive_authorization."hub_session_id" = ${input.hubSessionId}::uuid
       AND session."ended_at" IS NULL
       AND session."expires_at" > clock_timestamp()
       AND session."revocation_revision" = revocation."revision"
       AND actor."lifecycle" = 'ACTIVE'
       AND provider."enabled" = true
       AND provider."selected_revision_id" = revision."id"
-      AND authorization."expires_at" > clock_timestamp()
-      AND authorization."verified_at" IS NOT NULL
-      AND authorization."continued_at" IS NULL
-      AND authorization."cancelled_at" IS NULL
+      AND sensitive_authorization."expires_at" > clock_timestamp()
+      AND sensitive_authorization."verified_at" IS NOT NULL
+      AND sensitive_authorization."continued_at" IS NULL
+      AND sensitive_authorization."cancelled_at" IS NULL
       AND EXISTS (
         SELECT 1
         FROM "membership_assignments" assignment

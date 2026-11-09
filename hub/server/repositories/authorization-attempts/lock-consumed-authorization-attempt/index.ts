@@ -9,7 +9,7 @@ export async function lockConsumedAuthorizationAttempt(
       bootstrapSecretDigest: string | null
       consumedAt: Date | null
       providerRevisionId: string
-      purpose: "SIGN_IN" | "ADMIN_ENROLLMENT"
+      purpose: "SIGN_IN" | "ADMIN_ENROLLMENT" | "ADMINISTRATOR_MANAGEMENT"
       sessionRevocationRevision: number
     }>
   >`

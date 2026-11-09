@@ -5,6 +5,7 @@ export async function designateHubAdministratorsWithRepositories(
   repositories: AdministratorManagementRepositories,
   input: { actorMembershipId: string; targetMembershipIds: string[] },
   createId: () => string,
+  validateAfterAuthorityLocks?: () => Promise<void>,
 ) {
   await repositories.lockEffectiveAdministratorProviders()
   const administrators = await repositories.lockEffectiveAdministrators()
@@ -18,6 +19,7 @@ export async function designateHubAdministratorsWithRepositories(
   if (input.targetMembershipIds.some((membershipId) => administratorIds.has(membershipId))) {
     throw new AdministratorManagementDeniedError("role_changed")
   }
+  await validateAfterAuthorityLocks?.()
   const targets = await repositories.lockTargets(input.targetMembershipIds)
   const targetsById = new Map(targets.map((target) => [target.membershipId, target]))
   if (

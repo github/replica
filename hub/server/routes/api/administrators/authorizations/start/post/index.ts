@@ -1,8 +1,9 @@
 import type { RequestHandler } from "express"
 import { z } from "zod"
 
-import { redirectAuthenticationStart } from "../../../../../../integrations/express/redirect-authentication-start/index.ts"
 import { AdministratorAuthorizationDeniedError } from "../../../../../../domains/administrator-authorization/errors.ts"
+import { browserAuthenticationCookieName } from "../../../../../../integrations/express/browser-authentication-cookie-name/index.ts"
+import { createAuthenticationCookie } from "../../../../../../integrations/express/create-authentication-cookie/index.ts"
 import type { AdministratorRouteDependencies } from "../../../../auth/types.ts"
 import { readAdministratorSession } from "../../../read-administrator-session/index.ts"
 
@@ -52,7 +53,20 @@ export function post(dependencies: AdministratorRouteDependencies): RequestHandl
         operation: body.data.operation,
         targetMembershipIds: body.data.targetMembershipIds,
       })
-      redirectAuthenticationStart(response, provider.secureCookie, started)
+      response.setHeader(
+        "Set-Cookie",
+        createAuthenticationCookie({
+          expiresAt: started.expiresAt,
+          name: browserAuthenticationCookieName,
+          secure: provider.secureCookie,
+          value: started.browserBinding,
+        }),
+      )
+      response.json({
+        authorizationId: started.authorizationId,
+        authorizationUrl: started.authorizationUrl,
+        expiresAt: started.expiresAt.toISOString(),
+      })
     } catch (error) {
       if (error instanceof AdministratorAuthorizationDeniedError) {
         response.status(403).json({ error: error.reason })
