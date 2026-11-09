@@ -66,7 +66,7 @@ describe("mock collection pagination", () => {
     expect(filtered.prototypes.map(({ id }) => id)).toEqual(
       expected.slice(0, 24).map(({ id }) => id),
     )
-    const empty = await getRepository(new Request(`${store.origin}/repositories/"2002"`), "2002")
+    const empty = await getRepository(new Request(`${store.origin}/repositories/2002`), "2002")
     expect(empty.prototypes).toEqual([])
     expect(empty.pagination).toEqual({ page: 1, pageSize: 24, totalCount: 0, pageCount: 1 })
     const forcedEmpty = await fetch(`${store.origin}/api/repositories/2001`, {

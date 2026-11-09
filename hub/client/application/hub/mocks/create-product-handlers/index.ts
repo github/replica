@@ -51,7 +51,9 @@ export function createProductHandlers(
         () => {
           const parsed = productTemplateIdSchema.safeParse(params.templateId)
           if (!parsed.success) throw new MockStoreError(400, "Invalid template identifier.")
-          return HttpResponse.json(store.getTemplate(recordIdentifier(params.repositoryId), parsed.data))
+          return HttpResponse.json(
+            store.getTemplate(recordIdentifier(params.repositoryId), parsed.data),
+          )
         },
         session,
       ),

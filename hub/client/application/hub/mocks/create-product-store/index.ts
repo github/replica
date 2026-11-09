@@ -131,9 +131,9 @@ export function createProductStore(context: MockFlowContext) {
   ): PrototypeResponse {
     const viewer = session.requireCapability("createPrototypes")
     context.repositoryRecord(repositoryId)
-    const id = String(
-      Math.max(0, ...resources.prototypes.map((prototype) => Number(prototype.id))) + 1,
-    )
+    let nextId = resources.prototypes.length + 1
+    while (resources.prototypes.some(({ id }) => id === String(nextId))) nextId += 1
+    const id = String(nextId)
     const now = new Date().toISOString()
     const prototype = {
       id,

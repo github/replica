@@ -2,6 +2,7 @@ import { data, useFetcher, useLocation, useOutletContext } from "react-router"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 
 import { PrototypeManagementPage } from "@pages/prototype-management-page"
+import { recordIdentifierSchema, routeIdentifierSchema } from "@application/hub/contracts"
 import type { WorkspaceResponse } from "@application/hub/contracts/types"
 import {
   productManagementResponseSchema,
@@ -43,11 +44,15 @@ export async function clientAction({
   const actionValue = form.get("_action")
   const action = typeof actionValue === "string" ? actionValue.split("?")[0] : null
   const match = action?.match(
-    new RegExp(
-      `^/repositories/${repositoryId}/(prototypes|candidates)/([0-9A-Fa-f-]{1,36})/registration$`,
-    ),
+    new RegExp(`^/repositories/${repositoryId}/(prototypes|candidates)/([^/]+)/registration$`),
   )
-  if (!match || form.get("_method") !== "patch") {
+  if (
+    !match ||
+    !(match[1] === "candidates" ? routeIdentifierSchema : recordIdentifierSchema).safeParse(
+      match[2],
+    ).success ||
+    form.get("_method") !== "patch"
+  ) {
     return data<ProductActionResult>(
       { saved: false, error: "This prototype management action is not connected." },
       { status: 400 },

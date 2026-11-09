@@ -2,9 +2,22 @@ import { http, HttpResponse } from "msw"
 import { setupServer } from "msw/node"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
-import { clientAction } from "."
+import { clientAction, clientLoader } from "."
 
-describe("prototype clientAction()", () => {
+describe("prototype route", () => {
+  it("rejects an invalid prototype ID before making a request", async () => {
+    const send = vi.fn()
+    vi.stubGlobal("fetch", send)
+    const request = new Request(
+      new URL("/repositories/2001/prototypes/bad", window.location.origin),
+    )
+
+    await expect(
+      clientLoader({ request, params: { repositoryId: "2001", prototypeId: "bad" } }),
+    ).rejects.toMatchObject({ status: 400 })
+    expect(send).not.toHaveBeenCalled()
+  })
+
   it("does not confirm a save when the API returns an invalid success response", async () => {
     vi.stubEnv("MODE", "development")
     const url = new URL("/api/repositories/2001/prototypes/1", window.location.origin)

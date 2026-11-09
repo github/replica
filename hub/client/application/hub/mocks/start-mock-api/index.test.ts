@@ -119,7 +119,9 @@ describe("startMockApi()", () => {
     await router.settle(() =>
       fireEvent.click(within(dialog).getByRole("button", { name: "Save details" })),
     )
-    expect((await getPrototype(request, "2001", "1")).prototype.name).toBe("Only the previous document")
+    expect((await getPrototype(request, "2001", "1")).prototype.name).toBe(
+      "Only the previous document",
+    )
     fireEvent.click(screen.getByRole("button", { name: "Edit details" }))
     const draft = screen.getByRole("dialog", { name: "Edit prototype details" })
     fireEvent.change(within(draft).getByRole("textbox", { name: "Name" }), {

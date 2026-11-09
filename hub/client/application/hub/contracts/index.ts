@@ -4,8 +4,7 @@ const identifier = z.number().int().positive()
 const httpUrl = z.url({ protocol: /^https?$/ })
 const timestamp = z.iso.datetime({ offset: true })
 
-// Records use string IDs so the server can issue UUIDs. Numeric IDs remain valid for
-// mock data. Anything else is rejected because IDs go directly into API paths.
+// Keep numeric mock IDs while accepting UUIDs from the API.
 export const recordIdentifierSchema = z
   .string()
   .regex(/^(?:[1-9]\d*|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})$/i)

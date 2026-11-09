@@ -97,7 +97,12 @@ export function createReviewHandlers(
     http.delete(`${base}/:commentId`, ({ request, params }) =>
       respondMock(request, () =>
         HttpResponse.json(
-          store.edit(recordId(params.repositoryId), recordId(params.prototypeId), id(params.commentId), null),
+          store.edit(
+            recordId(params.repositoryId),
+            recordId(params.prototypeId),
+            id(params.commentId),
+            null,
+          ),
         ),
       ),
     ),
