@@ -1,6 +1,6 @@
 import type { SharingSettingsPageData } from "@pages/sharing-settings-page/types"
 import type { WorkspaceResponse } from "@application/hub/contracts/types"
-import { routeIdentifierSchema } from "@application/hub/contracts"
+import { recordIdentifierSchema } from "@application/hub/contracts"
 import type { ProductSharingSettings } from "@application/hub/product-contracts/types"
 import { ApiRequestError } from "@application/hub/requests/api-request-error"
 
@@ -13,7 +13,7 @@ export function productSharingSettingsData(
   search: URLSearchParams,
 ): SharingSettingsPageData {
   const context = search.get("repositoryId")
-  const parsed = context === null ? null : routeIdentifierSchema.safeParse(context)
+  const parsed = context === null ? null : recordIdentifierSchema.safeParse(context)
   if (parsed && !parsed.success) {
     throw new ApiRequestError(400, "Invalid repository context.")
   }

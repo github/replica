@@ -19,13 +19,13 @@ describe("mock collection pagination", () => {
     server.listen({ onUnhandledRequest: "error" })
     onTestFinished(() => server.close())
     const request = new Request(`${store.origin}/repositories/2001`)
-    const first = await getRepository(request, 2001)
+    const first = await getRepository(request, "2001")
 
     expect(first.pagination.pageSize).toBe(24)
     expect(first.pagination.totalCount).toBeGreaterThan(48)
     const records: PrototypeRecord[] = [...first.prototypes]
     for (let page = 2; page <= first.pagination.pageCount; page += 1) {
-      const next = await getRepository(new Request(`${request.url}?page=${page}`), 2001)
+      const next = await getRepository(new Request(`${request.url}?page=${page}`), "2001")
       expect(next.pagination).toMatchObject({
         page,
         pageSize: 24,
@@ -43,7 +43,7 @@ describe("mock collection pagination", () => {
     const viewer = (await getSession(request)).viewer
     if (!viewer) throw new Error("The default collection requires a signed-in viewer.")
     const owned = records.filter(({ authorLogin }) => authorLogin === viewer.login)
-    const mine = await getRepository(new Request(`${request.url}?author=me`), 2001)
+    const mine = await getRepository(new Request(`${request.url}?author=me`), "2001")
     expect(mine.pagination.totalCount).toBe(owned.length)
     expect(mine.prototypes.map(({ id }) => id)).toEqual(owned.slice(0, 24).map(({ id }) => id))
     const author = first.authors.find(({ login }) => login !== viewer.login)
@@ -53,7 +53,7 @@ describe("mock collection pagination", () => {
     const q = example.name.toUpperCase()
     const filtered = await getRepository(
       new Request(`${request.url}?${new URLSearchParams({ q, author: author.id })}`),
-      2001,
+      "2001",
     )
     const expected = records.filter(
       (record) =>
@@ -66,7 +66,7 @@ describe("mock collection pagination", () => {
     expect(filtered.prototypes.map(({ id }) => id)).toEqual(
       expected.slice(0, 24).map(({ id }) => id),
     )
-    const empty = await getRepository(new Request(`${store.origin}/repositories/2002`), 2002)
+    const empty = await getRepository(new Request(`${store.origin}/repositories/"2002"`), "2002")
     expect(empty.prototypes).toEqual([])
     expect(empty.pagination).toEqual({ page: 1, pageSize: 24, totalCount: 0, pageCount: 1 })
     const forcedEmpty = await fetch(`${store.origin}/api/repositories/2001`, {
@@ -85,14 +85,14 @@ describe("mock collection pagination", () => {
     server.listen({ onUnhandledRequest: "error" })
     onTestFinished(() => server.close())
     const url = `${store.origin}/repositories/2001/prototypes/1/builds`
-    const first = await getBuildHistory(new Request(url), 2001, 1)
+    const first = await getBuildHistory(new Request(url), "2001", "1")
 
     expect(first.pagination.pageSize).toBe(25)
     expect(first.pagination.totalCount).toBeGreaterThan(50)
     expect(first.builds).toHaveLength(25)
     const numbers = first.builds.map(({ number }) => number)
     for (let page = 2; page <= first.pagination.pageCount; page += 1) {
-      const next = await getBuildHistory(new Request(`${url}?page=${page}`), 2001, 1)
+      const next = await getBuildHistory(new Request(`${url}?page=${page}`), "2001", "1")
       expect(next.pagination).toMatchObject({
         page,
         pageSize: 25,
@@ -106,8 +106,8 @@ describe("mock collection pagination", () => {
     expect(numbers).toEqual([...numbers].sort((left, right) => right - left))
     const empty = await getBuildHistory(
       new Request(`${store.origin}/repositories/2001/prototypes/3/builds`),
-      2001,
-      3,
+      "2001",
+      "3",
     )
     expect(empty.builds).toEqual([])
     expect(empty.pagination.pageSize).toBe(25)
@@ -128,7 +128,7 @@ describe("mock collection pagination", () => {
     onTestFinished(() => server.close())
     const options = {
       origin: store.origin,
-      repositoryId: 2001,
+      repositoryId: "2001",
       query: "",
       cursor: null,
       signal: new AbortController().signal,
@@ -239,7 +239,7 @@ describe("mock collection pagination", () => {
     }
     expect(events.length).toBeGreaterThan(50)
     expect(new Set(events.map(({ id }) => id)).size).toBe(events.length)
-    expect(events.every(({ repositoryId }) => repositoryId === 2001)).toBe(true)
+    expect(events.every(({ repositoryId }) => repositoryId === "2001")).toBe(true)
     const otherRepository = await settingsRequest(
       new Request(`${store.origin}/settings/audit?repositoryId=2002`),
       "workspace",

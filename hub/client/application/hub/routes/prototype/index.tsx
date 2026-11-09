@@ -6,7 +6,7 @@ import type {
   PrototypeResponse,
   WorkspaceResponse,
 } from "@application/hub/contracts/types"
-import { readRouteIdentifier } from "@application/hub/read-route-identifier"
+import { readRecordIdentifier } from "@application/hub/read-record-identifier"
 import { ApiContractError } from "@application/hub/requests/api-contract-error"
 import { ApiRequestError } from "@application/hub/requests/api-request-error"
 import { getPrototype } from "@application/hub/requests/get-prototype"
@@ -23,8 +23,8 @@ export async function clientLoader({
 }: Pick<Route.ClientLoaderArgs, "request" | "params">): Promise<PrototypeResponse> {
   return getPrototype(
     request,
-    readRouteIdentifier(params.repositoryId, "repository"),
-    readRouteIdentifier(params.prototypeId, "prototype"),
+    readRecordIdentifier(params.repositoryId, "repository"),
+    readRecordIdentifier(params.prototypeId, "prototype"),
   )
 }
 
@@ -51,8 +51,8 @@ export async function clientAction({
   try {
     await updatePrototype(
       request,
-      readRouteIdentifier(params.repositoryId, "repository"),
-      readRouteIdentifier(params.prototypeId, "prototype"),
+      readRecordIdentifier(params.repositoryId, "repository"),
+      readRecordIdentifier(params.prototypeId, "prototype"),
       parsed.data,
     )
     return data<PrototypeActionResult>({ saved: true })

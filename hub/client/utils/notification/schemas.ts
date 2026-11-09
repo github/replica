@@ -20,7 +20,7 @@ export const NOTIFICATION_SCHEMA = z.object({
   path: z.string().startsWith("/repositories/"),
   updatePath: z.string().startsWith("/notifications/"),
   target: z.object({
-    prototypeId: z.number().int().positive(),
+    prototypeId: z.string().min(1),
     threadId: z.number().int().positive(),
     commentId: z.number().int().positive(),
   }),

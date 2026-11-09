@@ -28,7 +28,7 @@ export function settingsFormOperation(
   }
   const method = readFormField(form, "_method") || "post"
   const confirmed = readFormField(form, "confirmed") === "1"
-  const repositoryId = Number(params.repositoryId ?? source.searchParams.get("repositoryId"))
+  const repositoryId = params.repositoryId ?? source.searchParams.get("repositoryId")
   let input: unknown
 
   switch (section) {

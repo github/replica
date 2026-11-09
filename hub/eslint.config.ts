@@ -92,6 +92,7 @@ export default defineConfig(
   {
     files: [
       "client/application/hub/routes/**/index.tsx",
+      "client/application/hub/read-record-identifier/index.ts",
       "client/application/hub/read-route-identifier/index.ts",
       "client/application/hub/read-route-query/index.ts",
       "client/application/hub/read-prototype-query/index.ts",

@@ -17,7 +17,7 @@ const notification: InboxNotification = {
   prototype: "Welcome",
   path: "/repositories/2001/prototypes/1?comment=1&notification=1",
   updatePath: "/notifications/1",
-  target: { prototypeId: 1, threadId: 1, commentId: 1 },
+  target: { prototypeId: "1", threadId: 1, commentId: 1 },
 }
 const page = { notifications: [notification], nextBefore: null, unreadCount: 12 }
 

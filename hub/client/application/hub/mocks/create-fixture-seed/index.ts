@@ -81,8 +81,8 @@ export function createFixtureSeed() {
       const name = `${area} ${suffix}`
       const authorLogin = data.users[(id - firstGeneratedPrototypeId) % data.users.length]!.login
       data.prototypes.push({
-        id,
-        repositoryId: 2001,
+        id: String(id),
+        repositoryId: "2001",
         name,
         branchName: `prototype/${name.toLowerCase().replaceAll(" ", "-")}`,
         description: [

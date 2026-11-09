@@ -189,7 +189,7 @@ describe("Hub expanded frontend flows", () => {
   it("continues a prototype brief in Copilot without creating a local prototype or Build", async () => {
     const store = createMockStore({ origin: window.location.origin })
     const templateRoute = "/welcome?step=2#intro"
-    store.product.updateMetadata(2001, 1, {
+    store.product.updateMetadata("2001", "1", {
       name: "Welcome",
       description: null,
       startPage: templateRoute,
@@ -254,14 +254,14 @@ describe("Hub expanded frontend flows", () => {
 
   it("shares management edits with the existing preview and repository", async () => {
     const store = createMockStore({ origin: window.location.origin })
-    const selectedBuild = store.getPrototype(2001, 1).selectedBuild?.number
+    const selectedBuild = store.getPrototype("2001", "1").selectedBuild?.number
     const server = setupServer(...createMockHandlers(store))
     const router = await renderHubFlow(server, "/repositories/2001", { workspaceRoutes })
     const manage = screen.getByRole("link", { name: "Edit prototype listings" })
     expect(manage).toHaveAttribute("href", "/repositories/2001/prototypes/manage")
     await router.settle(() => fireEvent.click(manage))
     expect(router.state.location.pathname).toBe("/repositories/2001/prototypes/manage")
-    const branch = store.getPrototype(2001, 1).prototype.branchName
+    const branch = store.getPrototype("2001", "1").prototype.branchName
     fireEvent.click(screen.getByRole("button", { name: `Edit details: ${branch}` }))
     const editor = screen.getByRole("dialog", { name: "Edit prototype details" })
     fireEvent.change(within(editor).getByRole("textbox", { name: "Name" }), {
@@ -300,7 +300,7 @@ describe("Hub expanded frontend flows", () => {
     })
     fireEvent.click(
       await screen.findByRole("button", {
-        name: `Edit details: ${store.getPrototype(2001, 1).prototype.branchName}`,
+        name: `Edit details: ${store.getPrototype("2001", "1").prototype.branchName}`,
       }),
     )
     const editor = screen.getByRole("dialog", { name: "Edit prototype details" })
@@ -326,7 +326,7 @@ describe("Hub expanded frontend flows", () => {
     expect(startPage).toHaveValue("//external.example.test/welcome")
     expect(mutations).not.toHaveBeenCalled()
     expect(failedReads).not.toHaveBeenCalled()
-    expect(store.getPrototype(2001, 1).prototype.name).toBe("Welcome")
+    expect(store.getPrototype("2001", "1").prototype.name).toBe("Welcome")
     server.resetHandlers()
     fireEvent.change(startPage, { target: { value: "/welcome?step=2#heading" } })
     await router.settle(() =>
@@ -334,7 +334,7 @@ describe("Hub expanded frontend flows", () => {
     )
     await waitFor(() => expect(editor).not.toBeVisible())
     expect(
-      store.product.getManagement(2001).registered.find((item) => item.id === 1),
+      store.product.getManagement("2001").registered.find((item) => item.id === "1"),
     ).toMatchObject({
       name: "Preserved management draft",
       startPage: "/welcome?step=2#heading",
@@ -461,7 +461,7 @@ describe("Hub expanded frontend flows", () => {
   it("lets a reader inspect learnings without offering decisions or accepting a forged decision", async () => {
     const store = createMockStore({ origin: window.location.origin })
     store.session.select("reader")
-    const query = settingsQuerySchema.parse({ repositoryId: 2001 })
+    const query = settingsQuerySchema.parse({ repositoryId: "2001" })
     const learning = store.settings
       .getWorkspace(query)
       .learnings.find((item) => item.state === "suggested")
@@ -480,7 +480,7 @@ describe("Hub expanded frontend flows", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         operation: "learning-decide",
-        repositoryId: 2001,
+        repositoryId: "2001",
         learningId: learning.id,
         decision: "accept",
         digest: learning.digest,

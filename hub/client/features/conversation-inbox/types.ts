@@ -11,7 +11,7 @@ export interface ConversationActivity {
   excerpt: string
   createdAt: string
   read: boolean
-  target: { prototypeId: number; threadId: number; commentId: number }
+  target: { prototypeId: string; threadId: number; commentId: number }
   path?: string
 }
 

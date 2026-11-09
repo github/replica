@@ -4,7 +4,7 @@ import { requestJson } from "../request-json"
 
 interface Options {
   origin: string
-  repositoryId: number
+  repositoryId: string
   query: string
   cursor: string | null
   signal: AbortSignal

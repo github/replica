@@ -191,7 +191,7 @@ describe("Hub prototype review flow", () => {
       },
     )
     expect(response.status).toBe(403)
-    expect(store.review.list(2001, 1).comments).toHaveLength(2)
+    expect(store.review.list("2001", "1").comments).toHaveLength(2)
   })
 
   it("restores shared review filters through back navigation without discarding the open reply draft", async () => {
@@ -305,6 +305,6 @@ describe("Hub prototype review flow", () => {
     expect(conversation).not.toBeInTheDocument()
     await new Promise((resolve) => window.setTimeout(resolve, 1600))
     expect(commitReply).not.toHaveBeenCalled()
-    expect(store.review.list(2001, 1).comments).toHaveLength(2)
+    expect(store.review.list("2001", "1").comments).toHaveLength(2)
   }, 15_000)
 })

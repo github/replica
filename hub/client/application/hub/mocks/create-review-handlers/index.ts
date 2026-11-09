@@ -9,6 +9,7 @@ import type { ReviewMockStore } from "../create-review-store/types"
 import { readMockJson } from "../read-mock-json"
 import { respondMock as respondWithSession } from "../respond-mock"
 import { parseMockIdentifier } from "../parse-mock-identifier"
+import { parseMockRecordIdentifier } from "../parse-mock-record-identifier"
 import type { MockSession } from "../create-mock-session/types"
 import { MockStoreError } from "../store-error"
 
@@ -31,10 +32,13 @@ export function createReviewHandlers(
   function id(value: unknown) {
     return parseMockIdentifier(value, "Invalid review identifier.")
   }
+  function recordId(value: unknown) {
+    return parseMockRecordIdentifier(value, "Invalid review identifier.")
+  }
   return [
     http.get(base, ({ request, params }) =>
       respondMock(request, (scenario) => {
-        const response = store.list(id(params.repositoryId), id(params.prototypeId))
+        const response = store.list(recordId(params.repositoryId), recordId(params.prototypeId))
         return HttpResponse.json(scenario === "empty" ? { ...response, comments: [] } : response)
       }),
     ),
@@ -53,8 +57,8 @@ export function createReviewHandlers(
         assertCurrentSession()
         return HttpResponse.json(
           store.create(
-            id(params.repositoryId),
-            id(params.prototypeId),
+            recordId(params.repositoryId),
+            recordId(params.prototypeId),
             input.review_comment.build_number,
             input.review_comment.body,
             input.review_comment.anchor,
@@ -68,8 +72,8 @@ export function createReviewHandlers(
         assertCurrentSession()
         return HttpResponse.json(
           store.reply(
-            id(params.repositoryId),
-            id(params.prototypeId),
+            recordId(params.repositoryId),
+            recordId(params.prototypeId),
             id(params.commentId),
             input.review_comment.body,
           ),
@@ -82,8 +86,8 @@ export function createReviewHandlers(
         assertCurrentSession()
         return HttpResponse.json(
           store.edit(
-            id(params.repositoryId),
-            id(params.prototypeId),
+            recordId(params.repositoryId),
+            recordId(params.prototypeId),
             id(params.commentId),
             input.review_comment.body,
           ),
@@ -93,7 +97,7 @@ export function createReviewHandlers(
     http.delete(`${base}/:commentId`, ({ request, params }) =>
       respondMock(request, () =>
         HttpResponse.json(
-          store.edit(id(params.repositoryId), id(params.prototypeId), id(params.commentId), null),
+          store.edit(recordId(params.repositoryId), recordId(params.prototypeId), id(params.commentId), null),
         ),
       ),
     ),
@@ -102,8 +106,8 @@ export function createReviewHandlers(
         respondMock(request, () =>
           HttpResponse.json(
             store.resolve(
-              id(params.repositoryId),
-              id(params.prototypeId),
+              recordId(params.repositoryId),
+              recordId(params.prototypeId),
               id(params.commentId),
               method === "post",
             ),
@@ -125,8 +129,8 @@ export function createReviewHandlers(
         assertCurrentSession()
         return HttpResponse.json(
           store.react(
-            id(params.repositoryId),
-            id(params.prototypeId),
+            recordId(params.repositoryId),
+            recordId(params.prototypeId),
             id(params.commentId),
             input.review_comment_reaction.content,
             input.review_comment_reaction.activity_version,
@@ -146,8 +150,8 @@ export function createReviewHandlers(
         assertCurrentSession()
         return HttpResponse.json(
           store.react(
-            id(params.repositoryId),
-            id(params.prototypeId),
+            recordId(params.repositoryId),
+            recordId(params.prototypeId),
             id(params.commentId),
             content.data,
             input.review_comment_reaction.activity_version,
@@ -165,8 +169,8 @@ export function createReviewHandlers(
         assertCurrentSession()
         return HttpResponse.json(
           store.markRead(
-            id(params.repositoryId),
-            id(params.prototypeId),
+            recordId(params.repositoryId),
+            recordId(params.prototypeId),
             id(params.commentId),
             input.review_thread_read.activity_version,
           ),
@@ -177,8 +181,8 @@ export function createReviewHandlers(
       respondMock(request, () =>
         HttpResponse.json(
           store.markRead(
-            id(params.repositoryId),
-            id(params.prototypeId),
+            recordId(params.repositoryId),
+            recordId(params.prototypeId),
             id(params.commentId),
             null,
           ),

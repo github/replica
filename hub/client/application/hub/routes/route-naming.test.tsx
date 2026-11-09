@@ -154,7 +154,7 @@ describe("Hub primary route names", () => {
     const store = createMockStore({ origin: window.location.origin })
     store.settings.mutate({
       operation: "analytics-save",
-      repositoryId: 2002,
+      repositoryId: "2002",
       configuration: {
         provider: "segment",
         region: "eu",
@@ -163,8 +163,8 @@ describe("Hub primary route names", () => {
         history: "new",
       },
     })
-    const firstQuery = settingsQuerySchema.parse({ repositoryId: 2001 })
-    const secondQuery = settingsQuerySchema.parse({ repositoryId: 2002 })
+    const firstQuery = settingsQuerySchema.parse({ repositoryId: "2001" })
+    const secondQuery = settingsQuerySchema.parse({ repositoryId: "2002" })
     const firstDestinations = store.settings.getWorkspace(firstQuery).analytics
     const secondDestination = store.settings.getWorkspace(secondQuery).analytics[0]!
     const server = setupServer(...createMockHandlers(store))
@@ -199,8 +199,8 @@ describe("Hub primary route names", () => {
 
   it("runs and accepts learnings for a non-first path repository without changing the query repository", async () => {
     const store = createMockStore({ origin: window.location.origin })
-    const firstQuery = settingsQuerySchema.parse({ repositoryId: 2001 })
-    const secondQuery = settingsQuerySchema.parse({ repositoryId: 2002 })
+    const firstQuery = settingsQuerySchema.parse({ repositoryId: "2001" })
+    const secondQuery = settingsQuerySchema.parse({ repositoryId: "2002" })
     const firstLearnings = store.settings.getWorkspace(firstQuery).learnings
     const server = setupServer(...createMockHandlers(store))
     const router = await renderHubFlow(server, "/repositories/2002/learnings?repositoryId=2001", {

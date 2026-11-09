@@ -10,6 +10,7 @@ import { sessionResponseSchema } from "@application/hub/session-contracts"
 import type { MockStore } from "../create-mock-store/types"
 import { MockStoreError } from "../store-error"
 import { parseMockIdentifier as identifier } from "../parse-mock-identifier"
+import { parseMockRecordIdentifier as recordIdentifier } from "../parse-mock-record-identifier"
 import { parseMockQuery } from "../parse-mock-query"
 import { respondMock } from "../respond-mock"
 import { respondMockOperation as respond } from "../respond-mock-operation"
@@ -53,7 +54,7 @@ export function createMockHandlers(store: MockStore) {
     http.get(api("/repositories/:repositoryId"), ({ request, params }) =>
       withScenario(request, (scenario) => {
         const filters = query(request)
-        const response = store.getRepository(identifier(params.repositoryId), filters)
+        const response = store.getRepository(recordIdentifier(params.repositoryId), filters)
         if (scenario === "empty") {
           if (filters.page !== 1) throw new MockStoreError(404, "Page not found.")
           response.prototypes = []
@@ -73,7 +74,7 @@ export function createMockHandlers(store: MockStore) {
         const url = new URL(request.url)
         return HttpResponse.json(
           store.getAuthors(
-            identifier(params.repositoryId),
+            recordIdentifier(params.repositoryId),
             query(request).q,
             url.searchParams.get("cursor"),
           ),
@@ -85,8 +86,8 @@ export function createMockHandlers(store: MockStore) {
       withScenario(request, (scenario) => {
         const parsed = parseMockQuery(request.url, prototypeQuerySchema)
         const response = store.getPrototype(
-          identifier(params.repositoryId),
-          identifier(params.prototypeId),
+          recordIdentifier(params.repositoryId),
+          recordIdentifier(params.prototypeId),
           parsed.build,
           parsed.view === "minimized",
         )
@@ -104,8 +105,8 @@ export function createMockHandlers(store: MockStore) {
         withScenario(request, (scenario) => {
           const filters = query(request)
           const response = store.getBuildHistory(
-            identifier(params.repositoryId),
-            identifier(params.prototypeId),
+            recordIdentifier(params.repositoryId),
+            recordIdentifier(params.prototypeId),
             filters.page,
           )
           if (scenario === "empty") {
@@ -128,8 +129,8 @@ export function createMockHandlers(store: MockStore) {
         withScenario(request, () =>
           HttpResponse.json(
             store.getBuild(
-              identifier(params.repositoryId),
-              identifier(params.prototypeId),
+              recordIdentifier(params.repositoryId),
+              recordIdentifier(params.prototypeId),
               identifier(params.buildNumber),
             ),
           ),
@@ -160,8 +161,8 @@ export function createMockHandlers(store: MockStore) {
         }
         return HttpResponse.json(
           store.updatePrototype(
-            identifier(params.repositoryId),
-            identifier(params.prototypeId),
+            recordIdentifier(params.repositoryId),
+            recordIdentifier(params.prototypeId),
             parsed.data,
           ),
         )

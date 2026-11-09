@@ -58,7 +58,7 @@ function navigationLink(pathname: string) {
   return link
 }
 
-function expectRepository(repositoryId: number, nameWithOwner: string) {
+function expectRepository(repositoryId: string, nameWithOwner: string) {
   expect(
     screen.getByRole("button", { name: `Choose repository. ${nameWithOwner} selected` }),
   ).toHaveTextContent(nameWithOwner)
@@ -151,7 +151,7 @@ describe("Public sharing navigation", () => {
     await router.settle(() => fireEvent.click(sharing))
 
     expect(router.state.location.pathname).toBe("/settings/sharing")
-    expectRepository(2002, "github/empty")
+    expectRepository("2002", "github/empty")
   })
 
   it("retains explicit repository context through sharing, Hub settings and notifications navigation", async () => {
@@ -163,16 +163,16 @@ describe("Public sharing navigation", () => {
     })
 
     for (const destination of ["/settings/copilot", "/notifications", "/settings/sharing"]) {
-      expectRepository(2002, "github/empty")
+      expectRepository("2002", "github/empty")
       expectHubContext(2002)
       await router.settle(() => fireEvent.click(navigationLink(destination)))
       expect(router.state.location.pathname).toBe(destination)
       expect(new URLSearchParams(router.state.location.search).get("repositoryId")).toBe("2002")
     }
-    expectRepository(2002, "github/empty")
+    expectRepository("2002", "github/empty")
     await router.settle(() => fireEvent.click(navigationLink("/repositories/2002")))
     expect(router.state.location.pathname).toBe("/repositories/2002")
-    expectRepository(2002, "github/empty")
+    expectRepository("2002", "github/empty")
   })
 
   it.each([
@@ -189,7 +189,7 @@ describe("Public sharing navigation", () => {
 
       expect(screen.getByRole("heading", { name: "Public sharing", level: 1 })).toBeVisible()
       expect(screen.getByRole("button", { name: `Account menu for @${login}` })).toBeVisible()
-      expectRepository(2002, "github/empty")
+      expectRepository("2002", "github/empty")
       expect(navigationLink("/notifications")).toHaveAccessibleName(/notifications/i)
       expect(new URL(navigationLink("/notifications").href).searchParams.get("repositoryId")).toBe(
         "2002",
@@ -213,7 +213,7 @@ describe("Public sharing navigation", () => {
 
     expect(screen.getByRole("heading", { name: "Public sharing", level: 1 })).toBeVisible()
     expect(screen.getByRole("button", { name: "Account menu for @octocat" })).toBeVisible()
-    expectRepository(2002, "github/empty")
+    expectRepository("2002", "github/empty")
     expect(navigationLink("/repositories/2002/new")).toHaveAccessibleName("Create")
     const notifications = navigationLink("/notifications")
     expect(notifications).toHaveAccessibleName(/notifications/i)
@@ -257,7 +257,7 @@ describe("Public sharing navigation", () => {
           const workspace = store.getWorkspace()
           return HttpResponse.json({
             ...workspace,
-            repositories: workspace.repositories.filter(({ id }) => id !== 2002),
+            repositories: workspace.repositories.filter(({ id }) => id !== "2002"),
           })
         }),
       )

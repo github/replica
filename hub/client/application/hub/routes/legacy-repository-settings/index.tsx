@@ -1,7 +1,7 @@
 import { redirect } from "react-router"
 import type { LoaderFunctionArgs } from "react-router"
 
-import { routeIdentifierSchema } from "@application/hub/contracts"
+import { recordIdentifierSchema } from "@application/hub/contracts"
 import { getWorkspace } from "@application/hub/requests/get-workspace"
 
 export async function clientLoader({
@@ -13,7 +13,7 @@ export async function clientLoader({
   }
   const url = new URL(request.url)
   const context = url.searchParams.get("repositoryId")
-  const parsed = context === null ? null : routeIdentifierSchema.safeParse(context)
+  const parsed = context === null ? null : recordIdentifierSchema.safeParse(context)
   if (parsed && !parsed.success) {
     throw new Response("Invalid repository context.", { status: 400 })
   }

@@ -12,7 +12,7 @@ import {
   productTemplateResponseSchema,
 } from "@application/hub/product-contracts"
 import type { ProductTemplateResponse } from "@application/hub/product-contracts/types"
-import { readRouteIdentifier } from "@application/hub/read-route-identifier"
+import { readRecordIdentifier } from "@application/hub/read-record-identifier"
 import { productBrowseData } from "@application/hub/view-models/product-browse-data"
 
 import { requestProductJson } from "../request-product-json"
@@ -20,7 +20,7 @@ import { requestProductJson } from "../request-product-json"
 const EMPTY_ANCHORS: AnchorReference[] = []
 
 export function clientLoader({ request, params }: Pick<LoaderFunctionArgs, "request" | "params">) {
-  const repositoryId = readRouteIdentifier(params.repositoryId, "repository")
+  const repositoryId = readRecordIdentifier(params.repositoryId, "repository")
   const templateId = productTemplateIdSchema.safeParse(params.templateId)
   if (!templateId.success) throw new Response("Template not found.", { status: 404 })
   return requestProductJson(

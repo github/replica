@@ -105,7 +105,7 @@ export function createMockStore({ origin, seed = createFixtureSeed() }: Options)
     })
   })
 
-  function repositoryRecord(repositoryId: number) {
+  function repositoryRecord(repositoryId: string) {
     const repository = data.repositories.find(({ id }) => id === repositoryId)
     if (!repository) throw new MockStoreError(404, "Repository not found.")
     return { ...repository }
@@ -121,7 +121,7 @@ export function createMockStore({ origin, seed = createFixtureSeed() }: Options)
     return identity
   }
 
-  function prototypeRecord(repositoryId: number, prototypeId: number): PrototypeRecord {
+  function prototypeRecord(repositoryId: string, prototypeId: string): PrototypeRecord {
     repositoryRecord(repositoryId)
     const prototype = data.prototypes.find(
       ({ id, repositoryId: owner }) => id === prototypeId && owner === repositoryId,
@@ -139,7 +139,7 @@ export function createMockStore({ origin, seed = createFixtureSeed() }: Options)
     }
   }
 
-  function repositoryAuthors(repositoryId: number) {
+  function repositoryAuthors(repositoryId: string) {
     repositoryRecord(repositoryId)
     const logins = new Set(
       data.prototypes
@@ -150,8 +150,8 @@ export function createMockStore({ origin, seed = createFixtureSeed() }: Options)
   }
 
   function prototypeResponse(
-    repositoryId: number,
-    prototypeId: number,
+    repositoryId: string,
+    prototypeId: string,
     buildNumber?: number,
   ): PrototypeResponse {
     const prototype = prototypeRecord(repositoryId, prototypeId)
@@ -190,7 +190,7 @@ export function createMockStore({ origin, seed = createFixtureSeed() }: Options)
     },
 
     getRepository(
-      repositoryId: number,
+      repositoryId: string,
       query: Pick<RouteQuery, "q" | "author" | "page"> = { q: "", author: "", page: 1 },
     ): RepositoryResponse {
       const viewer = session.requireViewer()
@@ -219,8 +219,8 @@ export function createMockStore({ origin, seed = createFixtureSeed() }: Options)
     },
 
     getPrototype(
-      repositoryId: number,
-      prototypeId: number,
+      repositoryId: string,
+      prototypeId: string,
       buildNumber?: number,
       minimized = false,
     ): PrototypeResponse {
@@ -244,7 +244,7 @@ export function createMockStore({ origin, seed = createFixtureSeed() }: Options)
       }
     },
 
-    getBuild(repositoryId: number, prototypeId: number, buildNumber: number): BuildResponse {
+    getBuild(repositoryId: string, prototypeId: string, buildNumber: number): BuildResponse {
       session.requireViewer()
       const response = prototypeResponse(repositoryId, prototypeId, buildNumber)
       if (!response.selectedBuild) throw new MockStoreError(404, "Build not found.")
@@ -255,7 +255,7 @@ export function createMockStore({ origin, seed = createFixtureSeed() }: Options)
       }
     },
 
-    getBuildHistory(repositoryId: number, prototypeId: number, page = 1): BuildHistoryResponse {
+    getBuildHistory(repositoryId: string, prototypeId: string, page = 1): BuildHistoryResponse {
       session.requireViewer()
       const prototype = prototypeRecord(repositoryId, prototypeId)
       const selected = paginate(prototype.builds, page, buildHistoryPageSize)
@@ -267,7 +267,7 @@ export function createMockStore({ origin, seed = createFixtureSeed() }: Options)
       }
     },
 
-    getAuthors(repositoryId: number, query = "", cursor: string | null = null): AuthorResults {
+    getAuthors(repositoryId: string, query = "", cursor: string | null = null): AuthorResults {
       session.requireViewer()
       const search = query.trim().toLowerCase()
       const authors = repositoryAuthors(repositoryId)
@@ -285,8 +285,8 @@ export function createMockStore({ origin, seed = createFixtureSeed() }: Options)
     },
 
     updatePrototype(
-      repositoryId: number,
-      prototypeId: number,
+      repositoryId: string,
+      prototypeId: string,
       details: PrototypeDetails,
     ): PrototypeResponse {
       session.requireViewer()

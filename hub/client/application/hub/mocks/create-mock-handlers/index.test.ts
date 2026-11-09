@@ -51,7 +51,7 @@ describe("createMockHandlers()", () => {
     onTestFinished(() => server.close())
     const request = new Request(`${origin}/repositories/2001?view=minimized`)
 
-    const result = Promise.resolve().then(() => getRepository(request, 2001))
+    const result = Promise.resolve().then(() => getRepository(request, "2001"))
 
     await expect(result).rejects.toBeInstanceOf(Response)
     await expect(result).rejects.toMatchObject({ status: 400 })
@@ -71,9 +71,9 @@ describe("createMockHandlers()", () => {
     const request = new Request(`${origin}/repositories/2001/prototypes/1?mockScenario=forbidden`)
 
     const session = await getSession(request)
-    await getPrototype(request, 2001, 1)
-    await getRepository(request, 2001)
-    await updatePrototype(request, 2001, 1, {
+    await getPrototype(request, "2001", "1")
+    await getRepository(request, "2001")
+    await updatePrototype(request, "2001", "1", {
       name: "A normal product edit",
       description: null,
     })
@@ -110,17 +110,17 @@ describe("createMockHandlers()", () => {
     server.listen({ onUnhandledRequest: "error" })
     onTestFinished(() => server.close())
     const request = new Request(`${origin}/repositories/2001/prototypes/1`)
-    const original = await getPrototype(request, 2001, 1)
+    const original = await getPrototype(request, "2001", "1")
 
-    await updatePrototype(request, 2001, 1, {
+    await updatePrototype(request, "2001", "1", {
       name: "Only this document",
       description: "An edit that must not become the next document's seed.",
     })
-    const edited = await getPrototype(request, 2001, 1)
+    const edited = await getPrototype(request, "2001", "1")
     expect(edited.prototype.name).toBe("Only this document")
 
     server.resetHandlers(...createMockHandlers(createMockStore({ origin })))
-    const reseeded = await getPrototype(request, 2001, 1)
+    const reseeded = await getPrototype(request, "2001", "1")
 
     expect(reseeded.prototype).toMatchObject({
       name: original.prototype.name,
@@ -135,17 +135,17 @@ describe("createMockHandlers()", () => {
     server.listen({ onUnhandledRequest: "error" })
     onTestFinished(() => server.close())
     const request = new Request(`${origin}/repositories/2001/prototypes/2`)
-    const original = await getPrototype(request, 2001, 2)
+    const original = await getPrototype(request, "2001", "2")
     expect(original.prototype.canEdit).toBe(false)
 
     await expect(
-      updatePrototype(request, 2001, 2, {
+      updatePrototype(request, "2001", "2", {
         name: "An unauthorized edit",
         description: null,
       }),
     ).rejects.toMatchObject({ status: 403 })
 
-    const unchanged = await getPrototype(request, 2001, 2)
+    const unchanged = await getPrototype(request, "2001", "2")
     expect(unchanged.prototype).toMatchObject({
       name: original.prototype.name,
       description: original.prototype.description,

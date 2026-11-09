@@ -21,7 +21,7 @@ describe("Hub route feedback", () => {
       http.get(`${store.origin}/api/repositories/2001/prototypes/1/builds`, async () => {
         historyRequested()
         await loading
-        return HttpResponse.json(store.getBuildHistory(2001, 1))
+        return HttpResponse.json(store.getBuildHistory("2001", "1"))
       }),
     )
     const router = await renderHubFlow(server, "/repositories/2001")

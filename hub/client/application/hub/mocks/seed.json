@@ -5,29 +5,29 @@
     { "id": "mona", "login": "mona", "name": "Mona", "avatarUrl": null }
   ],
   "repositories": [
-    { "id": 2001, "nameWithOwner": "github/prototype", "defaultBranch": "main" },
-    { "id": 2002, "nameWithOwner": "github/empty", "defaultBranch": "main" }
+    { "id": "2001", "nameWithOwner": "github/prototype", "defaultBranch": "main" },
+    { "id": "2002", "nameWithOwner": "github/empty", "defaultBranch": "main" }
   ],
   "prototypes": [
     {
-      "id": 1,
-      "repositoryId": 2001,
+      "id": "1",
+      "repositoryId": "2001",
       "name": "Welcome",
       "branchName": "prototype/welcome",
       "description": "Explore a new welcome flow.",
       "authorLogin": "octocat"
     },
     {
-      "id": 2,
-      "repositoryId": 2001,
+      "id": "2",
+      "repositoryId": "2001",
       "name": "Navigation",
       "branchName": "prototype/navigation",
       "description": "Try a simpler navigation structure.",
       "authorLogin": "mona"
     },
     {
-      "id": 3,
-      "repositoryId": 2001,
+      "id": "3",
+      "repositoryId": "2001",
       "name": "Settings",
       "branchName": "prototype/settings",
       "description": null,
@@ -37,8 +37,8 @@
   "builds": [
     {
       "number": 3,
-      "repositoryId": 2001,
-      "prototypeId": 1,
+      "repositoryId": "2001",
+      "prototypeId": "1",
       "state": "successful",
       "commitSha": "3333333333333333333333333333333333333333",
       "commitAuthorLogin": "octocat",
@@ -52,8 +52,8 @@
     },
     {
       "number": 2,
-      "repositoryId": 2001,
-      "prototypeId": 1,
+      "repositoryId": "2001",
+      "prototypeId": "1",
       "state": "failed",
       "commitSha": "2222222222222222222222222222222222222222",
       "commitAuthorLogin": "mona",
@@ -67,8 +67,8 @@
     },
     {
       "number": 1,
-      "repositoryId": 2001,
-      "prototypeId": 1,
+      "repositoryId": "2001",
+      "prototypeId": "1",
       "state": "successful",
       "commitSha": "1111111111111111111111111111111111111111",
       "commitAuthorLogin": "octocat",
@@ -82,8 +82,8 @@
     },
     {
       "number": 1,
-      "repositoryId": 2001,
-      "prototypeId": 2,
+      "repositoryId": "2001",
+      "prototypeId": "2",
       "state": "running",
       "commitSha": "4444444444444444444444444444444444444444",
       "commitAuthorLogin": "mona",

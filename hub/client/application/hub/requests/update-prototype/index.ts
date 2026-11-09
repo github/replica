@@ -5,8 +5,8 @@ import { requestJson } from "../request-json"
 
 export function updatePrototype(
   request: Request,
-  repositoryId: number,
-  prototypeId: number,
+  repositoryId: string,
+  prototypeId: string,
   details: PrototypeDetails,
 ) {
   return requestJson(

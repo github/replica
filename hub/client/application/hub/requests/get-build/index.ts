@@ -4,8 +4,8 @@ import { requestJson } from "../request-json"
 
 export function getBuild(
   request: Request,
-  repositoryId: number,
-  prototypeId: number,
+  repositoryId: string,
+  prototypeId: string,
   buildNumber: number,
 ) {
   return requestJson(

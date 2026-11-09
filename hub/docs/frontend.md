@@ -176,7 +176,7 @@ The shared JSON client awaits mock startup before sending any API request. It fo
 
 Unsupported actions show a visible failure without requiring development controls. Credential and file submissions remain unprocessed; their technical diagnostics stay in the test toolbar.
 
-These are frontend/mock contracts under [the application contracts](../client/application/hub/contracts/index.ts), not Prisma models or already-implemented Express endpoints. Template and share identifiers accept URL-safe opaque values rather than requiring the mock generator's format. Build commits accept full SHA-1 or SHA-256 object names. Coordinate real identifiers and contracts with backend work.
+These are frontend/mock contracts under [the application contracts](../client/application/hub/contracts/index.ts), not Prisma models or already-implemented Express endpoints. Repository and prototype identifiers are strings that accept UUIDs or positive whole numbers, so the server can issue UUIDs while mocks keep their numeric values. Template and share identifiers accept URL-safe opaque values rather than requiring the mock generator's format. Build commits accept full SHA-1 or SHA-256 object names. Coordinate real identifiers and contracts with backend work.
 
 | HTTP interface | Result |
 | --- | --- |

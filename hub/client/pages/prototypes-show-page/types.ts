@@ -56,8 +56,8 @@ export interface PrototypesShowPageData extends PrototypeWorkspaceData {
   dragControlsLabel: string
   minimizedPreview: boolean
   pageTitle: string
-  prototypeId: number
-  repositoryId: number
+  prototypeId: string
+  repositoryId: string
   repositoryName: string
   reviewCommentsPath: string
   reviewReadOnly?: boolean

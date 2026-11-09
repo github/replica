@@ -4,6 +4,7 @@ import {
   prototypeDetailsSchema,
   prototypeResponseSchema,
   prototypeSchema,
+  recordIdentifierSchema,
   repositorySchema,
 } from "../contracts"
 
@@ -84,8 +85,8 @@ export const productManagementResponseSchema = z.object({
 export const productShareLinkSchema = z.object({
   id: identifier,
   shareId: productShareIdSchema,
-  repositoryId: identifier,
-  prototypeId: identifier,
+  repositoryId: recordIdentifierSchema,
+  prototypeId: recordIdentifierSchema,
   buildNumber: identifier,
   label: z.string().min(1).max(100),
   createdBy: z.string().min(1),

@@ -4,6 +4,12 @@ const identifier = z.number().int().positive()
 const httpUrl = z.url({ protocol: /^https?$/ })
 const timestamp = z.iso.datetime({ offset: true })
 
+// Records use string IDs so the server can issue UUIDs. Numeric IDs remain valid for
+// mock data. Anything else is rejected because IDs go directly into API paths.
+export const recordIdentifierSchema = z
+  .string()
+  .regex(/^(?:[1-9]\d*|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})$/i)
+
 export const routeIdentifierSchema = z
   .string()
   .regex(/^[1-9]\d*$/)
@@ -18,15 +24,15 @@ export const userSchema = z.object({
 })
 
 export const repositorySchema = z.object({
-  id: identifier,
+  id: recordIdentifierSchema,
   nameWithOwner: z.string().min(1),
   defaultBranch: z.string().min(1),
 })
 
 export const buildSchema = z.object({
   number: identifier,
-  repositoryId: identifier,
-  prototypeId: identifier,
+  repositoryId: recordIdentifierSchema,
+  prototypeId: recordIdentifierSchema,
   state: z.enum(["failed", "queued", "running", "successful", "superseded"]),
   commitSha: z.string().regex(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/i),
   commitAuthorLogin: z.string().min(1),
@@ -40,8 +46,8 @@ export const buildSchema = z.object({
 })
 
 export const prototypeSchema = z.object({
-  id: identifier,
-  repositoryId: identifier,
+  id: recordIdentifierSchema,
+  repositoryId: recordIdentifierSchema,
   name: z.string().min(1),
   branchName: z.string().min(1),
   description: z.string().nullable(),

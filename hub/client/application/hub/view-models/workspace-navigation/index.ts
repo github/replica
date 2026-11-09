@@ -5,7 +5,7 @@ import { resourcePath } from "../resource-path"
 
 export function workspaceNavigation(
   workspace: WorkspaceResponse,
-  repositoryId: number | null,
+  repositoryId: string | null,
   search: URLSearchParams,
 ): Omit<HubWorkspaceData, "repository"> {
   const admin = workspace.capabilities?.administerHub

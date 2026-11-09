@@ -3,7 +3,7 @@ import { readRouteQuery } from "@application/hub/read-route-query"
 
 import { requestJson } from "../request-json"
 
-export function getBuildHistory(request: Request, repositoryId: number, prototypeId: number) {
+export function getBuildHistory(request: Request, repositoryId: string, prototypeId: string) {
   const query = readRouteQuery(request)
   const url = new URL(
     `/api/repositories/${repositoryId}/prototypes/${prototypeId}/builds`,
