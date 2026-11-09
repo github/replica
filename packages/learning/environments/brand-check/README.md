@@ -162,9 +162,12 @@ uv pip install torch "transformers>=5.14" pillow
 hf download LiquidAI/d1-omni-600M --revision 02b55d7076f15129e59ab3f94783f32c4b088674 --local-dir models/d1-omni-600M
 .venv/bin/python examples/train_d1_omni.py train --model models/d1-omni-600M --taskset /path/to/taskset --out runs/demo
 .venv/bin/python examples/train_d1_omni.py evaluate --model models/d1-omni-600M --taskset /path/to/taskset --trained runs/demo/best.pt --split test --out runs/demo
+.venv/bin/python examples/train_d1_omni.py predict --model models/d1-omni-600M --trained runs/demo/best.pt --request page.json
 ```
 
 Training reads `--taskset` only to list the tasks in each split; the server scores every answer. The `evaluate` command also reads that split's labels from the taskset to write its report. Both commands read each task's screenshots through the model once and keeps the result in memory, so the first pass over the tasks is the slow part. To train the readout, it first reads every practice page to scale the readout's inputs, which uses no labels. Choose the settings and the trained weights on the dev split, then score the test split once.
+
+The `predict` command runs the released model on one page, adding the trained readout or head from `--trained`, and prints its answers in the action format. It needs no server and no labels. The request file is shaped like a task in `tasks.jsonl`: `state`, `images`, and `questions`. Each image is a path relative to the request file, listed in the task's order: the brand reference sheet first, then the page's screenshots. Write the state's rules and image note the way the taskset does, because the model was trained on that form. Only yes-or-no questions get answers. On a copy of a task, `predict` gives the same probabilities as `evaluate`.
 
 ## Privacy
 

@@ -14,12 +14,15 @@ to every question earns, while the readout improved clearly on pages it never pr
     python examples/train_d1_omni.py train --model DIR --taskset DIR --out runs/demo
     python examples/train_d1_omni.py evaluate --model DIR --taskset DIR \
         --trained runs/demo/best.pt --split test --out runs/demo
+    python examples/train_d1_omni.py predict --model DIR --trained runs/demo/best.pt \
+        --request page.json
 
-Both commands talk to a running server through `--url` and send the token from
+The train and evaluate commands talk to a running server through `--url` and send the token from
 REPLICA_ENV_TOKEN. Training reads `--taskset` only to list the tasks in each split; the server
 scores every answer. The evaluate command also reads the split's labels from the taskset to write
-its report. Install torch, transformers 5.14 or later, and pillow next to this package, and
-download the model first:
+its report. The predict command needs no server or labels: it runs the released model, plus the
+trained part when given, on one page and prints its answers. Install torch, transformers 5.14 or
+later, and pillow next to this package, and download the model first:
 
     hf download LiquidAI/d1-omni-600M \
         --revision 02b55d7076f15129e59ab3f94783f32c4b088674 --local-dir DIR
@@ -46,6 +49,7 @@ import base64
 import importlib
 import io
 import json
+import mimetypes
 import random
 import time
 from dataclasses import dataclass
@@ -432,6 +436,37 @@ def run_evaluate(args: argparse.Namespace) -> None:
     )
 
 
+def read_request(path: str) -> tuple[Any, list[str], dict[str, Any]]:
+    """Read one page to answer, shaped like a task: its state, screenshots, and questions.
+
+    Each image is a path relative to the request file, or an object with a `path`, as in
+    `tasks.jsonl`. List the images in the order training saw them: the brand reference sheet
+    first, then the page's screenshots.
+    """
+    file = Path(path)
+    request = json.loads(file.read_text(encoding="utf-8"))
+    images = []
+    for image in request["images"]:
+        source = file.parent / (image["path"] if isinstance(image, dict) else image)
+        media = mimetypes.guess_type(source.name)[0] or "image/png"
+        images.append(f"data:{media};base64,{base64.b64encode(source.read_bytes()).decode()}")
+    return request.get("state"), images, request["questions"]
+
+
+def run_predict(args: argparse.Namespace) -> None:
+    state, images, questions = read_request(args.request)
+    if not any(question.get("type") == "noul" for question in questions.values()):
+        raise SystemExit(
+            "The request has no yes-or-no questions, the only kind this model answers."
+        )
+    trained = torch.load(args.trained, map_location="cpu") if args.trained else None
+    policy = Policy(args.model, trained["part"] if trained else "head")
+    if trained:
+        policy.load(trained)
+    features = policy.features(args.request, state, images, questions)
+    print(json.dumps({"answers": policy.answers(features)}, indent=2))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n", 1)[0])
     commands = parser.add_subparsers(dest="command", required=True)
@@ -464,11 +499,19 @@ def main() -> None:
     evaluating.add_argument("--trained", help="trained weights; the released model when omitted")
     evaluating.add_argument("--split", default="test", choices=["train", "dev", "test"])
     evaluating.add_argument("--name", default="d1-omni")
+    predicting = commands.add_parser("predict")
+    predicting.add_argument("--model", required=True, help="folder holding LiquidAI/d1-omni-600M")
+    predicting.add_argument("--trained", help="trained weights; the released model when omitted")
+    predicting.add_argument(
+        "--request", required=True, help="JSON file with the page's state, images, and questions"
+    )
     args = parser.parse_args()
     if args.command == "train":
         train(args)
-    else:
+    elif args.command == "evaluate":
         run_evaluate(args)
+    else:
+        run_predict(args)
 
 
 if __name__ == "__main__":
