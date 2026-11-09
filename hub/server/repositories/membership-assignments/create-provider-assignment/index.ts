@@ -14,35 +14,21 @@ const inputSchema = z
   .strict()
 
 export async function createProviderAssignment(
-  database: Pick<Prisma.TransactionClient, "$executeRaw">,
+  database: Pick<Prisma.TransactionClient, "membershipAssignment">,
   input: z.input<typeof inputSchema>,
 ) {
   const parsed = inputSchema.parse(input)
-  const created = await database.$executeRaw`
-    INSERT INTO "membership_assignments" (
-      "id",
-      "membership_id",
-      "external_identity_id",
-      "provider_revision_id",
-      "source",
-      "role",
-      "lifecycle",
-      "provider_assignment_subject",
-      "created_at",
-      "updated_at"
-    ) VALUES (
-      ${parsed.id}::uuid,
-      ${parsed.membershipId}::uuid,
-      ${parsed.externalIdentityId}::uuid,
-      ${parsed.providerRevisionId}::uuid,
-      'AUTHENTICATION_PROVIDER',
-      ${parsed.role}::"MembershipRole",
-      'ACTIVE',
-      ${parsed.providerAssignmentSubject},
-      clock_timestamp(),
-      clock_timestamp()
-    )
-    ON CONFLICT DO NOTHING
-  `
-  return created === 1
+  const result = await database.membershipAssignment.createMany({
+    data: {
+      id: parsed.id,
+      membershipId: parsed.membershipId,
+      externalIdentityId: parsed.externalIdentityId,
+      providerRevisionId: parsed.providerRevisionId,
+      source: "AUTHENTICATION_PROVIDER",
+      role: parsed.role,
+      providerAssignmentSubject: parsed.providerAssignmentSubject,
+    },
+    skipDuplicates: true,
+  })
+  return result.count === 1
 }
