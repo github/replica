@@ -153,7 +153,7 @@ A missing or invalid answer counts as wrong for accuracy and as `invalid`, and i
 
 ## Train d1-omni-600M
 
-[examples/train_d1_omni.py](examples/train_d1_omni.py) trains Liquid AI's d1-omni-600M against this environment with reinforcement learning. It keeps the released model frozen and, by default, trains a small readout of 1,025 numbers on top of it. The readout reads the model's internal state at each yes-or-no question's answer options and corrects the released model's answer. `--part head` trains the whole decision head instead, about 26 million of the model's 587 million parameters. On a synthetic taskset of 518 practice pages, the head memorized those pages and never beat answering 50% on new ones, while the readout did. Either way, the trainer learns from the rewards alone. Every 10 updates it scores the dev split and keeps the weights with the best dev reward, because a small taskset is easy to memorize.
+[examples/train_d1_omni.py](examples/train_d1_omni.py) trains Liquid AI's d1-omni-600M against this environment with reinforcement learning. It keeps the released model frozen and, by default, trains a small readout of 1,025 numbers on top of it. The readout reads the model's internal state at each yes-or-no question's answer options and corrects the released model's answer. `--part head` trains the whole decision head instead, about 26 million of the model's 587 million parameters. On a synthetic taskset of 518 practice pages, the head scored better on those pages but not on new ones: its best dev score was 0.753, about what answering 50% to every question earns. The readout improved on new pages too. Either way, the trainer learns from the rewards alone. Every 10 updates it scores the dev split and keeps the weights with the best dev reward, because a small taskset is easy to memorize.
 
 Install the trainer's packages next to this one, download the model at the revision the example was written for, and start the server as above. The model runs its own code from its folder, so review that code before you run it.
 
@@ -164,7 +164,7 @@ hf download LiquidAI/d1-omni-600M --revision 02b55d7076f15129e59ab3f94783f32c4b0
 .venv/bin/python examples/train_d1_omni.py evaluate --model models/d1-omni-600M --taskset /path/to/taskset --trained runs/demo/best.pt --split test --out runs/demo
 ```
 
-The trainer reads `--taskset` only to list the tasks in each split; the server scores every answer. It reads each task's screenshots through the model once and keeps the result in memory, so the first pass over the tasks is the slow part. To train the readout, it first reads every practice page to scale the readout's inputs, which uses no labels. Choose the settings and the trained weights on the dev split, then score the test split once.
+Training reads `--taskset` only to list the tasks in each split; the server scores every answer. The `evaluate` command also reads that split's labels from the taskset to write its report. Both commands read each task's screenshots through the model once and keeps the result in memory, so the first pass over the tasks is the slow part. To train the readout, it first reads every practice page to scale the readout's inputs, which uses no labels. Choose the settings and the trained weights on the dev split, then score the test split once.
 
 ## Privacy
 

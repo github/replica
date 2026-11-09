@@ -2,22 +2,23 @@
 
 Liquid AI's d1-omni-600M answers typed questions about images with probabilities. This trainer
 keeps the released model frozen and trains one small part with reinforcement learning from the
-environment's rewards. It learns from the scores alone and never reads the labels.
+environment's rewards. Training learns from the scores alone and never reads the labels.
 
 `--part readout`, the default, adds a linear readout of 1,025 numbers. It reads the trunk's
 states at each yes-or-no question's answer options and adds a correction to the released model's
 answer. It starts at zero, so training starts from the released model. `--part head` trains the
 whole decision head instead, about 26 million of the model's 587 million parameters. On our
-synthetic taskset of 518 practice pages, the head memorized the practice pages and never beat
-answering 50% on new ones, while the readout improved on pages it never practiced on.
+synthetic taskset of 518 practice pages, the head scored better on the practice pages but not
+on new ones, while the readout improved on pages it never practiced on.
 
     python examples/train_d1_omni.py train --model DIR --taskset DIR --out runs/demo
     python examples/train_d1_omni.py evaluate --model DIR --taskset DIR \
         --trained runs/demo/best.pt --split test --out runs/demo
 
 Both commands talk to a running server through `--url` and send the token from
-REPLICA_ENV_TOKEN. They read `--taskset` only to list the dev or test tasks; the server scores
-every answer. Install torch, transformers 5.14 or later, and pillow next to this package, and
+REPLICA_ENV_TOKEN. Training reads `--taskset` only to list the tasks in each split; the server
+scores every answer. The evaluate command also reads the split's labels from the taskset to write
+its report. Install torch, transformers 5.14 or later, and pillow next to this package, and
 download the model first:
 
     hf download LiquidAI/d1-omni-600M \
