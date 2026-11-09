@@ -110,6 +110,12 @@ When the inventory includes asynchronous waits, overlapping responses, locks, se
 
 Apply the [database guide](../../../hub/docs/database.md) only to Hub database changes. Use the review inventory to identify the exact migration, invariant, query, ORM, raw-SQL, index, and schema-ownership sections that apply, then verify their required behavior and evidence without copying those rules here.
 
+Review every changed Hub migration and raw-SQL addition with an explicit Prisma-suitability decision:
+
+- Ask, "Can Prisma express this?" Check whether schema, model, index, constraint, or query behavior belongs in the Prisma schema, Prisma-generated migration, or idiomatic Prisma operation first.
+- Distinguish committed Prisma-generated migration SQL from hand-authored migration or runtime SQL. Generated `migration.sql` is expected output for Prisma-owned schema changes and is not by itself a raw-SQL exception.
+- If not, ask, "What named PostgreSQL semantic requires SQL, and where is its focused database coverage?" Verify that hand-authored migration or runtime SQL is the smallest necessary exception.
+
 ### Tests
 
 Apply the [test-writing skill](../write-tests/SKILL.md) and shared [testing and review guide](../../../docs/testing-and-review.md). Reconcile every added, changed, consolidated, or removed case with the accepted behavior and prior evidence, and report any material branch that no longer has proof.
