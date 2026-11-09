@@ -1,6 +1,7 @@
 import { useOutletContext } from "react-router"
 
 import type { BuildResponse, WorkspaceResponse } from "@application/hub/contracts/types"
+import { readRecordIdentifier } from "@application/hub/read-record-identifier"
 import { readRouteIdentifier } from "@application/hub/read-route-identifier"
 import { getBuild } from "@application/hub/requests/get-build"
 import { BuildScreen } from "@application/hub/screens/build-screen"
@@ -13,8 +14,8 @@ export async function clientLoader({
 }: Pick<Route.ClientLoaderArgs, "request" | "params">): Promise<BuildResponse> {
   return getBuild(
     request,
-    readRouteIdentifier(params.repositoryId, "repository"),
-    readRouteIdentifier(params.prototypeId, "prototype"),
+    readRecordIdentifier(params.repositoryId, "repository"),
+    readRecordIdentifier(params.prototypeId, "prototype"),
     readRouteIdentifier(params.buildNumber, "build"),
   )
 }

@@ -51,8 +51,8 @@ export function createFixtureBuild(
   const view = views[prototypeId % views.length]!
   return {
     number,
-    repositoryId: 2001,
-    prototypeId,
+    repositoryId: "2001",
+    prototypeId: String(prototypeId),
     state,
     commitSha: (prototypeId * commitPrototypeMultiplier + number).toString(16).padStart(40, "0"),
     commitAuthorLogin: authorLogin,

@@ -3,7 +3,7 @@ import { readPrototypeQuery } from "@application/hub/read-prototype-query"
 
 import { requestJson } from "../request-json"
 
-export function getPrototype(request: Request, repositoryId: number, prototypeId: number) {
+export function getPrototype(request: Request, repositoryId: string, prototypeId: string) {
   const query = readPrototypeQuery(request)
   const url = new URL(`/api/repositories/${repositoryId}/prototypes/${prototypeId}`, request.url)
   if (query.build !== undefined) url.searchParams.set("build", String(query.build))

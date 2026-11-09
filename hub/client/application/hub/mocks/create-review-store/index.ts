@@ -14,8 +14,8 @@ import seed from "../review-seed.json"
 
 const seedSchema = z.array(
   z.object({
-    repositoryId: z.number().int().positive(),
-    prototypeId: z.number().int().positive(),
+    repositoryId: z.string().min(1),
+    prototypeId: z.string().min(1),
     buildNumber: z.number().int().positive(),
     authorLogin: z.string().min(1),
     body: z.string().min(1),
@@ -104,7 +104,7 @@ export function createReviewStore(context: MockFlowContext) {
     ])
   }
 
-  function collection(repositoryId: number, prototypeId: number) {
+  function collection(repositoryId: string, prototypeId: string) {
     context.session.requireViewer()
     context.prototypeResponse(repositoryId, prototypeId)
     const key = `${repositoryId}/${prototypeId}`
@@ -150,7 +150,7 @@ export function createReviewStore(context: MockFlowContext) {
     })
   }
 
-  function find(repositoryId: number, prototypeId: number, commentId: number) {
+  function find(repositoryId: string, prototypeId: string, commentId: number) {
     const records = collection(repositoryId, prototypeId)
     const comment = records.find(({ id }) => id === commentId)
     if (!comment) throw new MockStoreError(404, "Review comment not found.")
@@ -173,7 +173,7 @@ export function createReviewStore(context: MockFlowContext) {
   }
 
   return {
-    list(repositoryId: number, prototypeId: number) {
+    list(repositoryId: string, prototypeId: string) {
       return {
         comments: collection(repositoryId, prototypeId).map(present),
         nextCursor: null,
@@ -181,8 +181,8 @@ export function createReviewStore(context: MockFlowContext) {
       }
     },
     create(
-      repositoryId: number,
-      prototypeId: number,
+      repositoryId: string,
+      prototypeId: string,
       buildNumber: number,
       body: string,
       anchor: ReviewAnchor,
@@ -207,7 +207,7 @@ export function createReviewStore(context: MockFlowContext) {
       readVersions.set(`${viewer.login}/${root.id}`, 1)
       return { comments: [present(root)] }
     },
-    reply(repositoryId: number, prototypeId: number, rootId: number, body: string) {
+    reply(repositoryId: string, prototypeId: string, rootId: number, body: string) {
       const viewer = writable()
       const { records, comment, root } = find(repositoryId, prototypeId, rootId)
       if (comment.kind !== "root" || root.resolvedAt || root.deletedAt) {
@@ -217,7 +217,7 @@ export function createReviewStore(context: MockFlowContext) {
       records.push(reply)
       return changed(root, reply)
     },
-    edit(repositoryId: number, prototypeId: number, commentId: number, body: string | null) {
+    edit(repositoryId: string, prototypeId: string, commentId: number, body: string | null) {
       const viewer = writable()
       const { comment, root } = find(repositoryId, prototypeId, commentId)
       if (comment.author.login !== viewer.login || comment.deletedAt) {
@@ -229,7 +229,7 @@ export function createReviewStore(context: MockFlowContext) {
       else comment.editedAt = comment.updatedAt
       return changed(root, comment)
     },
-    resolve(repositoryId: number, prototypeId: number, rootId: number, resolved: boolean) {
+    resolve(repositoryId: string, prototypeId: string, rootId: number, resolved: boolean) {
       const viewer = writable()
       const { comment, root } = find(repositoryId, prototypeId, rootId)
       if (comment.kind !== "root" || root.deletedAt) {
@@ -240,8 +240,8 @@ export function createReviewStore(context: MockFlowContext) {
       return changed(root)
     },
     react(
-      repositoryId: number,
-      prototypeId: number,
+      repositoryId: string,
+      prototypeId: string,
       commentId: number,
       content: ReviewReactionContent,
       version: number,
@@ -260,7 +260,7 @@ export function createReviewStore(context: MockFlowContext) {
       reactions.set(commentId, contents)
       return changed(root, comment)
     },
-    markRead(repositoryId: number, prototypeId: number, rootId: number, version: number | null) {
+    markRead(repositoryId: string, prototypeId: string, rootId: number, version: number | null) {
       const viewer = context.session.requireViewer()
       const { comment, root } = find(repositoryId, prototypeId, rootId)
       if (comment.kind !== "root") throw new MockStoreError(400, "Choose a root conversation.")

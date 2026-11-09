@@ -3,7 +3,7 @@ import { readRouteQuery } from "@application/hub/read-route-query"
 
 import { requestJson } from "../request-json"
 
-export function getRepository(request: Request, repositoryId: number) {
+export function getRepository(request: Request, repositoryId: string) {
   const query = readRouteQuery(request)
   const url = new URL(`/api/repositories/${repositoryId}`, request.url)
   if (query.q) url.searchParams.set("q", query.q)

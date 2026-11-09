@@ -2,6 +2,7 @@ import { data, useFetcher, useLocation, useOutletContext } from "react-router"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 
 import { PrototypeManagementPage } from "@pages/prototype-management-page"
+import { recordIdentifierSchema, routeIdentifierSchema } from "@application/hub/contracts"
 import type { WorkspaceResponse } from "@application/hub/contracts/types"
 import {
   productManagementResponseSchema,
@@ -12,7 +13,7 @@ import type {
   ProductActionResult,
   ProductManagementResponse,
 } from "@application/hub/product-contracts/types"
-import { readRouteIdentifier } from "@application/hub/read-route-identifier"
+import { readRecordIdentifier } from "@application/hub/read-record-identifier"
 import { ProductFormBoundary } from "@application/hub/screens/product-form-boundary"
 import { productManagementData } from "@application/hub/view-models/product-management-data"
 
@@ -20,7 +21,7 @@ import { productActionError } from "../product-action-error"
 import { requestProductJson } from "../request-product-json"
 
 export function clientLoader({ request, params }: Pick<LoaderFunctionArgs, "request" | "params">) {
-  const repositoryId = readRouteIdentifier(params.repositoryId, "repository")
+  const repositoryId = readRecordIdentifier(params.repositoryId, "repository")
   return requestProductJson(
     request,
     `/api/repositories/${repositoryId}/prototype-management`,
@@ -38,14 +39,20 @@ export async function clientAction({
       { status: 405 },
     )
   }
-  const repositoryId = readRouteIdentifier(params.repositoryId, "repository")
+  const repositoryId = readRecordIdentifier(params.repositoryId, "repository")
   const form = await request.formData()
   const actionValue = form.get("_action")
   const action = typeof actionValue === "string" ? actionValue.split("?")[0] : null
   const match = action?.match(
-    new RegExp(`^/repositories/${repositoryId}/(prototypes|candidates)/([1-9]\\d*)/registration$`),
+    new RegExp(`^/repositories/${repositoryId}/(prototypes|candidates)/([^/]+)/registration$`),
   )
-  if (!match || form.get("_method") !== "patch") {
+  if (
+    !match ||
+    !(match[1] === "candidates" ? routeIdentifierSchema : recordIdentifierSchema).safeParse(
+      match[2],
+    ).success ||
+    form.get("_method") !== "patch"
+  ) {
     return data<ProductActionResult>(
       { saved: false, error: "This prototype management action is not connected." },
       { status: 400 },

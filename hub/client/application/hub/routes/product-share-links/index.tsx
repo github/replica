@@ -14,7 +14,7 @@ import type {
   ProductActionResult,
   ProductSharingResponse,
 } from "@application/hub/product-contracts/types"
-import { readRouteIdentifier } from "@application/hub/read-route-identifier"
+import { readRecordIdentifier } from "@application/hub/read-record-identifier"
 import { readRouteQuery } from "@application/hub/read-route-query"
 import { ProductFormBoundary } from "@application/hub/screens/product-form-boundary"
 import { productShareLinksData } from "@application/hub/view-models/product-share-links-data"
@@ -23,8 +23,8 @@ import { productActionError } from "../product-action-error"
 import { requestProductJson } from "../request-product-json"
 
 export function clientLoader({ request, params }: Pick<LoaderFunctionArgs, "request" | "params">) {
-  const repositoryId = readRouteIdentifier(params.repositoryId, "repository")
-  const prototypeId = readRouteIdentifier(params.prototypeId, "prototype")
+  const repositoryId = readRecordIdentifier(params.repositoryId, "repository")
+  const prototypeId = readRecordIdentifier(params.prototypeId, "prototype")
   const build = readRouteQuery(request).build
   return requestProductJson(
     request,
@@ -43,8 +43,8 @@ export async function clientAction({
       { status: 405 },
     )
   }
-  const repositoryId = readRouteIdentifier(params.repositoryId, "repository")
-  const prototypeId = readRouteIdentifier(params.prototypeId, "prototype")
+  const repositoryId = readRecordIdentifier(params.repositoryId, "repository")
+  const prototypeId = readRecordIdentifier(params.prototypeId, "prototype")
   const base = `/repositories/${repositoryId}/prototypes/${prototypeId}/share-links`
   const form = await request.formData()
   const actionValue = form.get("_action")

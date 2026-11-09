@@ -3,6 +3,7 @@ import { http, HttpResponse } from "msw"
 import { setupServer } from "msw/node"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
+import { createFixtureSeed } from "../mocks/create-fixture-seed"
 import { createMockHandlers } from "../mocks/create-mock-handlers"
 import { createMockStore } from "../mocks/create-mock-store"
 import seedData from "../mocks/seed.json"
@@ -11,9 +12,9 @@ import { renderHubFlow } from "./fixtures/render-hub-flow"
 describe("Hub repository journey", () => {
   it("restores applied search, author, page and view state through back navigation", async () => {
     const seed = structuredClone(seedData)
-    const welcome = seed.prototypes.find(({ id }) => id === 1)
-    const navigation = seed.prototypes.find(({ id }) => id === 2)
-    const settings = seed.prototypes.find(({ id }) => id === 3)
+    const welcome = seed.prototypes.find(({ id }) => id === "1")
+    const navigation = seed.prototypes.find(({ id }) => id === "2")
+    const settings = seed.prototypes.find(({ id }) => id === "3")
     if (!welcome || !navigation || !settings)
       throw new Error("The local journey needs three prototypes.")
     seed.prototypes = [
@@ -21,7 +22,7 @@ describe("Hub repository journey", () => {
       { ...navigation, description: "A journey prototype." },
       ...Array.from({ length: 22 }, (_, index) => ({
         ...welcome,
-        id: index + 4,
+        id: String(index + 4),
         name: `Journey option ${index + 1}`,
         branchName: `prototype/journey-${index + 1}`,
         authorLogin: index % 2 ? "octocat" : "mona",
@@ -80,13 +81,25 @@ describe("Hub repository journey", () => {
     expect(new URLSearchParams(router.state.location.search).get("author")).toBeNull()
   }, 15_000)
 
-  it("opens retained prototype, history and Build pages without hijacking modified links", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    const latestBuild = store.getPrototype(2001, 1).selectedBuild?.number
-    const historyPageCount = store.getBuildHistory(2001, 1).pagination.pageCount
-    const failedBuild = store.getBuild(2001, 1, 2).build
+  it("opens UUID prototype, history and Build pages without hijacking modified links", async () => {
+    const repositoryId = "78d6a1e9-9588-45ab-8c46-b5933ca950b3"
+    const prototypeId = "0f8fad5b-d9cb-469f-a165-70867728950e"
+    const seed = createFixtureSeed()
+    seed.repositories[0]!.id = repositoryId
+    for (const prototype of seed.prototypes) {
+      if (prototype.repositoryId === "2001") prototype.repositoryId = repositoryId
+      if (prototype.id === "1") prototype.id = prototypeId
+    }
+    for (const build of seed.builds) {
+      if (build.repositoryId === "2001") build.repositoryId = repositoryId
+      if (build.prototypeId === "1") build.prototypeId = prototypeId
+    }
+    const store = createMockStore({ origin: window.location.origin, seed })
+    const latestBuild = store.getPrototype(repositoryId, prototypeId).selectedBuild?.number
+    const historyPageCount = store.getBuildHistory(repositoryId, prototypeId).pagination.pageCount
+    const failedBuild = store.getBuild(repositoryId, prototypeId, 2).build
     const server = setupServer(...createMockHandlers(store))
-    const router = await renderHubFlow(server, "/repositories/2001")
+    const router = await renderHubFlow(server, `/repositories/${repositoryId}`)
     const results = await screen.findByRole("region", { name: "Prototypes" })
     const welcome = within(results).getByRole("link", { name: "Welcome" })
     const nativeClick = vi.fn()
@@ -101,7 +114,7 @@ describe("Hub repository journey", () => {
 
     fireEvent.click(welcome, { ctrlKey: true })
     expect(nativeClick).toHaveBeenCalledExactlyOnceWith(false)
-    expect(router.state.location.pathname).toBe("/repositories/2001")
+    expect(router.state.location.pathname).toBe(`/repositories/${repositoryId}`)
     await router.settle(() => fireEvent.click(welcome))
     expect(await screen.findByTitle(`Welcome, Build ${latestBuild} preview`)).toBeInTheDocument()
     expect(
@@ -123,7 +136,9 @@ describe("Hub repository journey", () => {
     expect(screen.getByText("Failed")).toBeInTheDocument()
     if (!failedBuild.failureSummary) throw new Error("The failed Build needs an explanation.")
     expect(screen.getByText(failedBuild.failureSummary)).toBeInTheDocument()
-    expect(router.state.location.pathname).toBe("/repositories/2001/prototypes/1/builds/2")
+    expect(router.state.location.pathname).toBe(
+      `/repositories/${repositoryId}/prototypes/${prototypeId}/builds/2`,
+    )
   }, 15_000)
 
   it("retains a failed edit draft and publishes a successful retry consistently", async () => {
@@ -218,7 +233,7 @@ describe("Hub repository journey", () => {
     expect(name).toHaveValue("   ")
     expect(description).toHaveValue("Keep this unsaved description.")
     expect(patchRequests).not.toHaveBeenCalled()
-    expect(store.getPrototype(2001, 1).prototype.name).toBe("Welcome")
+    expect(store.getPrototype("2001", "1").prototype.name).toBe("Welcome")
   })
 
   it("keeps the same draft and retry available when saving and matched loaders are unavailable", async () => {

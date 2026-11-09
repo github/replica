@@ -89,7 +89,11 @@ export const inboxActivities: ConversationActivity[] = Array.from({ length: 16 }
     read: index > 5,
     target: {
       prototypeId:
-        example.prototype === "Welcome" ? 1 : example.prototype === "Navigation refresh" ? 2 : 3,
+        example.prototype === "Welcome"
+          ? "1"
+          : example.prototype === "Navigation refresh"
+            ? "2"
+            : "3",
       threadId: (index % examples.length) + 1,
       commentId: (index % examples.length) + 1 + (example.kind === "reply" ? 1000 : 0),
     },

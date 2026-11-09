@@ -69,11 +69,11 @@ export function createProductStore(context: MockFlowContext) {
     }
   }
 
-  function key(repositoryId: number, prototypeId: number) {
+  function key(repositoryId: string, prototypeId: string) {
     return `${repositoryId}/${prototypeId}`
   }
 
-  function templates(repositoryId: number): ProductTemplate[] {
+  function templates(repositoryId: string): ProductTemplate[] {
     context.repositoryRecord(repositoryId)
     const base: ProductTemplate = {
       id: "default",
@@ -114,7 +114,7 @@ export function createProductStore(context: MockFlowContext) {
     ]
   }
 
-  function requireEditable(repositoryId: number, prototypeId: number) {
+  function requireEditable(repositoryId: string, prototypeId: string) {
     const response = context.prototypeResponse(repositoryId, prototypeId)
     if (!response.prototype.canEdit) {
       throw new MockStoreError(403, "You do not have permission to edit this prototype.")
@@ -123,7 +123,7 @@ export function createProductStore(context: MockFlowContext) {
   }
 
   function addPrototype(
-    repositoryId: number,
+    repositoryId: string,
     name: string,
     description: string | null,
     branchName: string | null,
@@ -131,7 +131,9 @@ export function createProductStore(context: MockFlowContext) {
   ): PrototypeResponse {
     const viewer = session.requireCapability("createPrototypes")
     context.repositoryRecord(repositoryId)
-    const id = Math.max(0, ...resources.prototypes.map((prototype) => prototype.id)) + 1
+    let nextId = resources.prototypes.length + 1
+    while (resources.prototypes.some(({ id }) => id === String(nextId))) nextId += 1
+    const id = String(nextId)
     const now = new Date().toISOString()
     const prototype = {
       id,
@@ -166,7 +168,7 @@ export function createProductStore(context: MockFlowContext) {
   }
 
   return {
-    getCatalog(repositoryId: number) {
+    getCatalog(repositoryId: string) {
       session.requireViewer()
       return {
         repository: context.repositoryRecord(repositoryId),
@@ -175,7 +177,7 @@ export function createProductStore(context: MockFlowContext) {
       }
     },
 
-    getTemplate(repositoryId: number, templateId: string) {
+    getTemplate(repositoryId: string, templateId: string) {
       session.requireViewer()
       const template = templates(repositoryId).find((entry) => entry.id === templateId)
       if (!template) throw new MockStoreError(404, "Template not found.")
@@ -192,7 +194,7 @@ export function createProductStore(context: MockFlowContext) {
       }
     },
 
-    getManagement(repositoryId: number): ProductManagementResponse {
+    getManagement(repositoryId: string): ProductManagementResponse {
       session.requireViewer()
       return {
         repository: context.repositoryRecord(repositoryId),
@@ -212,7 +214,7 @@ export function createProductStore(context: MockFlowContext) {
       }
     },
 
-    updateMetadata(repositoryId: number, prototypeId: number, input: ProductMetadataInput) {
+    updateMetadata(repositoryId: string, prototypeId: string, input: ProductMetadataInput) {
       session.requireCapability("createPrototypes")
       requireEditable(repositoryId, prototypeId)
       const parsed = productMetadataInputSchema.safeParse(input)
@@ -230,7 +232,7 @@ export function createProductStore(context: MockFlowContext) {
       }
     },
 
-    registerCandidate(repositoryId: number, candidateId: number, input: ProductMetadataInput) {
+    registerCandidate(repositoryId: string, candidateId: number, input: ProductMetadataInput) {
       session.requireCapability("createPrototypes")
       context.repositoryRecord(repositoryId)
       const index = candidates.findIndex(
@@ -265,8 +267,8 @@ export function createProductStore(context: MockFlowContext) {
     },
 
     getShareLinks(
-      repositoryId: number,
-      prototypeId: number,
+      repositoryId: string,
+      prototypeId: string,
       buildNumber?: number,
     ): ProductSharingResponse {
       session.requireViewer()
@@ -287,7 +289,7 @@ export function createProductStore(context: MockFlowContext) {
       }
     },
 
-    createShareLink(repositoryId: number, prototypeId: number, input: ProductShareInput) {
+    createShareLink(repositoryId: string, prototypeId: string, input: ProductShareInput) {
       const viewer = session.requireCapability("manageSharing")
       const resource = requireEditable(repositoryId, prototypeId)
       if (!sharingEnabled) throw new MockStoreError(409, "Public sharing is disabled.")
@@ -325,7 +327,7 @@ export function createProductStore(context: MockFlowContext) {
       }
     },
 
-    revokeShareLink(repositoryId: number, prototypeId: number, shareId: string) {
+    revokeShareLink(repositoryId: string, prototypeId: string, shareId: string) {
       session.requireCapability("manageSharing")
       requireEditable(repositoryId, prototypeId)
       const link = links.find(

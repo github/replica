@@ -193,7 +193,7 @@ export function createSettingsStore(context: MockFlowContext) {
   function record(
     operation: SettingsOperation["operation"],
     notice: string,
-    repositoryId: number | null = null,
+    repositoryId: string | null = null,
     redirect: string | null = null,
   ): SettingsMutationResponse {
     revision += 1
@@ -208,7 +208,7 @@ export function createSettingsStore(context: MockFlowContext) {
     return { revision, notice, redirect }
   }
 
-  function requireRepository(repositoryId: number) {
+  function requireRepository(repositoryId: string) {
     context.session.requireCapability("manageSharing")
     return context.repositoryRecord(repositoryId)
   }

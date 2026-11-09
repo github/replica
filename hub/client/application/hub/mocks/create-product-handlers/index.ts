@@ -12,6 +12,7 @@ import {
 import type { createProductStore } from "../create-product-store"
 import type { MockSession } from "../create-mock-session/types"
 import { parseMockIdentifier as identifier } from "../parse-mock-identifier"
+import { parseMockRecordIdentifier as recordIdentifier } from "../parse-mock-record-identifier"
 import { parseMockQuery } from "../parse-mock-query"
 import { readMockJson } from "../read-mock-json"
 import { respondMock } from "../respond-mock"
@@ -37,7 +38,7 @@ export function createProductHandlers(
       respondMock(
         request,
         (scenario) => {
-          const response = store.getCatalog(identifier(params.repositoryId))
+          const response = store.getCatalog(recordIdentifier(params.repositoryId))
           if (scenario === "empty") response.templates = []
           return HttpResponse.json(response)
         },
@@ -50,7 +51,9 @@ export function createProductHandlers(
         () => {
           const parsed = productTemplateIdSchema.safeParse(params.templateId)
           if (!parsed.success) throw new MockStoreError(400, "Invalid template identifier.")
-          return HttpResponse.json(store.getTemplate(identifier(params.repositoryId), parsed.data))
+          return HttpResponse.json(
+            store.getTemplate(recordIdentifier(params.repositoryId), parsed.data),
+          )
         },
         session,
       ),
@@ -59,7 +62,7 @@ export function createProductHandlers(
       respondMock(
         request,
         (scenario) => {
-          const response = store.getManagement(identifier(params.repositoryId))
+          const response = store.getManagement(recordIdentifier(params.repositoryId))
           if (scenario === "empty") {
             response.registered = []
             response.candidates = []
@@ -76,8 +79,8 @@ export function createProductHandlers(
           request,
           async (_scenario, assertCurrentSession) => {
             const input = await readMockJson(request, productMetadataInputSchema)
-            const repositoryId = identifier(params.repositoryId)
-            const prototypeId = identifier(params.prototypeId)
+            const repositoryId = recordIdentifier(params.repositoryId)
+            const prototypeId = recordIdentifier(params.prototypeId)
             assertCurrentSession()
             return HttpResponse.json(store.updateMetadata(repositoryId, prototypeId, input))
           },
@@ -91,7 +94,7 @@ export function createProductHandlers(
           request,
           async (_scenario, assertCurrentSession) => {
             const input = await readMockJson(request, productMetadataInputSchema)
-            const repositoryId = identifier(params.repositoryId)
+            const repositoryId = recordIdentifier(params.repositoryId)
             const candidateId = identifier(params.candidateId)
             assertCurrentSession()
             return HttpResponse.json(store.registerCandidate(repositoryId, candidateId, input))
@@ -107,8 +110,8 @@ export function createProductHandlers(
           (scenario) => {
             const query = parseMockQuery(request.url, routeQuerySchema, "Invalid Build selection.")
             const response = store.getShareLinks(
-              identifier(params.repositoryId),
-              identifier(params.prototypeId),
+              recordIdentifier(params.repositoryId),
+              recordIdentifier(params.prototypeId),
               query.build,
             )
             if (scenario === "empty") response.links = []
@@ -124,8 +127,8 @@ export function createProductHandlers(
           request,
           async (_scenario, assertCurrentSession) => {
             const input = await readMockJson(request, productShareInputSchema)
-            const repositoryId = identifier(params.repositoryId)
-            const prototypeId = identifier(params.prototypeId)
+            const repositoryId = recordIdentifier(params.repositoryId)
+            const prototypeId = recordIdentifier(params.prototypeId)
             assertCurrentSession()
             return HttpResponse.json(store.createShareLink(repositoryId, prototypeId, input))
           },
@@ -138,8 +141,8 @@ export function createProductHandlers(
         respondMock(
           request,
           (_scenario, assertCurrentSession) => {
-            const repositoryId = identifier(params.repositoryId)
-            const prototypeId = identifier(params.prototypeId)
+            const repositoryId = recordIdentifier(params.repositoryId)
+            const prototypeId = recordIdentifier(params.prototypeId)
             const id = shareId(params.shareId)
             assertCurrentSession()
             return HttpResponse.json(store.revokeShareLink(repositoryId, prototypeId, id))

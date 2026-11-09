@@ -9,22 +9,22 @@ import { createMockStore } from "./create-mock-store"
 describe("expanded mock state", () => {
   it("acknowledges historical review activity without hiding newer activity or regressing the cursor", () => {
     const store = createMockStore({ origin: window.location.origin })
-    const changed = store.review.reply(2001, 1, 1, "A new activity version.")
+    const changed = store.review.reply("2001", "1", 1, "A new activity version.")
     const root = changed.comments.find((comment) => comment.kind === "root")
     if (!root || root.kind !== "root") throw new Error("A reply must return its updated thread.")
     expect(root.viewerLastSeenActivityVersion).toBe(root.activityVersion)
     store.session.select("reader")
 
-    const historical = store.review.markRead(2001, 1, root.id, root.activityVersion - 1)
+    const historical = store.review.markRead("2001", "1", root.id, root.activityVersion - 1)
     expect(historical.comments[0]).toMatchObject({
       activityVersion: root.activityVersion,
       viewerLastSeenActivityVersion: root.activityVersion - 1,
     })
-    store.review.markRead(2001, 1, root.id, root.activityVersion)
+    store.review.markRead("2001", "1", root.id, root.activityVersion)
     expect(
-      store.review.markRead(2001, 1, root.id, root.activityVersion - 1).comments[0],
+      store.review.markRead("2001", "1", root.id, root.activityVersion - 1).comments[0],
     ).toMatchObject({ viewerLastSeenActivityVersion: root.activityVersion })
-    expect(() => store.review.markRead(2001, 1, root.id, root.activityVersion + 1)).toThrow(
+    expect(() => store.review.markRead("2001", "1", root.id, root.activityVersion + 1)).toThrow(
       expect.objectContaining({ status: 409 }),
     )
   })
@@ -33,7 +33,7 @@ describe("expanded mock state", () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-10-30T12:00:00Z"))
     const store = createMockStore({ origin: window.location.origin })
-    const first = store.product.createShareLink(2001, 1, {
+    const first = store.product.createShareLink("2001", "1", {
       label: "A one-day review",
       expiration: "one_day",
       buildNumber: 3,
@@ -43,7 +43,7 @@ describe("expanded mock state", () => {
       state: "active",
       buildNumber: 3,
       previewUrl: store.flowContext.resources.builds.find(
-        (build) => build.repositoryId === 2001 && build.prototypeId === 1 && build.number === 3,
+        (build) => build.repositoryId === "2001" && build.prototypeId === "1" && build.number === 3,
       )?.previewUrl,
     })
 
@@ -52,12 +52,12 @@ describe("expanded mock state", () => {
     expect(expired.state).toBe("expired")
     expect(expired).not.toHaveProperty("previewUrl")
     store.session.select("owner")
-    const second = store.product.createShareLink(2001, 1, {
+    const second = store.product.createShareLink("2001", "1", {
       label: "A replacement review",
       expiration: "seven_days",
       buildNumber: 3,
     }).link
-    store.product.revokeShareLink(2001, 1, first.shareId)
+    store.product.revokeShareLink("2001", "1", first.shareId)
     expect(store.product.getPublicShare(first.shareId).state).toBe("revoked")
     store.session.select("admin")
     expect(() =>
@@ -69,7 +69,7 @@ describe("expanded mock state", () => {
     expect(store.product.getPublicShare(second.shareId)).not.toHaveProperty("previewUrl")
     store.product.updateSharingSettings({ operation: "enable", confirmed: true })
     expect(store.product.getPublicShare(second.shareId).state).toBe("revoked")
-    const replacement = store.product.createShareLink(2001, 1, {
+    const replacement = store.product.createShareLink("2001", "1", {
       label: "A newly enabled review",
       expiration: "seven_days",
       buildNumber: 3,
@@ -84,7 +84,7 @@ describe("expanded mock state", () => {
     server.listen({ onUnhandledRequest: "error" })
     onTestFinished(() => server.close())
     const request = new Request(new URL("/notifications", store.origin))
-    const query = settingsQuerySchema.parse({ repositoryId: 2001, limit: 50 })
+    const query = settingsQuerySchema.parse({ repositoryId: "2001", limit: 50 })
     const initial = store.settings.getWorkspace(query).notifications
     const notification = initial.items.find((item) => !item.read)
     if (!notification) throw new Error("The fixture must include an unread owner notification.")
@@ -165,20 +165,20 @@ describe("expanded mock state", () => {
 
   it("reseeds product, review, settings and viewer state for a new mock document", () => {
     const store = createMockStore({ origin: window.location.origin })
-    const originalName = store.getPrototype(2001, 1).prototype.name
-    store.updatePrototype(2001, 1, {
+    const originalName = store.getPrototype("2001", "1").prototype.name
+    store.updatePrototype("2001", "1", {
       name: "Only this document",
       description: "A prototype edit that must not become seed data.",
     })
-    const link = store.product.createShareLink(2001, 1, {
+    const link = store.product.createShareLink("2001", "1", {
       label: "Only this document's link",
       expiration: "seven_days",
       buildNumber: 1,
     }).link
-    store.review.reply(2001, 1, 1, "Only this document's reply.")
+    store.review.reply("2001", "1", 1, "Only this document's reply.")
     store.settings.mutate({
       operation: "analytics-state",
-      repositoryId: 2001,
+      repositoryId: "2001",
       destinationId: 1,
       state: "paused",
     })
@@ -193,14 +193,14 @@ describe("expanded mock state", () => {
       revision: 0,
       viewer: { login: "octocat" },
     })
-    expect(fresh.getPrototype(2001, 1).prototype.name).toBe(originalName)
+    expect(fresh.getPrototype("2001", "1").prototype.name).toBe(originalName)
     expect(() => fresh.product.getPublicShare(link.shareId)).toThrow(
       expect.objectContaining({ status: 404 }),
     )
-    expect(fresh.review.list(2001, 1).comments).toHaveLength(2)
+    expect(fresh.review.list("2001", "1").comments).toHaveLength(2)
     expect(fresh.settings.getPublic().continuation).toBeNull()
     expect(
-      fresh.settings.getWorkspace(settingsQuerySchema.parse({ repositoryId: 2001 })).analytics,
+      fresh.settings.getWorkspace(settingsQuerySchema.parse({ repositoryId: "2001" })).analytics,
     ).toEqual([expect.objectContaining({ id: 1, enabled: true })])
   })
 })

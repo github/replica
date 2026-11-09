@@ -15,7 +15,7 @@ describe("getPrototype()", () => {
     const server = setupServer(
       http.get(`${origin}/api/repositories/2001/prototypes/1`, ({ request }) => {
         receivedUrl = new URL(request.url)
-        return HttpResponse.json(store.getPrototype(2001, 1, 1, true))
+        return HttpResponse.json(store.getPrototype("2001", "1", 1, true))
       }),
     )
     server.listen({ onUnhandledRequest: "error" })
@@ -28,7 +28,7 @@ describe("getPrototype()", () => {
     })
     const request = new Request(`${origin}/repositories/2001/prototypes/1?${search}`)
 
-    const preview = await getPrototype(request, 2001, 1)
+    const preview = await getPrototype(request, "2001", "1")
 
     expect(preview.selectedBuild?.number).toBe(1)
     expect(receivedUrl?.search).toBe("?build=1&view=minimized")
@@ -42,7 +42,7 @@ describe("getPrototype()", () => {
     const server = setupServer(
       http.get(`${origin}/api/repositories/2001/prototypes/1`, ({ request }) => {
         receivedUrl = new URL(request.url)
-        return HttpResponse.json(store.getPrototype(2001, 1, 1))
+        return HttpResponse.json(store.getPrototype("2001", "1", 1))
       }),
     )
     server.listen({ onUnhandledRequest: "error" })
@@ -50,8 +50,8 @@ describe("getPrototype()", () => {
 
     const preview = await getPrototype(
       new Request(`${origin}/repositories/2001/prototypes/1?build=1&view=${view}`),
-      2001,
-      1,
+      "2001",
+      "1",
     )
 
     expect(preview.selectedBuild?.number).toBe(1)
@@ -65,7 +65,7 @@ describe("getPrototype()", () => {
         `https://hub.example.test/repositories/2001/prototypes/1?view=minimized&build=${build}`,
       )
 
-      const result = Promise.resolve().then(() => getPrototype(request, 2001, 1))
+      const result = Promise.resolve().then(() => getPrototype(request, "2001", "1"))
 
       await expect(result).rejects.toBeInstanceOf(Response)
       await expect(result).rejects.toMatchObject({ status: 400 })
@@ -82,7 +82,7 @@ describe("getPrototype()", () => {
       http.get(`${origin}/api/repositories/2001/prototypes/1`, ({ request }) => {
         receivedSignal = request.signal
         controller.abort()
-        return HttpResponse.json(store.getPrototype(2001, 1, 1, true))
+        return HttpResponse.json(store.getPrototype("2001", "1", 1, true))
       }),
     )
     server.listen({ onUnhandledRequest: "error" })
@@ -91,7 +91,7 @@ describe("getPrototype()", () => {
       signal: controller.signal,
     })
 
-    await expect(getPrototype(request, 2001, 1)).rejects.toMatchObject({ name: "AbortError" })
+    await expect(getPrototype(request, "2001", "1")).rejects.toMatchObject({ name: "AbortError" })
     expect(receivedSignal?.aborted).toBe(true)
   })
 })

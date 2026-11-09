@@ -1,7 +1,7 @@
 import { useOutletContext } from "react-router"
 
 import type { RepositoryResponse, WorkspaceResponse } from "@application/hub/contracts/types"
-import { readRouteIdentifier } from "@application/hub/read-route-identifier"
+import { readRecordIdentifier } from "@application/hub/read-record-identifier"
 import { getAuthors } from "@application/hub/requests/get-authors"
 import { getRepository } from "@application/hub/requests/get-repository"
 import { RepositoryScreen } from "@application/hub/screens/repository-screen"
@@ -12,7 +12,7 @@ export async function clientLoader({
   request,
   params,
 }: Pick<Route.ClientLoaderArgs, "request" | "params">): Promise<RepositoryResponse> {
-  return getRepository(request, readRouteIdentifier(params.repositoryId, "repository"))
+  return getRepository(request, readRecordIdentifier(params.repositoryId, "repository"))
 }
 
 export function meta({ loaderData }: Route.MetaArgs) {

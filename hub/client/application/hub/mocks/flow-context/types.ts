@@ -18,10 +18,10 @@ export interface MockFlowContext {
     builds: BuildRecord[]
   }
   controlsIdentity: (context: (string | number)[]) => string
-  repositoryRecord: (repositoryId: number) => RepositoryRecord
+  repositoryRecord: (repositoryId: string) => RepositoryRecord
   prototypeResponse: (
-    repositoryId: number,
-    prototypeId: number,
+    repositoryId: string,
+    prototypeId: string,
     buildNumber?: number,
   ) => PrototypeResponse
 }

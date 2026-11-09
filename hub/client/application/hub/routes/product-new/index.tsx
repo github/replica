@@ -5,13 +5,13 @@ import { NewPrototypePage } from "@pages/new-prototype-page"
 import type { WorkspaceResponse } from "@application/hub/contracts/types"
 import { productCatalogResponseSchema } from "@application/hub/product-contracts"
 import type { ProductCatalogResponse } from "@application/hub/product-contracts/types"
-import { readRouteIdentifier } from "@application/hub/read-route-identifier"
+import { readRecordIdentifier } from "@application/hub/read-record-identifier"
 import { productNewData } from "@application/hub/view-models/product-new-data"
 
 import { requestProductJson } from "../request-product-json"
 
 export function clientLoader({ request, params }: Pick<LoaderFunctionArgs, "request" | "params">) {
-  const repositoryId = readRouteIdentifier(params.repositoryId, "repository")
+  const repositoryId = readRecordIdentifier(params.repositoryId, "repository")
   return requestProductJson(
     request,
     `/api/repositories/${repositoryId}/templates`,

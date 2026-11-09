@@ -6,8 +6,8 @@ export interface PrototypeReviewOptions {
   authenticityToken: string
   iframeRef: RefObject<HTMLIFrameElement | null>
   previewTheme: "light" | "dark"
-  prototypeId: number
-  repositoryId: number
+  prototypeId: string
+  repositoryId: string
   reviewCommentsPath: string
   viewerLogin: string
   transport?: ReviewCommentsTransport

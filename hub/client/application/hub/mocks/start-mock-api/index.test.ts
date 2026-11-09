@@ -110,7 +110,7 @@ describe("startMockApi()", () => {
     })
     fireEvent.click(screen.getByRole("button", { name: "View prototype" }))
     const request = new Request(`${window.location.origin}/repositories/2001/prototypes/1`)
-    const original = await getPrototype(request, 2001, 1)
+    const original = await getPrototype(request, "2001", "1")
     fireEvent.click(screen.getByRole("button", { name: "Edit details" }))
     const dialog = screen.getByRole("dialog", { name: "Edit prototype details" })
     fireEvent.change(within(dialog).getByRole("textbox", { name: "Name" }), {
@@ -119,7 +119,9 @@ describe("startMockApi()", () => {
     await router.settle(() =>
       fireEvent.click(within(dialog).getByRole("button", { name: "Save details" })),
     )
-    expect((await getPrototype(request, 2001, 1)).prototype.name).toBe("Only the previous document")
+    expect((await getPrototype(request, "2001", "1")).prototype.name).toBe(
+      "Only the previous document",
+    )
     fireEvent.click(screen.getByRole("button", { name: "Edit details" }))
     const draft = screen.getByRole("dialog", { name: "Edit prototype details" })
     fireEvent.change(within(draft).getByRole("textbox", { name: "Name" }), {
@@ -156,7 +158,7 @@ describe("startMockApi()", () => {
 
     expect(screen.getByRole("button", { name: "Account menu for @octocat" })).toBeVisible()
     expect((await getSession(request)).capabilities.administerHub).toBe(true)
-    const fresh = await getPrototype(request, 2001, 1)
+    const fresh = await getPrototype(request, "2001", "1")
     expect(fresh.prototype.name).toBe(original.prototype.name)
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
     expect(screen.queryByText("Only the previous document")).not.toBeInTheDocument()

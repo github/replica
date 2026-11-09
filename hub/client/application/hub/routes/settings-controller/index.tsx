@@ -1,7 +1,7 @@
 import { data, redirect } from "react-router"
 import type { ClientActionFunctionArgs, ClientLoaderFunctionArgs } from "react-router"
 
-import { routeIdentifierSchema } from "@application/hub/contracts"
+import { recordIdentifierSchema, routeIdentifierSchema } from "@application/hub/contracts"
 import {
   settingsCandidateResponseSchema,
   settingsMutationResponseSchema,
@@ -26,9 +26,9 @@ export function settingsController(section: SettingsSection, surface: "workspace
   function settingsUrl(request: Request, params: ClientLoaderFunctionArgs["params"]) {
     const url = new URL(request.url)
     if (section !== "analytics" && section !== "learnings") return url
-    const parsed = routeIdentifierSchema.safeParse(params.repositoryId)
+    const parsed = recordIdentifierSchema.safeParse(params.repositoryId)
     if (!parsed.success) throw new Response("Invalid repository identifier.", { status: 400 })
-    url.searchParams.set("repositoryId", String(parsed.data))
+    url.searchParams.set("repositoryId", parsed.data)
     return url
   }
 

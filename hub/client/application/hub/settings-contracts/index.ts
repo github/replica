@@ -2,7 +2,7 @@ import { z } from "zod"
 
 import { NOTIFICATION_SCHEMA } from "@utils/notification/schemas"
 
-import { repositorySchema, userSchema } from "../contracts"
+import { recordIdentifierSchema, repositorySchema, userSchema } from "../contracts"
 import { sessionResponseSchema } from "../session-contracts"
 
 const identifier = z.number().int().positive()
@@ -10,7 +10,7 @@ const confirmed = z.literal(true, { error: "Confirm the change before continuing
 const timestamp = z.iso.datetime({ offset: true })
 
 export const settingsQuerySchema = z.object({
-  repositoryId: z.coerce.number().int().positive().optional(),
+  repositoryId: recordIdentifierSchema.optional(),
   unread: z.enum(["true", "false"]).default("false"),
   limit: z.coerce.number().int().min(1).max(50).default(50),
   page: z.coerce.number().int().min(1).max(1000).default(1),
@@ -51,14 +51,14 @@ export const analyticsConfigurationSchema = z
 
 export const analyticsDestinationSchema = z.object({
   id: identifier,
-  repositoryId: identifier,
+  repositoryId: recordIdentifierSchema,
   configuration: analyticsConfigurationSchema,
   enabled: z.boolean(),
 })
 
 export const canvasGrantSchema = z.object({
   id: identifier,
-  repositoryId: identifier,
+  repositoryId: recordIdentifierSchema,
   repository: z.string().min(1),
   viewerLogin: z.string().min(1),
   expiresAt: timestamp,
@@ -85,7 +85,7 @@ export const settingsCandidateResponseSchema = z.object({
 
 export const learningRecordSchema = z.object({
   id: z.string().min(1),
-  repositoryId: identifier,
+  repositoryId: recordIdentifierSchema,
   content: z.string().trim().min(1).max(2000),
   digest: z.string().min(1),
   evidenceId: z.string().min(1),
@@ -97,7 +97,7 @@ export const learningRecordSchema = z.object({
 
 export const learningRunSchema = z.object({
   id: identifier,
-  repositoryId: identifier,
+  repositoryId: recordIdentifierSchema,
   startedAt: timestamp,
   startedBy: z.string().min(1),
   state: z.enum(["queued", "running", "succeeded"]),
@@ -108,7 +108,7 @@ export const settingsAuditEventSchema = z.object({
   createdAt: timestamp,
   actor: z.string().min(1),
   operation: z.string().min(1),
-  repositoryId: identifier.nullable(),
+  repositoryId: recordIdentifierSchema.nullable(),
   context: z.string().min(1),
 })
 
@@ -157,7 +157,7 @@ export const settingsWorkspaceResponseSchema = settingsPublicResponseSchema.exte
     nextPage: identifier.nullable(),
   }),
   evidenceAuthor: userSchema.nullable(),
-  evidencePrototype: z.object({ id: identifier, name: z.string().min(1) }).nullable(),
+  evidencePrototype: z.object({ id: recordIdentifierSchema, name: z.string().min(1) }).nullable(),
 })
 
 export const settingsOperationSchema = z.discriminatedUnion("operation", [
@@ -165,7 +165,7 @@ export const settingsOperationSchema = z.discriminatedUnion("operation", [
   z
     .object({
       operation: z.literal("analytics-save"),
-      repositoryId: identifier,
+      repositoryId: recordIdentifierSchema,
       destinationId: identifier.optional(),
       configuration: analyticsConfigurationSchema,
     })
@@ -173,7 +173,7 @@ export const settingsOperationSchema = z.discriminatedUnion("operation", [
   z
     .object({
       operation: z.literal("analytics-state"),
-      repositoryId: identifier,
+      repositoryId: recordIdentifierSchema,
       destinationId: identifier,
       state: z.enum(["paused", "enabled", "disconnected"]),
     })
@@ -181,7 +181,7 @@ export const settingsOperationSchema = z.discriminatedUnion("operation", [
   z
     .object({
       operation: z.literal("canvas-approve"),
-      repositoryId: identifier,
+      repositoryId: recordIdentifierSchema,
       consentVersion: z.string().min(1),
     })
     .strict(),
@@ -250,7 +250,7 @@ export const settingsOperationSchema = z.discriminatedUnion("operation", [
   z
     .object({
       operation: z.literal("learning-decide"),
-      repositoryId: identifier,
+      repositoryId: recordIdentifierSchema,
       learningId: learningRecordSchema.shape.id,
       decision: z.enum(["accept", "reject", "retire"]),
       digest: z.string().max(100).optional(),
@@ -258,7 +258,7 @@ export const settingsOperationSchema = z.discriminatedUnion("operation", [
       reason: z.string().trim().min(1).max(500).optional(),
     })
     .strict(),
-  z.object({ operation: z.literal("learning-run"), repositoryId: identifier }).strict(),
+  z.object({ operation: z.literal("learning-run"), repositoryId: recordIdentifierSchema }).strict(),
   z
     .object({
       operation: z.literal("notification-read"),

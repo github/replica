@@ -117,6 +117,6 @@ describe("Hub mock session flow", () => {
       body: JSON.stringify({ name: "Reader must not save", description: null }),
     })
     expect(response.status).toBe(403)
-    expect(store.getPrototype(2001, 2).prototype.name).toBe("Navigation")
+    expect(store.getPrototype("2001", "2").prototype.name).toBe("Navigation")
   })
 })
