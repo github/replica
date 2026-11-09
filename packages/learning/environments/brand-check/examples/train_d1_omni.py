@@ -8,8 +8,8 @@ environment's rewards. Training learns from the scores alone and never reads the
 states at each yes-or-no question's answer options and adds a correction to the released model's
 answer. It starts at zero, so training starts from the released model. `--part head` trains the
 whole decision head instead, about 26 million of the model's 587 million parameters. On our
-synthetic taskset of 518 practice pages, the head scored better on the practice pages but not
-on new ones, while the readout improved on pages it never practiced on.
+synthetic taskset of 518 practice pages, the head's dev score barely passed what answering 50%
+to every question earns, while the readout improved clearly on pages it never practiced on.
 
     python examples/train_d1_omni.py train --model DIR --taskset DIR --out runs/demo
     python examples/train_d1_omni.py evaluate --model DIR --taskset DIR \
