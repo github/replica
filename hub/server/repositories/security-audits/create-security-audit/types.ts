@@ -55,6 +55,33 @@ export interface ProviderMembershipAssignmentAudit extends SecurityAuditEvent {
   role: "MEMBER" | "ADMINISTRATOR"
 }
 
+export interface AdministratorMembershipAssignmentAudit extends SecurityAuditEvent {
+  type:
+    "administrator_membership_assignment_created" | "administrator_membership_assignment_revoked"
+  actorMembershipId: string
+  assignmentId: string
+  targetMembershipId: string
+}
+
+export interface AdministratorManagementDeniedAudit extends SecurityAuditEvent {
+  type: "administrator_management_denied"
+  actorMembershipId: string | null
+  operation: "designate" | "revoke"
+  reason:
+    | "invalid_selection"
+    | "invalid_target"
+    | "last_administrator"
+    | "not_authorized"
+    | "role_changed"
+}
+
+export interface AdministratorManagementFailedAudit extends SecurityAuditEvent {
+  type: "administrator_management_failed"
+  actorMembershipId: string
+  operation: "designate" | "revoke"
+  reason: "retry_exhausted" | "transaction_error"
+}
+
 export interface SessionCreatedAudit extends SecurityAuditEvent {
   type: "session_created"
   sessionId: string
@@ -161,6 +188,9 @@ export type CreateSecurityAuditEvent =
   | MembershipRestoredAudit
   | SessionCreatedAudit
   | SessionEndedAudit
+  | AdministratorMembershipAssignmentAudit
+  | AdministratorManagementDeniedAudit
+  | AdministratorManagementFailedAudit
   | AdmissionDeniedAudit
   | AdmissionFailedAudit
   | ExternalIdentityCreatedAudit

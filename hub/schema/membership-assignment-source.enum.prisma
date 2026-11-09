@@ -1,4 +1,5 @@
 enum MembershipAssignmentSource {
   BOOTSTRAP
   AUTHENTICATION_PROVIDER
+  HUB_ADMINISTRATOR
 }

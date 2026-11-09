@@ -12,7 +12,7 @@ export interface SessionRestoreRepositories {
     Array<{
       id: string
       role: "MEMBER" | "ADMINISTRATOR"
-      source: "BOOTSTRAP" | "AUTHENTICATION_PROVIDER"
+      source: "BOOTSTRAP" | "AUTHENTICATION_PROVIDER" | "HUB_ADMINISTRATOR"
     }>
   >
   lockMembership(membershipId: string): Promise<{
