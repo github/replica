@@ -59,9 +59,6 @@ from typing import Any
 import torch
 import torch.nn.functional as F
 from PIL import Image
-from replica_brand_check import BrandCheckAction, BrandCheckEnv
-from replica_brand_check.evaluate import evaluate
-from replica_brand_check.taskset import load_taskset
 from torch.nn.utils.rnn import pad_sequence
 from transformers import AutoModel
 
@@ -312,6 +309,8 @@ class Policy:
 
 def split_reward(policy: Policy, env, task_ids: list[str]) -> tuple[float, dict]:
     """The mean reward of the policy's own answers over a split, as the environment scores them."""
+    from replica_brand_check import BrandCheckAction
+
     total, predictions = 0.0, {}
     for task_id in task_ids:
         features = policy.observe(env, task_id)
@@ -321,6 +320,9 @@ def split_reward(policy: Policy, env, task_ids: list[str]) -> tuple[float, dict]
 
 
 def train(args: argparse.Namespace) -> None:
+    from replica_brand_check import BrandCheckAction, BrandCheckEnv
+    from replica_brand_check.taskset import load_taskset
+
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     torch.manual_seed(args.seed)
@@ -403,6 +405,10 @@ def train(args: argparse.Namespace) -> None:
 
 
 def run_evaluate(args: argparse.Namespace) -> None:
+    from replica_brand_check import BrandCheckEnv
+    from replica_brand_check.evaluate import evaluate
+    from replica_brand_check.taskset import load_taskset
+
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
     taskset = load_taskset(args.taskset)
