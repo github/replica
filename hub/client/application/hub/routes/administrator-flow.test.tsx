@@ -291,6 +291,7 @@ describe("administrator frontend integration", () => {
       [
         http.get(`${window.location.origin}/api/auth/session`, () => {
           sessionReads += 1
+          if (continued) return HttpResponse.json({ authenticated: false }, { status: 401 })
           return HttpResponse.json({
             authenticated: true,
             membershipId: actorMembershipId,
@@ -298,7 +299,7 @@ describe("administrator frontend integration", () => {
             provider: "github",
             login: "octocat",
             name: "The Octocat",
-            role: continued ? "MEMBER" : "ADMINISTRATOR",
+            role: "ADMINISTRATOR",
           })
         }),
         http.get(
@@ -343,8 +344,9 @@ describe("administrator frontend integration", () => {
       },
     ])
     await vi.waitFor(() => expect(sessionReads).toBeGreaterThan(readsBeforeContinuation))
-    expect(screen.getByRole("status")).toHaveTextContent(/administrator.*removed/i)
+    expect(screen.getByRole("status")).toHaveTextContent(/access was removed.*session ended/i)
     expect(screen.queryByRole("link", { name: "Hub administrators" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Sign out" })).not.toBeInTheDocument()
     expect(router.state.location.pathname).toBe("/settings/administrators/confirm")
   })
 

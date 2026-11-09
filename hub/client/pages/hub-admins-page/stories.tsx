@@ -155,6 +155,7 @@ export const AccessRemoved: Story = {
       auditPath: null,
       administrationWorkspace: null,
       authenticatedWorkspace: null,
+      signedOut: true,
       addAdministrator: null,
       administratorsLabel: null,
       hubAdminsPath: null,
@@ -162,8 +163,9 @@ export const AccessRemoved: Story = {
       githubAppPath: null,
       sessionRevocationPath: null,
       emptyLabel: "Administrator navigation has been removed from this session.",
-      notice:
-        "Your Hub administrator access was removed. Your account is no longer a Hub administrator.",
+      description:
+        "Your account no longer has Hub administrator controls. Hub ended this browser session when the role changed.",
+      notice: "Your Hub administrator access was removed and this session ended.",
       alert: null,
     },
   },

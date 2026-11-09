@@ -61,7 +61,7 @@ export default function SettingsAdministratorAuthorization({
     | { state: "idle" }
     | { state: "busy" }
     | { state: "error"; message: string }
-    | { state: "access-removed"; notice: string }
+    | { state: "access-removed"; notice: string; sessionEnded: boolean }
   >({ state: "idle" })
 
   async function submit(formElement: HTMLFormElement) {
@@ -80,12 +80,29 @@ export default function SettingsAdministratorAuthorization({
         operation: loaderData.authorization.operation,
         targetMembershipIds: loaderData.authorization.targets.map((target) => target.membershipId),
       })
-      const session = await getCurrentHubSession(request)
+      let session
+      try {
+        session = await getCurrentHubSession(request)
+      } catch (error) {
+        if (
+          (error instanceof ApiRequestError || error instanceof ApiContractError) &&
+          error.status === 401
+        ) {
+          setResult({
+            state: "access-removed",
+            notice: "Your Hub administrator access was removed and this session ended.",
+            sessionEnded: true,
+          })
+          return
+        }
+        throw error
+      }
       if (session.role !== "ADMINISTRATOR") {
         setResult({
           state: "access-removed",
           notice:
             "Your Hub administrator access was removed. Your account is no longer a Hub administrator.",
+          sessionEnded: false,
         })
         return
       }
@@ -112,9 +129,11 @@ export default function SettingsAdministratorAuthorization({
         data={{
           administrationWorkspace: null,
           authenticatedWorkspace: null,
+          signedOut: result.sessionEnded,
           heading: "Hub administrator role changed",
-          description:
-            "Your account no longer has Hub administrator controls. Your other Hub access is unchanged.",
+          description: result.sessionEnded
+            ? "Your account no longer has Hub administrator controls. Hub ended this browser session when the role changed."
+            : "Your account no longer has Hub administrator controls. Your other Hub access is unchanged.",
           auditLabel: "Security audit",
           auditPath: null,
           repositoriesLabel: "Home",
