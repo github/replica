@@ -8,6 +8,7 @@ export const publicationCopy = {
   requested: "Requested",
   awaitingCopilot: "Waiting for Copilot",
   publishBranch: "Publish",
+  cannotPublish: "Cannot publish",
   publishChanges: "Publish changes",
   registration: "Publishing",
   registrationFailed: "Publication delayed",

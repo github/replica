@@ -132,6 +132,7 @@ describe("resolvePublication()", () => {
       },
     }
     const publication = resolvePublication(state, { ...publicationHub, branch: "main" })
+    expect(publication).toMatchObject({ kind: "restricted", action: "none" })
     expect(publication.error?.description).toContain("Default, reserved, and internal branches")
     expect(publication.error?.description).not.toContain("remote repository")
   })

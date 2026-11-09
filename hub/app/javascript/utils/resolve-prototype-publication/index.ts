@@ -18,6 +18,7 @@ export type Publication = {
     | "ready"
     | "requested"
     | "workflow_missing"
+    | "restricted"
   detail: string
   label: string
   action: "publish" | "retry" | "none"
@@ -107,6 +108,8 @@ export function resolvePublication(
         title: copy.registrationErrorTitle,
         description: hub.registrationError || copy.registrationDenied,
       }
+      if (verifiedReason === "branch_not_reviewable")
+        return result("restricted", registrationError.description, copy.cannotPublish)
     }
   }
   if (

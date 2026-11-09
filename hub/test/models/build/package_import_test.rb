@@ -45,6 +45,70 @@ class Build::PackageImportTest < ActiveSupport::TestCase
     assert temporary_paths.none? { File.exist?(_1) }
   end
 
+  test "imports an artifact created during the successful attempt, not an earlier attempt's artifact" do
+    build = completed_build(run_attempt: 2)
+    configuration = installed_configuration
+    client = fake_client(
+      [
+        {
+          "id" => 8001,
+          "name" => "replica-build-v1",
+          "expired" => false,
+          "created_at" => "2026-09-17T18:02:00Z"
+        },
+        {
+          "id" => 8002,
+          "name" => "replica-build-v1",
+          "expired" => false,
+          "created_at" => "2026-09-17T18:04:00Z"
+        }
+      ],
+      run_attempt: 2,
+      run_started_at: "2026-09-17T18:03:00Z"
+    )
+    downloads = []
+    package = replica_package
+    client.actions.define_singleton_method(:download_artifact) do |_repository, artifact_id, token:, destination:, maximum_bytes:|
+      downloads << artifact_id
+      destination.write(package)
+    end
+    stub_github_client(configuration, client)
+
+    import_package(build, configuration)
+
+    assert_equal "successful", build.reload.state
+    assert_equal 8002, build.github_artifact_id
+    assert_equal [ 8002 ], downloads
+  end
+
+  test "does not import an earlier attempt's artifact when the successful attempt uploaded none" do
+    build = completed_build(run_attempt: 2)
+    configuration = installed_configuration
+    client = fake_client(
+      [
+        {
+          "id" => 8001,
+          "name" => "replica-build-v1",
+          "expired" => false,
+          "created_at" => "2026-09-17T18:02:00Z"
+        }
+      ],
+      run_attempt: 2,
+      run_started_at: "2026-09-17T18:03:00Z"
+    )
+    client.actions.define_singleton_method(:download_artifact) do |*_args, **_options|
+      raise "an artifact from an earlier attempt must not be downloaded"
+    end
+    stub_github_client(configuration, client)
+
+    import_package(build, configuration)
+
+    assert_equal "failed", build.reload.state
+    assert_equal "GitHub Actions did not provide the replica-build-v1 artifact.", build.failure_summary
+    assert_nil build.github_artifact_id
+    assert_empty @artifact_store.list("builds/#{build.id}")
+  end
+
   test "accepts explicit package directory entries" do
     build = completed_build
     configuration = installed_configuration
@@ -356,6 +420,34 @@ class Build::PackageImportTest < ActiveSupport::TestCase
     assert_empty @artifact_store.list("builds/#{build.id}")
   end
 
+  test "a stale earlier attempt cannot fail a recovered attempt during import" do
+    build = builds.create
+    attempt = ->(number) do
+      {
+        run_id: 9001,
+        run_attempt: number,
+        workflow_url: "https://github.com/github/prototype/actions/runs/9001",
+        workflow_created_at: Time.iso8601("2026-09-17T18:00:00Z")
+      }
+    end
+    build.workflow_run.record!(**attempt.(1), stage: "completed", conclusion: "action_required")
+    build.workflow_run.record!(**attempt.(2), stage: "completed", conclusion: "success")
+    configuration = installed_configuration
+    client = fake_client(run_attempt: 2)
+    package = replica_package
+    client.actions.define_singleton_method(:download_artifact) do |_repository, _artifact_id, token:, destination:, maximum_bytes:|
+      destination.write(package)
+      Build.find(build.id).workflow_run.record!(**attempt.(1), stage: "completed", conclusion: "action_required")
+    end
+    stub_github_client(configuration, client)
+
+    import_package(build, configuration)
+
+    assert_equal "successful", build.reload.state
+    assert_equal 2, build.github_workflow_run_attempt
+    assert_equal 8001, build.github_artifact_id
+  end
+
   private
 
   def stub_github_client(configuration, client)
@@ -373,11 +465,11 @@ class Build::PackageImportTest < ActiveSupport::TestCase
     configuration
   end
 
-  def completed_build
+  def completed_build(run_attempt: 1)
     build = builds.create
     build.workflow_run.record! \
       run_id: 9001,
-      run_attempt: 1,
+      run_attempt:,
       workflow_url: "https://github.com/github/prototype/actions/runs/9001",
       workflow_created_at: Time.iso8601("2026-09-17T18:00:00Z"),
       stage: "completed",
@@ -385,11 +477,21 @@ class Build::PackageImportTest < ActiveSupport::TestCase
     build
   end
 
-  def fake_client(artifacts = [ { "id" => 8001, "name" => "replica-build-v1", "expired" => false } ], package: replica_package)
+  def fake_client(
+    artifacts = [ { "id" => 8001, "name" => "replica-build-v1", "expired" => false } ],
+    package: replica_package,
+    run_attempt: 1,
+    run_started_at: "2026-09-17T18:01:00Z"
+  )
     Object.new.tap do |client|
       actions = Object.new
       actions.define_singleton_method(:artifacts) do |*_args, **_options|
-        artifacts
+        artifacts.map do |artifact|
+          { "created_at" => "2026-09-17T18:02:00Z" }.merge(artifact)
+        end
+      end
+      actions.define_singleton_method(:workflow_run_attempt) do |*_args, **_options|
+        { "run_attempt" => run_attempt, "run_started_at" => run_started_at }
       end
       actions.define_singleton_method(:download_artifact) do |_repository, _artifact_id, token:, destination:, maximum_bytes:|
         destination.write(package)

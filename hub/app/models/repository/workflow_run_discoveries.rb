@@ -23,10 +23,11 @@ class Repository::WorkflowRunDiscoveries < ActiveRecord::AssociatedObject
     attributes = attributes_from(run, action:)
     # A concurrent branch replacement must not claim an older workflow.
     build = record.with_lock do
-      saved = Build.joins(:prototype).find_by \
-        prototypes: { repository_id: record.id, branch_name: },
-        github_workflow_run_id: attributes.fetch(:run_id),
-        github_workflow_run_attempt: attributes.fetch(:run_attempt)
+      # Re-runs keep the run ID, so any saved attempt identifies the Build and its history.
+      saved = Build.joins(:prototype)
+        .where(prototypes: { repository_id: record.id, branch_name: }, github_workflow_run_id: attributes.fetch(:run_id))
+        .order(github_workflow_run_attempt: :desc)
+        .first
       if saved && saved.commit_sha != attributes.fetch(:commit_sha)
         raise InvalidRun, "GitHub changed the saved workflow commit"
       end

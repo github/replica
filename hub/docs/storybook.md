@@ -129,7 +129,12 @@ Both groups include **More Actions Open**, which opens the real menu for inspect
 
 For UI changes and PR evidence, follow the [coverage and screenshot workflow](#ui-changes-and-pull-request-evidence). Existing TypeScript tests remain responsible for behavior; Storybook makes presentation states available for design and accessibility review.
 
-The `Prototype canvas` catalogue covers the local extension before and after connecting a preview. Server Connection renders the extension's actual HTML document with isolated in-memory responses for scanning, empty and populated server lists, script selection, startup output, pending operations and failures. It never scans this checkout, starts processes or connects to a real server. Publication Example keeps distinct application compositions in the sidebar and all publication inputs in its scenario control. Detailed failure and eligibility states live in the owning dialog or panel stories instead of repeating the same application toolbar. Its preview URL can be configured with `VITE_STORYBOOK_PROTOTYPE_URL`.
+The `Prototype canvas` catalogue covers the local extension before and after connecting a preview. Two story groups share the same simulated server responses without scanning this checkout or starting real processes:
+
+- **Server Connection** renders the production React controls on their own. Its stories cover discovery results, script selection and startup output. Other stories show pending operations and failures.
+- **Publication Example / No Prototype** places those controls below the creation form in the full canvas. Its stories also cover Hub connection and catalog failures. You can try optional details and template selection, then check that a failed submission retains the draft.
+
+Publication Example keeps publication inputs in its scenario control. Detailed publication failures and eligibility states live in the owning dialog or panel stories instead of repeating the application toolbar. Configure its preview URL with `VITE_STORYBOOK_PROTOTYPE_URL`.
 
 Canvas recovery stories cover Controls compatibility, configuration, empty, reconnect, reset and diagnosis states; browser address and launch errors; Hub approval, URL save/reset and metadata failures; unavailable Build details and clipboard feedback; comment loading and recovery; and sharing permissions, expiry, validation and uncertain outcomes. Interaction stories perform the real UI action against fixture callbacks and retain the resulting state. Use the theme and viewport controls instead of separate light, dark or narrow copies.
 

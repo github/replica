@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 
-import { request } from "@utils/prototype-canvas-request"
+import { prototypeCanvasRequest } from "@utils/prototype-canvas-request"
 import type { PrototypeState } from "@utils/prototype-canvas/types"
 
 export function usePrototypeState(token: string) {
@@ -16,7 +16,7 @@ export function usePrototypeState(token: string) {
       inFlight.current += 1
       const requestId = ++latestRequest.current
       try {
-        const nextState = await request<PrototypeState>(
+        const nextState = await prototypeCanvasRequest<PrototypeState>(
           force ? "/api/refresh" : "/api/state",
           token,
           force ? { method: "POST", body: "{}" } : {},

@@ -215,6 +215,40 @@ class GithubAppConfiguration::BuildDiscoveryTest < ActiveSupport::TestCase
     assert_predicate build.reload.workflow_completed_at, :present?
   end
 
+  test "polling recovers a stored action-required failure from the run's successful newer attempt" do
+    configuration = installed_configuration
+    repository = repositories.create
+    build = repository.workflow_run_discoveries.record!(
+      workflow_run(status: "completed", conclusion: "action_required")
+    )
+    approved_run = workflow_run(run_attempt: 2, status: "completed", conclusion: "success")
+    client = Object.new
+    github_repositories = Object.new
+    actions = Object.new
+    configuration.define_singleton_method(:synchronize_repositories!) { nil }
+    github_repositories.define_singleton_method(:branches) do |_repository, token:|
+      [ { "name" => "prototype/welcome", "commit" => { "sha" => "a" * 40 } } ]
+    end
+    exact_lookups = []
+    actions.define_singleton_method(:workflow_runs) { |_repository, token:| [] }
+    actions.define_singleton_method(:workflow_run) do |_repository, run_id, token:|
+      exact_lookups << run_id
+      approved_run
+    end
+    client.define_singleton_method(:repositories) { github_repositories }
+    client.define_singleton_method(:actions) { actions }
+    configuration.define_singleton_method(:github_client) { client }
+
+    assert_enqueued_with(job: Build::ImportPackageJob) do
+      configuration.build_discovery.poll!(repository)
+    end
+
+    assert_equal [ 9001 ], exact_lookups
+    assert_equal "running", build.reload.state
+    assert_equal 2, build.github_workflow_run_attempt
+    assert_predicate build.package_import, :pending?
+  end
+
   test "fails a missing saved run without stopping other reconciliation" do
     configuration = installed_configuration
     repository = repositories.create

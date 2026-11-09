@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 
 import { copy } from "@utils/prototype-canvas/en"
-import { request } from "@utils/prototype-canvas-request"
+import { prototypeCanvasRequest } from "@utils/prototype-canvas-request"
 import type { HubStatus } from "@utils/prototype-canvas/types"
 
 type Props = {
@@ -25,7 +25,7 @@ export function useHubStatus({ token, onStatus, onError }: Props) {
       const requestId = ++latestRequest.current
       try {
         const interactive = reason === "open" || reason === "interaction"
-        const next = await request<HubStatus>(
+        const next = await prototypeCanvasRequest<HubStatus>(
           interactive
             ? reason === "open"
               ? "/api/hub/open"
@@ -65,7 +65,7 @@ export function useHubStatus({ token, onStatus, onError }: Props) {
       latestRequest.current += 1
       setStatus(null)
       try {
-        await request("/api/hub/origin", token, {
+        await prototypeCanvasRequest("/api/hub/origin", token, {
           method: "POST",
           body: JSON.stringify({ origin }),
         })
@@ -93,7 +93,7 @@ export function useHubStatus({ token, onStatus, onError }: Props) {
   }, [refresh])
 
   async function reset() {
-    const next = await request<HubStatus>("/api/hub/discovery", token, {
+    const next = await prototypeCanvasRequest<HubStatus>("/api/hub/discovery", token, {
       method: "POST",
       body: "{}",
     })

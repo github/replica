@@ -3,7 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { shareCopy } from "./en"
 import type { ShareContext, ShareLink, SharePage, SharingState } from "./types"
 import type { HubStatus, PrototypeState } from "@utils/prototype-canvas/types"
-import { request } from "@utils/prototype-canvas-request"
+import { prototypeCanvasRequest } from "@utils/prototype-canvas-request"
 
 const initial: SharingState = {
   open: false,
@@ -118,7 +118,7 @@ export function useShareLinks({
 
   const send = useCallback(
     <T>(action: string, input: object): Promise<T> =>
-      request<T>(`/api/hub/share-links/${action}`, token, {
+      prototypeCanvasRequest<T>(`/api/hub/share-links/${action}`, token, {
         method: "POST",
         body: JSON.stringify(input),
       }),
