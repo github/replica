@@ -113,6 +113,23 @@ async function createAuthorizationFixture(
 describe("administrator authorization persistence", () => {
   it("binds one-use continuation to the exact session, operation, and ordered targets", async () => {
     const fixture = await createAuthorizationFixture()
+    const targetSessionId = randomUUID()
+    await prisma.hubSession.create({
+      data: {
+        digest: "c".repeat(64),
+        expiresAt: new Date(Date.now() + 60_000),
+        externalIdentityId: fixture.target.externalIdentityId,
+        id: targetSessionId,
+        membershipId: fixture.target.membershipId,
+        providerRevisionId: (
+          await prisma.authenticationProvider.findFirstOrThrow({
+            select: { selectedRevisionId: true },
+            where: { key: "github" },
+          })
+        ).selectedRevisionId!,
+        revocationRevision: 0,
+      },
+    })
 
     await expect(
       continueAdministratorAuthorization(prisma, {
@@ -154,6 +171,12 @@ describe("administrator authorization persistence", () => {
         },
       }),
     ).resolves.toMatchObject({ lifecycle: "ACTIVE", role: "ADMINISTRATOR" })
+    await expect(
+      prisma.hubSession.findUniqueOrThrow({
+        select: { endedAt: true },
+        where: { id: targetSessionId },
+      }),
+    ).resolves.toEqual({ endedAt: expect.any(Date) })
     await expect(
       continueAdministratorAuthorization(prisma, {
         hubSessionId: fixture.hubSessionId,
@@ -244,10 +267,41 @@ describe("administrator authorization persistence", () => {
       }),
     ).resolves.toBe(0)
     await expect(
-      prisma.securityAudit.count({
-        where: { targetId: fixture.authorizationId },
+      prisma.securityAudit.findMany({
+        select: { action: true, context: true, outcome: true },
+        where: {
+          action: {
+            in: [
+              "administrator.authorization.denied",
+              "membership.administrator_management.failed",
+            ],
+          },
+        },
       }),
-    ).resolves.toBe(0)
+    ).resolves.toEqual(
+      expect.arrayContaining([
+        {
+          action: "membership.administrator_management.failed",
+          context: {
+            actorMembershipId: fixture.actor.membershipId,
+            operation: "designate",
+            reason: "transaction_error",
+          },
+          outcome: "FAILURE",
+        },
+        {
+          action: "administrator.authorization.denied",
+          context: {
+            actorMembershipId: fixture.actor.membershipId,
+            operation: "designate_administrators",
+            phase: "denied",
+            reason: "transaction_error",
+            targetCount: 1,
+          },
+          outcome: "DENIED",
+        },
+      ]),
+    )
   })
 
   it("escapes candidate search wildcards, excludes effective administrators, and bounds results", async () => {
