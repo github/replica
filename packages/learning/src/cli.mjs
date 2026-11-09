@@ -281,7 +281,9 @@ async function run(session) {
       if (sub === "questions") return decisionQuestions(session)
       if (sub === "taskset") return decisionTaskset(session)
       if (sub === "ask") return decisionAsk(session)
-      throw new UsageError("Use decision models, decision questions, decision taskset, or decision ask.")
+      throw new UsageError(
+        "Use decision models, decision questions, decision taskset, or decision ask.",
+      )
     default:
       throw new UsageError(`Unknown command: ${command}`)
   }
@@ -1195,7 +1197,9 @@ async function decisionAsk(session) {
   // The key stays out of the command line, where other accounts could read it.
   const key = env.REPLICA_DECISION_KEY
   if (!key)
-    throw new UsageError("Set REPLICA_DECISION_KEY to the endpoint's key or a Microsoft Entra token.")
+    throw new UsageError(
+      "Set REPLICA_DECISION_KEY to the endpoint's key or a Microsoft Entra token.",
+    )
   let asked
   try {
     asked = JSON.parse(await readFile(path.resolve(session.cwd, values.questions), "utf8"))

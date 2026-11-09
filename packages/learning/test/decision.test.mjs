@@ -689,7 +689,17 @@ describe("replica-learning decision ask", () => {
 
   it("sends a page the way training showed it and lists the least likely learning first", async () => {
     const result = await ask(
-      ["--questions", "questions.json", "--screenshots", "screenshots", "--route", "/checkout", "--brand-sheet", "brand-sheet.png", "--json"],
+      [
+        "--questions",
+        "questions.json",
+        "--screenshots",
+        "screenshots",
+        "--route",
+        "/checkout",
+        "--brand-sheet",
+        "brand-sheet.png",
+        "--json",
+      ],
       { REPLICA_DECISION_KEY: "test-key" },
       (response) => {
         response.setHeader("content-type", "application/json")
@@ -728,7 +738,16 @@ describe("replica-learning decision ask", () => {
 
   it("refuses to send the key without encryption, and reports a failed endpoint without it", async () => {
     const insecure = await main(
-      ["decision", "ask", "--endpoint", "http://example.com/score", "--questions", "questions.json", "--screenshots", "screenshots"],
+      [
+        "decision",
+        "ask",
+        "--endpoint",
+        "http://example.com/score",
+        "--questions",
+        "questions.json",
+        "--screenshots",
+        "screenshots",
+      ],
       {
         cwd: folder,
         env: { REPLICA_DECISION_KEY: "test-key" },
@@ -739,7 +758,11 @@ describe("replica-learning decision ask", () => {
       },
     )
     assert.equal(insecure, 1)
-    const missingKey = await ask(["--questions", "questions.json", "--screenshots", "screenshots"], {}, () => {})
+    const missingKey = await ask(
+      ["--questions", "questions.json", "--screenshots", "screenshots"],
+      {},
+      () => {},
+    )
     assert.equal(missingKey.code, 2)
     assert.equal(missingKey.requests.length, 0)
     const failed = await ask(
@@ -756,7 +779,10 @@ describe("replica-learning decision ask", () => {
     const partial = await ask(
       ["--questions", "questions.json", "--screenshots", "screenshots"],
       { REPLICA_DECISION_KEY: "test-key" },
-      (response) => response.end(JSON.stringify({ answers: { [LABELS]: { probabilities: { yes: 0.9, no: 0.1 } } } })),
+      (response) =>
+        response.end(
+          JSON.stringify({ answers: { [LABELS]: { probabilities: { yes: 0.9, no: 0.1 } } } }),
+        ),
     )
     assert.equal(partial.code, 1)
     assert.match(partial.stderr, /did not answer every question/)
@@ -775,7 +801,15 @@ describe("replica-learning decision ask", () => {
 
   it("asks a chat deployment one learning at a time and reads yes from its log probabilities", async () => {
     const result = await ask(
-      ["--questions", "questions.json", "--screenshots", "screenshots", "--model", "vlm-brand", "--json"],
+      [
+        "--questions",
+        "questions.json",
+        "--screenshots",
+        "screenshots",
+        "--model",
+        "vlm-brand",
+        "--json",
+      ],
       { REPLICA_DECISION_KEY: "test-key" },
       (response) => {
         response.setHeader("content-type", "application/json")
@@ -819,12 +853,27 @@ describe("replica-learning decision ask", () => {
 
   it("does not read an answer missing from the likeliest tokens as impossible", async () => {
     const result = await ask(
-      ["--questions", "questions.json", "--screenshots", "screenshots", "--model", "vlm-brand", "--json"],
+      [
+        "--questions",
+        "questions.json",
+        "--screenshots",
+        "screenshots",
+        "--model",
+        "vlm-brand",
+        "--json",
+      ],
       { REPLICA_DECISION_KEY: "test-key" },
       (response) => {
-        const others = Array.from({ length: 9 }, (_, index) => ({ token: `t${index}`, logprob: Math.log(0.09) }))
+        const others = Array.from({ length: 9 }, (_, index) => ({
+          token: `t${index}`,
+          logprob: Math.log(0.09),
+        }))
         const top_logprobs = [{ token: "Yes", logprob: Math.log(0.1) }, ...others]
-        response.end(JSON.stringify({ choices: [{ logprobs: { content: [{ token: "Yes", top_logprobs }] } }] }))
+        response.end(
+          JSON.stringify({
+            choices: [{ logprobs: { content: [{ token: "Yes", top_logprobs }] } }],
+          }),
+        )
       },
       "/openai/v1",
     )
