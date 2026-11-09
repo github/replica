@@ -54,7 +54,7 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
       - run: node --test scripts/create-prototype-repo.test.mjs scripts/setup-replica-plugin.test.mjs scripts/select-ci-suites.test.mjs
-      - run: node --test starters/minimal/.agents/skills/create-prototype-from-production/scripts/check-ledger.node-test.mjs
+      - run: node --test starters/minimal/.agents/skills/create-prototype-from-production/scripts/*.node-test.mjs
   test:
     name: Starter checks${{ matrix.starter.id != 'minimal' && format(' ({0})', matrix.starter.id) || '' }}${{ matrix.node == 26 && ' (Node 26)' || '' }}
     needs: catalog
