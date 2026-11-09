@@ -1,5 +1,7 @@
 import { Prisma } from "../../../generated/prisma/client.ts"
 
+import { lockEffectiveAdministratorProviders } from "../../../repositories/authentication-providers/lock-effective-administrator-providers/index.ts"
+import { endOpenHubSessionsForMembership } from "../../../repositories/hub-sessions/end-open-hub-sessions-for-membership/index.ts"
 import { createAdministratorAssignment } from "../../../repositories/membership-assignments/create-administrator-assignment/index.ts"
 import { lockActiveAdministratorAssignment } from "../../../repositories/membership-assignments/lock-active-administrator-assignment/index.ts"
 import { revokeAdministratorAssignment } from "../../../repositories/membership-assignments/revoke-administrator-assignment/index.ts"
@@ -23,8 +25,12 @@ export function runAdministratorManagementTransaction<Result>(
         operation({
           createAssignment: (input) => createAdministratorAssignment(transaction, input),
           createSecurityAudit: (input) => createSecurityAudit(transaction, input),
+          endOpenSessions: (membershipId) =>
+            endOpenHubSessionsForMembership(transaction, membershipId),
           lockActiveAssignment: (membershipId) =>
             lockActiveAdministratorAssignment(transaction, membershipId),
+          lockEffectiveAdministratorProviders: () =>
+            lockEffectiveAdministratorProviders(transaction),
           lockEffectiveAdministrators: () => lockEffectiveAdministrators(transaction),
           lockTargets: (membershipIds) =>
             lockAdministratorManagementTargets(transaction, membershipIds),

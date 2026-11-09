@@ -70,6 +70,25 @@ export function getSecurityAuditData(
           targetMembershipId: event.targetMembershipId,
         },
       }
+    case "administrator_management_denied":
+    case "administrator_management_failed":
+      return {
+        id: event.id,
+        action:
+          event.type === "administrator_management_denied"
+            ? "membership.administrator_management.denied"
+            : "membership.administrator_management.failed",
+        outcome:
+          event.type === "administrator_management_denied"
+            ? SecurityAuditOutcome.DENIED
+            : SecurityAuditOutcome.FAILURE,
+        targetType: "administrator_management",
+        context: {
+          actorMembershipId: event.actorMembershipId,
+          operation: event.operation,
+          reason: event.reason,
+        },
+      }
     case "session_created":
     case "session_ended":
       return {

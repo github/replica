@@ -28,7 +28,7 @@ A started enrollment stores only a digest of the configured bootstrap secret. Ro
 
 A successful enrollment creates or restores an active administrator assignment owned by the verified external identity. The same secret can enroll another administrator or restore a previous administrator, including when another administrator still exists. Repository permissions do not affect Hub admission.
 
-Membership lifecycle and assignment provenance are separate. The schema supports active, suspended, and removed memberships, bootstrap-owned administrators, and Entra-owned member or administrator assignment versions. Hub does not provide generic manual assignment administration.
+Membership lifecycle and assignment provenance are separate. The schema supports active, suspended, and removed memberships, bootstrap-owned administrators, administrator-managed designations, and Entra-owned member or administrator assignment versions. Hub does not provide generic manual assignment administration.
 
 Membership ownership and creation history are immutable. Bootstrap enrollment writes a separate membership-created or membership-restored audit whenever it changes membership lifecycle; an already active membership creates no duplicate lifecycle audit.
 
@@ -36,7 +36,7 @@ Membership ownership and creation history are immutable. Bootstrap enrollment wr
 
 An effective administrator may designate one to 50 existing active Hub memberships as administrators. Hub records each designation as a separate `HUB_ADMINISTRATOR` assignment, without changing bootstrap or authentication-provider assignments. Revocation ends only the active administrator-managed assignment, so another active source can continue to provide administrator authority.
 
-The domain accepts membership UUIDs, rereads the actor's effective authority inside a serializable transaction, and rejects missing or inactive targets, targets without an external identity, repeated role changes, and removal of the final effective administrator. Bulk designation, assignment changes, and their success audits commit atomically. Self-removal is allowed when another effective administrator remains.
+The domain accepts membership UUIDs, rereads provider and actor authority inside a serializable transaction, and rejects missing or inactive targets, targets without an external identity, repeated role changes, and removal of the final effective administrator. Bulk designation, assignment changes, target-session termination, and their success audits commit atomically. Self-removal is allowed when another effective administrator remains. Terminal denials and failures are audited only after the rejected transaction rolls back.
 
 Effective administrator listing, counting, admission, and session restoration include active administrator-managed assignments. Authentication-provider assignments count only while their provider revision remains selected and enabled. The domain does not implement fresh authorization, HTTP parsing, profile search, invitations, or general membership lifecycle administration; those boundaries remain separate.
 
@@ -68,7 +68,7 @@ Administrator-enrollment rate limits write at most one durable denial audit for 
 
 ## Database enforcement
 
-Database guards cover invariants that application validation alone cannot protect across concurrent writers or future code paths. They keep membership ownership and history immutable, keep assignment ownership, provenance, and role immutable, require an assignment identity to belong to the membership user, keep external evidence ordering state immutable and monotonic, permit only first session termination, protect the global revocation identity and exact revision increment, and keep an authorization attempt's server-selected purpose, bootstrap-secret generation, nonce, and revocation generation immutable. Ordinary value-shape and time-order checks remain in the application contracts.
+Database guards cover invariants that application validation alone cannot protect across concurrent writers or future code paths. They keep membership ownership and history immutable, keep assignment ownership, provenance, and role immutable, allow only one active administrator-managed assignment per membership, prevent reactivation of revoked administrator-managed assignments, require an assignment identity to belong to the membership user, keep external evidence ordering state immutable and monotonic, permit only first session termination, protect the global revocation identity and exact revision increment, and keep an authorization attempt's server-selected purpose, bootstrap-secret generation, nonce, and revocation generation immutable. Ordinary value-shape and time-order checks remain in the application contracts.
 
 ## Safety boundaries
 

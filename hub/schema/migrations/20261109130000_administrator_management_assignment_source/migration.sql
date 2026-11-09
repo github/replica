@@ -1,0 +1,1 @@
+ALTER TYPE "MembershipAssignmentSource" ADD VALUE 'HUB_ADMINISTRATOR';

@@ -16,6 +16,7 @@ export async function lockActiveMembershipAssignments(
     WHERE "membership_id" = ${membershipId}::uuid
       AND "lifecycle" = 'ACTIVE'
       AND "source" IN ('BOOTSTRAP', 'HUB_ADMINISTRATOR')
+      AND "role" = 'ADMINISTRATOR'
     ORDER BY "id"
     FOR UPDATE
   `

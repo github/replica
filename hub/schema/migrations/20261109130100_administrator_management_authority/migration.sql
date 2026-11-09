@@ -1,5 +1,3 @@
-ALTER TYPE "MembershipAssignmentSource" ADD VALUE 'HUB_ADMINISTRATOR';
-
 ALTER TABLE "membership_assignments"
 DROP CONSTRAINT "membership_assignments_source_contract";
 
@@ -24,9 +22,11 @@ CREATE UNIQUE INDEX "membership_assignments_active_hub_administrator_key"
 ON "membership_assignments"("membership_id")
 WHERE "source" = 'HUB_ADMINISTRATOR' AND "lifecycle" = 'ACTIVE';
 
-CREATE INDEX "membership_assignments_hub_administrator_membership_idx"
+CREATE INDEX "membership_assignments_active_hub_owned_administrator_idx"
 ON "membership_assignments"("membership_id")
-WHERE "source" = 'HUB_ADMINISTRATOR' AND "role" = 'ADMINISTRATOR';
+WHERE "source" IN ('BOOTSTRAP', 'HUB_ADMINISTRATOR')
+  AND "role" = 'ADMINISTRATOR'
+  AND "lifecycle" = 'ACTIVE';
 
 CREATE OR REPLACE FUNCTION protect_membership_assignment()
 RETURNS trigger

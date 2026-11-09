@@ -1,9 +1,12 @@
 import { randomUUID } from "node:crypto"
+import pg from "pg"
 import { describe, expect, it } from "vitest"
 
 import { prisma } from "../../integrations/prisma"
+import { createSecurityAudit } from "../../repositories/security-audits/create-security-audit"
 import { countEffectiveAdministrators } from "./count-effective-administrators"
 import { designateHubAdministrators } from "./designate-hub-administrators"
+import { AdministratorManagementPersistenceError } from "./errors"
 import { listEffectiveAdministrators } from "./list-effective-administrators"
 import { revokeHubAdministrator } from "./revoke-hub-administrator"
 import { runAdministratorManagementTransaction } from "./run-administrator-management-transaction"
@@ -109,11 +112,16 @@ function dependencies(): AdministratorManagementDependencies {
   return {
     createId: () => randomUUID(),
     runTransaction: (operation) => runAdministratorManagementTransaction(prisma, operation),
+    writeAudit: (event) => createSecurityAudit(prisma, event),
   }
 }
 
 function auditContext(value: unknown) {
-  return value as { actorMembershipId?: string; targetMembershipId?: string }
+  return value as {
+    actorMembershipId?: string
+    reason?: string
+    targetMembershipId?: string
+  }
 }
 
 async function administratorAuditTargets(actorMembershipId: string) {
@@ -190,6 +198,39 @@ describe("administrator management", () => {
       [duplicate.membershipId, providerAdministrator.membershipId].sort(),
     )
     await expect(countEffectiveAdministrators(prisma)).resolves.toBe(2)
+  })
+
+  it("paginates effective administrators without duplicates or a trailing cursor", async () => {
+    const memberships = await Promise.all([
+      createMembership({}),
+      createMembership({}),
+      createMembership({}),
+    ])
+    await Promise.all(
+      memberships.map((membership) =>
+        createAssignment({
+          externalIdentityId: membership.externalIdentityId!,
+          membershipId: membership.membershipId,
+          source: "HUB_ADMINISTRATOR",
+        }),
+      ),
+    )
+
+    const firstPage = await listEffectiveAdministrators(prisma, { limit: 2 })
+    expect(firstPage.administrators).toHaveLength(2)
+    expect(firstPage.nextCursor).not.toBeNull()
+    const secondPage = await listEffectiveAdministrators(prisma, {
+      before: firstPage.nextCursor!,
+      limit: 2,
+    })
+
+    expect(secondPage.administrators).toHaveLength(1)
+    expect(secondPage.nextCursor).toBeNull()
+    const listedIds = [...firstPage.administrators, ...secondPage.administrators].map(
+      ({ membershipId }) => membershipId,
+    )
+    expect(new Set(listedIds).size).toBe(3)
+    expect(listedIds.sort()).toEqual(memberships.map(({ membershipId }) => membershipId).sort())
   })
 
   it("designates a valid bulk selection atomically with one assignment and audit per target", async () => {
@@ -342,14 +383,11 @@ describe("administrator management", () => {
   it("rereads live actor authority before designation", async () => {
     const staleActor = await createMembership({})
     const target = await createMembership({})
-    const staleActorAssignmentId = await createAssignment({
+    await createAssignment({
       externalIdentityId: staleActor.externalIdentityId!,
+      lifecycle: "REVOKED",
       membershipId: staleActor.membershipId,
       source: "HUB_ADMINISTRATOR",
-    })
-    await prisma.membershipAssignment.update({
-      data: { lifecycle: "REVOKED" },
-      where: { id: staleActorAssignmentId },
     })
 
     await expect(
@@ -371,6 +409,45 @@ describe("administrator management", () => {
     ).resolves.toBe(0)
   })
 
+  it("denies revocation by a revoked actor without changing the target or auditing success", async () => {
+    const staleActor = await createMembership({})
+    const target = await createMembership({})
+    const remainingAdministrator = await createMembership({})
+    await createAssignment({
+      externalIdentityId: staleActor.externalIdentityId!,
+      lifecycle: "REVOKED",
+      membershipId: staleActor.membershipId,
+      source: "HUB_ADMINISTRATOR",
+    })
+    const targetAssignmentId = await createAssignment({
+      externalIdentityId: target.externalIdentityId!,
+      membershipId: target.membershipId,
+      source: "HUB_ADMINISTRATOR",
+    })
+    await createAssignment({
+      externalIdentityId: remainingAdministrator.externalIdentityId!,
+      membershipId: remainingAdministrator.membershipId,
+      source: "BOOTSTRAP",
+    })
+
+    await expect(
+      revokeHubAdministrator(
+        {
+          actorMembershipId: staleActor.membershipId,
+          targetMembershipId: target.membershipId,
+        },
+        dependencies(),
+      ),
+    ).rejects.toMatchObject({ reason: "not_authorized" })
+    await expect(
+      prisma.membershipAssignment.findUniqueOrThrow({
+        select: { lifecycle: true },
+        where: { id: targetAssignmentId },
+      }),
+    ).resolves.toEqual({ lifecycle: "ACTIVE" })
+    await expect(administratorAuditTargets(staleActor.membershipId)).resolves.toEqual([])
+  })
+
   it("rolls back a designation when its success audit fails", async () => {
     const actor = await createMembership({})
     const target = await createMembership({})
@@ -384,7 +461,10 @@ describe("administrator management", () => {
       CREATE FUNCTION fail_administrator_management_audit()
       RETURNS trigger AS $$
       BEGIN
-        RAISE EXCEPTION 'administrator management audit unavailable';
+        IF NEW.action = 'membership.assignment.administrator_created' THEN
+          RAISE EXCEPTION 'administrator management audit unavailable';
+        END IF;
+        RETURN NEW;
       END;
       $$ LANGUAGE plpgsql
     `)
@@ -402,7 +482,7 @@ describe("administrator management", () => {
           },
           dependencies(),
         ),
-      ).rejects.toBeInstanceOf(Error)
+      ).rejects.toBeInstanceOf(AdministratorManagementPersistenceError)
     } finally {
       await prisma.$executeRawUnsafe(
         `DROP TRIGGER fail_administrator_management_audit ON security_audits`,
@@ -418,6 +498,208 @@ describe("administrator management", () => {
         },
       }),
     ).resolves.toBe(0)
+  })
+
+  it.each(["designation", "revocation"] as const)(
+    "ends target sessions and audits them during %s",
+    async (operation) => {
+      const actor = await createMembership({})
+      const target = await createMembership({})
+      await createAssignment({
+        externalIdentityId: actor.externalIdentityId!,
+        membershipId: actor.membershipId,
+        source: "BOOTSTRAP",
+      })
+      if (operation === "revocation") {
+        await createAssignment({
+          externalIdentityId: target.externalIdentityId!,
+          membershipId: target.membershipId,
+          source: "HUB_ADMINISTRATOR",
+        })
+      }
+      const sessionId = randomUUID()
+      await prisma.hubSession.create({
+        data: {
+          digest: operation === "designation" ? "a".repeat(64) : "b".repeat(64),
+          expiresAt: new Date("2099-01-01T00:00:00Z"),
+          id: sessionId,
+          membershipId: target.membershipId,
+          revocationRevision: 0,
+        },
+      })
+
+      if (operation === "designation") {
+        await designateHubAdministrators(
+          {
+            actorMembershipId: actor.membershipId,
+            targetMembershipIds: [target.membershipId],
+          },
+          dependencies(),
+        )
+      } else {
+        await revokeHubAdministrator(
+          {
+            actorMembershipId: actor.membershipId,
+            targetMembershipId: target.membershipId,
+          },
+          dependencies(),
+        )
+      }
+
+      const session = await prisma.hubSession.findUniqueOrThrow({
+        select: { endedAt: true },
+        where: { id: sessionId },
+      })
+      expect(session.endedAt).toBeInstanceOf(Date)
+      await expect(
+        prisma.securityAudit.count({
+          where: { action: "session.ended", targetId: sessionId },
+        }),
+      ).resolves.toBe(1)
+    },
+  )
+
+  it("rolls back designation and session termination when a session-ended audit fails", async () => {
+    const actor = await createMembership({})
+    const target = await createMembership({})
+    await createAssignment({
+      externalIdentityId: actor.externalIdentityId!,
+      membershipId: actor.membershipId,
+      source: "BOOTSTRAP",
+    })
+    const sessionId = randomUUID()
+    await prisma.hubSession.create({
+      data: {
+        digest: "c".repeat(64),
+        expiresAt: new Date("2099-01-01T00:00:00Z"),
+        id: sessionId,
+        membershipId: target.membershipId,
+        revocationRevision: 0,
+      },
+    })
+    await prisma.$executeRawUnsafe(`
+      CREATE FUNCTION fail_session_ended_audit()
+      RETURNS trigger AS $$
+      BEGIN
+        IF NEW.action = 'session.ended' THEN
+          RAISE EXCEPTION 'session-ended audit unavailable';
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql
+    `)
+    await prisma.$executeRawUnsafe(`
+      CREATE TRIGGER fail_session_ended_audit
+      BEFORE INSERT ON security_audits
+      FOR EACH ROW EXECUTE FUNCTION fail_session_ended_audit()
+    `)
+    try {
+      await expect(
+        designateHubAdministrators(
+          {
+            actorMembershipId: actor.membershipId,
+            targetMembershipIds: [target.membershipId],
+          },
+          dependencies(),
+        ),
+      ).rejects.toBeInstanceOf(AdministratorManagementPersistenceError)
+    } finally {
+      await prisma.$executeRawUnsafe(`DROP TRIGGER fail_session_ended_audit ON security_audits`)
+      await prisma.$executeRawUnsafe(`DROP FUNCTION fail_session_ended_audit()`)
+    }
+
+    await expect(
+      prisma.hubSession.findUniqueOrThrow({
+        select: { endedAt: true },
+        where: { id: sessionId },
+      }),
+    ).resolves.toEqual({ endedAt: null })
+    await expect(
+      prisma.membershipAssignment.count({
+        where: {
+          membershipId: target.membershipId,
+          source: "HUB_ADMINISTRATOR" as never,
+        },
+      }),
+    ).resolves.toBe(0)
+  })
+
+  it("writes a terminal denial audit after invalid-target rollback", async () => {
+    const actor = await createMembership({})
+    const target = await createMembership({ lifecycle: "SUSPENDED" })
+    await createAssignment({
+      externalIdentityId: actor.externalIdentityId!,
+      membershipId: actor.membershipId,
+      source: "BOOTSTRAP",
+    })
+
+    await expect(
+      designateHubAdministrators(
+        {
+          actorMembershipId: actor.membershipId,
+          targetMembershipIds: [target.membershipId],
+        },
+        dependencies(),
+      ),
+    ).rejects.toMatchObject({ reason: "invalid_target" })
+
+    const audits = await prisma.securityAudit.findMany({
+      select: { context: true, outcome: true },
+      where: { outcome: "DENIED" },
+    })
+    expect(audits).toHaveLength(1)
+    expect(audits[0]?.outcome).toBe("DENIED")
+    expect(auditContext(audits[0]?.context).reason).toBe("invalid_target")
+  })
+
+  it("writes a terminal failure audit after assignment persistence rollback", async () => {
+    const actor = await createMembership({})
+    const target = await createMembership({})
+    await createAssignment({
+      externalIdentityId: actor.externalIdentityId!,
+      membershipId: actor.membershipId,
+      source: "BOOTSTRAP",
+    })
+    await prisma.$executeRawUnsafe(`
+      CREATE FUNCTION fail_hub_administrator_assignment()
+      RETURNS trigger AS $$
+      BEGIN
+        IF NEW.source = 'HUB_ADMINISTRATOR' THEN
+          RAISE EXCEPTION 'administrator assignment unavailable';
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql
+    `)
+    await prisma.$executeRawUnsafe(`
+      CREATE TRIGGER fail_hub_administrator_assignment
+      BEFORE INSERT ON membership_assignments
+      FOR EACH ROW EXECUTE FUNCTION fail_hub_administrator_assignment()
+    `)
+    try {
+      await expect(
+        designateHubAdministrators(
+          {
+            actorMembershipId: actor.membershipId,
+            targetMembershipIds: [target.membershipId],
+          },
+          dependencies(),
+        ),
+      ).rejects.toBeInstanceOf(AdministratorManagementPersistenceError)
+    } finally {
+      await prisma.$executeRawUnsafe(
+        `DROP TRIGGER fail_hub_administrator_assignment ON membership_assignments`,
+      )
+      await prisma.$executeRawUnsafe(`DROP FUNCTION fail_hub_administrator_assignment()`)
+    }
+
+    const audits = await prisma.securityAudit.findMany({
+      select: { context: true, outcome: true },
+      where: { outcome: "FAILURE" },
+    })
+    expect(audits).toHaveLength(1)
+    expect(audits[0]?.outcome).toBe("FAILURE")
+    expect(auditContext(audits[0]?.context).reason).toBe("transaction_error")
   })
 
   it("allows exactly one concurrent self-removal when two effective administrators remain", async () => {
@@ -459,5 +741,75 @@ describe("administrator management", () => {
     const denialReason: unknown = denial?.status === "rejected" ? denial.reason : undefined
     expect(denialReason).toMatchObject({ reason: "last_administrator" })
     await expect(countEffectiveAdministrators(prisma)).resolves.toBe(1)
+  })
+
+  it("waits for provider authority changes and denies a stale provider administrator", async () => {
+    const providerId = randomUUID()
+    const providerRevisionId = randomUUID()
+    const actor = await createMembership({})
+    const target = await createMembership({})
+    await prisma.authenticationProvider.create({
+      data: { enabled: false, id: providerId, key: randomUUID() },
+    })
+    await prisma.authenticationProviderRevision.create({
+      data: {
+        configurationDigest: "d".repeat(64),
+        id: providerRevisionId,
+        providerId,
+        revision: 1,
+      },
+    })
+    await prisma.authenticationProvider.update({
+      data: { enabled: true, selectedRevisionId: providerRevisionId },
+      where: { id: providerId },
+    })
+    await createAssignment({
+      externalIdentityId: actor.externalIdentityId!,
+      membershipId: actor.membershipId,
+      providerRevisionId,
+      source: "AUTHENTICATION_PROVIDER",
+    })
+    const databaseUrl = process.env.DATABASE_URL
+    if (!databaseUrl) throw new Error("DATABASE_URL is required.")
+    const locker = new pg.Client({ connectionString: databaseUrl })
+    await locker.connect()
+    try {
+      await locker.query("BEGIN")
+      await locker.query(
+        `UPDATE authentication_providers
+         SET enabled = false, selected_revision_id = NULL
+         WHERE id = $1`,
+        [providerId],
+      )
+      const designation = designateHubAdministrators(
+        {
+          actorMembershipId: actor.membershipId,
+          targetMembershipIds: [target.membershipId],
+        },
+        dependencies(),
+      )
+      const initialState = await Promise.race([
+        designation.then(
+          () => "settled",
+          () => "settled",
+        ),
+        new Promise<"waiting">((resolve) => setTimeout(() => resolve("waiting"), 100)),
+      ])
+      expect(initialState).toBe("waiting")
+
+      await locker.query("COMMIT")
+      await expect(designation).rejects.toMatchObject({ reason: "not_authorized" })
+    } finally {
+      await Promise.allSettled([locker.query("ROLLBACK")])
+      await locker.end()
+    }
+    await expect(
+      prisma.membershipAssignment.count({
+        where: {
+          membershipId: target.membershipId,
+          source: "HUB_ADMINISTRATOR",
+        },
+      }),
+    ).resolves.toBe(0)
   })
 })

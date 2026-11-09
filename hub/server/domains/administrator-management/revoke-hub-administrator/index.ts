@@ -9,10 +9,11 @@ import {
 import type { AdministratorManagementRepositories } from "../run-administrator-management-transaction/types.ts"
 import type { AdministratorManagementDependencies } from "../types.ts"
 
+const uuidSchema = z.uuid().transform((value) => value.toLowerCase())
 const inputSchema = z
   .object({
-    actorMembershipId: z.uuid(),
-    targetMembershipId: z.uuid(),
+    actorMembershipId: uuidSchema,
+    targetMembershipId: uuidSchema,
   })
   .strict()
 
@@ -21,6 +22,7 @@ async function revokeWithinTransaction(
   input: z.infer<typeof inputSchema>,
   createId: () => string,
 ) {
+  await repositories.lockEffectiveAdministratorProviders()
   const administrators = await repositories.lockEffectiveAdministrators()
   const administratorIds = new Set(administrators.map(({ membershipId }) => membershipId))
   if (!administratorIds.has(input.actorMembershipId)) {
@@ -51,7 +53,39 @@ async function revokeWithinTransaction(
     targetMembershipId: input.targetMembershipId,
     type: "administrator_membership_assignment_revoked",
   })
+  const endedSessions = await repositories.endOpenSessions(input.targetMembershipId)
+  for (const session of endedSessions) {
+    await repositories.createSecurityAudit({
+      id: createId(),
+      membershipId: input.targetMembershipId,
+      sessionId: session.id,
+      type: "session_ended",
+    })
+  }
   return { assignmentId: assignment.id, membershipId: input.targetMembershipId }
+}
+
+async function writeInvalidTargetAudit(
+  rawInput: unknown,
+  dependencies: AdministratorManagementDependencies,
+  error: AdministratorManagementDeniedError,
+) {
+  const actor = z.object({ actorMembershipId: uuidSchema }).loose().safeParse(rawInput)
+  try {
+    await dependencies.writeAudit({
+      actorMembershipId: actor.success ? actor.data.actorMembershipId : null,
+      id: dependencies.createId(),
+      operation: "revoke",
+      reason: error.reason,
+      type: "administrator_management_denied",
+    })
+  } catch (auditError) {
+    throw new AggregateError(
+      [error, auditError],
+      "The administrator revocation denial and its audit could not both be recorded.",
+      { cause: auditError },
+    )
+  }
 }
 
 export async function revokeHubAdministrator(
@@ -59,7 +93,11 @@ export async function revokeHubAdministrator(
   dependencies: AdministratorManagementDependencies,
 ) {
   const parsed = inputSchema.safeParse(rawInput)
-  if (!parsed.success) throw new AdministratorManagementDeniedError("invalid_target")
+  if (!parsed.success) {
+    const error = new AdministratorManagementDeniedError("invalid_target")
+    await writeInvalidTargetAudit(rawInput, dependencies, error)
+    throw error
+  }
   try {
     return await runWithBoundedRetries(
       () =>
@@ -69,7 +107,36 @@ export async function revokeHubAdministrator(
       (error) => error instanceof AdministratorManagementTransactionConflictError,
     )
   } catch (error) {
-    if (error instanceof AdministratorManagementDeniedError) throw error
-    throw new AdministratorManagementPersistenceError({ cause: error })
+    const denial = error instanceof AdministratorManagementDeniedError
+    const primary = denial ? error : new AdministratorManagementPersistenceError({ cause: error })
+    try {
+      await dependencies.writeAudit(
+        denial
+          ? {
+              actorMembershipId: parsed.data.actorMembershipId,
+              id: dependencies.createId(),
+              operation: "revoke",
+              reason: error.reason,
+              type: "administrator_management_denied",
+            }
+          : {
+              actorMembershipId: parsed.data.actorMembershipId,
+              id: dependencies.createId(),
+              operation: "revoke",
+              reason:
+                error instanceof AdministratorManagementTransactionConflictError
+                  ? "retry_exhausted"
+                  : "transaction_error",
+              type: "administrator_management_failed",
+            },
+      )
+    } catch (auditError) {
+      throw new AggregateError(
+        [primary, auditError],
+        "The administrator revocation failure and its audit could not both be recorded.",
+        { cause: auditError },
+      )
+    }
+    throw primary
   }
 }

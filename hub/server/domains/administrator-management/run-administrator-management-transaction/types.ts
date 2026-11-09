@@ -8,7 +8,9 @@ export interface AdministratorManagementRepositories {
     membershipId: string
   }): Promise<{ id: string }>
   createSecurityAudit(input: CreateSecurityAuditEvent): Promise<unknown>
+  endOpenSessions(membershipId: string): Promise<Array<{ id: string }>>
   lockActiveAssignment(membershipId: string): Promise<{ id: string } | null>
+  lockEffectiveAdministratorProviders(): Promise<Array<{ key: string }>>
   lockEffectiveAdministrators(): Promise<Array<{ membershipId: string }>>
   lockTargets(membershipIds: string[]): Promise<
     Array<{
