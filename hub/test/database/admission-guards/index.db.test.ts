@@ -100,6 +100,7 @@ describe("admission database guards", () => {
       { enumName: "MembershipAssignmentLifecycle", value: "REVOKED" },
       { enumName: "MembershipAssignmentSource", value: "BOOTSTRAP" },
       { enumName: "MembershipAssignmentSource", value: "AUTHENTICATION_PROVIDER" },
+      { enumName: "MembershipAssignmentSource", value: "HUB_ADMINISTRATOR" },
     ])
   })
 

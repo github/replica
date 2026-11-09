@@ -53,6 +53,23 @@ export function getSecurityAuditData(
           source: "authentication_provider",
         },
       }
+    case "administrator_membership_assignment_created":
+    case "administrator_membership_assignment_revoked":
+      return {
+        id: event.id,
+        action:
+          event.type === "administrator_membership_assignment_created"
+            ? "membership.assignment.administrator_created"
+            : "membership.assignment.administrator_revoked",
+        outcome: SecurityAuditOutcome.SUCCESS,
+        targetType: "membership_assignment",
+        targetId: event.assignmentId,
+        context: {
+          actorMembershipId: event.actorMembershipId,
+          source: "hub_administrator",
+          targetMembershipId: event.targetMembershipId,
+        },
+      }
     case "session_created":
     case "session_ended":
       return {

@@ -40,7 +40,7 @@ export interface AdmissionRepositories {
     Array<{
       id: string
       role: "MEMBER" | "ADMINISTRATOR"
-      source: "BOOTSTRAP" | "AUTHENTICATION_PROVIDER"
+      source: "BOOTSTRAP" | "AUTHENTICATION_PROVIDER" | "HUB_ADMINISTRATOR"
     }>
   >
   lockActiveProviderAssignment(externalIdentityId: string): Promise<{

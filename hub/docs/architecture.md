@@ -30,11 +30,13 @@ The [telemetry integration](telemetry.md) provides explicit server-side OpenTele
 
 The [WebSocket foundation](websockets.md) attaches to the API's HTTP server and broadcasts to local channel subscribers without persistence. The application rejects upgrades until access checks are supplied. Product channels, client recovery, and communication between processes are not implemented.
 
-The identity foundation stores Hub users, immutable external identity mappings, selected authentication provider revision digests, and bounded security audits. It does not store provider configuration. A provider adapter must validate its typed public configuration before the kernel computes a digest and starts the database transaction.
+The identity foundation stores Hub users, immutable external identity mappings, selected authentication provider revision digests, administrator-managed assignment history, and bounded security audits. It does not store provider configuration. A provider adapter must validate its typed public configuration before the kernel computes a digest and starts the database transaction.
 
 Domain operations receive only the transaction-scoped repositories they need. A successful state change and its success audit commit together. The kernel applies one fixed bounded retry policy to expected serializable and aggregate-creation races so consumers cannot disable convergence. A rejected database operation rolls back before its final denial or failure audit is written. Accepted provider evidence that revokes authority may commit its transition and denial audits together while issuing no session. External provider-validation failures write one typed audit after validation returns and before the operation fails. Audit callers select a typed kernel event; the repository builds the stored action and allowlisted context.
 
 The [authentication and session flow](authentication.md) uses this foundation to validate explicit GitHub and [Microsoft Entra OIDC](entra-oidc.md) configuration, complete provider user authentication, resolve the immutable external identity, apply current provider-owned assignment evidence, decide current Hub admission, and issue an opaque browser session. An installation may configure either or both providers, and provider network work remains outside identity transactions.
+
+The administrator-management domain can list and count effective administrators, designate one to 50 existing active memberships, and revoke administrator-managed authority without rewriting bootstrap or provider provenance. It enforces live actor authority, atomic audits, self-removal, and final-administrator protection in serializable transactions. HTTP routes, fresh-authorization challenges, and frontend integration remain separate work.
 
 ## Frontend
 

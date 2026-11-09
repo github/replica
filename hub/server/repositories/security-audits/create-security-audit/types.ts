@@ -55,6 +55,14 @@ export interface ProviderMembershipAssignmentAudit extends SecurityAuditEvent {
   role: "MEMBER" | "ADMINISTRATOR"
 }
 
+export interface AdministratorMembershipAssignmentAudit extends SecurityAuditEvent {
+  type:
+    "administrator_membership_assignment_created" | "administrator_membership_assignment_revoked"
+  actorMembershipId: string
+  assignmentId: string
+  targetMembershipId: string
+}
+
 export interface SessionCreatedAudit extends SecurityAuditEvent {
   type: "session_created"
   sessionId: string
@@ -161,6 +169,7 @@ export type CreateSecurityAuditEvent =
   | MembershipRestoredAudit
   | SessionCreatedAudit
   | SessionEndedAudit
+  | AdministratorMembershipAssignmentAudit
   | AdmissionDeniedAudit
   | AdmissionFailedAudit
   | ExternalIdentityCreatedAudit

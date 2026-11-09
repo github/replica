@@ -32,6 +32,14 @@ Membership lifecycle and assignment provenance are separate. The schema supports
 
 Membership ownership and creation history are immutable. Bootstrap enrollment writes a separate membership-created or membership-restored audit whenever it changes membership lifecycle; an already active membership creates no duplicate lifecycle audit.
 
+## Administrator management authority
+
+An effective administrator may designate one to 50 existing active Hub memberships as administrators. Hub records each designation as a separate `HUB_ADMINISTRATOR` assignment, without changing bootstrap or authentication-provider assignments. Revocation ends only the active administrator-managed assignment, so another active source can continue to provide administrator authority.
+
+The domain accepts membership UUIDs, rereads the actor's effective authority inside a serializable transaction, and rejects missing or inactive targets, targets without an external identity, repeated role changes, and removal of the final effective administrator. Bulk designation, assignment changes, and their success audits commit atomically. Self-removal is allowed when another effective administrator remains.
+
+Effective administrator listing, counting, admission, and session restoration include active administrator-managed assignments. Authentication-provider assignments count only while their provider revision remains selected and enabled. The domain does not implement fresh authorization, HTTP parsing, profile search, invitations, or general membership lifecycle administration; those boundaries remain separate.
+
 ## Browser session
 
 Hub creates a fresh opaque session value only after admission succeeds. The browser receives the value in an `HttpOnly`, `SameSite=Lax` cookie with a bounded lifetime; HTTPS origins also set `Secure`. The database stores only its SHA-256 digest.
@@ -68,4 +76,4 @@ GitHub and Entra configuration are explicit and independently revisioned. Only t
 
 ## Not implemented
 
-Hub does not provide invitations, member administration, recovery secrets, setup-only bootstrap consumption, background provider synchronization, repository admission, refresh tokens, provider logout, account linking, generic OIDC, multi-tenant OIDC, or Entra tenant setup automation.
+Hub does not provide invitations, general member administration, recovery secrets, setup-only bootstrap consumption, background provider synchronization, repository admission, refresh tokens, provider logout, account linking, generic OIDC, multi-tenant OIDC, or Entra tenant setup automation. Administrator-management HTTP routes and frontend integration are not implemented.

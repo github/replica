@@ -67,6 +67,18 @@ const eventSchema = z.discriminatedUnion("type", [
     .strict(),
   z
     .object({
+      actorMembershipId: z.uuid(),
+      assignmentId: z.uuid(),
+      id: z.uuid(),
+      targetMembershipId: z.uuid(),
+      type: z.enum([
+        "administrator_membership_assignment_created",
+        "administrator_membership_assignment_revoked",
+      ]),
+    })
+    .strict(),
+  z
+    .object({
       id: z.uuid(),
       type: z.literal("session_created"),
       sessionId: z.uuid(),

@@ -8,14 +8,14 @@ export async function lockActiveMembershipAssignments(
     Array<{
       id: string
       role: "MEMBER" | "ADMINISTRATOR"
-      source: "BOOTSTRAP" | "AUTHENTICATION_PROVIDER"
+      source: "BOOTSTRAP" | "HUB_ADMINISTRATOR"
     }>
   >`
     SELECT "id", "role"::text, "source"::text
     FROM "membership_assignments"
     WHERE "membership_id" = ${membershipId}::uuid
       AND "lifecycle" = 'ACTIVE'
-      AND "source" = 'BOOTSTRAP'
+      AND "source" IN ('BOOTSTRAP', 'HUB_ADMINISTRATOR')
     ORDER BY "id"
     FOR UPDATE
   `
