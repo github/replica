@@ -18,6 +18,7 @@ import { PRODUCER } from "./records.mjs"
 import { HUB_SOURCE } from "./sources/hub-review-comments.mjs"
 import { createLearningStore } from "./store.mjs"
 import { parseTimeOption, timestampFromMilliseconds } from "./time.mjs"
+import { askChatModel, askDecisionModel, decisionRequest } from "./decision/ask.mjs"
 import decisionModelCatalog from "./decision/models.json" with { type: "json" }
 import { MAX_QUESTION_LEARNINGS, brandCheckQuestions } from "./decision/questions.mjs"
 import { planDecisionTasks } from "./decision/tasks.mjs"
@@ -87,6 +88,12 @@ Decision model
   decision taskset --export <file> --builds <file> --out <dir> [--brand-sheet <image>]
                                   Labeled tasks for a reinforcement learning environment,
                                   from a training export and the Builds' screenshots
+  decision ask --endpoint <url> --questions <file> --screenshots <dir> [--route <path>]
+               [--brand-sheet <image>] [--model <deployment>]
+                                  Ask a deployed decision model how likely a Build's page
+                                  follows each learning. --model asks a chat-completions
+                                  deployment instead, such as Foundry managed compute. The
+                                  key or token comes from REPLICA_DECISION_KEY
 
 Options: --dir <path> data directory (default .replica/learning), --json machine output.
 A host that keeps stores outside checkouts, such as Hub, names the repository with
@@ -137,6 +144,10 @@ const OPTIONS = {
   export: { type: "string" },
   builds: { type: "string" },
   "brand-sheet": { type: "string" },
+  endpoint: { type: "string" },
+  questions: { type: "string" },
+  screenshots: { type: "string" },
+  route: { type: "string" },
 }
 
 class UsageError extends Error {}
@@ -269,7 +280,8 @@ async function run(session) {
       if (sub === "models") return decisionModels(session)
       if (sub === "questions") return decisionQuestions(session)
       if (sub === "taskset") return decisionTaskset(session)
-      throw new UsageError("Use decision models, decision questions, or decision taskset.")
+      if (sub === "ask") return decisionAsk(session)
+      throw new UsageError("Use decision models, decision questions, decision taskset, or decision ask.")
     default:
       throw new UsageError(`Unknown command: ${command}`)
   }
@@ -1170,6 +1182,51 @@ async function decisionQuestions(session) {
           consent,
         ].join("\n")
       : `No accepted learnings apply yet, so there are no questions.\n${consent}`,
+  )
+}
+
+async function decisionAsk(session) {
+  const { values, env } = session
+  const endpoint = values.endpoint ?? env.REPLICA_DECISION_ENDPOINT
+  if (!endpoint || !values.questions || !values.screenshots)
+    throw new UsageError(
+      "Name the endpoint with --endpoint or REPLICA_DECISION_ENDPOINT, the output of decision questions --json with --questions, and a Build's screenshots folder with --screenshots.",
+    )
+  // The key stays out of the command line, where other accounts could read it.
+  const key = env.REPLICA_DECISION_KEY
+  if (!key)
+    throw new UsageError("Set REPLICA_DECISION_KEY to the endpoint's key or a Microsoft Entra token.")
+  let asked
+  try {
+    asked = JSON.parse(await readFile(path.resolve(session.cwd, values.questions), "utf8"))
+  } catch (error) {
+    throw new LearningError(
+      "invalid_input",
+      `Cannot read ${values.questions} as JSON (${error.code ?? error.message}).`,
+    )
+  }
+  const route = values.route ?? "/"
+  const request = await decisionRequest(asked, {
+    screenshots: path.resolve(session.cwd, values.screenshots),
+    route,
+    brandSheet: values["brand-sheet"] && path.resolve(session.cwd, values["brand-sheet"]),
+  })
+  const answers = values.model
+    ? await askChatModel({ endpoint, key, model: values.model, request })
+    : await askDecisionModel({ endpoint, key, request })
+  const learnings = asked.rules
+    .filter(({ id }) => answers[id])
+    .map(({ id, text }) => ({ id, text, follows: answers[id].probabilities.yes }))
+    .sort((a, b) => a.follows - b.follows)
+  session.out(
+    { route, learnings, answers },
+    [
+      `Chance the page at route ${route} follows each learning, lowest first:`,
+      ...learnings.map(
+        ({ follows, text }) =>
+          `  ${String(Math.round(follows * 100)).padStart(3)}%  ${quoted(text, 120)}`,
+      ),
+    ].join("\n"),
   )
 }
 
