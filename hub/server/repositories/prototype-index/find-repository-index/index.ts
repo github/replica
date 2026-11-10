@@ -1,4 +1,4 @@
-import type { Prisma, PrismaClient } from "../../../generated/prisma/client.ts"
+import { Prisma, type BuildState, type PrismaClient } from "../../../generated/prisma/client.ts"
 import { containsText } from "../contains-text/index.ts"
 import { reviewablePrototypeWhere } from "../reviewable-prototype-where/index.ts"
 
@@ -43,7 +43,13 @@ export async function findRepositoryIndex(
       : {}),
   }
   // Keep the count, page, and cards from the same database snapshot.
-  const { records, totalCount, page, selectedAuthor } = await database.$transaction(
+  const {
+    records,
+    totalCount,
+    page,
+    selectedAuthor,
+    latestBuilds: buildSummaries,
+  } = await database.$transaction(
     async (transaction) => {
       const totalCount = await transaction.prototype.count({ where })
       // A page past the end shows the last page, as a shared link may outlive results.
@@ -62,6 +68,33 @@ export async function findRepositoryIndex(
           author: { select: authorSelect },
         },
       })
+      // Prisma cannot order by COALESCE, so select fallback Builds in SQL.
+      const latestBuilds =
+        records.length > 0
+          ? await transaction.$queryRaw<
+              { prototypeId: string; number: number; state: BuildState }[]
+            >(Prisma.sql`
+              SELECT prototypes.id AS "prototypeId", latest_build.number, latest_build.state
+              FROM prototypes
+              LEFT JOIN LATERAL (
+                SELECT builds.number, builds.state
+                FROM builds
+                WHERE builds.prototype_id = prototypes.id
+                  AND (
+                    prototypes.current_build_id IS NULL
+                    OR builds.id = prototypes.current_build_id
+                  )
+                ORDER BY
+                  COALESCE(builds.workflow_created_at, builds.created_at) DESC,
+                  builds.number DESC
+                LIMIT 1
+              ) AS latest_build ON TRUE
+              WHERE prototypes.id IN (${Prisma.join(
+                records.map(({ id }) => Prisma.sql`${id}::uuid`),
+              )})
+                AND latest_build.number IS NOT NULL
+            `)
+          : []
       // Name the selected user even when no card on this page belongs to them.
       const selectedAuthor = filters.authorId
         ? await transaction.user.findFirst({
@@ -69,7 +102,7 @@ export async function findRepositoryIndex(
             select: authorSelect,
           })
         : null
-      return { records, totalCount, page, selectedAuthor }
+      return { records, totalCount, page, selectedAuthor, latestBuilds }
     },
     { isolationLevel: "RepeatableRead" },
   )
@@ -92,6 +125,9 @@ export async function findRepositoryIndex(
     authors.set(author.id, { id: author.id, ...author.profile, avatarUrl: null })
   }
   addAuthor(selectedAuthor)
+  const latestBuilds = new Map(
+    buildSummaries.map(({ prototypeId, ...build }) => [prototypeId, build] as const),
+  )
   const prototypes = records.map((record) => {
     if (!record.name) throw new Error("A registered prototype must have a name.")
     addAuthor(record.author)
@@ -104,6 +140,7 @@ export async function findRepositoryIndex(
       authorId: record.author?.id ?? null,
       authorLogin: record.author?.profile?.login ?? null,
       canEdit: false,
+      latestBuild: latestBuilds.get(record.id) ?? null,
       builds: [],
     }
   })

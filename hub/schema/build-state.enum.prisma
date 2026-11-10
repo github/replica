@@ -1,0 +1,7 @@
+enum BuildState {
+  queued
+  running
+  failed
+  successful
+  superseded
+}

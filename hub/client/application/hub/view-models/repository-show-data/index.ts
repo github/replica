@@ -51,7 +51,7 @@ export function repositoryShowData(
     pageTitle: data.repository.nameWithOwner,
     prototypes: data.prototypes.map((prototype) => {
       const builds = [...prototype.builds].sort((first, second) => second.number - first.number)
-      const latestBuild = builds[0]
+      const latestBuild = prototype.latestBuild === undefined ? builds[0] : prototype.latestBuild
       const reviewBuild = builds.find((build) => build.previewUrl && build.desktopScreenshotUrl)
       const prototypeAuthor = data.authors.find((item) =>
         prototype.authorId ? item.id === prototype.authorId : item.login === prototype.authorLogin,

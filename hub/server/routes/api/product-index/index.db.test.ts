@@ -36,6 +36,154 @@ async function withServer(
 }
 
 describe("real product index", () => {
+  it("uses each current Build or the latest chronological Build", async () => {
+    const repositoryId = randomUUID()
+    const pointerPrototypeId = randomUUID()
+    const fallbackPrototypeId = randomUUID()
+    const noBuildPrototypeId = randomUUID()
+    const currentBuildId = randomUUID()
+    const pointerFallbackBuildId = randomUUID()
+    const createdAtFallbackBuildId = randomUUID()
+    const lowerNumberBuildId = randomUUID()
+    const latestFallbackBuildId = randomUUID()
+    await prisma.repository.create({
+      data: { id: repositoryId, nameWithOwner: "team/design", defaultBranch: "main" },
+    })
+    await prisma.prototype.createMany({
+      data: [
+        {
+          id: pointerPrototypeId,
+          repositoryId,
+          branchName: "prototype/current-build",
+          name: "Current Build",
+          registeredAt: new Date("2026-10-03T00:00:00Z"),
+        },
+        {
+          id: fallbackPrototypeId,
+          repositoryId,
+          branchName: "prototype/latest-build",
+          name: "Latest Build",
+          registeredAt: new Date("2026-10-01T00:00:00Z"),
+        },
+        {
+          id: noBuildPrototypeId,
+          repositoryId,
+          branchName: "prototype/no-build",
+          name: "No Build",
+          registeredAt: new Date("2026-09-30T00:00:00Z"),
+        },
+      ],
+    })
+
+    async function createBuild(
+      id: string,
+      prototypeId: string,
+      number: number,
+      state: "failed" | "queued" | "running" | "successful" | "superseded",
+      workflowCreatedAt: string | null,
+      createdAt: string,
+    ) {
+      await prisma.$executeRaw`
+        INSERT INTO "builds"
+          ("id", "prototype_id", "number", "state", "workflow_created_at", "created_at")
+        VALUES (
+          ${id}::uuid,
+          ${prototypeId}::uuid,
+          ${number},
+          ${state}::"BuildState",
+          ${workflowCreatedAt}::timestamptz,
+          ${createdAt}::timestamptz
+        )
+      `
+    }
+
+    await createBuild(
+      currentBuildId,
+      pointerPrototypeId,
+      2,
+      "failed",
+      "2026-10-02T00:00:00Z",
+      "2026-10-02T00:00:00Z",
+    )
+    await createBuild(
+      pointerFallbackBuildId,
+      pointerPrototypeId,
+      9,
+      "successful",
+      "2026-10-08T00:00:00Z",
+      "2026-10-08T00:00:00Z",
+    )
+    await createBuild(
+      createdAtFallbackBuildId,
+      fallbackPrototypeId,
+      100,
+      "failed",
+      null,
+      "2026-10-07T00:00:00Z",
+    )
+    await createBuild(
+      lowerNumberBuildId,
+      fallbackPrototypeId,
+      6,
+      "queued",
+      "2026-10-08T00:00:00Z",
+      "2026-10-03T00:00:00Z",
+    )
+    await createBuild(
+      latestFallbackBuildId,
+      fallbackPrototypeId,
+      7,
+      "running",
+      "2026-10-08T00:00:00Z",
+      "2026-10-02T00:00:00Z",
+    )
+    await prisma.$executeRaw`
+      UPDATE "prototypes"
+      SET "current_build_id" = ${currentBuildId}::uuid
+      WHERE "id" = ${pointerPrototypeId}::uuid
+    `
+
+    const restore = vi.fn().mockResolvedValue({
+      membershipId: randomUUID(),
+      userId: randomUUID(),
+      provider: "github",
+      login: "mona",
+      name: "Mona",
+      role: "MEMBER",
+    })
+    await withServer(restore, createProductRouteDependencies(), async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/repositories/${repositoryId}`, {
+        headers: { cookie: "hub_session=member-session" },
+      })
+      expect(response.status).toBe(200)
+      const index = (await response.json()) as {
+        prototypes: {
+          id: string
+          latestBuild: { number: number; state: string } | null
+          builds: unknown[]
+        }[]
+      }
+
+      expect(index.prototypes).toEqual([
+        expect.objectContaining({
+          id: pointerPrototypeId,
+          latestBuild: { number: 2, state: "failed" },
+          builds: [],
+        }),
+        expect.objectContaining({
+          id: fallbackPrototypeId,
+          latestBuild: { number: 7, state: "running" },
+          builds: [],
+        }),
+        expect.objectContaining({
+          id: noBuildPrototypeId,
+          latestBuild: null,
+          builds: [],
+        }),
+      ])
+    })
+  })
+
   it("lists active repositories and only reviewable prototypes for GitHub and Entra members", async () => {
     const repositoryId = randomUUID()
     const anotherRepositoryId = randomUUID()
