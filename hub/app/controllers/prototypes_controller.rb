@@ -10,6 +10,7 @@ class PrototypesController < SuperglueController
     return if performed?
 
     @prototype = @repository.reviewable_prototypes.find(params[:id])
+    @document_title = @prototype.name.presence || @prototype.branch_name
     @can_manage_share_links = @prototype.share_links_manageable_by? \
       Current.user,
       repository_permission: @repository_permission
