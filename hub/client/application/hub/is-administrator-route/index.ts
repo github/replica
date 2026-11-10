@@ -1,5 +1,5 @@
 export function isAdministratorRoute(request: Request) {
-  const { pathname } = new URL(request.url)
+  const pathname = new URL(request.url).pathname.toLowerCase().replace(/\/+$/, "")
   return (
     pathname === "/settings/administrators" ||
     pathname.startsWith("/settings/administrators/") ||

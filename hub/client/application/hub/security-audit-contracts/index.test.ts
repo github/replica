@@ -9,14 +9,14 @@ const record = {
   outcome: "success",
   actor: { membershipId: "22222222-2222-4222-8222-222222222222" },
   context: {
-    provider: "github",
+    provider: "corp.auth.v2",
     revision: 3,
     providerKeys: ["github", "entra"],
   },
 }
 
 describe("securityAuditResponseSchema", () => {
-  it("accepts provider-neutral UUID records and a nullable opaque cursor", () => {
+  it("accepts provider-neutral UUID records, a dotted provider, and a nullable opaque cursor", () => {
     expect(
       securityAuditResponseSchema.parse({
         records: [record],
@@ -32,7 +32,7 @@ describe("securityAuditResponseSchema", () => {
     ["a nested object", { metadata: { provider: "github" } }],
     ["a non-integer number", { revision: 1.5 }],
     ["a mixed array", { providerKeys: ["github", 2] }],
-    ["a secret-bearing field", { accessToken: "github_pat_1234567890abcdef" }],
+    ["a secret-bearing field", { accessToken: "public-provider-label" }],
     ["credential-shaped text", { reason: "Bearer private-credential-value" }],
   ])("rejects context containing %s", (_label, context) => {
     expect(
@@ -43,20 +43,21 @@ describe("securityAuditResponseSchema", () => {
     ).toBe(false)
   })
 
-  it("rejects malformed record identity, time, actor, outcome, and cursor values", () => {
-    expect(
-      securityAuditResponseSchema.safeParse({
-        records: [
-          {
-            ...record,
-            id: "12",
-            occurredAt: "yesterday",
-            outcome: "unknown",
-            actor: { membershipId: 7 },
-          },
-        ],
-        nextCursor: "",
-      }).success,
-    ).toBe(false)
-  })
+  it.each([
+    ["record identity", { id: "12" }, null],
+    ["record time", { occurredAt: "yesterday" }, null],
+    ["actor membership identity", { actor: { membershipId: 7 } }, null],
+    ["outcome", { outcome: "unknown" }, null],
+    ["cursor", {}, ""],
+  ] as Array<[string, Record<string, unknown>, string | null]>)(
+    "rejects a malformed %s independently",
+    (_label, recordPatch, nextCursor) => {
+      expect(
+        securityAuditResponseSchema.safeParse({
+          records: [{ ...record, ...recordPatch }],
+          nextCursor,
+        }).success,
+      ).toBe(false)
+    },
+  )
 })

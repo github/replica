@@ -82,7 +82,7 @@ export function settingsAudit(
       time: event.createdAt,
       action: event.operation,
       actor: event.actor,
-      context: [{ label: "Fixture details", value: event.context }],
+      context: [{ label: "Details", value: event.context }],
       outcome: "Succeeded",
     })),
   }

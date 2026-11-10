@@ -102,6 +102,15 @@ function authenticatedSession() {
   return http.get(`${window.location.origin}/api/auth/session`, () => HttpResponse.json(session()))
 }
 
+function expectOnlyRealAuditRequests(requests: string[]) {
+  expect(
+    requests.every(
+      (request) =>
+        request === "GET /api/auth/session" || request.startsWith("GET /api/security-audits?"),
+    ),
+  ).toBe(true)
+}
+
 describe("real security audit frontend integration", () => {
   it("loads only the canonical Hub audit APIs and preserves opaque pagination", async () => {
     const before = "current+/cursor=="
@@ -133,7 +142,7 @@ describe("real security audit frontend integration", () => {
     expect(requests.filter((request) => request.includes("/api/security-audits"))).toEqual([
       `GET /api/security-audits?limit=50&before=${encodeURIComponent(before)}`,
     ])
-    expect(requests.some((request) => request.includes("/api/repositories"))).toBe(false)
+    expectOnlyRealAuditRequests(requests)
     expect(screen.getByRole("link", { name: "Older actions" })).toHaveAttribute(
       "href",
       `/settings/audit?scope=hub&before=${encodeURIComponent(nextCursor)}`,
@@ -158,7 +167,7 @@ describe("real security audit frontend integration", () => {
 
     expect(await screen.findByText("405")).toBeVisible()
     expect(screen.getByText("The Hub security audit is read-only.")).toBeVisible()
-    expect(requests.some((request) => request.includes("/api/repositories"))).toBe(false)
+    expectOnlyRealAuditRequests(requests)
   })
 
   it.each([
@@ -219,7 +228,7 @@ describe("real security audit frontend integration", () => {
     ])
 
     expect(await screen.findByText(message)).toBeVisible()
-    expect(requests.some((request) => request.includes("/api/repositories"))).toBe(false)
+    expectOnlyRealAuditRequests(requests)
   })
 
   it("rereads the session after an audit 403 and reports lost administrator access", async () => {

@@ -23,6 +23,7 @@ const securityAuditContextSchema = z
         })
       }
       if (
+        key !== "provider" &&
         typeof value === "string" &&
         (/^(?:basic|bearer)\s/i.test(value) ||
           /^(?:github_pat_|gh[pousr]_)/i.test(value) ||

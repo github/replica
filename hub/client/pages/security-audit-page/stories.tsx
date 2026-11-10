@@ -175,8 +175,11 @@ export const Repository: Story = {
           id: "11111111-1111-4111-8111-111111111111",
           time: "2026-10-05T19:00:00Z",
           action: "share_link.create",
-          actor: "Fixture user 1001",
-          context: [{ label: "Fixture details", value: "Local repository audit fixture" }],
+          actor: "octocat",
+          context: [
+            { label: "Prototype", value: "Welcome" },
+            { label: "Build", value: "3" },
+          ],
           outcome: "Succeeded",
         },
       ],
