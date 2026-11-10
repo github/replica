@@ -15,7 +15,7 @@ export interface PrototypeCardData {
     state: BuildState
     stateLabel: string
   }
-  path: string
+  path: string | null
   previewFallbackLabel?: string
   reviewBuild?: {
     number: number

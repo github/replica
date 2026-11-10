@@ -19,6 +19,7 @@ export function PrototypeIndexHeader({
   searchLabel,
   searchQuery,
   searchMaxLength,
+  searchVisible = true,
   searchShortcutEnabled = true,
   tools,
   trailingTools,
@@ -32,6 +33,7 @@ export function PrototypeIndexHeader({
   searchLabel: string
   searchQuery: string
   searchMaxLength?: number
+  searchVisible?: boolean
   searchShortcutEnabled?: boolean
   tools?: ReactNode
   trailingTools?: ReactNode
@@ -39,7 +41,7 @@ export function PrototypeIndexHeader({
   const searchInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    if (!searchShortcutEnabled) return
+    if (!searchShortcutEnabled || !searchVisible) return
 
     function focusSearch(event: KeyboardEvent) {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
@@ -50,7 +52,7 @@ export function PrototypeIndexHeader({
 
     window.addEventListener("keydown", focusSearch)
     return () => window.removeEventListener("keydown", focusSearch)
-  }, [searchShortcutEnabled])
+  }, [searchShortcutEnabled, searchVisible])
 
   return (
     <header className="repository-page-header prototype-index-header">
@@ -65,7 +67,7 @@ export function PrototypeIndexHeader({
       <div className="prototype-index-header__tools">
         {tools}
 
-        <div className="prototype-index-header__search">
+        <div className="prototype-index-header__search" hidden={!searchVisible}>
           <input
             ref={searchInputRef}
             type="search"

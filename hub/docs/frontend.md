@@ -1,10 +1,10 @@
 # Routed frontend
 
-The Hub frontend uses React Router Framework Mode as a single-page application (SPA) rendered in the browser. It connects every retained page to local product mocks, and real mode connects the administrator roster and Hub-wide security audit to their production APIs. Creation and branching open the original Copilot app handoff.
+The Hub frontend uses React Router Framework Mode as a single-page application (SPA) rendered in the browser. In mock mode, it connects the retained pages to local product mocks. In real mode, the repository index, administrator roster, and Hub-wide security audit use their production APIs. Creation and branching open the original Copilot app handoff.
 
-This frontend does not restore the production Hub. Configured GitHub authentication, Hub admission, and browser sessions are available; see [Authentication](authentication.md). The following remain separate backend work:
+This frontend does not restore the production Hub. Configured GitHub authentication, Hub admission, browser sessions, and a read-only repository index are available; see [Authentication](authentication.md). The following remain separate backend work:
 
-- Product APIs, permissions, and persistence.
+- Other product APIs and repository-specific permissions.
 - External product integrations.
 - Build hosting and publishing.
 
@@ -32,7 +32,7 @@ The dataset includes `octocat`, `mona`, additional fictional collaborators, `git
 
 In mock mode, the neutral root reads the simulated session. Private pages load their workspace in a separate layout; public shared previews and signed-out pages do not load a private workspace. These provisional product contracts are not adapters for real authentication or authorization.
 
-In real mode, `/` and `/admin-enrollment` render the authentication shell under `client/application/hub-application/`. The public route boundary carries no product identity or permissions and skips the provisional `/api/session` and private workspace requests. The shell owns actual authentication session restoration and its failure feedback; its sign-in, enrollment, and sign-out forms submit natively to the configured API. Administrators can continue to `/settings/administrators` and `/settings/audit?scope=hub`, which use the real administrator, security-audit, and authentication APIs without loading provisional product workspace data. Other real product routes retain explicit API failures. In mock mode, `/` keeps the product entry flow, and `/admin-enrollment` redirects to the mock `/settings/enroll` flow.
+In real mode, signed-out visitors see the authentication shell without loading provisional session or workspace data. Signed-in members open the first repository or an empty workspace. Administrators can open `/settings/administrators` and `/settings/audit?scope=hub` without loading provisional product workspace data. Sign-in, enrollment, and sign-out forms submit natively to the configured API. The index is read-only and shows up to 24 prototypes; its cards do not link to details yet. Other real product routes retain explicit API failures. In mock mode, `/` keeps the product entry flow, and `/admin-enrollment` redirects to the mock `/settings/enroll` flow. See [Hub development](development.md) for seed data and access limitations.
 
 Product screens retain product-facing copy from the retained pages and their original fixtures. They do not describe mock data, simulations, or synthetic accounts. The bottom-right test toolbar is the only orange development surface and the only place for mock-only warnings, request diagnostics, and explanations of local actions. It can be collapsed on any viewport. Normal product validation, access-denied, and failure feedback remain in the product UI.
 
@@ -83,7 +83,7 @@ Closing a conversation removes `comment`; browser back/forward restores the sele
 
 Repository pages, Hub settings and Public sharing use one [workspace navigation definition](../client/application/hub/view-models/workspace-navigation/index.ts) for labels, ordering, destinations and visibility. Repository navigation adds its repository-specific links without redefining Hub settings. Current settings permissions, hidden Welcome state and unread counts replace cached workspace values before navigation is assembled.
 
-Every workspace page shows administrators these links in order:
+In mock mode, every workspace page shows administrators these links in order:
 
 - Hub administrators
 - Public sharing

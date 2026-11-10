@@ -8,13 +8,14 @@ export function repositoryWorkspace(
   workspace: WorkspaceResponse,
   repository: RepositoryRecord,
   search: URLSearchParams,
+  real = false,
 ): RepositoryWorkspaceData {
   return {
-    ...workspaceNavigation(workspace, repository.id, search),
+    ...workspaceNavigation(workspace, repository.id, search, real),
     analyticsLabel: "Analytics",
-    analyticsPath: resourcePath(`/repositories/${repository.id}/analytics`, search),
+    analyticsPath: real ? null : resourcePath(`/repositories/${repository.id}/analytics`, search),
     learningsLabel: "Learnings",
-    learningsPath: resourcePath(`/repositories/${repository.id}/learnings`, search),
+    learningsPath: real ? null : resourcePath(`/repositories/${repository.id}/learnings`, search),
     newPrototypeLabel: "Create",
     newPrototypePath: workspace.capabilities?.createPrototypes
       ? resourcePath(`/repositories/${repository.id}/new`, search)

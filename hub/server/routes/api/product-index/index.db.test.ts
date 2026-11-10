@@ -1,0 +1,486 @@
+import { createHash, randomUUID } from "node:crypto"
+import { once } from "node:events"
+import { createServer } from "node:http"
+import type { AddressInfo } from "node:net"
+import pg from "pg"
+import { describe, expect, it, onTestFinished, vi } from "vitest"
+
+import { createApp } from "../../../create-app"
+import { prisma } from "../../../integrations/prisma"
+import { getDatabaseUrl } from "../../../../test/database/get-database-url"
+import type { AuthenticationRouteDependencies } from "../auth/types"
+import { createProductRouteDependencies } from "../product/create-product-route-dependencies"
+import type { ProductRouteDependencies } from "../product/types"
+
+async function withServer(
+  restore: AuthenticationRouteDependencies["currentSession"]["restore"],
+  product: ProductRouteDependencies,
+  operation: (baseUrl: string) => Promise<void>,
+) {
+  const authentication: AuthenticationRouteDependencies = {
+    currentSession: { restore },
+    signOut: { applicationOrigin: "http://127.0.0.1:5173", secureCookie: false, end: vi.fn() },
+  }
+  const server = createServer(createApp({ authentication, product }))
+  server.listen(0, "127.0.0.1")
+  await once(server, "listening")
+  try {
+    const { port } = server.address() as AddressInfo
+    await operation(`http://127.0.0.1:${port}`)
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()))
+    })
+  }
+}
+
+describe("real product index", () => {
+  it("lists active repositories and only reviewable prototypes for GitHub and Entra members", async () => {
+    const repositoryId = randomUUID()
+    const anotherRepositoryId = randomUUID()
+    const removedRepositoryId = randomUUID()
+    const authorId = randomUUID()
+    const olderId = "10000000-0000-4000-8000-000000000001"
+    const tiedId = "10000000-0000-4000-8000-000000000002"
+    const newestId = "10000000-0000-4000-8000-000000000003"
+    const replicaNamedId = "10000000-0000-4000-8000-000000000004"
+    const registeredAt = new Date("2026-10-01T12:00:00Z")
+    const olderPrototypes = [
+      {
+        id: randomUUID(),
+        repositoryId,
+        branchName: "main",
+        name: "Non-default main",
+        registeredAt: new Date("2026-09-01T00:00:00Z"),
+      },
+      ...Array.from({ length: 22 }, (_, index) => ({
+        id: randomUUID(),
+        repositoryId,
+        branchName: `prototype/older-${index}`,
+        name: `Older ${index}`,
+        registeredAt: new Date("2026-09-01T00:00:00Z"),
+      })),
+    ]
+    await prisma.repository.createMany({
+      data: [
+        { id: repositoryId, nameWithOwner: "team/design", defaultBranch: "trunk" },
+        { id: anotherRepositoryId, nameWithOwner: "team/other", defaultBranch: "main" },
+        {
+          id: removedRepositoryId,
+          nameWithOwner: "team/removed",
+          defaultBranch: "main",
+          removedAt: new Date("2026-11-01T00:00:00Z"),
+        },
+      ],
+    })
+    await prisma.user.create({ data: { id: authorId } })
+    await prisma.userProfile.create({
+      data: { userId: authorId, provider: "github", login: "mona", name: "Mona" },
+    })
+    await prisma.prototype.createMany({
+      data: [
+        {
+          id: olderId,
+          repositoryId,
+          authorId,
+          branchName: "prototype/older",
+          name: "Older",
+          registeredAt,
+          createdAt: new Date("2026-11-01T00:00:00Z"),
+        },
+        {
+          id: tiedId,
+          repositoryId,
+          branchName: "prototype/unattributed",
+          name: "Unattributed",
+          registeredAt,
+          createdAt: new Date("2026-09-01T00:00:00Z"),
+        },
+        {
+          id: newestId,
+          repositoryId,
+          authorId,
+          branchName: "prototype/newest",
+          name: "Newest",
+          registeredAt: new Date("2026-10-02T12:00:00Z"),
+          createdAt: new Date("2026-08-01T00:00:00Z"),
+        },
+        { repositoryId, branchName: "prototype/draft", name: "Draft" },
+        {
+          repositoryId,
+          branchName: "prototype/deleted",
+          name: "Deleted",
+          registeredAt,
+          branchDeletedAt: new Date("2026-10-03T00:00:00Z"),
+        },
+        { repositoryId, branchName: "trunk", name: "Default branch", registeredAt },
+        {
+          id: replicaNamedId,
+          repositoryId,
+          branchName: "replica/default-branch",
+          name: "A reviewable branch",
+          registeredAt,
+        },
+        {
+          repositoryId,
+          branchName: "replica/install-workflow",
+          name: "Install workflow",
+          registeredAt,
+        },
+        { repositoryId, branchName: "replica/internal", replica: true },
+        {
+          repositoryId: anotherRepositoryId,
+          branchName: "prototype/other",
+          name: "Other repository",
+          registeredAt,
+        },
+        ...olderPrototypes,
+      ],
+    })
+
+    const githubSession = {
+      membershipId: randomUUID(),
+      userId: authorId,
+      provider: "github",
+      login: "mona",
+      name: "Mona",
+      role: "MEMBER" as const,
+    }
+    const entraSession = {
+      membershipId: randomUUID(),
+      userId: randomUUID(),
+      provider: "entra",
+      login: "member",
+      name: "Member",
+      role: "MEMBER" as const,
+    }
+    const githubToken = "github-session"
+    const entraToken = "entra-session"
+    function hash(value: string) {
+      return createHash("sha256").update(value).digest("hex")
+    }
+    const restore = vi.fn((digest: string) => {
+      if (digest === hash(githubToken)) return Promise.resolve(githubSession)
+      if (digest === hash(entraToken)) return Promise.resolve(entraSession)
+      return Promise.resolve(null)
+    })
+    await withServer(restore, createProductRouteDependencies(), async (baseUrl) => {
+      for (const [token, session] of [
+        [githubToken, githubSession],
+        [entraToken, entraSession],
+      ] as const) {
+        const headers = { cookie: `hub_session=${token}` }
+        const workspaceResponse = await fetch(`${baseUrl}/api/workspace`, { headers })
+        expect(workspaceResponse.status).toBe(200)
+        expect(workspaceResponse.headers.get("cache-control")).toBe("no-store")
+        const workspace = (await workspaceResponse.json()) as {
+          viewer: { id: string; login: string }
+          repositories: { id: string }[]
+          capabilities: {
+            createPrototypes: boolean
+            reviewPrototypes: boolean
+            manageSharing: boolean
+          }
+        }
+        expect(workspace.viewer).toMatchObject({ id: session.userId, login: session.login })
+        expect(workspace.repositories.map(({ id }) => id).sort()).toEqual(
+          [repositoryId, anotherRepositoryId].sort(),
+        )
+        expect(workspace.capabilities).toMatchObject({
+          createPrototypes: false,
+          reviewPrototypes: false,
+          manageSharing: false,
+        })
+
+        const indexResponse = await fetch(`${baseUrl}/api/repositories/${repositoryId}`, {
+          headers,
+        })
+        expect(indexResponse.status).toBe(200)
+        expect(indexResponse.headers.get("cache-control")).toBe("no-store")
+        const index = (await indexResponse.json()) as {
+          repository: { id: string; nameWithOwner: string }
+          prototypes: {
+            id: string
+            authorLogin: string | null
+            canEdit: boolean
+            builds: unknown[]
+          }[]
+          pagination: { page: number; pageSize: number; totalCount: number; pageCount: number }
+          authors: { id: string; login: string }[]
+        }
+        expect(index.repository).toMatchObject({ id: repositoryId, nameWithOwner: "team/design" })
+        expect(index.pagination).toEqual({ page: 1, pageSize: 24, totalCount: 27, pageCount: 2 })
+        expect(index.prototypes.map(({ id }) => id)).toEqual([
+          newestId,
+          replicaNamedId,
+          tiedId,
+          olderId,
+          ...olderPrototypes
+            .map(({ id }) => id)
+            .sort()
+            .reverse()
+            .slice(0, 20),
+        ])
+        expect(
+          index.prototypes.every(({ canEdit, builds }) => !canEdit && builds.length === 0),
+        ).toBe(true)
+        expect(index.prototypes.find(({ id }) => id === tiedId)?.authorLogin ?? null).toBeNull()
+        expect(index.authors).toContainEqual(
+          expect.objectContaining({ id: authorId, login: "mona" }),
+        )
+        expect(index.authors).toHaveLength(1)
+        const secondPage = await fetch(`${baseUrl}/api/repositories/${repositoryId}?page=2`, {
+          headers,
+        })
+        expect(secondPage.status).toBe(400)
+        const anotherResponse = await fetch(`${baseUrl}/api/repositories/${anotherRepositoryId}`, {
+          headers,
+        })
+        expect(anotherResponse.status).toBe(200)
+      }
+
+      expect(restore).toHaveBeenCalledWith(hash(githubToken))
+      expect(restore).toHaveBeenCalledWith(hash(entraToken))
+    })
+  })
+
+  it("does not disclose product data without a current session", async () => {
+    const repositoryId = randomUUID()
+    await prisma.repository.create({
+      data: { id: repositoryId, nameWithOwner: "private/design", defaultBranch: "main" },
+    })
+    await prisma.prototype.create({
+      data: {
+        repositoryId,
+        branchName: "prototype/secret",
+        name: "Private prototype",
+        registeredAt: new Date("2026-10-01T00:00:00Z"),
+      },
+    })
+    const restore = vi.fn().mockResolvedValue(null)
+    const headerSets: Record<string, string>[] = [{}, { cookie: "hub_session=expired-session" }]
+
+    await withServer(restore, createProductRouteDependencies(), async (baseUrl) => {
+      for (const path of ["/api/workspace", `/api/repositories/${repositoryId}`]) {
+        for (const headers of headerSets) {
+          const response = await fetch(`${baseUrl}${path}`, { headers })
+          expect(response.status).toBe(401)
+          const body = await response.text()
+          expect(body).not.toContain("private/design")
+          expect(body).not.toContain("Private prototype")
+        }
+      }
+      expect(restore).toHaveBeenCalledWith(
+        createHash("sha256").update("expired-session").digest("hex"),
+      )
+    })
+  })
+
+  it("does not return data when the session is revoked during a product read", async () => {
+    const repositoryId = randomUUID()
+    await prisma.repository.create({
+      data: { id: repositoryId, nameWithOwner: "private/design", defaultBranch: "main" },
+    })
+    await prisma.prototype.create({
+      data: {
+        repositoryId,
+        branchName: "prototype/secret",
+        name: "Private prototype",
+        registeredAt: new Date("2026-10-01T00:00:00Z"),
+      },
+    })
+    const activeSession = {
+      membershipId: randomUUID(),
+      userId: randomUUID(),
+      provider: "github",
+      login: "mona",
+      name: "Mona",
+      role: "MEMBER" as const,
+    }
+    let currentSession: typeof activeSession | null = activeSession
+    const restore = vi.fn(() => Promise.resolve(currentSession))
+    const product = createProductRouteDependencies()
+    const listRepositories = product.listRepositories.bind(product)
+    const findRepositoryIndex = product.findRepositoryIndex.bind(product)
+    const list = vi.spyOn(product, "listRepositories").mockImplementation(async () => {
+      const repositories = await listRepositories()
+      currentSession = null
+      return repositories
+    })
+    const find = vi.spyOn(product, "findRepositoryIndex").mockImplementation(async (id) => {
+      const index = await findRepositoryIndex(id)
+      currentSession = null
+      return index
+    })
+
+    await withServer(restore, product, async (baseUrl) => {
+      for (const path of ["/api/workspace", `/api/repositories/${repositoryId}`]) {
+        currentSession = activeSession
+        const response = await fetch(`${baseUrl}${path}`, {
+          headers: { cookie: "hub_session=member-session" },
+        })
+
+        expect(response.status).toBe(401)
+        const body = await response.text()
+        expect(body).not.toContain("private/design")
+        expect(body).not.toContain("Private prototype")
+      }
+      expect(list).toHaveBeenCalledOnce()
+      expect(find).toHaveBeenCalledOnce()
+    })
+  })
+
+  it("uses the current role after reading the workspace", async () => {
+    const session = {
+      membershipId: randomUUID(),
+      userId: randomUUID(),
+      provider: "entra",
+      login: "member",
+      name: "Member",
+      role: "MEMBER" as "MEMBER" | "ADMINISTRATOR",
+    }
+    let currentSession = session
+    let roleAfterRead: "MEMBER" | "ADMINISTRATOR" = "MEMBER"
+    const restore = vi.fn(() => Promise.resolve(currentSession))
+    const product = createProductRouteDependencies()
+    const listRepositories = product.listRepositories.bind(product)
+    vi.spyOn(product, "listRepositories").mockImplementation(async () => {
+      const repositories = await listRepositories()
+      currentSession = { ...currentSession, role: roleAfterRead }
+      return repositories
+    })
+
+    await withServer(restore, product, async (baseUrl) => {
+      for (const [before, after] of [
+        ["MEMBER", "ADMINISTRATOR"],
+        ["ADMINISTRATOR", "MEMBER"],
+      ] as const) {
+        currentSession = { ...session, role: before }
+        roleAfterRead = after
+        const response = await fetch(`${baseUrl}/api/workspace`, {
+          headers: { cookie: "hub_session=member-session" },
+        })
+
+        expect(response.status).toBe(200)
+        expect(await response.json()).toMatchObject({
+          capabilities: { administerHub: after === "ADMINISTRATOR" },
+        })
+      }
+    })
+  })
+
+  it("distinguishes malformed, missing, and removed repositories", async () => {
+    const removedId = randomUUID()
+    await prisma.repository.create({
+      data: {
+        id: removedId,
+        nameWithOwner: "team/removed",
+        defaultBranch: "main",
+        removedAt: new Date("2026-11-01T00:00:00Z"),
+      },
+    })
+    const restore = vi.fn().mockResolvedValue({
+      membershipId: randomUUID(),
+      userId: randomUUID(),
+      provider: "github",
+      login: "mona",
+      name: "Mona",
+      role: "MEMBER",
+    })
+    const headers = { cookie: "hub_session=member-session" }
+
+    await withServer(restore, createProductRouteDependencies(), async (baseUrl) => {
+      const malformed = await fetch(`${baseUrl}/api/repositories/not-a-uuid`, { headers })
+      const missing = await fetch(`${baseUrl}/api/repositories/${randomUUID()}`, { headers })
+      const removed = await fetch(`${baseUrl}/api/repositories/${removedId}`, { headers })
+
+      expect(malformed.status).toBe(400)
+      expect(missing.status).toBe(404)
+      expect(removed.status).toBe(404)
+    })
+  })
+
+  it("returns an error when the repository lookup fails", async () => {
+    const restore = vi.fn().mockResolvedValue({
+      membershipId: randomUUID(),
+      userId: randomUUID(),
+      provider: "entra",
+      login: "member",
+      name: "Member",
+      role: "MEMBER",
+    })
+    const product = createProductRouteDependencies()
+    vi.spyOn(product, "findRepositoryIndex").mockRejectedValueOnce(
+      new Error("Database unavailable"),
+    )
+
+    await withServer(restore, product, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/repositories/${randomUUID()}`, {
+        headers: { cookie: "hub_session=member-session" },
+      })
+
+      expect(response.status).toBe(500)
+      expect(await response.json()).not.toHaveProperty("prototypes")
+    })
+  })
+
+  it("protects active branch and registration invariants while retaining deleted history", async () => {
+    const first = new pg.Client({ connectionString: getDatabaseUrl() })
+    const second = new pg.Client({ connectionString: getDatabaseUrl() })
+    onTestFinished(async () => {
+      await Promise.all([first.end(), second.end()])
+    })
+    await Promise.all([first.connect(), second.connect()])
+    const repositoryId = randomUUID()
+    await first.query(
+      `INSERT INTO repositories (id, name_with_owner, default_branch)
+       VALUES ($1, 'team/design', 'main')`,
+      [repositoryId],
+    )
+    await first.query(
+      `INSERT INTO prototypes (id, repository_id, branch_name, name, branch_deleted_at)
+       VALUES ($1, $2, 'prototype/shared', 'Retired', clock_timestamp())`,
+      [randomUUID(), repositoryId],
+    )
+    function insertActive(database: pg.Client) {
+      return database.query(
+        `INSERT INTO prototypes (id, repository_id, branch_name, name, registered_at)
+         VALUES ($1, $2, 'prototype/shared', 'Active', clock_timestamp())`,
+        [randomUUID(), repositoryId],
+      )
+    }
+    const attempts = await Promise.allSettled([insertActive(first), insertActive(second)])
+    expect(attempts.filter(({ status }) => status === "fulfilled")).toHaveLength(1)
+    const rejected = attempts.find((attempt) => attempt.status === "rejected")
+    expect(rejected).toMatchObject({ reason: { code: "23505" } })
+    const versions = await first.query<{ active: boolean }>(
+      `SELECT branch_deleted_at IS NULL AS active
+       FROM prototypes WHERE repository_id = $1 AND branch_name = 'prototype/shared'
+       ORDER BY active`,
+      [repositoryId],
+    )
+    expect(versions.rows).toEqual([{ active: false }, { active: true }])
+
+    for (const [branchName, name, replica] of [
+      ["prototype/null-name", null, false],
+      ["prototype/blank-name", "   ", false],
+      ["prototype/whitespace-name", " \t\n ", false],
+      ["replica/registered", "Replica", true],
+    ] as const) {
+      await expect(
+        first.query(
+          `INSERT INTO prototypes (id, repository_id, branch_name, name, registered_at, replica)
+           VALUES ($1, $2, $3, $4, clock_timestamp(), $5)`,
+          [randomUUID(), repositoryId, branchName, name, replica],
+        ),
+      ).rejects.toMatchObject({ code: "23514" })
+    }
+    await expect(
+      first.query(
+        `INSERT INTO prototypes (id, repository_id, branch_name, replica)
+         VALUES ($1, $2, 'replica/unregistered', true)`,
+        [randomUUID(), repositoryId],
+      ),
+    ).resolves.toMatchObject({ rowCount: 1 })
+  })
+})

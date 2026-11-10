@@ -19,6 +19,7 @@ export async function clientLoader({ request }: Pick<Route.ClientLoaderArgs, "re
           id: session.userId,
           login: session.login,
           name: session.name,
+          provider: session.provider,
           avatarUrl: null,
         },
         repositories: [],
@@ -33,7 +34,7 @@ export async function clientLoader({ request }: Pick<Route.ClientLoaderArgs, "re
     return await getWorkspace(request)
   } catch (error) {
     if (error instanceof ApiRequestError && error.status === 401) {
-      throw redirect("/sign-in")
+      throw redirect(import.meta.env.DEV && import.meta.env.MODE === "mock" ? "/sign-in" : "/")
     }
     throw error
   }

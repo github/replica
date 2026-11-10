@@ -24,12 +24,16 @@ import "./styles.css"
 export function RepositoriesShowPage({
   data,
   controls,
+  buildStatusAvailable = true,
+  filtersAvailable = true,
   managingPrototypes = false,
   view: controlledView,
   onViewChange,
 }: {
   data: RepositoriesShowPageData
   controls: PrototypeListingControls
+  buildStatusAvailable?: boolean
+  filtersAvailable?: boolean
   managingPrototypes?: boolean
   view?: PrototypeViewMode
   onViewChange?: (view: PrototypeViewMode) => void
@@ -90,6 +94,7 @@ export function RepositoriesShowPage({
           searchLabel={data.searchLabel}
           searchQuery={controls.query}
           searchMaxLength={200}
+          searchVisible={filtersAvailable}
           tools={
             <div className="repository-detail__toolbar" data-view={view}>
               <Text size="100" className="repository-detail__count" aria-live="polite">
@@ -99,12 +104,14 @@ export function RepositoriesShowPage({
                   : ""}
               </Text>
 
-              <PrototypeAuthorFilter
-                key={data.listing.authorsPath}
-                listing={data.listing}
-                onChange={controls.onAuthorChange}
-                onSearch={controls.loadAuthors}
-              />
+              {filtersAvailable ? (
+                <PrototypeAuthorFilter
+                  key={data.listing.authorsPath}
+                  listing={data.listing}
+                  onChange={controls.onAuthorChange}
+                  onSearch={controls.loadAuthors}
+                />
+              ) : null}
             </div>
           }
           trailingTools={
@@ -232,7 +239,7 @@ export function RepositoriesShowPage({
                 <tr>
                   <th scope="col">{data.prototypeColumnLabel}</th>
                   <th scope="col">{data.ownerColumnLabel}</th>
-                  <th scope="col">{data.buildColumnLabel}</th>
+                  {buildStatusAvailable ? <th scope="col">{data.buildColumnLabel}</th> : null}
                 </tr>
               </thead>
               <tbody>
@@ -244,13 +251,14 @@ export function RepositoriesShowPage({
                     passingLabel={data.passingLabel}
                     notPassingLabel={data.notPassingLabel}
                     noBuildLabel={data.noBuildLabel}
+                    showBuildStatus={buildStatusAvailable}
                   />
                 ))}
               </tbody>
             </table>
           )}
 
-          {data.listing.pageCount > 1 ? (
+          {filtersAvailable && data.listing.pageCount > 1 ? (
             <Pagination
               className="repository-detail__pagination"
               aria-label={data.listing.copy.pagination}

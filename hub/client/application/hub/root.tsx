@@ -7,6 +7,7 @@ import {
   Outlet,
   Scripts,
   ScrollRestoration,
+  redirect,
   useRevalidator,
   useFetcher,
   useFetchers,
@@ -19,7 +20,6 @@ import type { Route } from "./+types/root"
 import type { SessionResponse } from "./session-contracts/types"
 import { DevelopmentTools } from "./development-tools"
 import { isAuthenticationRoute } from "./is-authentication-route"
-import { isAdministratorRoute } from "./is-administrator-route"
 import { HubNavigation } from "./hub-navigation"
 import { ApiContractError } from "./requests/api-contract-error"
 import { ApiRequestError } from "./requests/api-request-error"
@@ -32,7 +32,7 @@ import "./styles.css"
 
 export async function clientLoader({
   request,
-}: Pick<Route.ClientLoaderArgs, "request">): Promise<SessionResponse> {
+}: Pick<Route.ClientLoaderArgs, "request">): Promise<SessionResponse | Response> {
   if (isAuthenticationRoute(request)) {
     // The public auth shell restores its own session without claiming product permissions.
     return {
@@ -45,13 +45,22 @@ export async function clientLoader({
       },
     }
   }
-  if (isAdministratorRoute(request) && !(import.meta.env.DEV && import.meta.env.MODE === "mock")) {
-    const session = await getCurrentHubSession(request)
+  if (!(import.meta.env.DEV && import.meta.env.MODE === "mock")) {
+    let session
+    try {
+      session = await getCurrentHubSession(request)
+    } catch (error) {
+      if (error instanceof ApiRequestError && (error.status === 401 || error.status === 404)) {
+        return redirect("/")
+      }
+      throw error
+    }
     return {
       viewer: {
         id: session.userId,
         login: session.login,
         name: session.name,
+        provider: session.provider,
         avatarUrl: null,
       },
       capabilities: {

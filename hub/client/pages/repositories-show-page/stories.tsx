@@ -189,6 +189,73 @@ export const ReadOnly: Story = {
   },
 }
 
+export const RealIndex: Story = {
+  args: {
+    buildStatusAvailable: false,
+    filtersAvailable: false,
+    data: {
+      ...data,
+      authenticityToken: "",
+      currentUser: { ...data.currentUser, provider: "github" },
+      listing: {
+        ...data.listing,
+        matchingCount: 2,
+        pagePath: "/repositories/00000000-0000-4000-8000-000000000101",
+        authorsPath: "/api/repositories/00000000-0000-4000-8000-000000000101/authors",
+        path: "/repositories/00000000-0000-4000-8000-000000000101",
+      },
+      managePrototypesPath: undefined,
+      newPrototypePath: null,
+      prototypesPath: "/repositories/00000000-0000-4000-8000-000000000101",
+      repositories: [
+        {
+          id: "00000000-0000-4000-8000-000000000101",
+          nameWithOwner: "github/prototype",
+          path: "/repositories/00000000-0000-4000-8000-000000000101",
+        },
+      ],
+      selectedRepositoryId: "00000000-0000-4000-8000-000000000101",
+      signOutPath: "/api/auth/session/sign-out",
+      workflowInstallation: undefined,
+      prototypesCountLabel: "2 prototypes",
+      prototypes: [
+        {
+          ...welcomePrototype,
+          id: "00000000-0000-4000-8000-000000000201",
+          path: null,
+          reviewBuild: undefined,
+          latestBuild: undefined,
+          author: {
+            avatarUrl: null,
+            label: "By Mona",
+            ownerLabel: "Mona",
+            url: null,
+          },
+        },
+        {
+          ...welcomePrototype,
+          id: "00000000-0000-4000-8000-000000000202",
+          name: "Navigation",
+          path: null,
+          reviewBuild: undefined,
+          latestBuild: undefined,
+          author: {
+            avatarUrl: null,
+            label: "Unknown author",
+            ownerLabel: "Unknown author",
+            url: null,
+          },
+        },
+      ],
+    },
+  },
+}
+
+export const RealIndexList: Story = {
+  ...RealIndex,
+  args: { ...RealIndex.args, view: "list" },
+}
+
 export const WideViewSwitching: Story = {
   ...Multiple,
   globals: { viewport: { value: "wideDesktop", isRotated: false } },

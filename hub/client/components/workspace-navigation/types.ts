@@ -8,6 +8,7 @@ export interface WorkspaceAccountData {
     avatarUrl: string | null
     login: string
     name: string | null
+    provider?: string
   }
   darkThemeLabel: string
   lightThemeLabel: string

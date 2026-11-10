@@ -9,6 +9,7 @@ export function repositoryShowData(
   workspace: WorkspaceResponse,
   data: RepositoryResponse,
   search: URLSearchParams,
+  options: { detailsAvailable?: boolean; real?: boolean } = {},
 ): RepositoriesShowPageData {
   const path = `/repositories/${data.repository.id}`
   const pageQuery = new URLSearchParams(search)
@@ -27,7 +28,7 @@ export function repositoryShowData(
   const count = data.pagination.totalCount
 
   return {
-    ...repositoryWorkspace(workspace, data.repository, search),
+    ...repositoryWorkspace(workspace, data.repository, search, options.real),
     alert: null,
     clearSearchLabel: "Clear search",
     emptyHeading: "No prototypes yet",
@@ -52,19 +53,34 @@ export function repositoryShowData(
       const builds = [...prototype.builds].sort((first, second) => second.number - first.number)
       const latestBuild = builds[0]
       const reviewBuild = builds.find((build) => build.previewUrl && build.desktopScreenshotUrl)
-      const prototypeAuthor = data.authors.find((item) => item.login === prototype.authorLogin)
+      const prototypeAuthor = data.authors.find((item) =>
+        prototype.authorId ? item.id === prototype.authorId : item.login === prototype.authorLogin,
+      )
+      const authorName =
+        prototypeAuthor?.provider && prototypeAuthor.provider !== "github"
+          ? (prototypeAuthor.name ?? prototypeAuthor.login)
+          : prototype.authorLogin
+            ? `@${prototype.authorLogin}`
+            : "Unknown author"
 
       return {
         id: String(prototype.id),
         name: prototype.name,
         branchName: prototype.branchName,
         description: prototype.description,
-        path: resourcePath(`${path}/prototypes/${prototype.id}`, search),
+        path:
+          options.detailsAvailable === false
+            ? null
+            : resourcePath(`${path}/prototypes/${prototype.id}`, search),
         author: {
           avatarUrl: prototypeAuthor?.avatarUrl ?? null,
-          label: `By @${prototype.authorLogin}`,
-          ownerLabel: `@${prototype.authorLogin}`,
-          url: `https://github.com/${encodeURIComponent(prototype.authorLogin)}`,
+          label: prototype.authorLogin ? `By ${authorName}` : authorName,
+          ownerLabel: authorName,
+          url:
+            prototype.authorLogin &&
+            (!prototypeAuthor?.provider || prototypeAuthor.provider === "github")
+              ? `https://github.com/${encodeURIComponent(prototype.authorLogin)}`
+              : null,
         },
         latestBuild: latestBuild
           ? { state: latestBuild.state, stateLabel: buildStateLabel(latestBuild.state) }

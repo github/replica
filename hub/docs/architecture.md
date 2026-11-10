@@ -8,7 +8,7 @@ The team has chosen TypeScript, Express for the API, React and Vite for the fron
 
 The API responds to a health check. The frontend connects the retained pages for local exploration. Storybook remains the presentation workbench.
 
-Contributors can use PostgreSQL and Prisma locally or in the devcontainer. The database has a provider-neutral identity transaction foundation with explicit GitHub and single-tenant Microsoft Entra sign-in adapters. A reusable deployment bootstrap secret can enroll a verified provider identity as a Hub administrator. Product APIs have not been built. The app cannot yet discover real repositories, import Builds, host published previews, persist product data, or support live multi-user reviews.
+Contributors can use PostgreSQL and Prisma locally or in the devcontainer. The database has a provider-neutral identity transaction foundation with explicit GitHub and single-tenant Microsoft Entra sign-in adapters. A reusable deployment bootstrap secret can enroll a verified provider identity as a Hub administrator. Members can browse a seeded, read-only repository index. The app cannot yet discover real repositories, import Builds, host published previews, edit product data, or support live multi-user reviews.
 
 The [production runtime](deployment.md) serves the built frontend and API and runs both workers in one image. Deployment runs database and job setup separately before starting that image.
 
@@ -57,12 +57,12 @@ Imports follow the arrows above. Shared components, hooks, and utilities must no
 
 The theme provider wraps routes and their loading and error feedback.
 
-- In real mode, `/` and `/admin-enrollment` render the authentication shell under `client/application/hub-application/`. `/settings/administrators` and `/settings/audit?scope=hub` restore the live administrator session and call only their production APIs. These routes do not request product data.
+- In real mode, signed-out visitors use the authentication shell. Signed-in members can browse the read-only repository index. Administrators can use the administrator roster and Hub-wide security audit without loading provisional product data.
 - In mock mode, the root reads the simulated session. A nested layout loads the private workspace for signed-in pages.
 - Route loaders and actions request product data and refresh it after changes. Shareable filters and selections live in the URL.
 - Product screens keep product-facing copy. API failures remain visible errors.
 
-The application adapts retained internal links and GET forms to SPA navigation. Authentication POST forms use native browser submissions. Explicit adapters submit supported product mutations; unknown legacy form submissions receive visible feedback. The [frontend guide](frontend.md) owns the connected routes, provisional HTTP contracts, local development modes, and complete page inventory. Real product API implementation remains separate work.
+The application adapts retained internal links and GET forms to SPA navigation. Authentication POST forms use native browser submissions. Explicit adapters submit supported product mutations; unknown legacy form submissions receive visible feedback. The [frontend guide](frontend.md) owns the connected routes, provisional HTTP contracts, local development modes, and complete page inventory. Most real product APIs remain separate work.
 
 ## Other projects
 

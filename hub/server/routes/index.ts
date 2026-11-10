@@ -11,6 +11,8 @@ import { post as handleSignOutPost } from "./api/auth/session/sign-out/post/inde
 import { post as handleAuthenticationStartPost } from "./api/auth/start/post/index.ts"
 import { get as handleApiHealthGet } from "./api/health/get/index.ts"
 import { get as handleApiReadyGet } from "./api/ready/get/index.ts"
+import { get as handleWorkspaceGet } from "./api/workspace/get/index.ts"
+import { get as handleRepositoryGet } from "./api/repositories/show/get/index.ts"
 import { get as handleAdministratorsGet } from "./api/administrators/get/index.ts"
 import { get as handleAdministratorCandidatesGet } from "./api/administrators/candidates/get/index.ts"
 import { post as handleAdministratorAuthorizationStartPost } from "./api/administrators/authorizations/start/post/index.ts"
@@ -23,12 +25,19 @@ import type { RouteDependencies } from "./types.ts"
 
 /** Keep endpoint registration separate from the app's shared middleware. */
 export function routes(app: Express, dependencies: RouteDependencies = {}): void {
-  const { authentication, isReady, logger } = dependencies
+  const { authentication, isReady, logger, product } = dependencies
   app.get("/api/health", handleApiHealthGet)
   app.get("/api/ready", (request, response) =>
     handleApiReadyGet(request, response, { isReady, logger }),
   )
   if (authentication) {
+    if (product) {
+      app.get("/api/workspace", handleWorkspaceGet(authentication.currentSession, product))
+      app.get(
+        "/api/repositories/:repositoryId",
+        handleRepositoryGet(authentication.currentSession, product),
+      )
+    }
     if (authentication.administrators) {
       app.get("/api/security-audits", handleSecurityAuditsGet(authentication.administrators))
       app.get("/api/administrators", handleAdministratorsGet(authentication.administrators))

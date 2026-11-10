@@ -2,7 +2,7 @@
 
 Hub is being rebuilt on `build/hub/new` using TypeScript, Express, React, Vite, and Vitest. This branch lets contributors start the new app locally. It is not ready to replace the existing Hub.
 
-The API has liveness and readiness routes. React Router connects the retained frontend pages for local exploration. Product API routes are not implemented.
+The API has liveness, readiness, and read-only repository index routes. React Router also connects the retained frontend pages to local mock data.
 
 Contributors can use PostgreSQL and Prisma locally or in the devcontainer. The backend provides:
 
@@ -11,7 +11,7 @@ Contributors can use PostgreSQL and Prisma locally or in the devcontainer. The b
 - Explicit server-side [telemetry spans](docs/telemetry.md).
 - A [WebSocket foundation](docs/websockets.md) that rejects upgrades until application access checks are supplied.
 
-Persisted prototype data and live multi-user reviews are not implemented.
+The index can show seeded prototype records. Repository discovery, product editing, and live multi-user reviews are not implemented.
 
 The [production runtime](docs/deployment.md) packages the frontend, API, and workers in one image, with a separate release setup script.
 

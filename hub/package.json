@@ -12,6 +12,7 @@
     "db:validate": "prisma validate",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
+    "db:seed:index": "node server/scripts/seed-prototype-index/index.ts",
     "db:studio": "prisma studio",
     "jobs:setup": "node server/scripts/setup-jobs/index.ts",
     "setup": "node server/scripts/setup/index.ts",

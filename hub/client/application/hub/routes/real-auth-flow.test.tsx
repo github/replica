@@ -76,7 +76,7 @@ describe("Real authentication route integration", () => {
       action: "/api/auth/entra/start",
     },
     {
-      label: "restored home in a production build, even with mock mode selected",
+      label: "restored empty workspace in a production build, even with mock mode selected",
       path: "/",
       mode: "mock",
       dev: false,
@@ -106,7 +106,7 @@ describe("Real authentication route integration", () => {
       action: "/api/auth/entra/admin-enrollment/start",
     },
   ])(
-    "connects $label to the real session shell and leaves its POST native",
+    "connects $label to real authentication and leaves its POST native",
     async ({ path, mode, dev, authenticated, providers, button, action }) => {
       vi.stubEnv("MODE", mode)
       vi.stubEnv("DEV", dev)
@@ -127,6 +127,24 @@ describe("Real authentication route integration", () => {
                 role: "ADMINISTRATOR",
               })
             : new HttpResponse(null, { status: 401 }),
+        ),
+        http.get(`${window.location.origin}/api/workspace`, () =>
+          HttpResponse.json({
+            viewer: {
+              id: "22222222-2222-4222-8222-222222222222",
+              provider: "github",
+              login: "octocat",
+              name: "The Octocat",
+              avatarUrl: null,
+            },
+            repositories: [],
+            capabilities: {
+              createPrototypes: false,
+              reviewPrototypes: false,
+              manageSharing: false,
+              administerHub: true,
+            },
+          }),
         ),
       )
       server.events.on("request:start", ({ request }) => {
@@ -153,21 +171,30 @@ describe("Real authentication route integration", () => {
         </HubThemeProvider>,
       )
 
-      const submit = await screen.findByRole("button", { name: button })
+      if (authenticated) {
+        expect(
+          await screen.findByRole("heading", { name: "No repositories available" }),
+        ).toBeInTheDocument()
+        fireEvent.click(screen.getByRole("button", { name: "Account menu for @octocat" }))
+      }
+      const submit = await screen.findByRole(authenticated ? "menuitem" : "button", {
+        name: button,
+      })
+      const allowedRequests = authenticated
+        ? ["GET /api/auth/session", "GET /api/workspace"]
+        : ["GET /api/auth/providers", "GET /api/auth/session"]
       await vi.waitFor(() => {
-        expect(requests).toEqual(
-          expect.arrayContaining(["GET /api/auth/providers", "GET /api/auth/session"]),
-        )
+        expect(requests).toEqual(expect.arrayContaining(allowedRequests))
         expect(router.state.initialized).toBe(true)
         expect(router.state.navigation.state).toBe("idle")
       })
-      expect(
-        requests.every((request) =>
-          ["GET /api/auth/providers", "GET /api/auth/session"].includes(request),
-        ),
-      ).toBe(true)
+      expect(requests.every((request) => allowedRequests.includes(request))).toBe(true)
       expect(router.state.location.pathname).toBe(path)
-      const form = submit instanceof HTMLButtonElement ? submit.form : submit.closest("form")
+      const form = authenticated
+        ? document.querySelector<HTMLFormElement>(`form[action="${action}"]`)
+        : submit instanceof HTMLButtonElement
+          ? submit.form
+          : submit.closest("form")
       if (!form) throw new Error("The authentication control must submit a native form.")
       expect(form.method).toBe("post")
       const submitAction =
@@ -184,17 +211,25 @@ describe("Real authentication route integration", () => {
       const submitEvent = new SubmitEvent("submit", {
         bubbles: true,
         cancelable: true,
-        submitter: submit,
+        submitter: authenticated ? null : submit,
       })
       expect(form.dispatchEvent(submitEvent)).toBe(true)
 
       expect(router.state.location.pathname).toBe(path)
-      expect(screen.getByRole("button", { name: button })).toBeInTheDocument()
       expect(
-        requests.every((request) =>
-          ["GET /api/auth/providers", "GET /api/auth/session"].includes(request),
-        ),
-      ).toBe(true)
+        screen.getByRole(authenticated ? "menuitem" : "button", { name: button }),
+      ).toBeInTheDocument()
+      expect(requests.every((request) => allowedRequests.includes(request))).toBe(true)
+      if (authenticated) {
+        await act(async () => {
+          await router.navigate("/repositories")
+        })
+        expect(router.state.location.pathname).toBe("/repositories")
+        expect(
+          screen.getByRole("heading", { name: "No repositories available" }),
+        ).toBeInTheDocument()
+        expect(requests.every((request) => allowedRequests.includes(request))).toBe(true)
+      }
     },
     15_000,
   )

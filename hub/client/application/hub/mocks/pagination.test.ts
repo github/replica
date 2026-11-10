@@ -1,7 +1,7 @@
 import { setupServer } from "msw/node"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
-import type { PrototypeRecord } from "../contracts/types"
+import type { RepositoryResponse } from "../contracts/types"
 import { getAuthors } from "../requests/get-authors"
 import { getBuildHistory } from "../requests/get-build-history"
 import { getRepository } from "../requests/get-repository"
@@ -23,7 +23,7 @@ describe("mock collection pagination", () => {
 
     expect(first.pagination.pageSize).toBe(24)
     expect(first.pagination.totalCount).toBeGreaterThan(48)
-    const records: PrototypeRecord[] = [...first.prototypes]
+    const records: RepositoryResponse["prototypes"] = [...first.prototypes]
     for (let page = 2; page <= first.pagination.pageCount; page += 1) {
       const next = await getRepository(new Request(`${request.url}?page=${page}`), "2001")
       expect(next.pagination).toMatchObject({
