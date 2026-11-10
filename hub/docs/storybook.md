@@ -136,6 +136,8 @@ The `Prototype canvas` catalogue covers the local extension before and after con
 
 Publication Example keeps publication inputs in its scenario control. Detailed publication failures and eligibility states live in the owning dialog or panel stories instead of repeating the application toolbar. To start Publication Example with an authorized local preview, from `hub/` run `bin/devcontainer exec env VITE_STORYBOOK_PROTOTYPE_URL='<url>' npm run storybook`.
 
+To inspect populated canvas review conversations, open `Prototype canvas/Publication example/Comments Sidebar`.
+
 Canvas recovery stories cover Controls compatibility, configuration, empty, reconnect, reset and diagnosis states; browser address and launch errors; Hub approval, URL save/reset and metadata failures; unavailable Build details and clipboard feedback; comment loading and recovery; and sharing permissions, expiry, validation and uncertain outcomes. Interaction stories perform the real UI action against fixture callbacks and retain the resulting state. Use the theme and viewport controls instead of separate light, dark or narrow copies.
 
 `Prototype canvas/Controls fields` has interactive examples backed by the real controls runtime: All Fields covers all 11 control types; Conditional Fields shows one field in variant A and three in variant B, resetting hidden values; Actions demonstrates unavailable handlers, busy state, completion, and explicit failures. Each example shows live values and has a Reset example button. These stories do not exercise canvas persistence, the cross-frame bridge, or Hub integration.
