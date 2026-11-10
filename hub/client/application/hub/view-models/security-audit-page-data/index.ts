@@ -71,7 +71,7 @@ export function securityAuditPageData(
       id: record.id,
       time: record.occurredAt,
       action: record.action,
-      actor: record.actor ? `Membership ${record.actor.membershipId}` : "No signed-in actor",
+      actor: record.actor ? `Membership ${record.actor.membershipId}` : "Not available",
       context: Object.entries(record.context).map(([key, value]) => ({
         label: contextLabel(key),
         value: contextValue(value),

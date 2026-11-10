@@ -137,7 +137,7 @@ describe("SecurityAuditPage()", () => {
                 id: "11111111-1111-4111-8111-111111111111",
                 time: "2026-10-05T19:00:00Z",
                 action: "<script>unsafe</script>",
-                actor: "No signed-in actor",
+                actor: "Not available",
                 context: [
                   {
                     label: "Reason",
@@ -151,7 +151,7 @@ describe("SecurityAuditPage()", () => {
         />
       </ThemeProvider>,
     )
-    expect(screen.getByRole("table")).toHaveTextContent("No signed-in actor")
+    expect(screen.getByRole("table")).toHaveTextContent("Not available")
     expect(screen.getByRole("region", { name: "Security audit" })).toHaveAttribute("tabindex", "0")
     expect(screen.getByText("<script>unsafe</script>")).toBeInTheDocument()
     expect(

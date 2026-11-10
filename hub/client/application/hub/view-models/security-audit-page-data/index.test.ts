@@ -68,7 +68,7 @@ describe("securityAuditPageData()", () => {
     expect(page.events).toEqual([
       expect.objectContaining({
         action: "unknown.future.action",
-        actor: "No signed-in actor",
+        actor: "Not available",
         context: [],
         outcome: "Not recorded",
       }),
@@ -85,7 +85,7 @@ describe("securityAuditPageData()", () => {
       expect.objectContaining({ action: "admission.failed", outcome: "Failed" }),
       expect.objectContaining({
         action: "session.ended",
-        actor: "No signed-in actor",
+        actor: "Not available",
         context: [
           { label: "Membership", value: "77777777-7777-4777-8777-777777777777" },
           { label: "Target", value: "88888888-8888-4888-8888-888888888888" },

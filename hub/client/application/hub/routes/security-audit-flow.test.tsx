@@ -171,16 +171,21 @@ describe("real security audit frontend integration", () => {
   })
 
   it.each([
-    ["an unsupported query field", "/settings/audit?scope=hub&page=2"],
-    ["repository scope", "/settings/audit?scope=repository"],
-    ["an empty cursor", "/settings/audit?scope=hub&before="],
-    ["repeated cursors", "/settings/audit?scope=hub&before=one&before=two"],
-    ["an oversized cursor", `/settings/audit?scope=hub&before=${"a".repeat(501)}`],
-  ])("shows a 400 error for %s before loading audit data", async (_label, path) => {
+    ["an unsupported query field", "/settings/audit?scope=hub&page=2", null],
+    [
+      "repository scope",
+      "/settings/audit?scope=repository",
+      "Only the Hub-wide security audit is available.",
+    ],
+    ["an empty cursor", "/settings/audit?scope=hub&before=", null],
+    ["repeated cursors", "/settings/audit?scope=hub&before=one&before=two", null],
+    ["an oversized cursor", `/settings/audit?scope=hub&before=${"a".repeat(501)}`, null],
+  ])("shows a 400 error for %s before loading audit data", async (_label, path, message) => {
     const { requests } = await renderApplication(path, [authenticatedSession()])
 
     expect(await screen.findByRole("heading", { name: "Invalid address" })).toBeVisible()
     expect(screen.getByText("400")).toBeVisible()
+    if (message) expect(screen.getByText(message)).toBeVisible()
     expect(requests.some((request) => request.includes("/api/security-audits"))).toBe(false)
   })
 

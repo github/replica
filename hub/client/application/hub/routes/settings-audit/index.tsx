@@ -33,7 +33,7 @@ function readRealAuditCursor(url: URL) {
     throw redirect(`${url.pathname}?${url.searchParams}`)
   }
   if (scopes.length !== 1 || scopes[0] !== "hub") {
-    throw new Response("Only the Hub-wide security audit is available in real mode.", {
+    throw new Response("Only the Hub-wide security audit is available.", {
       status: 400,
     })
   }

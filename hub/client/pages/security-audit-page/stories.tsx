@@ -133,7 +133,7 @@ export const Multiple: Story = {
           id: "22222222-2222-4222-8222-222222222222",
           time: "2026-10-05T19:01:00Z",
           action: "admission.denied",
-          actor: "No signed-in actor",
+          actor: "Not available",
           context: [{ label: "Reason", value: "membership_missing" }],
           outcome: "Denied",
         },
@@ -141,7 +141,7 @@ export const Multiple: Story = {
           id: "11111111-1111-4111-8111-111111111111",
           time: "2026-10-05T19:00:00Z",
           action: "unknown.future.action",
-          actor: "No signed-in actor",
+          actor: "Not available",
           context: [],
           outcome: "Not recorded",
         },
@@ -172,13 +172,15 @@ export const Repository: Story = {
       },
       events: [
         {
-          id: "11111111-1111-4111-8111-111111111111",
-          time: "2026-10-05T19:00:00Z",
-          action: "share_link.create",
+          id: "2",
+          time: "2026-10-30T13:00:00.000Z",
+          action: "analytics-save",
           actor: "octocat",
           context: [
-            { label: "Prototype", value: "Welcome" },
-            { label: "Build", value: "3" },
+            {
+              label: "Details",
+              value: "Review comment and build events enabled for the analytics destination.",
+            },
           ],
           outcome: "Succeeded",
         },
