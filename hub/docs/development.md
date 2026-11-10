@@ -57,7 +57,7 @@ To populate a local index, sign in and find your `userId` in the browser's `/api
 NODE_ENV=development npm run db:seed:index -- USER_UUID
 ```
 
-The command requires an active Hub member and a local development database. It accepts a loopback PostgreSQL URL or the exact devcontainer database URL, and rejects query parameters that override the host, address, port, or service. It creates a sample repository and two prototypes with fixed IDs, so repeated runs are safe. If a sample ID already belongs to different data, the seed stops instead of overwriting it. All active Hub members can currently read every non-removed repository. Repository discovery and per-repository authorization are not connected; do not add real repository data until those controls exist.
+The command requires an active Hub member and a local development database. It accepts a loopback PostgreSQL URL or the exact devcontainer database URL, and rejects query parameters that override the host, address, port, or service. It creates a sample repository and two prototypes with fixed IDs. Running it again restores those samples. All active Hub members can currently read every non-removed repository. Repository discovery and per-repository authorization are not connected; do not add real repository data until those controls exist.
 
 Vite also forwards WebSocket upgrades under `/api`. The `/api/realtime` endpoint rejects connections until application access checks are connected; see [WebSocket updates](websockets.md). Stopping the API closes its WebSocket connections as well.
 
