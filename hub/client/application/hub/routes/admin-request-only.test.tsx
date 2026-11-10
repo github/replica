@@ -103,7 +103,11 @@ describe("Hub administrator request-only flows", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Add administrator" }))
     const dialog = screen.getByRole("dialog", { name: "Add administrator" })
-    fireEvent.click(await within(dialog).findByRole("checkbox", { name: /@mona$/ }))
+    fireEvent.click(
+      await within(dialog).findByRole("checkbox", {
+        name: /Mona, github, membership 2$/,
+      }),
+    )
     fireEvent.click(
       within(dialog).getByRole("checkbox", {
         name: "I confirm adding the selected users as Hub administrators.",
