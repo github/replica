@@ -125,7 +125,7 @@ export function AddHubAdministrators({
           >
             <div>
               {error ? (
-                <>
+                <div className="add-hub-administrators__search-error">
                   <HubAlert variant="warning" title={data.searchFailedLabel} />
                   <Button
                     type="button"
@@ -138,7 +138,7 @@ export function AddHubAdministrators({
                   >
                     {data.retryLabel}
                   </Button>
-                </>
+                </div>
               ) : !results ? (
                 <Text as="p" role="status">
                   {data.loadingLabel}
