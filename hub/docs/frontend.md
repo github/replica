@@ -185,7 +185,7 @@ The session and read-only index rows below describe implemented Express endpoint
 
 | HTTP interface | Result |
 | --- | --- |
-| `GET /api/auth/session` | Current real Hub session and capabilities |
+| `GET /api/auth/session` | Current real Hub session and role |
 | `POST /api/auth/session/sign-out` | End the current real Hub session |
 | Mock `GET /api/session` | Simulated viewer and capabilities |
 | `GET /api/workspace` | Real viewer and non-removed repositories |
@@ -245,7 +245,7 @@ npm run dev:api
 npm run dev
 ```
 
-Run those in separate terminals. Real mode proxies `/api` to Express and never starts MSW or falls back to fixtures. Open `/` for configured GitHub or Entra sign-in, `/admin-enrollment` for administrator enrollment, `/settings/administrators` for administrator management, or `/settings/audit?scope=hub` for Hub-wide security records after restoring an administrator session. Express exposes health, readiness, authentication, existing-user administrator-management, and Hub-wide security-audit routes. Other product routes show explicit API failures until their real endpoints exist.
+Run those in separate terminals. Real mode proxies `/api` to Express and never starts MSW or falls back to fixtures. Open `/` for configured GitHub or Entra sign-in, or `/admin-enrollment` for administrator enrollment. After restoring an administrator session, open `/settings/administrators` for administrator management or `/settings/audit?scope=hub` for Hub-wide security records. Express exposes health, readiness, authentication, administrator-management, and security-audit routes. It also exposes the seeded read-only workspace and repository index. Other product routes show explicit API failures until their real endpoints exist.
 
 The [authentication guide](authentication.md) owns real sign-in, admission, and session behavior. Those routes and the backend's [telemetry](telemetry.md) and [WebSocket](websockets.md) foundations do not change the provisional mock product contracts. WebSocket upgrades are denied until application access checks are supplied. Mock sign-in and review actions remain local simulations.
 

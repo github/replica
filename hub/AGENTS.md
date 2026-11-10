@@ -1,6 +1,6 @@
 # Working on Replica Hub
 
-Hub is being rebuilt in TypeScript. The app starts locally, but its product features are not built yet. Read the [root instructions](../AGENTS.md), [shared guides](../docs/README.md), and [Hub documentation](docs/README.md) before editing.
+Hub is being rebuilt in TypeScript. Read the [root instructions](../AGENTS.md), [shared guides](../docs/README.md), and [Hub documentation](docs/README.md) before editing.
 
 - [Architecture](docs/architecture.md) explains the chosen tools, what works, and what has not been built.
 - [Code architecture conventions](docs/backend-architecture.md) define repositories, integrations, utilities, domains, and allowed imports.
