@@ -134,7 +134,7 @@ The `Prototype canvas` catalogue covers the local extension before and after con
 - **Server Connection** renders the production React controls on their own. Its stories cover discovery results, script selection and startup output. Other stories show pending operations and failures.
 - **Publication Example / No Prototype** places those controls below the creation form in the full canvas. Its stories also cover Hub connection and catalog failures. You can try optional details and template selection, then check that a failed submission retains the draft.
 
-Publication Example keeps publication inputs in its scenario control. Detailed publication failures and eligibility states live in the owning dialog or panel stories instead of repeating the application toolbar. Configure its preview URL with `VITE_STORYBOOK_PROTOTYPE_URL`.
+Publication Example keeps publication inputs in its scenario control. Detailed publication failures and eligibility states live in the owning dialog or panel stories instead of repeating the application toolbar. To start Publication Example with an authorized local preview, from `hub/` run `bin/devcontainer exec env VITE_STORYBOOK_PROTOTYPE_URL='<url>' npm run storybook`.
 
 Canvas recovery stories cover Controls compatibility, configuration, empty, reconnect, reset and diagnosis states; browser address and launch errors; Hub approval, URL save/reset and metadata failures; unavailable Build details and clipboard feedback; comment loading and recovery; and sharing permissions, expiry, validation and uncertain outcomes. Interaction stories perform the real UI action against fixture callbacks and retain the resulting state. Use the theme and viewport controls instead of separate light, dark or narrow copies.
 
