@@ -145,7 +145,7 @@ For a Storage 403 while creating `deployment.lock`, inspect Blob data permission
 
 The wizard names each region and provider lookup before running it. Region discovery uses a read-only ARM request with the selected subscription in both the URL and authentication context; it does not change your Azure CLI default subscription.
 
-If a lookup fails, the error includes its step name, process exit status, and bounded stderr. The private diagnostics file identifies the failed step without recording those error details. To investigate further, replace `SUBSCRIPTION_ID` with the selected subscription and run the matching read-only command in a separate terminal:
+If a lookup fails, the wizard shows its step name and process exit status without displaying stderr. The private diagnostics file identifies the failed step without recording those error details. To investigate further, replace `SUBSCRIPTION_ID` with the selected subscription and run the matching read-only command in a separate terminal:
 
 ```sh
 az rest --method get \
