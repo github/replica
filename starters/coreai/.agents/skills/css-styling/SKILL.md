@@ -247,6 +247,5 @@ Before submitting CSS edits, verify:
 - [ ] Read corresponding `.tsx` file(s) that use this CSS
 - [ ] All colors use Fluent semantic tokens
 - [ ] All spacing uses `--spacing*` variables
-- [ ] Width breakpoints use `@container app (width ...)` not `@media (width ...)`
 - [ ] Component CSS file is named `*.module.css`; any app-level stylesheet edit stays within the foundational-style exception
 - [ ] Classes combined with `clsx` when multiple are needed
