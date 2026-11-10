@@ -167,6 +167,7 @@ export const Repository: Story = {
         ...prototypeWorkspaceData,
         analyticsLabel: "Analytics",
         analyticsPath: "/repositories/2001/analytics",
+        securityAuditPath: "/settings/audit?scope=repository&repositoryId=2001",
         selectedSection: "security",
       },
       events: [
