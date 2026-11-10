@@ -1,14 +1,9 @@
 import "dotenv/config"
 import { z } from "zod"
 
-const databaseUrl = process.env.DATABASE_URL
-const databaseAddress = databaseUrl ? URL.parse(databaseUrl) : null
-if (
-  process.env.NODE_ENV !== "development" ||
-  !databaseAddress ||
-  !["postgres:", "postgresql:"].includes(databaseAddress.protocol) ||
-  !["127.0.0.1", "localhost", "[::1]", "db"].includes(databaseAddress.hostname)
-) {
+import { isLocalDevelopmentDatabase } from "./is-local-development-database/index.ts"
+
+if (!isLocalDevelopmentDatabase(process.env)) {
   throw new Error("The prototype seed requires a local development database.")
 }
 const userId = z.uuid().parse(process.argv[2])
@@ -31,29 +26,45 @@ try {
     ) {
       throw new Error("The sample repository ID is already in use.")
     }
-    await database.prototype.createMany({
-      data: [
-        {
-          id: "00000000-0000-4000-8000-000000000201",
-          repositoryId,
-          authorId: userId,
-          branchName: "prototype/welcome",
-          name: "Welcome",
-          description: "Explore a new welcome page.",
-          registeredAt: new Date(),
-        },
-        {
-          id: "00000000-0000-4000-8000-000000000202",
-          repositoryId,
-          authorId: userId,
-          branchName: "prototype/navigation",
-          name: "Navigation",
-          description: "Explore a different navigation layout.",
-          registeredAt: new Date(),
-        },
-      ],
-      skipDuplicates: true,
-    })
+    const prototypes = [
+      {
+        id: "00000000-0000-4000-8000-000000000201",
+        repositoryId,
+        authorId: userId,
+        branchName: "prototype/welcome",
+        name: "Welcome",
+        description: "Explore a new welcome page.",
+        registeredAt: new Date(),
+      },
+      {
+        id: "00000000-0000-4000-8000-000000000202",
+        repositoryId,
+        authorId: userId,
+        branchName: "prototype/navigation",
+        name: "Navigation",
+        description: "Explore a different navigation layout.",
+        registeredAt: new Date(),
+      },
+    ]
+    for (const prototype of prototypes) {
+      const record = await database.prototype.upsert({
+        where: { id: prototype.id },
+        create: prototype,
+        update: {},
+      })
+      if (
+        record.repositoryId !== repositoryId ||
+        record.branchName !== prototype.branchName ||
+        record.name !== prototype.name ||
+        record.description !== prototype.description ||
+        record.authorId !== userId ||
+        !record.registeredAt ||
+        record.branchDeletedAt ||
+        record.replica
+      ) {
+        throw new Error("A sample prototype ID is already in use.")
+      }
+    }
   })
   console.log("The local prototype index seed is ready.")
 } finally {

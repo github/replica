@@ -44,6 +44,20 @@ CREATE UNIQUE INDEX "prototypes_active_branch_key"
 ON "prototypes"("repository_id", "branch_name")
 WHERE "branch_deleted_at" IS NULL;
 
--- A registered prototype must have a name and cannot be the replica branch.
+-- Keep the database's nonblank check aligned with JavaScript's Unicode trim rules.
 ALTER TABLE "prototypes" ADD CONSTRAINT "prototypes_registration_check"
-CHECK ("registered_at" IS NULL OR ("name" IS NOT NULL AND "name" ~ '[^[:space:]]' AND NOT "replica"));
+CHECK (
+    "registered_at" IS NULL OR (
+        "name" IS NOT NULL
+        AND translate(
+            "name",
+            chr(9) || chr(10) || chr(11) || chr(12) || chr(13) || chr(32) ||
+            chr(160) || chr(5760) || chr(8192) || chr(8193) || chr(8194) ||
+            chr(8195) || chr(8196) || chr(8197) || chr(8198) || chr(8199) ||
+            chr(8200) || chr(8201) || chr(8202) || chr(8232) || chr(8233) ||
+            chr(8239) || chr(8287) || chr(12288) || chr(65279),
+            ''
+        ) <> ''
+        AND NOT "replica"
+    )
+);

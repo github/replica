@@ -37,6 +37,11 @@ export async function findRepositoryIndex(
     }),
     database.prototype.count({ where }),
   ])
+  const currentRepository = await database.repository.findFirst({
+    where: { id: repositoryId, removedAt: null, defaultBranch: repository.defaultBranch },
+    select: { id: true },
+  })
+  if (!currentRepository) return null
   const authors = new Map<
     string,
     { id: string; login: string; name: string | null; provider: string; avatarUrl: null }

@@ -424,6 +424,44 @@ describe("real product index", () => {
     })
   })
 
+  it("does not return an index when the final repository-state check fails", async () => {
+    const removedId = randomUUID()
+    const changedId = randomUUID()
+    await prisma.repository.createMany({
+      data: [
+        { id: removedId, nameWithOwner: "team/removed-after-read", defaultBranch: "main" },
+        { id: changedId, nameWithOwner: "team/changed-after-read", defaultBranch: "main" },
+      ],
+    })
+    await prisma.prototype.create({
+      data: {
+        repositoryId: changedId,
+        branchName: "prototype/default",
+        name: "Default branch",
+        registeredAt: new Date(),
+      },
+    })
+    const findFirst = prisma.repository.findFirst.bind(prisma.repository)
+    let checkCount = 0
+    vi.spyOn(prisma.repository, "findFirst").mockImplementation((args) => {
+      checkCount += 1
+      if (checkCount === 2) {
+        return findFirst({ ...args, where: { ...args?.where, removedAt: { not: null } } })
+      }
+      if (checkCount === 4) {
+        return findFirst({
+          ...args,
+          where: { ...args?.where, defaultBranch: "prototype/default" },
+        })
+      }
+      return findFirst(args)
+    })
+    const product = createProductRouteDependencies()
+
+    expect(await product.findRepositoryIndex(removedId)).toBeNull()
+    expect(await product.findRepositoryIndex(changedId)).toBeNull()
+  })
+
   it("protects active branch and registration invariants while retaining deleted history", async () => {
     const first = new pg.Client({ connectionString: getDatabaseUrl() })
     const second = new pg.Client({ connectionString: getDatabaseUrl() })
@@ -465,6 +503,10 @@ describe("real product index", () => {
       ["prototype/null-name", null, false],
       ["prototype/blank-name", "   ", false],
       ["prototype/whitespace-name", " \t\n ", false],
+      ["prototype/no-break-space", "\u00a0", false],
+      ["prototype/em-space", "\u2003", false],
+      ["prototype/narrow-no-break-space", "\u202f", false],
+      ["prototype/byte-order-mark", "\ufeff", false],
       ["replica/registered", "Replica", true],
     ] as const) {
       await expect(
