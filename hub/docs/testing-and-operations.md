@@ -1,6 +1,6 @@
 # Testing and operations
 
-Follow the [shared testing and review guide](../../docs/testing-and-review.md). Run every Hub Ruby and Node command inside the devcontainer.
+Follow the [shared testing and review guide](../../docs/testing-and-review.md). From `hub/`, run every Hub Ruby and Node command inside the devcontainer.
 
 | Goal                  | Command                                                   |
 | --------------------- | --------------------------------------------------------- |
