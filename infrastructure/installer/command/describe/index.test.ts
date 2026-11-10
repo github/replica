@@ -3,6 +3,18 @@ import { it } from "node:test"
 
 import { describeCommand } from "./index.ts"
 
+it("classifies the PostgreSQL catalogue lookup with a static label and no subscription or region values", () => {
+  assert.deepEqual(describeCommand("az", [
+    "postgres", "flexible-server", "list-skus",
+    "--subscription", "synthetic-private-subscription",
+    "--location", "synthetic-private-region",
+    "--output", "json", "--only-show-errors",
+  ]), {
+    name: "az.postgres.flexible-server.list-skus",
+    label: "Check regional PostgreSQL SKUs and versions",
+  })
+})
+
 for (const [operation, name, label] of [
   ["containerapp revision list", "az.containerapp.revision.list", "Inspect Hub revision activity"],
   [

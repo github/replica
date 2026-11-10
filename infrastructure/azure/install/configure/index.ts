@@ -4,12 +4,15 @@ import { promptForField } from "../../../installer/prompt-for-field/index.ts"
 import type { DeploymentConfig, RunCommand, WizardUI } from "../../../installer/types.ts"
 import { azurePreflight } from "../preflight/index.ts"
 import type { DraftAnswers, WizardSession } from "../../../installer/session/index.ts"
+import { createPostgresAvailability } from "../postgres-availability/index.ts"
+import { guidedPostgresProfile, type PostgresAvailability } from "../profile.ts"
 
 export async function configureAzure(
   ui: WizardUI,
   run: RunCommand,
   existing?: DeploymentConfig,
   session?: WizardSession,
+  availability: PostgresAvailability = createPostgresAvailability(run),
 ): Promise<DeploymentConfig> {
   if (existing) {
     existing = parseConfig(existing)
@@ -42,7 +45,7 @@ export async function configureAzure(
     }
     return (await remember(key, await ui.select(label, options)))!
   }
-  const field = async (key: "name" | "owner" | "resourceGroup" | "npmRegistry", initial?: string) =>
+  const field = async (key: "name" | "owner" | "npmRegistry", initial?: string) =>
     session?.draft?.answers[key] ?? (await remember(key, await promptForField(ui, key, initial)))!
   const discover = async (label: string, args: string[]) => {
     while (true) {
@@ -168,6 +171,45 @@ export async function configureAzure(
   }
   if (!supported.length)
     throw new Error("No region advertises every required Azure service in this subscription.")
+  if (!existing) {
+    while (true) {
+      ui.status(
+        `Checking regional support for PostgreSQL ${guidedPostgresProfile.postgres_sku}, version ${guidedPostgresProfile.postgres_version}. Advertised support does not reserve capacity.`,
+      )
+      const results = await Promise.allSettled(
+        supported.map(({ name }) => availability(subscriptionId, name, guidedPostgresProfile)),
+      )
+      const failures = results.filter((result) => result.status === "rejected")
+      for (const failure of failures) {
+        const error: unknown = failure.reason
+        if (
+          (error instanceof CommandExecutionError && error.aborted) ||
+          (error instanceof Error && error.name === "AbortError")
+        )
+          throw error
+      }
+      const failure =
+        failures.find((failure) => !(failure.reason instanceof CommandExecutionError)) ??
+        failures[0]
+      if (failure) {
+        const error: unknown = failure.reason
+        if (!(error instanceof CommandExecutionError) || error.aborted) throw error
+        await ui.wait(
+          "Regional PostgreSQL compatibility could not be verified. Check Azure access, connectivity, and Azure CLI support for postgres flexible-server list-skus, then continue to retry the read-only checks. Failed lookups are not treated as compatible or unavailable.",
+        )
+        continue
+      }
+      supported = supported.filter((_, index) => {
+        const result = results[index]
+        return result?.status === "fulfilled" && result.value
+      })
+      break
+    }
+    if (!supported.length)
+      throw new Error(
+        `No region advertises all required services and PostgreSQL ${guidedPostgresProfile.postgres_sku}, version ${guidedPostgresProfile.postgres_version}, for this subscription.`,
+      )
+  }
   const location = await choose(
     "location",
     "Azure region",
@@ -190,7 +232,8 @@ export async function configureAzure(
   const owner = existing ? (await remember("owner", existing.owner))! : await field("owner")
   const resourceGroup = existing
     ? (await remember("resourceGroup", existing.azure.resourceGroup))!
-    : await field("resourceGroup", `${name}-hub`)
+    : (session?.draft?.answers.resourceGroup ?? (await remember("resourceGroup", `${name}-hub`))!)
+  ui.status(`Application resource group: ${resourceGroup}`)
   ui.status(
     "Terraform state uses Azure sign-in and Blob data permissions, without an IP allowlist. Shared-key and anonymous blob access remain disabled.",
   )

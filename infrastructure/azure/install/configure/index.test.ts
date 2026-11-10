@@ -3,6 +3,7 @@ import { expect, it, vi } from "vitest"
 import { CommandExecutionError } from "../../../installer/command/index.ts"
 import type { DraftAnswers, WizardSession } from "../../../installer/session/index.ts"
 import type { DeploymentConfig, RunCommand, WizardUI } from "../../../installer/types.ts"
+import { guidedPostgresProfile, type PostgresAvailability } from "../profile.ts"
 import { configureAzure } from "./index.ts"
 
 function setup(subscriptionId = "00000000-0000-0000-0000-000000000001") {
@@ -37,7 +38,7 @@ function setup(subscriptionId = "00000000-0000-0000-0000-000000000001") {
       state: "Disabled",
     },
   ]
-  const answers = ["test-hub", "test-team", "test-hub-rg"]
+  const answers = ["test-hub", "test-team"]
   const locations = [{ name: "eastus2", displayName: "East US 2" }]
   const providers = new Map([
     ["Microsoft.App", { resourceType: "managedEnvironments", locations: ["East US 2"] }],
@@ -63,6 +64,15 @@ function setup(subscriptionId = "00000000-0000-0000-0000-000000000001") {
     if (executable === "docker" || args.includes("--help")) return ""
     if (args[0] === "version") return "{}"
     if (args[0] === "account" && args[1] === "list") return JSON.stringify(accounts)
+    if (args.slice(0, 3).join(" ") === "postgres flexible-server list-skus")
+      return JSON.stringify([{
+        status: null, reason: null, restricted: null,
+        supportedServerVersions: [{ name: "17", status: null, reason: null }],
+        supportedServerEditions: [{
+          name: "Burstable", status: null, reason: null,
+          supportedServerSkus: [{ name: "Standard_B1ms", status: null, reason: null }],
+        }],
+      }])
     if (
       args[0] === "rest" &&
       args[args.indexOf("--method") + 1]?.toLowerCase() === "get" &&
@@ -95,7 +105,8 @@ it("selects a tenant and scopes discovery to its chosen non-default subscription
     return options[0]!.value
   })
 
-  const config = await configureAzure(ui, run)
+  const session = savedSession({})
+  const config = await configureAzure(ui, run, undefined, session)
 
   const selections = vi.mocked(ui.select).mock.calls
   expect(selections[0]![0]).toBe("Azure tenant")
@@ -103,7 +114,13 @@ it("selects a tenant and scopes discovery to its chosen non-default subscription
   expect(selections[0]![1][1]!.label).toContain("Production directory")
   expect(selections[1]![0]).toBe("Azure subscription")
   expect(selections[1]![1].map(({ value }) => value)).toEqual([accounts[1]!.id, subscription])
-  expect(config.azure).toMatchObject({ tenantId: tenant, subscriptionId: subscription })
+  expect(config.azure).toMatchObject({
+    tenantId: tenant,
+    subscriptionId: subscription,
+    resourceGroup: "test-hub-hub",
+  })
+  expect(ui.text).toHaveBeenCalledTimes(2)
+  expect(session.answer).toHaveBeenCalledWith("resourceGroup", "test-hub-hub")
   const discovery = run.mock.calls.filter(
     ([, args]) => args[0] === "rest" || args[0] === "provider",
   )
@@ -126,8 +143,6 @@ it("corrects only the invalid field immediately while retaining the selected Azu
     "test-hub",
     "",
     "test-team",
-    "bad/group",
-    "test-hub-rg",
   )
   const helpCounts: number[] = []
   const text = ui.text
@@ -147,22 +162,20 @@ it("corrects only the invalid field immediately while retaining the selected Azu
       tenantId: accounts[0]!.tenantId,
       subscriptionId: accounts[0]!.id,
       location: "eastus2",
-      resourceGroup: "test-hub-rg",
+      resourceGroup: "test-hub-hub",
     },
   })
   const prompts = vi.mocked(ui.text).mock.calls
-  expect(prompts).toHaveLength(6)
+  expect(prompts).toHaveLength(4)
   for (const [invalid, retry] of [
     [0, 1],
     [2, 3],
-    [4, 5],
   ] as const) {
     expect(prompts[retry]![0]).toBe(prompts[invalid]![0])
     expect(helpCounts[retry]).toBeGreaterThan(helpCounts[invalid]!)
   }
-  expect(new Set(prompts.map(([message]) => message)).size).toBe(3)
+  expect(new Set(prompts.map(([message]) => message)).size).toBe(2)
   expect(prompts[1]![1]).toBe("Bad name")
-  expect(prompts[5]![1]).toBe("bad/group")
   expect(ui.select).toHaveBeenCalledTimes(3)
   expect(
     run.mock.calls.filter(([, args]) => args[0] === "account" && args[1] === "list"),
@@ -182,9 +195,9 @@ it("corrects a credential-bearing npm registry without exposing or prefilling th
 
   expect(config.npmRegistry).toBe("https://packages.example/npm/")
   const prompts = vi.mocked(ui.text).mock.calls
-  expect(prompts).toHaveLength(5)
-  expect(prompts[4]![0]).toBe(prompts[3]![0])
-  expect(prompts[4]![1] ?? "").toBe("")
+  expect(prompts).toHaveLength(4)
+  expect(prompts[3]![0]).toBe(prompts[2]![0])
+  expect(prompts[3]![1] ?? "").toBe("")
   expect(ui.confirm).toHaveBeenCalledOnce()
   expect(ui.select).toHaveBeenCalledTimes(3)
   const visible = JSON.stringify({
@@ -198,7 +211,7 @@ it("corrects a credential-bearing npm registry without exposing or prefilling th
   expect(run.mock.calls.some(([, args]) => args.includes(rejected))).toBe(false)
 })
 
-it.each(["rest", "provider"] as const)(
+it.each(["rest", "provider", "postgres"] as const)(
   "retries a failed read-only %s lookup without asking for the selected tenant or subscription again",
   async (operation) => {
     const subscriptionId = "00000000-0000-0000-0000-000000000003"
@@ -224,12 +237,12 @@ it.each(["rest", "provider"] as const)(
     expect(ui.wait).toHaveBeenCalledOnce()
     expect(ui.select).toHaveBeenCalledTimes(3)
     const queries = flakyRun.mock.calls.filter(
-      ([, args]) => args[0] === "rest" || args[0] === "provider",
+      ([, args]) => ["rest", "provider", "postgres"].includes(args[0]!),
     )
     for (const [, args] of queries)
       expect(args[args.indexOf("--subscription") + 1]).toBe(subscriptionId)
     expect(queries.filter(([, args]) => args[0] === operation).length).toBeGreaterThan(
-      operation === "rest" ? 1 : 4,
+      operation === "provider" ? 4 : 1,
     )
     expect(flakyRun.mock.calls.some(([, args]) => args[0] === "account" && args[1] === "set")).toBe(
       false,
@@ -306,7 +319,7 @@ it("does not turn malformed discovery data into a retry loop", async () => {
   expect(malformedRun.mock.calls.filter(([, args]) => args[0] === "rest")).toHaveLength(1)
 })
 
-it("offers only regions advertised by all four required Azure providers", async () => {
+it("offers only regions matching the guided PostgreSQL profile and all four provider filters", async () => {
   const { locations, providers, ui, run } = setup()
   const unavailable = [
     { name: "westus2", displayName: "West US 2", provider: "Microsoft.App" },
@@ -321,14 +334,23 @@ it("offers only regions advertised by all four required Azure providers", async 
         .filter((region) => region.provider !== namespace)
         .map(({ displayName }) => displayName),
     )
+  locations.push({ name: "southcentralus", displayName: "South Central US" })
+  for (const provider of providers.values()) provider.locations.push("South Central US")
+  const availability = vi.fn<PostgresAvailability>(async (_subscription, location) =>
+    location === "eastus2",
+  )
 
-  const config = await configureAzure(ui, run)
+  const config = await configureAzure(ui, run, undefined, undefined, availability)
 
   const regions = vi
     .mocked(ui.select)
     .mock.calls.find(([message]) => message === "Azure region")![1]
   expect(regions.map(({ value }) => value)).toEqual(["eastus2"])
   expect(config.azure.location).toBe("eastus2")
+  expect(availability.mock.calls).toEqual([
+    ["00000000-0000-0000-0000-000000000001", "eastus2", guidedPostgresProfile],
+    ["00000000-0000-0000-0000-000000000001", "southcentralus", guidedPostgresProfile],
+  ])
 })
 
 it("rechecks the fixed saved target without offering editable target or identity prompts", async () => {
@@ -346,7 +368,8 @@ it("rechecks the fixed saved target without offering editable target or identity
     },
   }
 
-  const config = await configureAzure(ui, run, existing)
+  const availability = vi.fn<PostgresAvailability>(async () => false)
+  const config = await configureAzure(ui, run, existing, undefined, availability)
 
   expect(ui.select).not.toHaveBeenCalled()
   expect(ui.text).not.toHaveBeenCalled()
@@ -356,6 +379,98 @@ it("rechecks the fixed saved target without offering editable target or identity
   for (const [, args] of discovery)
     expect(args[args.indexOf("--subscription") + 1]).toBe(existing.azure.subscriptionId)
   expect(config).toEqual(existing)
+  expect(availability).not.toHaveBeenCalled()
+})
+
+it("stops before offering a region when no candidate advertises the guided profile", async () => {
+  const { ui, run } = setup()
+  const availability = vi.fn<PostgresAvailability>(async () => false)
+
+  await expect(configureAzure(ui, run, undefined, undefined, availability))
+    .rejects.toThrow(/no region/i)
+
+  expect(vi.mocked(ui.select).mock.calls.map(([message]) => message))
+    .toEqual(["Azure tenant", "Azure subscription"])
+  expect(ui.text).not.toHaveBeenCalled()
+  expect(ui.wait).not.toHaveBeenCalled()
+})
+
+it.each([
+  new CommandExecutionError("Synthetic cancellation", true),
+  new DOMException("Synthetic abort", "AbortError"),
+  new Error("Synthetic unknown catalogue schema"),
+])("propagates unknown or cancelled SKU checks without treating them as unsupported: %s", async (failure) => {
+  const { ui, run } = setup()
+  const availability = vi.fn<PostgresAvailability>(async () => { throw failure })
+
+  await expect(configureAzure(ui, run, undefined, undefined, availability)).rejects.toBe(failure)
+
+  expect(availability).toHaveBeenCalledOnce()
+  expect(ui.wait).not.toHaveBeenCalled()
+  expect(ui.text).not.toHaveBeenCalled()
+  expect(vi.mocked(ui.select).mock.calls.some(([message]) => message === "Azure region")).toBe(false)
+})
+
+it("settles every regional check before asking once to retry a read-only failure", async () => {
+  const { locations, providers, ui, run } = setup()
+  locations.push({ name: "westus2", displayName: "West US 2" })
+  for (const provider of providers.values()) provider.locations.push("West US 2")
+  const slow = Promise.withResolvers<boolean>()
+  const started = Promise.withResolvers<void>()
+  let attempts = 0
+  const availability = vi.fn<PostgresAvailability>(async (_subscription, location) => {
+    if (location === "eastus2" && attempts++ === 0)
+      throw new CommandExecutionError("Synthetic catalogue query failed")
+    if (location === "westus2" && attempts === 1) {
+      started.resolve()
+      return slow.promise
+    }
+    return true
+  })
+  ui.wait = vi.fn(async () => undefined)
+  const configuring = configureAzure(ui, run, undefined, undefined, availability)
+  await started.promise
+  expect(ui.wait).not.toHaveBeenCalled()
+  slow.resolve(true)
+
+  await expect(configuring).resolves.toMatchObject({ azure: { location: "eastus2" } })
+  expect(ui.wait).toHaveBeenCalledOnce()
+  expect(availability).toHaveBeenCalledTimes(4)
+  expect(vi.mocked(ui.select).mock.calls.map(([message]) => message))
+    .toEqual(["Azure tenant", "Azure subscription", "Azure region"])
+})
+
+it.each([
+  new DOMException("Synthetic regional check aborted", "AbortError"),
+  new Error("Synthetic unknown catalogue schema"),
+])("propagates a non-retryable region failure before an earlier retryable command failure: %s", async (failure) => {
+  const { locations, providers, ui, run } = setup()
+  locations.push({ name: "westus2", displayName: "West US 2" })
+  for (const provider of providers.values()) provider.locations.push("West US 2")
+  const availability = vi.fn<PostgresAvailability>(async (_subscription, location) => {
+    if (location === "eastus2") throw new CommandExecutionError("Synthetic read-only failure")
+    throw failure
+  })
+
+  await expect(configureAzure(ui, run, undefined, undefined, availability)).rejects.toBe(failure)
+
+  expect(ui.wait).not.toHaveBeenCalled()
+  expect(ui.text).not.toHaveBeenCalled()
+})
+
+it("propagates cancellation from the SKU retry prompt without issuing another lookup", async () => {
+  const { ui, run } = setup()
+  const cancelled = new Error("Synthetic retry cancelled")
+  const availability = vi.fn<PostgresAvailability>(async () => {
+    throw new CommandExecutionError("Synthetic catalogue query failed")
+  })
+  ui.wait = vi.fn(async () => { throw cancelled })
+
+  await expect(configureAzure(ui, run, undefined, undefined, availability)).rejects.toBe(cancelled)
+
+  expect(ui.wait).toHaveBeenCalledOnce()
+  expect(availability).toHaveBeenCalledOnce()
+  expect(ui.text).not.toHaveBeenCalled()
 })
 
 function savedConfig(): DeploymentConfig {
@@ -387,6 +502,23 @@ function savedSession(answers: DraftAnswers): WizardSession {
     restart: vi.fn(), complete: vi.fn(), close: vi.fn(),
   }
 }
+
+it("preserves a previously accepted custom resource group when resuming without asking for it", async () => {
+  const { ui, run } = setup()
+  const session = savedSession({
+    name: "test-hub",
+    owner: "test-team",
+    resourceGroup: "previously-chosen-group",
+    useProxy: false,
+  })
+
+  const config = await configureAzure(ui, run, undefined, session)
+
+  expect(config.azure.resourceGroup).toBe("previously-chosen-group")
+  expect(ui.text).not.toHaveBeenCalled()
+  expect(ui.confirm).not.toHaveBeenCalled()
+  expect(session.draft?.answers.resourceGroup).toBe("previously-chosen-group")
+})
 
 it("refuses lost access to a saved subscription without offering another target or rewriting answers", async () => {
   const { accounts, ui, run } = setup()

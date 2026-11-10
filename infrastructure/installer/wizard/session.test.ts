@@ -11,6 +11,17 @@ import { runWizard } from "./index.ts"
 const directories: string[] = []
 const sessions: Awaited<ReturnType<typeof openSession>>[] = []
 
+function postgresCatalogue() {
+  return JSON.stringify([{
+    status: null, reason: null, restricted: null,
+    supportedServerVersions: [{ name: "17", status: null, reason: null }],
+    supportedServerEditions: [{
+      name: "Burstable", status: null, reason: null,
+      supportedServerSkus: [{ name: "Standard_B1ms", status: null, reason: null }],
+    }],
+  }])
+}
+
 function savedConfiguration(): DeploymentConfig {
   return {
     version: 1, cloud: "azure", name: "team-hub", owner: "platform-team",
@@ -39,12 +50,13 @@ afterEach(async () => {
   )
 })
 
-it("resumes accepted answers after failure, rechecks Azure choices, and completes configuration without cloud mutation", async () => {
+it("rechecks SKU support on resume and reselects an incompatible draft region without losing independent answers", async () => {
   const { directory, path, session } = await target()
   const tenantId = "00000000-0000-0000-0000-000000000001"
   const subscriptionId = "00000000-0000-0000-0000-000000000002"
   const interrupted = new Error("Synthetic questionnaire interruption")
-  let region = { name: "eastus2", displayName: "East US 2" }
+  const regions = [{ name: "eastus2", displayName: "East US 2" }]
+  let supportedLocation = "eastus2"
   let activeSession = session
   const completedPhases: WizardPhase[] = []
   const prerequisitePhases: (WizardPhase | undefined)[] = []
@@ -52,14 +64,13 @@ it("resumes accepted answers after failure, rechecks Azure choices, and complete
   const first: WizardUI = {
     cloud: vi.fn(async () => "azure" as const),
     field: vi.fn(async (field) => {
-      if (field.id === "resourceGroup") throw interrupted
       return field.parse(field.id === "name" ? "team-hub" : "platform-team")
     }),
     text: vi.fn(async () => {
       throw new Error("Unexpected legacy text prompt")
     }),
     select: vi.fn<WizardUI["select"]>(async (_message, options) => options[0]!.value),
-    confirm: vi.fn(async () => false),
+    confirm: vi.fn(async () => { throw interrupted }),
     wait: vi.fn(async (message) => {
       throw new Error(message)
     }),
@@ -84,6 +95,8 @@ it("resumes accepted answers after failure, rechecks Azure choices, and complete
     if (executable !== "az") throw new Error(`Unexpected executable ${executable}`)
     if (args[0] === "version") return "{}"
     if (args.includes("--help")) return ""
+    if (args.slice(0, 3).join(" ") === "postgres flexible-server list-skus")
+      return args[args.indexOf("--location") + 1] === supportedLocation ? postgresCatalogue() : "[]"
     if (args[0] === "account" && args[1] === "list") {
       return JSON.stringify([
         {
@@ -96,12 +109,12 @@ it("resumes accepted answers after failure, rechecks Azure choices, and complete
     }
     if (args[0] === "rest" && args[args.indexOf("--method") + 1]?.toLowerCase() === "get") {
       expect(args[args.indexOf("--subscription") + 1]).toBe(subscriptionId)
-      return JSON.stringify([region])
+      return JSON.stringify(regions)
     }
     if (args[0] === "provider" && args[1] === "show") {
       return JSON.stringify({
         resourceTypes: ["managedEnvironments", "flexibleServers", "registries", "vaults"].map(
-          (resourceType) => ({ resourceType, locations: [region.displayName] }),
+          (resourceType) => ({ resourceType, locations: regions.map(({ displayName }) => displayName) }),
         ),
       })
     }
@@ -120,12 +133,14 @@ it("resumes accepted answers after failure, rechecks Azure choices, and complete
     location: "eastus2",
     name: "team-hub",
     owner: "platform-team",
+    resourceGroup: "team-hub-hub",
   })
   await expect(readFile(path, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
   await session.close()
   activeSession = await openSession(path)
   sessions.push(activeSession)
-  region = { name: "westus2", displayName: "West US 2" }
+  regions.push({ name: "westus2", displayName: "West US 2" })
+  supportedLocation = "westus2"
   completedPhases.length = 0
   prerequisitePhases.length = 0
   checkpointPhases.length = 0
@@ -134,10 +149,8 @@ it("resumes accepted answers after failure, rechecks Azure choices, and complete
     ...first,
     welcome: vi.fn(),
     cloud: vi.fn(async () => "azure" as const),
-    field: vi.fn(async (field) => {
-      expect(field.id).toBe("resourceGroup")
-      return field.parse("team-hub-rg")
-    }),
+    field: vi.fn(async () => { throw new Error("Saved fields must not be asked again") }),
+    confirm: vi.fn(async () => false),
     select: vi.fn<WizardUI["select"]>(async (_message, options) => {
       expect(options.map(({ value }) => value)).toEqual(["westus2"])
       return "westus2"
@@ -157,17 +170,19 @@ it("resumes accepted answers after failure, rechecks Azure choices, and complete
   expect(resumed.welcome).not.toHaveBeenCalled()
   expect(prerequisitePhases).toEqual(["checks"])
   expect(checkpointPhases).toEqual(["checks"])
-  expect(resumed.field).toHaveBeenCalledOnce()
+  expect(resumed.field).not.toHaveBeenCalled()
   expect(resumed.select).toHaveBeenCalledOnce()
   expect(run.mock.calls.some(([, args]) => args[0] === "account" && args[1] === "list")).toBe(true)
   expect(run.mock.calls.some(([, args]) => args[0] === "rest")).toBe(true)
   expect(run.mock.calls.filter(([, args]) => args[0] === "provider")).toHaveLength(4)
+  expect(run.mock.calls.filter(([, args]) => args[0] === "postgres").map(([, args]) =>
+    args[args.indexOf("--location") + 1])).toEqual(["eastus2", "westus2"])
   expect(JSON.parse(await readFile(path, "utf8"))).toEqual({
     version: 1,
     cloud: "azure",
     name: "team-hub",
     owner: "platform-team",
-    azure: { tenantId, subscriptionId, location: "westus2", resourceGroup: "team-hub-rg" },
+    azure: { tenantId, subscriptionId, location: "westus2", resourceGroup: "team-hub-hub" },
   })
   await expect(readFile(activeSession.path, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
 })
@@ -207,6 +222,8 @@ it("warns and obtains fresh deployment consent after interruption without a sepa
       return ""
     if (executable === "az") {
       if (args[0] === "version" || args.includes("--help")) return "{}"
+      if (args.slice(0, 3).join(" ") === "postgres flexible-server list-skus")
+        return postgresCatalogue()
       if (args[0] === "account" && args[1] === "list") {
         events.push("checks")
         return JSON.stringify([{

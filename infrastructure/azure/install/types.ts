@@ -12,6 +12,7 @@ export interface AzureInstallation {
   ui: InstallerUI
   env: NodeJS.ProcessEnv
   approval?: DeploymentApproval
+  signal?: AbortSignal
   azure(...args: string[]): Promise<string>
   saveNpmRegistry?(registry: string): Promise<void>
 }

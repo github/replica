@@ -17,6 +17,9 @@ import type { AzureInstallation, DeploymentResult, Foundation, Installation } fr
 import { openInstallationWorkspace } from "./workspace/index.ts"
 import { readInstallationInputs } from "./inputs/index.ts"
 import { approveDeployment } from "./approval/index.ts"
+import { retryableProvisioningFailure } from "./retryable-provisioning-failure/index.ts"
+import { createPostgresAvailability } from "./postgres-availability/index.ts"
+import { guidedPostgresProfile, type PostgresAvailability } from "./profile.ts"
 import {
   privateDirectory,
   privateFile,
@@ -30,18 +33,37 @@ export async function installAzure(
     run,
     ui,
     saveNpmRegistry,
+    signal,
+    availability,
   }: {
     directory: string
     run: RunCommand
     ui: InstallerUI
     saveNpmRegistry?(registry: string): Promise<void>
+    signal?: AbortSignal
+    availability?: PostgresAvailability
   },
 ): Promise<DeploymentResult> {
+  signal?.throwIfAborted()
+  const execute: RunCommand = signal
+    ? (executable, args, options) => {
+        signal.throwIfAborted()
+        return run(executable, args, { ...options, signal })
+      }
+    : run
   const config = parseConfig(input)
-  await verifyAzureTarget(config, run)
+  await verifyAzureTarget(config, execute)
   const workspace = await openInstallationWorkspace(config, directory)
   try {
-    return await install(config, { directory: workspace.directory, run, ui, saveNpmRegistry })
+    signal?.throwIfAborted()
+    return await install(config, {
+      directory: workspace.directory,
+      run: execute,
+      ui,
+      saveNpmRegistry,
+      signal,
+      availability,
+    })
   } finally {
     await workspace.close()
   }
@@ -54,14 +76,33 @@ async function install(
     run,
     ui,
     saveNpmRegistry,
+    signal,
+    availability = createPostgresAvailability(run),
   }: {
     directory: string
     run: RunCommand
     ui: InstallerUI
     saveNpmRegistry?(registry: string): Promise<void>
+    signal?: AbortSignal
+    availability?: PostgresAvailability
   },
 ): Promise<DeploymentResult> {
   const operatorInputs = await readInstallationInputs(directory, config)
+  const postgres = {
+    postgres_sku: operatorInputs.postgres_sku ?? guidedPostgresProfile.postgres_sku,
+    postgres_version: operatorInputs.postgres_version ?? guidedPostgresProfile.postgres_version,
+  }
+  ui.status(`Checking PostgreSQL SKU/version support in ${config.azure.location}.`)
+  const compatible = await availability(
+    config.azure.subscriptionId,
+    config.azure.location,
+    postgres,
+  )
+  signal?.throwIfAborted()
+  if (!compatible)
+    throw new Error(
+      `The configured region does not advertise PostgreSQL ${postgres.postgres_sku}, version ${postgres.postgres_version}. The target was not changed; review deployment settings or create a separate installation in another region.`,
+    )
   for (const file of [
     "foundation.tfvars.json",
     "provision.tfvars.json",
@@ -89,6 +130,7 @@ async function install(
     ui,
     env,
     saveNpmRegistry,
+    signal,
     azure: (...args) =>
       run("az", [
         ...args,
@@ -102,7 +144,8 @@ async function install(
   const { azure } = context
   const names = installationNames(config)
   await ui.phase?.("review")
-  context.approval = await approveDeployment(context)
+  context.approval = await approveDeployment(context, postgres)
+  signal?.throwIfAborted()
   await ui.phase?.("provision")
   for (const namespace of [
     "Microsoft.App",
@@ -148,6 +191,8 @@ async function install(
         ui,
         env: environment,
         preapproved: true,
+        retryApply: retryableProvisioningFailure,
+        signal,
       })
     await verifyInstallationGroup(context, names.foundationGroup)
     await verifyInstallationGroup(context, config.azure.resourceGroup)
@@ -197,6 +242,7 @@ async function install(
     const appCreated = appState.includes("azurerm_container_app.hub[0]")
     const variables = join(directory, "installation.tfvars.json")
     const inputs = {
+      ...postgres,
       subscription_id: config.azure.subscriptionId,
       name: config.name,
       owner: config.owner,

@@ -2,12 +2,12 @@ import { resolve } from "node:path"
 
 import { installationNames } from "../settings.ts"
 import type { AzureInstallation, DeploymentApproval } from "../types.ts"
+import { guidedPostgresProfile, type PostgresProfile } from "../profile.ts"
 
-export async function approveDeployment({
-  config,
-  run,
-  ui,
-}: Pick<AzureInstallation, "config" | "run" | "ui">): Promise<DeploymentApproval> {
+export async function approveDeployment(
+  { config, run, ui }: Pick<AzureInstallation, "config" | "run" | "ui">,
+  postgres: PostgresProfile = guidedPostgresProfile,
+): Promise<DeploymentApproval> {
   const repository = resolve(import.meta.dirname, "../../../..")
   const sourceRevision = await run("git", ["rev-parse", "HEAD"], { cwd: repository })
   const sourceStatus = await run("git", ["status", "--porcelain", "--untracked-files=normal"], {
@@ -29,7 +29,7 @@ export async function approveDeployment({
     `- Foundation: resource group ${names.foundationGroup}, registry ${names.registry}, and Key Vault ${names.vault}.`,
     `- Hub resource group: ${config.azure.resourceGroup}.`,
     "- Networking: virtual network, delegated subnets, and private PostgreSQL DNS.",
-    `- Database: managed PostgreSQL ${config.name}-postgres, the replica database, and backups.`,
+    `- Database: managed PostgreSQL ${config.name}-postgres (${postgres.postgres_sku}, version ${postgres.postgres_version}), the replica database, and backups.`,
     "- Storage: private artifact and release containers, versioning, and soft deletion.",
     "- Compute and logs: Container Apps environment, Hub app, setup job, and Log Analytics.",
     "- Access: separate workload identities and scoped deployment/workload grants for state, Blob, registry, and Key Vault.",
@@ -41,7 +41,8 @@ export async function approveDeployment({
     "State storage uses a public network endpoint with Azure authentication and Blob data permissions. Shared-key and anonymous access remain disabled.",
     "Release stops old Hub revisions, runs database migrations and schedule setup, and deploys the new image.",
     "Safe Terraform plans are displayed and applied without another routine confirmation. Persistent-resource deletion and replacement remain blocked.",
-    "Unexpected failures, retained-lock recovery, and changes to existing network restrictions still require review.",
+    "A recognized infrastructure provisioning failure may receive one fresh-plan retry after 15 seconds, with unchanged inputs, configuration, and resource scope. The SKU and permissions are not changed.",
+    "Other or repeated failures, retained-lock recovery, and changes to existing network restrictions still require review.",
     "This is not a high-availability deployment. Sign-in requires manual configuration; readiness does not verify authorization.",
     "",
     "Agree and continue with this deployment?",

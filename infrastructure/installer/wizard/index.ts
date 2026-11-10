@@ -4,6 +4,7 @@ import { installAzure } from "../../azure/install/index.ts"
 import type { DeploymentConfig, RunCommand, WizardUI } from "../types.ts"
 import type { WizardSession } from "../session/index.ts"
 import { formatDeploymentSummary } from "../deployment-summary/index.ts"
+import { createPostgresAvailability } from "../../azure/install/postgres-availability/index.ts"
 
 export async function runWizard({
   ui,
@@ -14,6 +15,7 @@ export async function runWizard({
   configureOnly = false,
   session: originalSession,
   entryAction = originalSession?.draft ? "resume" : existing ? "update" : "create",
+  signal,
 }: {
   ui: WizardUI
   run: RunCommand
@@ -23,7 +25,9 @@ export async function runWizard({
   configureOnly?: boolean
   session?: WizardSession
   entryAction?: "create" | "update" | "resume"
+  signal?: AbortSignal
 }): Promise<string> {
+  signal?.throwIfAborted()
   if (existing) existing = parseConfig(existing)
   if (originalSession?.problem) throw new Error(originalSession.problem)
   if (existing) assertDraftMatchesConfig(existing, originalSession?.draft)
@@ -91,7 +95,9 @@ export async function runWizard({
   const cloud = existing?.cloud ?? session?.draft?.answers.cloud ?? (await ui.cloud())
   if (cloud !== "azure") throw new Error("This cloud is not available yet.")
   await session?.answer("cloud", cloud)
-  const config = await configureAzure(ui, run, existing, session)
+  const availability = createPostgresAvailability(run)
+  const config = await configureAzure(ui, run, existing, session, availability)
+  signal?.throwIfAborted()
   if (
     existing &&
     (existing.name !== config.name ||
@@ -124,6 +130,8 @@ export async function runWizard({
     directory,
     run,
     ui,
+    availability,
+    ...(signal && { signal }),
     async saveNpmRegistry(registry) {
       await session?.answer("useProxy", true)
       await session?.answer("npmRegistry", registry)

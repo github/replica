@@ -6,6 +6,7 @@ import { acquireLease } from "../lease/index.ts"
 import type { installationSecrets } from "../secrets/index.ts"
 import type { AzureInstallation, Foundation, Installation } from "../types.ts"
 import { writePrivateFile } from "../../../installer/private-files/index.ts"
+import { retryableProvisioningFailure } from "../retryable-provisioning-failure/index.ts"
 
 export async function provisionDatabase(
   context: AzureInstallation,
@@ -23,6 +24,8 @@ export async function provisionDatabase(
     ui,
     env,
     preapproved: context.approval !== undefined,
+    retryApply: retryableProvisioningFailure,
+    signal: context.signal,
   })
   await module.init(backend)
   const complete = await secrets.provisioned()

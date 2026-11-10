@@ -63,6 +63,8 @@ Provide an inline fallback for limited terminals and screen-reader use, with an 
 
 Own cleanup in one entry-point lifecycle boundary. On cancellation and catchable failures, request command cancellation through the existing abort controller. Stop timers, finish owned-command cleanup, unmount the renderer, and await terminal restoration before printing the final result or recovery summary to the normal shell. Include the draft path and retained-lock guidance when relevant. Do not rely on teardown-time Ink output surviving alternate-screen exit.
 
+Pass the run's cancellation signal through preflight, compatibility checks, source publication, Azure commands, and Terraform, not just the retry delay. An already-cancelled installation must stop before commands or workspace writes. Cancellation during an awaited lookup must stop before deployment approval or cloud mutations.
+
 Show the entry action menu before opening diagnostics or an interactive writer. Discovery checks existing private files without creating directories, changing permissions, acquiring local locks, recovering stale writers, or running prerequisite commands. **Exit and do nothing** must restore the terminal successfully with no local writes or Azure calls. Keep welcome art above this menu until the first answer; later questions must not restart it.
 
 A failure summary may preserve a relevant warning or error, but must not repeat an earlier success or informational notice as the explanation for a later failure. Print an identical failure and notice only once.
@@ -110,6 +112,12 @@ Treat `onChange` as a value notification, not proof of a new keystroke. Ignore n
 
 Keep read-only remote checks separate from local syntax validation. Do not call Azure on every keystroke. Run a remote check at a deliberate boundary and show its pending state and result next to the relevant interaction.
 
+For new Azure configurations, intersect the existing four-provider region list with advertised support for the guided PostgreSQL SKU and major version. Share one run-scoped capability cache between configuration and pre-deployment checks, and limit regional lookups to four concurrent calls. A failed or malformed lookup must not silently become an unavailable or compatible result. Collect concurrent failures before offering one recovery prompt rather than asking multiple questions at once.
+
+Saved installation regions remain fixed. Check retained PostgreSQL overrides before deployment instead of rejecting an existing installation against the new-installation defaults. Show the checked SKU/version in the review and write those same values into Terraform inputs. Catalogue membership does not reserve capacity; unsupported settings or later allocation failures must not trigger automatic region changes, state deletion, or resource migration.
+
+For new Azure configurations, derive the app resource group from the accepted installation name with the `-hub` suffix instead of asking another question. Save that value in the draft and complete configuration, and display it in the deployment review. Preserve any resource group already accepted in a draft or complete configuration; removing the question must not retarget an installation.
+
 Preserve the current sensitive-input rule: rejected credential-bearing registry URLs must not be copied into help, notices, logs, or drafts. Clear the rejected registry attempt on submission as today. Drafts contain committed, validated answers, not raw keystrokes or search queries.
 
 ### One deployment review
@@ -118,7 +126,7 @@ After configuration and read-only checks, show one scrollable review before clou
 
 [`azure/install/approval/`](../azure/install/approval/index.ts) obtains this run's approval. Pass it only to normal Terraform and image-publication operations; never replace the whole UI's confirmation handler with an automatic answer. Plans remain visible, persistent-resource deletion and replacement remain blocked, and automatic cleanup accepts only the exact temporary provisioning resources. Direct Terraform consumers retain per-plan confirmation by default.
 
-Recheck the source revision and working-tree status before the first publication; changed metadata stops for a new review. A failed operation retains its existing recovery menu. Replanning after a failure requires fresh plan approval, and a failed image build retains fresh dirty-source consent on retry. Do not add automatic retries, clear retained leases, relax existing network restrictions, or replay ambiguous database work using the initial approval.
+Recheck the source revision and working-tree status before the first publication; changed metadata stops for a new review. The initial review covers the single bounded infrastructure retry below. A manual replan after failure still requires fresh plan approval, and a failed image build retains fresh dirty-source consent on retry. Initial approval must not clear retained leases, relax existing network restrictions, or replay ambiguous database work.
 
 Keep deployment approval in memory, never in configuration, drafts, or diagnostic payloads. Resume warns about the interruption and revalidates the target without a separate acknowledgment prompt; its initial deployment review and any actual lock recovery still obtain fresh consent. Configuration-only and Exit paths do not request deployment approval.
 
@@ -187,7 +195,7 @@ Define the retry boundary in orchestration, not in the generic command runner. I
 
 Keep the current installation lock while the user repairs a build failure. Show a bounded error summary and relevant settings beside retry, correction, and exit choices so long command output cannot push controls out of view. Offer a scrollable full-details view that returns to the same recovery choices without starting work. For npm failures, distinguish the container's selected registry from host npm configuration rather than implying that host settings were inherited.
 
-Offer a correction only when the interface can validate the field and the workflow can persist it. Save the draft and complete configuration before retrying, keep consent out of both, and block further work when persistence fails. A corrected setting must survive a later build failure or process restart. Do not turn a narrowly retryable image step into permission to repeat Terraform, rotate credentials, or replay setup. Non-interactive execution and cancellation never enter automatic retry loops.
+Offer a correction only when the interface can validate the field and the workflow can persist it. Save the draft and complete configuration before retrying, keep consent out of both, and block further work when persistence fails. A corrected setting must survive a later build failure or process restart. Do not turn a narrowly retryable image step into permission to repeat Terraform, rotate credentials, or replay setup. Image publication never retries automatically, and cancellation stops instead of retrying.
 
 ### Reviewing a new Terraform plan after failure
 
@@ -195,9 +203,13 @@ Use the shared `installer/prompt-for-recovery/` control for bounded error summar
 
 A failed Terraform apply can leave partial changes. Name the recovery action **Replan and review this Terraform step**, not simply Retry. Remove the failed plan before offering recovery, then generate a fresh plan from current state and require approval for remaining resource changes. Keep the installation lease, module, variables, and environment; preserve deletion and replacement guards. Never reuse the failed plan, repeat earlier installation phases, replay SQL or release work, or infer approval from the failed attempt. Cancellation, declined approval, unsafe or unreadable plan data, and cleanup/destroy failures retain their existing stop behavior.
 
+Preapproved guided provisioning may retry one recognized apply failure automatically after 15 seconds. The Azure classifier accepts only the documented PostgreSQL SKU, lock-Blob authorization, or managed-identity job-image diagnostics, and every error must qualify. Retry requires the first plan's input/configuration signature and changed-resource scope; the fresh plan must keep identical inputs and configuration, and only remaining changes within that scope. Apply all ordinary guards again. Keep the signature in memory, never log input values, and pass the run's abort signal through the delay and subsequent commands.
+
+Do not reset this automatic budget when entering manual recovery. Unknown, incomplete, or repeated failures retain the recovery menu; changed inputs, wider scope, or unsafe plans stop before retry apply. Never use this policy for cleanup, SQL/job execution, or the complete release. The initial review discloses the attempt and its limits rather than asking for another normal confirmation.
+
 When a deletion or replacement blocks a normal plan, show the affected resource addresses, actions, and replacement-triggering attribute paths. State that no changes from that plan were applied. Do not print attribute values or the raw plan, offer a bypass, or disguise the policy refusal as a failed Terraform command.
 
-Explain eventual permission propagation without treating every authorization failure as temporary. A visible role assignment does not prove that data requests are authorized. Give the user a way to inspect the full error, repair access or wait, and explicitly replan. Do not add blind sleeps, automatically retry the mutation, force-unlock state, or weaken authentication and network policy.
+Explain eventual permission propagation without treating every authorization failure as temporary. A visible role assignment does not prove that data requests are authorized. A SKU error can also reflect a genuinely unsupported configuration. Give the user a way to inspect the full error, repair access or wait, and explicitly replan after the bounded attempt. Do not add unconditional sleeps, unbounded mutation retries, force-unlock state, or weaker authentication and network policy.
 
 ### Minimal local diagnostics
 

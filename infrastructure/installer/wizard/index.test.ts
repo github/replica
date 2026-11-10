@@ -6,12 +6,24 @@ import { afterEach, expect, it, vi } from "vitest"
 import * as azureInstaller from "../../azure/install/index.ts"
 import * as azureConfiguration from "../../azure/install/configure/index.ts"
 import type { DeploymentResult } from "../../azure/install/types.ts"
+import { guidedPostgresProfile } from "../../azure/install/profile.ts"
 import { openSession } from "../session/index.ts"
 import type { DeploymentConfig, RunCommand, WizardUI } from "../types.ts"
 import { runWizard } from "./index.ts"
 
 const directories: string[] = []
 const sessions: Awaited<ReturnType<typeof openSession>>[] = []
+
+function postgresCatalogue() {
+  return JSON.stringify([{
+    status: null, reason: null, restricted: null,
+    supportedServerVersions: [{ name: "17", status: null, reason: null }],
+    supportedServerEditions: [{
+      name: "Burstable", status: null, reason: null,
+      supportedServerSkus: [{ name: "Standard_B1ms", status: null, reason: null }],
+    }],
+  }])
+}
 
 async function targetDirectory() {
   const directory = resolve(`.replica-wizard-${randomUUID()}`)
@@ -47,10 +59,48 @@ function deployment(config: DeploymentConfig): DeploymentResult {
   }
 }
 
+it.each(["before startup", "during configuration"] as const)(
+  "stops a wizard cancelled %s without saving configuration or provisioning",
+  async (when) => {
+    const directory = await targetDirectory()
+    const path = join(directory, "installation.json")
+    const controller = new AbortController()
+    const config: DeploymentConfig = {
+      version: 1, cloud: "azure", name: "test-hub", owner: "test-team",
+      azure: {
+        subscriptionId: "00000000-0000-0000-0000-000000000001",
+        tenantId: "00000000-0000-0000-0000-000000000002",
+        location: "eastus2", resourceGroup: "test-hub-hub",
+      },
+    }
+    const configure = vi.spyOn(azureConfiguration, "configureAzure").mockImplementation(async () => {
+      controller.abort()
+      return config
+    })
+    const install = vi.spyOn(azureInstaller, "installAzure")
+    const ui: WizardUI = {
+      cloud: vi.fn<WizardUI["cloud"]>(async () => "azure"), text: vi.fn(), select: vi.fn(),
+      confirm: vi.fn(), wait: vi.fn(), status: vi.fn(), complete: vi.fn(),
+    }
+    const run = vi.fn<RunCommand>()
+    if (when === "before startup") controller.abort()
+
+    await expect(
+      runWizard({ ui, run, path, directory, configureOnly: true, signal: controller.signal }),
+    ).rejects.toMatchObject({ name: "AbortError" })
+
+    await expect(readFile(path, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+    expect(install).not.toHaveBeenCalled()
+    expect(ui.complete).not.toHaveBeenCalled()
+    expect(run).not.toHaveBeenCalled()
+    expect(configure).toHaveBeenCalledTimes(when === "before startup" ? 0 : 1)
+  },
+)
+
 it("selects the cloud before Azure discovery and saves a configure-only run without provisioning", async () => {
   const directory = await targetDirectory()
   const events: string[] = []
-  const answers = ["test-hub", "test-team", "test-hub-rg", "https://proxy.example/npm/"]
+  const answers = ["test-hub", "test-team", "https://proxy.example/npm/"]
   const install = vi.spyOn(azureInstaller, "installAzure")
   const ui: WizardUI = {
     cloud: async () => {
@@ -72,6 +122,8 @@ it("selects the cloud before Azure discovery and saves a configure-only run with
     if (executable === "docker") return ""
     if (args[0] === "version") return "{}"
     if (args[0] === "containerapp" && args.includes("--help")) return ""
+    if (args.slice(0, 3).join(" ") === "postgres flexible-server list-skus")
+      return postgresCatalogue()
     if (
       args[0] === "provider" &&
       args[1] === "show" &&
@@ -120,10 +172,11 @@ it("selects the cloud before Azure discovery and saves a configure-only run with
     npmRegistry: "https://proxy.example/npm/",
     azure: {
       subscriptionId: "00000000-0000-0000-0000-000000000001",
+      resourceGroup: "test-hub-hub",
     },
   })
   expect(saved.azure).not.toHaveProperty("stateAllowedIp")
-  expect(ui.text).toHaveBeenCalledTimes(4)
+  expect(ui.text).toHaveBeenCalledTimes(3)
   expect((await stat(path)).mode & 0o777).toBe(0o600)
   expect(events).not.toContainEqual(
     expect.stringMatching(/\bcreate\b|\bapply\b|provider register|docker buildx build/),
@@ -148,10 +201,22 @@ it("completes the draft and reports the structured deployment only after the ins
     },
   }
   const result = deployment(config)
-  vi.spyOn(azureConfiguration, "configureAzure").mockResolvedValue(config)
+  const configure = vi.spyOn(azureConfiguration, "configureAzure").mockImplementation(
+    async (_ui, _run, _existing, _session, availability) => {
+      expect(availability).toEqual(expect.any(Function))
+      await expect(availability!(
+        config.azure.subscriptionId, config.azure.location, guidedPostgresProfile,
+      )).resolves.toBe(true)
+      return config
+    },
+  )
   const started = Promise.withResolvers<void>()
   const finished = Promise.withResolvers<DeploymentResult>()
-  vi.spyOn(azureInstaller, "installAzure").mockImplementation(async () => {
+  vi.spyOn(azureInstaller, "installAzure").mockImplementation(async (_config, options) => {
+    expect(options.availability).toBe(configure.mock.calls[0]![4])
+    await expect(options.availability!(
+      config.azure.subscriptionId, config.azure.location, guidedPostgresProfile,
+    )).resolves.toBe(true)
     started.resolve()
     return finished.promise
   })
@@ -164,16 +229,23 @@ it("completes the draft and reports the structured deployment only after the ins
     status: vi.fn(),
     complete: vi.fn(),
   }
-  const run = vi.fn<RunCommand>()
+  const run = vi.fn<RunCommand>(async (executable, args) => {
+    if (executable === "az" && args.slice(0, 3).join(" ") === "postgres flexible-server list-skus")
+      return postgresCatalogue()
+    throw new Error("Shared availability test attempted an unexpected operation")
+  })
+  const controller = new AbortController()
   let reported = false
-  const installing = runWizard({ ui, run, path, directory, session }).then((summary) => {
+  const installing = runWizard({
+    ui, run, path, directory, session, signal: controller.signal,
+  }).then((summary) => {
     reported = true
     return summary
   })
   await started.promise
   expect(azureInstaller.installAzure).toHaveBeenCalledWith(
     config,
-    expect.objectContaining({ directory }),
+    expect.objectContaining({ directory, signal: controller.signal }),
   )
   expect(reported).toBe(false)
   expect(ui.complete).not.toHaveBeenCalled()
@@ -191,6 +263,7 @@ it("completes the draft and reports the structured deployment only after the ins
   expect(ui.complete).toHaveBeenCalledOnce()
   await expect(readFile(session.path, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
   expect(JSON.parse(await readFile(path, "utf8"))).toEqual(config)
+  expect(run).toHaveBeenCalledOnce()
 })
 
 it("does not discover or mutate a cloud when the first screen is cancelled", async () => {

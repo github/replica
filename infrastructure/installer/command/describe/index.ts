@@ -7,6 +7,7 @@ const commands: Record<string, Record<string, string>> = {
     rest: "Query Azure resource metadata",
     "provider show": "Check Azure resource provider",
     "provider register": "Register Azure resource provider",
+    "postgres flexible-server list-skus": "Check regional PostgreSQL SKUs and versions",
     "group exists": "Check Azure resource group existence",
     "group show": "Read Azure resource group ownership",
     "group create": "Create Azure resource group",

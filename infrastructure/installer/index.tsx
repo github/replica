@@ -99,6 +99,7 @@ if (values.help) {
             directory: dirname(path),
             run,
             ui,
+            signal: abort.signal,
           }),
           path,
         )
@@ -114,6 +115,7 @@ if (values.help) {
           configureOnly: values["configure-only"],
           session,
           entryAction: entry.action,
+          signal: abort.signal,
         })
       }
     }

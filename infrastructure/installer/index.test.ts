@@ -142,7 +142,11 @@ it.each(["exit", "create"] as const)(
         close: vi.fn(async () => { events.push("terminal restored") }),
         summary: () => undefined,
       }
-      vi.spyOn(terminal, "createTerminalUI").mockReturnValue(ui)
+      let controller: AbortController | undefined
+      vi.spyOn(terminal, "createTerminalUI").mockImplementation((abort) => {
+        controller = abort
+        return ui
+      })
       vi.spyOn(entry, "selectInstallerEntry").mockImplementation(async (terminalUI, options) => {
         expect(options.configPath).toBe(path)
         return select(terminalUI, { ...options, directory })
@@ -168,6 +172,8 @@ it.each(["exit", "create"] as const)(
         expect(options.path).toBe(path)
         expect(options.existing).toBeUndefined()
         expect(options.session?.draft).toBeUndefined()
+        expect(controller).toBeInstanceOf(AbortController)
+        expect(options.signal).toBe(controller!.signal)
         return "Synthetic questionnaire completed"
       })
       const output = vi.spyOn(console, "log").mockImplementation(() => { events.push("shell report") })
