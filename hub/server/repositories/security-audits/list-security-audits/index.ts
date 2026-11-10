@@ -24,6 +24,7 @@ export async function listSecurityAudits(
   const rows = await database.securityAudit.findMany({
     where: parsed.before
       ? {
+          createdAt: { lte: parsed.before.createdAt },
           OR: [
             { createdAt: { lt: parsed.before.createdAt } },
             {

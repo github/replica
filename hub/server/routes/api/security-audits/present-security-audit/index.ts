@@ -40,8 +40,7 @@ function actorFor(record: SecurityAuditListRecord) {
       const parsed = actorContextSchema.safeParse(record.context)
       return parsed.success ? { membershipId: parsed.data.actorMembershipId } : null
     }
-    case "session.created":
-    case "session.ended": {
+    case "session.created": {
       const parsed = membershipContextSchema.safeParse(record.context)
       return parsed.success ? { membershipId: parsed.data.membershipId } : null
     }
@@ -154,10 +153,13 @@ function contextFor(record: SecurityAuditListRecord): Record<string, string | nu
           }
         : {}
     }
-    case "session.created":
-    case "session.ended": {
+    case "session.created": {
       const parsed = z.object({ membershipId: z.uuid() }).strict().safeParse(record.context)
       return parsed.success && targetId ? { targetId } : {}
+    }
+    case "session.ended": {
+      const parsed = z.object({ membershipId: z.uuid() }).strict().safeParse(record.context)
+      return parsed.success && targetId ? { membershipId: parsed.data.membershipId, targetId } : {}
     }
     case "identity.external.created":
     case "identity.external.create_failed": {
