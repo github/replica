@@ -50,6 +50,7 @@ function routeDependencies() {
     targetMembershipIds: [randomUUID()],
   })
   const list = vi.fn().mockResolvedValue({ administrators: [], nextCursor: null })
+  const listSecurityAudits = vi.fn().mockResolvedValue({ records: [], nextCursor: null })
   const search = vi.fn().mockResolvedValue([])
   const administrators: AdministratorRouteDependencies = {
     applicationOrigin,
@@ -58,6 +59,7 @@ function routeDependencies() {
     findSession,
     getAuthorization,
     list,
+    listSecurityAudits,
     search,
     start: { entra: entra.dependencies, github: github.dependencies },
   }

@@ -18,6 +18,7 @@ import { post as handleAdministratorAuthorizationContinuePost } from "./api/admi
 import { post as handleAdministratorAuthorizationCancelPost } from "./api/administrators/authorizations/cancel/post/index.ts"
 import { get as handleAdministratorAuthorizationGet } from "./api/administrators/authorizations/get/index.ts"
 import { rateLimit as administratorAuthorizationRateLimit } from "./api/administrators/authorizations/start/rate-limit/index.ts"
+import { get as handleSecurityAuditsGet } from "./api/security-audits/get/index.ts"
 import type { RouteDependencies } from "./types.ts"
 
 /** Keep endpoint registration separate from the app's shared middleware. */
@@ -29,6 +30,7 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
   )
   if (authentication) {
     if (authentication.administrators) {
+      app.get("/api/security-audits", handleSecurityAuditsGet(authentication.administrators))
       app.get("/api/administrators", handleAdministratorsGet(authentication.administrators))
       app.get(
         "/api/administrators/candidates",

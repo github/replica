@@ -1,4 +1,5 @@
 import type { AuthenticationProofResult } from "../../../domains/authentication/types.ts"
+import type { SecurityAuditListResult } from "../../../repositories/security-audits/list-security-audits/types.ts"
 
 export interface RateLimitDependencies {
   checkRateLimit(
@@ -132,6 +133,10 @@ export interface AdministratorRouteDependencies {
     before?: { createdAt: Date; membershipId: string }
     limit?: number
   }): Promise<unknown>
+  listSecurityAudits(input: {
+    before?: { createdAt: Date; id: string }
+    limit?: number
+  }): Promise<SecurityAuditListResult>
   search(input: { limit?: number; query: string }): Promise<unknown>
   start: Record<"entra" | "github", StartAdministratorAuthorizationDependencies | undefined>
 }
