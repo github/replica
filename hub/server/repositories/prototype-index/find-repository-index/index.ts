@@ -3,7 +3,7 @@ import type { Prisma, PrismaClient } from "../../../generated/prisma/client.ts"
 const pageSize = 24
 
 export async function findRepositoryIndex(
-  database: Pick<PrismaClient, "$transaction" | "prototype" | "repository">,
+  database: Pick<PrismaClient, "$transaction" | "repository">,
   repositoryId: string,
 ) {
   const repository = await database.repository.findFirst({
@@ -20,9 +20,9 @@ export async function findRepositoryIndex(
     branchName: { notIn: [repository.defaultBranch, "replica/install-workflow"] },
   }
   // Keep the count and cards from the same database snapshot.
-  const [records, totalCount] = await database.$transaction(
-    [
-      database.prototype.findMany({
+  const { records, totalCount } = await database.$transaction(
+    async (transaction) => {
+      const records = await transaction.prototype.findMany({
         where,
         orderBy: [{ registeredAt: "desc" }, { id: "desc" }],
         take: pageSize,
@@ -36,9 +36,10 @@ export async function findRepositoryIndex(
             select: { id: true, profile: { select: { login: true, name: true, provider: true } } },
           },
         },
-      }),
-      database.prototype.count({ where }),
-    ],
+      })
+      const totalCount = await transaction.prototype.count({ where })
+      return { records, totalCount }
+    },
     { isolationLevel: "RepeatableRead" },
   )
   const currentRepository = await database.repository.findFirst({
