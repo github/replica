@@ -3,8 +3,8 @@ import { z } from "zod"
 const administratorOperationSchema = z.enum(["DESIGNATE_ADMINISTRATORS", "REVOKE_ADMINISTRATOR"])
 const administratorIdentitySchema = z.object({
   membershipId: z.uuid(),
-  provider: z.string().min(1),
-  login: z.string().min(1),
+  provider: z.string().min(1).nullable(),
+  login: z.string().min(1).nullable(),
   name: z.string().nullable(),
 })
 
@@ -65,7 +65,27 @@ export const administratorAuthorizationStartResponseSchema = z
   .strict()
 
 export const administratorContinuationResponseSchema = z
-  .object({ result: z.object({ changed: z.boolean() }).strict() })
+  .object({
+    result: z.union([
+      z
+        .object({
+          assignmentId: z.uuid(),
+          membershipId: z.uuid(),
+        })
+        .strict(),
+      z
+        .array(
+          z
+            .object({
+              assignmentId: z.uuid(),
+              membershipId: z.uuid(),
+            })
+            .strict(),
+        )
+        .min(1)
+        .max(50),
+    ]),
+  })
   .strict()
 
 export { administratorOperationSchema }

@@ -14,12 +14,14 @@ import "./styles.css"
 
 export function AddHubAdministrators({
   data,
+  errorMessage,
   authenticityToken,
   onSearch,
   onClose,
   pending,
 }: {
   data: AddHubAdministratorsData
+  errorMessage?: string | null
   authenticityToken: string
   onSearch: (query: string) => Promise<HubAdministratorSearchResults>
   onClose: () => void
@@ -150,19 +152,24 @@ export function AddHubAdministrators({
                 <ul className="add-hub-administrators__users">
                   {visibleUsers.map((user) => {
                     const checked = selected.some((entry) => entry.id === user.id)
+                    const displayName = user.name ?? user.login ?? "Profile unavailable"
+                    const provider = user.provider ?? "provider unavailable"
                     return (
                       <li key={user.id}>
                         <label className="add-hub-administrators__user">
                           <Checkbox
-                            aria-label={`${user.name ?? user.login} @${user.login}`}
+                            aria-label={`${displayName}, ${provider}, membership ${user.id}`}
                             checked={checked}
                             disabled={submitting || (!checked && selected.length >= 50)}
                             onChange={() => toggle(user)}
                           />
                           <span className="add-hub-administrators__identity">
-                            <strong>{user.name ?? user.login}</strong>
+                            <strong>{displayName}</strong>
                             <Text as="span" size="100">
-                              @{user.login}
+                              {user.login ? `@${user.login}` : "Login unavailable"}
+                            </Text>
+                            <Text as="span" size="100">
+                              {provider} · Membership {user.id}
                             </Text>
                           </span>
                         </label>
@@ -186,6 +193,7 @@ export function AddHubAdministrators({
               if (pending === undefined) setSubmitting(true)
             }}
           >
+            {errorMessage ? <HubAlert variant="critical" title={errorMessage} /> : null}
             {data.operation ? (
               <input type="hidden" name="operation" value={data.operation} />
             ) : (

@@ -65,6 +65,17 @@ export const Continuing: Story = {
       cancelPath:
         "/settings/administrators/confirm?authorizationId=33333333-3333-4333-8333-333333333333",
       continuation: { id: "33333333-3333-4333-8333-333333333333", method: "post" },
+      roleChange: {
+        operationLabel: "Remove Hub administrator",
+        targets: [
+          {
+            membershipId: "22222222-2222-4222-8222-222222222222",
+            providerLabel: "Microsoft Entra account",
+            login: "mona",
+            name: "Mona Lisa",
+          },
+        ],
+      },
     },
   },
 }
@@ -83,6 +94,17 @@ export const Conflict: Story = {
       cancelPath:
         "/settings/administrators/confirm?authorizationId=33333333-3333-4333-8333-333333333333",
       continuation: { id: "33333333-3333-4333-8333-333333333333", method: "post" },
+      roleChange: {
+        operationLabel: "Remove Hub administrator",
+        targets: [
+          {
+            membershipId: "22222222-2222-4222-8222-222222222222",
+            providerLabel: "Microsoft Entra account",
+            login: "mona",
+            name: "Mona Lisa",
+          },
+        ],
+      },
     },
     error:
       "The administrator role changed before this authorization continued. Review the current roster and try again.",

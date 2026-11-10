@@ -60,7 +60,7 @@ export function administratorsPageData(
       provider: administrator.provider,
       login: administrator.login,
       name: administrator.name,
-      identity: administratorProviderLabel(administrator.provider),
+      identity: `${administratorProviderLabel(administrator.provider)} · Membership ${administrator.membershipId}`,
       role: "Hub administrator",
       actionLabel: "Remove administrator",
       confirmationPath: `/settings/administrators/${administrator.membershipId}/revoke${before ? `?before=${encodeURIComponent(before)}` : ""}`,

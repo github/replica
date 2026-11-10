@@ -4,11 +4,13 @@ import { z } from "zod"
 
 import { FreshAuthorizationPage } from "@pages/fresh-authorization-page"
 import { HubAdminsPage } from "@pages/hub-admins-page"
+import { administratorErrorMessage } from "@application/hub/administrator-error-message"
 import { cancelAdministratorAuthorization } from "@application/hub/requests/cancel-administrator-authorization"
 import { continueAdministratorAuthorization } from "@application/hub/requests/continue-administrator-authorization"
 import { getAdministratorAuthorization } from "@application/hub/requests/get-administrator-authorization"
 import { getCurrentHubSession } from "@application/hub/requests/get-current-hub-session"
 import { administratorWorkspace } from "@application/hub/view-models/administrator-workspace"
+import { administratorProviderLabel } from "@application/hub/view-models/administrator-provider-label"
 import { ApiContractError } from "@application/hub/requests/api-contract-error"
 import { ApiRequestError } from "@application/hub/requests/api-request-error"
 
@@ -44,6 +46,18 @@ export async function clientLoader({ request }: Pick<Route.ClientLoaderArgs, "re
       cancelPath: request.url,
       authenticityToken: "",
       continuation: { id: authorizationId.data, method: "post" },
+      roleChange: {
+        operationLabel:
+          authorization.operation === "DESIGNATE_ADMINISTRATORS"
+            ? "Designate Hub administrators"
+            : "Remove Hub administrator",
+        targets: authorization.targets.map((target) => ({
+          membershipId: target.membershipId,
+          providerLabel: administratorProviderLabel(target.provider),
+          login: target.login,
+          name: target.name,
+        })),
+      },
     },
     session,
   }
@@ -109,7 +123,7 @@ export default function SettingsAdministratorAuthorization({
       void navigate("/settings/administrators?result=changed")
     } catch (error) {
       if (error instanceof ApiRequestError) {
-        setResult({ state: "error", message: error.message })
+        setResult({ state: "error", message: administratorErrorMessage(error.message) })
         return
       }
       if (error instanceof ApiContractError) {
@@ -159,6 +173,8 @@ export default function SettingsAdministratorAuthorization({
   return (
     <div
       onSubmit={(event) => {
+        if (!(event.target instanceof HTMLFormElement)) return
+        if (event.target.action !== loaderData.page.submitPath) return
         event.preventDefault()
         void submit(event.target)
       }}

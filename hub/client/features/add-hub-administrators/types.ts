@@ -1,7 +1,7 @@
 export interface HubAdministratorCandidate {
   id: string
-  provider: string
-  login: string
+  provider: string | null
+  login: string | null
   name: string | null
 }
 

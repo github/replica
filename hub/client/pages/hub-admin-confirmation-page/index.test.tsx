@@ -10,7 +10,12 @@ import type { HubAdminConfirmationPageData } from "./types"
 const data: HubAdminConfirmationPageData = {
   ...hubAdministrationData,
   pageTitle: "Designate Hub administrator?",
-  target: { login: "mona", name: "Mona Lisa", identity: "GitHub identity 1002 - Hub user 2" },
+  target: {
+    membershipId: "22222222-2222-4222-8222-222222222222",
+    login: "mona",
+    name: "Mona Lisa",
+    identity: "GitHub account",
+  },
   operation: "designate",
   submitPath: "/hub_admins/2",
   submitLabel: "Designate administrator",
@@ -29,6 +34,7 @@ describe("HubAdminConfirmationPage()", () => {
       </ThemeProvider>,
     )
     expect(screen.getByText(data.target.identity)).toBeInTheDocument()
+    expect(screen.getByText(`Membership ${data.target.membershipId}`)).toBeInTheDocument()
     const checkbox = screen.getByRole("checkbox", { name: data.confirmLabel })
     expect(checkbox).toBeRequired()
     expect(checkbox).not.toBeChecked()

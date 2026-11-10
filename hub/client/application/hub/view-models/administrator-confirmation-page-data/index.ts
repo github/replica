@@ -8,8 +8,8 @@ export function administratorConfirmationPageData(
   session: CurrentHubSession,
   target: {
     membershipId: string
-    provider: string
-    login: string
+    provider: string | null
+    login: string | null
     name: string | null
   },
   operation: "designate" | "revoke",
@@ -36,6 +36,7 @@ export function administratorConfirmationPageData(
       login: target.login,
       name: target.name,
       identity: administratorProviderLabel(target.provider),
+      membershipId: target.membershipId,
     },
     operation: designating ? "DESIGNATE_ADMINISTRATORS" : "REVOKE_ADMINISTRATOR",
     targetMembershipId: target.membershipId,

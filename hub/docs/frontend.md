@@ -207,11 +207,11 @@ Real administrator management does not use the provisional settings contracts:
 | HTTP interface | Result |
 | --- | --- |
 | `GET /api/auth/session` | Current role, membership UUID, user UUID, provider, login, and name |
-| `GET /api/administrators?limit=&before=` | Effective administrators and the next opaque cursor |
-| `GET /api/administrators/candidates?query=&limit=` | Existing active non-administrator memberships matched by provider login or name |
+| `GET /api/administrators?limit=&before=` | Effective administrators and the next opaque cursor; provider presentation may be unavailable, so the membership UUID remains the stable identity |
+| `GET /api/administrators/candidates?query=&limit=` | Existing active non-administrator memberships matched by provider login or name, with provider and membership identity shown before selection |
 | `POST /api/administrators/authorizations/start` | Provider URL, authorization UUID and expiry bound to the exact operation and one to 50 membership UUIDs |
-| `GET /api/administrators/authorizations/:id` | Verified unconsumed operation and targets for callback confirmation |
-| `POST /api/administrators/authorizations/continue` | Exact JSON continuation; stale and conflicting role changes remain visible errors |
+| `GET /api/administrators/authorizations/:id` | Verified unconsumed operation and server-owned targets shown before callback continuation |
+| `POST /api/administrators/authorizations/continue` | Exact JSON continuation; reason codes become visible recovery guidance for stale and conflicting role changes |
 | `POST /api/administrators/authorizations/cancel` | Cancel the server-owned authorization without changing roles |
 
 Errors use an HTTP status and `{ "error": "..." }`. Request schemas and the same response schemas check the JSON fixtures and HTTP boundary. Server-side input validation and authorization remain separate backend responsibilities.

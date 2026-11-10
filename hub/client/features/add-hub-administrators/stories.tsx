@@ -71,6 +71,12 @@ export const SearchFailed: Story = {
     onSearch: () => Promise.reject(new Error("Search unavailable")),
   },
 }
+export const AuthorizationStartFailed: Story = {
+  args: {
+    errorMessage:
+      "An administrator role changed before this request completed. Review the current roster and try again.",
+  },
+}
 export const Loading: Story = {
   args: { onSearch: () => new Promise(() => undefined) },
 }

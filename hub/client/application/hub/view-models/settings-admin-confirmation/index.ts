@@ -39,6 +39,7 @@ export function settingsAdminConfirmation(
       login: target.login,
       name: target.name,
       identity: `Hub user ${target.id}`,
+      membershipId: String(target.id),
     },
     operation,
     submitPath: resourcePath(`/settings/admins/${target.id}/${operation}`, search),

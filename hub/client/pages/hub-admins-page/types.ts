@@ -11,8 +11,8 @@ export interface HubAdminsPageData extends HubAdministrationPageData {
   addAdministrator: AddHubAdministratorsData | null
   users: {
     id: string
-    provider: string
-    login: string
+    provider: string | null
+    login: string | null
     name: string | null
     identity: string
     role: string

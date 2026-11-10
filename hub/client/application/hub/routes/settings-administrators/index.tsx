@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react"
 
 import { HubAdminsPage } from "@pages/hub-admins-page"
+import { administratorErrorMessage } from "@application/hub/administrator-error-message"
 import { beginAdministratorAuthorization } from "@application/hub/begin-administrator-authorization"
 import { ApiContractError } from "@application/hub/requests/api-contract-error"
 import { ApiRequestError } from "@application/hub/requests/api-request-error"
@@ -85,14 +86,15 @@ export default function SettingsAdministrators({
             pending: false,
             error:
               error instanceof ApiRequestError
-                ? error.message
+                ? administratorErrorMessage(error.message)
                 : "The API response was invalid. Provider authorization could not start.",
           })
         })
       }}
     >
       <HubAdminsPage
-        data={{ ...loaderData.page, alert: submission.error }}
+        data={loaderData.page}
+        addAdministratorError={submission.error}
         onSearch={onSearch}
         pending={submission.pending}
       />

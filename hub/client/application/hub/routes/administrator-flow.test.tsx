@@ -165,7 +165,7 @@ describe("administrator frontend integration", () => {
     fireEvent.change(within(dialog).getByRole("searchbox"), {
       target: { value: "mona" },
     })
-    fireEvent.click(await within(dialog).findByRole("checkbox", { name: "Mona Lisa @mona" }))
+    fireEvent.click(await within(dialog).findByRole("checkbox", { name: /Mona Lisa/ }))
     fireEvent.click(
       within(dialog).getByRole("checkbox", {
         name: "I confirm adding the selected users as Hub administrators.",
@@ -217,7 +217,7 @@ describe("administrator frontend integration", () => {
     fireEvent.change(within(dialog).getByRole("searchbox"), {
       target: { value: "mona" },
     })
-    fireEvent.click(await within(dialog).findByRole("checkbox", { name: "Mona Lisa @mona" }))
+    fireEvent.click(await within(dialog).findByRole("checkbox", { name: /Mona Lisa/ }))
     fireEvent.click(
       within(dialog).getByRole("checkbox", {
         name: "I confirm adding the selected users as Hub administrators.",
@@ -255,10 +255,7 @@ describe("administrator frontend integration", () => {
         }),
       ),
       http.post(`${window.location.origin}/api/administrators/authorizations/start`, () =>
-        HttpResponse.json(
-          { error: "The session authentication provider is unavailable." },
-          { status: 409 },
-        ),
+        HttpResponse.json({ error: "invalid_selection" }, { status: 409 }),
       ),
     ])
 
@@ -267,7 +264,7 @@ describe("administrator frontend integration", () => {
     fireEvent.change(within(dialog).getByRole("searchbox"), {
       target: { value: "mona" },
     })
-    fireEvent.click(await within(dialog).findByRole("checkbox", { name: "Mona Lisa @mona" }))
+    fireEvent.click(await within(dialog).findByRole("checkbox", { name: /Mona Lisa/ }))
     fireEvent.click(
       within(dialog).getByRole("checkbox", {
         name: "I confirm adding the selected users as Hub administrators.",
@@ -275,10 +272,38 @@ describe("administrator frontend integration", () => {
     )
     fireEvent.click(within(dialog).getByRole("button", { name: "Add selected administrators" }))
 
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      /choose between one and 50 distinct hub users/i,
+    )
+    expect(within(dialog).getByRole("checkbox", { name: /Mona Lisa/ })).toBeChecked()
     expect(
-      await screen.findByText("The session authentication provider is unavailable."),
-    ).toBeVisible()
+      within(dialog).getByRole("checkbox", {
+        name: "I confirm adding the selected users as Hub administrators.",
+      }),
+    ).toBeChecked()
     expect(navigateToExternalUrl).not.toHaveBeenCalled()
+  })
+
+  it("does not intercept sign-out from the removal confirmation page", async () => {
+    const starts = vi.fn()
+    await renderApplication(`/settings/administrators/${targetMembershipId}/revoke`, [
+      authenticatedSession(),
+      http.get(`${window.location.origin}/api/administrators`, () =>
+        HttpResponse.json({
+          administrators: [administrator(), administrator("mona", targetMembershipId)],
+          nextCursor: null,
+        }),
+      ),
+      http.post(`${window.location.origin}/api/administrators/authorizations/start`, starts),
+    ])
+
+    const signOutForm = document.querySelector<HTMLFormElement>(
+      'form[action="/api/auth/session/sign-out"]',
+    )
+    if (!signOutForm) throw new Error("Sign out must belong to a form.")
+
+    expect(fireEvent.submit(signOutForm)).toBe(true)
+    expect(starts).not.toHaveBeenCalled()
   })
 
   it("continues a callback confirmation with JSON and refreshes authority after self-removal", async () => {
@@ -327,7 +352,12 @@ describe("administrator frontend integration", () => {
             continuationBodies.push(await request.json())
             readsBeforeContinuation = sessionReads
             continued = true
-            return HttpResponse.json({ result: { changed: true } })
+            return HttpResponse.json({
+              result: {
+                assignmentId: "44444444-4444-4444-8444-444444444444",
+                membershipId: actorMembershipId,
+              },
+            })
           },
         ),
       ],
@@ -348,6 +378,77 @@ describe("administrator frontend integration", () => {
     expect(screen.queryByRole("link", { name: "Hub administrators" })).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "Sign out" })).not.toBeInTheDocument()
     expect(router.state.location.pathname).toBe("/settings/administrators/confirm")
+  })
+
+  it("does not intercept sign-out from the callback confirmation page", async () => {
+    const continuations = vi.fn()
+    await renderApplication(`/settings/administrators/confirm?authorizationId=${authorizationId}`, [
+      authenticatedSession(),
+      http.get(
+        `${window.location.origin}/api/administrators/authorizations/${authorizationId}`,
+        () =>
+          HttpResponse.json({
+            authorization: {
+              operation: "REVOKE_ADMINISTRATOR",
+              targets: [
+                {
+                  membershipId: targetMembershipId,
+                  provider: "github",
+                  login: "mona",
+                  name: "Mona Lisa",
+                },
+              ],
+              verifiedAt: "2026-11-09T20:01:00.000Z",
+              expiresAt: "2026-11-09T20:06:00.000Z",
+            },
+          }),
+      ),
+      http.post(
+        `${window.location.origin}/api/administrators/authorizations/continue`,
+        continuations,
+      ),
+    ])
+
+    const signOutForm = document.querySelector<HTMLFormElement>(
+      'form[action="/api/auth/session/sign-out"]',
+    )
+    if (!signOutForm) throw new Error("Sign out must belong to a form.")
+
+    expect(fireEvent.submit(signOutForm)).toBe(true)
+    expect(continuations).not.toHaveBeenCalled()
+  })
+
+  it("shows the server-owned callback operation and target identity", async () => {
+    await renderApplication(`/settings/administrators/confirm?authorizationId=${authorizationId}`, [
+      authenticatedSession(),
+      http.get(
+        `${window.location.origin}/api/administrators/authorizations/${authorizationId}`,
+        () =>
+          HttpResponse.json({
+            authorization: {
+              operation: "REVOKE_ADMINISTRATOR",
+              targets: [
+                {
+                  membershipId: targetMembershipId,
+                  provider: "entra",
+                  login: "mona@example.test",
+                  name: "Mona Lisa",
+                },
+              ],
+              verifiedAt: "2026-11-09T20:01:00.000Z",
+              expiresAt: "2026-11-09T20:06:00.000Z",
+            },
+          }),
+      ),
+    ])
+
+    expect(await screen.findByText(/remove hub administrator/i)).toBeVisible()
+    expect(screen.getByText("Mona Lisa")).toBeVisible()
+    expect(
+      screen.getByText(
+        /@mona@example\.test.*Microsoft Entra account.*22222222-2222-4222-8222-222222222222/i,
+      ),
+    ).toBeVisible()
   })
 
   it("cancels the callback authorization with JSON and returns to the roster", async () => {
@@ -430,6 +531,43 @@ describe("administrator frontend integration", () => {
       "The authorization is stale or already used.",
     )
     expect(screen.queryByText(/role changed/i)).not.toBeInTheDocument()
+  })
+
+  it.each([
+    ["used", /already used.*start again/i],
+    ["expired", /expired.*again/i],
+    ["role_changed", /role changed.*review.*roster.*try again/i],
+    ["last_administrator", /final.*administrator.*designate another/i],
+  ])("translates the %s continuation reason into recovery guidance", async (reason, guidance) => {
+    await renderApplication(`/settings/administrators/confirm?authorizationId=${authorizationId}`, [
+      authenticatedSession(),
+      http.get(
+        `${window.location.origin}/api/administrators/authorizations/${authorizationId}`,
+        () =>
+          HttpResponse.json({
+            authorization: {
+              operation: "REVOKE_ADMINISTRATOR",
+              targets: [
+                {
+                  membershipId: targetMembershipId,
+                  provider: "github",
+                  login: "mona",
+                  name: "Mona Lisa",
+                },
+              ],
+              verifiedAt: "2026-11-09T20:01:00.000Z",
+              expiresAt: "2026-11-09T20:06:00.000Z",
+            },
+          }),
+      ),
+      http.post(`${window.location.origin}/api/administrators/authorizations/continue`, () =>
+        HttpResponse.json({ error: reason }, { status: 409 }),
+      ),
+    ])
+
+    fireEvent.click(await screen.findByRole("button", { name: "Continue" }))
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(guidance)
   })
 
   it.each([

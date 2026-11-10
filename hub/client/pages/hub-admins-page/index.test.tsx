@@ -76,13 +76,13 @@ describe("HubAdminsPage()", () => {
     expect(screen.getByRole("heading", { name: "2 administrators" })).toBeInTheDocument()
     fireEvent.click(screen.getByRole("button", { name: "Add administrator" }))
     fireEvent.change(screen.getByRole("searchbox"), { target: { value: "atlas" } })
-    await screen.findByRole("checkbox", { name: "Atlas Bloom @atlas" })
+    await screen.findByRole("checkbox", { name: /Atlas Bloom/ })
     fireEvent.change(screen.getByRole("searchbox"), { target: { value: "" } })
     expect(await screen.findByText(addHubAdministratorsData.loadingLabel)).toBeInTheDocument()
     fireEvent.change(screen.getByRole("searchbox"), { target: { value: "nova" } })
-    fireEvent.click(await screen.findByRole("checkbox", { name: "Nova Pixel @nova" }))
+    fireEvent.click(await screen.findByRole("checkbox", { name: /Nova Pixel/ }))
     fireEvent.change(screen.getByRole("searchbox"), { target: { value: "luna" } })
-    fireEvent.click(await screen.findByRole("checkbox", { name: "Luna Sketch @luna" }))
+    fireEvent.click(await screen.findByRole("checkbox", { name: /Luna Sketch/ }))
     const form = screen
       .getByRole("button", { name: "Add selected administrators" })
       .closest("form")!
@@ -91,13 +91,13 @@ describe("HubAdminsPage()", () => {
       "00000000-0000-4000-8000-000000000004",
     ])
     fireEvent.change(screen.getByRole("searchbox"), { target: { value: "zenith-wisp" } })
-    fireEvent.click(await screen.findByRole("checkbox", { name: "Zenith Wisp @zenith-wisp" }))
+    fireEvent.click(await screen.findByRole("checkbox", { name: /Zenith Wisp/ }))
     expect(
       within(screen.getByRole("dialog", { name: "Add administrator" })).getAllByRole("list"),
     ).toHaveLength(1)
-    expect(screen.getAllByRole("checkbox", { name: "Nova Pixel @nova" })).toHaveLength(1)
-    expect(screen.getByRole("checkbox", { name: "Nova Pixel @nova" })).toBeChecked()
-    expect(screen.getByRole("checkbox", { name: "Luna Sketch @luna" })).toBeChecked()
+    expect(screen.getAllByRole("checkbox", { name: /Nova Pixel/ })).toHaveLength(1)
+    expect(screen.getByRole("checkbox", { name: /Nova Pixel/ })).toBeChecked()
+    expect(screen.getByRole("checkbox", { name: /Luna Sketch/ })).toBeChecked()
     expect(new FormData(form).getAll("targetMembershipIds")).toEqual([
       "00000000-0000-4000-8000-000000000003",
       "00000000-0000-4000-8000-000000000004",
@@ -144,6 +144,7 @@ describe("HubAdminsPage()", () => {
       </ThemeProvider>,
     )
     expect(screen.getByText("@mona")).toBeInTheDocument()
+    expect(screen.getByText("GitHub membership 22222222-2222-4222-8222-222222222222")).toBeVisible()
     expect(screen.getByRole("heading", { name: "1 administrator" })).toBeInTheDocument()
     expect(screen.getByRole("link", { name: "Remove administrator" })).toHaveAttribute(
       "href",
@@ -154,6 +155,65 @@ describe("HubAdminsPage()", () => {
       "href",
       `/settings/administrators?before=${encodeURIComponent(cursor)}`,
     )
+  })
+
+  it("shows provider and membership identity when candidate profile fields are unavailable", async () => {
+    const membershipId = "22222222-2222-4222-8222-222222222222"
+    render(
+      <ThemeProvider>
+        <HubAdminsPage
+          data={data}
+          onSearch={() =>
+            Promise.resolve({
+              users: [{ id: membershipId, provider: null, login: null, name: null }],
+              more: false,
+            })
+          }
+        />
+      </ThemeProvider>,
+    )
+
+    fireEvent.click(screen.getByRole("button", { name: "Add administrator" }))
+
+    const candidate = await screen.findByRole("checkbox", {
+      name: `Profile unavailable, provider unavailable, membership ${membershipId}`,
+    })
+    expect(candidate).toBeVisible()
+    expect(screen.getByText("Login unavailable")).toBeVisible()
+    expect(screen.getByText(`provider unavailable · Membership ${membershipId}`)).toBeVisible()
+  })
+
+  it("shows explicit fallbacks and stable identity for an unavailable roster profile", () => {
+    const membershipId = "22222222-2222-4222-8222-222222222222"
+    render(
+      <ThemeProvider>
+        <HubAdminsPage
+          onSearch={() => Promise.resolve({ users: [], more: false })}
+          data={{
+            ...data,
+            administratorsLabel: "1 administrator",
+            users: [
+              {
+                id: membershipId,
+                provider: null,
+                login: null,
+                name: null,
+                identity: `Provider profile unavailable · Membership ${membershipId}`,
+                role: "Hub administrator",
+                actionLabel: "Remove administrator",
+                confirmationPath: `/settings/administrators/${membershipId}/revoke`,
+              },
+            ],
+          }}
+        />
+      </ThemeProvider>,
+    )
+
+    expect(screen.getByText("Profile unavailable")).toBeVisible()
+    expect(screen.getByText("Login unavailable")).toBeVisible()
+    expect(
+      screen.getByText(`Provider profile unavailable · Membership ${membershipId}`),
+    ).toBeVisible()
   })
 
   it("shows a denial without exposing users or global audit navigation", () => {

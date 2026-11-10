@@ -69,7 +69,7 @@ describe("AddHubAdministrators()", () => {
       [body, body.firstElementChild],
       [results, results.firstElementChild],
     ])
-    fireEvent.click(await screen.findByRole("checkbox", { name: "The Octocat @octocat" }))
+    fireEvent.click(await screen.findByRole("checkbox", { name: /The Octocat/ }))
     resize()
     expect(results).toHaveAttribute("data-scroll-end")
     fireEvent.scroll(results, { target: { scrollTop: 20 } })
@@ -82,10 +82,10 @@ describe("AddHubAdministrators()", () => {
     resize()
     expect(results).not.toHaveAttribute("data-scroll-start")
     expect(results).not.toHaveAttribute("data-scroll-end")
-    await screen.findByRole("checkbox", { name: "Mona Lisa @mona" })
+    await screen.findByRole("checkbox", { name: /Mona Lisa/ })
     resize()
     expect(results).toHaveAttribute("data-scroll-start")
-    fireEvent.click(screen.getByRole("checkbox", { name: "The Octocat @octocat" }))
+    fireEvent.click(screen.getByRole("checkbox", { name: /The Octocat/ }))
     resize()
     expect(results).not.toHaveAttribute("data-scroll-start")
     expect(results).not.toHaveAttribute("data-scroll-end")
@@ -129,8 +129,8 @@ describe("AddHubAdministrators()", () => {
       screen.queryByRole("checkbox", { name: addHubAdministratorsData.confirmLabel }),
     ).not.toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Add selected administrators" })).toBeDisabled()
-    fireEvent.click(await screen.findByRole("checkbox", { name: "Mona Lisa @mona" }))
-    fireEvent.click(screen.getByRole("checkbox", { name: "The Octocat @octocat" }))
+    fireEvent.click(await screen.findByRole("checkbox", { name: /Mona Lisa/ }))
+    fireEvent.click(screen.getByRole("checkbox", { name: /The Octocat/ }))
     const submit = screen.getByRole("button", { name: "Add selected administrators" })
     expect(submit).toBeDisabled()
     fireEvent.click(screen.getByRole("checkbox", { name: addHubAdministratorsData.confirmLabel }))
@@ -145,18 +145,18 @@ describe("AddHubAdministrators()", () => {
     expect(container.querySelector("form")).toHaveAttribute("method", "post")
     expect(onSearch).toHaveBeenCalledWith("")
     expect(screen.getAllByRole("list")).toHaveLength(1)
-    expect(screen.getAllByRole("checkbox", { name: "Mona Lisa @mona" })).toHaveLength(1)
+    expect(screen.getAllByRole("checkbox", { name: /Mona Lisa/ })).toHaveLength(1)
     expect(screen.getAllByRole("listitem").map((row) => row.textContent)).toEqual([
-      "The Octocat@octocat",
-      "Mona Lisa@mona",
+      expect.stringContaining("The Octocat@octocat"),
+      expect.stringContaining("Mona Lisa@mona"),
     ])
     expect(screen.queryByRole("region", { name: "Selected users" })).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole("checkbox", { name: "Mona Lisa @mona" }))
+    fireEvent.click(screen.getByRole("checkbox", { name: /Mona Lisa/ }))
     expect(submit).toBeDisabled()
     expect(
       screen.getByRole("checkbox", { name: addHubAdministratorsData.confirmLabel }),
     ).not.toBeChecked()
-    fireEvent.click(screen.getByRole("checkbox", { name: "The Octocat @octocat" }))
+    fireEvent.click(screen.getByRole("checkbox", { name: /The Octocat/ }))
     expect(
       screen.queryByRole("checkbox", { name: addHubAdministratorsData.confirmLabel }),
     ).not.toBeInTheDocument()
@@ -182,28 +182,28 @@ describe("AddHubAdministrators()", () => {
         />
       </ThemeProvider>,
     )
-    fireEvent.click(await screen.findByRole("checkbox", { name: "The Octocat @octocat" }))
+    fireEvent.click(await screen.findByRole("checkbox", { name: /The Octocat/ }))
     expect(screen.getByText(addHubAdministratorsData.moreLabel)).toBeInTheDocument()
     fireEvent.change(screen.getByRole("searchbox"), { target: { value: "mona" } })
     expect(screen.getByText(addHubAdministratorsData.loadingLabel)).toBeInTheDocument()
-    expect(screen.getByRole("checkbox", { name: "The Octocat @octocat" })).toBeChecked()
-    fireEvent.click(await screen.findByRole("checkbox", { name: "Mona Lisa @mona" }))
+    expect(screen.getByRole("checkbox", { name: /The Octocat/ })).toBeChecked()
+    fireEvent.click(await screen.findByRole("checkbox", { name: /Mona Lisa/ }))
     expect(container.querySelectorAll('input[name="user_ids[]"]')).toHaveLength(2)
     expect(onSearch).toHaveBeenLastCalledWith("mona")
     expect(screen.getAllByRole("listitem").map((row) => row.textContent)).toEqual([
-      "The Octocat@octocat",
-      "Mona Lisa@mona",
+      expect.stringContaining("The Octocat@octocat"),
+      expect.stringContaining("Mona Lisa@mona"),
     ])
     fireEvent.click(screen.getByRole("checkbox", { name: addHubAdministratorsData.confirmLabel }))
-    fireEvent.click(screen.getByRole("checkbox", { name: "The Octocat @octocat" }))
+    fireEvent.click(screen.getByRole("checkbox", { name: /The Octocat/ }))
     expect(
       screen.getByRole("checkbox", { name: addHubAdministratorsData.confirmLabel }),
     ).not.toBeChecked()
-    expect(screen.queryByRole("checkbox", { name: "The Octocat @octocat" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("checkbox", { name: /The Octocat/ })).not.toBeInTheDocument()
     fireEvent.change(screen.getByRole("searchbox"), { target: { value: "" } })
-    await screen.findByRole("checkbox", { name: "The Octocat @octocat" })
-    expect(screen.getAllByRole("checkbox", { name: "Mona Lisa @mona" })).toHaveLength(1)
-    expect(screen.getByRole("checkbox", { name: "Mona Lisa @mona" })).toBeChecked()
+    await screen.findByRole("checkbox", { name: /The Octocat/ })
+    expect(screen.getAllByRole("checkbox", { name: /Mona Lisa/ })).toHaveLength(1)
+    expect(screen.getByRole("checkbox", { name: /Mona Lisa/ })).toBeChecked()
   })
 
   it("reports search failures explicitly and retries without losing selections", async () => {
@@ -222,16 +222,16 @@ describe("AddHubAdministrators()", () => {
         />
       </ThemeProvider>,
     )
-    fireEvent.click(await screen.findByRole("checkbox", { name: "Mona Lisa @mona" }))
+    fireEvent.click(await screen.findByRole("checkbox", { name: /Mona Lisa/ }))
     fireEvent.change(screen.getByRole("searchbox"), { target: { value: "other" } })
     expect(await screen.findByRole("alert")).toHaveTextContent(
       addHubAdministratorsData.searchFailedLabel,
     )
-    expect(screen.getByRole("checkbox", { name: "Mona Lisa @mona" })).toBeChecked()
+    expect(screen.getByRole("checkbox", { name: /Mona Lisa/ })).toBeChecked()
     fireEvent.click(screen.getByRole("button", { name: "Try again" }))
     expect(await screen.findByText(addHubAdministratorsData.emptyLabel)).toBeInTheDocument()
     expect(screen.queryByRole("alert")).not.toBeInTheDocument()
-    expect(screen.getByRole("checkbox", { name: "Mona Lisa @mona" })).toBeChecked()
+    expect(screen.getByRole("checkbox", { name: /Mona Lisa/ })).toBeChecked()
   })
 
   it("caps selections at 50 across searches while allowing deselection", async () => {
@@ -253,18 +253,18 @@ describe("AddHubAdministrators()", () => {
         />
       </ThemeProvider>,
     )
-    await screen.findByRole("checkbox", { name: "Pixel Sprite 0 @pixel-0" })
+    await screen.findByRole("checkbox", { name: /Pixel Sprite 0/ })
     for (const checkbox of screen.getAllByRole("checkbox")) {
       fireEvent.click(checkbox)
     }
     fireEvent.change(screen.getByRole("searchbox"), { target: { value: "nova" } })
-    const nova = await screen.findByRole("checkbox", { name: "Nova Pixel @nova" })
+    const nova = await screen.findByRole("checkbox", { name: /Nova Pixel/ })
     expect(nova).toBeDisabled()
     const form = screen
       .getByRole("button", { name: "Add selected administrators" })
       .closest("form")!
     expect(new FormData(form).getAll("user_ids[]")).toHaveLength(50)
-    const selected = screen.getByRole("checkbox", { name: "Pixel Sprite 0 @pixel-0" })
+    const selected = screen.getByRole("checkbox", { name: /Pixel Sprite 0/ })
     expect(selected).toBeEnabled()
     fireEvent.click(selected)
     expect(nova).toBeEnabled()
@@ -329,7 +329,7 @@ describe("AddHubAdministrators()", () => {
       .closest("form")!
     expect(fireEvent.submit(form)).toBe(false)
     fireEvent.change(screen.getByRole("searchbox"), { target: { value: "mona" } })
-    fireEvent.click(await screen.findByRole("checkbox", { name: "Mona Lisa @mona" }))
+    fireEvent.click(await screen.findByRole("checkbox", { name: /Mona Lisa/ }))
     expect(fireEvent.submit(form)).toBe(false)
     fireEvent.click(screen.getByRole("checkbox", { name: addHubAdministratorsData.confirmLabel }))
     expect(fireEvent.submit(form)).toBe(true)

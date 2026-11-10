@@ -2,7 +2,7 @@ import type { HubAdministrationPageData } from "@features/hub-administration-pag
 
 export interface HubAdminConfirmationPageData extends HubAdministrationPageData {
   pageTitle: string
-  target: { login: string; name: string | null; identity: string }
+  target: { login: string | null; name: string | null; identity: string; membershipId: string }
   operation: "designate" | "revoke" | "DESIGNATE_ADMINISTRATORS" | "REVOKE_ADMINISTRATOR"
   targetMembershipId?: string
   submitPath: string

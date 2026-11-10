@@ -11,7 +11,12 @@ const data: HubAdminConfirmationPageData = {
   heading: "Designate Hub administrator?",
   description:
     "This user will be able to designate and remove Hub administrators and read deployment security records. Their GitHub repository permissions will not change.",
-  target: { login: "mona", name: "Mona Lisa", identity: "Microsoft Entra account" },
+  target: {
+    login: "mona",
+    name: "Mona Lisa",
+    identity: "Microsoft Entra account",
+    membershipId: "22222222-2222-4222-8222-222222222222",
+  },
   operation: "DESIGNATE_ADMINISTRATORS",
   targetMembershipId: "22222222-2222-4222-8222-222222222222",
   submitPath: "/api/administrators/authorizations/start",

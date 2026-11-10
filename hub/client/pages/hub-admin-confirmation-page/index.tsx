@@ -16,10 +16,13 @@ export function HubAdminConfirmationPage({
 }) {
   return (
     <HubAdministrationPage data={data}>
-      <section aria-label={data.target.login}>
-        <strong>{data.target.name ?? data.target.login}</strong>
-        <Text as="p">@{data.target.login}</Text>
+      <section aria-label={data.target.login ?? data.target.membershipId}>
+        <strong>{data.target.name ?? data.target.login ?? "Profile unavailable"}</strong>
+        <Text as="p">{data.target.login ? `@${data.target.login}` : "Login unavailable"}</Text>
         <Text as="p">{data.target.identity}</Text>
+        <Text as="p" size="100">
+          Membership {data.target.membershipId}
+        </Text>
       </section>
 
       <Text as="p">{data.verification}</Text>

@@ -2,6 +2,7 @@ import { useState } from "react"
 import { z } from "zod"
 
 import { HubAdminConfirmationPage } from "@pages/hub-admin-confirmation-page"
+import { administratorErrorMessage } from "@application/hub/administrator-error-message"
 import { beginAdministratorAuthorization } from "@application/hub/begin-administrator-authorization"
 import { ApiContractError } from "@application/hub/requests/api-contract-error"
 import { ApiRequestError } from "@application/hub/requests/api-request-error"
@@ -72,6 +73,12 @@ export default function SettingsAdministratorConfirmation({
     <div
       onSubmit={(event) => {
         if (!(event.target instanceof HTMLFormElement)) return
+        if (
+          event.target.action !==
+          new URL("/api/administrators/authorizations/start", window.location.href).href
+        ) {
+          return
+        }
         event.preventDefault()
         if (submission.pending) return
         setSubmission({ pending: true, error: null })
@@ -86,7 +93,7 @@ export default function SettingsAdministratorConfirmation({
             pending: false,
             error:
               error instanceof ApiRequestError
-                ? error.message
+                ? administratorErrorMessage(error.message)
                 : "The API response was invalid. Provider authorization could not start.",
           })
         })

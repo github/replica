@@ -13,7 +13,7 @@ const octocat = {
   provider: "github",
   login: "octocat",
   name: "The Octocat",
-  identity: "GitHub account",
+  identity: "GitHub account · Membership 11111111-1111-4111-8111-111111111111",
   role: "Hub administrator",
   actionLabel: "Remove administrator",
   confirmationPath: "/settings/administrators/11111111-1111-4111-8111-111111111111/revoke",
@@ -128,7 +128,7 @@ export const Multiple: Story = {
           provider: "entra",
           login: "mona",
           name: "Mona Lisa",
-          identity: "Microsoft Entra account",
+          identity: "Microsoft Entra account · Membership 22222222-2222-4222-8222-222222222222",
           role: "Hub administrator",
           actionLabel: "Remove administrator",
           confirmationPath: "/settings/administrators/22222222-2222-4222-8222-222222222222/revoke",
@@ -167,6 +167,24 @@ export const AccessRemoved: Story = {
         "Your account no longer has Hub administrator controls. Hub ended this browser session when the role changed.",
       notice: "Your Hub administrator access was removed and this session ended.",
       alert: null,
+    },
+  },
+}
+export const ProfileUnavailable: Story = {
+  args: {
+    data: {
+      ...data,
+      administratorsLabel: "1 administrator",
+      users: [
+        {
+          ...octocat,
+          provider: null,
+          login: null,
+          name: null,
+          identity:
+            "Provider profile unavailable · Membership 11111111-1111-4111-8111-111111111111",
+        },
+      ],
     },
   },
 }
