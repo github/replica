@@ -38,7 +38,7 @@ The [authentication and session flow](authentication.md) uses this foundation to
 
 The administrator-management API and retained frontend list and search existing Hub users, designate one to 50 administrators, and revoke one administrator-managed assignment. Sensitive role changes reuse the current session's GitHub or Entra authorization flow and bind one short-lived, one-use continuation to the live session, external identity, operation, and target memberships. The callback and mutation reread current authority before changing roles. This surface does not invite users or manage general membership lifecycle.
 
-The administrator security-audit API lists Hub-wide identity and administrator records newest first through bounded opaque-cursor pagination. It rereads the live administrator session and projects stored records through action-specific presentation allowlists. Repository audit, export, retention changes, and the retained audit frontend remain separate work.
+The administrator security-audit API and retained frontend list Hub-wide identity and administrator records newest first through bounded opaque-cursor pagination. The API rereads the live administrator session and projects stored records through action-specific presentation allowlists. The frontend keeps the cursor opaque, shows stable membership UUIDs when available, and does not load provisional product workspace contracts. Repository audit, export, retention changes, and deletion remain separate work.
 
 ## Frontend
 
@@ -57,7 +57,7 @@ Imports follow the arrows above. Shared components, hooks, and utilities must no
 
 The theme provider wraps routes and their loading and error feedback.
 
-- In real mode, `/` and `/admin-enrollment` render the authentication shell under `client/application/hub-application/`. That shell restores the current session without requesting product data.
+- In real mode, `/` and `/admin-enrollment` render the authentication shell under `client/application/hub-application/`. `/settings/administrators` and `/settings/audit?scope=hub` restore the live administrator session and call only their production APIs. These routes do not request product data.
 - In mock mode, the root reads the simulated session. A nested layout loads the private workspace for signed-in pages.
 - Route loaders and actions request product data and refresh it after changes. Shareable filters and selections live in the URL.
 - Product screens keep product-facing copy. API failures remain visible errors.

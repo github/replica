@@ -23,6 +23,8 @@ export function administratorWorkspace(session: CurrentHubSession): HubAdministr
     settingsNavigationLabel: "Security and settings",
     signOutLabel: "Sign out",
     signOutPath: "/api/auth/session/sign-out",
+    securityAuditLabel: "Security audit",
+    securityAuditPath: "/settings/audit?scope=hub",
     systemThemeLabel: "System",
     administrationLinks: [
       {

@@ -29,14 +29,13 @@ export interface SecurityAuditPageData {
   signOutLabel: string
   signOutPath: string
   authenticityToken: string
-  columns: Record<"time" | "action" | "actor" | "ip" | "context" | "outcome", string>
+  columns: Record<"time" | "action" | "actor" | "context" | "outcome", string>
   events: {
-    id: number
+    id: string
     time: string
     action: string
     actor: string
-    ip: string
-    context: string
+    context: Array<{ label: string; value: string }>
     outcome: string
   }[]
   workspace?: RepositoryWorkspaceData
