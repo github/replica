@@ -127,7 +127,6 @@ describe("securityAuditRoutes()", () => {
   it.each([
     ["empty", "limit="],
     ["below the minimum", "limit=0"],
-    ["above the maximum", "limit=51"],
     ["non-integer", "limit=1.5"],
     ["noncanonical", "limit=01"],
     ["structurally repeated", "limit=1&limit=2"],
@@ -141,6 +140,22 @@ describe("securityAuditRoutes()", () => {
 
       expect(response.status).toBe(400)
       expect(response.headers.get("cache-control")).toBe("no-store")
+      expect(listSecurityAudits).not.toHaveBeenCalled()
+    })
+  })
+
+  it("explains the maximum page size before reading audits", async () => {
+    const { authentication, listSecurityAudits } = routeDependencies()
+
+    await withServer(authentication, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/security-audits?limit=51`, {
+        headers: sessionHeaders(),
+      })
+
+      expect(response.status).toBe(400)
+      expect(await response.json()).toEqual({
+        error: "The security audit limit exceeds the maximum of 50.",
+      })
       expect(listSecurityAudits).not.toHaveBeenCalled()
     })
   })

@@ -37,6 +37,14 @@ describe("listSecurityAudits()", () => {
       id: records[1]?.id,
     })
     await expect(prisma.securityAudit.count()).resolves.toBe(51)
+
+    const finalPage = await listSecurityAudits(prisma, {
+      before: result.nextCursor!,
+      limit: 1,
+    })
+
+    expect(finalPage.records.map((record) => record.id)).toEqual([records[0]?.id])
+    expect(finalPage.nextCursor).toBeNull()
   })
 
   it("uses descending IDs to paginate records with the same timestamp", async () => {

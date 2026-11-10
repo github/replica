@@ -54,7 +54,7 @@ export function get(dependencies: AdministratorRouteDependencies): RequestHandle
       }
       const limit = query.data.limit ? Number(query.data.limit) : 50
       if (limit > 50) {
-        response.status(400).json({ error: "The security audit limit is invalid." })
+        response.status(400).json({ error: "The security audit limit exceeds the maximum of 50." })
         return
       }
       let before
