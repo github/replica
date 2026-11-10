@@ -30,6 +30,7 @@ function dependencies() {
       nonceCiphertext: "encrypted-nonce",
       createdAt: new Date("2026-11-04T18:00:00Z"),
       purpose: "SIGN_IN",
+      sensitiveAuthorizationId: null,
       sessionRevocationRevision: 0,
     } as const
     return Promise.resolve(attempt)
@@ -58,6 +59,7 @@ function dependencies() {
         userId: "00000000-0000-4000-8000-000000000013",
       }),
     ),
+    updateIdentityProfile: vi.fn(() => Promise.resolve()),
     writeDenialAudit: vi.fn(() => Promise.resolve()),
   } satisfies CompleteAuthenticationProofDependencies
 }
@@ -94,6 +96,9 @@ describe("completeAuthenticationProof()", () => {
       subject: "123",
     })
     expect(result).toEqual({
+      providerAssignment: undefined,
+      purpose: "SIGN_IN",
+      sensitiveAuthorizationId: undefined,
       proof: {
         authorizationAttemptId: "00000000-0000-4000-8000-000000000010",
         externalIdentityId: "00000000-0000-4000-8000-000000000012",
@@ -114,6 +119,7 @@ describe("completeAuthenticationProof()", () => {
       nonceCiphertext: "encrypted-nonce",
       createdAt: new Date("2026-11-04T18:00:00Z"),
       purpose: "ADMIN_ENROLLMENT",
+      sensitiveAuthorizationId: null,
       sessionRevocationRevision: 0,
     })
 
@@ -145,6 +151,8 @@ describe("completeAuthenticationProof()", () => {
     const result = await completeAuthenticationProof(input, scoped)
 
     expect(result).toEqual({
+      purpose: "SIGN_IN",
+      sensitiveAuthorizationId: undefined,
       proof: {
         authorizationAttemptId: "00000000-0000-4000-8000-000000000010",
         externalIdentityId: "00000000-0000-4000-8000-000000000012",
@@ -159,6 +167,56 @@ describe("completeAuthenticationProof()", () => {
     expect(result.proof).not.toHaveProperty("providerAssignment")
   })
 
+  it("returns the exact sensitive authorization bound to administrator management proof", async () => {
+    const scoped = dependencies()
+    scoped.consumeAttempt.mockResolvedValueOnce({
+      id: "00000000-0000-4000-8000-000000000010",
+      providerRevisionId: revision.id,
+      codeVerifierCiphertext: "encrypted-verifier",
+      nonceCiphertext: "encrypted-nonce",
+      createdAt: new Date("2026-11-04T18:00:00Z"),
+      purpose: "ADMINISTRATOR_MANAGEMENT",
+      sensitiveAuthorizationId: "00000000-0000-4000-8000-000000000020",
+      sessionRevocationRevision: 0,
+    })
+
+    const result = await completeAuthenticationProof(input, scoped)
+
+    expect(result).toMatchObject({
+      purpose: "ADMINISTRATOR_MANAGEMENT",
+      sensitiveAuthorizationId: "00000000-0000-4000-8000-000000000020",
+    })
+    expect(scoped.adapter.completeAuthenticationProof).toHaveBeenCalledWith(
+      expect.objectContaining({
+        authenticatedAfter: new Date("2026-11-04T18:00:00Z"),
+      }),
+    )
+  })
+
+  it("updates the resolved external identity with provider profile data", async () => {
+    const scoped = dependencies()
+    scoped.adapter.completeAuthenticationProof.mockResolvedValueOnce({
+      identity: {
+        provider: "github",
+        issuer: "https://github.com",
+        subject: "123",
+      },
+      profile: {
+        login: "octocat",
+        name: "The Octocat",
+      },
+    })
+
+    await completeAuthenticationProof(input, scoped)
+
+    expect(scoped.updateIdentityProfile).toHaveBeenCalledWith({
+      id: "00000000-0000-4000-8000-000000000012",
+      login: "octocat",
+      name: "The Octocat",
+      provider: "github",
+    })
+  })
+
   it("consumes the browser-bound attempt before provider work", async () => {
     const order: string[] = []
     const scoped = dependencies()
@@ -171,6 +229,7 @@ describe("completeAuthenticationProof()", () => {
         nonceCiphertext: "encrypted-nonce",
         createdAt: new Date(),
         purpose: "SIGN_IN",
+        sensitiveAuthorizationId: null,
         sessionRevocationRevision: 0,
       })
     })
@@ -210,6 +269,7 @@ describe("completeAuthenticationProof()", () => {
       nonceCiphertext: null,
       createdAt: new Date(),
       purpose: "SIGN_IN",
+      sensitiveAuthorizationId: null,
       sessionRevocationRevision: 0,
     })
 

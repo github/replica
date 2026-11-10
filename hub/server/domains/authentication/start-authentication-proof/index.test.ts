@@ -96,6 +96,7 @@ describe("startAuthenticationProof()", () => {
       lifetimeSeconds: 600,
       nonceCiphertext: "encrypted:nonce-secret",
       purpose: "SIGN_IN",
+      sensitiveAuthorizationId: undefined,
       sessionRevocationRevision: 0,
     })
     expect(encryptCodeVerifier).toHaveBeenCalledOnce()
@@ -144,6 +145,46 @@ describe("startAuthenticationProof()", () => {
       )
     },
   )
+
+  it("binds administrator management proof to one sensitive authorization", async () => {
+    const scoped = dependencies()
+    const sensitiveAuthorizationId = "00000000-0000-4000-8000-000000000020"
+
+    const result = await startAuthenticationProof(
+      { purpose: "ADMINISTRATOR_MANAGEMENT", sensitiveAuthorizationId },
+      scoped.values,
+    )
+
+    expect(result.authorizationAttemptId).toBe("00000000-0000-4000-8000-000000000010")
+    expect(scoped.createAttempt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: result.authorizationAttemptId,
+        purpose: "ADMINISTRATOR_MANAGEMENT",
+        sensitiveAuthorizationId,
+      }),
+    )
+    expect(scoped.createAuthorizationUrl).toHaveBeenCalledWith(
+      expect.objectContaining({ freshAuthentication: true }),
+    )
+  })
+
+  it.each([
+    ["administrator management without an authorization", { purpose: "ADMINISTRATOR_MANAGEMENT" }],
+    [
+      "ordinary sign-in with an authorization",
+      {
+        purpose: "SIGN_IN",
+        sensitiveAuthorizationId: "00000000-0000-4000-8000-000000000020",
+      },
+    ],
+  ] as const)("rejects %s before creating provider state", async (_case, input) => {
+    const scoped = dependencies()
+
+    await expect(startAuthenticationProof(input, scoped.values)).rejects.toBeInstanceOf(Error)
+
+    expect(scoped.createAttempt).not.toHaveBeenCalled()
+    expect(scoped.createAuthorizationUrl).not.toHaveBeenCalled()
+  })
 
   it("fails closed before creating an attempt when the provider revision drifted", async () => {
     const scoped = dependencies({

@@ -270,6 +270,16 @@ export function createEntraOidcUserAuthenticationAdapter(
           provider: "entra",
           subject: claims.sub,
         },
+        profile: {
+          login:
+            typeof claims.preferred_username === "string"
+              ? claims.preferred_username.slice(0, 200)
+              : claims.sub.slice(0, 200),
+          name:
+            typeof claims.name === "string" && claims.name.length > 0
+              ? claims.name.slice(0, 200)
+              : null,
+        },
         providerAssignment: {
           assignmentSubject,
           issuedAt: new Date(claims.iat * 1_000),

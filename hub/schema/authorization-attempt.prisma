@@ -2,9 +2,11 @@ model AuthorizationAttempt {
   // ID columns
   id                 String @id @default(uuid()) @db.Uuid
   providerRevisionId String @map("provider_revision_id") @db.Uuid
+  sensitiveAuthorizationId String? @unique @map("sensitive_authorization_id") @db.Uuid
 
   // Relations
   providerRevision AuthenticationProviderRevision @relation(fields: [providerRevisionId], references: [id], onDelete: Restrict)
+  sensitiveAuthorization SensitiveAuthorization? @relation(fields: [sensitiveAuthorizationId], references: [id], onDelete: Restrict)
 
   // Attribute columns
   purpose                   AuthorizationAttemptPurpose

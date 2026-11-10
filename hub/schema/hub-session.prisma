@@ -2,9 +2,14 @@ model HubSession {
   // ID columns
   id           String @id @default(uuid()) @db.Uuid
   membershipId String @map("membership_id") @db.Uuid
+  externalIdentityId String? @map("external_identity_id") @db.Uuid
+  providerRevisionId String? @map("provider_revision_id") @db.Uuid
 
   // Relations
   membership Membership @relation(fields: [membershipId], references: [id], onDelete: Restrict)
+  externalIdentity ExternalIdentity? @relation(fields: [externalIdentityId], references: [id], onDelete: Restrict)
+  providerRevision AuthenticationProviderRevision? @relation(fields: [providerRevisionId], references: [id], onDelete: Restrict)
+  sensitiveAuthorizations SensitiveAuthorization[]
 
   // Attribute columns
   digest             String    @unique @db.VarChar(64)
@@ -17,5 +22,6 @@ model HubSession {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@index([membershipId, expiresAt])
+  @@index([externalIdentityId])
   @@map("hub_sessions")
 }

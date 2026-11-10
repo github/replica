@@ -17,8 +17,9 @@ export interface StartAuthenticationProofDependencies {
     id: string
     lifetimeSeconds: number
     nonceCiphertext: string
-    purpose: "SIGN_IN" | "ADMIN_ENROLLMENT"
+    purpose: "SIGN_IN" | "ADMIN_ENROLLMENT" | "ADMINISTRATOR_MANAGEMENT"
     providerRevisionId: string
+    sensitiveAuthorizationId?: string
     sessionRevocationRevision: number
     stateDigest: string
   }): Promise<{ expiresAt: Date }>
@@ -35,10 +36,12 @@ export interface StartAuthenticationProofDependencies {
 }
 
 export interface StartAuthenticationProofInput {
-  purpose: "SIGN_IN" | "ADMIN_ENROLLMENT"
+  purpose: "SIGN_IN" | "ADMIN_ENROLLMENT" | "ADMINISTRATOR_MANAGEMENT"
+  sensitiveAuthorizationId?: string
 }
 
 export interface StartAuthenticationProofResult {
+  authorizationAttemptId: string
   authorizationUrl: string
   browserBinding: string
   expiresAt: Date

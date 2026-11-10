@@ -26,6 +26,8 @@ export interface AuthenticationCallbackDependencies extends RateLimitDependencie
   callbackIssuer?: string
   secureCookie: boolean
   complete(input: { browserBinding: string; code: string; state: string }): Promise<{
+    purpose: "SIGN_IN" | "ADMIN_ENROLLMENT" | "ADMINISTRATOR_MANAGEMENT"
+    sensitiveAuthorizationId?: string
     proof: AuthenticationProofResult
     providerAssignment?: {
       assignmentSubject: string | null
@@ -34,6 +36,18 @@ export interface AuthenticationCallbackDependencies extends RateLimitDependencie
       role: "MEMBER" | "ADMINISTRATOR" | null
     }
   }>
+  verifyAdministratorAuthorization?(input: {
+    authorizationAttemptId: string
+    externalIdentityId: string
+    providerAssignment?: {
+      assignmentSubject: string | null
+      issuedAt: Date
+      providerRevisionId: string
+      role: "MEMBER" | "ADMINISTRATOR" | null
+    }
+    sessionDigest: string
+    sensitiveAuthorizationId: string
+  }): Promise<boolean>
   admit(input: {
     proof: AuthenticationProofResult
     providerAssignment?: {
@@ -60,6 +74,7 @@ export interface SignOutDependencies {
 }
 
 export interface AuthenticationRouteDependencies {
+  administrators?: AdministratorRouteDependencies
   currentSession: CurrentSessionDependencies
   entra?: ProviderAuthenticationRouteDependencies
   github?: ProviderAuthenticationRouteDependencies
@@ -67,7 +82,49 @@ export interface AuthenticationRouteDependencies {
 }
 
 export interface ProviderAuthenticationRouteDependencies {
+  administratorAuthorization?: StartAdministratorAuthorizationDependencies
   administratorEnrollment: StartAdministratorEnrollmentDependencies
   callback: AuthenticationCallbackDependencies
   signIn: StartAuthenticationDependencies
+}
+
+export interface StartAdministratorAuthorizationDependencies extends RateLimitDependencies {
+  applicationOrigin: string
+  secureCookie: boolean
+  start(input: {
+    actorMembershipId: string
+    externalIdentityId: string
+    hubSessionId: string
+    operation: "DESIGNATE_ADMINISTRATORS" | "REVOKE_ADMINISTRATOR"
+    targetMembershipIds: string[]
+  }): Promise<{
+    authorizationId: string
+    authorizationUrl: string
+    browserBinding: string
+    expiresAt: Date
+  }>
+}
+
+export interface AdministratorRouteDependencies {
+  applicationOrigin: string
+  cancel(input: { authorizationId: string; hubSessionId: string }): Promise<boolean>
+  continue(input: {
+    authorizationId: string
+    hubSessionId: string
+    operation: "DESIGNATE_ADMINISTRATORS" | "REVOKE_ADMINISTRATOR"
+    targetMembershipIds: string[]
+  }): Promise<unknown>
+  findSession(sessionDigest: string): Promise<{
+    externalIdentityId: string
+    id: string
+    membershipId: string
+    providerKey: string
+  } | null>
+  getAuthorization(input: { authorizationId: string; hubSessionId: string }): Promise<unknown>
+  list(input: {
+    before?: { createdAt: Date; membershipId: string }
+    limit?: number
+  }): Promise<unknown>
+  search(input: { limit?: number; query: string }): Promise<unknown>
+  start: Record<"entra" | "github", StartAdministratorAuthorizationDependencies | undefined>
 }

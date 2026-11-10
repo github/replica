@@ -24,9 +24,11 @@ export interface AdmissionRepositories {
   }): Promise<"created" | "restored" | "unchanged" | null>
   createHubSession(input: {
     digest: string
+    externalIdentityId: string
     id: string
     lifetimeSeconds: number
     membershipId: string
+    providerRevisionId: string
     revocationRevision: number
   }): Promise<{ expiresAt: Date }>
   createOrRestoreMembership(input: { id: string; userId: string }): Promise<{
@@ -53,7 +55,7 @@ export interface AdmissionRepositories {
     bootstrapSecretDigest: string | null
     consumedAt: Date | null
     providerRevisionId: string
-    purpose: "SIGN_IN" | "ADMIN_ENROLLMENT"
+    purpose: "SIGN_IN" | "ADMIN_ENROLLMENT" | "ADMINISTRATOR_MANAGEMENT"
     sessionRevocationRevision: number
   } | null>
   getExternalIdentity(id: string): Promise<{ provider: string; userId: string } | null>

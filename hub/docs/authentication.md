@@ -38,7 +38,11 @@ An effective administrator may designate one to 50 existing active Hub membershi
 
 The domain accepts membership UUIDs, rereads provider and actor authority inside a serializable transaction, and rejects missing or inactive targets, targets without an external identity, repeated role changes, and removal of the final effective administrator. Bulk designation, assignment changes, target-session termination, and their success audits commit atomically. Self-removal is allowed when another effective administrator remains. Terminal denials and failures are audited only after the rejected transaction rolls back.
 
-Effective administrator listing, counting, admission, and session restoration include active administrator-managed assignments. Authentication-provider assignments count only while their provider revision remains selected and enabled. The domain does not implement fresh authorization, HTTP parsing, profile search, invitations, or general membership lifecycle administration; those boundaries remain separate.
+Effective administrator listing, counting, admission, and session restoration include active administrator-managed assignments. Authentication-provider assignments count only while their provider revision remains selected and enabled.
+
+Administrator role changes use the provider recorded on the current Hub session. A five-minute sensitive authorization binds that live session, its external identity, the exact operation, and the ordered target membership UUIDs to one normal authorization attempt. GitHub and Entra reuse the existing state, browser binding, PKCE, nonce, provider revision, callback, and rate-limit machinery. Entra requires a new provider login; GitHub repeats its user authorization flow. Hub does not fall back to another configured provider.
+
+The callback must receive the original Hub session cookie and prove the same external identity. It rereads the session, provider selection, global revocation revision, membership lifecycle, and effective administrator authority before marking the authorization verified. Continuing rereads and locks the server-owned authorization, requires an exact operation and target match, consumes it once, and runs the administrator mutation in the same serializable transaction. Expired, cancelled, reused, stale-role, and final-administrator cases return explicit conflicts. Browser timestamps and submitted operation details never establish freshness or authority.
 
 ## Browser session
 
@@ -58,6 +62,17 @@ The migration owns the single global revocation row. Its identity and history ar
 
 `POST /api/auth/entra/start`, `POST /api/auth/entra/admin-enrollment/start`, and `GET /api/auth/entra/callback` provide the equivalent explicit Entra flow. Entra administrator enrollment requests a fresh provider login and requires signed `auth_time` evidence from after the saved attempt start.
 
+Administrator management exposes:
+
+- `GET /api/administrators?limit=&before=` for a maximum of 50 effective administrators. `before` is the opaque cursor returned by the previous response.
+- `GET /api/administrators/candidates?query=&limit=` for a maximum of 50 active non-administrators matched against their latest authenticated provider login or name.
+- `POST /api/administrators/authorizations/start` with an operation and one to 50 target membership UUIDs. It returns the current session provider's `authorizationUrl`, the authorization UUID and expiry while setting the existing browser-binding cookie. The browser navigates to that URL.
+- `GET /api/administrators/authorizations/:id` for the verified, unconsumed confirmation contract.
+- `POST /api/administrators/authorizations/continue` with the authorization UUID and the exact operation and targets.
+- `POST /api/administrators/authorizations/cancel` with the authorization UUID.
+
+All administrator routes require a live effective-administrator session. Mutations require the exact configured application origin. The start and provider callback use the existing database-backed authentication rate limits. Responses use `400` for invalid bounded input, `403` for missing current authority, `409` for stale or conflicting operations, `410` for an unavailable confirmation, and `429` for exhausted authorization attempts.
+
 Start and sign-out requests require the exact configured application origin. Authentication routes use database-backed per-address-digest rate limits, disable response storage, and omit query, form, and cookie payloads from request completion logs. Callback rate limiting runs before callback parsing.
 
 The address digest uses the trusted client address. Behind a protected proxy, configure `HUB_TRUSTED_PROXY_HOPS` to the exact proxy-chain length; leaving it at zero intentionally treats the proxy as the client and shares one rate-limit budget across traffic from that proxy.
@@ -76,4 +91,4 @@ GitHub and Entra configuration are explicit and independently revisioned. Only t
 
 ## Not implemented
 
-Hub does not provide invitations, general member administration, recovery secrets, setup-only bootstrap consumption, background provider synchronization, repository admission, refresh tokens, provider logout, account linking, generic OIDC, multi-tenant OIDC, or Entra tenant setup automation. Administrator-management HTTP routes and frontend integration are not implemented.
+Hub does not provide invitations, general member administration, recovery secrets, setup-only bootstrap consumption, background provider synchronization, repository admission, refresh tokens, provider logout, account linking, generic OIDC, multi-tenant OIDC, or Entra tenant setup automation. The retained administrator frontend is not connected to these APIs yet.

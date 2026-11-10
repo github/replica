@@ -10,8 +10,9 @@ export interface ConsumedAuthorizationAttempt {
   codeVerifierCiphertext: string
   createdAt: Date
   nonceCiphertext: string | null
-  purpose: "SIGN_IN" | "ADMIN_ENROLLMENT"
+  purpose: "SIGN_IN" | "ADMIN_ENROLLMENT" | "ADMINISTRATOR_MANAGEMENT"
   providerRevisionId: string
+  sensitiveAuthorizationId?: string | null
   sessionRevocationRevision: number
 }
 
@@ -38,6 +39,12 @@ export interface CompleteAuthenticationProofDependencies {
     sessionRevocationRevision: number
     subject: string
   }): Promise<{ externalIdentityId: string; userId: string }>
+  updateIdentityProfile(input: {
+    id: string
+    login: string
+    name: string | null
+    provider: string
+  }): Promise<void>
   writeDenialAudit(
     reason:
       | "configuration_changed"
@@ -54,6 +61,8 @@ export interface CompleteAuthenticationProofInput {
 }
 
 export interface CompleteAuthenticationProofResult {
+  purpose: "SIGN_IN" | "ADMIN_ENROLLMENT" | "ADMINISTRATOR_MANAGEMENT"
+  sensitiveAuthorizationId?: string
   providerAssignment?: ProviderAssignmentEvidence & { providerRevisionId: string }
   proof: AuthenticationProofResult
 }

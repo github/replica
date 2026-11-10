@@ -89,7 +89,7 @@ export async function completeAuthenticationProof(
   let evidence
   try {
     const completed = await dependencies.adapter.completeAuthenticationProof({
-      authenticatedAfter: attempt.purpose === "ADMIN_ENROLLMENT" ? attempt.createdAt : undefined,
+      authenticatedAfter: attempt.purpose !== "SIGN_IN" ? attempt.createdAt : undefined,
       callbackUri: dependencies.callbackUri,
       code: parsed.code,
       codeVerifier,
@@ -145,7 +145,17 @@ export async function completeAuthenticationProof(
     )
     throw error
   }
+  if (evidence.profile) {
+    await dependencies.updateIdentityProfile({
+      id: identity.externalIdentityId,
+      login: evidence.profile.login,
+      name: evidence.profile.name,
+      provider: evidence.identity.provider,
+    })
+  }
   return {
+    purpose: attempt.purpose,
+    sensitiveAuthorizationId: attempt.sensitiveAuthorizationId ?? undefined,
     providerAssignment: evidence.providerAssignment
       ? {
           ...evidence.providerAssignment,
