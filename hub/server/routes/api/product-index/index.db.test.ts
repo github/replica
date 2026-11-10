@@ -424,42 +424,85 @@ describe("real product index", () => {
     })
   })
 
-  it("does not return an index when the final repository-state check fails", async () => {
+  it("does not return an index when a repository changes during the read", async () => {
     const removedId = randomUUID()
     const changedId = randomUUID()
+    const removedPrototypeId = randomUUID()
+    const changedPrototypeId = randomUUID()
+    const removedAt = new Date("2026-11-10T00:00:00Z")
     await prisma.repository.createMany({
       data: [
         { id: removedId, nameWithOwner: "team/removed-after-read", defaultBranch: "main" },
         { id: changedId, nameWithOwner: "team/changed-after-read", defaultBranch: "main" },
       ],
     })
-    await prisma.prototype.create({
-      data: {
-        repositoryId: changedId,
-        branchName: "prototype/default",
-        name: "Default branch",
-        registeredAt: new Date(),
+    await prisma.prototype.createMany({
+      data: [
+        {
+          id: removedPrototypeId,
+          repositoryId: removedId,
+          branchName: "prototype/removed",
+          name: "Removed repository prototype",
+          registeredAt: new Date(),
+        },
+        {
+          id: changedPrototypeId,
+          repositoryId: changedId,
+          branchName: "prototype/default",
+          name: "New default branch",
+          registeredAt: new Date(),
+        },
+      ],
+    })
+    const writer = new pg.Client({ connectionString: getDatabaseUrl() })
+    onTestFinished(() => writer.end())
+    await writer.connect()
+    async function removeRepository() {
+      await writer.query("UPDATE repositories SET removed_at = $1 WHERE id = $2", [
+        removedAt,
+        removedId,
+      ])
+    }
+    async function changeDefaultBranch() {
+      await writer.query("UPDATE repositories SET default_branch = $1 WHERE id = $2", [
+        "prototype/default",
+        changedId,
+      ])
+    }
+    let changeRepository = removeRepository
+    const prototypeIds: (string | undefined)[] = []
+    const reader = prisma.$extends({
+      query: {
+        prototype: {
+          async findMany({ args, query }) {
+            const prototypes = await query(args)
+            prototypeIds.push(...prototypes.map(({ id }) => id))
+            await changeRepository()
+            return prototypes
+          },
+        },
       },
     })
-    const findFirst = prisma.repository.findFirst.bind(prisma.repository)
-    let checkCount = 0
-    vi.spyOn(prisma.repository, "findFirst").mockImplementation((args) => {
-      checkCount += 1
-      if (checkCount === 2) {
-        return findFirst({ ...args, where: { ...args?.where, removedAt: { not: null } } })
-      }
-      if (checkCount === 4) {
-        return findFirst({
-          ...args,
-          where: { ...args?.where, defaultBranch: "prototype/default" },
-        })
-      }
-      return findFirst(args)
-    })
+    vi.spyOn(prisma.prototype, "findMany").mockImplementation((args) =>
+      reader.prototype.findMany(args),
+    )
     const product = createProductRouteDependencies()
 
-    expect(await product.findRepositoryIndex(removedId)).toBeNull()
-    expect(await product.findRepositoryIndex(changedId)).toBeNull()
+    const removedIndex = await product.findRepositoryIndex(removedId)
+    changeRepository = changeDefaultBranch
+    const changedIndex = await product.findRepositoryIndex(changedId)
+
+    expect(prototypeIds).toEqual([removedPrototypeId, changedPrototypeId])
+    expect(
+      await prisma.repository.findUnique({ where: { id: removedId }, select: { removedAt: true } }),
+    ).toEqual({ removedAt })
+    expect(
+      await prisma.repository.findUnique({
+        where: { id: changedId },
+        select: { defaultBranch: true },
+      }),
+    ).toEqual({ defaultBranch: "prototype/default" })
+    expect([removedIndex, changedIndex]).toEqual([null, null])
   })
 
   it("protects active branch and registration invariants while retaining deleted history", async () => {
@@ -503,6 +546,7 @@ describe("real product index", () => {
       ["prototype/null-name", null, false],
       ["prototype/blank-name", "   ", false],
       ["prototype/whitespace-name", " \t\n ", false],
+      ["prototype/next-line", "\u0085", false],
       ["prototype/no-break-space", "\u00a0", false],
       ["prototype/em-space", "\u2003", false],
       ["prototype/narrow-no-break-space", "\u202f", false],
