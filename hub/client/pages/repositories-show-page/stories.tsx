@@ -258,7 +258,9 @@ export const RealIndex: Story = {
 
 export const RealIndexList: Story = {
   ...RealIndex,
-  args: { ...RealIndex.args, view: "list" },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("radio", { name: "List view" }))
+  },
 }
 
 export const RealIndexEmpty: Story = {
