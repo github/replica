@@ -94,9 +94,19 @@ export function SecurityAuditPage({ data }: { data: SecurityAuditPageData }) {
                     <code>{event.action}</code>
                   </td>
                   <td>{event.actor}</td>
-                  <td>{event.ip}</td>
                   <td>
-                    <code>{event.context}</code>
+                    {event.context.length ? (
+                      <dl className="security-audit-page__context">
+                        {event.context.map((field) => (
+                          <div key={field.label}>
+                            <dt>{field.label}</dt>
+                            <dd>{field.value}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                    ) : (
+                      "No additional details"
+                    )}
                   </td>
                   <td>{event.outcome}</td>
                 </tr>

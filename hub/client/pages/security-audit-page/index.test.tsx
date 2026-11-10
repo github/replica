@@ -28,7 +28,6 @@ const data: SecurityAuditPageData = {
     time: "Time",
     action: "Action",
     actor: "Actor",
-    ip: "IP",
     context: "Context",
     outcome: "Outcome",
   },
@@ -126,7 +125,7 @@ describe("SecurityAuditPage()", () => {
     expect(screen.queryByRole("button", { name: /export|grant|revoke/i })).not.toBeInTheDocument()
   })
 
-  it("renders the anonymous actor and older-page link without interpreting action text as HTML", () => {
+  it("renders plain action and context text without interpreting either as HTML", () => {
     render(
       <ThemeProvider>
         <SecurityAuditPage
@@ -135,12 +134,16 @@ describe("SecurityAuditPage()", () => {
             nextPath: "/security_audit?before=1",
             events: [
               {
-                id: 1,
+                id: "11111111-1111-4111-8111-111111111111",
                 time: "2026-10-05T19:00:00Z",
                 action: "<script>unsafe</script>",
                 actor: "No signed-in actor",
-                ip: "203.0.113.12",
-                context: '{"source":"browser"}',
+                context: [
+                  {
+                    label: "Reason",
+                    value: '<img src="invalid" onerror="globalThis.compromised=true">',
+                  },
+                ],
                 outcome: "Denied",
               },
             ],
@@ -151,6 +154,11 @@ describe("SecurityAuditPage()", () => {
     expect(screen.getByRole("table")).toHaveTextContent("No signed-in actor")
     expect(screen.getByRole("region", { name: "Security audit" })).toHaveAttribute("tabindex", "0")
     expect(screen.getByText("<script>unsafe</script>")).toBeInTheDocument()
+    expect(
+      screen.getByText('<img src="invalid" onerror="globalThis.compromised=true">'),
+    ).toBeInTheDocument()
+    expect(document.querySelector("script")).not.toBeInTheDocument()
+    expect(document.querySelector("img")).not.toBeInTheDocument()
     expect(screen.getByRole("link", { name: "Older actions" })).toHaveAttribute(
       "href",
       "/security_audit?before=1",

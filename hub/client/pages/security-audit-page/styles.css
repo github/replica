@@ -26,7 +26,7 @@
 
 .security-audit-page table {
   width: 100%;
-  min-width: 56rem;
+  min-width: 48rem;
   border-collapse: collapse;
   background: var(--hub-canvas-default);
 }
@@ -47,7 +47,26 @@
 
 .security-audit-page td:nth-child(1),
 .security-audit-page td:nth-child(2),
-.security-audit-page td:nth-child(4),
-.security-audit-page td:nth-child(6) {
+.security-audit-page td:nth-child(5) {
   white-space: nowrap;
+}
+
+.security-audit-page__context {
+  display: grid;
+  gap: var(--base-size-8);
+  margin: 0;
+}
+
+.security-audit-page__context div {
+  display: grid;
+  grid-template-columns: minmax(7rem, auto) 1fr;
+  gap: var(--base-size-8);
+}
+
+.security-audit-page__context dt {
+  font-weight: 600;
+}
+
+.security-audit-page__context dd {
+  margin: 0;
 }
