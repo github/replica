@@ -50,10 +50,13 @@ describe("securityAuditPageData()", () => {
         {
           id: "66666666-6666-4666-8666-666666666666",
           occurredAt: "2026-11-10T09:00:00.000Z",
-          action: "session.created",
+          action: "session.ended",
           outcome: "success",
           actor: null,
-          context: {},
+          context: {
+            membershipId: "77777777-7777-4777-8777-777777777777",
+            targetId: "88888888-8888-4888-8888-888888888888",
+          },
         },
       ],
       nextCursor: cursor,
@@ -80,7 +83,15 @@ describe("securityAuditPageData()", () => {
         outcome: "Denied",
       }),
       expect.objectContaining({ action: "admission.failed", outcome: "Failed" }),
-      expect.objectContaining({ action: "session.created", outcome: "Succeeded" }),
+      expect.objectContaining({
+        action: "session.ended",
+        actor: "No signed-in actor",
+        context: [
+          { label: "Membership", value: "77777777-7777-4777-8777-777777777777" },
+          { label: "Target", value: "88888888-8888-4888-8888-888888888888" },
+        ],
+        outcome: "Succeeded",
+      }),
     ])
   })
 })
