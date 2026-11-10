@@ -10,6 +10,14 @@ export function isLocalDevelopmentDatabase(environment: NodeJS.ProcessEnv): bool
   ) {
     return false
   }
+  if (
+    address.searchParams.has("host") ||
+    address.searchParams.has("hostaddr") ||
+    address.searchParams.has("port") ||
+    address.searchParams.has("service")
+  ) {
+    return false
+  }
   if (localHosts.has(address.hostname)) return true
   return (
     environment.REPLICA_DEVCONTAINER === "true" &&

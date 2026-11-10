@@ -189,10 +189,17 @@ export const ReadOnly: Story = {
   },
 }
 
+const realPrototypeAuthor = {
+  avatarUrl: null,
+  label: "By @octocat",
+  ownerLabel: "@octocat",
+  url: "https://github.com/octocat",
+}
+
 const realIndexData: RepositoriesShowPageData = {
   ...data,
   authenticityToken: "",
-  currentUser: { ...data.currentUser, provider: "github" },
+  currentUser: { ...data.currentUser, provider: "github", avatarUrl: null },
   listing: {
     ...data.listing,
     matchingCount: 2,
@@ -218,19 +225,25 @@ const realIndexData: RepositoriesShowPageData = {
     {
       ...welcomePrototype,
       id: "00000000-0000-4000-8000-000000000201",
+      branchName: "prototype/welcome",
+      description: "Explore a new welcome page.",
       path: null,
       reviewBuild: undefined,
       latestBuild: undefined,
-      author: { ...welcomePrototype.author, label: "By @octocat" },
+      previewFallbackLabel: "No preview available",
+      author: realPrototypeAuthor,
     },
     {
       ...welcomePrototype,
       id: "00000000-0000-4000-8000-000000000202",
+      branchName: "prototype/navigation",
       name: "Navigation",
+      description: "Explore a different navigation layout.",
       path: null,
       reviewBuild: undefined,
       latestBuild: undefined,
-      author: { ...welcomePrototype.author, label: "By @octocat" },
+      previewFallbackLabel: "No preview available",
+      author: realPrototypeAuthor,
     },
   ],
 }

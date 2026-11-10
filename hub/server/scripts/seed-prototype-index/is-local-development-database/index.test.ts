@@ -53,4 +53,19 @@ describe("isLocalDevelopmentDatabase()", () => {
       }),
     ).toBe(false)
   })
+
+  it("rejects connection parameters that override a local database target", () => {
+    expect(
+      isLocalDevelopmentDatabase({
+        NODE_ENV: "development",
+        DATABASE_URL: "postgresql://replica:replica@localhost/replica?host=remote.example.test",
+      }),
+    ).toBe(false)
+    expect(
+      isLocalDevelopmentDatabase({
+        NODE_ENV: "development",
+        DATABASE_URL: "postgresql://replica:replica@localhost/replica?port=5433",
+      }),
+    ).toBe(false)
+  })
 })

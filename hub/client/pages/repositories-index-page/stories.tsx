@@ -15,6 +15,16 @@ const data: HubWorkspaceData = {
   securityAuditPath: null,
 }
 
+const realEmptyWorkspaceData: HubWorkspaceData = {
+  ...data,
+  authenticityToken: "",
+  currentUser: { ...data.currentUser, provider: "github", avatarUrl: null },
+  signOutPath: "/api/auth/session/sign-out",
+  welcomePath: null,
+  notificationsPath: undefined,
+  administrationLinks: [],
+}
+
 const meta = {
   title: "Hub/Pages/Repositories",
   component: RepositoriesIndexPage,
@@ -26,6 +36,10 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Empty: Story = {}
+
+export const RealEmptyWorkspace: Story = {
+  args: { data: realEmptyWorkspaceData },
+}
 
 export const Administrator: Story = {
   args: {
