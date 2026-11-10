@@ -1,4 +1,5 @@
 json.pageTitle t("prototypes.show.page_title", branch: @prototype.branch_name)
+json.defaultDocumentTitle t("application.name")
 json.signOutLabel t("authenticated.sign_out")
 json.accountMenuLabel t("authenticated.account_menu", login: Current.user.login)
 json.partial! partial: "shared/hub_administration_navigation"
@@ -57,7 +58,7 @@ json.controlsIdentity preview_controls_identity(@prototype, context: [ "authenti
 json.branchName @prototype.branch_name
 json.branchPath repository_prototype_path(@repository.route_id, @prototype)
 json.buildPinned params.key?(:build)
-json.prototypeName @prototype.name.presence || @prototype.branch_name
+json.prototypeName @document_title
 json.prototypeDescription @prototype.description
 json.showPrototypeInfo @show_prototype_info
 json.historyLabel t("prototypes.show.history")

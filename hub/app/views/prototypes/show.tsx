@@ -9,12 +9,20 @@ import { useRepositoryInbox } from "@hooks/use-repository-inbox"
 import { usePrototypeReview } from "@hooks/use-prototype-review"
 import { usePrototypeViewerUrl } from "@hooks/use-prototype-viewer-url"
 import { PrototypesShowPage } from "@pages/prototypes-show-page"
-import type { PrototypesShowPageData } from "@pages/prototypes-show-page/types"
 import { MENTION_CANDIDATES_SCHEMA } from "@utils/mention-candidate/schemas"
 import { NOTIFICATION_READ_SCHEMA } from "@utils/notification/schemas"
 
+import type { PrototypesShowViewData } from "./types"
+
 export default function PrototypesShowView() {
-  const data = useRepositoryInbox(usePageData<PrototypesShowPageData>())
+  const data = useRepositoryInbox(usePageData<PrototypesShowViewData>())
+  useEffect(() => {
+    document.title = data.prototypeName
+    return () => {
+      document.title = data.defaultDocumentTitle
+    }
+  }, [data.prototypeName, data.defaultDocumentTitle])
+
   const [notificationFailed, setNotificationFailed] = useState(false)
   const openedMessage = useRef<number | null>(null)
   const acknowledged = useRef<number | null>(null)
