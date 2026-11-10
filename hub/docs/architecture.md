@@ -38,6 +38,8 @@ The [authentication and session flow](authentication.md) uses this foundation to
 
 The administrator-management API and retained frontend list and search existing Hub users, designate one to 50 administrators, and revoke one administrator-managed assignment. Sensitive role changes reuse the current session's GitHub or Entra authorization flow and bind one short-lived, one-use continuation to the live session, external identity, operation, and target memberships. The callback and mutation reread current authority before changing roles. This surface does not invite users or manage general membership lifecycle.
 
+The administrator security-audit API lists Hub-wide identity and administrator records newest first through bounded opaque-cursor pagination. It rereads the live administrator session and projects stored records through action-specific presentation allowlists. Repository audit, export, retention changes, and the retained audit frontend remain separate work.
+
 ## Frontend
 
 ```mermaid

@@ -37,6 +37,7 @@ import { consumeAuthorizationAttempt } from "../../../../repositories/authorizat
 import { createAuthorizationAttempt } from "../../../../repositories/authorization-attempts/create-authorization-attempt/index.ts"
 import { deleteExpiredAuthorizationAttempts } from "../../../../repositories/authorization-attempts/delete-expired-authorization-attempts/index.ts"
 import { createSecurityAudit } from "../../../../repositories/security-audits/create-security-audit/index.ts"
+import { listSecurityAudits } from "../../../../repositories/security-audits/list-security-audits/index.ts"
 import { upsertUserProfile } from "../../../../repositories/user-profiles/upsert-user-profile/index.ts"
 import { findAdministratorHubSession } from "../../../../repositories/hub-sessions/find-administrator-hub-session/index.ts"
 import { searchAdministratorCandidates } from "../../../../repositories/memberships/search-administrator-candidates/index.ts"
@@ -388,6 +389,7 @@ export async function createAuthenticationRouteDependencies(
           id: input.authorizationId,
         }),
       list: (input) => listEffectiveAdministrators(prisma, input),
+      listSecurityAudits: (input) => listSecurityAudits(prisma, input),
       search: (input) => searchAdministratorCandidates(prisma, input),
       start: {
         entra: entra?.administratorAuthorization,
