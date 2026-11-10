@@ -11,11 +11,11 @@ const meta = {
   args: {
     data: {
       productName: "Replica Hub",
-      pageTitle: "Fresh GitHub authorization required",
-      heading: "Fresh GitHub authorization required",
+      pageTitle: "Fresh authorization required",
+      heading: "Fresh authorization required",
       description:
-        "Verify the same GitHub account to continue your confirmed action. GitHub may reuse your signed-in browser; this is not a guaranteed password or MFA challenge.",
-      submitLabel: "Verify with GitHub",
+        "Verify the same provider account to continue your confirmed action. The provider may reuse your signed-in browser; this is not a guaranteed password or MFA challenge.",
+      submitLabel: "Verify account",
       submitPath: "/authorization/example",
       cancelLabel: "Cancel",
       cancelPath: "/authorization/example",
@@ -46,7 +46,7 @@ export const HubAdministratorChange: Story = {
       ...meta.args.data,
       administrationWorkspace: hubAdministrationWorkspaceData,
       description:
-        "Verify the same GitHub account to continue the Hub administrator role change you confirmed.",
+        "Verify the same provider account to continue the Hub administrator role change you confirmed.",
     },
   },
 }
@@ -58,10 +58,55 @@ export const Continuing: Story = {
       pageTitle: "Completing your action",
       heading: "Completing your action",
       description:
-        "GitHub verified your account. Hub is continuing the action you confirmed. If it does not continue automatically, choose Continue.",
+        "Your provider verified this session. Continue the exact administrator role change you confirmed, or cancel it without changing any roles.",
       submitLabel: "Continue",
-      submitPath: "/hub_admins",
-      continuation: { id: "example", method: "post" },
+      submitPath:
+        "/settings/administrators/confirm?authorizationId=33333333-3333-4333-8333-333333333333",
+      cancelPath:
+        "/settings/administrators/confirm?authorizationId=33333333-3333-4333-8333-333333333333",
+      continuation: { id: "33333333-3333-4333-8333-333333333333", method: "post" },
+      roleChange: {
+        operationLabel: "Remove Hub administrator",
+        targets: [
+          {
+            membershipId: "22222222-2222-4222-8222-222222222222",
+            providerLabel: "Microsoft Entra account",
+            login: "mona",
+            name: "Mona Lisa",
+          },
+        ],
+      },
     },
+  },
+}
+export const Conflict: Story = {
+  args: {
+    data: {
+      ...meta.args.data,
+      administrationWorkspace: hubAdministrationWorkspaceData,
+      pageTitle: "Complete administrator role change",
+      heading: "Complete administrator role change",
+      description:
+        "Your provider verified this session. Continue the exact administrator role change you confirmed, or cancel it without changing any roles.",
+      submitLabel: "Continue",
+      submitPath:
+        "/settings/administrators/confirm?authorizationId=33333333-3333-4333-8333-333333333333",
+      cancelPath:
+        "/settings/administrators/confirm?authorizationId=33333333-3333-4333-8333-333333333333",
+      continuation: { id: "33333333-3333-4333-8333-333333333333", method: "post" },
+      roleChange: {
+        operationLabel: "Remove Hub administrator",
+        targets: [
+          {
+            membershipId: "22222222-2222-4222-8222-222222222222",
+            providerLabel: "Microsoft Entra account",
+            login: "mona",
+            name: "Mona Lisa",
+          },
+        ],
+      },
+    },
+    error:
+      "The administrator role changed before this authorization continued. Review the current roster and try again.",
   },
 }

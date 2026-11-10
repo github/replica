@@ -75,6 +75,12 @@
   list-style: none;
 }
 
+.add-hub-administrators__search-error {
+  display: grid;
+  justify-items: start;
+  gap: var(--hub-space-12);
+}
+
 .add-hub-administrators__confirmation {
   display: flex;
   align-items: flex-start;

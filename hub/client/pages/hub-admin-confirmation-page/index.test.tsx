@@ -10,7 +10,12 @@ import type { HubAdminConfirmationPageData } from "./types"
 const data: HubAdminConfirmationPageData = {
   ...hubAdministrationData,
   pageTitle: "Designate Hub administrator?",
-  target: { login: "mona", name: "Mona Lisa", identity: "GitHub identity 1002 - Hub user 2" },
+  target: {
+    membershipId: "22222222-2222-4222-8222-222222222222",
+    login: "mona",
+    name: "Mona Lisa",
+    identity: "GitHub account",
+  },
   operation: "designate",
   submitPath: "/hub_admins/2",
   submitLabel: "Designate administrator",
@@ -29,6 +34,7 @@ describe("HubAdminConfirmationPage()", () => {
       </ThemeProvider>,
     )
     expect(screen.getByText(data.target.identity)).toBeInTheDocument()
+    expect(screen.getByText(`Membership ${data.target.membershipId}`)).toBeInTheDocument()
     const checkbox = screen.getByRole("checkbox", { name: data.confirmLabel })
     expect(checkbox).toBeRequired()
     expect(checkbox).not.toBeChecked()
@@ -40,6 +46,34 @@ describe("HubAdminConfirmationPage()", () => {
     expect(form?.querySelector('[name="user_id"]')).toBeNull()
     expect(screen.getByRole("link", { name: "Cancel" })).toHaveAttribute("href", "/hub_admins")
     expect(screen.getByText(data.verification)).toBeInTheDocument()
+  })
+
+  it("submits a UUID target to the native provider authorization endpoint", () => {
+    const membershipId = "22222222-2222-4222-8222-222222222222"
+    render(
+      <ThemeProvider>
+        <HubAdminConfirmationPage
+          data={{
+            ...data,
+            operation: "REVOKE_ADMINISTRATOR",
+            targetMembershipId: membershipId,
+            submitPath: "/api/administrators/authorizations/start",
+            cancelPath: "/settings/administrators",
+          }}
+        />
+      </ThemeProvider>,
+    )
+
+    const form = screen.getByRole("button", { name: data.submitLabel }).closest("form")
+    expect(form).toHaveAttribute("action", "/api/administrators/authorizations/start")
+    expect(form?.querySelector('[name="operation"]')).toHaveValue("REVOKE_ADMINISTRATOR")
+    expect(form?.querySelector('[name="targetMembershipIds"]')).toHaveValue(membershipId)
+    expect(form?.querySelector('[name="_method"]')).toBeNull()
+    expect(form?.querySelector('[name="authenticity_token"]')).toBeNull()
+    expect(screen.getByRole("link", { name: "Cancel" })).toHaveAttribute(
+      "href",
+      "/settings/administrators",
+    )
   })
 
   it("explains final administrator protection and disables removal", () => {

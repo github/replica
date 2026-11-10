@@ -12,6 +12,8 @@ const meta = {
       description: "Your Hub session is active and will be checked against current membership.",
       notice: null,
       roleLabel: "Administrator",
+      administratorLabel: "Manage Hub administrators",
+      administratorPath: "/settings/administrators",
       signOutLabel: "Sign out",
       signOutPath: "/api/auth/session/sign-out",
     },
@@ -28,6 +30,8 @@ export const Member: Story = {
     data: {
       ...meta.args.data,
       roleLabel: "Member",
+      administratorLabel: undefined,
+      administratorPath: undefined,
     },
   },
 }

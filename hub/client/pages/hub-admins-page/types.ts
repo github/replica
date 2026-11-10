@@ -10,8 +10,9 @@ export interface HubAdminsPageData extends HubAdministrationPageData {
   administratorsLabel: string | null
   addAdministrator: AddHubAdministratorsData | null
   users: {
-    id: number
-    login: string
+    id: string
+    provider: string | null
+    login: string | null
     name: string | null
     identity: string
     role: string

@@ -2,6 +2,7 @@ import type { Prisma } from "../../../generated/prisma/client.ts"
 
 export interface SessionRestoreRepositories {
   findSession(digest: string): Promise<{
+    externalIdentityId: string | null
     id: string
     membershipId: string
     revocationRevision: number
@@ -18,9 +19,11 @@ export interface SessionRestoreRepositories {
   lockMembership(membershipId: string): Promise<{
     id: string
     lifecycle: "ACTIVE" | "SUSPENDED" | "REMOVED"
+    userId: string
   } | null>
   lockProvider(key: string): Promise<{ enabled: boolean; id: string } | null>
   lockSession(digest: string): Promise<{
+    externalIdentityId: string | null
     id: string
     membershipId: string
     revocationRevision: number

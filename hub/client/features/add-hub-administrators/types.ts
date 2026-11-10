@@ -1,6 +1,7 @@
 export interface HubAdministratorCandidate {
-  id: number
-  login: string
+  id: string
+  provider: string | null
+  login: string | null
   name: string | null
 }
 
@@ -11,7 +12,7 @@ export interface HubAdministratorSearchResults {
 
 export interface AddHubAdministratorsData {
   submitPath: string
-  searchPath: string
+  operation?: "DESIGNATE_ADMINISTRATORS"
   heading: string
   description: string
   searchLabel: string

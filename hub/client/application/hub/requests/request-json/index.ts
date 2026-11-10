@@ -39,13 +39,17 @@ export async function requestJson<T>(
   }
 
   let payload: unknown
-  try {
-    payload = await response.json()
-  } catch (error) {
-    if (error instanceof SyntaxError) {
-      throw new ApiContractError("The API returned invalid JSON.", response.status)
+  if (response.status === 204) {
+    payload = undefined
+  } else {
+    try {
+      payload = await response.json()
+    } catch (error) {
+      if (error instanceof SyntaxError) {
+        throw new ApiContractError("The API returned invalid JSON.", response.status)
+      }
+      throw error
     }
-    throw error
   }
 
   if (!response.ok) {

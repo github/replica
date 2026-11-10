@@ -18,7 +18,7 @@ export function get(dependencies: CurrentSessionDependencies): RequestHandler {
         response.status(401).json({ authenticated: false })
         return
       }
-      response.json({ authenticated: true, role: session.role })
+      response.json({ authenticated: true, ...session })
     } catch (error) {
       next(error)
     }

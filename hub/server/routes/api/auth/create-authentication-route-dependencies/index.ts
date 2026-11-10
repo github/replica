@@ -32,6 +32,7 @@ import { runAdministratorAuthorizationVerificationTransaction } from "../../../.
 import { listEffectiveAdministrators } from "../../../../domains/administrator-management/list-effective-administrators/index.ts"
 import { prisma } from "../../../../integrations/prisma/index.ts"
 import { getAuthenticationProofState } from "../../../../repositories/authentication-providers/get-authentication-proof-state/index.ts"
+import { findCurrentSessionProfile } from "../../../../repositories/user-profiles/find-current-session-profile/index.ts"
 import { consumeAuthorizationAttempt } from "../../../../repositories/authorization-attempts/consume-authorization-attempt/index.ts"
 import { createAuthorizationAttempt } from "../../../../repositories/authorization-attempts/create-authorization-attempt/index.ts"
 import { deleteExpiredAuthorizationAttempts } from "../../../../repositories/authorization-attempts/delete-expired-authorization-attempts/index.ts"
@@ -394,10 +395,20 @@ export async function createAuthenticationRouteDependencies(
       },
     },
     currentSession: {
-      restore: (sessionDigest) =>
-        restoreHubSession(sessionDigest, {
+      restore: async (sessionDigest) => {
+        const session = await restoreHubSession(sessionDigest, {
           runTransaction: (operation) => runSessionRestoreTransaction(prisma, operation),
-        }),
+        })
+        if (!session) return null
+        const profile = await findCurrentSessionProfile(prisma, session)
+        if (!profile) return null
+        return {
+          membershipId: session.membershipId,
+          userId: session.userId,
+          role: session.role,
+          ...profile,
+        }
+      },
     },
     entra,
     github,

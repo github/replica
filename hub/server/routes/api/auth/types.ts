@@ -64,7 +64,14 @@ export interface AuthenticationCallbackDependencies extends RateLimitDependencie
 }
 
 export interface CurrentSessionDependencies {
-  restore(sessionDigest: string): Promise<{ role: "MEMBER" | "ADMINISTRATOR" } | null>
+  restore(sessionDigest: string): Promise<{
+    membershipId: string
+    userId: string
+    provider: string
+    login: string
+    name: string | null
+    role: "MEMBER" | "ADMINISTRATOR"
+  } | null>
 }
 
 export interface SignOutDependencies {

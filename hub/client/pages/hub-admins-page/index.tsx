@@ -12,10 +12,12 @@ import "./styles.css"
 /** Lists administrators and confirms additions from existing Hub users. */
 export function HubAdminsPage({
   data,
+  addAdministratorError,
   onSearch,
   pending,
 }: {
   data: HubAdminsPageData
+  addAdministratorError?: string | null
   onSearch: (query: string) => Promise<HubAdministratorSearchResults>
   pending?: boolean
 }) {
@@ -39,8 +41,8 @@ export function HubAdminsPage({
           {data.users.map((user) => (
             <li key={user.id} className="hub-admins-page__user">
               <div>
-                <strong>{user.name ?? user.login}</strong>
-                <Text as="p">@{user.login}</Text>
+                <strong>{user.name ?? user.login ?? "Profile unavailable"}</strong>
+                <Text as="p">{user.login ? `@${user.login}` : "Login unavailable"}</Text>
                 <Text as="p" size="100">
                   {user.identity}
                 </Text>
@@ -66,6 +68,7 @@ export function HubAdminsPage({
       {adding && data.addAdministrator ? (
         <AddHubAdministrators
           data={data.addAdministrator}
+          errorMessage={addAdministratorError}
           authenticityToken={data.authenticityToken}
           onSearch={onSearch}
           pending={pending}

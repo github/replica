@@ -288,6 +288,9 @@ describe("Hub admission and session flow", () => {
         ["/?authentication=denied", "/?authentication=success"],
       )
       expect(await prisma.hubSession.count()).toBe(2)
+      const currentMembership = await prisma.membership.findFirstOrThrow({
+        select: { id: true, userId: true },
+      })
 
       const restored = await fetch(`${server.baseUrl}/api/auth/session`, {
         headers: { cookie: `hub_session=${encodeURIComponent(firstSession!)}` },
@@ -295,6 +298,11 @@ describe("Hub admission and session flow", () => {
       expect(restored.status).toBe(200)
       expect(await restored.json()).toEqual({
         authenticated: true,
+        membershipId: currentMembership.id,
+        userId: currentMembership.userId,
+        provider: "github",
+        login: "101",
+        name: null,
         role: "ADMINISTRATOR",
       })
       const auditCountBeforeRestores = await prisma.securityAudit.count()

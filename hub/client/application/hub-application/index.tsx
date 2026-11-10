@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import { z } from "zod"
 
+import { currentHubSessionSchema } from "@application/hub/administrator-contracts"
 import { useHubTheme } from "@hooks/use-hub-theme"
 import { CurrentSessionPage } from "@pages/current-session-page"
 import { HomeIndexPage } from "@pages/home-index-page"
@@ -19,15 +20,14 @@ type SessionState =
       status: "signed-in"
       providerDiscoveryFailed: boolean
       providers: Array<"github" | "entra">
+      membershipId: string
+      userId: string
+      provider: string
+      login: string
+      name: string | null
       role: "MEMBER" | "ADMINISTRATOR"
     }
 
-const currentSessionSchema = z
-  .object({
-    authenticated: z.literal(true),
-    role: z.enum(["MEMBER", "ADMINISTRATOR"]),
-  })
-  .strict()
 const providersSchema = z
   .object({
     providers: z.array(z.enum(["github", "entra"])),
@@ -66,13 +66,13 @@ export function HubApplication() {
             return
           }
           if (!response.ok) throw new Error("Session restoration failed.")
-          const parsed = currentSessionSchema.safeParse(await response.json())
+          const parsed = currentHubSessionSchema.safeParse(await response.json())
           if (!parsed.success) throw new Error("Session restoration returned an invalid response.")
           setSession({
             status: "signed-in",
             providerDiscoveryFailed: providerResult.failed,
             providers: providerResult.providers,
-            role: parsed.data.role,
+            ...parsed.data,
           })
         } catch {
           setSession({
@@ -127,6 +127,10 @@ export function HubApplication() {
               ? "Sign-in succeeded and Replica Hub restored your active session."
               : null,
           roleLabel: session.role === "ADMINISTRATOR" ? "Administrator" : "Member",
+          administratorLabel:
+            session.role === "ADMINISTRATOR" ? "Manage Hub administrators" : undefined,
+          administratorPath:
+            session.role === "ADMINISTRATOR" ? "/settings/administrators" : undefined,
           signOutLabel: "Sign out",
           signOutPath: "/api/auth/session/sign-out",
         }}

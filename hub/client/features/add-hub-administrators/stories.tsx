@@ -16,8 +16,18 @@ const meta = {
     onSearch: (query): Promise<HubAdministratorSearchResults> =>
       Promise.resolve({
         users: [
-          { id: 1, login: "octocat", name: "The Octocat" },
-          { id: 2, login: "mona", name: "Mona Lisa" },
+          {
+            id: "11111111-1111-4111-8111-111111111111",
+            provider: "github",
+            login: "octocat",
+            name: "The Octocat",
+          },
+          {
+            id: "22222222-2222-4222-8222-222222222222",
+            provider: "entra",
+            login: "mona",
+            name: "Mona Lisa",
+          },
         ].filter((user) =>
           `${user.login} ${user.name}`.toLowerCase().includes(query.toLowerCase()),
         ),
@@ -40,7 +50,17 @@ export const Multiple: Story = {}
 export const Single: Story = {
   args: {
     onSearch: () =>
-      Promise.resolve({ users: [{ id: 2, login: "mona", name: "Mona Lisa" }], more: false }),
+      Promise.resolve({
+        users: [
+          {
+            id: "22222222-2222-4222-8222-222222222222",
+            provider: "entra",
+            login: "mona",
+            name: "Mona Lisa",
+          },
+        ],
+        more: false,
+      }),
   },
 }
 export const Empty: Story = {
@@ -49,6 +69,12 @@ export const Empty: Story = {
 export const SearchFailed: Story = {
   args: {
     onSearch: () => Promise.reject(new Error("Search unavailable")),
+  },
+}
+export const AuthorizationStartFailed: Story = {
+  args: {
+    errorMessage:
+      "An administrator role changed before this request completed. Review the current roster and try again.",
   },
 }
 export const Loading: Story = {

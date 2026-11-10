@@ -19,6 +19,11 @@ export function CurrentSessionPage({ data }: { data: CurrentSessionPageData }) {
         <Text as="p">
           <strong>{data.roleLabel}</strong>
         </Text>
+        {data.administratorPath && data.administratorLabel ? (
+          <Button as="a" href={data.administratorPath} variant="secondary">
+            {data.administratorLabel}
+          </Button>
+        ) : null}
         <form action={data.signOutPath} method="post">
           <Button type="submit" variant="primary">
             {data.signOutLabel}

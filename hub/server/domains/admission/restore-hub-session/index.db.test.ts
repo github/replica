@@ -81,6 +81,7 @@ async function createSessionAuthority(input: {
     await transaction.hubSession.create({
       data: {
         digest,
+        externalIdentityId,
         expiresAt: new Date("2099-01-01T00:00:00Z"),
         id: randomUUID(),
         membershipId,
@@ -88,7 +89,7 @@ async function createSessionAuthority(input: {
       },
     })
   })
-  return digest
+  return { digest, externalIdentityId, membershipId, userId }
 }
 
 function restore(digest: string) {
@@ -99,23 +100,35 @@ function restore(digest: string) {
 
 describe("restoreHubSession()", () => {
   it("denies a session whose provider assignment uses a stale revision", async () => {
-    const digest = await createSessionAuthority({ selectedRevision: "newer" })
+    const { digest } = await createSessionAuthority({ selectedRevision: "newer" })
 
     await expect(restore(digest)).resolves.toBeNull()
   })
 
   it("restores a session whose provider assignment uses the selected revision", async () => {
-    const digest = await createSessionAuthority({ selectedRevision: "assignment" })
+    const { digest, externalIdentityId, membershipId, userId } = await createSessionAuthority({
+      selectedRevision: "assignment",
+    })
 
-    await expect(restore(digest)).resolves.toEqual({ role: "MEMBER" })
+    await expect(restore(digest)).resolves.toEqual({
+      externalIdentityId,
+      membershipId,
+      userId,
+      role: "MEMBER",
+    })
   })
 
   it("restores through bootstrap authority when provider authority is stale", async () => {
-    const digest = await createSessionAuthority({
+    const { digest, externalIdentityId, membershipId, userId } = await createSessionAuthority({
       bootstrap: true,
       selectedRevision: "newer",
     })
 
-    await expect(restore(digest)).resolves.toEqual({ role: "ADMINISTRATOR" })
+    await expect(restore(digest)).resolves.toEqual({
+      externalIdentityId,
+      membershipId,
+      userId,
+      role: "ADMINISTRATOR",
+    })
   })
 })

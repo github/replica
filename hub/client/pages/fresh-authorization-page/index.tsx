@@ -1,6 +1,7 @@
-import { Button, Stack } from "@primer/react-brand"
+import { Button, Heading, Stack, Text } from "@primer/react-brand"
 import type { Ref } from "react"
 
+import { HubAlert } from "@components/hub-alert"
 import { HubContentPageHeader } from "@components/hub-content-page-header"
 import { GithubAppSetupHeader } from "@features/github-app-setup-header"
 import { GithubAppSetupPage } from "@features/github-app-setup-page"
@@ -11,9 +12,11 @@ import "@features/hub-administration-page/styles.css"
 
 export function FreshAuthorizationPage({
   data,
+  error,
   continuationFormRef,
 }: {
   data: FreshAuthorizationPageData
+  error?: string | null
   continuationFormRef?: Ref<HTMLFormElement>
 }) {
   const actions = (
@@ -57,12 +60,32 @@ export function FreshAuthorizationPage({
     <HubAdministrationWorkspace data={data.administrationWorkspace}>
       <section className="hub-administration-page">
         <HubContentPageHeader headingAs="h1" title={data.heading} description={data.description} />
+        {error ? <HubAlert variant="critical" title={error} /> : null}
+        {data.roleChange ? (
+          <section aria-label="Confirmed administrator role change">
+            <Heading as="h2" size="6">
+              {data.roleChange.operationLabel}
+            </Heading>
+            <ul>
+              {data.roleChange.targets.map((target) => (
+                <li key={target.membershipId}>
+                  <strong>{target.name ?? target.login ?? "Profile unavailable"}</strong>
+                  <Text as="p">
+                    {target.login ? `@${target.login}` : "Login unavailable"} ·{" "}
+                    {target.providerLabel} · Membership {target.membershipId}
+                  </Text>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
         {actions}
       </section>
     </HubAdministrationWorkspace>
   ) : (
     <GithubAppSetupPage>
       <GithubAppSetupHeader data={data} />
+      {error ? <HubAlert variant="critical" title={error} /> : null}
       {actions}
     </GithubAppSetupPage>
   )

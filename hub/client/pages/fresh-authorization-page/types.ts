@@ -11,4 +11,13 @@ export interface FreshAuthorizationPageData extends GithubAppSetupHeaderData {
   cancelLabel?: string
   cancelPath?: string
   continuation?: { id: string; method: string }
+  roleChange?: {
+    operationLabel: string
+    targets: Array<{
+      membershipId: string
+      providerLabel: string
+      login: string | null
+      name: string | null
+    }>
+  }
 }
