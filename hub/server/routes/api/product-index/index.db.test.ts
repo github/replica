@@ -424,6 +424,92 @@ describe("real product index", () => {
     })
   })
 
+  it("keeps the prototype count consistent when a branch is retired during the read", async () => {
+    const repositoryId = randomUUID()
+    const prototypeId = randomUUID()
+    const retiredAt = new Date("2026-11-10T00:00:00Z")
+    await prisma.repository.create({
+      data: { id: repositoryId, nameWithOwner: "team/design", defaultBranch: "main" },
+    })
+    await prisma.prototype.create({
+      data: {
+        id: prototypeId,
+        repositoryId,
+        branchName: "prototype/welcome",
+        name: "Welcome",
+        registeredAt: new Date(),
+      },
+    })
+    const writer = new pg.Client({ connectionString: getDatabaseUrl() })
+    onTestFinished(async () => {
+      await writer.end()
+    })
+    await writer.connect()
+    const query: typeof pg.Client.prototype.query = Reflect.get(pg.Client.prototype, "query")
+    let retirement: Promise<void> | undefined
+    function timeQueries(this: pg.Client, config: unknown, values?: unknown, callback?: unknown) {
+      const sql =
+        typeof config === "object" && config !== null && "text" in config ? config.text : undefined
+      if (typeof sql !== "string" || !/\bselect\b/i.test(sql) || !/\bprototypes\b/i.test(sql)) {
+        return Reflect.apply(query, this, [config, values, callback]) as
+          Promise<pg.QueryResult> | undefined
+      }
+
+      const done = (
+        typeof callback === "function"
+          ? callback
+          : typeof values === "function"
+            ? values
+            : undefined
+      ) as ((error: Error | null, result?: pg.QueryResult) => void) | undefined
+      function read(this: pg.Client) {
+        return Reflect.apply(query, this, [
+          config,
+          typeof values === "function" ? undefined : values,
+        ]) as Promise<pg.QueryResult>
+      }
+      let result: Promise<pg.QueryResult>
+      if (!retirement) {
+        const firstRead = read.call(this)
+        retirement = firstRead.then(async () => {
+          await writer.query("UPDATE prototypes SET branch_deleted_at = $1 WHERE id = $2", [
+            retiredAt,
+            prototypeId,
+          ])
+        })
+        result = retirement.then(() => firstRead)
+      } else {
+        result = retirement.then(() => read.call(this))
+      }
+      if (!done) return result
+      void result.then(
+        (rows) => done(null, rows),
+        (error: unknown) => done(error instanceof Error ? error : new Error(String(error))),
+      )
+    }
+    // Keep the database reads real while the branch changes.
+    const timing = vi
+      .spyOn(pg.Client.prototype, "query")
+      .mockImplementation(
+        timeQueries as (...args: Parameters<typeof pg.Client.prototype.query>) => void,
+      )
+    onTestFinished(() => timing.mockRestore())
+
+    const index = await createProductRouteDependencies().findRepositoryIndex(repositoryId)
+    timing.mockRestore()
+
+    expect(index).toMatchObject({
+      prototypes: [{ id: prototypeId }],
+      pagination: { totalCount: 1 },
+    })
+    expect(
+      await prisma.prototype.findUnique({
+        where: { id: prototypeId },
+        select: { branchDeletedAt: true },
+      }),
+    ).toEqual({ branchDeletedAt: retiredAt })
+  }, 8_000)
+
   it("does not return an index when a repository changes during the read", async () => {
     const removedId = randomUUID()
     const changedId = randomUUID()

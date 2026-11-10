@@ -1,9 +1,9 @@
-import type { Prisma } from "../../../generated/prisma/client.ts"
+import type { Prisma, PrismaClient } from "../../../generated/prisma/client.ts"
 
 const pageSize = 24
 
 export async function findRepositoryIndex(
-  database: Pick<Prisma.TransactionClient, "prototype" | "repository">,
+  database: Pick<PrismaClient, "$transaction" | "prototype" | "repository">,
   repositoryId: string,
 ) {
   const repository = await database.repository.findFirst({
@@ -19,24 +19,28 @@ export async function findRepositoryIndex(
     replica: false,
     branchName: { notIn: [repository.defaultBranch, "replica/install-workflow"] },
   }
-  const [records, totalCount] = await Promise.all([
-    database.prototype.findMany({
-      where,
-      orderBy: [{ registeredAt: "desc" }, { id: "desc" }],
-      take: pageSize,
-      select: {
-        id: true,
-        repositoryId: true,
-        name: true,
-        description: true,
-        branchName: true,
-        author: {
-          select: { id: true, profile: { select: { login: true, name: true, provider: true } } },
+  // Keep the count and cards from the same database snapshot.
+  const [records, totalCount] = await database.$transaction(
+    [
+      database.prototype.findMany({
+        where,
+        orderBy: [{ registeredAt: "desc" }, { id: "desc" }],
+        take: pageSize,
+        select: {
+          id: true,
+          repositoryId: true,
+          name: true,
+          description: true,
+          branchName: true,
+          author: {
+            select: { id: true, profile: { select: { login: true, name: true, provider: true } } },
+          },
         },
-      },
-    }),
-    database.prototype.count({ where }),
-  ])
+      }),
+      database.prototype.count({ where }),
+    ],
+    { isolationLevel: "RepeatableRead" },
+  )
   const currentRepository = await database.repository.findFirst({
     where: { id: repositoryId, removedAt: null, defaultBranch: repository.defaultBranch },
     select: { id: true },
