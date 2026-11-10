@@ -16,9 +16,10 @@ ARG BUNDLER_VERSION=4.0.13
 # Rails app lives here
 WORKDIR /rails
 
-# Install base packages
+# Install base packages and require the Brotli security fix.
 RUN apt-get update -qq && \
-    apt-get install --no-install-recommends -y curl libjemalloc2 sqlite3 && \
+    apt-get install --no-install-recommends -y curl libbrotli1 libjemalloc2 sqlite3 && \
+    dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libbrotli1)" ge "1.1.0-2+deb13u1" && \
     gem install bundler --version ${BUNDLER_VERSION} --no-document && \
     ln -s /usr/lib/$(uname -m)-linux-gnu/libjemalloc.so.2 /usr/local/lib/libjemalloc.so && \
     rm -rf /var/lib/apt/lists /var/cache/apt/archives
@@ -30,7 +31,7 @@ ENV RAILS_ENV="production" \
     BUNDLE_WITHOUT="development:test" \
     LD_PRELOAD="/usr/local/lib/libjemalloc.so"
 
-FROM docker.io/library/node:24-bookworm-slim@sha256:a5f4366e834695d5f363b920c104953a535d3a9864d1bdf74566a0ebe01daee5 AS node
+FROM docker.io/library/node:24-bookworm-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9 AS node
 
 # Throw-away build stage to reduce size of final image
 FROM base AS build
