@@ -16,9 +16,10 @@ ARG BUNDLER_VERSION=4.0.13
 # Rails app lives here
 WORKDIR /rails
 
-# Install base packages
+# Install base packages and require the Brotli security fix.
 RUN apt-get update -qq && \
-    apt-get install --no-install-recommends -y curl libjemalloc2 sqlite3 && \
+    apt-get install --no-install-recommends -y curl libbrotli1 libjemalloc2 sqlite3 && \
+    dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libbrotli1)" ge "1.1.0-2+deb13u1" && \
     gem install bundler --version ${BUNDLER_VERSION} --no-document && \
     ln -s /usr/lib/$(uname -m)-linux-gnu/libjemalloc.so.2 /usr/local/lib/libjemalloc.so && \
     rm -rf /var/lib/apt/lists /var/cache/apt/archives
