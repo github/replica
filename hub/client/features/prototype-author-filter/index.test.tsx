@@ -13,13 +13,13 @@ describe("PrototypeAuthorFilter()", () => {
     const { rerender } = render(
       <PrototypeAuthorFilter listing={prototypeListing} onChange={onChange} onSearch={onSearch} />,
     )
-    const trigger = screen.getByRole("button", { name: "Author: All authors" })
+    const trigger = screen.getByRole("button", { name: "User: All users" })
     fireEvent.click(trigger)
-    const menu = screen.getByRole("menu", { name: "Author" })
+    const menu = screen.getByRole("menu", { name: "User" })
     expect(within(menu).getAllByRole("menuitemradio")[0]).toHaveTextContent("Me")
     expect(within(menu).getByRole("searchbox")).toHaveFocus()
     expect(
-      within(menu).getByRole("menuitemradio", { name: "All authors", checked: true }),
+      within(menu).getByRole("menuitemradio", { name: "All users", checked: true }),
     ).toBeInTheDocument()
     fireEvent.keyDown(within(menu).getByRole("searchbox"), { key: "ArrowDown" })
     const me = within(menu).getByRole("menuitemradio", { name: "Me" })
@@ -35,8 +35,8 @@ describe("PrototypeAuthorFilter()", () => {
         onSearch={onSearch}
       />,
     )
-    fireEvent.click(screen.getByRole("button", { name: "Author: Me" }))
-    const all = screen.getByRole("menuitemradio", { name: "All authors", checked: false })
+    fireEvent.click(screen.getByRole("button", { name: "User: Me" }))
+    const all = screen.getByRole("menuitemradio", { name: "All users", checked: false })
     all.focus()
     fireEvent.keyDown(all, { key: "Enter" })
     expect(onChange).toHaveBeenCalledTimes(2)
@@ -68,7 +68,7 @@ describe("PrototypeAuthorFilter()", () => {
     render(
       <PrototypeAuthorFilter listing={prototypeListing} onChange={vi.fn()} onSearch={onSearch} />,
     )
-    fireEvent.click(screen.getByRole("button", { name: "Author: All authors" }))
+    fireEvent.click(screen.getByRole("button", { name: "User: All users" }))
     expect(await screen.findByRole("menuitemradio", { name: "@octocat" })).toBeInTheDocument()
     fireEvent.click(screen.getByRole("button", { name: "More" }))
     expect(await screen.findByRole("menuitemradio", { name: "@mona" })).toBeInTheDocument()
@@ -103,7 +103,7 @@ describe("PrototypeAuthorFilter()", () => {
     render(
       <PrototypeAuthorFilter listing={prototypeListing} onChange={vi.fn()} onSearch={onSearch} />,
     )
-    fireEvent.click(screen.getByRole("button", { name: "Author: All authors" }))
+    fireEvent.click(screen.getByRole("button", { name: "User: All users" }))
     expect(await screen.findByRole("alert")).toHaveTextContent(prototypeListing.copy.authorsFailed)
     expect(screen.getByRole("menuitemradio", { name: "Me" })).toBeInTheDocument()
     fireEvent.click(screen.getByRole("button", { name: "Retry" }))
@@ -111,6 +111,6 @@ describe("PrototypeAuthorFilter()", () => {
     await waitFor(() => expect(screen.queryByRole("status")).not.toBeInTheDocument())
     expect(screen.getByRole("menuitemradio", { name: "Me" })).toBeInTheDocument()
     fireEvent.change(screen.getByRole("searchbox"), { target: { value: "missing" } })
-    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("No matching authors"))
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("No matching users"))
   })
 })

@@ -25,7 +25,6 @@ export function RepositoriesShowPage({
   data,
   controls,
   buildStatusAvailable = true,
-  filtersAvailable = true,
   managingPrototypes = false,
   view: controlledView,
   onViewChange,
@@ -33,7 +32,6 @@ export function RepositoriesShowPage({
   data: RepositoriesShowPageData
   controls: PrototypeListingControls
   buildStatusAvailable?: boolean
-  filtersAvailable?: boolean
   managingPrototypes?: boolean
   view?: PrototypeViewMode
   onViewChange?: (view: PrototypeViewMode) => void
@@ -94,7 +92,6 @@ export function RepositoriesShowPage({
           searchLabel={data.searchLabel}
           searchQuery={controls.query}
           searchMaxLength={200}
-          searchVisible={filtersAvailable}
           tools={
             <div className="repository-detail__toolbar" data-view={view}>
               <Text size="100" className="repository-detail__count" aria-live="polite">
@@ -104,14 +101,12 @@ export function RepositoriesShowPage({
                   : ""}
               </Text>
 
-              {filtersAvailable ? (
-                <PrototypeAuthorFilter
-                  key={data.listing.authorsPath}
-                  listing={data.listing}
-                  onChange={controls.onAuthorChange}
-                  onSearch={controls.loadAuthors}
-                />
-              ) : null}
+              <PrototypeAuthorFilter
+                key={data.listing.authorsPath}
+                listing={data.listing}
+                onChange={controls.onAuthorChange}
+                onSearch={controls.loadAuthors}
+              />
             </div>
           }
           trailingTools={
@@ -258,7 +253,7 @@ export function RepositoriesShowPage({
             </table>
           )}
 
-          {filtersAvailable && data.listing.pageCount > 1 ? (
+          {data.listing.pageCount > 1 ? (
             <Pagination
               className="repository-detail__pagination"
               aria-label={data.listing.copy.pagination}

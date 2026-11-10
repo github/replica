@@ -23,8 +23,8 @@ export function repositoryShowData(
       : selectedAuthor
         ? `@${selectedAuthor.login}`
         : author
-          ? "Selected author"
-          : "All authors"
+          ? "Selected user"
+          : "All users"
   const count = data.pagination.totalCount
 
   return {
@@ -47,7 +47,7 @@ export function repositoryShowData(
     notPassingLabel: "not passing",
     noBuildLabel: "No Build yet",
     noSearchResultsHeading: "No prototypes found",
-    noSearchResultsDescription: "Try a different search or author, or clear the current filters.",
+    noSearchResultsDescription: "Try a different search or user, or clear the current filters.",
     pageTitle: data.repository.nameWithOwner,
     prototypes: data.prototypes.map((prototype) => {
       const builds = [...prototype.builds].sort((first, second) => second.number - first.number)
@@ -112,16 +112,16 @@ export function repositoryShowData(
       authorsPath: `/api/repositories/${data.repository.id}/authors`,
       path: search.size ? `${path}?${search}` : path,
       copy: {
-        author: "Author",
+        author: "User",
         me: "Me",
-        allAuthors: "All authors",
-        searchAuthors: "Search authors",
+        allAuthors: "All users",
+        searchAuthors: "Search users",
         moreAuthors: "More",
-        firstAuthors: "First authors",
-        noAuthors: "No matching authors",
-        loading: "Loading authors",
+        firstAuthors: "First users",
+        noAuthors: "No matching users",
+        loading: "Loading users",
         retry: "Retry",
-        authorsFailed: "Hub could not load authors. Try again.",
+        authorsFailed: "Hub could not load users. Try again.",
         resultsFailed: "Hub could not load prototypes. Try again.",
         previous: "Previous",
         next: "Next",

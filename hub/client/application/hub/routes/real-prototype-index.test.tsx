@@ -210,7 +210,12 @@ describe("real prototype index", () => {
           : new HttpResponse(null, { status: 401 }),
       ),
     )
-    server.events.on("request:start", ({ request }) => requests.push(new URL(request.url).pathname))
+    const searches: string[] = []
+    server.events.on("request:start", ({ request }) => {
+      const url = new URL(request.url)
+      requests.push(url.pathname)
+      searches.push(`${url.pathname}${url.search}`)
+    })
     server.listen({ onUnhandledRequest: "error" })
     onTestFinished(() => server.close())
     const router = await renderApplication("/")
@@ -236,8 +241,7 @@ describe("real prototype index", () => {
     expect(detailLinks(results, repositoryId)).toHaveLength(0)
     expect(githubAuthorPaths(results)).toContain("/mona")
     expect(githubAuthorPaths(results).every((path) => path === "/mona")).toBe(true)
-    expect(screen.queryByRole("searchbox", { name: "Search prototypes" })).not.toBeInTheDocument()
-    expect(screen.queryByRole("button", { name: /^Author:/ })).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "User: All users" })).toBeInTheDocument()
     expect(screen.queryByRole("link", { name: /build prototype/i })).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: /build prototype/i })).not.toBeInTheDocument()
     expect(screen.queryByRole("link", { name: /edit prototype listings/i })).not.toBeInTheDocument()
@@ -261,7 +265,11 @@ describe("real prototype index", () => {
       within(listResults).queryByRole("columnheader", { name: "Build" }),
     ).not.toBeInTheDocument()
     expect(within(listResults).queryByText("No Build yet")).not.toBeInTheDocument()
-    expect(requests).not.toContain(`/api/repositories/${repositoryId}/authors`)
+
+    const search = screen.getByRole("searchbox", { name: "Search prototypes" })
+    fireEvent.change(search, { target: { value: " welcome " } })
+    fireEvent.keyDown(search, { key: "Enter" })
+    await waitFor(() => expect(searches).toContain(`/api/repositories/${repositoryId}?q=welcome`))
   }, 15_000)
 
   it("shows a repository failure instead of an empty index", async () => {

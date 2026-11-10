@@ -251,7 +251,6 @@ const realIndexData: RepositoriesShowPageData = {
 export const RealIndex: Story = {
   args: {
     buildStatusAvailable: false,
-    filtersAvailable: false,
     data: realIndexData,
   },
 }

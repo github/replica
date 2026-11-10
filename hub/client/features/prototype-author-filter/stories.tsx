@@ -35,7 +35,7 @@ const meta = {
                 ? "Me"
                 : author === "2"
                   ? `@${mona.login}`
-                  : "All authors",
+                  : "All users",
         }}
         onChange={(value) => {
           setAuthor(value)

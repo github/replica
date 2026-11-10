@@ -32,7 +32,7 @@ The dataset includes `octocat`, `mona`, additional fictional collaborators, `git
 
 In mock mode, the neutral root reads the simulated session. Private pages load their workspace in a separate layout; public shared previews and signed-out pages do not load a private workspace. These provisional product contracts are not adapters for real authentication or authorization.
 
-In real mode, signed-out visitors see the authentication shell without loading provisional session or workspace data. Signed-in members open the first repository or an empty workspace. Administrators can open `/settings/administrators` and `/settings/audit?scope=hub` without loading provisional product workspace data. Sign-in, enrollment, and sign-out forms submit natively to the configured API. The index is read-only and shows up to 24 prototypes; its cards do not link to details yet. Other real product routes retain explicit API failures. In mock mode, `/` keeps the product entry flow, and `/admin-enrollment` redirects to the mock `/settings/enroll` flow. See [Hub development](development.md) for seed data and access limitations.
+In real mode, signed-out visitors see the authentication shell without loading provisional session or workspace data. Signed-in members open the first repository or an empty workspace. Administrators can open `/settings/administrators` and `/settings/audit?scope=hub` without loading provisional product workspace data. Sign-in, enrollment, and sign-out forms submit natively to the configured API. The index is read-only. Members can search it, filter it by user, and page through 24 prototypes at a time; its cards do not link to details yet. Other real product routes retain explicit API failures. In mock mode, `/` keeps the product entry flow, and `/admin-enrollment` redirects to the mock `/settings/enroll` flow. See [Hub development](development.md) for seed data and access limitations.
 
 Product screens retain product-facing copy from the retained pages and their original fixtures. They do not describe mock data, simulations, or synthetic accounts. The bottom-right test toolbar is the only orange development surface and the only place for mock-only warnings, request diagnostics, and explanations of local actions. It can be collapsed on any viewport. Normal product validation, access-denied, and failure feedback remain in the product UI.
 
@@ -69,7 +69,7 @@ Other seeded page states:
 - Templates: [default starter](http://127.0.0.1:5173/repositories/2001/templates/default) and [Welcome template](http://127.0.0.1:5173/repositories/2001/templates/prototype-1).
 - Shared previews: [active link](http://127.0.0.1:5173/shared/demo-active), [expired link](http://127.0.0.1:5173/shared/demo-expired), and [revoked link](http://127.0.0.1:5173/shared/demo-revoked).
 
-`author=me` selects the mock viewer; other author selections use an ID returned by the authors endpoint. Search, author, pagination, and gallery/list changes are reflected in the URL. Draft text and pending form state remain local to the interaction.
+`author=me` selects the signed-in viewer; other user selections use an ID returned by the authors endpoint. Search, author, pagination, and gallery/list changes are reflected in the URL. Draft text and pending form state remain local to the interaction.
 
 Review search and participant filters use `commentSearch` and `commentParticipant` in the URL. The following flags are enabled by a value of `1`:
 
@@ -188,7 +188,7 @@ These are frontend/mock contracts under [the application contracts](../client/ap
 | `GET`, `POST`, `DELETE /api/session` | Viewer and capabilities; no mock profile or revision metadata |
 | `GET /api/workspace` | Viewer and repository navigation |
 | `GET /api/repositories/:repositoryId` | Filtered, paginated prototypes and repository authors |
-| `GET /api/repositories/:repositoryId/authors` | Searchable author choices with a cursor |
+| `GET /api/repositories/:repositoryId/authors` | Searchable user choices with a cursor |
 | `GET /api/repositories/:repositoryId/prototypes/:prototypeId` | Prototype, build options, and selected preview |
 | `GET /api/repositories/:repositoryId/prototypes/:prototypeId/builds` | Paginated build history |
 | `GET /api/repositories/:repositoryId/prototypes/:prototypeId/builds/:buildNumber` | Build details |
@@ -203,7 +203,7 @@ These are frontend/mock contracts under [the application contracts](../client/ap
 | `GET /api/settings/workspace`, `/api/settings/public`, `/api/settings/admin-candidates` | Settings records and synthetic page capabilities |
 | `POST /api/settings/actions` | Explicitly named local actions; administrator role changes return 501 without changing state |
 
-In real mode, Express implements `GET /api/workspace` and `GET /api/repositories/:repositoryId`. The workspace lists the viewer and non-removed repositories. The repository index returns the first 24 eligible prototypes; search, filters, pagination, and Build status are not connected yet. The [authentication guide](authentication.md) owns the real session routes.
+In real mode, Express implements `GET /api/workspace`, `GET /api/repositories/:repositoryId`, and its `authors` endpoint. The workspace lists the viewer and non-removed repositories. The repository index returns 24 eligible prototypes per page. It accepts `q`, `author`, and `page`, and rejects malformed values. Search ignores letter case and matches the prototype name, description, branch, and author login or name. A page past the end shows the last page. The authors endpoint lists other users with eligible prototypes, 20 at a time, sorted by login. Its cursor only marks where the last page ended. Build status is not connected yet. The [authentication guide](authentication.md) owns the real session routes.
 
 Real administrator management does not use the provisional settings contracts:
 

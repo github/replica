@@ -1,7 +1,21 @@
-import type { findRepositoryIndex } from "../../../repositories/prototype-index/find-repository-index/index.ts"
+import type {
+  findRepositoryAuthors,
+  RepositoryAuthorsFilters,
+} from "../../../repositories/prototype-index/find-repository-authors/index.ts"
+import type {
+  findRepositoryIndex,
+  RepositoryIndexFilters,
+} from "../../../repositories/prototype-index/find-repository-index/index.ts"
 import type { listRepositories } from "../../../repositories/prototype-index/list-repositories/index.ts"
 
 export interface ProductRouteDependencies {
   listRepositories(): ReturnType<typeof listRepositories>
-  findRepositoryIndex(repositoryId: string): ReturnType<typeof findRepositoryIndex>
+  findRepositoryIndex(
+    repositoryId: string,
+    filters: RepositoryIndexFilters,
+  ): ReturnType<typeof findRepositoryIndex>
+  findRepositoryAuthors(
+    repositoryId: string,
+    filters: RepositoryAuthorsFilters,
+  ): ReturnType<typeof findRepositoryAuthors>
 }
