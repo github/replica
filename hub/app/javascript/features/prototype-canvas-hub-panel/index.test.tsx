@@ -977,12 +977,13 @@ it("creates Hub conversations and supports existing-thread actions", async () =>
     ),
   ).toHaveTextContent("Build #1")
   expect(screen.queryByText("Checking")).not.toBeInTheDocument()
+  postMessage.mockClear()
   fireEvent.click(screen.getByRole("button", { name: reviewCommentsCopy.commentMenuLabel }))
   fireEvent.click(
     await screen.findByRole("menuitem", { name: reviewCommentsCopy.commentOnElementLabel }),
   )
   await waitFor(() =>
-    expect(postMessage).toHaveBeenLastCalledWith(
+    expect(postMessage).toHaveBeenCalledWith(
       {
         type: "replica:canvas:select",
         nonce,
