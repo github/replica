@@ -24,7 +24,13 @@ export function createApp({
   app.set("trust proxy", trustedProxyHops)
   app.use(createRequestLogger(logger))
   app.use(
-    ["/api/auth", "/api/administrators", "/api/security-audits", "/api/workspace", "/api/repositories"],
+    [
+      "/api/auth",
+      "/api/administrators",
+      "/api/security-audits",
+      "/api/workspace",
+      "/api/repositories",
+    ],
     authenticationSecurity(),
   )
   app.use(/^(?!\/api\/(?:auth|administrators\/authorizations)(?:\/|$)).*/i, express.json())
