@@ -216,6 +216,8 @@ A task shows every screenshot of its page, desktop before narrow and light befor
 
 Hub names each screenshot by the address the build action was asked to capture. The build action follows redirects and Controls URL defaults without recording where the page ended up, so a comment made at the address a page redirects to finds no screenshot.
 
+The [local decision-model runtime](environments/brand-check/README.md#run-the-local-training-and-inference-runtime) accepts that taskset, tracks a bounded fixture or d1 job, stores an immutable candidate and proper-scoring evaluation report, requires an explicit promotion, and serves the promoted visual critic through the same request shape as `decision ask`. The deterministic fixture backend demonstrates the complete lifecycle without a GPU or model download. Customers run the runtime and keep its tasksets, adapters, reports, and credentials; Replica does not host a training or inference service.
+
 The output directory must be new and, inside a checkout, under `.replica/`. It holds:
 
 | File | Contents |

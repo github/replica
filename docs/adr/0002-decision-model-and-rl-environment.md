@@ -124,9 +124,12 @@ The list leaves out models above 10 billion parameters and models built on a bas
 
 A trained model replaces the base model only when a repository administrator approves it. The evaluation report gives them two numbers to compare against the base model on the test set: the mean reward, which should be higher, and the calibration error, which should not be worse. This version writes the report, but Hub does not record the decision or serve a model yet.
 
+The customer-operated reference runtime records that decision outside Hub. It accepts a taskset, tracks a job bounded by update and wall-time limits, writes the adapter and evaluation report as an immutable candidate, and serves only the candidate an operator explicitly promotes. Its HTTP contracts separate jobs, candidates, promotion, and evaluation from the local filesystem and trainer, so a customer can later implement the same lifecycle on its cloud platform. A deterministic fixture backend runs the complete lifecycle without a GPU or external model download; the d1 backend invokes the environment, trainer, scoring code, and evaluator described above. Replica does not run or receive data from either backend.
+
 ## Consequences
 
 - Teams can train on their own review outcomes without sending them anywhere they did not choose.
+- Teams can practice and test the complete lifecycle with a deterministic backend before spending GPU budget. Its report proves the orchestration and scoring path, not real-model quality.
 - A taskset copies screenshots and learning text. It lives under `.replica/` in a checkout, or outside any checkout. When someone withdraws training consent, `replica-learning` lists the export the taskset came from, and the owner must delete the taskset too.
 - The Builds file holds screenshots of every published Build of each reviewed prototype. The operator should delete it after writing the taskset.
 - A "follows" label rests on the reviewer's check of the fix, which may have covered one width and theme. The other screenshots of that page count as fixed unless a later thread reports the same theme there.

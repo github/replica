@@ -13,6 +13,7 @@ dependencies = ["openenv-core==0.3.0"]
 
 [project.scripts]
 server = "replica_brand_check.server.app:main"
+replica-decision-runtime = "replica_brand_check.runtime_server:main"
 
 [tool.setuptools]
 packages = ["replica_brand_check", "replica_brand_check.server"]
