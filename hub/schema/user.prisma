@@ -6,6 +6,7 @@ model User {
   externalIdentities ExternalIdentity[]
   membership         Membership?
   profile            UserProfile?
+  prototypes         Prototype[]
 
   // Timestamp columns
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)

@@ -5,6 +5,7 @@ import type { Logger } from "pino"
 
 import { createApp } from "../create-app/index.ts"
 import type { AuthenticationRouteDependencies } from "../routes/api/auth/types.ts"
+import type { ProductRouteDependencies } from "../routes/api/product/types.ts"
 import { attachRealtimeServer } from "../integrations/ws/attach-realtime-server/index.ts"
 import { shutdownServer } from "../shutdown-server/index.ts"
 
@@ -12,6 +13,7 @@ export async function runApi({
   port,
   logger,
   authentication,
+  product,
   trustedProxyHops = 0,
   shutdownTimeoutMs = 30_000,
   host = "127.0.0.1",
@@ -22,6 +24,7 @@ export async function runApi({
   port: number
   logger: Logger
   authentication?: AuthenticationRouteDependencies
+  product?: ProductRouteDependencies
   trustedProxyHops?: number
   shutdownTimeoutMs?: number
   host?: string
@@ -48,6 +51,7 @@ export async function runApi({
       clientDirectory,
       isReady: async () => !stoppingRequested && (isReady ? await isReady() : true),
       authentication,
+      product,
       trustedProxyHops,
     }),
   )

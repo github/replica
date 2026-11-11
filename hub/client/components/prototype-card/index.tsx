@@ -16,12 +16,14 @@ export function PrototypeCard({
   passingLabel,
   notPassingLabel,
   noBuildLabel,
+  showBuildStatus = true,
 }: {
   layout?: "gallery" | "list"
   prototype: PrototypeCardData
   passingLabel: string
   notPassingLabel: string
   noBuildLabel: string
+  showBuildStatus?: boolean
 }) {
   const avatar = (
     <HubUserAvatar src={prototype.author.avatarUrl} size={layout === "gallery" ? 28 : 24} />
@@ -42,10 +44,12 @@ export function PrototypeCard({
       )}
     </div>
   )
-  const title = (
+  const title = prototype.path ? (
     <a href={prototype.path} className="prototype-card__review-link">
       {prototype.name}
     </a>
+  ) : (
+    <span>{prototype.name}</span>
   )
 
   if (layout === "list") {
@@ -87,7 +91,7 @@ export function PrototypeCard({
             </span>
           )}
         </td>
-        <td>{buildStatus}</td>
+        {showBuildStatus ? <td>{buildStatus}</td> : null}
       </tr>
     )
   }
@@ -125,7 +129,9 @@ export function PrototypeCard({
           )}
         </div>
 
-        <ArrowUpRightIcon className="prototype-card__arrow" size={16} aria-hidden="true" />
+        {prototype.path ? (
+          <ArrowUpRightIcon className="prototype-card__arrow" size={16} aria-hidden="true" />
+        ) : null}
       </div>
     </section>
   )

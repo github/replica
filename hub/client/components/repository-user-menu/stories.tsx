@@ -40,6 +40,18 @@ export const Collapsed: Story = {
   args: { collapsed: true },
 }
 
+export const EntraMember: Story = {
+  args: {
+    accountMenuLabel: "Account menu for Mona",
+    currentUser: {
+      avatarUrl: null,
+      login: "mona@example.test",
+      name: "Mona",
+      provider: "entra",
+    },
+  },
+}
+
 export const LongIdentity: Story = {
   args: {
     currentUser: {

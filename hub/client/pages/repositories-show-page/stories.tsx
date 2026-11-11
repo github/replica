@@ -189,6 +189,106 @@ export const ReadOnly: Story = {
   },
 }
 
+const realPrototypeAuthor = {
+  avatarUrl: null,
+  label: "By @octocat",
+  ownerLabel: "@octocat",
+  url: "https://github.com/octocat",
+}
+
+const realIndexData: RepositoriesShowPageData = {
+  ...data,
+  authenticityToken: "",
+  currentUser: { ...data.currentUser, provider: "github", avatarUrl: null },
+  listing: {
+    ...data.listing,
+    matchingCount: 2,
+    pagePath: "/repositories/00000000-0000-4000-8000-000000000101",
+    authorsPath: "",
+    path: "/repositories/00000000-0000-4000-8000-000000000101",
+  },
+  managePrototypesPath: undefined,
+  newPrototypePath: null,
+  prototypesPath: "/repositories/00000000-0000-4000-8000-000000000101",
+  repositories: [
+    {
+      id: "00000000-0000-4000-8000-000000000101",
+      nameWithOwner: "github/prototype",
+      path: "/repositories/00000000-0000-4000-8000-000000000101",
+    },
+  ],
+  selectedRepositoryId: "00000000-0000-4000-8000-000000000101",
+  signOutPath: "/api/auth/session/sign-out",
+  workflowInstallation: undefined,
+  prototypesCountLabel: "2 prototypes",
+  prototypes: [
+    {
+      ...welcomePrototype,
+      id: "00000000-0000-4000-8000-000000000201",
+      branchName: "prototype/welcome",
+      description: "Explore a new welcome page.",
+      path: null,
+      reviewBuild: undefined,
+      latestBuild: undefined,
+      previewFallbackLabel: "No preview available",
+      author: realPrototypeAuthor,
+    },
+    {
+      ...welcomePrototype,
+      id: "00000000-0000-4000-8000-000000000202",
+      branchName: "prototype/navigation",
+      name: "Navigation",
+      description: "Explore a different navigation layout.",
+      path: null,
+      reviewBuild: undefined,
+      latestBuild: undefined,
+      previewFallbackLabel: "No preview available",
+      author: realPrototypeAuthor,
+    },
+  ],
+}
+
+export const RealIndex: Story = {
+  args: {
+    buildStatusAvailable: false,
+    filtersAvailable: false,
+    data: realIndexData,
+  },
+}
+
+export const RealIndexList: Story = {
+  ...RealIndex,
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("radio", { name: "List view" }))
+  },
+}
+
+export const RealIndexEmpty: Story = {
+  ...RealIndex,
+  args: {
+    ...RealIndex.args,
+    data: {
+      ...realIndexData,
+      listing: { ...realIndexData.listing, matchingCount: 0 },
+      prototypes: [],
+      prototypesCountLabel: "0 prototypes",
+    },
+  },
+}
+
+export const RealIndexSingle: Story = {
+  ...RealIndex,
+  args: {
+    ...RealIndex.args,
+    data: {
+      ...realIndexData,
+      listing: { ...realIndexData.listing, matchingCount: 1 },
+      prototypes: realIndexData.prototypes.slice(0, 1),
+      prototypesCountLabel: "1 prototype",
+    },
+  },
+}
+
 export const WideViewSwitching: Story = {
   ...Multiple,
   globals: { viewport: { value: "wideDesktop", isRotated: false } },

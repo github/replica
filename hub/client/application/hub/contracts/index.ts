@@ -20,6 +20,7 @@ export const userSchema = z.object({
   login: z.string().min(1),
   name: z.string().nullable(),
   avatarUrl: httpUrl.nullable(),
+  provider: z.string().min(1).optional(),
 })
 
 export const repositorySchema = z.object({
@@ -83,7 +84,12 @@ export const workspaceResponseSchema = z.object({
 
 export const repositoryResponseSchema = z.object({
   repository: repositorySchema,
-  prototypes: z.array(prototypeSchema),
+  prototypes: z.array(
+    prototypeSchema.extend({
+      authorId: z.string().nullable().optional(),
+      authorLogin: z.string().min(1).nullable(),
+    }),
+  ),
   pagination: paginationSchema,
   authors: z.array(userSchema),
 })

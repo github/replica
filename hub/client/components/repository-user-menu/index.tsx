@@ -76,6 +76,7 @@ export function RepositoryUserMenu({
     avatarUrl: string | null
     login: string
     name: string | null
+    provider?: string
   }
   darkThemeLabel?: string
   lightThemeLabel?: string
@@ -110,7 +111,11 @@ export function RepositoryUserMenu({
               <span className="repository-user-menu__name">
                 {currentUser.name ?? currentUser.login}
               </span>
-              <span className="repository-user-menu__login">@{currentUser.login}</span>
+              {!currentUser.provider || currentUser.provider === "github" ? (
+                <span className="repository-user-menu__login">@{currentUser.login}</span>
+              ) : currentUser.name ? (
+                <span className="repository-user-menu__login">{currentUser.login}</span>
+              ) : null}
             </span>
           </ActionMenu.Button>
           <ActionMenu.Overlay aria-label={accountMenuLabel}>

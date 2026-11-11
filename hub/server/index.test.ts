@@ -41,6 +41,7 @@ describe("server runtime", () => {
   beforeEach(() => {
     vi.resetModules()
     vi.doUnmock("./routes/api/auth/create-authentication-route-dependencies/index.ts")
+    vi.doUnmock("./routes/api/product/create-product-route-dependencies/index.ts")
     vi.mocked(parseRuntimeConfig).mockReturnValue(apiConfiguration)
     vi.mocked(runApi).mockResolvedValue(undefined)
     vi.spyOn(process, "exit").mockImplementation((code) => {
@@ -53,7 +54,9 @@ describe("server runtime", () => {
 
     await expect(import("./index.ts")).resolves.toBeDefined()
 
-    expect(runApi).toHaveBeenCalledWith(expect.objectContaining({ authentication: undefined }))
+    expect(runApi).toHaveBeenCalledWith(
+      expect.objectContaining({ authentication: undefined, product: undefined }),
+    )
   })
 
   it.each([
@@ -124,7 +127,9 @@ describe("server runtime", () => {
       expect(disableAuthenticationProviders).toHaveBeenCalledOnce()
       expect(createAuthenticationRouteDependencies).not.toHaveBeenCalled()
       const runner = mode === "api" ? runApi : startServerProcesses
-      expect(runner).toHaveBeenCalledWith(expect.objectContaining({ authentication: undefined }))
+      expect(runner).toHaveBeenCalledWith(
+        expect.objectContaining({ authentication: undefined, product: undefined }),
+      )
     },
   )
 
@@ -160,6 +165,8 @@ describe("server runtime", () => {
   it("loads route-owned authentication composition when auth is configured", async () => {
     const createAuthenticationRouteDependencies = vi.fn()
     const disableAuthenticationProviders = vi.fn()
+    const product = { listRepositories: vi.fn(), findRepositoryIndex: vi.fn() }
+    const createProductRouteDependencies = vi.fn().mockReturnValue(product)
     const authentication = {
       currentSession: {},
       github: {
@@ -180,11 +187,15 @@ describe("server runtime", () => {
       createAuthenticationRouteDependencies,
       disableAuthenticationProviders,
     }))
+    vi.doMock("./routes/api/product/create-product-route-dependencies/index.ts", () => ({
+      createProductRouteDependencies,
+    }))
 
     await expect(import("./index.ts")).resolves.toBeDefined()
 
     expect(createAuthenticationRouteDependencies).toHaveBeenCalledWith(process.env)
+    expect(createProductRouteDependencies).toHaveBeenCalledOnce()
     expect(disableAuthenticationProviders).not.toHaveBeenCalled()
-    expect(runApi).toHaveBeenCalledWith(expect.objectContaining({ authentication }))
+    expect(runApi).toHaveBeenCalledWith(expect.objectContaining({ authentication, product }))
   })
 })

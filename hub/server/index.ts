@@ -12,6 +12,7 @@ import { parseRuntimeConfig } from "./utils/parse-runtime-config/index.ts"
 import { jobProcessors } from "./workers/configuration.ts"
 import { runJobWorker } from "./workers/run-job-worker/index.ts"
 import type { AuthenticationRouteDependencies } from "./routes/api/auth/types.ts"
+import type { ProductRouteDependencies } from "./routes/api/product/types.ts"
 
 class AuthenticationConfigurationError extends Error {}
 
@@ -36,6 +37,7 @@ try {
     }
     const trustedProxyHops = runsApi ? configuredTrustedProxyHops : 0
     let authentication: AuthenticationRouteDependencies | undefined
+    let product: ProductRouteDependencies | undefined
     if (runsApi) {
       const authenticationConfiguration = readAuthenticationConfigurationState(process.env)
       if (
@@ -71,6 +73,9 @@ try {
         try {
           if (authenticationConfiguration.providerConfigured) {
             authentication = await createAuthenticationRouteDependencies(process.env)
+            const { createProductRouteDependencies } =
+              await import("./routes/api/product/create-product-route-dependencies/index.ts")
+            product = createProductRouteDependencies()
           } else {
             await disableAuthenticationProviders()
           }
@@ -91,6 +96,7 @@ try {
         logger,
         isReady: isStorageReady,
         authentication,
+        product,
         trustedProxyHops,
       })
     else {
@@ -103,6 +109,7 @@ try {
           logger,
           isStorageReady,
           authentication,
+          product,
           trustedProxyHops,
         })
       } else {
