@@ -206,7 +206,8 @@ The HTTP contract stays independent of the local store and trainer implementatio
 
 | Route | Result |
 | --- | --- |
-| `GET /health` | Readiness only; this is the only route without the token |
+| `GET /health` | Process liveness; no token required |
+| `GET /ready` | Returns 200 only when an intact promoted candidate has a configured backend; no token required |
 | `POST /v1/jobs` | Enqueues one job bounded by `maxUpdates` and `maxSeconds` |
 | `GET /v1/jobs/<id>` | Returns `queued`, `running`, `succeeded`, or `failed` |
 | `GET /v1/candidates/<id>` | Returns the immutable manifest and evaluation report |

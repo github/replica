@@ -59,6 +59,8 @@ When a person works with Copilot in a repository that has a Hub connection, the 
 
 A vision-language model is a model that takes both an image and text as input. A decision model is a small vision-language model that looks at a Build's screenshot and answers questions about the accepted learnings with probabilities instead of prose. A team starts from a pretrained base model and post-trains it with reinforcement learning, a training method where the model answers tasks and receives a numeric reward for each answer, using the team's own review outcomes so the model can later check new Builds against the team's learnings. [ADR 0002](../../docs/adr/0002-decision-model-and-rl-environment.md) explains the design. Hub prepares training inputs, but it does not train, keep, or run the model. [Train a decision model](../../docs/decision-model.md) shows how a team runs and evaluates the reference trainer.
 
+Hub does not connect to the customer runtime yet. The [recommended first customer deployment](../../docs/decision-model.md#recommended-first-customer-deployment) defines the next bounded integration: Hub submits private tasksets, tracks bounded jobs, shows evaluation evidence, records an administrator's promotion, and calls the promoted inference service. The customer keeps every runtime, model, credential, and storage resource.
+
 The **Decision model** section of the **Learnings** page shows a repository administrator what is configured for the repository:
 
 - It lists the questions the model answers about each page: one yes-or-no question per accepted learning, which learning the page breaks most clearly, and how far it is from all of them.

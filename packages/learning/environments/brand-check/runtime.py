@@ -421,6 +421,17 @@ class LocalRuntime:
             return None
         return self._record(path, "promotion", "current")
 
+    def ready(self) -> None:
+        """Fail unless the promoted candidate is intact and its backend can serve requests."""
+        promotion = self.promotion()
+        manifest = self.candidate(promotion["candidateId"])["manifest"]
+        if manifest["backend"] not in self.backends:
+            raise RuntimeFailure(
+                "backend_unavailable",
+                f"Promoted candidate backend {manifest['backend']} is not configured.",
+                503,
+            )
+
     def evaluate(
         self, request: Mapping[str, Any], *, timeout_seconds: float = 120
     ) -> dict[str, Any]:

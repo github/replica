@@ -170,6 +170,9 @@ class LocalRuntimeTest(unittest.TestCase):
                 )
             )
         self.assertEqual(refused.exception.code, 401)
+        with self.assertRaises(error.HTTPError) as not_ready:
+            request.urlopen(f"{base_url}/ready")
+        self.assertEqual(not_ready.exception.code, 503)
 
         submitted = self._http_json(
             request.Request(
@@ -183,6 +186,22 @@ class LocalRuntimeTest(unittest.TestCase):
         )
         finished = self._wait_for_http_job(base_url, submitted["id"])
         self.assertEqual(finished["state"], "succeeded")
+        self._http_json(
+            request.Request(
+                f"{base_url}/v1/promotions",
+                data=json.dumps(
+                    {
+                        "candidateId": finished["candidateId"],
+                        "promotedBy": "test-operator",
+                    }
+                ).encode(),
+                headers={
+                    "Authorization": f"Bearer {TOKEN}",
+                    "Content-Type": "application/json",
+                },
+            )
+        )
+        self.assertEqual(self._http_json(f"{base_url}/ready"), {"status": "ready"})
 
     def _runtime(self):
         runtime = LocalRuntime(

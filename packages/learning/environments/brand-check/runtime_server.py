@@ -55,6 +55,14 @@ class RuntimeHandler(BaseHTTPRequestHandler):
             if path == "/health":
                 self._send(200, {"status": "healthy"})
                 return
+            if path == "/ready":
+                try:
+                    self.server.runtime.ready()
+                except RuntimeFailure as error:
+                    self._send(503, {"status": "not_ready", "reason": error.code})
+                else:
+                    self._send(200, {"status": "ready"})
+                return
             self._authorize()
             if path == "/v1/promotion":
                 promotion = self.server.runtime.promotion(required=False)
