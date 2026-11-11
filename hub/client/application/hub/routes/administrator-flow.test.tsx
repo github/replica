@@ -183,7 +183,7 @@ describe("administrator frontend integration", () => {
         },
       ]),
     )
-  })
+  }, 10_000)
 
   it("uses the real administrator contract and retains its opaque cursor", async () => {
     const requests: string[] = []

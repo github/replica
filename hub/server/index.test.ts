@@ -230,6 +230,7 @@ describe("server runtime", () => {
 
   it("loads route-owned authentication composition when auth is configured", async () => {
     const createAuthenticationRouteDependencies = vi.fn()
+    const createCopilotConnectionRouteDependencies = vi.fn()
     const disableAuthenticationProviders = vi.fn()
     const product = { listRepositories: vi.fn(), findRepositoryIndex: vi.fn() }
     const createProductRouteDependencies = vi.fn().mockReturnValue(product)
@@ -242,6 +243,9 @@ describe("server runtime", () => {
       },
       signOut: {},
     }
+    const copilotConnection = {
+      applicationOrigin: "https://hub.example.test",
+    }
     vi.stubEnv("HUB_APPLICATION_ORIGIN", "https://hub.example.test")
     vi.stubEnv("GITHUB_CLIENT_ID", "github-client")
     vi.mocked(parseRuntimeConfig).mockReturnValue({
@@ -249,6 +253,7 @@ describe("server runtime", () => {
       databaseUrl: "postgresql://hub.example.test/replica",
     })
     createAuthenticationRouteDependencies.mockResolvedValue(authentication)
+    createCopilotConnectionRouteDependencies.mockResolvedValue(copilotConnection)
     vi.doMock("./routes/api/auth/create-authentication-route-dependencies/index.ts", () => ({
       createAuthenticationRouteDependencies,
       disableAuthenticationProviders,
@@ -256,12 +261,19 @@ describe("server runtime", () => {
     vi.doMock("./routes/api/product/create-product-route-dependencies/index.ts", () => ({
       createProductRouteDependencies,
     }))
+    vi.doMock(
+      "./routes/api/copilot-connection/create-copilot-connection-route-dependencies/index.ts",
+      () => ({ createCopilotConnectionRouteDependencies }),
+    )
 
     await expect(import("./index.ts")).resolves.toBeDefined()
 
     expect(createAuthenticationRouteDependencies).toHaveBeenCalledWith(process.env)
     expect(createProductRouteDependencies).toHaveBeenCalledOnce()
+    expect(createCopilotConnectionRouteDependencies).toHaveBeenCalledWith(process.env)
     expect(disableAuthenticationProviders).not.toHaveBeenCalled()
-    expect(runApi).toHaveBeenCalledWith(expect.objectContaining({ authentication, product }))
+    expect(runApi).toHaveBeenCalledWith(
+      expect.objectContaining({ authentication, copilotConnection, product }),
+    )
   })
 })
