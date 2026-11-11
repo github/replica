@@ -40,9 +40,14 @@ function checkParents(root) {
 }
 
 function existingContext(root) {
-  return [".agents/context", ".github/contexts"].find((path) =>
-    existingEntry(join(root, path)),
-  )
+  for (const path of [".agents/context", ".github/contexts"]) {
+    const entry = existingEntry(join(root, path))
+    if (!entry) continue
+    if (!entry.isDirectory() || entry.isSymbolicLink()) {
+      throw new Error(`${path} must be a real directory, not a file or link; the entry was left unchanged.`)
+    }
+    return path
+  }
 }
 
 function bootstrapContext() {

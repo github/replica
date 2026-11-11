@@ -117,13 +117,20 @@ test("creates exact bundled owner documents without promoting captured or draft 
   assertBundledContext(consumer)
 })
 
-test("preserves existing current and legacy roots without creating a shadow or filling gaps", async (t) => {
+test("preserves real context directories and rejects unsafe roots without changing them", async (t) => {
   for (const relativeRoot of [".agents/context", ".github/contexts"]) {
-    for (const kind of ["empty directory", "incomplete directory", "file", "dangling symlink"]) {
+    for (const kind of [
+      "empty directory",
+      "incomplete directory",
+      "file",
+      "dangling symlink",
+      "readable symlink",
+    ]) {
       await t.test(`${relativeRoot}: ${kind}`, (t) => {
         const consumer = temporaryDirectory(t)
         const context = join(consumer, relativeRoot)
         const existing = "Existing team guidance must remain unchanged.\n"
+        let target = "missing-context"
         mkdirSync(dirname(context), { recursive: true })
         if (kind.endsWith("directory")) {
           mkdirSync(context)
@@ -133,12 +140,21 @@ test("preserves existing current and legacy roots without creating a shadow or f
         } else if (kind === "file") {
           writeFileSync(context, existing)
         } else {
-          symlinkSync("missing-context", context, "dir")
+          if (kind === "readable symlink") {
+            target = temporaryDirectory(t)
+            writeFileSync(join(target, "REPOSITORY.md"), existing)
+          }
+          symlinkSync(target, context, "dir")
         }
 
         const result = bootstrap(consumer)
 
-        assert.equal(result.status, 0, result.stderr)
+        if (kind.endsWith("directory")) {
+          assert.equal(result.status, 0, result.stderr)
+        } else {
+          assert.notEqual(result.status, 0)
+          assert.ok(result.stderr.includes(relativeRoot), result.stderr)
+        }
         assert.deepEqual(readdirSync(consumer), [dirname(relativeRoot)])
         assert.deepEqual(readdirSync(dirname(context)), [basename(context)])
         if (kind.endsWith("directory")) {
@@ -153,7 +169,11 @@ test("preserves existing current and legacy roots without creating a shadow or f
           assert.equal(readFileSync(context, "utf8"), existing)
         } else {
           assert.equal(lstatSync(context).isSymbolicLink(), true)
-          assert.equal(readlinkSync(context), "missing-context")
+          assert.equal(readlinkSync(context), target)
+          if (kind === "readable symlink") {
+            assert.deepEqual(readdirSync(target), ["REPOSITORY.md"])
+            assert.equal(readFileSync(join(target, "REPOSITORY.md"), "utf8"), existing)
+          }
         }
       })
     }
