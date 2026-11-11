@@ -2,6 +2,8 @@
 
 Capture effort follows families, not pages.
 
+Apply Discover's [URL privacy checks](./discover.md#url-privacy) before saving page URLs, link targets, asset provenance or screenshots. Preserve public routing state but never persist secret values. If an artifact cannot be safely redacted, report that capture blocked rather than committing it.
+
 ## Readiness before every screenshot
 
 Scroll to the bottom and back to trigger lazy content, then wait until

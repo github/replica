@@ -6,6 +6,14 @@ Use the browser canvas first, with the configured isolated Playwright MCP only f
 
 Before the first navigation to the site, establish an agent-owned isolated session on `about:blank` using supported runtime actions. Record cookie and page counts in the ledger's `browser` field, not cookie values. Pre-existing cookies or unrelated pages stop navigation; configuration alone is not proof. Do not assume the browser canvas exposes a Playwright `page` object. If isolation cannot be established, use only the shared workflow's configured isolated fallback or report capture blocked.
 
+### URL privacy
+
+Inspect source, resolved and discovered URLs before recording them. Redact actual credentials and secret-bearing path, query or fragment values before writing the ledger, captures, asset metadata, saved logs or commits. Examples include password-reset/invite tokens, authorization codes or state, session IDs, signatures, passwords and JWTs. Keys such as `token`, `code`, `state`, `auth`, `session`, `sig` or `key`, and opaque high-entropy values, require a context check; a public product code or filter state is not automatically a secret.
+
+Retain public navigation state and route structure where safe. Record the redacted component names and reason, never the removed values or a reversible replacement map. Do not copy raw secret-bearing URLs into notes, filenames or tool output. Apply the same rule to URLs extracted into page content and screenshots; inspect artifacts before committing them.
+
+A secret-bearing URL grants no new access or permission. Keep any necessary original only transiently for an already-authorized read; do not follow login/reset/invite flows or use it to enter a private application. Never navigate a redacted placeholder as if it were the observed source. If safe redaction or a public target cannot be established, record only redacted evidence, mark the affected capture blocked and continue independent authorized work without a routine question.
+
 ### Public-source requests
 
 Only the authorized public source and observed public asset origins are network targets. Before an explicit navigation or download, inspect the normalized HTTP(S) URL. Never intentionally request private-network, loopback, link-local or metadata destinations, or treat a link on a public page as permission to access them. Keep `mailto:` and `tel:` as outbound actions without fetching them; other schemes do not authorize execution or network access.
@@ -23,7 +31,7 @@ stop visiting that origin, keep what you have, and report it.
 
 ## 2. Find first-level destinations in the rendered site
 
-Open the requested source page at 1440×900. Normalize its resolved URL and seed it as a `build` row with `status: planned` and `foundIn: ["source"]` before collecting links. Use that same normalized URL for `ledger.source`; retain the originally requested URL in the capture notes if it redirected. Existing auth/download boundaries still apply. If the agreed scope explicitly excludes the source, retain a `deferred` row with a nonblank reason in `note` instead of silently omitting it.
+Open the authorized public source page at 1440×900. Normalize its safe resolved URL and seed it as a `build` row with `status: planned` and `foundIn: ["source"]` before collecting links. Use that same normalized URL for `ledger.source`; retain only a safe, redacted form of the requested URL in capture notes if it redirected. Existing auth/download boundaries still apply. A redacted placeholder is evidence for blocked work, not a verified navigation target. If the agreed scope explicitly excludes the source, retain a `deferred` row with a nonblank reason in `note` instead of silently omitting it.
 
 Collect links from:
 
@@ -32,7 +40,7 @@ Collect links from:
 - the footer, after expanding collapsed groups;
 - the mobile menu at 390×844, after opening it and its groups.
 
-Add `sitemap.xml` entries only as supplementary evidence, never as a substitute for rendered navigation. Resolve relative hrefs against the observed document's base URL before recording absolute targets. Normalize demonstrated redirects and tracking parameters, deduplicate, and combine where each was found. Preserve meaningful paths, query parameters and fragment state; do not equate distinct trailing-slash paths without evidence or map every source subpath to `/`.
+Add `sitemap.xml` entries only as supplementary evidence, never as a substitute for rendered navigation. Resolve relative hrefs against the observed document's base URL before recording absolute targets. Normalize demonstrated redirects and tracking parameters, deduplicate, and combine where each was found. Preserve meaningful public paths, query parameters and fragment state after the URL privacy checks; do not equate distinct trailing-slash paths without evidence or map every source subpath to `/`.
 
 Keep same-document section links as navigation evidence on their owning page, not separate build pages. Preserve fragments that identify meaningful route state rather than treating every fragment as a new destination.
 
@@ -64,7 +72,7 @@ not its own row: note it on that page's row.
 
 Same-origin HTTP(S) destinations need a build or local-boundary decision, never an external stub that bypasses routing. Every local row's original target must be HTTP(S), even when it would only be shown as text. These URL checks enforce coverage decisions, not private-network isolation.
 
-Record unsupported non-web actions, such as custom app-store schemes, in the owning HTTP(S) page's `note`, retaining the observed target and control location as inert text. Do not create standalone rows, fetch or execute those targets, or give prototype controls live links to them. Use a disabled or mock-only control. An observed HTTP(S) fallback may receive a row; never invent a fallback URL to pass validation.
+Record unsupported non-web actions, such as custom app-store schemes, in the owning HTTP(S) page's `note`, retaining only a safe, redacted target and control location as inert text. Do not create standalone rows, fetch or execute those targets, or give prototype controls live links to them. Use a disabled or mock-only control. An observed HTTP(S) fallback may receive a row; never invent a fallback URL to pass validation.
 
 `stub-auth`, `stub-download` and `deferred` rows also get a local `route` and a
 `status`, because Build renders a local boundary page for each. `stub-external`
