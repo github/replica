@@ -15,19 +15,19 @@ function renderPage(data: CopilotConnectionPageData) {
 }
 
 describe("CopilotConnectionPage()", () => {
-  it("asks for confirmation before connecting and says who pays for the usage", () => {
+  it("asks for confirmation before connecting and says who pays for usage", () => {
     renderPage(story.args.data)
     expect(screen.getByRole("heading", { name: "Copilot is not connected" })).toBeInTheDocument()
     expect(
-      screen.getByText(/The usage counts toward the Copilot plan of the token's owner/),
+      screen.getByText(/Usage counts toward the token owner's Copilot plan/),
     ).toBeInTheDocument()
     const checkbox = screen.getByRole("checkbox", {
-      name: "I understand that Hub will use this Copilot token for this Hub.",
+      name: "I understand and confirm connecting Copilot for this Hub.",
     })
     expect(checkbox).toBeRequired()
     expect(checkbox).not.toBeChecked()
     const form = screen.getByRole("button", { name: "Connect Copilot" }).closest("form")
-    expect(form).toHaveAttribute("action", "/copilot")
+    expect(form).toHaveAttribute("action", "/settings/copilot")
     expect(form).toHaveAttribute("method", "post")
     expect(form?.querySelector('[name="_method"]')).toBeNull()
     expect(form?.querySelector('[name="authenticity_token"]')).toHaveValue("storybook-token")
@@ -36,10 +36,13 @@ describe("CopilotConnectionPage()", () => {
 
   it("shows who connected Copilot and offers only disconnecting", () => {
     renderPage(Connected.args!.data!)
-    expect(screen.getByText(/@octocat connected Copilot on October 9, 2026/)).toBeInTheDocument()
-    expect(screen.getByText("Copilot last answered on October 10, 2026.")).toBeInTheDocument()
     expect(
-      screen.getByText(/Learnings used 0.147 AI credits in 2 Copilot requests/),
+      screen.getByText(
+        "@octocat connected Copilot. Membership 9b96cae1-099f-474f-bb1f-6f8ef78a4575.",
+      ),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText("Copilot last answered on 2026-11-10T23:00:00.000Z."),
     ).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: /Connect Copilot/ })).not.toBeInTheDocument()
     const form = screen.getByRole("button", { name: "Disconnect Copilot" }).closest("form")
@@ -51,11 +54,13 @@ describe("CopilotConnectionPage()", () => {
     ).toBeRequired()
   })
 
-  it("explains a refused token and offers to check it again", () => {
+  it("explains a refused token and offers to check and connect it", () => {
     renderPage(Refused.args!.data!)
-    expect(screen.getAllByRole("alert")[0]).toHaveTextContent(/Copilot refused the token/)
-    expect(screen.getByRole("button", { name: "Check the token again" })).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Disconnect Copilot" })).toBeInTheDocument()
+    expect(screen.getAllByRole("alert")[0]).toHaveTextContent(
+      /Copilot refused the configured token/,
+    )
+    expect(screen.getByRole("button", { name: "Check and connect Copilot" })).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Disconnect Copilot" })).not.toBeInTheDocument()
   })
 
   it("says how to give Hub a token, and offers no connection without one", () => {

@@ -44,15 +44,16 @@ export function copilotConnectionPageData(
     refusedLabel: status.refusedAt
       ? `Copilot refused the configured token on ${new Date(status.refusedAt).toISOString()}.`
       : null,
-    connect: status.connected
-      ? null
-      : {
-          label: status.verifiedAt ? "Check and connect Copilot" : "Connect Copilot",
-          consequence:
-            "Hub asks Copilot to verify the configured token. Later learning runs may send review comment text without reviewer identity. Usage counts toward the token owner's Copilot plan.",
-          confirmLabel: "I understand and confirm connecting Copilot for this Hub.",
-          verification,
-        },
+    connect:
+      status.connected || !status.configured
+        ? null
+        : {
+            label: status.verifiedAt ? "Check and connect Copilot" : "Connect Copilot",
+            consequence:
+              "Hub asks Copilot to verify the configured token. Later learning runs may send review comment text without reviewer identity. Usage counts toward the token owner's Copilot plan.",
+            confirmLabel: "I understand and confirm connecting Copilot for this Hub.",
+            verification,
+          },
     disconnect: status.connected
       ? {
           label: "Disconnect Copilot",

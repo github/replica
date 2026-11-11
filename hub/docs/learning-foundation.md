@@ -21,6 +21,10 @@ administrator session, locks the persistent generation row, and refuses to commi
 connection or disconnection happened while Copilot answered. The connection change and its typed
 security audit commit together.
 
+Replacing `REPLICA_COPILOT_TOKEN` makes the saved connection inactive until an administrator
+checks and connects the replacement token. Hub never treats an unverified token digest as the
+connected credential.
+
 Disconnecting removes the connection record and advances the generation. It does not remove the
 operator's token or any learning store.
 
@@ -65,7 +69,7 @@ the shared signal. This preserves the CLI process boundary without moving packag
 | --- | --- |
 | `REPLICA_COPILOT_TOKEN` | Optional operator secret used only for Copilot-backed package commands. |
 | `REPLICA_LEARNING_ROOT` | Private learning-store root. Defaults to `storage/learning`. |
-| `REPLICA_LEARNING_CLI` | Optional package CLI path. Defaults to `../packages/learning/bin/replica-learning.mjs` from `hub/`. |
+| `REPLICA_LEARNING_CLI` | Optional package CLI path. Source development defaults to `../packages/learning/bin/replica-learning.mjs` from `hub/`; the image sets `/opt/replica/learning/bin/replica-learning.mjs`. |
 | `REPLICA_LEARNING_NODE` | Optional Node.js executable. Defaults to the running Node.js executable. |
 
 The default deployment may obtain the environment values through platform secret references and

@@ -7,6 +7,7 @@ import { LearningCommandError } from "./errors.ts"
 
 const passedVariables = new Set(["PATH", "HOME", "LANG", "LC_ALL", "TZ"])
 const errorPattern = /^error \(([a-z_]+)\): (.+)$/m
+const stopTimeoutMs = 1_000
 
 function commandEnvironment(
   source: NodeJS.ProcessEnv,
@@ -80,28 +81,45 @@ export async function runLearningCommand(
       })
       const output: Buffer[] = []
       const errors: Buffer[] = []
+      const closed = new Promise<number | null>((resolve) => {
+        child.once("close", resolve)
+      })
       let outputBytes = 0
       let errorBytes = 0
       let settled = false
-      function fail(error: Error) {
+      async function fail(error: Error) {
         if (settled) return
         settled = true
         clearTimeout(timer)
         signal?.removeEventListener("abort", abort)
-        stopProcessTree(child.pid)
+        try {
+          stopProcessTree(child.pid)
+        } catch (stopError) {
+          error = new AggregateError(
+            [error, stopError],
+            "replica-learning failed and Hub could not stop its process group.",
+            { cause: error },
+          )
+        }
         child.stdout.destroy()
         child.stderr.destroy()
+        await Promise.race([
+          closed,
+          new Promise<void>((resolve) => {
+            setTimeout(resolve, stopTimeoutMs)
+          }),
+        ])
         reject(error)
       }
       function abort() {
-        fail(
+        void fail(
           signal?.reason instanceof Error
             ? signal.reason
             : new LearningCommandError("cancelled", "replica-learning was cancelled."),
         )
       }
       const timer = setTimeout(() => {
-        fail(
+        void fail(
           new LearningCommandError(
             "timeout",
             `replica-learning did not finish within ${Math.ceil(timeoutMs / 1000)} seconds.`,
@@ -111,7 +129,7 @@ export async function runLearningCommand(
       signal?.addEventListener("abort", abort, { once: true })
       if (signal?.aborted) abort()
       child.once("error", (error) => {
-        fail(
+        void fail(
           new LearningCommandError(
             "not_installed",
             "Node.js or the replica-learning command is not installed here.",
@@ -120,9 +138,10 @@ export async function runLearningCommand(
         )
       })
       child.stdout.on("data", (piece: Buffer) => {
+        if (settled) return
         outputBytes += piece.length
         if (outputBytes > outputLimit) {
-          fail(
+          void fail(
             new LearningCommandError(
               "output_too_large",
               "replica-learning wrote more output than Hub accepts, so Hub stopped it.",
@@ -133,9 +152,10 @@ export async function runLearningCommand(
         output.push(piece)
       })
       child.stderr.on("data", (piece: Buffer) => {
+        if (settled) return
         errorBytes += piece.length
         if (errorBytes > errorLimit) {
-          fail(
+          void fail(
             new LearningCommandError(
               "output_too_large",
               "replica-learning wrote more error output than Hub accepts, so Hub stopped it.",
@@ -145,7 +165,7 @@ export async function runLearningCommand(
         }
         errors.push(piece)
       })
-      child.once("close", (code) => {
+      void closed.then((code) => {
         if (settled) return
         settled = true
         clearTimeout(timer)

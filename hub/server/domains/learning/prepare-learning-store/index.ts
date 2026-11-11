@@ -31,6 +31,11 @@ export async function prepareLearningStore({
     publicRoot: resolve(applicationRoot, "public"),
   })
   await mkdir(directory, { mode: 0o700, recursive: true })
+  await validatePrivateStorageRoot(directory, {
+    applicationRoot,
+    name: "REPLICA_LEARNING_ROOT",
+    publicRoot: resolve(applicationRoot, "public"),
+  })
   await chmod(directory, 0o700)
   const configurationPath = resolve(directory, "config.json")
   try {

@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react"
 import { data, useFetcher, useLocation, useRevalidator } from "react-router"
 
 import { CopilotConnectionPage } from "@pages/copilot-connection-page"
@@ -98,8 +99,14 @@ function RealCopilotConnection({ page }: { page: CopilotConnectionPageData }) {
   const fetcher = useFetcher<SettingsActionResult>()
   const location = useLocation()
   const revalidator = useRevalidator()
+  const revalidatedResult = useRef<SettingsActionResult | undefined>(undefined)
   const busy = fetcher.state !== "idle" || revalidator.state !== "idle"
   const result = fetcher.data
+  useEffect(() => {
+    if (result?.saved !== true || revalidatedResult.current === result) return
+    revalidatedResult.current = result
+    void revalidator.revalidate()
+  }, [result, revalidator])
   return (
     <SettingsFormBoundary
       busy={busy}

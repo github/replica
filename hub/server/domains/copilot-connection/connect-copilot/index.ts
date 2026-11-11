@@ -30,6 +30,7 @@ export async function connectCopilot(
     findAdministratorSession,
     now,
     readSnapshot,
+    recordFailure,
     recordRefusal,
     runTransaction,
     writeAudit,
@@ -39,12 +40,13 @@ export async function connectCopilot(
     findAdministratorSession: (sessionDigest: string) => Promise<{ membershipId: string } | null>
     now: () => Date
     readSnapshot: () => Promise<CopilotConnectionSnapshot>
+    recordFailure: (input: { sessionDigest: string }) => Promise<boolean>
     recordRefusal: (input: {
-      actorMembershipId: string
       at: Date
+      sessionDigest: string
       snapshot: CopilotConnectionSnapshot
       tokenDigest: string
-    }) => Promise<void>
+    }) => Promise<"connection_changed" | "not_authorized" | "recorded">
     runTransaction: <T>(
       operation: (repositories: CopilotConnectionTransactionRepositories) => Promise<T>,
     ) => Promise<T>
@@ -73,20 +75,30 @@ export async function connectCopilot(
   } catch (error) {
     const refused = error instanceof LearningCommandError && error.code === "unauthorized"
     if (refused) {
-      await recordRefusal({
-        actorMembershipId: actor.membershipId,
+      const result = await recordRefusal({
         at: now(),
+        sessionDigest,
         snapshot,
         tokenDigest: createHash("sha256").update(token).digest("hex"),
       })
+      if (result === "not_authorized") {
+        throw new CopilotConnectionError("not_authorized", "Administrator access is required.", {
+          cause: error,
+        })
+      }
+      if (result === "connection_changed") {
+        throw new CopilotConnectionError(
+          "connection_changed",
+          "The Copilot connection changed while Hub checked the token.",
+          { cause: error },
+        )
+      }
     } else {
-      await writeAudit({
-        actorMembershipId: actor.membershipId,
-        id: createId(),
-        phase: "failed",
-        reason: "status_check_failed",
-        type: "copilot_connection",
-      })
+      if (!(await recordFailure({ sessionDigest }))) {
+        throw new CopilotConnectionError("not_authorized", "Administrator access is required.", {
+          cause: error,
+        })
+      }
     }
     throw new CopilotConnectionError(
       refused ? "token_refused" : "unavailable",

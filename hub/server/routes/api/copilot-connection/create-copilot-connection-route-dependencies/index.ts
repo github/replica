@@ -1,8 +1,9 @@
-import { createHash, randomUUID } from "node:crypto"
+import { randomUUID } from "node:crypto"
 
 import type { Prisma } from "../../../../generated/prisma/client.ts"
 import { connectCopilot } from "../../../../domains/copilot-connection/connect-copilot/index.ts"
 import { disconnectCopilot } from "../../../../domains/copilot-connection/disconnect-copilot/index.ts"
+import { getCopilotConnectionStatus } from "../../../../domains/copilot-connection/get-copilot-connection-status/index.ts"
 import { readLearningConfiguration } from "../../../../domains/learning/read-learning-configuration/index.ts"
 import { runLearningCommand } from "../../../../integrations/learning/run-learning-command/index.ts"
 import { prisma } from "../../../../integrations/prisma/index.ts"
@@ -78,16 +79,31 @@ export async function createCopilotConnectionRouteDependencies(
               const connection = await getCopilotConnection(transaction)
               return { connectionId: connection?.id ?? null, generation: state.generation }
             }),
+          recordFailure: ({ sessionDigest: currentSessionDigest }) =>
+            prisma.$transaction(async (transaction) => {
+              const session = await findAdministratorHubSession(transaction, currentSessionDigest)
+              if (!session) return false
+              await createSecurityAudit(transaction, {
+                actorMembershipId: session.membershipId,
+                id: randomUUID(),
+                phase: "failed",
+                reason: "status_check_failed",
+                type: "copilot_connection",
+              })
+              return true
+            }),
           recordRefusal: (input) =>
             prisma.$transaction(async (transaction) => {
+              const session = await findAdministratorHubSession(transaction, input.sessionDigest)
+              if (!session) return "not_authorized" as const
               const state = await lockCopilotConnectionState(transaction)
               const connection = await getCopilotConnection(transaction)
               if (
                 !state ||
                 state.generation !== input.snapshot.generation ||
-                connection?.id !== input.snapshot.connectionId
+                (connection?.id ?? null) !== input.snapshot.connectionId
               ) {
-                return
+                return "connection_changed" as const
               }
               if (connection) {
                 await refuseCopilotConnection(transaction, {
@@ -97,13 +113,14 @@ export async function createCopilotConnectionRouteDependencies(
                 })
               }
               await createSecurityAudit(transaction, {
-                actorMembershipId: input.actorMembershipId,
+                actorMembershipId: session.membershipId,
                 connectionId: connection?.id,
                 id: randomUUID(),
                 phase: "denied",
                 reason: "token_refused",
                 type: "copilot_connection",
               })
+              return "recorded" as const
             }),
           runTransaction,
           writeAudit: (event) => createSecurityAudit(prisma, event),
@@ -113,31 +130,25 @@ export async function createCopilotConnectionRouteDependencies(
       disconnectCopilot({ sessionDigest }, { createId: randomUUID, runTransaction }),
     status: async () => {
       const connection = await getCopilotConnection(prisma)
-      const tokenDigest = configuration.copilotToken
-        ? createHash("sha256").update(configuration.copilotToken).digest("hex")
-        : null
       const connectedByIsAdministrator = connection
         ? await isEffectiveAdministrator(prisma, connection.connectedByMembershipId)
         : false
-      const refused =
-        connection?.refusedAt !== null &&
-        connection?.refusedAt !== undefined &&
-        tokenDigest === connection.tokenDigest
-      const connected = Boolean(connection && tokenDigest && connectedByIsAdministrator && !refused)
-      return {
-        configured: tokenDigest !== null,
-        connected,
-        connectedBy:
-          connection && connectedByIsAdministrator
-            ? {
+      return getCopilotConnectionStatus(
+        connection
+          ? {
+              connectedBy: {
                 login: connection.connectedByMembership.user.profile?.login ?? null,
                 membershipId: connection.connectedByMembershipId,
                 name: connection.connectedByMembership.user.profile?.name ?? null,
-              }
-            : null,
-        refusedAt: refused ? (connection?.refusedAt ?? null) : null,
-        verifiedAt: connection?.verifiedAt ?? null,
-      }
+              },
+              refusedAt: connection.refusedAt,
+              tokenDigest: connection.tokenDigest,
+              verifiedAt: connection.verifiedAt,
+            }
+          : null,
+        configuration.copilotToken,
+        connectedByIsAdministrator,
+      )
     },
   }
 }

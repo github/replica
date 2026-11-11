@@ -35,7 +35,8 @@ describe("connectCopilot()", () => {
           findAdministratorSession: vi.fn().mockResolvedValue({ membershipId: randomUUID() }),
           now: () => new Date(),
           readSnapshot: vi.fn().mockResolvedValue({ connectionId: null, generation: 1n }),
-          recordRefusal: vi.fn(),
+          recordFailure: vi.fn().mockResolvedValue(true),
+          recordRefusal: vi.fn().mockResolvedValue("recorded"),
           runTransaction: (operation) => operation(records),
           writeAudit: vi.fn(),
         },
@@ -62,7 +63,8 @@ describe("connectCopilot()", () => {
           findAdministratorSession: vi.fn().mockResolvedValue({ membershipId: randomUUID() }),
           now: () => new Date(),
           readSnapshot: vi.fn().mockResolvedValue({ connectionId: null, generation: 1n }),
-          recordRefusal: vi.fn(),
+          recordFailure: vi.fn().mockResolvedValue(true),
+          recordRefusal: vi.fn().mockResolvedValue("recorded"),
           runTransaction: (operation) => operation(records),
           writeAudit: vi.fn(),
         },
@@ -97,7 +99,8 @@ describe("connectCopilot()", () => {
           readSnapshot: vi
             .fn()
             .mockResolvedValue({ connectionId: previousConnectionId, generation: 1n }),
-          recordRefusal: vi.fn(),
+          recordFailure: vi.fn().mockResolvedValue(true),
+          recordRefusal: vi.fn().mockResolvedValue("recorded"),
           runTransaction: (operation) => operation(records),
           writeAudit: vi.fn(),
         },
@@ -137,7 +140,8 @@ describe("connectCopilot()", () => {
           findAdministratorSession: vi.fn().mockResolvedValue({ membershipId: randomUUID() }),
           now: () => new Date(),
           readSnapshot: vi.fn().mockResolvedValue({ connectionId: null, generation: 1n }),
-          recordRefusal: vi.fn(),
+          recordFailure: vi.fn().mockResolvedValue(true),
+          recordRefusal: vi.fn().mockResolvedValue("recorded"),
           runTransaction: (operation) => operation(records),
           writeAudit: vi.fn(),
         },
@@ -150,7 +154,7 @@ describe("connectCopilot()", () => {
     const connectionId = randomUUID()
     const checkedAt = new Date("2026-11-10T23:00:00Z")
     const snapshot = { connectionId, generation: 3n }
-    const recordRefusal = vi.fn().mockResolvedValue(undefined)
+    const recordRefusal = vi.fn().mockResolvedValue("recorded")
     const runTransaction = vi.fn()
     const writeAudit = vi.fn()
 
@@ -167,6 +171,7 @@ describe("connectCopilot()", () => {
           findAdministratorSession: vi.fn().mockResolvedValue({ membershipId: actorMembershipId }),
           now: () => checkedAt,
           readSnapshot: vi.fn().mockResolvedValue(snapshot),
+          recordFailure: vi.fn().mockResolvedValue(true),
           recordRefusal,
           runTransaction,
           writeAudit,
@@ -175,12 +180,58 @@ describe("connectCopilot()", () => {
     ).rejects.toMatchObject({ code: "token_refused" })
 
     expect(recordRefusal).toHaveBeenCalledWith({
-      actorMembershipId,
       at: checkedAt,
+      sessionDigest: "session-digest",
       snapshot,
       tokenDigest: createHash("sha256").update("refused-token").digest("hex"),
     })
     expect(runTransaction).not.toHaveBeenCalled()
     expect(writeAudit).not.toHaveBeenCalled()
+  })
+
+  it("does not persist a refused token after administrator authority is lost", async () => {
+    await expect(
+      connectCopilot(
+        { sessionDigest: "session-digest", token: "refused-token" },
+        {
+          check: vi
+            .fn()
+            .mockRejectedValue(
+              new LearningCommandError("unauthorized", "Copilot refused the token."),
+            ),
+          createId: randomUUID,
+          findAdministratorSession: vi.fn().mockResolvedValue({ membershipId: randomUUID() }),
+          now: () => new Date(),
+          readSnapshot: vi.fn().mockResolvedValue({ connectionId: null, generation: 1n }),
+          recordFailure: vi.fn().mockResolvedValue(true),
+          recordRefusal: vi.fn().mockResolvedValue("not_authorized"),
+          runTransaction: vi.fn(),
+          writeAudit: vi.fn(),
+        },
+      ),
+    ).rejects.toMatchObject({ code: "not_authorized" })
+  })
+
+  it("does not attribute a failed status check after administrator authority is lost", async () => {
+    const recordFailure = vi.fn().mockResolvedValue(false)
+
+    await expect(
+      connectCopilot(
+        { sessionDigest: "session-digest", token: "secret-token" },
+        {
+          check: vi.fn().mockRejectedValue(new Error("Copilot unavailable")),
+          createId: randomUUID,
+          findAdministratorSession: vi.fn().mockResolvedValue({ membershipId: randomUUID() }),
+          now: () => new Date(),
+          readSnapshot: vi.fn().mockResolvedValue({ connectionId: null, generation: 1n }),
+          recordFailure,
+          recordRefusal: vi.fn().mockResolvedValue("recorded"),
+          runTransaction: vi.fn(),
+          writeAudit: vi.fn(),
+        },
+      ),
+    ).rejects.toMatchObject({ code: "not_authorized" })
+
+    expect(recordFailure).toHaveBeenCalledWith({ sessionDigest: "session-digest" })
   })
 })

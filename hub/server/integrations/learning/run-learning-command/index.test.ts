@@ -60,20 +60,19 @@ describe("runLearningCommand()", () => {
       }),
     ).rejects.toMatchObject({ code: "timeout" })
 
-    const childPid = Number(await readFile(marker, "utf8"))
-    await expect
-      .poll(
-        () => {
-          try {
-            process.kill(childPid, 0)
-            return true
-          } catch (error) {
-            if ((error as NodeJS.ErrnoException).code === "ESRCH") return false
-            throw error
-          }
-        },
-        { timeout: 2_000 },
-      )
-      .toBe(false)
+    const processes = JSON.parse(await readFile(marker, "utf8")) as {
+      childPid: number
+      commandPid: number
+    }
+    for (const pid of [processes.commandPid, processes.childPid]) {
+      let exists = true
+      try {
+        process.kill(pid, 0)
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error
+        exists = false
+      }
+      expect(exists).toBe(false)
+    }
   })
 })
