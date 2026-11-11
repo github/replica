@@ -3,6 +3,7 @@ import { z } from "zod"
 const identifier = z.number().int().positive()
 const httpUrl = z.url({ protocol: /^https?$/ })
 const timestamp = z.iso.datetime({ offset: true })
+const buildStateSchema = z.enum(["failed", "queued", "running", "successful", "superseded"])
 
 // Keep numeric mock IDs while accepting UUIDs from the API.
 export const recordIdentifierSchema = z
@@ -33,7 +34,7 @@ export const buildSchema = z.object({
   number: identifier,
   repositoryId: recordIdentifierSchema,
   prototypeId: recordIdentifierSchema,
-  state: z.enum(["failed", "queued", "running", "successful", "superseded"]),
+  state: buildStateSchema,
   commitSha: z.string().regex(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/i),
   commitAuthorLogin: z.string().min(1),
   createdAt: timestamp,
@@ -53,6 +54,7 @@ export const prototypeSchema = z.object({
   description: z.string().nullable(),
   authorLogin: z.string().min(1),
   canEdit: z.boolean(),
+  latestBuild: z.object({ number: identifier, state: buildStateSchema }).nullable().optional(),
   builds: z.array(buildSchema),
 })
 

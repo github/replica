@@ -209,6 +209,7 @@ const realIndexData: RepositoriesShowPageData = {
   },
   managePrototypesPath: undefined,
   newPrototypePath: null,
+  noBuildLabel: "No Build yet",
   prototypesPath: "/repositories/00000000-0000-4000-8000-000000000101",
   repositories: [
     {
@@ -229,7 +230,7 @@ const realIndexData: RepositoriesShowPageData = {
       description: "Explore a new welcome page.",
       path: null,
       reviewBuild: undefined,
-      latestBuild: undefined,
+      latestBuild: { state: "successful", stateLabel: "Successful" },
       previewFallbackLabel: "No preview available",
       author: realPrototypeAuthor,
     },
@@ -250,7 +251,6 @@ const realIndexData: RepositoriesShowPageData = {
 
 export const RealIndex: Story = {
   args: {
-    buildStatusAvailable: false,
     data: realIndexData,
   },
 }

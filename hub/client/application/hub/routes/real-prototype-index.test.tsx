@@ -164,6 +164,7 @@ describe("real prototype index", () => {
                   authorId,
                   authorLogin: "mona",
                   canEdit: false,
+                  latestBuild: { number: 1, state: "queued" },
                   builds: [],
                 },
                 {
@@ -175,6 +176,7 @@ describe("real prototype index", () => {
                   authorId: null,
                   authorLogin: null,
                   canEdit: false,
+                  latestBuild: { number: 2, state: "successful" },
                   builds: [],
                 },
                 {
@@ -186,6 +188,7 @@ describe("real prototype index", () => {
                   authorId: entraAuthorId,
                   authorLogin: "mona@example.test",
                   canEdit: false,
+                  latestBuild: null,
                   builds: [],
                 },
               ],
@@ -261,10 +264,10 @@ describe("real prototype index", () => {
     expect(detailLinks(listResults, repositoryId)).toHaveLength(0)
     expect(githubAuthorPaths(listResults)).toContain("/mona")
     expect(githubAuthorPaths(listResults).every((path) => path === "/mona")).toBe(true)
-    expect(
-      within(listResults).queryByRole("columnheader", { name: "Build" }),
-    ).not.toBeInTheDocument()
-    expect(within(listResults).queryByText("No Build yet")).not.toBeInTheDocument()
+    expect(within(listResults).getByRole("columnheader", { name: "Build" })).toBeVisible()
+    expect(within(listResults).getByText("Queued")).toBeVisible()
+    expect(within(listResults).getByText("passing")).toBeVisible()
+    expect(within(listResults).getByText("No Build yet")).toBeVisible()
 
     const search = screen.getByRole("searchbox", { name: "Search prototypes" })
     fireEvent.change(search, { target: { value: " welcome " } })

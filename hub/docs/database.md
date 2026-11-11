@@ -76,6 +76,8 @@ Keep ordinary value and shape validation in application code. Add a database gua
 
 For prototypes, one active branch has one identity per repository, including concurrent writes. Retired branches keep their history. A registered prototype must have a nonblank name and cannot be a replica branch.
 
+A Build number is positive and unique within its prototype. A prototype's current Build, if set, belongs to that prototype.
+
 PostgreSQL `CHECK` expressions accept `NULL` unless the expression explicitly rejects it. Write nullable-branch checks so every invalid `NULL` combination evaluates to false. Design indexes from the real equality, range, ordering, and partial predicates used by lock, restore, and lookup queries.
 
 Validate schema changes on both a fresh database and an upgrade from the exact base. Migration tests should seed representative base records and prove required data, backfills, relationships, and constraints after deployment. Do not enumerate the complete migration, table, column, or index inventory. Split PostgreSQL enum additions from statements that use the new values when transactional enum visibility requires a committed boundary.
