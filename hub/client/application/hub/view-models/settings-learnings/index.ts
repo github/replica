@@ -19,15 +19,15 @@ export function settingsLearnings(
 ): LearningsPageData {
   const repository = state.repository
   const repositoryId = state.repository.id
-  const currentWorkspace = workspace.capabilities
-    ? {
-        ...workspace,
-        capabilities: {
-          ...workspace.capabilities,
-          administerHub: state.canAdministerHub,
-        },
-      }
-    : workspace
+  const currentWorkspace = {
+    ...workspace,
+    capabilities: {
+      createPrototypes: workspace.capabilities?.createPrototypes ?? false,
+      reviewPrototypes: workspace.capabilities?.reviewPrototypes ?? false,
+      manageSharing: workspace.capabilities?.manageSharing ?? false,
+      administerHub: state.canAdministerHub,
+    },
+  }
   const shared = {
     ...repositoryWorkspace(currentWorkspace, repository, search),
     selectedSection: "learnings" as const,

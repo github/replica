@@ -71,7 +71,7 @@ export function createLearningsStore(
         {
           repositoryId: firstRepository.id,
           id: 2,
-          startedAt: "2026-10-09T04:07:00Z",
+          startedAt: new Date(Date.now() - 31 * 24 * 60 * 60 * 1000).toISOString(),
           startedBy: { type: "daily" },
           state: "succeeded",
           result: {
@@ -87,6 +87,18 @@ export function createLearningsStore(
       ]
     : []
   let nextId = 3
+
+  function addDecimalStrings(values: string[]) {
+    const scale = Math.max(0, ...values.map((value) => value.split(".")[1]?.length ?? 0))
+    const total = values.reduce((sum, value) => {
+      const [whole, fraction = ""] = value.split(".")
+      return sum + BigInt(`${whole}${fraction.padEnd(scale, "0")}`)
+    }, 0n)
+    if (!scale) return total.toString()
+    const padded = total.toString().padStart(scale + 1, "0")
+    const result = `${padded.slice(0, -scale)}.${padded.slice(-scale)}`.replace(/\.?0+$/, "")
+    return result || "0"
+  }
 
   function requireAdministrator(repositoryId: string) {
     const repository = context.repositoryRecord(repositoryId)
@@ -123,13 +135,14 @@ ${recalled.map((entry, index) => `${index + 1}. [rule] ${entry.content}`).join("
       })
     }
     const copilot = options.copilot()
-    const repositoryRuns = runs
+    const allRepositoryRuns = runs
       .filter((entry) => entry.repositoryId === repositoryId)
       .sort((left, right) => Date.parse(right.startedAt) - Date.parse(left.startedAt))
-      .slice(0, 10)
-    const active = repositoryRuns.some(
+    const repositoryRuns = allRepositoryRuns.slice(0, 10)
+    const active = allRepositoryRuns.some(
       (entry) => entry.state === "queued" || entry.state === "running",
     )
+    const usageSince = Date.now() - 30 * 24 * 60 * 60 * 1000
     return learningsResponseSchema.parse({
       accessDenied: false,
       repository,
@@ -138,10 +151,11 @@ ${recalled.map((entry, index) => `${index + 1}. [rule] ${entry.content}`).join("
       copilot: copilot.connected
         ? { state: "connected", connectedBy: copilot.connectedBy }
         : { state: "not-connected" },
-      usageCredits: repositoryRuns
-        .flatMap((run) => (run.usage ? [Number(run.usage.credits)] : []))
-        .reduce((total, value) => total + value, 0)
-        .toString(),
+      usageCredits: addDecimalStrings(
+        allRepositoryRuns.flatMap((run) =>
+          run.usage && Date.parse(run.startedAt) >= usageSince ? [run.usage.credits] : [],
+        ),
+      ),
       runAvailable: copilot.connected && !active,
       loadError: null,
       identityReviewCount: 0,

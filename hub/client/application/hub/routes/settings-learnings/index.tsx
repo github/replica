@@ -1,4 +1,5 @@
-import { data, useFetcher, useLocation, useOutletContext } from "react-router"
+import { useEffect, useRef } from "react"
+import { data, useFetcher, useLocation, useOutletContext, useRevalidator } from "react-router"
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router"
 
 import { LearningsPage } from "@pages/learnings-page"
@@ -9,11 +10,14 @@ import {
   learningsResponseSchema,
 } from "@application/hub/learnings-contracts"
 import type { ProductActionResult } from "@application/hub/product-contracts/types"
+import { ApiRequestError } from "@application/hub/requests/api-request-error"
 import { ProductFormBoundary } from "@application/hub/screens/product-form-boundary"
 import { settingsLearnings } from "@application/hub/view-models/settings-learnings"
 
 import { productActionError } from "../product-action-error"
 import { requestProductJson } from "../request-product-json"
+
+type LearningActionResult = ProductActionResult & { revalidate?: boolean }
 
 function repositoryId(params: LoaderFunctionArgs["params"]) {
   const parsed = recordIdentifierSchema.safeParse(params.repositoryId)
@@ -71,8 +75,18 @@ export async function clientAction({ request, params }: ActionFunctionArgs) {
     return data<ProductActionResult>({ saved: true, notice: response.notice })
   } catch (error) {
     if (error instanceof Response) {
-      return data<ProductActionResult>(
-        { saved: false, error: await error.text() },
+      return data<LearningActionResult>(
+        {
+          saved: false,
+          error: await error.text(),
+          revalidate: [403, 404, 409].includes(error.status),
+        },
+        { status: error.status },
+      )
+    }
+    if (error instanceof ApiRequestError && [403, 404, 409].includes(error.status)) {
+      return data<LearningActionResult>(
+        { saved: false, error: error.message, revalidate: true },
         { status: error.status },
       )
     }
@@ -126,8 +140,14 @@ function submitDecision(
   )
 }
 
-export function meta() {
-  return [{ title: "Learnings - Replica Hub" }]
+export function meta({ loaderData }: { loaderData?: Awaited<ReturnType<typeof clientLoader>> }) {
+  return [
+    {
+      title: loaderData
+        ? `Learnings - ${loaderData.repository.nameWithOwner} - Replica Hub`
+        : "Replica Hub",
+    },
+  ]
 }
 
 export default function SettingsLearnings({
@@ -137,10 +157,17 @@ export default function SettingsLearnings({
 }) {
   const workspace = workspaceResponseSchema.parse(useOutletContext<unknown>())
   const location = useLocation()
-  const fetcher = useFetcher<ProductActionResult>()
-  const busy = fetcher.state !== "idle"
+  const fetcher = useFetcher<LearningActionResult>()
+  const revalidator = useRevalidator()
+  const revalidatedResult = useRef<LearningActionResult | undefined>(undefined)
+  const busy = fetcher.state !== "idle" || revalidator.state !== "idle"
   const result = busy ? undefined : fetcher.data
   const search = new URLSearchParams(location.search)
+  useEffect(() => {
+    if (!result?.revalidate || revalidatedResult.current === result) return
+    revalidatedResult.current = result
+    void revalidator.revalidate()
+  }, [result, revalidator])
   return (
     <ProductFormBoundary
       busy={busy}

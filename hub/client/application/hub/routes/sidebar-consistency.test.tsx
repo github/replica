@@ -258,6 +258,27 @@ describe("Hub sidebar consistency", () => {
     expectRepositoryNavigation({ admin: false, unreadCount })
   })
 
+  it("honors current Hub administration when cached workspace capabilities are absent", async () => {
+    const store = createMockStore({ origin: window.location.origin })
+    store.session.select("admin")
+    const server = setupServer(...createMockHandlers(store))
+    server.use(
+      http.get(`${store.origin}/api/workspace`, () => {
+        const workspace = store.getWorkspace()
+        delete workspace.capabilities
+        return HttpResponse.json(workspace)
+      }),
+    )
+
+    await renderHubFlow(server, "/repositories/2002/learnings", { workspaceRoutes })
+
+    expectRepositoryNavigation({
+      admin: true,
+      canCreate: false,
+      unreadCount: store.getWorkspace().navigation!.notificationsUnreadCount,
+    })
+  })
+
   it.each([
     { profile: "admin", admin: true },
     { profile: "owner", admin: false },

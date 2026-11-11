@@ -17,7 +17,10 @@ const count = z.number().int().nonnegative()
 const timestamp = z.iso.datetime({ offset: true })
 const credits = z.string().regex(/^\d+(?:\.\d+)?$/)
 const digest = z.string().regex(/^sha256:[0-9a-f]{64}$/)
-const learningIdentifier = z.string().regex(/^[a-z0-9._~-]+$/i)
+const learningIdentifier = z
+  .string()
+  .regex(/^[a-z0-9._~-]+$/i)
+  .refine((value) => value !== "." && value !== "..")
 
 export const learningEvidenceResponseSchema = z
   .object({

@@ -81,7 +81,7 @@ function LearningsContent({ data }: { data: Extract<LearningsPageData, { accessD
         {data.suggestions.length ? (
           data.suggestions.map((suggestion) => (
             <Suggestion
-              key={suggestion.id}
+              key={`${suggestion.id}:${suggestion.digest}`}
               suggestion={suggestion}
               copy={copy}
               authenticityToken={data.authenticityToken}

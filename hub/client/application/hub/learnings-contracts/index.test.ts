@@ -145,4 +145,43 @@ describe("Learnings contracts", () => {
   ])("rejects %s", (_label, input) => {
     expect(learningDecisionInputSchema.safeParse(input).success).toBe(false)
   })
+
+  it.each([".", ".."])("rejects the dot-segment learning identifier %s", (id) => {
+    const response = {
+      ...learningsResponseSchema.parse({
+        accessDenied: true,
+        repository: {
+          id: "2001",
+          nameWithOwner: "github/prototype",
+          defaultBranch: "main",
+        },
+        canAdministerHub: false,
+      }),
+      accessDenied: false as const,
+      permissions: { decide: true, requestRun: true },
+      copilot: { state: "not-connected" as const },
+      usageCredits: "0",
+      runAvailable: false,
+      loadError: null,
+      identityReviewCount: 0,
+      suggestions: [
+        {
+          id,
+          content: "Use visible labels.",
+          reviewDigest: digest,
+          support: null,
+          replaces: [],
+          evidence: [],
+          otherEvidenceCount: 0,
+          contradictions: [],
+          otherContradictionsCount: 0,
+        },
+      ],
+      learnings: [],
+      recall: { text: "", count: 0 },
+      runs: [],
+    }
+
+    expect(learningsResponseSchema.safeParse(response).success).toBe(false)
+  })
 })

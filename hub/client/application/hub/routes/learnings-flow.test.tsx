@@ -2,13 +2,14 @@ import { fireEvent, screen, within } from "@testing-library/react"
 import { http, HttpResponse } from "msw"
 import { setupServer } from "msw/node"
 import { useLoaderData, type RouteObject } from "react-router"
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { createMockHandlers } from "../mocks/create-mock-handlers"
 import { createMockStore } from "../mocks/create-mock-store"
 import SettingsLearningsRoute, {
   clientAction as saveLearnings,
   clientLoader as loadLearnings,
+  meta,
 } from "./settings-learnings"
 import { renderHubFlow } from "./fixtures/render-hub-flow"
 
@@ -131,6 +132,13 @@ function learningsResponse() {
 }
 
 describe("Learnings frontend integration", () => {
+  it("includes the repository in the document title", () => {
+    expect(meta({ loaderData: learningsResponse() })).toEqual([
+      { title: "Learnings - github/prototype - Replica Hub" },
+    ])
+    expect(meta({})).toEqual([{ title: "Replica Hub" }])
+  })
+
   it("loads the dedicated contract and presents the complete repository learning history", async () => {
     const store = createMockStore({ origin: window.location.origin })
     const server = setupServer(...createMockHandlers(store))
@@ -238,6 +246,84 @@ describe("Learnings frontend integration", () => {
     expect(recall).toHaveTextContent("Show a visible label above every form field")
   })
 
+  it("rejects a stale reviewed digest without changing Learnings state", async () => {
+    const store = createMockStore({ origin: window.location.origin })
+    const server = setupServer(...createMockHandlers(store))
+    server.listen({ onUnhandledRequest: "error" })
+    onTestFinished(() => server.close())
+    const before = store.learnings.get("2001")
+    if (before.accessDenied) throw new Error("The owner must administer repository learnings.")
+    const suggestion = before.suggestions[0]!
+    const response = await fetch(
+      `${store.origin}/api/repositories/2001/learnings/${suggestion.id}/decision`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ decision: "accept", digest: `sha256:${"b".repeat(64)}` }),
+      },
+    )
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({
+      error: "This suggestion changed. Review its current wording and evidence.",
+    })
+    const after = store.learnings.get("2001")
+    if (after.accessDenied) throw new Error("The owner must administer repository learnings.")
+    expect(after.suggestions).toEqual(before.suggestions)
+    expect(after.learnings).toEqual(before.learnings)
+    expect(after.recall).toEqual(before.recall)
+  })
+
+  it("refreshes a changed suggestion after a stale-digest response", async () => {
+    const store = createMockStore({ origin: window.location.origin })
+    const server = setupServer(...createMockHandlers(store))
+    const original = learningsResponse()
+    let changed = false
+    server.use(
+      http.get(`${store.origin}/api/repositories/2001/learnings`, () =>
+        HttpResponse.json(
+          changed
+            ? {
+                ...original,
+                suggestions: original.suggestions.map((suggestion) => ({
+                  ...suggestion,
+                  content: "Show a persistent visible label above every form field.",
+                  reviewDigest: `sha256:${"b".repeat(64)}`,
+                })),
+              }
+            : original,
+        ),
+      ),
+      http.post(`${store.origin}/api/repositories/2001/learnings/:learningId/decision`, () => {
+        changed = true
+        return HttpResponse.json(
+          { error: "This suggestion changed. Review its current wording and evidence." },
+          { status: 409 },
+        )
+      }),
+    )
+    const router = await renderHubFlow(server, "/repositories/2001/learnings", {
+      workspaceRoutes,
+    })
+    const suggestion = await screen.findByRole("article", {
+      name: "Show a visible label above every form field.",
+    })
+    fireEvent.click(within(suggestion).getByRole("button", { name: "Edit and accept" }))
+    const wording = within(suggestion).getByRole("textbox", { name: "Wording agents get" })
+    fireEvent.change(wording, { target: { value: "My stale draft." } })
+
+    await router.settle(() =>
+      fireEvent.click(within(suggestion).getByRole("button", { name: "Accept with this wording" })),
+    )
+
+    expect(
+      await screen.findByRole("article", {
+        name: "Show a persistent visible label above every form field.",
+      }),
+    ).toBeVisible()
+    expect(screen.queryByDisplayValue("My stale draft.")).not.toBeInTheDocument()
+  })
+
   it.each([
     {
       label: "edited acceptance",
@@ -315,6 +401,7 @@ describe("Learnings frontend integration", () => {
 
   it("shows access denied without exposing learning data or decision controls", async () => {
     const store = createMockStore({ origin: window.location.origin })
+    const before = store.learnings.get("2001")
     store.session.select("reader")
     const server = setupServer(...createMockHandlers(store))
     await renderHubFlow(server, "/repositories/2001/learnings", { workspaceRoutes })
@@ -323,9 +410,39 @@ describe("Learnings frontend integration", () => {
       await screen.findByText("You do not have permission to view this repository's learnings."),
     ).toBeVisible()
     expect(screen.queryByRole("article")).not.toBeInTheDocument()
-    expect(screen.queryByText("The email field needs a visible label.")).not.toBeInTheDocument()
+    expect(
+      screen.queryByText(
+        "The email field has no label, only placeholder text that disappears when I type.",
+      ),
+    ).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "Accept" })).not.toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "Find learnings now" })).not.toBeInTheDocument()
+
+    for (const request of [
+      fetch(`${store.origin}/api/repositories/2001/learnings/runs`, { method: "POST" }),
+      fetch(
+        `${store.origin}/api/repositories/2001/learnings/mem_7eb35ba21bbe6c45a9a296b4/decision`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ decision: "accept", digest }),
+        },
+      ),
+    ]) {
+      expect((await request).status).toBe(403)
+    }
+    store.session.select("owner")
+    expect(store.learnings.get("2001")).toEqual(before)
+  })
+
+  it("sums all recent usage exactly instead of limiting the total to displayed runs", () => {
+    const store = createMockStore({ origin: window.location.origin })
+    for (let index = 0; index < 10; index += 1) store.learnings.run("2001")
+    const response = store.learnings.get("2001")
+    if (response.accessDenied) throw new Error("The owner must administer repository learnings.")
+
+    expect(response.runs).toHaveLength(10)
+    expect(response.usageCredits).toBe("0.21")
   })
 
   it("keeps Copilot connection management outside repository Learnings", async () => {
