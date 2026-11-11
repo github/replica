@@ -233,7 +233,16 @@ describe("real product index", () => {
         const secondPage = await fetch(`${baseUrl}/api/repositories/${repositoryId}?page=2`, {
           headers,
         })
-        expect(secondPage.status).toBe(400)
+        expect(secondPage.status).toBe(200)
+        const second = (await secondPage.json()) as typeof index
+        expect(second.pagination).toMatchObject({ page: 2, totalCount: 27, pageCount: 2 })
+        expect(second.prototypes.map(({ id }) => id)).toEqual(
+          olderPrototypes
+            .map(({ id }) => id)
+            .sort()
+            .reverse()
+            .slice(20),
+        )
         const anotherResponse = await fetch(`${baseUrl}/api/repositories/${anotherRepositoryId}`, {
           headers,
         })
@@ -242,6 +251,142 @@ describe("real product index", () => {
 
       expect(restore).toHaveBeenCalledWith(hash(githubToken))
       expect(restore).toHaveBeenCalledWith(hash(entraToken))
+    })
+  })
+
+  it("searches, filters by user, and pages through users with prototypes", async () => {
+    const repositoryId = randomUUID()
+    const viewerId = randomUUID()
+    const monaId = randomUUID()
+    const hiddenAuthorId = randomUUID()
+    const otherIds = Array.from({ length: 20 }, () => randomUUID())
+    await prisma.repository.create({
+      data: { id: repositoryId, nameWithOwner: "team/design", defaultBranch: "main" },
+    })
+    await prisma.user.createMany({
+      data: [viewerId, monaId, hiddenAuthorId, ...otherIds].map((id) => ({ id })),
+    })
+    await prisma.userProfile.createMany({
+      data: [
+        { userId: viewerId, provider: "entra", login: "viewer@example.test", name: "Viewer" },
+        { userId: monaId, provider: "github", login: "mona", name: "Mona Lisa" },
+        { userId: hiddenAuthorId, provider: "github", login: "hidden", name: "Hidden" },
+        ...otherIds.map((userId, index) => ({
+          userId,
+          provider: "github",
+          login: `user-${String(index).padStart(2, "0")}`,
+        })),
+      ],
+    })
+    const registeredAt = new Date("2026-10-01T00:00:00Z")
+    const viewerPrototypeId = randomUUID()
+    const monaPrototypeId = randomUUID()
+    await prisma.prototype.createMany({
+      data: [
+        {
+          id: viewerPrototypeId,
+          repositoryId,
+          authorId: viewerId,
+          branchName: "prototype/checkout",
+          name: "Checkout",
+          description: "Save 100% faster",
+          registeredAt,
+        },
+        {
+          id: monaPrototypeId,
+          repositoryId,
+          authorId: monaId,
+          branchName: "prototype/onboarding",
+          name: "Onboarding",
+          registeredAt,
+        },
+        {
+          repositoryId,
+          authorId: hiddenAuthorId,
+          branchName: "prototype/draft",
+          name: "Draft",
+        },
+        ...otherIds.map((authorId, index) => ({
+          repositoryId,
+          authorId,
+          branchName: `prototype/other-${index}`,
+          name: `Other ${index}`,
+          registeredAt,
+        })),
+      ],
+    })
+    const restore = vi.fn().mockResolvedValue({
+      membershipId: randomUUID(),
+      userId: viewerId,
+      provider: "entra",
+      login: "viewer@example.test",
+      name: "Viewer",
+      role: "MEMBER",
+    })
+    const headers = { cookie: "hub_session=member-session" }
+
+    await withServer(restore, createProductRouteDependencies(), async (baseUrl) => {
+      async function index(query: string) {
+        const response = await fetch(`${baseUrl}/api/repositories/${repositoryId}?${query}`, {
+          headers,
+        })
+        expect(response.status).toBe(200)
+        return (await response.json()) as {
+          prototypes: { id: string }[]
+          pagination: { page: number; totalCount: number; pageCount: number }
+          authors: { id: string }[]
+        }
+      }
+      async function authors(query: string) {
+        const response = await fetch(
+          `${baseUrl}/api/repositories/${repositoryId}/authors?${query}`,
+          { headers },
+        )
+        expect(response.status).toBe(200)
+        return (await response.json()) as {
+          authors: { id: string; login: string }[]
+          nextCursor: string | null
+        }
+      }
+
+      for (const query of ["q=%20ONBOARD%20", "q=lisa", "q=prototype%2Fonb"]) {
+        expect((await index(query)).prototypes.map(({ id }) => id)).toEqual([monaPrototypeId])
+      }
+      expect((await index("q=100%25")).prototypes.map(({ id }) => id)).toEqual([viewerPrototypeId])
+      expect((await index("q=1_0")).prototypes).toEqual([])
+      expect((await index("author=me")).prototypes.map(({ id }) => id)).toEqual([viewerPrototypeId])
+      const monaIndex = await index(`author=${monaId}&page=9`)
+      expect(monaIndex.prototypes.map(({ id }) => id)).toEqual([monaPrototypeId])
+      expect(monaIndex.pagination).toMatchObject({ page: 1, totalCount: 1, pageCount: 1 })
+      const noMatches = await index(`author=${monaId}&q=checkout`)
+      expect(noMatches.prototypes).toEqual([])
+      expect(noMatches.authors.map(({ id }) => id)).toEqual([monaId])
+
+      for (const query of ["page=0", "page=1.5", "author=42", "q[]=a", "view=list"]) {
+        const response = await fetch(`${baseUrl}/api/repositories/${repositoryId}?${query}`, {
+          headers,
+        })
+        expect(response.status).toBe(400)
+      }
+
+      const firstAuthors = await authors("")
+      expect(firstAuthors.authors.map(({ login }) => login)).toEqual([
+        "mona",
+        ...otherIds.slice(0, 19).map((_, index) => `user-${String(index).padStart(2, "0")}`),
+      ])
+      expect(firstAuthors.nextCursor).not.toBeNull()
+      const nextAuthors = await authors(`cursor=${firstAuthors.nextCursor}`)
+      expect(nextAuthors).toEqual({
+        authors: [expect.objectContaining({ id: otherIds[19], login: "user-19" })],
+        nextCursor: null,
+      })
+      expect((await authors("q=LISA")).authors.map(({ id }) => id)).toEqual([monaId])
+
+      const badCursor = await fetch(
+        `${baseUrl}/api/repositories/${repositoryId}/authors?cursor=not-a-cursor`,
+        { headers },
+      )
+      expect(badCursor.status).toBe(400)
     })
   })
 
@@ -262,7 +407,11 @@ describe("real product index", () => {
     const headerSets: Record<string, string>[] = [{}, { cookie: "hub_session=expired-session" }]
 
     await withServer(restore, createProductRouteDependencies(), async (baseUrl) => {
-      for (const path of ["/api/workspace", `/api/repositories/${repositoryId}`]) {
+      for (const path of [
+        "/api/workspace",
+        `/api/repositories/${repositoryId}`,
+        `/api/repositories/${repositoryId}/authors`,
+      ]) {
         for (const headers of headerSets) {
           const response = await fetch(`${baseUrl}${path}`, { headers })
           expect(response.status).toBe(401)
@@ -308,14 +457,28 @@ describe("real product index", () => {
       currentSession = null
       return repositories
     })
-    const find = vi.spyOn(product, "findRepositoryIndex").mockImplementation(async (id) => {
-      const index = await findRepositoryIndex(id)
-      currentSession = null
-      return index
-    })
+    const findRepositoryAuthors = product.findRepositoryAuthors.bind(product)
+    const find = vi
+      .spyOn(product, "findRepositoryIndex")
+      .mockImplementation(async (id, filters) => {
+        const index = await findRepositoryIndex(id, filters)
+        currentSession = null
+        return index
+      })
+    const findAuthors = vi
+      .spyOn(product, "findRepositoryAuthors")
+      .mockImplementation(async (id, filters) => {
+        const authors = await findRepositoryAuthors(id, filters)
+        currentSession = null
+        return authors
+      })
 
     await withServer(restore, product, async (baseUrl) => {
-      for (const path of ["/api/workspace", `/api/repositories/${repositoryId}`]) {
+      for (const path of [
+        "/api/workspace",
+        `/api/repositories/${repositoryId}`,
+        `/api/repositories/${repositoryId}/authors`,
+      ]) {
         currentSession = activeSession
         const response = await fetch(`${baseUrl}${path}`, {
           headers: { cookie: "hub_session=member-session" },
@@ -328,6 +491,7 @@ describe("real product index", () => {
       }
       expect(list).toHaveBeenCalledOnce()
       expect(find).toHaveBeenCalledOnce()
+      expect(findAuthors).toHaveBeenCalledOnce()
     })
   })
 

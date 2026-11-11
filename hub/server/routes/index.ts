@@ -12,6 +12,7 @@ import { post as handleAuthenticationStartPost } from "./api/auth/start/post/ind
 import { get as handleApiHealthGet } from "./api/health/get/index.ts"
 import { get as handleApiReadyGet } from "./api/ready/get/index.ts"
 import { get as handleWorkspaceGet } from "./api/workspace/get/index.ts"
+import { get as handleRepositoryAuthorsGet } from "./api/repositories/authors/get/index.ts"
 import { get as handleRepositoryGet } from "./api/repositories/show/get/index.ts"
 import { get as handleAdministratorsGet } from "./api/administrators/get/index.ts"
 import { get as handleAdministratorCandidatesGet } from "./api/administrators/candidates/get/index.ts"
@@ -36,6 +37,10 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
       app.get(
         "/api/repositories/:repositoryId",
         handleRepositoryGet(authentication.currentSession, product),
+      )
+      app.get(
+        "/api/repositories/:repositoryId/authors",
+        handleRepositoryAuthorsGet(authentication.currentSession, product),
       )
     }
     if (authentication.administrators) {

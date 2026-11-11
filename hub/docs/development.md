@@ -45,7 +45,7 @@ In a second terminal, also from `hub/`, start Vite:
 npm run dev
 ```
 
-Open <http://127.0.0.1:5173>. React Router's Vite development server forwards `/api` requests to Express at <http://127.0.0.1:3001>. `GET /api/health` and `GET /api/ready` return JSON. The [authentication and Hub session guide](authentication.md) describes configured sign-in and enrollment. A signed-in member opens the first available repository, or an empty workspace when none exist. The real index currently shows the first 24 registered prototypes; search, pagination, Build status, and prototype details are not connected yet.
+Open <http://127.0.0.1:5173>. React Router's Vite development server forwards `/api` requests to Express at <http://127.0.0.1:3001>. `GET /api/health` and `GET /api/ready` return JSON. The [authentication and Hub session guide](authentication.md) describes configured sign-in and enrollment. A signed-in member opens the first available repository, or an empty workspace when none exist. The real index supports search, user filtering, and pagination; Build status and prototype details are not connected yet.
 
 The API registers authentication routes when `HUB_APPLICATION_ORIGIN` and at least one complete GitHub or Entra profile are configured. Set the shared encryption key and bootstrap secret at the same time. See `.env.example` and [Microsoft Entra OIDC](entra-oidc.md). Both development servers accept connections only from this machine. Stop each with Ctrl+C.
 

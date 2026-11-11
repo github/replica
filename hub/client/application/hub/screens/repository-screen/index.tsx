@@ -48,7 +48,6 @@ export function RepositoryScreen({
     <RepositoriesShowPage
       key={data.repository.id}
       data={repositoryShowData(workspace, data, search, { detailsAvailable: mock, real: !mock })}
-      filtersAvailable={mock}
       buildStatusAvailable={mock}
       view={view}
       onViewChange={(value) => changeFilter("view", value === "gallery" ? "" : value)}

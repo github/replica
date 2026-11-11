@@ -47,7 +47,7 @@ describe("Hub repository journey", () => {
       server.events.on("request:end", complete)
       onTestFinished(() => server.events.removeListener("request:end", complete))
     })
-    fireEvent.click(screen.getByRole("button", { name: "Author: All authors" }))
+    fireEvent.click(screen.getByRole("button", { name: "User: All users" }))
     await router.settle(() => authorsLoaded)
     await router.settle(() =>
       fireEvent.click(screen.getByRole("menuitemradio", { name: /^@mona\b/ })),
@@ -69,7 +69,7 @@ describe("Hub repository journey", () => {
     await waitFor(() =>
       expect(screen.getByRole("searchbox", { name: "Search prototypes" })).toHaveValue("journey"),
     )
-    expect(screen.getByRole("button", { name: "Author: @mona" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "User: @mona" })).toBeInTheDocument()
     await router.go(-1)
     await within(results).findByRole("link", { name: "Welcome" })
     await router.go(-1)
