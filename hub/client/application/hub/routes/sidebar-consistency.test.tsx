@@ -65,7 +65,7 @@ const workspaceRoutes: RouteObject[] = [
   },
   {
     path: "/repositories/:repositoryId/learnings",
-    loader: (args) => loadLearnings({ ...args, serverLoader: unavailableServerRoute }),
+    loader: loadLearnings,
     Component: LearningsComponent,
   },
   {
@@ -238,6 +238,10 @@ describe("Hub sidebar consistency", () => {
           },
         })
       }),
+      http.get(`${store.origin}/api/repositories/2002/learnings`, () => {
+        const state = store.learnings.get("2002")
+        return HttpResponse.json({ ...state, canAdministerHub: false })
+      }),
     )
     const router = await renderHubFlow(server, "/repositories/2002/analytics", {
       workspaceRoutes,
@@ -274,8 +278,6 @@ describe("Hub sidebar consistency", () => {
             ),
             repository: null,
             analytics: [],
-            learnings: [],
-            learningRuns: [],
           }),
         ),
       )

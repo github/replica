@@ -25,7 +25,7 @@ import type { SettingsRouteData } from "./types"
 export function settingsController(section: SettingsSection, surface: "workspace" | "public") {
   function settingsUrl(request: Request, params: ClientLoaderFunctionArgs["params"]) {
     const url = new URL(request.url)
-    if (section !== "analytics" && section !== "learnings") return url
+    if (section !== "analytics") return url
     const parsed = recordIdentifierSchema.safeParse(params.repositoryId)
     if (!parsed.success) throw new Response("Invalid repository identifier.", { status: 400 })
     url.searchParams.set("repositoryId", parsed.data)
@@ -50,13 +50,10 @@ export function settingsController(section: SettingsSection, surface: "workspace
       undefined,
       url.searchParams,
     )
-    if (
-      (section === "analytics" || section === "learnings") &&
-      state.repository?.id !== parsed.data.repositoryId
-    ) {
+    if (section === "analytics" && state.repository?.id !== parsed.data.repositoryId) {
       throw new Response("This repository is not available.", { status: 404 })
     }
-    if (!state.repository && ["analytics", "learnings", "canvas-approval"].includes(section)) {
+    if (!state.repository && ["analytics", "canvas-approval"].includes(section)) {
       throw new Response("Choose a repository before using this page.", {
         status: 404,
       })

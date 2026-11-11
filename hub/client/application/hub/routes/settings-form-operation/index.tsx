@@ -165,31 +165,6 @@ export function settingsFormOperation(
         continuationId: readFormField(form, "authorization_continuation_id"),
       }
       break
-    case "learnings": {
-      requireFormDestination(source, method, `/repositories/${params.repositoryId}/learnings`, [
-        "post",
-      ])
-      const operation = source.searchParams.get("operation")
-      input =
-        operation === "run"
-          ? {
-              operation: "learning-run",
-              repositoryId,
-            }
-          : {
-              operation: "learning-decide",
-              repositoryId,
-              learningId: source.searchParams.get("learningId"),
-              decision: readFormField(form, "decision"),
-              digest: readFormField(form, "digest") || undefined,
-              content: form.has("content") ? readFormField(form, "content") : undefined,
-              reason: form.has("reason") ? readFormField(form, "reason") : undefined,
-            }
-      if (operation && operation !== "run") {
-        throw new Response("Unknown learning operation.", { status: 422 })
-      }
-      break
-    }
     case "notifications":
       requireFormDestination(source, method, "/notifications", ["post"])
       if (!["true", "false"].includes(readFormField(form, "read"))) {
