@@ -22,7 +22,6 @@ CREATE INDEX "builds_prototype_chronology_idx" ON "builds"(
     COALESCE("workflow_created_at", "created_at") DESC,
     "number" DESC
 );
-CREATE INDEX "prototypes_current_build_id_idx" ON "prototypes"("current_build_id");
 
 ALTER TABLE "builds"
 ADD CONSTRAINT "builds_prototype_id_fkey"
