@@ -27,6 +27,8 @@ Every link in the shell must resolve to a built route or a stub. Real
 submissions stay disabled. Update the `status` of each row with a local route,
 boundaries included, to `built` as routes land.
 
+Unsupported non-web actions recorded in page notes use disabled or mock-only controls, not live original-scheme links or fabricated ledger destinations. Keep their limitations visible in the handoff.
+
 ## Representative gate
 
 Before building a family's other pages, capture its representative locally at
@@ -55,7 +57,7 @@ Before marking any local row `verified`, follow its incoming local link when pre
 
 For each built page, including non-representatives and the source page, compare its heading and distinguishing content with its own `content.json`. For each auth/download/deferred boundary, check the intended explanation and original destination without signing in, downloading or submitting real data. A verified boundary means that boundary works, not that excluded functionality was built.
 
-Append a concise evidence reference and the observed route/content checks to the row's `note`, preserving any scope-exclusion reason. Keep rows `built` until checked. If a required check is unavailable, use `blocked` with the specific blocker and remaining assertion; do not hide an observed defect as a visual difference. Representative fidelity still uses both viewports; other rows need a normal-viewport route/content check, not another screenshot matrix.
+Append a concise evidence reference and the observed route/content checks to the row's `note`, preserving any scope-exclusion reason. Keep rows `built` until checked. If a required check is unavailable, use `blocked` with a nonblank text note naming the specific blocker and remaining assertion; do not hide an observed defect as a visual difference. Representative fidelity still uses both viewports; other rows need a normal-viewport route/content check, not another screenshot matrix.
 
 ## Handoff
 
@@ -63,4 +65,4 @@ Run the app's declared type check, tests, build and formatting check before hand
 
 Confirm Capture's active-original serving and packaged-output checks before reporting asset safety. Preserve any missing network-isolation or browser evidence as a limitation, not a passing check.
 
-`node .agents/skills/create-prototype-from-production/scripts/check-ledger.mjs --final` must pass. When authorized, commit the build separately from the capture commit. Report ledger counts by decision and status, the difference list, assets over 1 MB, defaults applied, deferred operations, unavailable checks, commit status, and the preview URL when running. Blocked work is not a completed build.
+`node .agents/skills/create-prototype-from-production/scripts/check-ledger.mjs --final` must pass. When authorized, commit the build separately from the capture commit. Report ledger counts by decision and status, unsupported non-web actions from page notes, the difference list, assets over 1 MB, defaults applied, deferred operations, unavailable checks, commit status, and the preview URL when running. Blocked work is not a completed build.

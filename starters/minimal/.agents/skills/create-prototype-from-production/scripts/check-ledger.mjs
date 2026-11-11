@@ -6,17 +6,27 @@ const DECISIONS = new Set(["build", "stub-external", "stub-auth", "stub-download
 const STATUSES = new Set(["planned", "built", "verified", "blocked"])
 const FINAL_STATUSES = new Set(["verified", "blocked"])
 const LOCAL_BOUNDARIES = new Set(["stub-auth", "stub-download", "deferred"])
+const HTTP_PROTOCOLS = new Set(["http:", "https:"])
+
+function isRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+}
+
+function isNonblankString(value) {
+  return typeof value === "string" && value.trim().length > 0
+}
 
 function absoluteUrl(value) {
-  if (typeof value !== "string" || !value.trim() || !URL.canParse(value)) return undefined
+  if (!isNonblankString(value) || !URL.canParse(value)) return undefined
   return new URL(value)
 }
 
 export function checkLedger(ledger, { final = false } = {}) {
+  if (!isRecord(ledger)) return ["ledger: expected a JSON object"]
   const problems = []
 
   const source = absoluteUrl(ledger.source)
-  if (!source || !["http:", "https:"].includes(source.protocol)) {
+  if (!source || !HTTP_PROTOCOLS.has(source.protocol)) {
     problems.push("source: requires an absolute HTTP(S) source URL")
   }
   if (!ledger.browser || ledger.browser.cookies !== 0 || ledger.browser.pages !== 1) {
@@ -35,6 +45,10 @@ export function checkLedger(ledger, { final = false } = {}) {
   const urls = new Set()
   let sourcePage
   for (const [index, page] of ledger.pages.entries()) {
+    if (!isRecord(page)) {
+      problems.push(`pages[${index}]: expected a page object`)
+      continue
+    }
     const url = absoluteUrl(page.url)
     const label = url?.href ?? `pages[${index}]`
     if (!url) {
@@ -45,9 +59,24 @@ export function checkLedger(ledger, { final = false } = {}) {
       if (url.href === source?.href) sourcePage = page
     }
     if (!DECISIONS.has(page.decision))
-      problems.push(`${label}: unknown decision "${page.decision}"`)
+      problems.push(`${label}: unknown decision ${JSON.stringify(page.decision)}`)
     if (!Array.isArray(page.foundIn) || page.foundIn.length === 0)
       problems.push(`${label}: foundIn is empty`)
+    if (
+      url &&
+      page.decision === "build" &&
+      (!HTTP_PROTOCOLS.has(url.protocol) || (source && url.origin !== source.origin))
+    )
+      problems.push(`${label}: build target must be an HTTP(S) URL on the source origin`)
+    if (
+      url &&
+      page.decision === "stub-external" &&
+      !["mailto:", "tel:"].includes(url.protocol) &&
+      (!HTTP_PROTOCOLS.has(url.protocol) || url.origin === source?.origin)
+    )
+      problems.push(`${label}: external target must be off-origin HTTP(S), mailto: or tel:`)
+    if (url && LOCAL_BOUNDARIES.has(page.decision) && !HTTP_PROTOCOLS.has(url.protocol))
+      problems.push(`${label}: local boundary target must be HTTP(S); record non-web actions in page notes`)
     if (page.decision !== "build" && !LOCAL_BOUNDARIES.has(page.decision)) continue
 
     const kind = page.decision === "build" ? "build page" : "local boundary"
@@ -59,17 +88,21 @@ export function checkLedger(ledger, { final = false } = {}) {
       /[\u0000-\u001f\u007f]/.test(page.route)
     )
       problems.push(`${label}: ${kind} has no local route`)
-    if (!STATUSES.has(page.status)) problems.push(`${label}: unknown status "${page.status}"`)
+    if (!STATUSES.has(page.status)) problems.push(`${label}: unknown status ${JSON.stringify(page.status)}`)
     if (final && !FINAL_STATUSES.has(page.status))
-      problems.push(`${label}: status "${page.status}" is not final`)
-    if (page.status === "blocked" && !page.note) problems.push(`${label}: blocked without a note`)
+      problems.push(`${label}: status ${JSON.stringify(page.status)} is not final`)
+    if (page.status === "blocked" && !isNonblankString(page.note))
+      problems.push(`${label}: blocked without a note; expected a nonblank string`)
 
     if (routes.has(page.route))
       problems.push(`${label}: route ${page.route} also used by ${routes.get(page.route)}`)
     routes.set(page.route, label)
     if (page.decision !== "build") continue
 
-    if (typeof page.family !== "string") problems.push(`${label}: build page has no family`)
+    if (typeof page.family !== "string") {
+      problems.push(`${label}: build page has no family`)
+      continue
+    }
     const family = families.get(page.family) ?? { representatives: 0 }
     if (page.representative) family.representatives += 1
     families.set(page.family, family)
@@ -81,7 +114,7 @@ export function checkLedger(ledger, { final = false } = {}) {
     problems.push("source: requires a build page or local boundary, not an outbound-only stub")
   } else if (
     sourcePage?.decision === "deferred" &&
-    (typeof sourcePage.note !== "string" || !sourcePage.note.trim())
+    !isNonblankString(sourcePage.note)
   ) {
     problems.push("source: deferred without a scope-exclusion reason")
   }
@@ -99,8 +132,11 @@ export function checkLedger(ledger, { final = false } = {}) {
 
 function summarize(ledger) {
   const counts = {}
-  for (const page of ledger.pages ?? []) {
-    const key = page.decision === "build" ? `build/${page.status}` : page.decision
+  for (const page of Array.isArray(ledger?.pages) ? ledger.pages : []) {
+    if (!isRecord(page) || !DECISIONS.has(page.decision)) continue
+    const local = page.decision === "build" || LOCAL_BOUNDARIES.has(page.decision)
+    if (local && !STATUSES.has(page.status)) continue
+    const key = local ? `${page.decision}/${page.status}` : page.decision
     counts[key] = (counts[key] ?? 0) + 1
   }
   return counts
@@ -108,8 +144,18 @@ function summarize(ledger) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   const args = process.argv.slice(2)
+  const unknownOption = args.find((arg) => arg.startsWith("--") && arg !== "--final")
+  if (unknownOption) {
+    console.error(`Unknown option ${JSON.stringify(unknownOption)}; expected --final.`)
+    process.exit(2)
+  }
+  const paths = args.filter((arg) => !arg.startsWith("--"))
+  if (paths.length > 1) {
+    console.error("Expected at most one ledger path.")
+    process.exit(2)
+  }
   const final = args.includes("--final")
-  const path = resolve(args.find((arg) => !arg.startsWith("--")) ?? "reference/coverage.json")
+  const path = resolve(paths[0] ?? "reference/coverage.json")
 
   let ledger
   try {

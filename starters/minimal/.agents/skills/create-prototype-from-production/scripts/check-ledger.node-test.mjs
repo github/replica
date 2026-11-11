@@ -1,12 +1,19 @@
 import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs"
-import { tmpdir } from "node:os"
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { test } from "node:test"
 import { fileURLToPath } from "node:url"
 
 import { checkLedger } from "./check-ledger.mjs"
+
+const checker = fileURLToPath(new URL("./check-ledger.mjs", import.meta.url))
+
+function fixtureDirectory(t) {
+  const directory = mkdtempSync(join(process.cwd(), ".check-ledger-test-"))
+  t.after(() => rmSync(directory, { recursive: true, force: true }))
+  return directory
+}
 
 function ledger(pages) {
   return {
@@ -89,8 +96,16 @@ test("requires an absolute URL on every destination row", async (t) => {
 test("accepts a normalized HTTP subpath source with query and fragment and nonnetwork outbound URLs", () => {
   const value = ledger([
     { ...hub, url: "http://example.com/cards?term=12#details" },
+    {
+      ...hub,
+      url: "http://EXAMPLE.com:80/loans?term=24#details",
+      route: "/loans?term=24#details",
+      representative: false,
+    },
     { url: "mailto:support@example.com", foundIn: ["footer"], decision: "stub-external" },
     { url: "tel:+15555550123", foundIn: ["footer"], decision: "stub-external" },
+    { url: "https://example.com/help", foundIn: ["footer"], decision: "stub-external" },
+    { url: "http://example.com:8080/help", foundIn: ["footer"], decision: "stub-external" },
     {
       url: "https://example.org/help?topic=cards#contact",
       foundIn: ["footer"],
@@ -99,6 +114,42 @@ test("accepts a normalized HTTP subpath source with query and fragment and nonne
   ])
   value.source = "http://EXAMPLE.com:80/cards?term=12#details"
   assert.deepEqual(checkLedger(value, { final: true }), [])
+})
+
+test("requires build targets to be HTTP(S) URLs on the source origin", async (t) => {
+  for (const [name, url] of [
+    ["different host", "https://example.org/loans"],
+    ["different scheme", "http://example.com/loans"],
+    ["different port", "https://example.com:8443/loans"],
+    ["non-HTTP URL with the source origin", "blob:https://example.com/loans"],
+  ]) {
+    await t.test(name, () => {
+      const page = { ...hub, url, route: "/loans", representative: false }
+      assert.notDeepEqual(checkLedger(ledger([hub, page]), { final: true }), [])
+    })
+  }
+})
+
+test("does not allow a same-origin destination to bypass a local route as an outbound stub", () => {
+  const page = {
+    url: "https://EXAMPLE.com:443/loans?term=12#details",
+    foundIn: ["footer"],
+    decision: "stub-external",
+  }
+  assert.notDeepEqual(checkLedger(ledger([hub, page]), { final: true }), [])
+})
+
+test("rejects unsafe and unsupported live outbound schemes", async (t) => {
+  for (const url of [
+    "javascript:alert(1)",
+    "data:text/html,untrusted",
+    "ftp://example.org/download",
+  ]) {
+    await t.test(url, () => {
+      const page = { url, foundIn: ["footer"], decision: "stub-external" }
+      assert.notDeepEqual(checkLedger(ledger([hub, page]), { final: true }), [])
+    })
+  }
 })
 
 test("requires the source to be an absolute HTTP or HTTPS website URL", async (t) => {
@@ -211,6 +262,70 @@ test("rejects duplicate routes and unexplained blocks", () => {
   assert.match(problems, /blocked without a note/)
 })
 
+test("requires a nonblank string note on every blocked local decision", async (t) => {
+  for (const [decision, note] of [
+    ["build", " \t\n"],
+    ["stub-auth", {}],
+    ["stub-download", 42],
+    ["deferred", " \t\n"],
+  ]) {
+    await t.test(decision, () => {
+      const page = {
+        ...hub,
+        url: "https://example.com/blocked",
+        route: "/blocked",
+        representative: false,
+        decision,
+        status: "blocked",
+        note,
+      }
+      assert.match(checkLedger(ledger([hub, page]), { final: true }).join("\n"), /blocked.*note/i)
+    })
+  }
+})
+
+test("accepts explained blocked local rows with off-origin HTTP(S) boundary originals", () => {
+  const note = "Local route verification is blocked because the browser is unavailable."
+  const pages = [
+    { ...hub, status: "blocked", note },
+    ...[
+      ["stub-auth", "https://login.example.org/authorize"],
+      ["stub-download", "http://downloads.example.org/guide.pdf"],
+      ["deferred", "https://example.org/out-of-scope"],
+    ].map(([decision, url]) => ({
+      url,
+      foundIn: ["footer"],
+      decision,
+      route: `/${decision}`,
+      status: "blocked",
+      note,
+    })),
+  ]
+  assert.deepEqual(checkLedger(ledger(pages), { final: true }), [])
+})
+
+test("requires HTTP(S) originals for auth, download and deferred local boundaries", async (t) => {
+  for (const [decision, url] of [
+    ["stub-auth", "javascript:void(0)"],
+    ["stub-auth", "mailto:support@example.com"],
+    ["stub-download", "appstore://example-app"],
+    ["stub-download", "file:///replica-reference/guide.pdf"],
+    ["deferred", "data:text/plain,not-built"],
+    ["deferred", "tel:+15555550123"],
+  ]) {
+    await t.test(`${decision}: ${url}`, () => {
+      const page = {
+        url,
+        foundIn: ["footer"],
+        decision,
+        route: "/boundary",
+        status: "verified",
+      }
+      assert.notDeepEqual(checkLedger(ledger([hub, page]), { final: true }), [])
+    })
+  }
+})
+
 test("requires a local route and final status for local boundaries", () => {
   const login = { url: "https://login.example.com/", foundIn: ["header"], decision: "stub-auth" }
   const missing = checkLedger(ledger([hub, login]), { final: true }).join("\n")
@@ -234,13 +349,115 @@ test("rejects a route that is not a local path", () => {
 })
 
 test("checks the ledger when run from a path with spaces", (t) => {
-  const directory = mkdtempSync(join(tmpdir(), "check ledger "))
-  t.after(() => rmSync(directory, { recursive: true, force: true }))
+  const directory = fixtureDirectory(t)
   const script = join(directory, "with space", "check-ledger.mjs")
   mkdirSync(join(directory, "with space"))
-  copyFileSync(fileURLToPath(new URL("./check-ledger.mjs", import.meta.url)), script)
-  const result = spawnSync(process.execPath, [script, join(directory, "missing.json")], {
+  copyFileSync(checker, script)
+  const path = join(directory, "coverage ledger.json")
+  writeFileSync(path, JSON.stringify(ledger([hub])))
+  const result = spawnSync(process.execPath, [script, path], {
     encoding: "utf8",
   })
+  assert.equal(result.status, 0, result.stderr)
+  assert.deepEqual(JSON.parse(result.stdout), { "build/verified": 1 })
+})
+
+test("reports every local decision by status in the CLI summary", (t) => {
+  const directory = fixtureDirectory(t)
+  const path = join(directory, "coverage.json")
+  const pages = [
+    hub,
+    ...["stub-auth", "stub-download", "deferred"].map((decision) => ({
+      url: `https://example.com/${decision}`,
+      foundIn: ["footer"],
+      decision,
+      route: `/${decision}`,
+      status: "blocked",
+      note: "The local boundary still needs browser verification.",
+    })),
+    {
+      url: "https://example.com/login",
+      foundIn: ["header"],
+      decision: "stub-auth",
+      route: "/login",
+      status: "verified",
+    },
+    { url: "https://example.org/", foundIn: ["footer"], decision: "stub-external" },
+  ]
+  writeFileSync(path, JSON.stringify(ledger(pages)))
+  const result = spawnSync(process.execPath, [checker, "--final", path], { encoding: "utf8" })
+  assert.equal(result.status, 0, result.stderr)
+  assert.deepEqual(JSON.parse(result.stdout), {
+    "build/verified": 1,
+    "stub-auth/blocked": 1,
+    "stub-auth/verified": 1,
+    "stub-download/blocked": 1,
+    "deferred/blocked": 1,
+    "stub-external": 1,
+  })
+})
+
+test("returns CLI validation diagnostics and JSON for malformed ledger shapes", async (t) => {
+  for (const [name, value, diagnostic] of [
+    ["non-array pages", ledger({}), /pages.*(?:destinations|array)/i],
+    ["null page", ledger([null]), /pages\[0\]/],
+    ["null ledger", null, /ledger:/],
+  ]) {
+    await t.test(name, (t) => {
+      const directory = fixtureDirectory(t)
+      const path = join(directory, "coverage.json")
+      writeFileSync(path, JSON.stringify(value))
+      const result = spawnSync(process.execPath, [checker, path], { encoding: "utf8" })
+      assert.equal(result.status, 1, result.stderr)
+      assert.match(result.stderr, diagnostic)
+      assert.doesNotMatch(result.stderr, /TypeError/)
+      assert.deepEqual(JSON.parse(result.stdout), {})
+    })
+  }
+})
+
+test("accepts planned discovery through the CLI but rejects it with --final", (t) => {
+  const directory = fixtureDirectory(t)
+  mkdirSync(join(directory, "reference"))
+  writeFileSync(
+    join(directory, "reference", "coverage.json"),
+    JSON.stringify(ledger([{ ...hub, status: "planned" }])),
+  )
+  const discovery = spawnSync(process.execPath, [checker], {
+    cwd: directory,
+    encoding: "utf8",
+  })
+  assert.equal(discovery.status, 0, discovery.stderr)
+  assert.deepEqual(JSON.parse(discovery.stdout), { "build/planned": 1 })
+
+  const final = spawnSync(process.execPath, [checker, "--final"], {
+    cwd: directory,
+    encoding: "utf8",
+  })
+  assert.equal(final.status, 1, final.stderr)
+  assert.match(final.stderr, /not final/)
+  assert.deepEqual(JSON.parse(final.stdout), { "build/planned": 1 })
+})
+
+test("rejects unknown CLI options instead of accepting planned discovery", async (t) => {
+  for (const option of ["--fianl", "--final=true"]) {
+    await t.test(option, (t) => {
+      const directory = fixtureDirectory(t)
+      const path = join(directory, "coverage.json")
+      writeFileSync(path, JSON.stringify(ledger([{ ...hub, status: "planned" }])))
+      const result = spawnSync(process.execPath, [checker, option, path], { encoding: "utf8" })
+      assert.equal(result.status, 2, result.stderr)
+      assert.ok(result.stderr.includes(option), result.stderr)
+    })
+  }
+})
+
+test("rejects excess CLI ledger paths", (t) => {
+  const directory = fixtureDirectory(t)
+  const first = join(directory, "first.json")
+  const second = join(directory, "second.json")
+  for (const path of [first, second]) writeFileSync(path, JSON.stringify(ledger([hub])))
+  const result = spawnSync(process.execPath, [checker, first, second], { encoding: "utf8" })
   assert.equal(result.status, 2, result.stderr)
+  assert.match(result.stderr, /ledger|path|file|argument/i)
 })

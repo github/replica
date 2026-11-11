@@ -5,7 +5,7 @@ description: 'Use when asked to copy, clone, replicate or recreate a live produc
 
 # Create prototype from production
 
-Turn a public production URL into a standalone, connected prototype in this repository: the requested source page and every first-level destination built or explicitly stubbed, with a coverage ledger and an honest difference report.
+Turn a public production URL into a standalone, connected prototype in this repository: the requested source page and first-level web destinations built or explicitly stubbed, with unsupported non-web actions recorded without execution, a coverage ledger and an honest difference report.
 
 **The prototype is a standalone Vite app.** Hub is optional. Use the Replica canvas when available; explicitly authorized unattended local runs have the [shared preflight's local-preview exception](../../../REPLICA.md#canvas-preflight).
 
@@ -17,7 +17,7 @@ In unattended execution, never call a blocking question tool. Use the stated def
 
 For attended runs, ask only unanswered intake questions before opening the site, in one batch when supported:
 
-1. **Coverage.** Default: the requested source page plus every first-level destination, meaning every link in that page's body, header (including opened menus), mobile menu and footer. Alternatives: named sections only, or full sitemap. Record an explicit source-page exclusion as a deferred row with its reason.
+1. **Coverage.** Default: the requested source page plus every first-level web destination, discovered from links in that page's body, header (including opened menus), mobile menu and footer. Only HTTP(S) destinations receive local ledger rows. Keep `mailto:`/`tel:` as outbound actions and record other non-web actions in their owning page's notes, not standalone rows. Alternatives: named sections only, or full sitemap. Record an explicit source-page exclusion as a deferred row with its reason.
 2. **Go-ahead** for this repository: install locked dependencies if missing, run the local preview, build the prototype, and make focused local commits. Fixed starter context follows the app's scoped rules below. No push or publish.
 
 Everything else is a stated default, never a question: use the site's real public assets and copy for a private demo; preserve its language; disable real submissions; keep external sites as outbound links; stop at login, OTP and CAPTCHA walls; keep passive assets of 25 MiB or less at original size, and serve a copy under 25 MiB for larger ones unless the request explicitly chooses otherwise. Captured active formats require the safe derivatives and original-file isolation defined in Capture, regardless of size.
@@ -30,7 +30,7 @@ When authorized, commit at the end of Capture and again at the end of Build. If 
 
 | Phase    | Read                                | Exit condition                                                                                 |
 | -------- | ----------------------------------- | ---------------------------------------------------------------------------------------------- |
-| Discover | [discover](./workflows/discover.md) | Ledger lists every in-scope destination with a decision                                        |
+| Discover | [discover](./workflows/discover.md) | Ledger covers web destinations; unsupported non-web actions are noted                          |
 | Capture  | [capture](./workflows/capture.md)   | Each family has a representative capture; every built page has content                         |
 | Build    | [build](./workflows/build.md)       | `node .agents/skills/create-prototype-from-production/scripts/check-ledger.mjs --final` passes |
 

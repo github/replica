@@ -53,14 +53,18 @@ Decide per page:
 
 | decision        | Use for                                                            |
 | --------------- | ------------------------------------------------------------------ |
-| `build`         | Same-origin page in scope; gets its own route with its own content |
-| `stub-external` | Different site; keep as an outbound link                           |
-| `stub-auth`     | Login, account, OTP or CAPTCHA wall                                |
-| `stub-download` | PDF, app store or file download                                    |
-| `deferred`      | Out of the agreed coverage; local "not built" boundary             |
+| `build`         | Same-origin HTTP(S) page in scope; gets its own route and content   |
+| `stub-external` | Off-origin HTTP(S), `mailto:` or `tel:`; keep as an outbound action  |
+| `stub-auth`     | HTTP(S) login, account, OTP or CAPTCHA wall                         |
+| `stub-download` | HTTP(S) PDF, app store or file download                             |
+| `deferred`      | HTTP(S) destination outside agreed coverage; local boundary         |
 
 Each URL appears once. A login dialog, menu or panel that opens on a page is
 not its own row: note it on that page's row.
+
+Same-origin HTTP(S) destinations need a build or local-boundary decision, never an external stub that bypasses routing. Every local row's original target must be HTTP(S), even when it would only be shown as text. These URL checks enforce coverage decisions, not private-network isolation.
+
+Record unsupported non-web actions, such as custom app-store schemes, in the owning HTTP(S) page's `note`, retaining the observed target and control location as inert text. Do not create standalone rows, fetch or execute those targets, or give prototype controls live links to them. Use a disabled or mock-only control. An observed HTTP(S) fallback may receive a row; never invent a fallback URL to pass validation.
 
 `stub-auth`, `stub-download` and `deferred` rows also get a local `route` and a
 `status`, because Build renders a local boundary page for each. `stub-external`
