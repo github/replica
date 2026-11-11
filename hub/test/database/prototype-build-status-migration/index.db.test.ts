@@ -125,6 +125,19 @@ describe("prototype Build status migration", () => {
              VALUES ($1, $2, 1, 'successful')`,
             [buildId, firstPrototypeId],
           )
+          const otherBuildId = randomUUID()
+          await expect(
+            database.query(
+              `INSERT INTO builds (id, prototype_id, number, state)
+               VALUES ($1, $2, 1, 'successful')`,
+              [otherBuildId, firstPrototypeId],
+            ),
+          ).rejects.toMatchObject({ code: "23505" })
+          await database.query(
+            `INSERT INTO builds (id, prototype_id, number, state)
+             VALUES ($1, $2, 1, 'successful')`,
+            [otherBuildId, secondPrototypeId],
+          )
           const assigned = await database.query(
             `UPDATE prototypes SET current_build_id = $1 WHERE id = $2
              RETURNING current_build_id`,
