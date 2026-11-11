@@ -11,7 +11,7 @@ const migrationTestTimeoutMs = 60_000
 
 describe("prototype Build status migration", () => {
   it(
-    "preserves prototypes and enforces Build ownership after an upgrade",
+    "preserves prototypes and protects Build numbers and ownership",
     async () => {
       const adminUrl = process.env.TEST_DATABASE_URL
       if (!adminUrl) throw new Error("TEST_DATABASE_URL is required.")
@@ -113,6 +113,13 @@ describe("prototype Build status migration", () => {
           ])
 
           const buildId = randomUUID()
+          await expect(
+            database.query(
+              `INSERT INTO builds (id, prototype_id, number, state)
+               VALUES ($1, $2, 0, 'successful')`,
+              [buildId, firstPrototypeId],
+            ),
+          ).rejects.toMatchObject({ code: "23514" })
           await database.query(
             `INSERT INTO builds (id, prototype_id, number, state)
              VALUES ($1, $2, 1, 'successful')`,
