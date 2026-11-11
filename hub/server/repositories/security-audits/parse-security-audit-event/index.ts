@@ -259,6 +259,16 @@ const eventSchema = z.discriminatedUnion("type", [
       type: z.literal("session_revocation_advanced"),
     })
     .strict(),
+  z
+    .object({
+      actorMembershipId: z.uuid().nullable(),
+      connectionId: z.uuid().optional(),
+      id: z.uuid(),
+      phase: z.enum(["connected", "disconnected", "denied", "failed"]),
+      reason: z.string().min(1).max(100).optional(),
+      type: z.literal("copilot_connection"),
+    })
+    .strict(),
 ])
 
 export function parseSecurityAuditEvent(input: unknown): ParsedSecurityAuditEvent {

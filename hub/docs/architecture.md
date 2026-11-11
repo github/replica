@@ -42,6 +42,17 @@ The administrator security-audit API and retained frontend list Hub-wide identit
 
 The administrator session-revocation API and retained frontend show current Hub authentication counts and require explicit confirmation plus fresh authorization through the current session provider. Continuing one verified operation atomically advances the global revision, cancels other open sensitive authorizations, ends every open Hub session, and records the security audit. It does not revoke Copilot connections or change product data.
 
+The deployment-wide Copilot connection API and retained `/settings/copilot` frontend require a
+live administrator session. Hub verifies the operator-provided token through the separate
+`replica-learning` process, then rereads authority and persistent connection generation before
+committing the connection and typed security audit together. The database stores only the token
+digest and connection state.
+
+The [learning foundation](learning-foundation.md) validates private storage, isolates the command's
+environment and temporary state, bounds output and execution time, and provides a PostgreSQL
+execution lock plus repository-store preparation primitive. Repository review collection, runs,
+decisions, and recall remain unimplemented because their product records and APIs do not exist.
+
 ## Frontend
 
 ```mermaid
@@ -59,7 +70,7 @@ Imports follow the arrows above. Shared components, hooks, and utilities must no
 
 The theme provider wraps routes and their loading and error feedback.
 
-- In real mode, signed-out visitors use the authentication shell. Signed-in members can browse the read-only repository index and open prototype details. Administrators can use the administrator roster and Hub-wide security audit without loading provisional product data.
+- In real mode, signed-out visitors use the authentication shell. Signed-in members can browse the read-only repository index and open prototype details. Administrators can use `/settings/administrators`, `/settings/sessions`, `/settings/copilot`, and `/settings/audit?scope=hub` through their production APIs without loading provisional product data.
 - In mock mode, the root reads the simulated session. A nested layout loads the private workspace for signed-in pages.
 - Route loaders and actions request product data and refresh it after changes. Shareable filters and selections live in the URL.
 - Product screens keep product-facing copy. API failures remain visible errors.

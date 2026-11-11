@@ -40,6 +40,11 @@ export function administratorWorkspace(
         label: "End all Hub sessions",
         path: "/settings/sessions",
       },
+      {
+        section: "copilot",
+        label: "Copilot connection",
+        path: "/settings/copilot",
+      },
     ],
   }
 }

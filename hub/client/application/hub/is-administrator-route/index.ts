@@ -5,6 +5,7 @@ export function isAdministratorRoute(request: Request) {
     pathname.startsWith("/settings/administrators/") ||
     pathname === "/settings/admins" ||
     pathname.startsWith("/settings/admins/") ||
-    pathname === "/settings/audit"
+    pathname === "/settings/audit" ||
+    pathname === "/settings/copilot"
   )
 }

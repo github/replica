@@ -14,6 +14,7 @@ export function createApp({
   authentication,
   broadcast,
   clientDirectory,
+  copilotConnection,
   isReady,
   logger,
   product,
@@ -28,6 +29,7 @@ export function createApp({
       "/api/auth",
       "/api/administrators",
       "/api/session-revocation",
+      "/api/copilot-connection",
       "/api/security-audits",
       "/api/workspace",
       "/api/repositories",
@@ -39,7 +41,7 @@ export function createApp({
     express.json(),
   )
 
-  routes(app, { authentication, broadcast, isReady, logger, product })
+  routes(app, { authentication, broadcast, copilotConnection, isReady, logger, product })
   app.use("/api", respondNotFound)
   if (clientDirectory) {
     const directory = resolve(clientDirectory)

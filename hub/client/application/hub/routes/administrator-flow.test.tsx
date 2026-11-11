@@ -1,5 +1,5 @@
 import type { RouteConfigEntry } from "@react-router/dev/routes"
-import { act, fireEvent, render, screen, within } from "@testing-library/react"
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { http, HttpResponse } from "msw"
 import { setupServer } from "msw/node"
 import type { ComponentType } from "react"
@@ -112,6 +112,79 @@ function administrator(login = "octocat", membershipId = actorMembershipId) {
 }
 
 describe("administrator frontend integration", () => {
+  it("uses the real Copilot status and mutation APIs with visible action results", async () => {
+    const mutations: Array<{ body: unknown; method: string; path: string }> = []
+    let connected = false
+    await renderApplication("/settings/copilot", [
+      authenticatedSession(),
+      http.get(`${window.location.origin}/api/copilot-connection`, () =>
+        HttpResponse.json({
+          configured: true,
+          connected,
+          connectedBy: connected
+            ? {
+                login: "octocat",
+                membershipId: actorMembershipId,
+                name: "The Octocat",
+              }
+            : null,
+          refusedAt: null,
+          verifiedAt: connected ? "2026-11-10T23:00:00.000Z" : null,
+        }),
+      ),
+      http.post(`${window.location.origin}/api/copilot-connection/connect`, async ({ request }) => {
+        mutations.push({
+          body: await request.json(),
+          method: request.method,
+          path: new URL(request.url).pathname,
+        })
+        connected = true
+        return new HttpResponse(null, { status: 204 })
+      }),
+      http.delete(`${window.location.origin}/api/copilot-connection`, async ({ request }) => {
+        mutations.push({
+          body: await request.json(),
+          method: request.method,
+          path: new URL(request.url).pathname,
+        })
+        return HttpResponse.json({ error: "Copilot is temporarily unavailable." }, { status: 503 })
+      }),
+    ])
+
+    expect(await screen.findByRole("heading", { name: "Copilot is not connected" })).toBeVisible()
+    fireEvent.click(
+      screen.getByRole("checkbox", {
+        name: "I understand and confirm connecting Copilot for this Hub.",
+      }),
+    )
+    fireEvent.click(screen.getByRole("button", { name: "Connect Copilot" }))
+
+    expect(await screen.findByText("Copilot connected.")).toBeVisible()
+    expect(await screen.findByRole("heading", { name: "Copilot is connected" })).toBeVisible()
+    fireEvent.click(
+      screen.getByRole("checkbox", {
+        name: "I understand and confirm disconnecting Copilot for this Hub.",
+      }),
+    )
+    fireEvent.click(screen.getByRole("button", { name: "Disconnect Copilot" }))
+
+    expect(await screen.findByText("Copilot is temporarily unavailable.")).toBeVisible()
+    await waitFor(() =>
+      expect(mutations).toEqual([
+        {
+          body: { confirmed: true },
+          method: "POST",
+          path: "/api/copilot-connection/connect",
+        },
+        {
+          body: { confirmed: true },
+          method: "DELETE",
+          path: "/api/copilot-connection",
+        },
+      ]),
+    )
+  })
+
   it("uses the real administrator contract and retains its opaque cursor", async () => {
     const requests: string[] = []
     const nextCursor = "opaque+/cursor=="

@@ -2,6 +2,7 @@ import "dotenv/config"
 
 import { createConfiguredArtifactStorage } from "./domains/artifacts/create-configured-artifact-storage/index.ts"
 import { LocalSignInConfigurationError } from "./domains/authentication/errors.ts"
+import { readLearningConfiguration } from "./domains/learning/read-learning-configuration/index.ts"
 import { readAuthenticationConfigurationState } from "./domains/authentication/read-authentication-configuration-state/index.ts"
 import { resolveLocalSignInEnvironment } from "./domains/authentication/resolve-local-sign-in-environment/index.ts"
 import { startTelemetry } from "./integrations/opentelemetry/start-telemetry/index.ts"
@@ -14,12 +15,14 @@ import { parseRuntimeConfig } from "./utils/parse-runtime-config/index.ts"
 import { jobProcessors } from "./workers/configuration.ts"
 import { runJobWorker } from "./workers/run-job-worker/index.ts"
 import type { AuthenticationRouteDependencies } from "./routes/api/auth/types.ts"
+import type { CopilotConnectionRouteDependencies } from "./routes/api/copilot-connection/types.ts"
 import type { ProductRouteDependencies } from "./routes/api/product/types.ts"
 
 class AuthenticationConfigurationError extends Error {}
 
 try {
   const configuration = parseRuntimeConfig(process.env)
+  if (configuration.mode !== "setup") await readLearningConfiguration(process.env)
   const storage =
     configuration.mode !== "setup" && configuration.hasArtifactStorage
       ? await createConfiguredArtifactStorage(process.env)
@@ -39,6 +42,7 @@ try {
     }
     const trustedProxyHops = runsApi ? configuredTrustedProxyHops : 0
     let authentication: AuthenticationRouteDependencies | undefined
+    let copilotConnection: CopilotConnectionRouteDependencies | undefined
     let product: ProductRouteDependencies | undefined
     if (runsApi) {
       const authenticationEnvironment = resolveLocalSignInEnvironment(process.env)
@@ -80,6 +84,9 @@ try {
             const { createProductRouteDependencies } =
               await import("./routes/api/product/create-product-route-dependencies/index.ts")
             product = createProductRouteDependencies()
+            const { createCopilotConnectionRouteDependencies } =
+              await import("./routes/api/copilot-connection/create-copilot-connection-route-dependencies/index.ts")
+            copilotConnection = await createCopilotConnectionRouteDependencies(process.env)
           } else {
             await disableAuthenticationProviders()
           }
@@ -100,6 +107,7 @@ try {
         logger,
         isReady: isStorageReady,
         authentication,
+        copilotConnection,
         product,
         trustedProxyHops,
       })
@@ -113,6 +121,7 @@ try {
           logger,
           isStorageReady,
           authentication,
+          copilotConnection,
           product,
           trustedProxyHops,
         })

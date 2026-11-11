@@ -28,11 +28,14 @@ import { post as handleSessionRevocationAuthorizationStartPost } from "./api/ses
 import { get as handleSessionRevocationAuthorizationGet } from "./api/session-revocation/authorizations/get/index.ts"
 import { post as handleSessionRevocationAuthorizationContinuePost } from "./api/session-revocation/authorizations/continue/post/index.ts"
 import { post as handleSessionRevocationAuthorizationCancelPost } from "./api/session-revocation/authorizations/cancel/post/index.ts"
+import { get as handleCopilotConnectionGet } from "./api/copilot-connection/get/index.ts"
+import { post as handleCopilotConnectionConnectPost } from "./api/copilot-connection/connect/post/index.ts"
+import { delete_ as handleCopilotConnectionDisconnectDelete } from "./api/copilot-connection/disconnect/delete/index.ts"
 import type { RouteDependencies } from "./types.ts"
 
 /** Keep endpoint registration separate from the app's shared middleware. */
 export function routes(app: Express, dependencies: RouteDependencies = {}): void {
-  const { authentication, isReady, logger, product } = dependencies
+  const { authentication, copilotConnection, isReady, logger, product } = dependencies
   app.get("/api/health", handleApiHealthGet)
   app.get("/api/ready", (request, response) =>
     handleApiReadyGet(request, response, { isReady, logger }),
@@ -182,6 +185,19 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
       "/api/auth/session/sign-out",
       requireOrigin(authentication.signOut.applicationOrigin),
       handleSignOutPost(authentication.signOut),
+    )
+  }
+  if (copilotConnection) {
+    app.get("/api/copilot-connection", handleCopilotConnectionGet(copilotConnection))
+    app.post(
+      "/api/copilot-connection/connect",
+      requireOrigin(copilotConnection.applicationOrigin),
+      handleCopilotConnectionConnectPost(copilotConnection),
+    )
+    app.delete(
+      "/api/copilot-connection",
+      requireOrigin(copilotConnection.applicationOrigin),
+      handleCopilotConnectionDisconnectDelete(copilotConnection),
     )
   }
 }
