@@ -10,7 +10,7 @@ import { checkLedger } from "./check-ledger.mjs"
 
 function ledger(pages) {
   return {
-    source: "https://example.com/",
+    source: "https://example.com/cards",
     browser: { cookies: 0, pages: 1, checkedAt: "2026-01-01T00:00:00Z" },
     access: { "https://example.com": "browser" },
     pages,
@@ -51,6 +51,138 @@ test("accepts a complete final ledger", () => {
 test("rejects a ledger without runtime isolation proof", () => {
   const value = { ...ledger([hub]), browser: undefined }
   assert.match(checkLedger(value).join("\n"), /isolation proof/)
+})
+
+test("requires zero cookies and exactly one reported browser page", async (t) => {
+  for (const [name, browser] of [
+    ["missing page count", { cookies: 0 }],
+    ["no browser page", { cookies: 0, pages: 0 }],
+    ["extra browser page", { cookies: 0, pages: 2 }],
+    ["cookies present", { cookies: 1, pages: 1 }],
+  ]) {
+    await t.test(name, () => {
+      const value = { ...ledger([hub]), browser }
+      assert.notDeepEqual(checkLedger(value), [])
+    })
+  }
+})
+
+test("requires an absolute URL on every destination row", async (t) => {
+  for (const [name, decision, url] of [
+    ["missing outbound URL", "stub-external", undefined],
+    ["missing build URL", "build", undefined],
+    ["non-string URL", "stub-external", 42],
+    ["blank URL", "stub-external", " \t"],
+    ["malformed URL", "stub-external", "https://[invalid"],
+    ["relative URL", "stub-external", "/contact"],
+  ]) {
+    await t.test(name, () => {
+      const page =
+        decision === "build"
+          ? { ...hub, url, representative: false, route: "/other" }
+          : { url, foundIn: ["footer"], decision }
+      assert.notDeepEqual(checkLedger(ledger([hub, page])), [])
+    })
+  }
+})
+
+test("accepts a normalized HTTP subpath source with query and fragment and nonnetwork outbound URLs", () => {
+  const value = ledger([
+    { ...hub, url: "http://example.com/cards?term=12#details" },
+    { url: "mailto:support@example.com", foundIn: ["footer"], decision: "stub-external" },
+    { url: "tel:+15555550123", foundIn: ["footer"], decision: "stub-external" },
+    {
+      url: "https://example.org/help?topic=cards#contact",
+      foundIn: ["footer"],
+      decision: "stub-external",
+    },
+  ])
+  value.source = "http://EXAMPLE.com:80/cards?term=12#details"
+  assert.deepEqual(checkLedger(value, { final: true }), [])
+})
+
+test("requires the source to be an absolute HTTP or HTTPS website URL", async (t) => {
+  for (const [name, source] of [
+    ["missing source", undefined],
+    ["blank source", " "],
+    ["relative source", "/cards"],
+    ["malformed source", "https://[invalid"],
+    ["nonwebsite source", "mailto:support@example.com"],
+  ]) {
+    await t.test(name, () => {
+      const value = { ...ledger([hub]), source }
+      for (const final of [false, true]) {
+        assert.notDeepEqual(checkLedger(value, { final }), [], `final: ${final}`)
+      }
+    })
+  }
+})
+
+test("requires a source row without dropping its query or fragment", async (t) => {
+  for (const source of [
+    "https://example.com/missing",
+    "https://example.com/cards?term=12",
+    "https://example.com/cards#details",
+  ]) {
+    await t.test(source, () => {
+      const value = { ...ledger([hub]), source }
+      for (const final of [false, true]) {
+        assert.notDeepEqual(checkLedger(value, { final }), [], `final: ${final}`)
+      }
+    })
+  }
+})
+
+test("does not accept an outbound-only stub as the source", () => {
+  const value = ledger([
+    {
+      url: hub.url,
+      foundIn: ["source"],
+      decision: "stub-external",
+      note: "The source still needs a local page or an explicit boundary.",
+    },
+  ])
+  for (const final of [false, true]) {
+    assert.notDeepEqual(checkLedger(value, { final }), [], `final: ${final}`)
+  }
+})
+
+test("allows the source to remain an auth, download or explicitly deferred local boundary", async (t) => {
+  for (const decision of ["stub-auth", "stub-download", "deferred"]) {
+    await t.test(decision, () => {
+      const page = {
+        url: hub.url,
+        foundIn: ["source"],
+        decision,
+        route: "/source-boundary",
+        status: "verified",
+      }
+      if (decision === "deferred") page.note = "The agreed scope excludes the source page."
+      for (const final of [false, true]) {
+        assert.deepEqual(checkLedger(ledger([page]), { final }), [], `final: ${final}`)
+      }
+    })
+  }
+})
+
+test("requires a nonblank reason when the source is explicitly deferred", async (t) => {
+  for (const note of [undefined, "", " \t\n"]) {
+    await t.test(`note: ${JSON.stringify(note)}`, () => {
+      const value = ledger([
+        {
+          url: hub.url,
+          foundIn: ["source"],
+          decision: "deferred",
+          route: "/source-boundary",
+          status: "verified",
+          note,
+        },
+      ])
+      for (const final of [false, true]) {
+        assert.notDeepEqual(checkLedger(value, { final }), [], `final: ${final}`)
+      }
+    })
+  }
 })
 
 test("rejects planned pages at handoff but not during discovery", () => {

@@ -7,12 +7,20 @@ const STATUSES = new Set(["planned", "built", "verified", "blocked"])
 const FINAL_STATUSES = new Set(["verified", "blocked"])
 const LOCAL_BOUNDARIES = new Set(["stub-auth", "stub-download", "deferred"])
 
+function absoluteUrl(value) {
+  if (typeof value !== "string" || !value.trim() || !URL.canParse(value)) return undefined
+  return new URL(value)
+}
+
 export function checkLedger(ledger, { final = false } = {}) {
   const problems = []
 
-  if (typeof ledger.source !== "string") problems.push("source: missing source URL")
-  if (!ledger.browser || ledger.browser.cookies !== 0) {
-    problems.push("browser: runtime isolation proof missing or cookies were present")
+  const source = absoluteUrl(ledger.source)
+  if (!source || !["http:", "https:"].includes(source.protocol)) {
+    problems.push("source: requires an absolute HTTP(S) source URL")
+  }
+  if (!ledger.browser || ledger.browser.cookies !== 0 || ledger.browser.pages !== 1) {
+    problems.push("browser: runtime isolation proof requires zero cookies and exactly one page")
   }
   if (!ledger.access || Object.keys(ledger.access).length === 0) {
     problems.push("access: no access method recorded")
@@ -25,10 +33,17 @@ export function checkLedger(ledger, { final = false } = {}) {
   const families = new Map()
   const routes = new Map()
   const urls = new Set()
+  let sourcePage
   for (const [index, page] of ledger.pages.entries()) {
-    const label = page.url ?? `pages[${index}]`
-    if (urls.has(page.url)) problems.push(`${label}: listed more than once`)
-    urls.add(page.url)
+    const url = absoluteUrl(page.url)
+    const label = url?.href ?? `pages[${index}]`
+    if (!url) {
+      problems.push(`${label}: requires an absolute destination URL`)
+    } else {
+      if (urls.has(url.href)) problems.push(`${label}: listed more than once`)
+      urls.add(url.href)
+      if (url.href === source?.href) sourcePage = page
+    }
     if (!DECISIONS.has(page.decision))
       problems.push(`${label}: unknown decision "${page.decision}"`)
     if (!Array.isArray(page.foundIn) || page.foundIn.length === 0)
@@ -58,6 +73,17 @@ export function checkLedger(ledger, { final = false } = {}) {
     const family = families.get(page.family) ?? { representatives: 0 }
     if (page.representative) family.representatives += 1
     families.set(page.family, family)
+  }
+
+  if (source && !sourcePage) {
+    problems.push("source: no row represents the source URL")
+  } else if (sourcePage?.decision === "stub-external") {
+    problems.push("source: requires a build page or local boundary, not an outbound-only stub")
+  } else if (
+    sourcePage?.decision === "deferred" &&
+    (typeof sourcePage.note !== "string" || !sourcePage.note.trim())
+  ) {
+    problems.push("source: deferred without a scope-exclusion reason")
   }
 
   for (const [name, family] of families) {

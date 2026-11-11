@@ -37,7 +37,10 @@ bash scripts/create-prototype-repo.sh --list
 bash scripts/check-starter.sh minimal ../check-minimal
 bash scripts/check-starter.sh coreai ../check-coreai
 node --test scripts/create-prototype-repo.test.mjs scripts/setup-replica-plugin.test.mjs scripts/select-ci-suites.test.mjs
+node --test starters/minimal/.agents/skills/create-prototype-from-production/scripts/*.node-test.mjs
 ```
+
+Run these commands from the monorepo root. The final command checks Minimal's production-prototyping skill helpers.
 
 `check-starter.sh` creates the selected app, validates its manifest and lockfile, runs `npm ci --engine-strict` and `npm run check:starter`, then checks the resulting `dist` with the existing Build validator. Use a compatible installed runtime and the selected app's registry access. These commands do not install Node.js, enable the Copilot plugin, start a preview or publish.
 

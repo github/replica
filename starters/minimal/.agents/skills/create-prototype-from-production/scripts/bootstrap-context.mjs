@@ -1,4 +1,12 @@
-import { lstatSync, mkdirSync, readFileSync, rmdirSync, writeFileSync } from "node:fs"
+import {
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -22,20 +30,27 @@ function existingEntry(path) {
   }
 }
 
-function bootstrapContext() {
-  if (process.argv.length > 2) throw new Error("Run bootstrap-context.mjs without arguments from the prototype root.")
-
-  const root = process.cwd()
+function checkParents(root) {
   for (const parent of [".agents", ".github"]) {
     const entry = existingEntry(join(root, parent))
     if (entry && (!entry.isDirectory() || entry.isSymbolicLink())) {
       throw new Error(`${parent} must be a real directory, not a file or link.`)
     }
   }
+}
 
-  const existing = [".agents/context", ".github/contexts"].find((path) =>
+function existingContext(root) {
+  return [".agents/context", ".github/contexts"].find((path) =>
     existingEntry(join(root, path)),
   )
+}
+
+function bootstrapContext() {
+  if (process.argv.length > 2) throw new Error("Run bootstrap-context.mjs without arguments from the prototype root.")
+
+  const root = process.cwd()
+  checkParents(root)
+  const existing = existingContext(root)
   if (existing) return `Preserved ${existing}; existing guidance was not changed or checked for completeness.`
 
   const documents = CONTEXT_FILES.map((name) => [
@@ -44,21 +59,31 @@ function bootstrapContext() {
   ])
   const destination = join(root, ".agents/context")
   mkdirSync(join(root, ".agents"), { recursive: true })
+  const staging = mkdtempSync(join(root, ".agents", ".context-bootstrap-"))
+  let preserved
   try {
-    mkdirSync(destination)
+    for (const [name, content] of documents) {
+      writeFileSync(join(staging, name), content, { flag: "wx" })
+    }
+    checkParents(root)
+    preserved = existingContext(root)
+    if (!preserved) {
+      renameSync(staging, destination)
+      return "Created .agents/context from the fixed Minimal baseline; no captured data was read."
+    }
   } catch (error) {
-    if (error.code === "EEXIST") return "Preserved .agents/context created by another operation."
+    try {
+      rmSync(staging, { recursive: true, force: true })
+    } catch (cleanupError) {
+      throw new Error(`${error.message}; cannot remove bootstrap staging ${staging}: ${cleanupError.message}`, {
+        cause: error,
+      })
+    }
     throw error
   }
 
-  if (existingEntry(join(root, ".github/contexts"))) {
-    rmdirSync(destination)
-    return "Preserved .github/contexts created by another operation."
-  }
-  for (const [name, content] of documents) {
-    writeFileSync(join(destination, name), content, { flag: "wx" })
-  }
-  return "Created .agents/context from the fixed Minimal baseline; no captured data was read."
+  rmSync(staging, { recursive: true })
+  return `Preserved ${preserved}; existing guidance was not changed or checked for completeness.`
 }
 
 try {

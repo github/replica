@@ -6,12 +6,15 @@ Use the browser canvas first, with the configured isolated Playwright MCP only f
 
 Before the first navigation to the site, establish an agent-owned isolated session on `about:blank` using supported runtime actions. Record cookie and page counts in the ledger's `browser` field, not cookie values. Pre-existing cookies or unrelated pages stop navigation; configuration alone is not proof. Do not assume the browser canvas exposes a Playwright `page` object. If isolation cannot be established, use only the shared workflow's configured isolated fallback or report capture blocked.
 
-Probe access once per origin: one `web_fetch` of the home page. If it fails
-(403, redirect error, challenge page), use the browser for every page on that
-origin and never retry `web_fetch` there. Record the method in
-`access`. Static assets on CDNs may still download with plain HTTP; probe them
-separately in capture. Never change user agent, headers, cookies or proxies to
-get past a denial.
+### Public-source requests
+
+Only the authorized public source and observed public asset origins are network targets. Before an explicit navigation or download, inspect the normalized HTTP(S) URL. Never intentionally request private-network, loopback, link-local or metadata destinations, or treat a link on a public page as permission to access them. Keep `mailto:` and `tel:` as outbound actions without fetching them; other schemes do not authorize execution or network access.
+
+Use destination-address and redirect checks when the actual transport exposes them. If a target is rejected, do not bypass that rejection with another client or browser-byte fallback. Defer the affected operation, record the reason and continue independent authorized work without a routine question.
+
+These are workflow guardrails, not complete network isolation. This skill does not enforce DNS-to-connection binding, automatic redirects or browser subresource egress. An isolated browser profile does not provide that protection. Record the host's actual controls and any missing protection; do not report private-network isolation as verified without enforcement. Complete egress protection remains a separate follow-up.
+
+Probe access once per origin: one `web_fetch` of the source page. If it fails (403, redirect error, challenge page), use the browser for every page on that origin and never retry `web_fetch` there. Record the method in `access`. Static assets on CDNs may still download with plain HTTP; probe them separately in capture. Never change user agent, headers, cookies or proxies to get past a denial.
 
 Pace every origin for the whole run: one browser page at a time, at least two
 seconds between navigations, no parallel sessions against the same site. A
@@ -20,16 +23,18 @@ stop visiting that origin, keep what you have, and report it.
 
 ## 2. Find first-level destinations in the rendered site
 
-Open the home page at 1440×900. Collect links from:
+Open the requested source page at 1440×900. Normalize its resolved URL and seed it as a `build` row with `status: planned` and `foundIn: ["source"]` before collecting links. Use that same normalized URL for `ledger.source`; retain the originally requested URL in the capture notes if it redirected. Existing auth/download boundaries still apply. If the agreed scope explicitly excludes the source, retain a `deferred` row with a nonblank reason in `note` instead of silently omitting it.
+
+Collect links from:
 
 - the header, after opening each top-level menu or mega-menu trigger;
-- the home page body;
+- the source page body;
 - the footer, after expanding collapsed groups;
 - the mobile menu at 390×844, after opening it and its groups.
 
-Add `sitemap.xml` entries only as supplementary evidence, never as a
-substitute for rendered navigation. Normalize URLs (resolve redirects, drop
-tracking parameters), deduplicate, and note where each was found.
+Add `sitemap.xml` entries only as supplementary evidence, never as a substitute for rendered navigation. Resolve relative hrefs against the observed document's base URL before recording absolute targets. Normalize demonstrated redirects and tracking parameters, deduplicate, and combine where each was found. Preserve meaningful paths, query parameters and fragment state; do not equate distinct trailing-slash paths without evidence or map every source subpath to `/`.
+
+Keep same-document section links as navigation evidence on their owning page, not separate build pages. Preserve fragments that identify meaningful route state rather than treating every fragment as a new destination.
 
 ## 3. Classify into families
 
@@ -74,6 +79,15 @@ Write `reference/coverage.json`:
   "browser": { "cookies": 0, "pages": 1, "checkedAt": "2026-01-01T00:00:00Z" },
   "access": { "https://example.com": "browser" },
   "pages": [
+    {
+      "url": "https://example.com/",
+      "foundIn": ["source"],
+      "family": "landing",
+      "representative": true,
+      "decision": "build",
+      "route": "/",
+      "status": "planned"
+    },
     {
       "url": "https://example.com/cards",
       "foundIn": ["header", "footer"],

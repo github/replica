@@ -1,6 +1,8 @@
 import assert from "node:assert/strict"
 import { spawnSync } from "node:child_process"
 import {
+  copyFileSync,
+  cpSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
@@ -33,16 +35,62 @@ function temporaryDirectory(t) {
   return directory
 }
 
-function bootstrap(cwd) {
-  const result = spawnSync(process.execPath, [script], {
-    cwd,
-    encoding: "utf8",
-    stdio: ["ignore", "pipe", "pipe"],
-    timeout: 5000,
-  })
+function bootstrap(cwd, { preload, scriptPath = script, expectedSignal = null } = {}) {
+  const result = spawnSync(
+    process.execPath,
+    [...(preload ? ["--import", preload] : []), scriptPath],
+    {
+      cwd,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      timeout: 5000,
+    },
+  )
   assert.ifError(result.error)
-  assert.equal(result.signal, null)
+  assert.equal(result.signal, expectedSignal)
   return result
+}
+
+function assertBundledContext(consumer) {
+  const context = join(consumer, ".agents", "context")
+  assert.deepEqual(readdirSync(context).sort(), ownerDocuments.toSorted())
+  for (const name of ownerDocuments) {
+    assert.deepEqual(readFileSync(join(context, name)), readFileSync(join(baseline, name)), name)
+  }
+}
+
+function assertNoActiveContext(consumer) {
+  for (const root of [".agents/context", ".github/contexts"]) {
+    assert.equal(lstatSync(join(consumer, root), { throwIfNoEntry: false }), undefined, root)
+  }
+}
+
+function entries(path) {
+  return lstatSync(path, { throwIfNoEntry: false }) ? readdirSync(path).sort() : []
+}
+
+function faultPreload(directory, consumer, body) {
+  const preload = join(directory, "fault.mjs")
+  writeFileSync(
+    preload,
+    `
+import fs from "node:fs"
+import { syncBuiltinESMExports } from "node:module"
+import { basename, resolve, sep } from "node:path"
+
+const consumer = ${JSON.stringify(consumer)}
+const documents = new Set(${JSON.stringify(ownerDocuments)})
+function destinationDocument(path) {
+  return typeof path === "string" &&
+    resolve(path).startsWith(consumer + sep) &&
+    documents.has(basename(path))
+}
+
+${body}
+syncBuiltinESMExports()
+`,
+  )
+  return preload
 }
 
 test("creates exact bundled owner documents without promoting captured or draft instructions", (t) => {
@@ -66,11 +114,7 @@ test("creates exact bundled owner documents without promoting captured or draft 
   const result = bootstrap(consumer)
 
   assert.equal(result.status, 0, result.stderr)
-  const context = join(consumer, ".agents", "context")
-  assert.deepEqual(readdirSync(context).sort(), ownerDocuments.toSorted())
-  for (const name of ownerDocuments) {
-    assert.deepEqual(readFileSync(join(context, name)), readFileSync(join(baseline, name)), name)
-  }
+  assertBundledContext(consumer)
 })
 
 test("preserves existing current and legacy roots without creating a shadow or filling gaps", async (t) => {
@@ -138,4 +182,180 @@ test("rejects linked context parents without writing outside the consumer", asyn
       assert.equal(readFileSync(join(outside, "untouched.txt"), "utf8"), existing)
     })
   }
+})
+
+test("keeps a destination write failure inactive and allows a complete retry", (t) => {
+  const directory = temporaryDirectory(t)
+  const consumer = join(directory, "consumer")
+  mkdirSync(consumer)
+  const preload = faultPreload(
+    directory,
+    consumer,
+    `
+const write = fs.writeFileSync
+let writes = 0
+fs.writeFileSync = (path, ...args) => {
+  if (destinationDocument(path) && ++writes === 2) {
+    throw Object.assign(new Error("injected destination write failure"), { code: "EIO" })
+  }
+  return write(path, ...args)
+}
+`,
+  )
+
+  const failed = bootstrap(consumer, { preload })
+
+  assert.notEqual(failed.status, 0)
+  assert.match(failed.stderr, /injected destination write failure/)
+  assertNoActiveContext(consumer)
+  assert.deepEqual(entries(join(consumer, ".agents")), [])
+
+  const retried = bootstrap(consumer)
+
+  assert.equal(retried.status, 0, retried.stderr)
+  assertBundledContext(consumer)
+})
+
+test("keeps an interrupted copy inactive and allows a complete retry", (t) => {
+  const directory = temporaryDirectory(t)
+  const consumer = join(directory, "consumer")
+  mkdirSync(consumer)
+  const preload = faultPreload(
+    directory,
+    consumer,
+    `
+const write = fs.writeFileSync
+let writes = 0
+fs.writeFileSync = (path, ...args) => {
+  if (destinationDocument(path) && ++writes === 2) process.kill(process.pid, "SIGKILL")
+  return write(path, ...args)
+}
+`,
+  )
+
+  bootstrap(consumer, { preload, expectedSignal: "SIGKILL" })
+
+  assertNoActiveContext(consumer)
+  const inactiveCopies = entries(join(consumer, ".agents"))
+
+  const retried = bootstrap(consumer)
+
+  assert.equal(retried.status, 0, retried.stderr)
+  assertBundledContext(consumer)
+  assert.deepEqual(entries(join(consumer, ".agents")), [...inactiveCopies, "context"].sort())
+})
+
+test("reports publication and cleanup failures without activating guidance and allows a retry", (t) => {
+  const directory = temporaryDirectory(t)
+  const consumer = join(directory, "consumer")
+  mkdirSync(consumer)
+  const preload = faultPreload(
+    directory,
+    consumer,
+    `
+const rename = fs.renameSync
+let stage
+fs.renameSync = (from, to, ...args) => {
+  if (resolve(to) === resolve(consumer, ".agents/context")) {
+    stage = resolve(from)
+    throw Object.assign(new Error("injected publication failure"), { code: "EACCES" })
+  }
+  return rename(from, to, ...args)
+}
+for (const name of ["rmSync", "rmdirSync"]) {
+  const remove = fs[name]
+  fs[name] = (path, ...args) => {
+    if (stage && resolve(path) === stage) {
+      throw Object.assign(new Error("injected cleanup failure"), { code: "EACCES" })
+    }
+    return remove(path, ...args)
+  }
+}
+`,
+  )
+
+  const failed = bootstrap(consumer, { preload })
+
+  assert.notEqual(failed.status, 0)
+  assert.match(failed.stderr, /injected publication failure/)
+  assert.match(failed.stderr, /injected cleanup failure/)
+  assertNoActiveContext(consumer)
+
+  const retried = bootstrap(consumer)
+
+  assert.equal(retried.status, 0, retried.stderr)
+  assertBundledContext(consumer)
+})
+
+test("preserves a root found at the final recheck and removes only its own inactive copy", async (t) => {
+  for (const root of [".agents/context", ".github/contexts"]) {
+    await t.test(root, (t) => {
+      const directory = temporaryDirectory(t)
+      const consumer = join(directory, "consumer")
+      mkdirSync(consumer)
+      const context = join(consumer, root)
+      const existing = "Guidance that appeared before publication must remain unchanged.\n"
+      const preload = faultPreload(
+        directory,
+        consumer,
+        `
+const write = fs.writeFileSync
+const written = new Set()
+fs.writeFileSync = (path, ...args) => {
+  const result = write(path, ...args)
+  if (destinationDocument(path)) {
+    written.add(basename(path))
+    if (written.size === documents.size) {
+      fs.mkdirSync(${JSON.stringify(context)}, { recursive: true })
+      write(${JSON.stringify(join(context, "TEAM.md"))}, ${JSON.stringify(existing)})
+    }
+  }
+  return result
+}
+`,
+      )
+
+      const result = bootstrap(consumer, { preload })
+
+      assert.equal(result.status, 0, result.stderr)
+      assert.deepEqual(readdirSync(context), ["TEAM.md"])
+      assert.equal(readFileSync(join(context, "TEAM.md"), "utf8"), existing)
+      assert.deepEqual(
+        entries(join(consumer, ".agents")),
+        root === ".agents/context" ? ["context"] : [],
+      )
+      if (root === ".agents/context") {
+        assert.equal(
+          lstatSync(join(consumer, ".github", "contexts"), { throwIfNoEntry: false }),
+          undefined,
+        )
+      }
+    })
+  }
+})
+
+test("leaves a missing bundled document inactive and succeeds after it is restored", (t) => {
+  const directory = temporaryDirectory(t)
+  const consumer = join(directory, "consumer")
+  const copiedScript = join(directory, "skill", "scripts", "bootstrap-context.mjs")
+  const copiedBaseline = join(directory, "skill", "references", "local-context")
+  mkdirSync(consumer)
+  mkdirSync(dirname(copiedScript), { recursive: true })
+  copyFileSync(script, copiedScript)
+  cpSync(baseline, copiedBaseline, { recursive: true })
+  const missing = ownerDocuments.at(-1)
+  rmSync(join(copiedBaseline, missing))
+
+  const failed = bootstrap(consumer, { scriptPath: copiedScript })
+
+  assert.notEqual(failed.status, 0)
+  assert.match(failed.stderr, new RegExp(missing.replace(".", "\\.")))
+  assertNoActiveContext(consumer)
+  assert.deepEqual(entries(join(consumer, ".agents")), [])
+  copyFileSync(join(baseline, missing), join(copiedBaseline, missing))
+
+  const retried = bootstrap(consumer, { scriptPath: copiedScript })
+
+  assert.equal(retried.status, 0, retried.stderr)
+  assertBundledContext(consumer)
 })
