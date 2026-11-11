@@ -229,7 +229,7 @@ const realIndexData: RepositoriesShowPageData = {
       description: "Explore a new welcome page.",
       path: null,
       reviewBuild: undefined,
-      latestBuild: undefined,
+      latestBuild: { state: "successful", stateLabel: "Successful" },
       previewFallbackLabel: "No preview available",
       author: realPrototypeAuthor,
     },
@@ -250,7 +250,6 @@ const realIndexData: RepositoriesShowPageData = {
 
 export const RealIndex: Story = {
   args: {
-    buildStatusAvailable: false,
     data: realIndexData,
   },
 }
