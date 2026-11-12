@@ -29,6 +29,9 @@ export function checkLedger(ledger, { final = false } = {}) {
   if (!source || !HTTP_PROTOCOLS.has(source.protocol)) {
     problems.push("source: requires an absolute HTTP(S) source URL")
   }
+  if (source && (source.username || source.password)) {
+    problems.push("source: embedded URL credentials are not allowed")
+  }
   if (!ledger.browser || ledger.browser.cookies !== 0 || ledger.browser.pages !== 1) {
     problems.push("browser: runtime isolation proof requires zero cookies and exactly one page")
   }
@@ -54,6 +57,8 @@ export function checkLedger(ledger, { final = false } = {}) {
     if (!url) {
       problems.push(`${label}: requires an absolute destination URL`)
     } else {
+      if (url.username || url.password)
+        problems.push(`${label}: embedded URL credentials are not allowed`)
       if (urls.has(url.href)) problems.push(`${label}: listed more than once`)
       urls.add(url.href)
       if (url.href === source?.href) sourcePage = page

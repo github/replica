@@ -96,6 +96,35 @@ test("requires an absolute URL on every destination row", async (t) => {
   }
 })
 
+test("rejects embedded credentials in the source URL without exposing them", () => {
+  for (const userinfo of ["fixture-user@", ":fixture-password@"]) {
+    const url = `https://${userinfo}example.com/cards`
+    const value = { ...ledger([{ ...hub, url }]), source: url }
+    const problems = checkLedger(value).join("\n")
+    assert.match(problems, /source:.*credentials/i)
+    assert.doesNotMatch(problems, /fixture-user|fixture-password/)
+  }
+})
+
+test("rejects embedded credentials on every destination decision", async (t) => {
+  for (const decision of ["build", "stub-auth", "stub-download", "deferred", "stub-external"]) {
+    await t.test(decision, () => {
+      const host = decision === "stub-external" ? "example.org" : "example.com"
+      const page = {
+        ...hub,
+        url: `https://fixture-user:fixture-password@${host}/other`,
+        foundIn: ["footer"],
+        representative: false,
+        route: "/other",
+        decision,
+      }
+      const problems = checkLedger(ledger([hub, page]), { final: true }).join("\n")
+      assert.match(problems, /pages\[1\]:.*credentials/i)
+      assert.doesNotMatch(problems, /fixture-user|fixture-password/)
+    })
+  }
+})
+
 test("accepts a normalized HTTP subpath source with query and fragment and nonnetwork outbound URLs", () => {
   const value = ledger([
     { ...hub, url: "http://example.com/cards?term=12#details" },
