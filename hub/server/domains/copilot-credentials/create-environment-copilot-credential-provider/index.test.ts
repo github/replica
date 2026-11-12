@@ -13,7 +13,9 @@ describe("createEnvironmentCopilotCredentialProvider()", () => {
     expect(provider.configurationDigest).toBe(
       createHash("sha256").update("explicit-token").digest("hex"),
     )
-    await expect(provider.getCredential()).resolves.toBe("explicit-token")
+    await expect(provider.getCredential()).resolves.toEqual({
+      githubToken: "explicit-token",
+    })
   })
 
   it("reports no configuration or credential when the environment token is absent", async () => {

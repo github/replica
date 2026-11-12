@@ -63,9 +63,10 @@ describe("CopilotConnectionPage()", () => {
     expect(screen.queryByRole("button", { name: "Disconnect Copilot" })).not.toBeInTheDocument()
   })
 
-  it("retains environment token fallback guidance when no credential is configured", () => {
+  it("shows explicit local credential-provider guidance when none is configured", () => {
     renderPage(NoToken.args!.data!)
-    expect(screen.getByRole("alert")).toHaveTextContent(/REPLICA_COPILOT_TOKEN/)
+    expect(screen.getByRole("alert")).toHaveTextContent(/ambient CLI authentication/)
+    expect(screen.getByRole("alert")).toHaveTextContent(/environment-token provider/)
     expect(screen.queryByRole("button", { name: "Connect Copilot" })).not.toBeInTheDocument()
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument()
   })

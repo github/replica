@@ -34,7 +34,7 @@ export function copilotConnectionPageData(
     submitPath: "/settings/copilot",
     credentialLabel: status.configured
       ? null
-      : "Configure a Copilot credential before connecting. Simple deployments can set REPLICA_COPILOT_TOKEN in the deployment secret store and restart Hub.",
+      : "Configure a Copilot credential provider before connecting. Simple deployments can explicitly select ambient CLI authentication or the environment-token provider.",
     connectedBy: status.connectedBy
       ? `${status.connectedBy.login ? `@${status.connectedBy.login}` : "A Hub administrator"} connected Copilot. Membership ${status.connectedBy.membershipId}.`
       : undefined,

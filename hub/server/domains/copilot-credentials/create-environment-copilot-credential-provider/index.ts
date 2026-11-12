@@ -9,6 +9,7 @@ export function createEnvironmentCopilotCredentialProvider(
   return {
     key: "environment_token",
     configurationDigest: credential ? createHash("sha256").update(credential).digest("hex") : null,
-    getCredential: () => Promise.resolve(credential),
+    getCredential: () =>
+      Promise.resolve(credential ? { githubToken: credential } : null),
   }
 }

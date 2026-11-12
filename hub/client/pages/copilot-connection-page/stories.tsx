@@ -79,7 +79,7 @@ export const NoToken: Story = {
     data: {
       ...data,
       credentialLabel:
-        "Configure a Copilot credential before connecting. Simple deployments can set REPLICA_COPILOT_TOKEN in the deployment secret store and restart Hub.",
+        "Configure a Copilot credential provider before connecting. Simple deployments can explicitly select ambient CLI authentication or the environment-token provider.",
       connect: null,
     },
   },

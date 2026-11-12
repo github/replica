@@ -1,7 +1,7 @@
 import { resolve } from "node:path"
 
 import { validatePrivateStorageRoot } from "../../../utils/validate-private-storage-root/index.ts"
-import { createEnvironmentCopilotCredentialProvider } from "../../copilot-credentials/create-environment-copilot-credential-provider/index.ts"
+import { createCopilotCredentialProvider } from "../../copilot-credentials/create-copilot-credential-provider/index.ts"
 import { LearningConfigurationError } from "../errors.ts"
 
 export async function readLearningConfiguration(
@@ -31,9 +31,18 @@ export async function readLearningConfiguration(
     environment.REPLICA_LEARNING_CLI ?? "../packages/learning/bin/replica-learning.mjs",
   )
   const nodePath = environment.REPLICA_LEARNING_NODE?.trim() || process.execPath
+  let copilotCredentialProvider
+  try {
+    copilotCredentialProvider = createCopilotCredentialProvider(environment)
+  } catch (error) {
+    throw new LearningConfigurationError(
+      error instanceof Error ? error.message : "Copilot credential configuration is invalid.",
+      { cause: error },
+    )
+  }
   return {
     cliPath,
-    copilotCredentialProvider: createEnvironmentCopilotCredentialProvider(environment),
+    copilotCredentialProvider,
     nodePath,
     root,
     staticDirectories: [

@@ -78,7 +78,7 @@ export async function createCopilotConnectionRouteDependencies(
               }
               return runLearningCommand(["copilot", "status"], {
                 cliPath: configuration.cliPath,
-                githubToken: credential,
+                githubToken: credential.githubToken,
                 nodePath: configuration.nodePath,
               })
             },
