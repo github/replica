@@ -1,30 +1,13 @@
-import { execFile } from "node:child_process"
-import { fileURLToPath } from "node:url"
-import { promisify } from "node:util"
 import { describe, expect, it } from "vitest"
 
 import { prisma } from "../../integrations/prisma"
-import { getDatabaseUrl } from "../../../test/database/get-database-url"
+import { seedPrototypeIndexData } from "./seed-prototype-index-data"
 
 describe("prototype index seed", () => {
-  it("creates coherent example Build metadata and restores it on rerun", async () => {
+  it("seeds a member's prototypes and restores their Build metadata on rerun", async () => {
     const user = await prisma.user.create({ data: {} })
     await prisma.membership.create({ data: { userId: user.id } })
-    const script = fileURLToPath(new URL("./index.ts", import.meta.url))
-    const run = promisify(execFile)
-    function runSeed() {
-      return run(process.execPath, [script, user.id], {
-        env: {
-          ...process.env,
-          NODE_ENV: "development",
-          DATABASE_URL: getDatabaseUrl(),
-          DOTENV_CONFIG_OVERRIDE: "false",
-        },
-        timeout: 20_000,
-      })
-    }
-
-    await runSeed()
+    await seedPrototypeIndexData(prisma, user.id)
     const select = {
       id: true,
       number: true,
@@ -43,6 +26,8 @@ describe("prototype index seed", () => {
     } as const
     const samples = await prisma.build.findMany({ select, orderBy: { id: "asc" } })
     expect(samples).toHaveLength(5)
+    const prototypes = await prisma.prototype.findMany({ select: { authorId: true } })
+    expect(prototypes.every((prototype) => prototype.authorId === user.id)).toBe(true)
     expect(samples.map((build) => build.state)).toEqual(
       expect.arrayContaining(["queued", "running", "successful", "failed", "superseded"]),
     )
@@ -106,7 +91,7 @@ describe("prototype index seed", () => {
         },
       })
     }
-    await runSeed()
+    await seedPrototypeIndexData(prisma, user.id)
     expect(await prisma.build.findMany({ select, orderBy: { id: "asc" } })).toEqual(samples)
   }, 60_000)
 })
