@@ -71,7 +71,13 @@ Edit generic Replica skills and context templates under `starters/shared/.agents
 
 For selection, archive safety, static context links, plugin setup and CI selection, run `node --test scripts/create-prototype-repo.test.mjs scripts/setup-replica-plugin.test.mjs scripts/select-ci-suites.test.mjs` from the repository root. These checks do not verify agent authoring, semantic preservation or activation behavior; use the setup skill's real-host evaluation protocol for that evidence.
 
-When changing Minimal's production-prototyping skill scripts, also run `node --test starters/minimal/.agents/skills/create-prototype-from-production/scripts/*.node-test.mjs` from the repository root.
+When changing Minimal's production-prototyping skill scripts, also run this from the repository root:
+
+```sh
+node --test starters/minimal/.agents/skills/create-prototype-from-production/scripts/*.node-test.mjs
+```
+
+Minimal's `npm run check:starter` includes the same tests through `npm run test:production-prototyping`. Starter CI runs that app-owned check on the assembled repository, so the helper suite is not a separate CI-only command.
 
 Reuse an existing compatible Node.js installation. If it is unavailable on macOS or Linux, get approval before installing [nodenv](https://github.com/nodenv/nodenv), [node-build](https://github.com/nodenv/node-build), or Node.js, or changing shell configuration. The starter installer does not install them.
 

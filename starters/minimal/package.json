@@ -7,7 +7,7 @@
     "node": "^24.15.0 || ^26.0.0"
   },
   "scripts": {
-    "check:starter": "npm run format:check && npm run typecheck && npm test && npm run build",
+    "check:starter": "npm run format:check && npm run typecheck && npm test && npm run test:production-prototyping && npm run build",
     "dev": "vite",
     "build": "vite build",
     "preview": "npm run build && vite preview",
@@ -15,6 +15,7 @@
     "format": "prettier --write src scripts scaffold-templates/neutral prototype-scaffold.config.mjs vite-aliases.ts vite.config.ts vite.config.test.ts vitest.config.ts",
     "format:check": "prettier --check src scripts scaffold-templates/neutral prototype-scaffold.config.mjs vite-aliases.ts vite.config.ts vite.config.test.ts vitest.config.ts",
     "test": "vitest run",
+    "test:production-prototyping": "node --test .agents/skills/create-prototype-from-production/scripts/*.node-test.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

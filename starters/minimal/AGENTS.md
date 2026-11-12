@@ -13,7 +13,7 @@ npm ci
 npm run dev
 ```
 
-For checks, run `npm run typecheck`, `npm test`, `npm run build` and `npm run format:check`. Format authored code with `npm run format`: double quotes, no semicolons and trailing commas.
+Run `npm run check:starter` for formatting, type checking, app tests, production-prototyping helper tests and the build. Use the individual commands while iterating. Format authored code with `npm run format`: double quotes, no semicolons and trailing commas.
 
 ## Code
 

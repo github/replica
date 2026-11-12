@@ -22,11 +22,12 @@ Open the URL printed by Vite. In Copilot, complete the [canvas preflight](REPLIC
 ```sh
 npm run typecheck
 npm test
+npm run test:production-prototyping
 npm run build
 npm run format:check
 ```
 
-Use `npm run format` to format authored code. The production build is written to `dist`.
+Use `npm run format` to format authored code. `npm run check:starter` runs these checks together, including the production-prototyping helper tests, both locally and in Starter CI. The production build is written to `dist`.
 
 ## Routing
 
