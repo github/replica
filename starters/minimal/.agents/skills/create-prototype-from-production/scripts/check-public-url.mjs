@@ -92,7 +92,9 @@ export function checkPublicUrl(value) {
     const route = part.replace(/^!/, "")
     const queryStart = route.indexOf("?")
     if (route.startsWith("/")) {
-      matrixPaths.push(queryStart < 0 ? route : route.slice(0, queryStart))
+      const path = queryStart < 0 ? route : route.slice(0, queryStart)
+      matrixPaths.push(path)
+      if (/^\/[A-Za-z0-9_%.-]+=/.test(path)) fragmentQueries.push(path.slice(1))
       if (queryStart >= 0) fragmentQueries.push(route.slice(queryStart + 1))
     } else {
       fragmentQueries.push(route)
@@ -135,6 +137,11 @@ export function checkPublicUrl(value) {
       "localhost",
       "local",
       "internal",
+      "intranet",
+      "private",
+      "corp",
+      "home",
+      "lan",
       "home.arpa",
       "localdomain",
       "localdomain4",

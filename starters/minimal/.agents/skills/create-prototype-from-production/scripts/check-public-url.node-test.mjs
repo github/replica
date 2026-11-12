@@ -65,6 +65,8 @@ test("rejects nonempty credential-like parameters without exposing supplied valu
     ["percent-encoded query key", "?%61pi%5Fkey=fixture-query-marker"],
     ["fragment parameter", "#access_token=fixture-fragment-marker"],
     ["hashbang fragment parameter", "#!access_token=fixture-fragment-marker"],
+    ["slash-prefixed fragment parameters", "#/access_token=fixture-fragment-marker"],
+    ["hashbang slash-prefixed parameters", "#!/access_token=fixture-fragment-marker"],
     ["normalized signing credential in fragment", "#x_gOoG_cReDeNtIaL=fixture-fragment-marker"],
     [
       "encoded separator at start of fragment credential value",
@@ -154,6 +156,11 @@ test("rejects local and special-use hostname suffixes after normalization", asyn
     ["localhost subdomain", "https://team.LocalHost./"],
     ["local suffix", "https://service.LOCAL./"],
     ["internal suffix", "https://service.INTERNAL./"],
+    ["private intranet suffix", "https://service.intranet/"],
+    ["private suffix", "https://service.private/"],
+    ["corporate suffix", "https://service.corp/"],
+    ["home suffix", "https://service.home/"],
+    ["LAN suffix normalization", "https://service.LAN./"],
     ["home.arpa suffix", "https://router.HOME.ARPA./"],
     ["conventional localhost alias", "https://localhost.localdomain/"],
     ["conventional IPv4 alias", "https://localhost4.LOCALDOMAIN4./"],
@@ -237,6 +244,10 @@ test("accepts public names, CDN URLs and public IPs without discarding URL state
       "https://example.com/#/callback?code=fixture-code&state=fixture-state&key=fixture-key",
     ],
     ["ordinary hashbang parameters", "https://example.com/#!code=SKU&state=CA&key=public-cache"],
+    [
+      "slash-prefixed public parameters",
+      "https://example.com/#/code=SKU&state=CA&key=public-cache",
+    ],
     [
       "public nested redirect",
       `https://example.com/?next=${encodeURIComponent("https://example.net/catalog?code=SKU&state=CA&key=public-cache")}`,
