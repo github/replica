@@ -175,7 +175,7 @@ describe("server runtime", () => {
     })
     expect(Buffer.from(environment.HUB_AUTHENTICATION_ENCRYPTION_KEY!, "base64")).toHaveLength(32)
     expect(Buffer.from(environment.HUB_BOOTSTRAP_SECRET!, "base64url")).toHaveLength(32)
-    expect(createCopilotConnectionRouteDependencies).toHaveBeenCalledWith(environment)
+    expect(createCopilotConnectionRouteDependencies).toHaveBeenCalledWith(environment, logger)
     expect(runApi).toHaveBeenCalledWith(
       expect.objectContaining({ authentication, copilotConnection, product }),
     )
@@ -290,7 +290,7 @@ describe("server runtime", () => {
 
     expect(createAuthenticationRouteDependencies).toHaveBeenCalledWith(process.env)
     expect(createProductRouteDependencies).toHaveBeenCalledOnce()
-    expect(createCopilotConnectionRouteDependencies).toHaveBeenCalledWith(process.env)
+    expect(createCopilotConnectionRouteDependencies).toHaveBeenCalledWith(process.env, logger)
     expect(disableAuthenticationProviders).not.toHaveBeenCalled()
     expect(runApi).toHaveBeenCalledWith(
       expect.objectContaining({ authentication, copilotConnection, product }),
