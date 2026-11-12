@@ -17,7 +17,7 @@ export function copilotConnectionPageData(
     },
     heading: "Copilot",
     description:
-      "A Hub administrator connects Copilot once for this deployment. The operator-provided token stays outside the database.",
+      "A Hub administrator connects Copilot once for this deployment. The operator-provided credential stays outside the database.",
     auditLabel: "Security audit",
     auditPath: "/settings/audit?scope=hub",
     repositoriesLabel: "Home",
@@ -32,9 +32,9 @@ export function copilotConnectionPageData(
     connected: status.connected,
     statusLabel: status.connected ? "Copilot is connected" : "Copilot is not connected",
     submitPath: "/settings/copilot",
-    tokenLabel: status.configured
+    credentialLabel: status.configured
       ? null
-      : "Set REPLICA_COPILOT_TOKEN in the deployment secret store and restart Hub before connecting.",
+      : "Configure a Copilot credential before connecting. Simple deployments can set REPLICA_COPILOT_TOKEN in the deployment secret store and restart Hub.",
     connectedBy: status.connectedBy
       ? `${status.connectedBy.login ? `@${status.connectedBy.login}` : "A Hub administrator"} connected Copilot. Membership ${status.connectedBy.membershipId}.`
       : undefined,
@@ -42,7 +42,7 @@ export function copilotConnectionPageData(
       ? `Copilot last answered on ${new Date(status.verifiedAt).toISOString()}.`
       : undefined,
     refusedLabel: status.refusedAt
-      ? `Copilot refused the configured token on ${new Date(status.refusedAt).toISOString()}.`
+      ? `Copilot refused the configured credential on ${new Date(status.refusedAt).toISOString()}.`
       : null,
     connect:
       status.connected || !status.configured
@@ -50,7 +50,7 @@ export function copilotConnectionPageData(
         : {
             label: status.verifiedAt ? "Check and connect Copilot" : "Connect Copilot",
             consequence:
-              "Hub asks Copilot to verify the configured token. Later learning runs may send review comment text without reviewer identity. Usage counts toward the token owner's Copilot plan.",
+              "Hub asks Copilot to verify the configured credential. Later learning runs may send review comment text without reviewer identity. GitHub attributes usage to the account or organization represented by that credential.",
             confirmLabel: "I understand and confirm connecting Copilot for this Hub.",
             verification,
           },

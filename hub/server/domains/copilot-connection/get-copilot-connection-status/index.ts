@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto"
+import type { CopilotCredentialProviderKey } from "../../copilot-credentials/types.ts"
 
 export function getCopilotConnectionStatus(
   connection: {
@@ -7,26 +7,33 @@ export function getCopilotConnectionStatus(
       membershipId: string
       name: string | null
     }
+    credentialDigest: string
+    credentialProvider: string
     refusedAt: Date | null
-    tokenDigest: string
     verifiedAt: Date
   } | null,
-  token: string | null,
+  credentialProvider: {
+    configurationDigest: string | null
+    key: CopilotCredentialProviderKey
+  },
   connectedByIsAdministrator: boolean,
 ) {
-  const tokenDigest = token ? createHash("sha256").update(token).digest("hex") : null
-  const matchesVerifiedToken = Boolean(connection && tokenDigest === connection.tokenDigest)
+  const matchesVerifiedCredential = Boolean(
+    connection &&
+    credentialProvider.configurationDigest === connection.credentialDigest &&
+    credentialProvider.key === connection.credentialProvider,
+  )
   const connected = Boolean(
-    connection && matchesVerifiedToken && connectedByIsAdministrator && !connection.refusedAt,
+    connection && matchesVerifiedCredential && connectedByIsAdministrator && !connection.refusedAt,
   )
   return {
-    configured: tokenDigest !== null,
+    configured: credentialProvider.configurationDigest !== null,
     connected,
     connectedBy:
-      connection && matchesVerifiedToken && connectedByIsAdministrator
+      connection && matchesVerifiedCredential && connectedByIsAdministrator
         ? connection.connectedBy
         : null,
-    refusedAt: matchesVerifiedToken ? (connection?.refusedAt ?? null) : null,
-    verifiedAt: matchesVerifiedToken ? (connection?.verifiedAt ?? null) : null,
+    refusedAt: matchesVerifiedCredential ? (connection?.refusedAt ?? null) : null,
+    verifiedAt: matchesVerifiedCredential ? (connection?.verifiedAt ?? null) : null,
   }
 }

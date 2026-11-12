@@ -13,7 +13,7 @@ const session = {
 }
 
 describe("copilotConnectionPageData()", () => {
-  it("does not offer connection until the operator configures a token", () => {
+  it("does not offer connection until the operator configures a credential", () => {
     const data = copilotConnectionPageData(session, {
       configured: false,
       connected: false,
@@ -24,11 +24,11 @@ describe("copilotConnectionPageData()", () => {
 
     expect(data.accessDenied).toBe(false)
     if (data.accessDenied) throw new Error("The administrator must receive connection controls.")
-    expect(data.tokenLabel).toMatch(/REPLICA_COPILOT_TOKEN/)
+    expect(data.credentialLabel).toMatch(/REPLICA_COPILOT_TOKEN/)
     expect(data.connect).toBeNull()
   })
 
-  it("offers connection for a configured token that is not verified", () => {
+  it("offers connection for a configured credential that is not verified", () => {
     const data = copilotConnectionPageData(session, {
       configured: true,
       connected: false,
@@ -39,7 +39,8 @@ describe("copilotConnectionPageData()", () => {
 
     expect(data.accessDenied).toBe(false)
     if (data.accessDenied) throw new Error("The administrator must receive connection controls.")
-    expect(data.tokenLabel).toBeNull()
+    expect(data.credentialLabel).toBeNull()
     expect(data.connect?.label).toBe("Connect Copilot")
+    expect([data.description, data.connect?.consequence].join(" ")).not.toMatch(/\btoken\b/i)
   })
 })

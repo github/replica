@@ -28,11 +28,11 @@ export function post(dependencies: CopilotConnectionRouteDependencies): RequestH
             ? 403
             : error.code === "busy"
               ? 409
-              : error.code === "token_missing"
+              : error.code === "credential_missing"
                 ? 409
                 : error.code === "connection_changed"
                   ? 409
-                  : error.code === "token_refused"
+                  : error.code === "credential_refused"
                     ? 422
                     : 503
         response.status(status).json({ error: error.message })

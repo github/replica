@@ -19,7 +19,7 @@ describe("CopilotConnectionPage()", () => {
     renderPage(story.args.data)
     expect(screen.getByRole("heading", { name: "Copilot is not connected" })).toBeInTheDocument()
     expect(
-      screen.getByText(/Usage counts toward the token owner's Copilot plan/),
+      screen.getByText(/GitHub attributes usage .* represented by that credential/),
     ).toBeInTheDocument()
     const checkbox = screen.getByRole("checkbox", {
       name: "I understand and confirm connecting Copilot for this Hub.",
@@ -54,16 +54,16 @@ describe("CopilotConnectionPage()", () => {
     ).toBeRequired()
   })
 
-  it("explains a refused token and offers to check and connect it", () => {
+  it("explains a refused credential and offers to check and connect it", () => {
     renderPage(Refused.args!.data!)
     expect(screen.getAllByRole("alert")[0]).toHaveTextContent(
-      /Copilot refused the configured token/,
+      /Copilot refused the configured credential/,
     )
     expect(screen.getByRole("button", { name: "Check and connect Copilot" })).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: "Disconnect Copilot" })).not.toBeInTheDocument()
   })
 
-  it("says how to give Hub a token, and offers no connection without one", () => {
+  it("retains environment token fallback guidance when no credential is configured", () => {
     renderPage(NoToken.args!.data!)
     expect(screen.getByRole("alert")).toHaveTextContent(/REPLICA_COPILOT_TOKEN/)
     expect(screen.queryByRole("button", { name: "Connect Copilot" })).not.toBeInTheDocument()

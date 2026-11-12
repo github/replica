@@ -66,14 +66,22 @@ export async function createCopilotConnectionRouteDependencies(
     connect: ({ sessionDigest }) =>
       withCopilotConnectionCheck(() =>
         connectCopilot(
-          { sessionDigest, token: configuration.copilotToken },
           {
-            check: (token) =>
-              runLearningCommand(["copilot", "status"], {
+            credentialProvider: configuration.copilotCredentialProvider,
+            sessionDigest,
+          },
+          {
+            check: async () => {
+              const credential = await configuration.copilotCredentialProvider.getCredential()
+              if (!credential) {
+                throw new Error("The configured Copilot credential is unavailable.")
+              }
+              return runLearningCommand(["copilot", "status"], {
                 cliPath: configuration.cliPath,
-                copilotToken: token,
+                githubToken: credential,
                 nodePath: configuration.nodePath,
-              }),
+              })
+            },
             createId: randomUUID,
             findAdministratorSession: findSession,
             now: () => new Date(),
@@ -106,12 +114,13 @@ export async function createCopilotConnectionRouteDependencies(
                 membershipId: connection.connectedByMembershipId,
                 name: connection.connectedByMembership.user.profile?.name ?? null,
               },
+              credentialDigest: connection.credentialDigest,
+              credentialProvider: connection.credentialProvider,
               refusedAt: connection.refusedAt,
-              tokenDigest: connection.tokenDigest,
               verifiedAt: connection.verifiedAt,
             }
           : null,
-        configuration.copilotToken,
+        configuration.copilotCredentialProvider,
         connectedByIsAdministrator,
       )
     },

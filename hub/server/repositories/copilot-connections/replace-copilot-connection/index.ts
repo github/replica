@@ -4,8 +4,9 @@ export async function replaceCopilotConnection(
   database: Pick<Prisma.TransactionClient, "copilotConnection">,
   input: {
     connectedByMembershipId: string
+    credentialDigest: string
+    credentialProvider: string
     id: string
-    tokenDigest: string
     verifiedAt: Date
   },
 ) {

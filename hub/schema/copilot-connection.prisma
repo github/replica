@@ -7,10 +7,11 @@ model CopilotConnection {
   connectedByMembership Membership @relation(fields: [connectedByMembershipId], references: [id], onDelete: Restrict)
 
   // Attribute columns
-  key         String    @unique @default("global") @db.VarChar(20)
-  tokenDigest String    @map("token_digest") @db.VarChar(64)
-  verifiedAt DateTime  @map("verified_at") @db.Timestamptz(3)
-  refusedAt  DateTime? @map("refused_at") @db.Timestamptz(3)
+  key                String    @unique @default("global") @db.VarChar(20)
+  credentialProvider String    @map("credential_provider") @db.VarChar(100)
+  credentialDigest   String    @map("credential_digest") @db.VarChar(64)
+  verifiedAt         DateTime  @map("verified_at") @db.Timestamptz(3)
+  refusedAt          DateTime? @map("refused_at") @db.Timestamptz(3)
 
   // Timestamp columns
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)

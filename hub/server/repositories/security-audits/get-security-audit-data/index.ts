@@ -296,6 +296,7 @@ export function getSecurityAuditData(
         targetId: event.connectionId,
         context: {
           actorMembershipId: event.actorMembershipId,
+          credentialProvider: event.credentialProvider,
           phase: event.phase,
           ...(event.reason ? { reason: event.reason } : {}),
         },

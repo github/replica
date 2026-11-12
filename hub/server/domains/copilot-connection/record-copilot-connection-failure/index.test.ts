@@ -24,7 +24,10 @@ describe("recordCopilotConnectionFailure()", () => {
 
     await expect(
       recordCopilotConnectionFailure(
-        { sessionDigest: "session-digest" },
+        {
+          credentialProvider: "environment_token",
+          sessionDigest: "session-digest",
+        },
         {
           createId: () => auditId,
           runTransaction: (operation) => operation(records),
@@ -37,6 +40,7 @@ describe("recordCopilotConnectionFailure()", () => {
     )
     expect(writeAudit).toHaveBeenCalledWith({
       actorMembershipId: membershipId,
+      credentialProvider: "environment_token",
       id: auditId,
       phase: "failed",
       reason: "status_check_failed",

@@ -6,6 +6,19 @@ import { describe, expect, it, onTestFinished } from "vitest"
 import { readLearningConfiguration } from "."
 
 describe("readLearningConfiguration()", () => {
+  it("provides an unconfigured environment credential provider without inventing a credential", async () => {
+    const applicationRoot = resolve(`server/domains/learning/.root-test-${randomUUID()}`)
+    onTestFinished(() => rm(applicationRoot, { force: true, recursive: true }))
+
+    const configuration = await readLearningConfiguration({}, applicationRoot)
+
+    expect(configuration.copilotCredentialProvider).toMatchObject({
+      key: "environment_token",
+      configurationDigest: null,
+    })
+    await expect(configuration.copilotCredentialProvider.getCredential()).resolves.toBeNull()
+  })
+
   it("rejects a learning root under the configured client directory", async () => {
     const applicationRoot = resolve(`server/domains/learning/.root-test-${randomUUID()}`)
     const clientDirectory = resolve(applicationRoot, "client-build")

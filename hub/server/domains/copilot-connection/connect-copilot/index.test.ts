@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto"
+import { randomUUID } from "node:crypto"
 import { describe, expect, it, vi } from "vitest"
 
 import { LearningCommandError } from "../../../integrations/learning/run-learning-command/errors"
@@ -23,13 +23,18 @@ function repositories(
 }
 
 describe("connectCopilot()", () => {
-  it("rereads administrator authority after token validation", async () => {
+  const credentialProvider = {
+    configurationDigest: "a".repeat(64),
+    key: "environment_token" as const,
+  }
+
+  it("rereads administrator authority after credential validation", async () => {
     const records = repositories({ findAdministratorSession: vi.fn().mockResolvedValue(null) })
     const check = vi.fn().mockResolvedValue({ signedIn: true, login: "octocat", models: [] })
 
     await expect(
       connectCopilot(
-        { sessionDigest: "session-digest", token: "secret-token" },
+        { credentialProvider, sessionDigest: "session-digest" },
         {
           check,
           createId: randomUUID,
@@ -44,7 +49,7 @@ describe("connectCopilot()", () => {
       ),
     ).rejects.toMatchObject({ code: "not_authorized" })
 
-    expect(check).toHaveBeenCalledWith("secret-token")
+    expect(check).toHaveBeenCalledOnce()
     expect(vi.mocked(records.lockState).mock.invocationCallOrder[0]).toBeLessThan(
       vi.mocked(records.findAdministratorSession).mock.invocationCallOrder[0]!,
     )
@@ -52,7 +57,7 @@ describe("connectCopilot()", () => {
     expect(records.writeAudit).not.toHaveBeenCalled()
   })
 
-  it("rejects a stale connection generation after token validation", async () => {
+  it("rejects a stale connection generation after credential validation", async () => {
     const records = repositories({
       lockState: vi.fn().mockResolvedValue({ generation: 2n }),
     })
@@ -60,7 +65,7 @@ describe("connectCopilot()", () => {
 
     await expect(
       connectCopilot(
-        { sessionDigest: "session-digest", token: "secret-token" },
+        { credentialProvider, sessionDigest: "session-digest" },
         {
           check,
           createId: randomUUID,
@@ -80,7 +85,7 @@ describe("connectCopilot()", () => {
     expect(records.writeAudit).not.toHaveBeenCalled()
   })
 
-  it("persists only the token digest and advances generation with the typed audit", async () => {
+  it("persists only the provider identity and advances generation with the typed audit", async () => {
     const actorMembershipId = randomUUID()
     const previousConnectionId = randomUUID()
     const connectionId = randomUUID()
@@ -94,7 +99,7 @@ describe("connectCopilot()", () => {
 
     await expect(
       connectCopilot(
-        { sessionDigest: "session-digest", token: "secret-token" },
+        { credentialProvider, sessionDigest: "session-digest" },
         {
           check: vi.fn().mockResolvedValue({ signedIn: true, login: "octocat", models: ["gpt"] }),
           createId,
@@ -113,16 +118,18 @@ describe("connectCopilot()", () => {
 
     expect(records.replaceConnection).toHaveBeenCalledWith({
       connectedByMembershipId: actorMembershipId,
+      credentialDigest: credentialProvider.configurationDigest,
+      credentialProvider: credentialProvider.key,
       id: connectionId,
-      tokenDigest: createHash("sha256").update("secret-token").digest("hex"),
       verifiedAt,
     })
     const savedConnection = vi.mocked(records.replaceConnection).mock.calls[0]?.[0]
-    expect(savedConnection).not.toHaveProperty("token")
+    expect(savedConnection).not.toHaveProperty("credential")
     expect(records.advanceState).toHaveBeenCalledOnce()
     expect(records.writeAudit).toHaveBeenCalledWith({
       actorMembershipId,
       connectionId,
+      credentialProvider: credentialProvider.key,
       id: auditId,
       phase: "connected",
       type: "copilot_connection",
@@ -137,7 +144,7 @@ describe("connectCopilot()", () => {
 
     await expect(
       connectCopilot(
-        { sessionDigest: "session-digest", token: "secret-token" },
+        { credentialProvider, sessionDigest: "session-digest" },
         {
           check: vi.fn().mockResolvedValue({ signedIn: true, login: "octocat", models: [] }),
           createId,
@@ -153,7 +160,7 @@ describe("connectCopilot()", () => {
     ).resolves.toEqual({ connectionId })
   })
 
-  it("records a refused token against the checked generation without starting a connection transaction", async () => {
+  it("records a refused credential against its provider identity without starting a connection transaction", async () => {
     const actorMembershipId = randomUUID()
     const connectionId = randomUUID()
     const checkedAt = new Date("2026-11-10T23:00:00Z")
@@ -164,12 +171,12 @@ describe("connectCopilot()", () => {
 
     await expect(
       connectCopilot(
-        { sessionDigest: "session-digest", token: "refused-token" },
+        { credentialProvider, sessionDigest: "session-digest" },
         {
           check: vi
             .fn()
             .mockRejectedValue(
-              new LearningCommandError("unauthorized", "Copilot refused the token."),
+              new LearningCommandError("unauthorized", "Copilot refused the credential."),
             ),
           createId: randomUUID,
           findAdministratorSession: vi.fn().mockResolvedValue({ membershipId: actorMembershipId }),
@@ -181,27 +188,28 @@ describe("connectCopilot()", () => {
           writeAudit,
         },
       ),
-    ).rejects.toMatchObject({ code: "token_refused" })
+    ).rejects.toMatchObject({ code: "credential_refused" })
 
     expect(recordRefusal).toHaveBeenCalledWith({
       at: checkedAt,
+      credentialDigest: credentialProvider.configurationDigest,
+      credentialProvider: credentialProvider.key,
       sessionDigest: "session-digest",
       snapshot,
-      tokenDigest: createHash("sha256").update("refused-token").digest("hex"),
     })
     expect(runTransaction).not.toHaveBeenCalled()
     expect(writeAudit).not.toHaveBeenCalled()
   })
 
-  it("does not persist a refused token after administrator authority is lost", async () => {
+  it("does not persist a refused credential after administrator authority is lost", async () => {
     await expect(
       connectCopilot(
-        { sessionDigest: "session-digest", token: "refused-token" },
+        { credentialProvider, sessionDigest: "session-digest" },
         {
           check: vi
             .fn()
             .mockRejectedValue(
-              new LearningCommandError("unauthorized", "Copilot refused the token."),
+              new LearningCommandError("unauthorized", "Copilot refused the credential."),
             ),
           createId: randomUUID,
           findAdministratorSession: vi.fn().mockResolvedValue({ membershipId: randomUUID() }),
@@ -221,7 +229,7 @@ describe("connectCopilot()", () => {
 
     await expect(
       connectCopilot(
-        { sessionDigest: "session-digest", token: "secret-token" },
+        { credentialProvider, sessionDigest: "session-digest" },
         {
           check: vi.fn().mockRejectedValue(new Error("Copilot unavailable")),
           createId: randomUUID,
@@ -236,6 +244,9 @@ describe("connectCopilot()", () => {
       ),
     ).rejects.toMatchObject({ code: "not_authorized" })
 
-    expect(recordFailure).toHaveBeenCalledWith({ sessionDigest: "session-digest" })
+    expect(recordFailure).toHaveBeenCalledWith({
+      credentialProvider: credentialProvider.key,
+      sessionDigest: "session-digest",
+    })
   })
 })

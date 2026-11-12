@@ -6,13 +6,13 @@ The package remains the authority for consent, purpose, evidence, approval, reda
 
 ## Copilot connection
 
-Set `REPLICA_COPILOT_TOKEN` from the deployment's secret store, then sign in as a live Hub administrator and open `/settings/copilot`. Hub asks `replica-learning copilot status` to verify the token before it saves the connection. The database stores the administrator membership, the token's SHA-256 digest, verification time, refusal time when applicable, and a generation counter. It never stores or returns the token.
+Hub obtains Copilot access through a credential provider. This foundation includes the `environment_token` provider for simple and local deployments: set `REPLICA_COPILOT_TOKEN` from the deployment's secret store, then sign in as a live Hub administrator and open `/settings/copilot`. Hub asks `replica-learning copilot status` to verify the credential before it saves the connection. The database stores the administrator membership, provider key, stable provider-configuration digest, verification time, refusal time when applicable, and a generation counter. It never stores or returns the credential.
 
 The verification request runs before the database transaction. Hub then locks the persistent generation row, rereads the live administrator session, and refuses to commit if another connection or disconnection happened while Copilot answered. The connection change and its typed security audit commit together.
 
-Replacing `REPLICA_COPILOT_TOKEN` makes the saved connection inactive until an administrator checks and connects the replacement token. Hub never treats an unverified token digest as the connected credential.
+Changing the active provider or its configuration digest makes the saved connection inactive until an administrator checks and reconnects it. For the environment provider, replacing `REPLICA_COPILOT_TOKEN` changes that digest. Hub never treats an unverified credential configuration as connected.
 
-Disconnecting removes the connection record and advances the generation. It does not remove the operator's token or any learning store.
+Disconnecting removes the connection record and advances the generation. It does not remove the operator's credential source or any learning store.
 
 ## Private storage
 
@@ -39,12 +39,12 @@ Later repository mutations use the PostgreSQL advisory-lock primitive for one Hu
 
 | Variable | Contract |
 | --- | --- |
-| `REPLICA_COPILOT_TOKEN` | Optional operator secret used only for Copilot-backed package commands. |
+| `REPLICA_COPILOT_TOKEN` | Optional environment-provider secret used only for Copilot-backed package commands. Usage is attributed to the GitHub identity represented by this credential. |
 | `REPLICA_LEARNING_ROOT` | Private learning-store root. Defaults to `storage/learning`. |
 | `REPLICA_LEARNING_CLI` | Optional package CLI path. Source development defaults to `../packages/learning/bin/replica-learning.mjs` from `hub/`; the image sets `/opt/replica/learning/bin/replica-learning.mjs`. |
 | `REPLICA_LEARNING_NODE` | Optional Node.js executable. Defaults to the running Node.js executable. |
 
-The default deployment may obtain the environment values through platform secret references and workload identity, but the learning child receives only the allowlisted values above.
+The default deployment may obtain environment-provider values through platform secret references, but the learning child receives only the allowlisted values above. The provider boundary can supply a fresh credential for each command without changing that process boundary. Organization-attributed GitHub App installation credentials are not implemented in this version.
 
 ## Remaining integration seam
 

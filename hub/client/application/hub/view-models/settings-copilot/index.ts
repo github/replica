@@ -30,7 +30,7 @@ export function settingsCopilot(
     connected: state.copilot.connected,
     statusLabel: state.copilot.connected ? "Copilot is connected" : "Copilot is not connected",
     submitPath: resourcePath("/settings/copilot", search),
-    tokenLabel: null,
+    credentialLabel: null,
     connectedBy: state.copilot.connectedBy
       ? `@${state.copilot.connectedBy} connected Copilot.`
       : undefined,
@@ -40,8 +40,8 @@ export function settingsCopilot(
       : {
           label: "Connect Copilot",
           consequence:
-            "Hub will ask Copilot, with the configured token, to read new review comments from every repository on this Hub and suggest learnings, including while you are signed out. Copilot never sees who wrote a comment. The usage counts toward the Copilot plan of the token's owner. Hub checks the token with Copilot first, and never stores or shows it.",
-          confirmLabel: "I understand that Hub will use this Copilot token for this Hub.",
+            "Hub will ask Copilot, with the configured credential, to read new review comments from every repository on this Hub and suggest learnings, including while you are signed out. Copilot never sees who wrote a comment. GitHub attributes usage to the account or organization represented by the credential. Hub checks the credential with Copilot first, and never stores or shows it.",
+          confirmLabel: "I understand that Hub will use this Copilot credential for this Hub.",
           verification,
         },
     disconnect: state.copilot.connected

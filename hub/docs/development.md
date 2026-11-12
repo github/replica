@@ -60,7 +60,7 @@ Remove GitHub or Entra settings from `.env` before switching to local mode; othe
 
 With `npm run dev:api:live`, configure `HUB_APPLICATION_ORIGIN` and at least one complete GitHub or Entra profile. Set the shared encryption key and bootstrap secret at the same time. This command refuses to start without provider settings and disables local sign-in even if it is enabled in `.env`. See `.env.example` and [Microsoft Entra OIDC](entra-oidc.md). With the default `HOST`, both development servers accept connections only from this machine. Stop each with Ctrl+C.
 
-Configured authentication also registers the administrator-only [`/settings/copilot`](learning-foundation.md) flow. `REPLICA_COPILOT_TOKEN` is optional; without it the page remains available but refuses connection. API and worker startup validate `REPLICA_LEARNING_ROOT` against source and configured static-file roots even before repository learning runs exist.
+Configured authentication also registers the administrator-only [`/settings/copilot`](learning-foundation.md) flow. The included environment credential provider reads optional `REPLICA_COPILOT_TOKEN`; without it the page remains available but refuses connection. This simple mode attributes usage to the token's GitHub identity. API and worker startup validate `REPLICA_LEARNING_ROOT` against source and configured static-file roots even before repository learning runs exist.
 
 No authentication-provider database seed is required. API startup validates each configured provider adapter and persists only its provider key, revision number, and public-configuration digest.
 

@@ -6,9 +6,10 @@ import type {
 export function recordCopilotConnectionRefusal(
   input: {
     at: Date
+    credentialDigest: string
+    credentialProvider: string
     sessionDigest: string
     snapshot: CopilotConnectionSnapshot
-    tokenDigest: string
   },
   {
     createId,
@@ -35,9 +36,10 @@ export function recordCopilotConnectionRefusal(
     if (connection) {
       if (
         !(await repositories.refuseConnection({
+          credentialDigest: input.credentialDigest,
+          credentialProvider: input.credentialProvider,
           id: connection.id,
           refusedAt: input.at,
-          tokenDigest: input.tokenDigest,
         }))
       ) {
         return "connection_changed" as const
@@ -47,9 +49,10 @@ export function recordCopilotConnectionRefusal(
     await repositories.writeAudit({
       actorMembershipId: session.membershipId,
       connectionId: connection?.id,
+      credentialProvider: input.credentialProvider,
       id: createId(),
       phase: "denied",
-      reason: "token_refused",
+      reason: "credential_refused",
       type: "copilot_connection",
     })
     return "recorded" as const

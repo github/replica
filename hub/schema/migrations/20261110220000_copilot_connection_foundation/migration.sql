@@ -20,7 +20,8 @@ CREATE TABLE "copilot_connections" (
   "id" UUID NOT NULL,
   "connected_by_membership_id" UUID NOT NULL,
   "key" VARCHAR(20) NOT NULL DEFAULT 'global',
-  "token_digest" VARCHAR(64) NOT NULL,
+  "credential_provider" VARCHAR(100) NOT NULL,
+  "credential_digest" VARCHAR(64) NOT NULL,
   "verified_at" TIMESTAMPTZ(3) NOT NULL,
   "refused_at" TIMESTAMPTZ(3),
   "created_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -28,8 +29,10 @@ CREATE TABLE "copilot_connections" (
 
   CONSTRAINT "copilot_connections_pkey" PRIMARY KEY ("id"),
   CONSTRAINT "copilot_connections_key_check" CHECK ("key" = 'global'),
-  CONSTRAINT "copilot_connections_token_digest_check"
-    CHECK ("token_digest" ~ '^[0-9a-f]{64}$')
+  CONSTRAINT "copilot_connections_credential_provider_check"
+    CHECK (length("credential_provider") > 0),
+  CONSTRAINT "copilot_connections_credential_digest_check"
+    CHECK ("credential_digest" ~ '^[0-9a-f]{64}$')
 );
 
 CREATE UNIQUE INDEX "copilot_connections_key_key"

@@ -2,10 +2,10 @@ export class CopilotConnectionError extends Error {
   readonly code:
     | "busy"
     | "connection_changed"
+    | "credential_missing"
+    | "credential_refused"
     | "not_authorized"
     | "not_connected"
-    | "token_missing"
-    | "token_refused"
     | "unavailable"
 
   constructor(code: CopilotConnectionError["code"], message: string, options?: ErrorOptions) {

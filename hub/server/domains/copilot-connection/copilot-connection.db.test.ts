@@ -24,9 +24,10 @@ async function createConnection() {
   await prisma.copilotConnection.create({
     data: {
       connectedByMembershipId: membershipId,
+      credentialDigest: "a".repeat(64),
+      credentialProvider: "environment_token",
       id: connectionId,
       key: "global",
-      tokenDigest: "a".repeat(64),
       verifiedAt: new Date("2026-11-10T23:00:00Z"),
     },
   })

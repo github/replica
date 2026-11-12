@@ -1,6 +1,6 @@
-import { createHash } from "node:crypto"
 import { z } from "zod"
 
+import type { CopilotCredentialProviderKey } from "../../copilot-credentials/types.ts"
 import { LearningCommandError } from "../../../integrations/learning/run-learning-command/errors.ts"
 import { CopilotConnectionError } from "../errors.ts"
 import type {
@@ -18,11 +18,14 @@ const statusSchema = z
 
 export async function connectCopilot(
   {
+    credentialProvider,
     sessionDigest,
-    token,
   }: {
+    credentialProvider: {
+      configurationDigest: string | null
+      key: CopilotCredentialProviderKey
+    }
     sessionDigest: string
-    token: string | null
   },
   {
     check,
@@ -35,17 +38,21 @@ export async function connectCopilot(
     runTransaction,
     writeAudit,
   }: {
-    check: (token: string) => Promise<unknown>
+    check: () => Promise<unknown>
     createId: () => string
     findAdministratorSession: (sessionDigest: string) => Promise<{ membershipId: string } | null>
     now: () => Date
     readSnapshot: () => Promise<CopilotConnectionSnapshot>
-    recordFailure: (input: { sessionDigest: string }) => Promise<boolean>
+    recordFailure: (input: {
+      credentialProvider: CopilotCredentialProviderKey
+      sessionDigest: string
+    }) => Promise<boolean>
     recordRefusal: (input: {
       at: Date
+      credentialDigest: string
+      credentialProvider: CopilotCredentialProviderKey
       sessionDigest: string
       snapshot: CopilotConnectionSnapshot
-      tokenDigest: string
     }) => Promise<"connection_changed" | "not_authorized" | "recorded">
     runTransaction: <T>(
       operation: (repositories: CopilotConnectionTransactionRepositories) => Promise<T>,
@@ -59,27 +66,33 @@ export async function connectCopilot(
   if (!actor) {
     throw new CopilotConnectionError("not_authorized", "Administrator access is required.")
   }
-  if (!token) {
+  if (!credentialProvider.configurationDigest) {
     await writeAudit({
       actorMembershipId: actor.membershipId,
+      credentialProvider: credentialProvider.key,
       id: createId(),
       phase: "denied",
-      reason: "token_missing",
+      reason: "credential_missing",
       type: "copilot_connection",
     })
-    throw new CopilotConnectionError("token_missing", "Hub has no Copilot token.")
+    throw new CopilotConnectionError(
+      "credential_missing",
+      "Hub has no configured Copilot credential.",
+    )
   }
+  const credentialDigest = credentialProvider.configurationDigest
   const snapshot = await readSnapshot()
   try {
-    statusSchema.parse(await check(token))
+    statusSchema.parse(await check())
   } catch (error) {
     const refused = error instanceof LearningCommandError && error.code === "unauthorized"
     if (refused) {
       const result = await recordRefusal({
         at: now(),
+        credentialDigest,
+        credentialProvider: credentialProvider.key,
         sessionDigest,
         snapshot,
-        tokenDigest: createHash("sha256").update(token).digest("hex"),
       })
       if (result === "not_authorized") {
         throw new CopilotConnectionError("not_authorized", "Administrator access is required.", {
@@ -89,22 +102,27 @@ export async function connectCopilot(
       if (result === "connection_changed") {
         throw new CopilotConnectionError(
           "connection_changed",
-          "The Copilot connection changed while Hub checked the token.",
+          "The Copilot connection changed while Hub checked the credential.",
           { cause: error },
         )
       }
     } else {
-      if (!(await recordFailure({ sessionDigest }))) {
+      if (
+        !(await recordFailure({
+          credentialProvider: credentialProvider.key,
+          sessionDigest,
+        }))
+      ) {
         throw new CopilotConnectionError("not_authorized", "Administrator access is required.", {
           cause: error,
         })
       }
     }
     throw new CopilotConnectionError(
-      refused ? "token_refused" : "unavailable",
+      refused ? "credential_refused" : "unavailable",
       refused
-        ? "Copilot refused the configured token."
-        : "Hub could not check the configured Copilot token.",
+        ? "Copilot refused the configured credential."
+        : "Hub could not check the configured Copilot credential.",
       { cause: error },
     )
   }
@@ -122,20 +140,22 @@ export async function connectCopilot(
     ) {
       throw new CopilotConnectionError(
         "connection_changed",
-        "The Copilot connection changed while Hub checked the token.",
+        "The Copilot connection changed while Hub checked the credential.",
       )
     }
     const connectionId = createId()
     await repositories.replaceConnection({
       connectedByMembershipId: session.membershipId,
+      credentialDigest,
+      credentialProvider: credentialProvider.key,
       id: connectionId,
-      tokenDigest: createHash("sha256").update(token).digest("hex"),
       verifiedAt: now(),
     })
     await repositories.advanceState()
     await repositories.writeAudit({
       actorMembershipId: session.membershipId,
       connectionId,
+      credentialProvider: credentialProvider.key,
       id: createId(),
       phase: "connected",
       type: "copilot_connection",

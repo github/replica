@@ -27,6 +27,7 @@ export async function disconnectCopilot(
     await repositories.writeAudit({
       actorMembershipId: session.membershipId,
       connectionId: connection.id,
+      credentialProvider: connection.credentialProvider,
       id: createId(),
       phase: "disconnected",
       type: "copilot_connection",

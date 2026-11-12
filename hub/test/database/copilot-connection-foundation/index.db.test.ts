@@ -126,9 +126,10 @@ describe("Copilot connection foundation migration", () => {
     await prisma.membership.create({ data: { id: membershipId, userId } })
     const connection = {
       connectedByMembershipId: membershipId,
+      credentialDigest: "a".repeat(64),
+      credentialProvider: "environment_token",
       id: randomUUID(),
       key: "global",
-      tokenDigest: "a".repeat(64),
       verifiedAt: new Date("2026-11-10T23:00:00Z"),
     }
     await prisma.copilotConnection.create({ data: connection })
@@ -146,7 +147,12 @@ describe("Copilot connection foundation migration", () => {
     ).rejects.toThrow()
     await expect(
       prisma.copilotConnection.create({
-        data: { ...connection, id: randomUUID(), tokenDigest: "not-a-digest" },
+        data: { ...connection, credentialDigest: "not-a-digest", id: randomUUID() },
+      }),
+    ).rejects.toThrow()
+    await expect(
+      prisma.copilotConnection.create({
+        data: { ...connection, credentialProvider: "", id: randomUUID() },
       }),
     ).rejects.toThrow()
   })

@@ -263,6 +263,7 @@ const eventSchema = z.discriminatedUnion("type", [
     .object({
       actorMembershipId: z.uuid().nullable(),
       connectionId: z.uuid().optional(),
+      credentialProvider: z.string().min(1).max(100),
       id: z.uuid(),
       phase: z.enum(["connected", "disconnected", "denied", "failed"]),
       reason: z.string().min(1).max(100).optional(),

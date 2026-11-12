@@ -12,7 +12,7 @@ const stopTimeoutMs = 1_000
 function commandEnvironment(
   source: NodeJS.ProcessEnv,
   temporaryDirectory: string,
-  copilotToken?: string,
+  githubToken?: string,
 ) {
   const environment: NodeJS.ProcessEnv = { TMPDIR: temporaryDirectory }
   for (const [name, value] of Object.entries(source)) {
@@ -23,7 +23,7 @@ function commandEnvironment(
       environment[name] = value
     }
   }
-  if (copilotToken) environment.COPILOT_GITHUB_TOKEN = copilotToken
+  if (githubToken) environment.COPILOT_GITHUB_TOKEN = githubToken
   return environment
 }
 
@@ -57,20 +57,20 @@ export async function runLearningCommand(
   arguments_: string[],
   {
     cliPath,
-    copilotToken,
     directory,
     environment = process.env,
     errorLimit = 1024 * 1024,
+    githubToken,
     nodePath = process.execPath,
     outputLimit = 16 * 1024 * 1024,
     signal,
     timeoutMs = 60_000,
   }: {
     cliPath: string
-    copilotToken?: string
     directory?: string
     environment?: NodeJS.ProcessEnv
     errorLimit?: number
+    githubToken?: string
     nodePath?: string
     outputLimit?: number
     signal?: AbortSignal
@@ -93,7 +93,7 @@ export async function runLearningCommand(
       const child = spawn(nodePath, [cliPath, ...arguments_, "--json"], {
         cwd: directory ?? temporaryDirectory,
         detached: true,
-        env: commandEnvironment(environment, temporaryDirectory, copilotToken),
+        env: commandEnvironment(environment, temporaryDirectory, githubToken),
         stdio: ["ignore", "pipe", "pipe"],
       })
       const output: Buffer[] = []

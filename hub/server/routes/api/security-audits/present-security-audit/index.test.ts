@@ -401,7 +401,7 @@ describe("presentSecurityAudit()", () => {
       [
         ["connected", "success", true, undefined],
         ["disconnected", "success", true, undefined],
-        ["denied", "denied", false, "token_missing"],
+        ["denied", "denied", false, "credential_missing"],
         ["failed", "failure", false, "status_check_failed"],
       ] as const
     ).map(([phase, outcome, hasConnectionId, reason]) => ({
@@ -409,6 +409,7 @@ describe("presentSecurityAudit()", () => {
       event: {
         actorMembershipId,
         ...(hasConnectionId ? { connectionId: providerId } : {}),
+        credentialProvider: "environment_token",
         id: auditId,
         phase,
         ...(reason ? { reason } : {}),
@@ -418,6 +419,7 @@ describe("presentSecurityAudit()", () => {
         action: `copilot.connection.${phase}`,
         actor: { membershipId: actorMembershipId },
         context: {
+          credentialProvider: "environment_token",
           phase,
           ...(reason ? { reason } : {}),
           ...(hasConnectionId ? { targetId: providerId } : {}),

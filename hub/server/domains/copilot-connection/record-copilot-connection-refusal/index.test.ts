@@ -35,9 +35,10 @@ describe("recordCopilotConnectionRefusal()", () => {
       recordCopilotConnectionRefusal(
         {
           at,
+          credentialDigest: "a".repeat(64),
+          credentialProvider: "environment_token",
           sessionDigest: "session-digest",
           snapshot: { connectionId, generation: 1n },
-          tokenDigest: "a".repeat(64),
         },
         {
           createId: () => auditId,
@@ -50,17 +51,19 @@ describe("recordCopilotConnectionRefusal()", () => {
       vi.mocked(records.findAdministratorSession).mock.invocationCallOrder[0]!,
     )
     expect(records.refuseConnection).toHaveBeenCalledWith({
+      credentialDigest: "a".repeat(64),
+      credentialProvider: "environment_token",
       id: connectionId,
       refusedAt: at,
-      tokenDigest: "a".repeat(64),
     })
     expect(records.advanceState).toHaveBeenCalledOnce()
     expect(records.writeAudit).toHaveBeenCalledWith({
       actorMembershipId: membershipId,
       connectionId,
+      credentialProvider: "environment_token",
       id: auditId,
       phase: "denied",
-      reason: "token_refused",
+      reason: "credential_refused",
       type: "copilot_connection",
     })
   })
@@ -72,9 +75,10 @@ describe("recordCopilotConnectionRefusal()", () => {
       recordCopilotConnectionRefusal(
         {
           at: new Date(),
+          credentialDigest: "a".repeat(64),
+          credentialProvider: "environment_token",
           sessionDigest: "session-digest",
           snapshot: { connectionId: null, generation: 1n },
-          tokenDigest: "a".repeat(64),
         },
         {
           createId: randomUUID,
@@ -94,9 +98,10 @@ describe("recordCopilotConnectionRefusal()", () => {
       recordCopilotConnectionRefusal(
         {
           at: new Date(),
+          credentialDigest: "a".repeat(64),
+          credentialProvider: "environment_token",
           sessionDigest: "session-digest",
           snapshot: { connectionId: (await records.getConnection())!.id, generation: 1n },
-          tokenDigest: "a".repeat(64),
         },
         {
           createId: randomUUID,

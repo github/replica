@@ -290,6 +290,7 @@ function contextFor(record: SecurityAuditListRecord): Record<string, string | nu
       const parsed = z
         .object({
           actorMembershipId: z.uuid().nullable(),
+          credentialProvider: z.string().min(1).max(100),
           phase: z.enum(["connected", "disconnected", "denied", "failed"]),
           reason: reasonSchema.optional(),
         })
@@ -297,6 +298,7 @@ function contextFor(record: SecurityAuditListRecord): Record<string, string | nu
         .safeParse(record.context)
       return parsed.success
         ? {
+            credentialProvider: parsed.data.credentialProvider,
             phase: parsed.data.phase,
             ...(parsed.data.reason ? { reason: parsed.data.reason } : {}),
             ...(targetId ? { targetId } : {}),

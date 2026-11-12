@@ -11,8 +11,9 @@ describe("runLearningCommand()", () => {
   it("isolates the environment in a private temporary directory and removes it afterward", async () => {
     const result = (await runLearningCommand(["copilot", "status"], {
       cliPath: resolve(fixtures, "report-runtime.mjs"),
-      copilotToken: "explicit-token",
+      githubToken: "explicit-token",
       environment: {
+        COPILOT_GITHUB_TOKEN: "ambient-token-must-not-leak",
         HOME: "/private/home",
         LANG: "en_US.UTF-8",
         LC_ALL: "C",
@@ -41,6 +42,18 @@ describe("runLearningCommand()", () => {
     expect(result.environment.SECRET_FROM_HUB).toBeUndefined()
     expect(result.temporaryDirectoryMode).toBe(0o700)
     await expect(stat(result.temporaryDirectory)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  it("does not pass an ambient GitHub token when no credential was explicitly acquired", async () => {
+    const result = (await runLearningCommand(["copilot", "status"], {
+      cliPath: resolve(fixtures, "report-runtime.mjs"),
+      environment: {
+        COPILOT_GITHUB_TOKEN: "ambient-token-must-not-leak",
+        PATH: process.env.PATH,
+      },
+    })) as { environment: NodeJS.ProcessEnv }
+
+    expect(result.environment.COPILOT_GITHUB_TOKEN).toBeUndefined()
   })
 
   it("kills the command process group when the timeout expires", async () => {

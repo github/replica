@@ -18,10 +18,10 @@ const shared = {
   },
   heading: "Copilot",
   description:
-    "A Hub administrator connects Copilot once for this deployment. The operator-provided token stays outside the database.",
+    "A Hub administrator connects Copilot once for this deployment. The operator-provided credential stays outside the database.",
   emptyLabel: "Learnings stays off until a Hub administrator connects Copilot.",
   submitPath: "/settings/copilot",
-  tokenLabel: null,
+  credentialLabel: null,
 }
 
 const verification =
@@ -30,7 +30,7 @@ const verification =
 const connect = {
   label: "Connect Copilot",
   consequence:
-    "Hub asks Copilot to verify the configured token. Later learning runs may send review comment text without reviewer identity. Usage counts toward the token owner's Copilot plan.",
+    "Hub asks Copilot to verify the configured credential. Later learning runs may send review comment text without reviewer identity. GitHub attributes usage to the account or organization represented by that credential.",
   confirmLabel: "I understand and confirm connecting Copilot for this Hub.",
   verification,
 }
@@ -78,8 +78,8 @@ export const NoToken: Story = {
   args: {
     data: {
       ...data,
-      tokenLabel:
-        "Set REPLICA_COPILOT_TOKEN in the deployment secret store and restart Hub before connecting.",
+      credentialLabel:
+        "Configure a Copilot credential before connecting. Simple deployments can set REPLICA_COPILOT_TOKEN in the deployment secret store and restart Hub.",
       connect: null,
     },
   },
@@ -91,7 +91,7 @@ export const Refused: Story = {
   args: {
     data: {
       ...data,
-      refusedLabel: "Copilot refused the configured token on 2026-11-11T13:00:00.000Z.",
+      refusedLabel: "Copilot refused the configured credential on 2026-11-11T13:00:00.000Z.",
       connect: { ...connect, label: "Check and connect Copilot" },
     },
   },

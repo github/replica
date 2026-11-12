@@ -206,6 +206,7 @@ export interface CopilotConnectionAudit extends SecurityAuditEvent {
   type: "copilot_connection"
   actorMembershipId: string | null
   connectionId?: string
+  credentialProvider: string
   phase: "connected" | "disconnected" | "denied" | "failed"
   reason?: string
 }
