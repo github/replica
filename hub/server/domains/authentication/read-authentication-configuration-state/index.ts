@@ -17,11 +17,13 @@ export function readAuthenticationConfigurationState(environment: NodeJS.Process
   }
   const githubConfigured = githubKeys.some(configured)
   const entraConfigured = entraKeys.some(configured)
+  const localConfigured = environment.HUB_LOCAL_SIGN_IN?.trim() === "true"
   return {
     applicationOrigin: environment.HUB_APPLICATION_ORIGIN?.trim() || undefined,
     entraConfigured,
     githubConfigured,
-    providerConfigured: githubConfigured || entraConfigured,
+    localConfigured,
+    providerConfigured: githubConfigured || entraConfigured || localConfigured,
     sharedConfigured: sharedKeys.some(configured),
   }
 }

@@ -173,6 +173,46 @@ describe("HubApplication()", () => {
     expect(screen.queryByRole("button", { name: "Sign in with GitHub" })).toBeNull()
   })
 
+  it("offers local developer sign-in when the API enables it", async () => {
+    window.history.replaceState({}, "", "/")
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) =>
+        Promise.resolve(
+          requestUrl(input).endsWith("/api/auth/providers")
+            ? Response.json({ providers: ["local"] })
+            : new Response(null, { status: 401 }),
+        ),
+      ),
+    )
+
+    renderApplication()
+
+    expect(
+      await screen.findByRole("button", { name: "Sign in as local developer" }),
+    ).toBeInTheDocument()
+  })
+
+  it("leaves local developer sign-in out of administrator enrollment", async () => {
+    window.history.replaceState({}, "", "/admin-enrollment")
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) =>
+        Promise.resolve(
+          requestUrl(input).endsWith("/api/auth/providers")
+            ? Response.json({ providers: ["github", "local"] })
+            : new Response(null, { status: 401 }),
+        ),
+      ),
+    )
+
+    renderApplication()
+
+    expect(await screen.findByRole("button", { name: "Verify with GitHub" })).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: /local/i })).toBeNull()
+    window.history.replaceState({}, "", "/")
+  })
+
   it("shows an explicit discovery failure with no fallback actions", async () => {
     vi.stubGlobal(
       "fetch",

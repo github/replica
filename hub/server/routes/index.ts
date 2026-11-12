@@ -79,6 +79,7 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
       handleAuthenticationProvidersGet([
         ...(authentication.github ? (["github"] as const) : []),
         ...(authentication.entra ? (["entra"] as const) : []),
+        ...(authentication.local ? (["local"] as const) : []),
       ]),
     )
     if (authentication.github) {
@@ -121,6 +122,20 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
         "/api/auth/entra/callback",
         rateLimit(authentication.entra.callback, "callback"),
         handleAuthenticationCallbackGet(authentication.entra.callback),
+      )
+    }
+    if (authentication.local) {
+      app.post(
+        "/api/auth/local/start",
+        requireOrigin(authentication.local.signIn.applicationOrigin),
+        rateLimit(authentication.local.signIn, "start"),
+        express.urlencoded({ extended: false, limit: "4kb" }),
+        handleAuthenticationStartPost(authentication.local.signIn),
+      )
+      app.get(
+        "/api/auth/local/callback",
+        rateLimit(authentication.local.callback, "callback"),
+        handleAuthenticationCallbackGet(authentication.local.callback),
       )
     }
     app.get("/api/auth/session", handleCurrentSessionGet(authentication.currentSession))

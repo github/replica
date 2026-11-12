@@ -1,0 +1,52 @@
+import { describe, expect, it, vi } from "vitest"
+
+const providerSettings = [
+  "GITHUB_CLIENT_ID",
+  "GITHUB_CLIENT_SECRET",
+  "GITHUB_PROVIDER_REVISION",
+  "ENTRA_OIDC_CLIENT_AUTHENTICATION",
+  "ENTRA_OIDC_CLIENT_ID",
+  "ENTRA_OIDC_CLIENT_SECRET",
+  "ENTRA_OIDC_ISSUER",
+  "ENTRA_OIDC_MANAGED_IDENTITY_CLIENT_ID",
+  "ENTRA_OIDC_PROVIDER_REVISION",
+]
+
+describe("live API startup", () => {
+  it("requires GitHub or Entra settings before starting the API", async () => {
+    vi.resetModules()
+    for (const setting of providerSettings) vi.stubEnv(setting, "")
+    vi.stubEnv("HUB_LOCAL_SIGN_IN", "true")
+    vi.doMock("dotenv/config", () => ({}))
+    const start = vi.fn()
+    vi.doMock("../../index.ts", () => {
+      start()
+      return {}
+    })
+
+    await expect(import(".")).rejects.toThrow(
+      "Configure GitHub or Entra sign-in before running npm run dev:api:live.",
+    )
+    expect(start).not.toHaveBeenCalled()
+  })
+
+  it("disables local sign-in before starting the configured API", async () => {
+    vi.resetModules()
+    for (const setting of providerSettings) vi.stubEnv(setting, "")
+    vi.stubEnv("HUB_LOCAL_SIGN_IN", "true")
+    vi.doMock("dotenv/config", () => {
+      process.env.GITHUB_CLIENT_ID = "github-client"
+      process.env.HUB_LOCAL_SIGN_IN = "true"
+      return {}
+    })
+    const start = vi.fn()
+    vi.doMock("../../index.ts", () => {
+      start(process.env.HUB_LOCAL_SIGN_IN)
+      return {}
+    })
+
+    await import(".")
+
+    expect(start).toHaveBeenCalledExactlyOnceWith("false")
+  })
+})

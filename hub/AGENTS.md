@@ -12,6 +12,8 @@ Hub is being rebuilt in TypeScript. Read the [root instructions](../AGENTS.md), 
 
 Run Node commands from `hub/`, locally or inside the devcontainer. PostgreSQL and Prisma support configured GitHub authentication, administrator enrollment, Hub sessions, and a seeded read-only prototype index; see [authentication](docs/authentication.md). Other prototype APIs and repository-specific permissions are not built. Agree on the design before adding more product models, permissions, deployment choices, or product API routes.
 
+Use `npm run dev:api` to run Hub with local developer sign-in; this is the default choice for trying or testing Hub. Use `npm run dev:api:live` only when the task needs real GitHub or Entra sign-in configured in `.env`. [Development](docs/development.md#start-with-the-real-api) explains both modes.
+
 `npm test` does not require PostgreSQL. Use `npm run test:database` for `.db.test.ts` and `.db.test.tsx` cases in Node.js or jsdom. Follow the database isolation and reset rules in [testing](docs/testing-and-operations.md).
 
 Keep the top-level `HubThemeProvider` around Hub and Storybook content. It synchronizes the resolved light/dark mode to `<html data-color-mode>` so portals inherit Brand and `--hub-*` tokens. Do not add a fixed light theme to an overlay.

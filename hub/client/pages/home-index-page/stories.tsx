@@ -101,6 +101,21 @@ export const GitHubAndMicrosoftEntra: Story = {
   },
 }
 
+export const LocalDeveloper: Story = {
+  args: {
+    data: {
+      ...data,
+      signInActions: [
+        {
+          label: "Sign in as local developer",
+          path: "/api/auth/local/start",
+          provider: "local",
+        },
+      ],
+    },
+  },
+}
+
 export const AuthorizationFailed: Story = {
   args: {
     data: {

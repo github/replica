@@ -6,6 +6,7 @@ import { useHubTheme } from "@hooks/use-hub-theme"
 import { CurrentSessionPage } from "@pages/current-session-page"
 import { HomeIndexPage } from "@pages/home-index-page"
 import { HubAdminEnrollmentPage } from "@pages/hub-admin-enrollment-page"
+import type { HomeSignInAction } from "@pages/home-index-page/types"
 import { SessionLoadingPage } from "@pages/session-loading-page"
 
 type SessionState =
@@ -13,13 +14,13 @@ type SessionState =
   | {
       status: "signed-out"
       providerDiscoveryFailed: boolean
-      providers: Array<"github" | "entra">
+      providers: HomeSignInAction["provider"][]
       restoreFailed: boolean
     }
   | {
       status: "signed-in"
       providerDiscoveryFailed: boolean
-      providers: Array<"github" | "entra">
+      providers: HomeSignInAction["provider"][]
       membershipId: string
       userId: string
       provider: string
@@ -30,9 +31,15 @@ type SessionState =
 
 const providersSchema = z
   .object({
-    providers: z.array(z.enum(["github", "entra"])),
+    providers: z.array(z.enum(["github", "entra", "local"])),
   })
   .strict()
+
+const signInLabels: Record<HomeSignInAction["provider"], string> = {
+  entra: "Sign in with Microsoft Entra",
+  github: "Sign in with GitHub",
+  local: "Sign in as local developer",
+}
 
 export function HubApplication() {
   const { resolvedColorMode } = useHubTheme()
@@ -48,7 +55,7 @@ export function HubApplication() {
       })
       .catch(() => ({
         failed: true,
-        providers: [] as Array<"github" | "entra">,
+        providers: [] as HomeSignInAction["provider"][],
       }))
       .then(async (providerResult) => {
         try {
@@ -87,7 +94,7 @@ export function HubApplication() {
 
   if (session.status === "loading") return <SessionLoadingPage />
   const providerActions = session.providers.map((provider) => ({
-    label: provider === "github" ? "Sign in with GitHub" : "Sign in with Microsoft Entra",
+    label: signInLabels[provider],
     path: `/api/auth/${provider}/start`,
     provider,
   }))
@@ -106,12 +113,22 @@ export function HubApplication() {
           heading: "Enroll a Hub administrator",
           description: "Enter the deployment bootstrap secret, then verify your identity.",
           secretLabel: "Bootstrap secret",
-          providerActions: providerActions.map((action) => ({
-            ...action,
-            label:
-              action.provider === "github" ? "Verify with GitHub" : "Verify with Microsoft Entra",
-            path: `/api/auth/${action.provider}/admin-enrollment/start`,
-          })),
+          // The local developer is already an administrator, so it has no enrollment step.
+          providerActions: providerActions.flatMap((action) =>
+            action.provider === "local"
+              ? []
+              : [
+                  {
+                    ...action,
+                    provider: action.provider,
+                    label:
+                      action.provider === "github"
+                        ? "Verify with GitHub"
+                        : "Verify with Microsoft Entra",
+                    path: `/api/auth/${action.provider}/admin-enrollment/start`,
+                  },
+                ],
+          ),
         }}
       />
     )

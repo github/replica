@@ -91,7 +91,24 @@ describe("server runtime", () => {
 
     expect(runApi).not.toHaveBeenCalled()
     expect(logger.fatal).toHaveBeenCalledWith(
-      "Configure at least one GitHub or Entra provider when HUB_APPLICATION_ORIGIN is set.",
+      "Configure GitHub, Entra, or local sign-in when HUB_APPLICATION_ORIGIN is set.",
+    )
+  })
+
+  it("refuses local sign-in against a shared database before touching it", async () => {
+    vi.stubEnv("HUB_LOCAL_SIGN_IN", "true")
+    vi.stubEnv("NODE_ENV", "development")
+    vi.stubEnv("DATABASE_URL", "postgresql://hub.example.test/replica")
+    vi.mocked(parseRuntimeConfig).mockReturnValue({
+      ...apiConfiguration,
+      databaseUrl: "postgresql://hub.example.test/replica",
+    })
+
+    await expect(import("./index.ts")).rejects.toThrow("Unexpected process exit: 1")
+
+    expect(runApi).not.toHaveBeenCalled()
+    expect(logger.fatal).toHaveBeenCalledWith(
+      "HUB_LOCAL_SIGN_IN requires NODE_ENV=development and a local development DATABASE_URL.",
     )
   })
 

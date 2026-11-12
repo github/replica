@@ -86,6 +86,7 @@ export interface AuthenticationRouteDependencies {
   currentSession: CurrentSessionDependencies
   entra?: ProviderAuthenticationRouteDependencies
   github?: ProviderAuthenticationRouteDependencies
+  local?: ProviderAuthenticationRouteDependencies
   signOut: SignOutDependencies
 }
 
@@ -138,5 +139,5 @@ export interface AdministratorRouteDependencies {
     limit?: number
   }): Promise<SecurityAuditListResult>
   search(input: { limit?: number; query: string }): Promise<unknown>
-  start: Record<"entra" | "github", StartAdministratorAuthorizationDependencies | undefined>
+  start: Partial<Record<"entra" | "github" | "local", StartAdministratorAuthorizationDependencies>>
 }

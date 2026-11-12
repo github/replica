@@ -1,7 +1,7 @@
 export interface HomeSignInAction {
   label: string
   path: string
-  provider: "github" | "entra"
+  provider: "github" | "entra" | "local"
 }
 
 export interface HomeIndexPageData {

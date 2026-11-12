@@ -29,11 +29,18 @@ npm run setup
 
 The example URL connects to PostgreSQL on `127.0.0.1:5432`. To use another development database, set `DATABASE_URL` in `.env` instead. Do not commit credentials. With `DATABASE_URL` set, API startup requires a reachable, migrated database so it can reconcile configured providers and durably disable removed providers before serving requests. Run `npm run setup` after creating or updating the database and before `npm run dev:api`.
 
-For a true process-only health check without database or authentication composition, leave `DATABASE_URL` and all authentication settings unset. The health route itself does not query the database, but a database-backed API still fails closed at startup when the database is unreachable or its schema has not been set up.
+For a true process-only health check without database or authentication composition, leave `DATABASE_URL` and all authentication settings unset and run `node server/index.ts` directly. The health route itself does not query the database, but a database-backed API still fails closed at startup when the database is unreachable or its schema has not been set up.
 
 ## Start with the real API
 
-Run these commands from `hub/`, inside the devcontainer or with local Node.js:
+Run these commands from `hub/`, inside the devcontainer or with local Node.js. First choose how you will sign in:
+
+| Command | Sign-in | Use it when |
+| --- | --- | --- |
+| `npm run dev:api` | One fixed local developer who is a Hub administrator | You want to try or test Hub without setting up a sign-in provider. This is the default. |
+| `npm run dev:api:live` | GitHub or Entra, as configured in `.env` | You are testing provider sign-in, administrator enrollment through a provider, or real user identities. |
+
+For example, to start with local sign-in:
 
 ```sh
 npm run dev:api
@@ -47,11 +54,19 @@ npm run dev
 
 Open <http://127.0.0.1:5173>. React Router's Vite development server forwards `/api` requests to Express at <http://127.0.0.1:3001>. `GET /api/health` and `GET /api/ready` return JSON. The [authentication and Hub session guide](authentication.md) describes configured sign-in and enrollment. A signed-in member opens the first available repository, or an empty workspace when none exist. The real index supports search, user filtering, pagination, and latest Build status; prototype details are not connected yet.
 
-The API registers authentication routes when `HUB_APPLICATION_ORIGIN` and at least one complete GitHub or Entra profile are configured. Set the shared encryption key and bootstrap secret at the same time. See `.env.example` and [Microsoft Entra OIDC](entra-oidc.md). Both development servers accept connections only from this machine. Stop each with Ctrl+C.
+With `npm run dev:api`, the home page shows **Sign in as local developer**. Selecting it signs you in as one fixed local developer who is a Hub administrator. No password or outside account is involved. The API refuses to start in this mode unless `NODE_ENV` is `development` and `DATABASE_URL` points at a local development database. It also requires `HOST` to be `127.0.0.1`, `::1`, or `localhost` and `HUB_APPLICATION_ORIGIN` to be a loopback origin. It refuses GitHub or Entra settings at the same time. Unset origin, encryption key, and bootstrap secret values get local defaults. See [Local developer sign-in](authentication.md#local-developer-sign-in) for how this mode reuses the normal sign-in checks. The command defaults `NODE_ENV` to `development` and enables local sign-in for you.
+
+With `npm run dev:api:live`, configure `HUB_APPLICATION_ORIGIN` and at least one complete GitHub or Entra profile. Set the shared encryption key and bootstrap secret at the same time. This command refuses to start without provider settings and disables local sign-in even if it is enabled in `.env`. See `.env.example` and [Microsoft Entra OIDC](entra-oidc.md). With the default `HOST`, both development servers accept connections only from this machine. Stop each with Ctrl+C.
 
 No authentication-provider database seed is required. API startup validates each configured provider adapter and persists only its provider key, revision number, and public-configuration digest.
 
-To populate a local index, sign in and find your `userId` in the browser's `/api/auth/session` response. Replace `USER_UUID` with that ID:
+To populate a local index, sign in as the local developer once, then run:
+
+```sh
+NODE_ENV=development npm run db:seed:index
+```
+
+When you sign in through GitHub or Entra instead, find your `userId` in the browser's `/api/auth/session` response and pass it to the seed:
 
 ```sh
 NODE_ENV=development npm run db:seed:index -- USER_UUID
