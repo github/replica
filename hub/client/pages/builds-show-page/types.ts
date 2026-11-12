@@ -15,7 +15,7 @@ export interface BuildsShowPageData extends PrototypeWorkspaceData {
     url: string | null
   }
   commitHeading: string
-  commitSha: string
+  commitSha: string | null
   createdAt: string
   createdLabel: string
   desktopScreenshot?: BuildScreenshot

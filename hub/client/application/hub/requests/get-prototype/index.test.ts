@@ -68,7 +68,7 @@ describe("getPrototype()", () => {
       const result = Promise.resolve().then(() => getPrototype(request, "2001", "1"))
 
       await expect(result).rejects.toBeInstanceOf(Response)
-      await expect(result).rejects.toMatchObject({ status: 400 })
+      await expect(result).rejects.toMatchObject({ status: 404 })
     },
   )
 

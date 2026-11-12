@@ -11,6 +11,7 @@ export function prototypeShowData(
   workspace: WorkspaceResponse,
   data: PrototypeResponse,
   search: URLSearchParams,
+  options: { real?: boolean } = {},
 ): PrototypesShowPageData {
   const selectedBuild = data.selectedBuild
   const previewBuild =
@@ -26,6 +27,11 @@ export function prototypeShowData(
 
   return {
     ...workspaceData,
+    buildOptions: options.real
+      ? workspaceData.buildOptions.filter((build) => build.state === "successful")
+      : workspaceData.buildOptions,
+    historyPath: options.real ? undefined : workspaceData.historyPath,
+    shareLinksPath: options.real ? undefined : workspaceData.shareLinksPath,
     buildPinned: search.has("build"),
     controlsIdentity: data.controlsIdentity,
     prototypeName: data.prototype.name,
@@ -57,8 +63,8 @@ export function prototypeShowData(
       ? `Build ${selectedBuild.number} has no preview`
       : "No preview available",
     emptyLabel: selectedBuild
-      ? `${buildStateLabel(selectedBuild.state)}. Build history remains available.`
-      : "This prototype has no preview yet. Build history remains available.",
+      ? "Preview hosting is not available for this Build."
+      : "This prototype has no successful Build yet.",
     previewUrlLabel: "Preview URL",
     copyPreviewUrlLabel: "Copy preview URL",
     copiedPreviewUrlLabel: "Copied preview URL",
@@ -87,10 +93,12 @@ export function prototypeShowData(
       ? {
           number: previewBuild.number,
           detailsLabel: "Build details",
-          detailsPath: resourcePath(
-            `/repositories/${data.repository.id}/prototypes/${data.prototype.id}/builds/${previewBuild.number}`,
-            search,
-          ),
+          detailsPath: options.real
+            ? undefined
+            : resourcePath(
+                `/repositories/${data.repository.id}/prototypes/${data.prototype.id}/builds/${previewBuild.number}`,
+                search,
+              ),
           frameTitle: `${data.prototype.name}, Build ${previewBuild.number} preview`,
           previewUrl: previewBuild.previewUrl,
         }

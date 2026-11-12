@@ -12,8 +12,20 @@ export function buildShowData(
   search: URLSearchParams,
 ): BuildsShowPageData {
   const build = data.build
-  const author = workspace.viewer.login === build.commitAuthorLogin ? workspace.viewer : null
   const hasScreenshots = Boolean(build.desktopScreenshotUrl && build.narrowScreenshotUrl)
+  const githubAuthor =
+    build.commitAuthorProvider === undefined || build.commitAuthorProvider === "github"
+  const authorName =
+    githubAuthor && build.commitAuthorLogin
+      ? `@${build.commitAuthorLogin}`
+      : build.commitAuthorName || build.commitAuthorLogin
+  const authorAvatarUrl =
+    build.commitAuthorAvatarUrl ??
+    (workspace.viewer.login === build.commitAuthorLogin &&
+    (build.commitAuthorProvider === undefined ||
+      build.commitAuthorProvider === workspace.viewer.provider)
+      ? workspace.viewer.avatarUrl
+      : null)
 
   return {
     ...prototypeWorkspace({
@@ -25,9 +37,12 @@ export function buildShowData(
       surface: "build",
     }),
     commitAuthor: {
-      avatarUrl: author?.avatarUrl ?? null,
-      label: `By @${build.commitAuthorLogin}`,
-      url: `https://github.com/${encodeURIComponent(build.commitAuthorLogin)}`,
+      avatarUrl: authorAvatarUrl,
+      label: authorName ? `By ${authorName}` : "Unknown author",
+      url:
+        githubAuthor && build.commitAuthorLogin
+          ? `https://github.com/${encodeURIComponent(build.commitAuthorLogin)}`
+          : null,
     },
     commitHeading: "Exact commit",
     commitSha: build.commitSha,

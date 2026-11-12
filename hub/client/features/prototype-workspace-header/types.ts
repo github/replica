@@ -19,6 +19,7 @@ interface WorkspaceHeaderData {
     detailsLabel?: string
     detailsPath?: string
   }
+  selectedBuildNumber?: number
   useDarkThemeLabel: string
   useLightThemeLabel: string
 }
@@ -40,7 +41,7 @@ export interface PrototypeWorkspaceHeaderData extends WorkspaceHeaderData {
   }>
   buildSelectionLabel: string
   historyLabel: string
-  historyPath: string
+  historyPath?: string
   moreActionsLabel: string
   shareLinksLabel?: string
   shareLinksPath?: string

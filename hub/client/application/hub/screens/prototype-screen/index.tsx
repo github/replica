@@ -32,7 +32,10 @@ export function PrototypeScreen({
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const { resolvedColorMode } = useHubTheme()
   const session = useRouteLoaderData<SessionResponse>("root")
-  const pageData = prototypeShowData(workspace, data, new URLSearchParams(location.search))
+  const mock = import.meta.env.DEV && import.meta.env.MODE === "mock"
+  const pageData = prototypeShowData(workspace, data, new URLSearchParams(location.search), {
+    real: !mock,
+  })
   pageData.reviewReadOnly = !session?.capabilities.reviewPrototypes
   if (pageData.reviewReadOnly) {
     pageData.reviewComments = {

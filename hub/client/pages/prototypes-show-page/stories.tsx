@@ -83,7 +83,7 @@ const data: PrototypesShowPageData = {
   closeLabel: "Close",
   collapseNavigationLabel: "Collapse sidebar",
   emptyHeading: "No successful Build yet",
-  emptyLabel: "Build history remains available while the workflow runs.",
+  emptyLabel: "This prototype has no successful Build yet.",
   expandNavigationLabel: "Expand sidebar",
   historyLabel: "History",
   historyPath: "/repositories/2001/prototypes/1/builds",
@@ -220,6 +220,35 @@ type Story = StoryObj<typeof meta>
 export const Empty: Story = {
   args: {
     data: { ...data, selectedBuild: undefined },
+  },
+}
+
+export const PreviewHostingUnavailable: Story = {
+  args: {
+    data: {
+      ...data,
+      author: { avatarUrl: null, label: "By Mona", url: null },
+      branchSubmissionMode: "disabled",
+      buildOptions: [
+        {
+          number: 3,
+          label: "v3",
+          path: "/repositories/2001/prototypes/1?build=3",
+          state: "successful",
+        },
+      ],
+      emptyHeading: "Build 3 has no preview",
+      emptyLabel: "Preview hosting is not available for this Build.",
+      buildSelectionLabel: "Build 3 · Successful",
+      detailsEditPath: undefined,
+      historyPath: undefined,
+      latestBuild: undefined,
+      newPrototypePath: null,
+      reviewReadOnly: true,
+      selectedBuild: undefined,
+      selectedBuildNumber: 3,
+      shareLinksPath: undefined,
+    },
   },
 }
 

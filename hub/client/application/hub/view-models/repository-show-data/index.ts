@@ -9,7 +9,7 @@ export function repositoryShowData(
   workspace: WorkspaceResponse,
   data: RepositoryResponse,
   search: URLSearchParams,
-  options: { detailsAvailable?: boolean; real?: boolean } = {},
+  options: { real?: boolean } = {},
 ): RepositoriesShowPageData {
   const path = `/repositories/${data.repository.id}`
   const pageQuery = new URLSearchParams(search)
@@ -68,10 +68,7 @@ export function repositoryShowData(
         name: prototype.name,
         branchName: prototype.branchName,
         description: prototype.description,
-        path:
-          options.detailsAvailable === false
-            ? null
-            : resourcePath(`${path}/prototypes/${prototype.id}`, search),
+        path: resourcePath(`${path}/prototypes/${prototype.id}`, search),
         author: {
           avatarUrl: prototypeAuthor?.avatarUrl ?? null,
           label: prototype.authorLogin ? `By ${authorName}` : authorName,

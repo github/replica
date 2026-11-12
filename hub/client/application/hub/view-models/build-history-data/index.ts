@@ -25,24 +25,42 @@ export function buildHistoryData(
       search,
       surface: "history",
     }),
-    builds: data.builds.map((build) => ({
-      author: {
-        avatarUrl:
-          workspace.viewer.login === build.commitAuthorLogin ? workspace.viewer.avatarUrl : null,
-        label: `By @${build.commitAuthorLogin}`,
-        url: `https://github.com/${encodeURIComponent(build.commitAuthorLogin)}`,
-      },
-      commitLabel: `Commit ${build.commitSha.slice(0, 7)}`,
-      commitSha: build.commitSha,
-      createdAt: build.createdAt,
-      createdLabel: `Created ${formatBuildTime(build.createdAt)}`,
-      number: build.number,
-      numberLabel: `Build ${build.number}`,
-      path: resourcePath(`${path}/${build.number}`, search),
-      shortCommitSha: build.commitSha.slice(0, 7),
-      state: build.state,
-      stateLabel: buildStateLabel(build.state),
-    })),
+    builds: data.builds.map((build) => {
+      const githubAuthor =
+        build.commitAuthorProvider === undefined || build.commitAuthorProvider === "github"
+      const authorName =
+        githubAuthor && build.commitAuthorLogin
+          ? `@${build.commitAuthorLogin}`
+          : build.commitAuthorName || build.commitAuthorLogin
+      return {
+        author: {
+          avatarUrl:
+            build.commitAuthorAvatarUrl ??
+            (workspace.viewer.login === build.commitAuthorLogin &&
+            (build.commitAuthorProvider === undefined ||
+              build.commitAuthorProvider === workspace.viewer.provider)
+              ? workspace.viewer.avatarUrl
+              : null),
+          label: authorName ? `By ${authorName}` : "Unknown author",
+          url:
+            githubAuthor && build.commitAuthorLogin
+              ? `https://github.com/${encodeURIComponent(build.commitAuthorLogin)}`
+              : null,
+        },
+        commitLabel: build.commitSha
+          ? `Commit ${build.commitSha.slice(0, 7)}`
+          : "Commit unavailable",
+        commitSha: build.commitSha,
+        createdAt: build.createdAt,
+        createdLabel: `Created ${formatBuildTime(build.createdAt)}`,
+        number: build.number,
+        numberLabel: `Build ${build.number}`,
+        path: resourcePath(`${path}/${build.number}`, search),
+        shortCommitSha: build.commitSha?.slice(0, 7) ?? null,
+        state: build.state,
+        stateLabel: buildStateLabel(build.state),
+      }
+    }),
     buildsHeading: "History",
     emptyLabel: "No Builds have been recorded for this prototype.",
     pageTitle: `${data.prototype.name} · Build history`,

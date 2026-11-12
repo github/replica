@@ -49,7 +49,11 @@ export function BuildsShowPage({ data }: { data: BuildsShowPageData }) {
                   </Heading>
                 </Stack>
 
-                <code className="build-detail__sha">{data.commitSha}</code>
+                {data.commitSha ? (
+                  <code className="build-detail__sha">{data.commitSha}</code>
+                ) : (
+                  <Text size="100">Commit unavailable</Text>
+                )}
 
                 {data.commitAuthor.url ? (
                   <InlineLink href={data.commitAuthor.url} className="build-detail__author">
