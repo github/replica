@@ -341,6 +341,15 @@ describe("administrator management", () => {
       membershipId: target.membershipId,
       source: "HUB_ADMINISTRATOR",
     })
+    await prisma.copilotConnectionState.update({
+      data: {
+        connectedByMembershipId: target.membershipId,
+        generation: 1n,
+        tokenDigest: "c".repeat(64),
+        verifiedAt: new Date(),
+      },
+      where: { key: "global" },
+    })
 
     await revokeHubAdministrator(
       {
@@ -371,6 +380,12 @@ describe("administrator management", () => {
       ),
     ).toContain(target.membershipId)
     await expect(
+      prisma.copilotConnectionState.findUniqueOrThrow({
+        select: { connectedByMembershipId: true },
+        where: { key: "global" },
+      }),
+    ).resolves.toEqual({ connectedByMembershipId: target.membershipId })
+    await expect(
       revokeHubAdministrator(
         {
           actorMembershipId: actor.membershipId,
@@ -382,6 +397,49 @@ describe("administrator management", () => {
     await expect(administratorAuditTargets(actor.membershipId)).resolves.toEqual([
       target.membershipId,
     ])
+  })
+
+  it("disconnects Copilot when administrator-managed revocation removes the connector's final authority", async () => {
+    const actor = await createMembership({})
+    const connector = await createMembership({})
+    await createAssignment({
+      externalIdentityId: actor.externalIdentityId!,
+      membershipId: actor.membershipId,
+      source: "BOOTSTRAP",
+    })
+    await createAssignment({
+      externalIdentityId: connector.externalIdentityId!,
+      membershipId: connector.membershipId,
+      source: "HUB_ADMINISTRATOR",
+    })
+    await prisma.copilotConnectionState.update({
+      data: {
+        connectedByMembershipId: connector.membershipId,
+        generation: 1n,
+        tokenDigest: "c".repeat(64),
+        verifiedAt: new Date(),
+      },
+      where: { key: "global" },
+    })
+
+    await revokeHubAdministrator(
+      {
+        actorMembershipId: actor.membershipId,
+        targetMembershipId: connector.membershipId,
+      },
+      dependencies(),
+    )
+
+    await expect(
+      prisma.copilotConnectionState.findUniqueOrThrow({
+        select: { connectedByMembershipId: true, generation: true, tokenDigest: true },
+        where: { key: "global" },
+      }),
+    ).resolves.toEqual({
+      connectedByMembershipId: null,
+      generation: 2n,
+      tokenDigest: null,
+    })
   })
 
   it("rereads live actor authority before designation", async () => {

@@ -375,7 +375,40 @@ describe("authenticationRoutes()", () => {
     })
   })
 
-  it("denies administrator authorization when callback verification returns false", async () => {
+  it("routes verified Copilot authorization to its confirmation page", async () => {
+    const { admitSession, completeProof, dependencies, verifyAdministratorAuthorization } =
+      routeDependencies()
+    const sensitiveAuthorizationId = "00000000-0000-4000-8000-000000000020"
+    completeProof.mockResolvedValue({
+      purpose: "ADMINISTRATOR_MANAGEMENT",
+      sensitiveAuthorizationId,
+      proof: {
+        authorizationAttemptId: "00000000-0000-4000-8000-000000000010",
+        externalIdentityId: "00000000-0000-4000-8000-000000000012",
+      },
+    })
+    verifyAdministratorAuthorization.mockResolvedValue("CONNECT_COPILOT")
+
+    await withServer(dependencies, async (baseUrl) => {
+      const response = await fetch(
+        `${baseUrl}/api/auth/github/callback?code=provider-code&state=${"s".repeat(32)}`,
+        {
+          headers: {
+            cookie: `hub_auth_browser=${"b".repeat(32)}; hub_session=retained-session`,
+          },
+          redirect: "manual",
+        },
+      )
+
+      expect(response.status).toBe(303)
+      expect(response.headers.get("location")).toBe(
+        `/settings/copilot/confirm?authorizationId=${sensitiveAuthorizationId}`,
+      )
+      expect(admitSession).not.toHaveBeenCalled()
+    })
+  })
+
+  it("denies administrator authorization when callback verification returns null", async () => {
     const { admitSession, completeProof, dependencies, verifyAdministratorAuthorization } =
       routeDependencies()
     completeProof.mockResolvedValue({
@@ -386,7 +419,7 @@ describe("authenticationRoutes()", () => {
         externalIdentityId: "00000000-0000-4000-8000-000000000012",
       },
     })
-    verifyAdministratorAuthorization.mockResolvedValue(false)
+    verifyAdministratorAuthorization.mockResolvedValue(null)
 
     await withServer(dependencies, async (baseUrl) => {
       const response = await fetch(
