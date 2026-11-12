@@ -137,9 +137,7 @@ describe("server runtime", () => {
       .fn<(environment: NodeJS.ProcessEnv) => Promise<typeof authentication>>()
       .mockResolvedValue(authentication)
     const copilotConnection = { applicationOrigin: "http://127.0.0.1:5173" }
-    const createCopilotConnectionRouteDependencies = vi
-      .fn()
-      .mockResolvedValue(copilotConnection)
+    const createCopilotConnectionRouteDependencies = vi.fn().mockResolvedValue(copilotConnection)
     const disableAuthenticationProviders = vi.fn()
     const product = {}
     const createProductRouteDependencies = vi.fn().mockReturnValue(product)
