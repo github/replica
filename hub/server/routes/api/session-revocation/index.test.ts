@@ -38,16 +38,17 @@ function startDependencies() {
   return { dependencies, start }
 }
 
-function routeDependencies() {
+function routeDependencies(providerKey = "github") {
   const github = startDependencies()
   const entra = startDependencies()
+  const local = startDependencies()
   const cancel = vi.fn().mockResolvedValue(true)
   const continueRevocation = vi.fn().mockResolvedValue({
     cancelledAuthorizationCount: 2,
     endedSessionCount: 3,
     revision: 4,
   })
-  const findSession = vi.fn().mockResolvedValue(session)
+  const findSession = vi.fn().mockResolvedValue({ ...session, providerKey })
   const getAuthorization = vi.fn().mockResolvedValue({
     expiresAt: new Date("2030-01-01T00:00:00Z"),
     operation: "END_ALL_HUB_SESSIONS",
@@ -68,7 +69,11 @@ function routeDependencies() {
     getAuthorization,
     getStatus,
     secureCookie: false,
-    start: { entra: entra.dependencies, github: github.dependencies },
+    start: {
+      entra: entra.dependencies,
+      github: github.dependencies,
+      local: local.dependencies,
+    },
   }
   const authentication: AuthenticationRouteDependencies = {
     currentSession: { restore: vi.fn() },
@@ -85,6 +90,7 @@ function routeDependencies() {
     findSession,
     getStatus,
     github,
+    local,
   }
 }
 
@@ -139,39 +145,46 @@ describe("sessionRevocationRoutes()", () => {
     })
   })
 
-  it("requires explicit confirmation and binds fresh authorization to the actor's current session", async () => {
-    const { authentication, github } = routeDependencies()
+  it.each([
+    ["GitHub", "github", "github"],
+    ["local developer sign-in", "local", "local"],
+  ])(
+    "requires explicit confirmation and binds %s authorization to the actor's current session",
+    async (_label, providerKey, dependencyKey) => {
+      const dependencies = routeDependencies(providerKey)
+      const provider = dependencies[dependencyKey as "github" | "local"]
 
-    await withServer(authentication, async (baseUrl) => {
-      const unconfirmed = await fetch(`${baseUrl}/api/session-revocation/authorizations/start`, {
-        method: "POST",
-        headers: sessionHeaders({
-          "content-type": "application/json",
-          origin: applicationOrigin,
-        }),
-        body: JSON.stringify({ confirmed: false }),
-      })
-      expect(unconfirmed.status).toBe(400)
-      expect(github.start).not.toHaveBeenCalled()
+      await withServer(dependencies.authentication, async (baseUrl) => {
+        const unconfirmed = await fetch(`${baseUrl}/api/session-revocation/authorizations/start`, {
+          method: "POST",
+          headers: sessionHeaders({
+            "content-type": "application/json",
+            origin: applicationOrigin,
+          }),
+          body: JSON.stringify({ confirmed: false }),
+        })
+        expect(unconfirmed.status).toBe(400)
+        expect(provider.start).not.toHaveBeenCalled()
 
-      const confirmed = await fetch(`${baseUrl}/api/session-revocation/authorizations/start`, {
-        method: "POST",
-        headers: sessionHeaders({
-          "content-type": "application/json",
-          origin: applicationOrigin,
-        }),
-        body: JSON.stringify({ confirmed: true }),
+        const confirmed = await fetch(`${baseUrl}/api/session-revocation/authorizations/start`, {
+          method: "POST",
+          headers: sessionHeaders({
+            "content-type": "application/json",
+            origin: applicationOrigin,
+          }),
+          body: JSON.stringify({ confirmed: true }),
+        })
+        expect(confirmed.status).toBe(200)
+        expect(provider.start).toHaveBeenCalledWith({
+          actorMembershipId: session.membershipId,
+          externalIdentityId: session.externalIdentityId,
+          hubSessionId: session.id,
+          operation: "END_ALL_HUB_SESSIONS",
+          targetMembershipIds: [],
+        })
       })
-      expect(confirmed.status).toBe(200)
-      expect(github.start).toHaveBeenCalledWith({
-        actorMembershipId: session.membershipId,
-        externalIdentityId: session.externalIdentityId,
-        hubSessionId: session.id,
-        operation: "END_ALL_HUB_SESSIONS",
-        targetMembershipIds: [],
-      })
-    })
-  })
+    },
+  )
 
   it("clears the actor's Hub session cookie only after a successful continuation", async () => {
     const { authentication, continueRevocation } = routeDependencies()
