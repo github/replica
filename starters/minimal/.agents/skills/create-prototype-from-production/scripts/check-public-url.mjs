@@ -54,6 +54,15 @@ const credentialParameters = new Set([
   "resettoken",
   "invitetoken",
   "sessiontoken",
+  "apitoken",
+  "accesskey",
+  "jsessionid",
+  "phpsessid",
+  "xamzsignature",
+  "xamzcredential",
+  "xamzsecuritytoken",
+  "xgoogsignature",
+  "xgoogcredential",
 ])
 const jwt = /^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/
 
@@ -64,23 +73,39 @@ export function checkPublicUrl(value) {
   if (!["http:", "https:"].includes(url.protocol)) return "requires an absolute HTTP(S) URL"
   if (url.username || url.password) return "embedded URL credentials are not allowed"
 
+  const rawFragment = url.hash.slice(1)
+  let pathname
   let fragment
   let components
   try {
-    fragment = decodeURIComponent(url.hash.slice(1))
-    components = [decodeURIComponent(url.pathname), fragment].flatMap((part) =>
-      part.split(/[/?&#=]/),
-    )
+    pathname = decodeURIComponent(url.pathname)
+    fragment = decodeURIComponent(rawFragment)
+    components = [pathname, fragment].flatMap((part) => part.split(/[/?&#=;]/))
   } catch (error) {
     if (!(error instanceof URIError)) throw error
     return "invalid encoded URL components are not allowed"
   }
-  const fragmentQueries = [fragment]
-  const queryStart = fragment.indexOf("?")
-  if (queryStart >= 0) fragmentQueries.push(fragment.slice(queryStart + 1))
+  const matrixPaths = [url.pathname, pathname]
+  const fragmentQueries = []
+  for (const part of [rawFragment, fragment]) {
+    const route = part.replace(/^!/, "")
+    const queryStart = route.indexOf("?")
+    if (route.startsWith("/")) {
+      matrixPaths.push(queryStart < 0 ? route : route.slice(0, queryStart))
+      if (queryStart >= 0) fragmentQueries.push(route.slice(queryStart + 1))
+    } else {
+      fragmentQueries.push(part)
+      if (queryStart >= 0) fragmentQueries.push(route.slice(queryStart + 1))
+    }
+  }
+  const matrixParameters = matrixPaths
+    .flatMap((path) => path.split("/").flatMap((segment) => segment.split(";").slice(1)))
+    // Matrix fields use semicolons, so ampersands remain part of a field's value.
+    .flatMap((field) => [...new URLSearchParams(field.replaceAll("&", "%26"))])
   const parameters = [
     ...url.searchParams,
     ...fragmentQueries.flatMap((query) => [...new URLSearchParams(query)]),
+    ...matrixParameters,
   ]
   if (
     parameters.some(

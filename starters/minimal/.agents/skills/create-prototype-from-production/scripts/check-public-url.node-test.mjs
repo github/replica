@@ -50,11 +50,25 @@ test("rejects nonempty credential-like parameters without exposing supplied valu
       "reset_token",
       "invite_token",
       "session_token",
+      "api_token",
+      "access_key",
+      "jsessionid",
+      "phpsessid",
+      "X-Amz-Signature",
+      "X-Amz-Credential",
+      "X-Amz-Security-Token",
+      "X-Goog-Signature",
+      "X-Goog-Credential",
     ].map((key) => [`${key} query parameter`, `?${key}=fixture-query-marker`]),
     ["mixed-case hyphenated key", "?AcCeSs-ToKeN=fixture-query-marker"],
     ["mixed-case hyphenated private key", "?PrIvAtE-KeY=fixture-query-marker"],
     ["percent-encoded query key", "?%61pi%5Fkey=fixture-query-marker"],
     ["fragment parameter", "#access_token=fixture-fragment-marker"],
+    ["normalized signing credential in fragment", "#x_gOoG_cReDeNtIaL=fixture-fragment-marker"],
+    [
+      "encoded separator at start of fragment credential value",
+      "#access_token=%26public%3Dfixture-fragment-marker",
+    ],
     ["question mark inside fragment value", "#access_token=fixture-fragment-marker?view=full"],
     ["encoded fragment assignment", "#access_token%3Dfixture-fragment-marker"],
     ["SPA fragment parameter", "#/callback?client%2DSeCrEt=fixture-fragment-marker"],
@@ -74,6 +88,36 @@ test("rejects nonempty credential-like parameters without exposing supplied valu
   }
 })
 
+test("rejects credential-bearing matrix parameters in path segments and SPA routes", async (t) => {
+  const { checkPublicUrl } = await import("./check-public-url.mjs")
+  for (const [name, path] of [
+    [
+      "signature on a non-final path segment",
+      "/fixture-path-marker;X-Amz-Signature=fixture-matrix-marker/details",
+    ],
+    [
+      "encoded matrix separator, key and value",
+      "/fixture-path-marker%3B%61ccess_token%3Dfixture%2Dmatrix%2Dmarker",
+    ],
+    ["escaped session key and value", "/fixture-path-marker;%70hpsessid=fixture%2Dmatrix%2Dmarker"],
+    ["existing session credential key", "/fixture-path-marker;session_id=fixture-matrix-marker"],
+    ["existing token credential key", "/fixture-path-marker;token=fixture-matrix-marker"],
+    ["SPA route session parameter", "/#/route;jsessionid=fixture-fragment-marker"],
+    [
+      "encoded separator at start of matrix credential value",
+      "/fixture-path-marker;jsessionid=%3Bfixture-matrix-marker",
+    ],
+  ]) {
+    await t.test(name, () => {
+      const url = `https://fixture-host-marker.example.com${path}`
+      const problem = checkPublicUrl(url)
+      assert.match(problem ?? "", /\S/)
+      assert.doesNotMatch(problem, /fixture-[a-z-]+-marker/)
+      assert.equal(problem.includes(url), false)
+    })
+  }
+})
+
 test("rejects recognizable synthetic JWT values outside credential-like parameters", async (t) => {
   const { checkPublicUrl } = await import("./check-public-url.mjs")
   const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJmaXh0dXJlIn0.c3ludGhldGlj"
@@ -82,6 +126,7 @@ test("rejects recognizable synthetic JWT values outside credential-like paramete
     ["unrelated query key", `/fixture-path-marker?code=${jwt}`],
     ["percent-decoded path component", `/fixture-path-marker/${encodedJwt}`],
     ["percent-decoded SPA fragment component", `/fixture-path-marker#/callback/${encodedJwt}`],
+    ["matrix value before another parameter", `/fixture-path-marker;state=${encodedJwt};view=grid`],
   ]) {
     await t.test(name, () => {
       const url = `https://fixture-host-marker.example.com${suffix}`
@@ -185,6 +230,31 @@ test("accepts public names, CDN URLs and public IPs without discarding URL state
       "ordinary SPA parameters",
       "https://example.com/#/callback?code=fixture-code&state=fixture-state&key=fixture-key",
     ],
+    [
+      "public matrix parameters",
+      "https://example.com/catalog;view=grid;state=CA;code=SKU;key=public-cache",
+    ],
+    [
+      "ampersand text inside a public matrix value",
+      "https://example.com/catalog;state=CA&session_id=fixture-public-marker",
+    ],
+    ["empty session at a path segment boundary", "https://example.com/catalog;jsessionid=/details"],
+    [
+      "session-like text inside an unrelated query value",
+      "https://example.com/catalog?state=public;jsessionid=fixture-public-marker",
+    ],
+    [
+      "SPA public matrix route and semicolon text in query values",
+      "https://example.com/#/catalog;view=grid?code=SKU;jsessionid=fixture-public-marker&state=CA;access_token=fixture-public-marker",
+    ],
+    [
+      "unsigned cloud date and expiration metadata",
+      "https://example.com/catalog?X-Amz-Date=20260101T000000Z&X-Amz-Expires=300&X-Goog-Date=20260101T000000Z&X-Goog-Expires=300",
+    ],
+    [
+      "empty signing credential parameters",
+      "https://example.com/catalog?X-Amz-Signature=&X-Goog-Credential=#api_token=",
+    ],
     ["empty credential parameters", "https://example.com/cards?token=&password#access_token=&jwt"],
     [
       "empty SPA credential parameters",
@@ -219,6 +289,12 @@ test("accepts public names, CDN URLs and public IPs without discarding URL state
   ]) {
     assert.equal(checkPublicUrl(url), undefined, name)
   }
+})
+
+test("preserves ampersand text inside a public SPA matrix value", async () => {
+  const { checkPublicUrl } = await import("./check-public-url.mjs")
+  const url = "https://example.com/#/catalog;state=CA&session_id=fixture-public-marker"
+  assert.equal(checkPublicUrl(url), undefined)
 })
 
 test("CLI accepts public URL arguments and literal stdin while reporting static-only checks", async (t) => {

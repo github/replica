@@ -4,3 +4,5 @@ dist
 *.local
 **/__pycache__/
 *.pyc
+# Transient URL-check input is not captured evidence.
+/reference/next-target.txt
