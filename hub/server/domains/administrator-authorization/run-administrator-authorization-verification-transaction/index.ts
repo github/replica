@@ -15,6 +15,7 @@ import { createOrRestoreMembership } from "../../../repositories/memberships/cre
 import { lockMembership } from "../../../repositories/memberships/lock-membership/index.ts"
 import { claimProviderEvidence } from "../../../repositories/provider-evidence-states/claim-provider-evidence/index.ts"
 import { createSecurityAudit } from "../../../repositories/security-audits/create-security-audit/index.ts"
+import { disconnectCopilotConnectionForMembership } from "../../../repositories/copilot-connection-state/disconnect-copilot-connection-for-membership/index.ts"
 import { lockSessionRevocationState } from "../../../repositories/session-revocation-states/lock-session-revocation-state/index.ts"
 import { getSensitiveAuthorizationAuditData } from "../../../repositories/sensitive-authorizations/get-sensitive-authorization-audit-data/index.ts"
 import { verifySensitiveAuthorization } from "../../../repositories/sensitive-authorizations/verify-sensitive-authorization/index.ts"
@@ -42,6 +43,8 @@ export function runAdministratorAuthorizationVerificationTransaction<Result>(
           },
           createOrRestoreMembership: (input) => createOrRestoreMembership(transaction, input),
           createSecurityAudit: (input) => createSecurityAudit(transaction, input),
+          disconnectCopilotConnection: (membershipId) =>
+            disconnectCopilotConnectionForMembership(transaction, membershipId),
           endProviderAssignment: (input) => endProviderAssignment(transaction, input),
           endOpenHubSessionsForMembership: (membershipId) =>
             endOpenHubSessionsForMembership(transaction, membershipId),

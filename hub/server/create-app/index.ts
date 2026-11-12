@@ -28,8 +28,8 @@ export function createApp({
     [
       "/api/auth",
       "/api/administrators",
-      "/api/session-revocation",
       "/api/copilot-connection",
+      "/api/session-revocation",
       "/api/security-audits",
       "/api/workspace",
       "/api/repositories",

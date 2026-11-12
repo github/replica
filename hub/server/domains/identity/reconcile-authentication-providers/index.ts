@@ -175,7 +175,7 @@ export async function reconcileAuthenticationProviders(
             }
           }
           const disconnected =
-            await repositories.disconnectCopilotConnectionWithoutEffectiveAdministrator?.()
+            await repositories.disconnectCopilotConnectionWithoutEffectiveAdministrator()
           if (disconnected) {
             await repositories.createSecurityAudit({
               actorMembershipId: null,

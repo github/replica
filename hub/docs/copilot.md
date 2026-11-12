@@ -19,7 +19,7 @@ Hub reads the token only from the process environment. The database keeps its di
 5. The callback verifies the same session and external identity, then returns to `/settings/copilot/confirm`.
 6. Continuing a connection checks the configured token with the Copilot SDK before one serializable transaction saves the connection and audits the change. Continuing a disconnection clears the database state without changing the operator's secret.
 
-The authorization is short-lived, one-use, and bound to the Hub session, operation, actor membership, and connection generation. A connection change after authorization starts or while Copilot checks the token returns a conflict instead of overwriting newer state.
+The authorization is short-lived, one-use, and bound to the Hub session, operation, actor membership, and connection generation. Continuing atomically claims it before starting the SDK, so duplicate submissions do not start duplicate checks. Hub permits at most four deployment token checks at once and releases that capacity only after the SDK call ends; an abandoned claim expires after 30 seconds. A connection change after authorization starts or while Copilot checks the token returns a conflict instead of overwriting newer state.
 
 ## Stored state
 

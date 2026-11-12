@@ -255,6 +255,15 @@ describe("administrator authorization persistence", () => {
         targetMembershipIds: [membershipId],
       },
     })
+    await prisma.copilotConnectionState.update({
+      data: {
+        connectedByMembershipId: membershipId,
+        generation: 1n,
+        tokenDigest: "c".repeat(64),
+        verifiedAt: new Date(),
+      },
+      where: { key: "global" },
+    })
     const authorizationAttemptId = await createConsumedAuthorizationAttempt({
       authorizationId,
       providerRevisionId,
@@ -290,6 +299,25 @@ describe("administrator authorization persistence", () => {
       where: { id: hubSessionId },
     })
     expect(endedProviderSession.endedAt).toBeInstanceOf(Date)
+    await expect(
+      prisma.copilotConnectionState.findUniqueOrThrow({
+        select: { connectedByMembershipId: true, generation: true },
+        where: { key: "global" },
+      }),
+    ).resolves.toEqual({ connectedByMembershipId: null, generation: 2n })
+    await expect(
+      prisma.securityAudit.findFirstOrThrow({
+        select: { context: true },
+        where: { action: "copilot.connection.disconnect" },
+      }),
+    ).resolves.toEqual({
+      context: {
+        actorMembershipId: null,
+        connectorMembershipId: membershipId,
+        operation: "disconnect",
+        reason: "connector_role_removed",
+      },
+    })
   })
 
   it("binds one-use continuation to the exact session, operation, and ordered targets", async () => {

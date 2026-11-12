@@ -65,6 +65,7 @@ export default function SettingsCopilotAuthorization({
     <div
       onSubmit={(event) => {
         if (!(event.target instanceof HTMLFormElement)) return
+        if (event.target.action !== loaderData.page.submitPath) return
         event.preventDefault()
         if (result.pending) return
         const form = new FormData(event.target)

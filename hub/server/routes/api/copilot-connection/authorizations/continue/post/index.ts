@@ -39,6 +39,7 @@ export function post(dependencies: CopilotConnectionRouteDependencies): RequestH
       if (error instanceof CopilotConnectionDeniedError) {
         const message = {
           authorization_unavailable: "This Copilot authorization is no longer available.",
+          check_in_progress: "This Copilot authorization is already being continued.",
           connection_changed: "The Copilot connection changed. Review it before trying again.",
           no_token: "Hub has no configured Copilot token.",
           not_connected: "Copilot is not connected.",

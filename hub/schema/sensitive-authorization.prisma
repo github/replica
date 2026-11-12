@@ -16,6 +16,8 @@ model SensitiveAuthorization {
   targetMembershipIds       String[]                        @map("target_membership_ids") @db.Uuid
   expectedCopilotGeneration BigInt?                         @map("expected_copilot_generation")
   expiresAt                 DateTime                        @map("expires_at") @db.Timestamptz(3)
+  checkStartedAt            DateTime?                       @map("check_started_at") @db.Timestamptz(3)
+  checkFinishedAt           DateTime?                       @map("check_finished_at") @db.Timestamptz(3)
   verifiedAt                DateTime?                       @map("verified_at") @db.Timestamptz(3)
   continuedAt               DateTime?                       @map("continued_at") @db.Timestamptz(3)
   cancelledAt               DateTime?                       @map("cancelled_at") @db.Timestamptz(3)

@@ -39,7 +39,7 @@ export async function revokeHubAdministratorWithRepositories(
     !remainingAdministrators.some(
       ({ membershipId }) => membershipId === input.targetMembershipId,
     ) &&
-    (await repositories.disconnectCopilotConnection?.(input.targetMembershipId))
+    (await repositories.disconnectCopilotConnection(input.targetMembershipId))
   ) {
     await repositories.createSecurityAudit({
       actorMembershipId: input.actorMembershipId,

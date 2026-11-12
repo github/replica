@@ -9,6 +9,8 @@ export async function lockSensitiveAuthorization(
       actorMembershipId: string
       cancelledAt: Date | null
       expectedCopilotGeneration: bigint | null
+      checkFinishedAt: Date | null
+      checkStartedAt: Date | null
       continuedAt: Date | null
       expiresAt: Date
       expired: boolean
@@ -32,6 +34,8 @@ export async function lockSensitiveAuthorization(
       "expires_at" AS "expiresAt",
       "expires_at" <= clock_timestamp() AS "expired",
       "verified_at" AS "verifiedAt",
+      "check_finished_at" AS "checkFinishedAt",
+      "check_started_at" AS "checkStartedAt",
       "continued_at" AS "continuedAt",
       "cancelled_at" AS "cancelledAt"
     FROM "sensitive_authorizations"

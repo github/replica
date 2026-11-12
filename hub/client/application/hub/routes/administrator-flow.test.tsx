@@ -883,5 +883,36 @@ describe("administrator frontend integration", () => {
       })
       expect(await screen.findByText("Copilot is disconnected.")).toBeVisible()
     })
+
+    it("does not intercept sign-out from the Copilot confirmation page", async () => {
+      const continuations = vi.fn()
+      await renderApplication(`/settings/copilot/confirm?authorizationId=${authorizationId}`, [
+        authenticatedSession(),
+        workspace(),
+        http.get(
+          `${window.location.origin}/api/copilot-connection/authorizations/${authorizationId}`,
+          () =>
+            HttpResponse.json({
+              authorization: {
+                operation: "CONNECT_COPILOT",
+                verifiedAt: "2026-11-09T20:01:00.000Z",
+                expiresAt: "2026-11-09T20:06:00.000Z",
+              },
+            }),
+        ),
+        http.post(
+          `${window.location.origin}/api/copilot-connection/authorizations/continue`,
+          continuations,
+        ),
+      ])
+
+      const signOutForm = document.querySelector<HTMLFormElement>(
+        'form[action="/api/auth/session/sign-out"]',
+      )
+      if (!signOutForm) throw new Error("Sign out must belong to a form.")
+
+      expect(fireEvent.submit(signOutForm)).toBe(true)
+      expect(continuations).not.toHaveBeenCalled()
+    })
   })
 })
