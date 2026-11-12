@@ -94,7 +94,7 @@ export function checkPublicUrl(value) {
       matrixPaths.push(queryStart < 0 ? route : route.slice(0, queryStart))
       if (queryStart >= 0) fragmentQueries.push(route.slice(queryStart + 1))
     } else {
-      fragmentQueries.push(part)
+      fragmentQueries.push(route)
       if (queryStart >= 0) fragmentQueries.push(route.slice(queryStart + 1))
     }
   }
@@ -110,8 +110,9 @@ export function checkPublicUrl(value) {
   if (
     parameters.some(
       ([name, value]) =>
-        value.length > 0 &&
-        (credentialParameters.has(name.toLowerCase().replace(/[-_]/g, "")) || jwt.test(value)),
+        jwt.test(name) ||
+        (value.length > 0 &&
+          (credentialParameters.has(name.toLowerCase().replace(/[-_]/g, "")) || jwt.test(value))),
     ) ||
     components.some((part) => jwt.test(part))
   ) {

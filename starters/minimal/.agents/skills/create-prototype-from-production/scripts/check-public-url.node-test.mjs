@@ -64,6 +64,7 @@ test("rejects nonempty credential-like parameters without exposing supplied valu
     ["mixed-case hyphenated private key", "?PrIvAtE-KeY=fixture-query-marker"],
     ["percent-encoded query key", "?%61pi%5Fkey=fixture-query-marker"],
     ["fragment parameter", "#access_token=fixture-fragment-marker"],
+    ["hashbang fragment parameter", "#!access_token=fixture-fragment-marker"],
     ["normalized signing credential in fragment", "#x_gOoG_cReDeNtIaL=fixture-fragment-marker"],
     [
       "encoded separator at start of fragment credential value",
@@ -124,6 +125,7 @@ test("rejects recognizable synthetic JWT values outside credential-like paramete
   const encodedJwt = jwt.replaceAll(".", "%2E")
   for (const [name, suffix] of [
     ["unrelated query key", `/fixture-path-marker?code=${jwt}`],
+    ["bare JWT query", `/fixture-path-marker?${jwt}`],
     ["percent-decoded path component", `/fixture-path-marker/${encodedJwt}`],
     ["percent-decoded SPA fragment component", `/fixture-path-marker#/callback/${encodedJwt}`],
     ["matrix value before another parameter", `/fixture-path-marker;state=${encodedJwt};view=grid`],
@@ -230,6 +232,7 @@ test("accepts public names, CDN URLs and public IPs without discarding URL state
       "ordinary SPA parameters",
       "https://example.com/#/callback?code=fixture-code&state=fixture-state&key=fixture-key",
     ],
+    ["ordinary hashbang parameters", "https://example.com/#!code=SKU&state=CA&key=public-cache"],
     [
       "public matrix parameters",
       "https://example.com/catalog;view=grid;state=CA;code=SKU;key=public-cache",
