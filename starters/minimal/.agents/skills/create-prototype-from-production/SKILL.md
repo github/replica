@@ -74,7 +74,7 @@ Use the existing approved context or fixed starter baseline for Build. Proposed 
 | "Canvas is not in my tool list, so it is missing"             | Run the canvas capability lookup before concluding anything.                   |
 | "Headless means I have permission"                           | Honor explicit authorization, not execution mode or silence.                   |
 | "Capture every filter option / every FAQ open"                | One screenshot per kind of state, at most 8 per representative.                |
-| "Each page looks a bit different, so it is its own family"    | Compare section types in order. More families than half the pages is too fine. |
+| "Each page looks a bit different, so it is its own family"    | Compare section types in order. Keep genuinely different compositions separate. |
 | "Inner layouts are simplified; I'll note it in differences"   | A representative missing a section, layout or image is a defect. Fix it first. |
 | "One generic renderer can serve every family"                 | One composition per family, passing the representative gate.                   |
 | "This file is huge; stop to ask"                              | Preserve originals; larger served copies default to under 25 MiB. Active formats need safe derivatives. |

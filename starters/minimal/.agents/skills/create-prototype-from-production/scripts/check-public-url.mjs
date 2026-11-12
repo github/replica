@@ -67,65 +67,89 @@ const credentialParameters = new Set([
 const jwt =
   /(?:^|[^A-Za-z0-9_-])eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+(?=$|[^A-Za-z0-9_-])/
 
+export function checkUrlPrivacy(source) {
+  const pending = [source]
+  const seen = new Set()
+  while (pending.length > 0) {
+    const url = pending.pop()
+    if (seen.has(url.href)) continue
+    if (seen.size >= 64) return "too many nested URLs to inspect safely"
+    seen.add(url.href)
+    if (url.username || url.password) return "embedded URL credentials are not allowed"
+
+    const rawFragment = url.hash.slice(1)
+    let pathname
+    let fragment
+    let components
+    try {
+      pathname = decodeURIComponent(url.pathname)
+      fragment = decodeURIComponent(rawFragment)
+      components = [pathname, fragment].flatMap((part) => part.split(/[/?&#=;]/))
+    } catch (error) {
+      if (!(error instanceof URIError)) throw error
+      return "invalid encoded URL components are not allowed"
+    }
+    const matrixPaths = [url.pathname, pathname]
+    const fragmentQueries = []
+    // Keep trailing delimiters so nested credential values starting with # remain nonempty.
+    const fragmentParts = [rawFragment, fragment].flatMap((part) => [
+      part,
+      ...part.split(/(?<=#)/).slice(1),
+    ])
+    for (const part of fragmentParts) {
+      const route = part.replace(/^!/, "")
+      const queryStart = route.indexOf("?")
+      if (route.startsWith("/")) {
+        const path = queryStart < 0 ? route : route.slice(0, queryStart)
+        matrixPaths.push(path)
+        if (/^\/[A-Za-z0-9_%.-]+=/.test(path)) fragmentQueries.push(path.slice(1))
+        if (queryStart >= 0) fragmentQueries.push(route.slice(queryStart + 1))
+      } else {
+        fragmentQueries.push(route)
+        if (queryStart >= 0) fragmentQueries.push(route.slice(queryStart + 1))
+      }
+    }
+    const matrixParameters = matrixPaths
+      .flatMap((path) => path.split("/").flatMap((segment) => segment.split(";").slice(1)))
+      // Matrix fields use semicolons, so ampersands remain part of a field's value.
+      .flatMap((field) => [...new URLSearchParams(field.replaceAll("&", "%26"))])
+    const parameters = [
+      ...url.searchParams,
+      ...fragmentQueries.flatMap((query) => [...new URLSearchParams(query)]),
+      ...matrixParameters,
+    ]
+    if (
+      parameters.some(
+        ([name, value]) =>
+          jwt.test(name) ||
+          (value.length > 0 &&
+            (credentialParameters.has(name.toLowerCase().replace(/[-_]/g, "")) || jwt.test(value))),
+      ) ||
+      components.some((part) => jwt.test(part))
+    ) {
+      return "secret-bearing URL components are not allowed"
+    }
+    for (const [, value] of parameters) {
+      if (
+        !/^(?:https?:|[a-z][a-z0-9+.-]*:\/\/|mailto:|tel:|\/|\.\.?\/|[?#])/i.test(value) &&
+        !/^(?:[a-z0-9._~/-]|%[a-f0-9]{2})+[?#]/i.test(value)
+      )
+        continue
+      // The fixed base only parses relative values; nested URLs are never requested.
+      const nested = URL.parse(value, "https://url.invalid/")
+      if (!nested) return "invalid nested URL components are not allowed"
+      pending.push(nested)
+    }
+  }
+}
+
 export function checkPublicUrl(value) {
   if (typeof value !== "string" || !value.trim() || !URL.canParse(value))
     return "requires an absolute HTTP(S) URL"
   const url = new URL(value)
   if (!["http:", "https:"].includes(url.protocol)) return "requires an absolute HTTP(S) URL"
-  if (url.username || url.password) return "embedded URL credentials are not allowed"
-
-  const rawFragment = url.hash.slice(1)
-  let pathname
-  let fragment
-  let components
-  try {
-    pathname = decodeURIComponent(url.pathname)
-    fragment = decodeURIComponent(rawFragment)
-    components = [pathname, fragment].flatMap((part) => part.split(/[/?&#=;]/))
-  } catch (error) {
-    if (!(error instanceof URIError)) throw error
-    return "invalid encoded URL components are not allowed"
-  }
-  const matrixPaths = [url.pathname, pathname]
-  const fragmentQueries = []
-  // Keep trailing delimiters so nested credential values starting with # remain nonempty.
-  const fragmentParts = [rawFragment, fragment].flatMap((part) => [
-    part,
-    ...part.split(/(?<=#)/).slice(1),
-  ])
-  for (const part of fragmentParts) {
-    const route = part.replace(/^!/, "")
-    const queryStart = route.indexOf("?")
-    if (route.startsWith("/")) {
-      const path = queryStart < 0 ? route : route.slice(0, queryStart)
-      matrixPaths.push(path)
-      if (/^\/[A-Za-z0-9_%.-]+=/.test(path)) fragmentQueries.push(path.slice(1))
-      if (queryStart >= 0) fragmentQueries.push(route.slice(queryStart + 1))
-    } else {
-      fragmentQueries.push(route)
-      if (queryStart >= 0) fragmentQueries.push(route.slice(queryStart + 1))
-    }
-  }
-  const matrixParameters = matrixPaths
-    .flatMap((path) => path.split("/").flatMap((segment) => segment.split(";").slice(1)))
-    // Matrix fields use semicolons, so ampersands remain part of a field's value.
-    .flatMap((field) => [...new URLSearchParams(field.replaceAll("&", "%26"))])
-  const parameters = [
-    ...url.searchParams,
-    ...fragmentQueries.flatMap((query) => [...new URLSearchParams(query)]),
-    ...matrixParameters,
-  ]
-  if (
-    parameters.some(
-      ([name, value]) =>
-        jwt.test(name) ||
-        (value.length > 0 &&
-          (credentialParameters.has(name.toLowerCase().replace(/[-_]/g, "")) || jwt.test(value))),
-    ) ||
-    components.some((part) => jwt.test(part))
-  ) {
-    return "secret-bearing URL components are not allowed"
-  }
+  const privacyProblem = checkUrlPrivacy(url)
+  if (privacyProblem) return privacyProblem
 
   const host = url.hostname
     .replace(/^\[|\]$/g, "")

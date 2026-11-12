@@ -12,6 +12,8 @@ Before the first navigation to the site, establish an agent-owned isolated sessi
 
 Inspect source, resolved and discovered URLs before passing them to a tool or recording them. Redact actual credentials and secret-bearing path, query or fragment values before writing the ledger, captures, asset metadata, saved logs or commits. Examples include password-reset/invite tokens, authorization codes or state, session IDs, signatures, passwords and JWTs. The shared static check rejects explicit credential-like parameters, known signed-URL fields, session path parameters and recognizable JWT-like values; it is not a complete secret detector. Ambiguous keys such as `code`, `state`, `auth`, `session` or `key`, and other opaque values, still require a context check; a public product code, filter state or hashed asset filename is not automatically a secret.
 
+URL-valued parameters receive the same credential checks without requesting their targets. The ledger also applies these privacy checks to `mailto:` and `tel:` destinations. Inputs that exceed the nested-URL inspection bound are rejected, not accepted without inspection.
+
 Source and destination URLs must not contain embedded usernames or passwords. The ledger rejects URL credentials for every decision; remove them before persistence and use only an independently authorized public target. Do not retain dummy credentials in redacted URLs, use them to sign in or treat their presence as authentication permission.
 
 Retain public navigation state and route structure where safe. Record the redacted component names and reason, never the removed values or a reversible replacement map. Do not copy raw secret-bearing URLs into notes, filenames or tool output. Apply the same rule to URLs extracted into page content and screenshots; inspect artifacts before committing them.
@@ -71,9 +73,7 @@ times a section repeats, its content, and page-specific classes. Pages with
 the same fingerprint form a family. Pick one representative per family
 (prefer the page linked from the header).
 
-If there are more families than half the `build` pages, the fingerprint is
-too fine: merge families whose section types differ only by one optional
-section, then re-check.
+If there are more families than half the `build` pages, review the fingerprints for incidental differences. Merge only pages that share the same composition; keep genuinely different section structures in separate families, even when each has one page.
 
 Decide per page:
 

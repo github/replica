@@ -174,6 +174,29 @@ test("rejects obvious-private HTTP(S) targets on every destination decision", as
   }
 })
 
+test("rejects credential-bearing mail and telephone destinations without exposing supplied values", async (t) => {
+  for (const [name, url] of [
+    [
+      "mail query credential",
+      "mailto:fixture-recipient-marker@example.com?subject=Public%20help&access_token=fixture-mail-marker",
+    ],
+    [
+      "telephone fragment credential",
+      "tel:+15555550123;ext=42#session_id=fixture-telephone-marker",
+    ],
+  ]) {
+    await t.test(name, () => {
+      const page = { url, foundIn: ["footer"], decision: "stub-external" }
+      for (const final of [false, true]) {
+        const problems = checkLedger(ledger([hub, page]), { final }).join("\n")
+        assert.match(problems, /^pages\[1\]:/m, `final: ${final}`)
+        assert.doesNotMatch(problems, /fixture-[a-z-]+-marker|\+15555550123/)
+        assert.equal(problems.includes(url), false)
+      }
+    })
+  }
+})
+
 test("accepts a normalized HTTP subpath source with query and fragment and nonnetwork outbound URLs", () => {
   const value = ledger([
     { ...hub, url: "http://example.com/cards?term=12#details" },
@@ -184,8 +207,12 @@ test("accepts a normalized HTTP subpath source with query and fragment and nonne
       representative: false,
       note: "Fixture evidence: /loans?term=24#details renders the selected loan terms.",
     },
-    { url: "mailto:support@example.com", foundIn: ["footer"], decision: "stub-external" },
-    { url: "tel:+15555550123", foundIn: ["footer"], decision: "stub-external" },
+    {
+      url: "mailto:support@example.com?subject=Public%20cards&body=Do+you+offer+50%25+off%3F",
+      foundIn: ["footer"],
+      decision: "stub-external",
+    },
+    { url: "tel:+15555550123;ext=42", foundIn: ["footer"], decision: "stub-external" },
     { url: "https://example.com/help", foundIn: ["footer"], decision: "stub-external" },
     { url: "http://example.com:8080/help", foundIn: ["footer"], decision: "stub-external" },
     {

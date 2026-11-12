@@ -2,7 +2,7 @@ import { readFileSync, realpathSync } from "node:fs"
 import { resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
-import { checkPublicUrl } from "./check-public-url.mjs"
+import { checkPublicUrl, checkUrlPrivacy } from "./check-public-url.mjs"
 
 const DECISIONS = new Set(["build", "stub-external", "stub-auth", "stub-download", "deferred"])
 const STATUSES = new Set(["planned", "built", "verified", "blocked"])
@@ -58,8 +58,9 @@ export function checkLedger(ledger, { final = false } = {}) {
       if (HTTP_PROTOCOLS.has(url.protocol)) {
         const problem = checkPublicUrl(page.url)
         if (problem) problems.push(`${label}: ${problem}`)
-      } else if (url.username || url.password) {
-        problems.push(`${label}: embedded URL credentials are not allowed`)
+      } else {
+        const problem = checkUrlPrivacy(url)
+        if (problem) problems.push(`${label}: ${problem}`)
       }
       if (urls.has(url.href)) problems.push(`${label}: listed more than once`)
       urls.add(url.href)

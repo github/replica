@@ -110,6 +110,64 @@ test("rejects nonempty credential-like parameters without exposing supplied valu
   }
 })
 
+test("rejects credentials inside URL-valued parameters without exposing supplied values", async (t) => {
+  const { checkPublicUrl } = await import("./check-public-url.mjs")
+  const nestedRedirect = `https://example.net/callback?continue=${encodeURIComponent("/account?session_id=fixture-nested-marker")}`
+  for (const [name, parameter, destination] of [
+    [
+      "absolute redirect with a credential field",
+      "next",
+      "https://example.net/callback?access_token=fixture-nested-marker",
+    ],
+    [
+      "relative redirect with a credential field",
+      "return_to",
+      "/callback?access_token=fixture-nested-marker",
+    ],
+    [
+      "relative redirect without a leading slash",
+      "return_to",
+      "callback?access_token=fixture-nested-marker",
+    ],
+    ["credential behind two redirect levels", "next", nestedRedirect],
+    [
+      "embedded credentials in a URL-valued state parameter",
+      "state",
+      "https://fixture-nested-user-marker:fixture-nested-password-marker@example.net/callback",
+    ],
+  ]) {
+    await t.test(name, () => {
+      const url = `https://fixture-host-marker.example.com/fixture-path-marker?${parameter}=${encodeURIComponent(destination)}`
+      const problem = checkPublicUrl(url)
+      assert.match(problem ?? "", /\S/)
+      assert.doesNotMatch(problem, /fixture-[a-z-]+-marker/)
+      assert.equal(problem.includes(url), false)
+    })
+  }
+})
+
+test("fails closed for a credential at the end of a deep redirect chain", async () => {
+  const { checkPublicUrl } = await import("./check-public-url.mjs")
+  let destination = "/callback?access_token=fixture-deep-marker"
+  for (let level = 0; level < 128; level++) {
+    destination = `/callback?next=${encodeURIComponent(destination)}`
+  }
+  const url = `https://fixture-host-marker.example.com/?next=${encodeURIComponent(destination)}`
+  const problem = checkPublicUrl(url)
+  assert.match(problem ?? "", /\S/)
+  assert.doesNotMatch(problem, /fixture-[a-z-]+-marker/)
+  assert.equal(problem.includes(url), false)
+})
+
+test("accepts repeated identical public nested URLs without exhausting inspection", async () => {
+  const { checkPublicUrl } = await import("./check-public-url.mjs")
+  const parameters = new URLSearchParams()
+  for (let item = 0; item < 256; item++) {
+    parameters.append("next", "https://example.net/catalog?code=SKU&state=CA&key=public-cache")
+  }
+  assert.equal(checkPublicUrl(`https://example.com/?${parameters}`), undefined)
+})
+
 test("rejects credential-bearing matrix parameters in path segments and SPA routes", async (t) => {
   const { checkPublicUrl } = await import("./check-public-url.mjs")
   for (const [name, path] of [
@@ -150,6 +208,10 @@ test("rejects recognizable synthetic JWT values outside credential-like paramete
     [
       "JWT inside a nested redirect value",
       `/fixture-path-marker?next=${encodeURIComponent(`https://example.net/callback?code=${jwt}`)}`,
+    ],
+    [
+      "JWT behind two redirect levels",
+      `/fixture-path-marker?next=${encodeURIComponent(`https://example.net/callback?return_to=${encodeURIComponent(`/catalog?code=${jwt}`)}`)}`,
     ],
     ["percent-decoded path component", `/fixture-path-marker/${encodedJwt}`],
     ["percent-decoded SPA fragment component", `/fixture-path-marker#/callback/${encodedJwt}`],
@@ -277,6 +339,10 @@ test("accepts public names, CDN URLs and public IPs without discarding URL state
       `https://example.com/?next=${encodeURIComponent("https://example.net/catalog?code=SKU&state=CA&key=public-cache")}`,
     ],
     [
+      "two-level public redirect with a relative destination",
+      `https://example.com/?next=${encodeURIComponent(`https://example.net/callback?continue=${encodeURIComponent("/catalog?code=SKU&state=CA&key=public-cache")}`)}`,
+    ],
+    [
       "public matrix parameters",
       "https://example.com/catalog;view=grid;state=CA;code=SKU;key=public-cache",
     ],
@@ -332,6 +398,10 @@ test("accepts public names, CDN URLs and public IPs without discarding URL state
     ["outside private class C", "https://192.169.1.1/reference"],
     ["public IPv6", "https://[2606:4700:4700::1111]/reference?view=full#details"],
     ["public mapped IPv4", "https://[::ffff:8.8.8.8]/reference"],
+    [
+      "ordinary search text with a percent sign and question mark",
+      "https://example.com/catalog?q=100%25+cotton%3F",
+    ],
   ]) {
     assert.equal(checkPublicUrl(url), undefined, name)
   }
