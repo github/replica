@@ -59,6 +59,36 @@ describe("runLearningCommand()", () => {
     expect(result.environment.COPILOT_GITHUB_TOKEN).toBeUndefined()
   })
 
+  it.each([
+    ["stdout", "outputLimit"],
+    ["stderr", "errorLimit"],
+  ] as const)(
+    "stops the process and cleans temporary state when %s exceeds its cap",
+    async (channel, limit) => {
+      const directory = resolve(`server/integrations/learning/.process-test-${randomUUID()}`)
+      await mkdir(directory)
+      onTestFinished(() => rm(directory, { force: true, recursive: true }))
+      const marker = resolve(directory, "command.json")
+
+      await expect(
+        runLearningCommand([marker, channel], {
+          cliPath: resolve(fixtures, "exceed-output-limit.mjs"),
+          environment: { PATH: process.env.PATH },
+          [limit]: 64,
+        }),
+      ).rejects.toMatchObject({ code: "output_too_large" })
+
+      const processState = JSON.parse(await readFile(marker, "utf8")) as {
+        commandPid: number
+        temporaryDirectory: string
+      }
+      expect(() => process.kill(processState.commandPid, 0)).toThrow(
+        expect.objectContaining({ code: "ESRCH" }),
+      )
+      await expect(stat(processState.temporaryDirectory)).rejects.toMatchObject({ code: "ENOENT" })
+    },
+  )
+
   it("kills the command process group when the timeout expires", async () => {
     const directory = resolve(`server/integrations/learning/.process-test-${randomUUID()}`)
     await mkdir(directory)

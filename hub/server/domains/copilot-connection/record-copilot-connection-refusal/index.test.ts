@@ -11,7 +11,7 @@ function repositories(
     advanceState: vi.fn().mockResolvedValue(undefined),
     clearRefusal: vi.fn().mockResolvedValue(undefined),
     deleteConnection: vi.fn().mockResolvedValue(false),
-    findAdministratorSession: vi.fn().mockResolvedValue({ membershipId: randomUUID() }),
+    lockAdministratorSession: vi.fn().mockResolvedValue({ membershipId: randomUUID() }),
     getConnection: vi.fn().mockResolvedValue({
       credentialDigest: "a".repeat(64),
       credentialProvider: "environment_token",
@@ -32,7 +32,7 @@ describe("recordCopilotConnectionRefusal()", () => {
     const auditId = randomUUID()
     const at = new Date("2026-11-12T12:00:00Z")
     const records = repositories({
-      findAdministratorSession: vi.fn().mockResolvedValue({ membershipId }),
+      lockAdministratorSession: vi.fn().mockResolvedValue({ membershipId }),
       getConnection: vi.fn().mockResolvedValue({
         credentialDigest: "a".repeat(64),
         credentialProvider: "environment_token",
@@ -57,7 +57,7 @@ describe("recordCopilotConnectionRefusal()", () => {
     ).resolves.toBe("recorded")
 
     expect(vi.mocked(records.lockState).mock.invocationCallOrder[0]).toBeLessThan(
-      vi.mocked(records.findAdministratorSession).mock.invocationCallOrder[0]!,
+      vi.mocked(records.lockAdministratorSession).mock.invocationCallOrder[0]!,
     )
     expect(records.recordRefusal).toHaveBeenCalledWith({
       credentialDigest: "a".repeat(64),

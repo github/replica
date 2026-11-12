@@ -7,7 +7,7 @@ export interface CopilotConnectionTransactionRepositories {
   advanceState: () => Promise<unknown>
   clearRefusal: () => Promise<unknown>
   deleteConnection: () => Promise<boolean>
-  findAdministratorSession: (sessionDigest: string) => Promise<{ membershipId: string } | null>
+  lockAdministratorSession: (sessionDigest: string) => Promise<{ membershipId: string } | null>
   getConnection: () => Promise<{
     credentialDigest: string
     credentialProvider: string

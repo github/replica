@@ -49,6 +49,46 @@ describe("readLearningConfiguration()", () => {
     )
   })
 
+  it("follows a client-directory symbolic link without rejecting an unrelated learning root", async () => {
+    const applicationRoot = resolve(`server/domains/learning/.root-test-${randomUUID()}`)
+    const clientTarget = resolve(applicationRoot, "client-build")
+    const clientLink = resolve(applicationRoot, "current-client")
+    await mkdir(clientTarget, { recursive: true })
+    await symlink(clientTarget, clientLink)
+    onTestFinished(() => rm(applicationRoot, { force: true, recursive: true }))
+
+    await expect(
+      readLearningConfiguration(
+        {
+          CLIENT_DIRECTORY: clientLink,
+          REPLICA_LEARNING_ROOT: resolve(applicationRoot, "private-learning"),
+        },
+        applicationRoot,
+      ),
+    ).resolves.toMatchObject({ root: resolve(applicationRoot, "private-learning") })
+  })
+
+  it("rejects a learning root under the target of a client-directory symbolic link", async () => {
+    const applicationRoot = resolve(`server/domains/learning/.root-test-${randomUUID()}`)
+    const clientTarget = resolve(applicationRoot, "client-build")
+    const clientLink = resolve(applicationRoot, "current-client")
+    await mkdir(clientTarget, { recursive: true })
+    await symlink(clientTarget, clientLink)
+    onTestFinished(() => rm(applicationRoot, { force: true, recursive: true }))
+
+    await expect(
+      readLearningConfiguration(
+        {
+          CLIENT_DIRECTORY: clientLink,
+          REPLICA_LEARNING_ROOT: resolve(clientTarget, "learning"),
+        },
+        applicationRoot,
+      ),
+    ).rejects.toThrow(
+      "REPLICA_LEARNING_ROOT must be a dedicated private directory outside the public web root.",
+    )
+  })
+
   it("rejects a learning root under the public web root", async () => {
     const applicationRoot = resolve(`server/domains/learning/.root-test-${randomUUID()}`)
     await mkdir(resolve(applicationRoot, "public"), { recursive: true })

@@ -87,8 +87,10 @@ try {
             product = createProductRouteDependencies()
             const { createCopilotConnectionRouteDependencies } =
               await import("./routes/api/copilot-connection/create-copilot-connection-route-dependencies/index.ts")
-            copilotConnection =
-              await createCopilotConnectionRouteDependencies(authenticationEnvironment)
+            copilotConnection = await createCopilotConnectionRouteDependencies(
+              authenticationEnvironment,
+              logger,
+            )
           } else {
             await disableAuthenticationProviders()
           }

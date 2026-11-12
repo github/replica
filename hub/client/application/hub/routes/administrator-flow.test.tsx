@@ -170,6 +170,53 @@ describe("administrator frontend integration", () => {
     await waitFor(() => expect(disconnect).toHaveBeenCalledTimes(1))
   }, 10_000)
 
+  it("revalidates a connected page after Copilot refuses a recheck", async () => {
+    let refused = false
+    let statusRequests = 0
+    await renderApplication("/settings/copilot", [
+      authenticatedSession(),
+      http.get(`${window.location.origin}/api/copilot-connection`, () => {
+        statusRequests += 1
+        return HttpResponse.json({
+          configured: true,
+          connected: !refused,
+          savedConnection: true,
+          connectedBy: refused
+            ? null
+            : {
+                login: "octocat",
+                membershipId: actorMembershipId,
+                name: "The Octocat",
+              },
+          refusedAt: refused ? "2026-11-11T13:00:00.000Z" : null,
+          verifiedAt: "2026-11-10T23:00:00.000Z",
+        })
+      }),
+      http.post(`${window.location.origin}/api/copilot-connection/connect`, () => {
+        refused = true
+        return HttpResponse.json(
+          { error: "Copilot refused the configured credential." },
+          { status: 422 },
+        )
+      }),
+    ])
+
+    expect(await screen.findByRole("heading", { name: "Copilot is connected" })).toBeVisible()
+    fireEvent.click(
+      screen.getByRole("checkbox", {
+        name: "I understand and confirm connecting Copilot for this Hub.",
+      }),
+    )
+    fireEvent.click(screen.getByRole("button", { name: "Check Copilot connection" }))
+
+    expect(await screen.findByText("Copilot refused the configured credential.")).toBeVisible()
+    expect(await screen.findByRole("heading", { name: "Copilot is not connected" })).toBeVisible()
+    expect(screen.getByText(/Copilot refused the configured credential on/)).toBeVisible()
+    expect(screen.getByRole("button", { name: "Check and connect Copilot" })).toBeVisible()
+    expect(screen.getByRole("button", { name: "Disconnect Copilot" })).toBeVisible()
+    expect(statusRequests).toBeGreaterThan(1)
+  }, 10_000)
+
   it("uses the real Copilot status and mutation APIs with visible action results", async () => {
     const mutations: Array<{ body: unknown; method: string; path: string }> = []
     let connected = false

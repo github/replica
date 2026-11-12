@@ -3,6 +3,7 @@ export interface CopilotConnectionRouteDependencies {
   connect: (input: { sessionDigest: string; signal?: AbortSignal }) => Promise<unknown>
   disconnect: (input: { sessionDigest: string }) => Promise<unknown>
   findSession: (sessionDigest: string) => Promise<{ membershipId: string } | null>
+  reportFailure: (code: string) => void
   status: () => Promise<{
     configured: boolean
     connected: boolean

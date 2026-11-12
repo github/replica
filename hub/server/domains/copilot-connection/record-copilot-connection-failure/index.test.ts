@@ -9,13 +9,13 @@ describe("recordCopilotConnectionFailure()", () => {
     const membershipId = randomUUID()
     const auditId = randomUUID()
     const lockState = vi.fn().mockResolvedValue({ generation: 1n })
-    const findAdministratorSession = vi.fn().mockResolvedValue({ membershipId })
+    const lockAdministratorSession = vi.fn().mockResolvedValue({ membershipId })
     const writeAudit = vi.fn().mockResolvedValue(undefined)
     const records = {
       advanceState: vi.fn(),
       clearRefusal: vi.fn(),
       deleteConnection: vi.fn(),
-      findAdministratorSession,
+      lockAdministratorSession,
       getConnection: vi.fn(),
       lockState,
       recordRefusal: vi.fn(),
@@ -37,7 +37,7 @@ describe("recordCopilotConnectionFailure()", () => {
     ).resolves.toBe(true)
 
     expect(lockState.mock.invocationCallOrder[0]).toBeLessThan(
-      findAdministratorSession.mock.invocationCallOrder[0]!,
+      lockAdministratorSession.mock.invocationCallOrder[0]!,
     )
     expect(writeAudit).toHaveBeenCalledWith({
       actorMembershipId: membershipId,

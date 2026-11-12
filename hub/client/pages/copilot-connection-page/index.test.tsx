@@ -58,7 +58,7 @@ describe("CopilotConnectionPage()", () => {
       /Copilot refused the configured credential/,
     )
     expect(screen.getByRole("button", { name: "Check and connect Copilot" })).toBeInTheDocument()
-    expect(screen.queryByRole("button", { name: "Disconnect Copilot" })).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Disconnect Copilot" })).toBeInTheDocument()
   })
 
   it("shows explicit local credential-provider guidance when none is configured", () => {

@@ -14,7 +14,7 @@ Compose starts the app container after PostgreSQL is healthy. Both images use De
 
 The repository is mounted at `/workspaces/replica`, with `hub/` as the working directory. Compose supplies `DATABASE_URL` with the `db` service hostname. Local database credentials in Compose are for development only. The database port is published only on host loopback.
 
-After the container opens and PostgreSQL is healthy, run `npm run setup` before starting `npm run dev:api`. Run setup again after pulling new migrations.
+After the container opens and PostgreSQL is healthy, install the separate learning runtime with `npm ci --prefix ../packages/learning --engine-strict`, then run `npm run setup` before starting `npm run dev:api`. Run setup again after pulling new migrations.
 
 ## Local Node.js
 
@@ -24,6 +24,7 @@ Use npm and a Node.js version supported by `engines.node` in `hub/package.json`.
 docker compose -f .devcontainer/compose.yaml up -d db
 cp .env.example .env
 npm ci --engine-strict
+npm ci --prefix ../packages/learning --engine-strict
 npm run setup
 ```
 

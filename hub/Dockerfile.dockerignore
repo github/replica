@@ -3,8 +3,17 @@
 !hub/**
 !packages/
 !packages/learning/
-!packages/learning/**
-
+!packages/learning/package.json
+!packages/learning/package-lock.json
+!packages/learning/.npmrc
+!packages/learning/index.mjs
+!packages/learning/index.d.mts
+!packages/learning/bin/
+!packages/learning/bin/**
+!packages/learning/src/
+!packages/learning/src/**
+!packages/learning/contracts/
+!packages/learning/contracts/**
 hub/.env*
 !hub/.env.example
 hub/.devcontainer
@@ -20,5 +29,3 @@ hub/**/*.test.*
 hub/**/stories.tsx
 hub/.storybook
 
-packages/learning/node_modules
-packages/learning/.test-work

@@ -90,7 +90,9 @@ export const Connected: Story = {
 export const Refused: Story = {
   args: {
     data: {
-      ...data,
+      ...connected,
+      connected: false,
+      statusLabel: "Copilot is not connected",
       refusedLabel: "Copilot refused the configured credential on 2026-11-11T13:00:00.000Z.",
       connect: { ...connect, label: "Check and connect Copilot" },
     },

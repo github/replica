@@ -14,7 +14,7 @@ export function recordCopilotConnectionFailure(
 ) {
   return runTransaction(async (repositories) => {
     await repositories.lockState()
-    const session = await repositories.findAdministratorSession(sessionDigest)
+    const session = await repositories.lockAdministratorSession(sessionDigest)
     if (!session) return false
     await repositories.writeAudit({
       actorMembershipId: session.membershipId,

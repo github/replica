@@ -11,7 +11,7 @@ function repositories(
     advanceState: vi.fn().mockResolvedValue(undefined),
     clearRefusal: vi.fn().mockResolvedValue(undefined),
     deleteConnection: vi.fn().mockResolvedValue(true),
-    findAdministratorSession: vi.fn().mockResolvedValue({ membershipId: randomUUID() }),
+    lockAdministratorSession: vi.fn().mockResolvedValue({ membershipId: randomUUID() }),
     getConnection: vi.fn().mockResolvedValue({ id: randomUUID() }),
     lockState: vi.fn().mockResolvedValue({ generation: 1n }),
     replaceConnection: vi.fn().mockResolvedValue(undefined),
@@ -24,7 +24,7 @@ function repositories(
 describe("disconnectCopilot()", () => {
   it("rereads administrator authority after locking the connection state", async () => {
     const records = repositories({
-      findAdministratorSession: vi.fn().mockResolvedValue(null),
+      lockAdministratorSession: vi.fn().mockResolvedValue(null),
     })
 
     await expect(
@@ -38,9 +38,9 @@ describe("disconnectCopilot()", () => {
     ).rejects.toMatchObject({ code: "not_authorized" })
 
     expect(records.lockState).toHaveBeenCalledOnce()
-    expect(records.findAdministratorSession).toHaveBeenCalledWith("session-digest")
+    expect(records.lockAdministratorSession).toHaveBeenCalledWith("session-digest")
     expect(vi.mocked(records.lockState).mock.invocationCallOrder[0]).toBeLessThan(
-      vi.mocked(records.findAdministratorSession).mock.invocationCallOrder[0]!,
+      vi.mocked(records.lockAdministratorSession).mock.invocationCallOrder[0]!,
     )
     expect(records.getConnection).not.toHaveBeenCalled()
     expect(records.deleteConnection).not.toHaveBeenCalled()
@@ -74,8 +74,12 @@ describe("disconnectCopilot()", () => {
     const connectionId = randomUUID()
     const auditId = randomUUID()
     const records = repositories({
-      findAdministratorSession: vi.fn().mockResolvedValue({ membershipId: actorMembershipId }),
-      getConnection: vi.fn().mockResolvedValue({ id: connectionId }),
+      lockAdministratorSession: vi.fn().mockResolvedValue({ membershipId: actorMembershipId }),
+      getConnection: vi.fn().mockResolvedValue({
+        credentialDigest: "a".repeat(64),
+        credentialProvider: "environment_token",
+        id: connectionId,
+      }),
     })
 
     await expect(
@@ -93,6 +97,7 @@ describe("disconnectCopilot()", () => {
     expect(records.writeAudit).toHaveBeenCalledWith({
       actorMembershipId,
       connectionId,
+      credentialProvider: "environment_token",
       id: auditId,
       phase: "disconnected",
       type: "copilot_connection",

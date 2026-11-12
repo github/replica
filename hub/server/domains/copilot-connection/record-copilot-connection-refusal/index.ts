@@ -23,7 +23,7 @@ export function recordCopilotConnectionRefusal(
 ) {
   return runTransaction(async (repositories) => {
     const state = await repositories.lockState()
-    const session = await repositories.findAdministratorSession(input.sessionDigest)
+    const session = await repositories.lockAdministratorSession(input.sessionDigest)
     if (!session) return "not_authorized" as const
     const connection = await repositories.getConnection()
     if (

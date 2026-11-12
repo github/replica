@@ -1,12 +1,15 @@
 import { lstat, realpath } from "node:fs/promises"
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path"
 
-async function canonicalPath(path: string) {
+async function canonicalPath(path: string, followSymbolicLinks = false) {
   let existing = path
   while (true) {
     try {
       const status = await lstat(existing)
-      if (status.isSymbolicLink() || !status.isDirectory()) {
+      if (
+        (!followSymbolicLinks && status.isSymbolicLink()) ||
+        (!status.isDirectory() && !status.isSymbolicLink())
+      ) {
         throw new Error("The path must contain only directories and no symbolic links.")
       }
       return resolve(await realpath(existing), relative(existing, path))
@@ -60,7 +63,7 @@ export async function validatePrivateStorageRoot(
     const storage = await canonicalPath(resolve(applicationRoot, "storage"))
     const publicDirectory = await canonicalPath(resolve(publicRoot))
     const excluded = await Promise.all(
-      excludedDirectories.map((directory) => canonicalPath(resolve(directory))),
+      excludedDirectories.map((directory) => canonicalPath(resolve(directory), true)),
     )
     const filesystemRoot = resolve(path, sep)
     if (

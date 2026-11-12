@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest"
 
 import { createApp } from "../../../create-app"
 import { CopilotConnectionError } from "../../../domains/copilot-connection/errors"
+import { LearningCommandError } from "../../../integrations/learning/run-learning-command/errors"
 import type { CopilotConnectionRouteDependencies } from "./types"
 
 const applicationOrigin = "http://127.0.0.1:5173"
@@ -17,6 +18,7 @@ function dependencies(): CopilotConnectionRouteDependencies {
     connect: vi.fn().mockResolvedValue(undefined),
     disconnect: vi.fn().mockResolvedValue(undefined),
     findSession: vi.fn().mockResolvedValue({ membershipId: randomUUID() }),
+    reportFailure: vi.fn(),
     status: vi.fn().mockResolvedValue({
       configured: true,
       connected: false,
@@ -215,6 +217,47 @@ describe("copilotConnectionRoutes()", () => {
       await expect(response.json()).resolves.toEqual({
         error: "Another Copilot connection check is still running.",
       })
+    })
+  })
+
+  it.each([
+    [
+      "the allowlisted command failure",
+      new CopilotConnectionError("unavailable", "Hub could not check Copilot.", {
+        cause: new LearningCommandError("timeout", "private command output"),
+      }),
+      "timeout",
+    ],
+    [
+      "an unknown cause",
+      new CopilotConnectionError("unavailable", "Hub could not check Copilot.", {
+        cause: new Error("private command output"),
+      }),
+      "unknown",
+    ],
+    [
+      "an unrecognized command failure",
+      new CopilotConnectionError("unavailable", "Hub could not check Copilot.", {
+        cause: new LearningCommandError("private_provider_detail", "private command output"),
+      }),
+      "unknown",
+    ],
+  ])("reports %s without exposing the raw error", async (_label, error, expectedCode) => {
+    const copilotConnection = dependencies()
+    vi.mocked(copilotConnection.connect).mockRejectedValue(error)
+
+    await withServer(copilotConnection, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/copilot-connection/connect`, {
+        method: "POST",
+        headers: mutationHeaders(),
+        body: JSON.stringify({ confirmed: true }),
+      })
+
+      expect(response.status).toBe(503)
+      expect(copilotConnection.reportFailure).toHaveBeenCalledWith(expectedCode)
+      expect(JSON.stringify(vi.mocked(copilotConnection.reportFailure).mock.calls)).not.toContain(
+        "private command output",
+      )
     })
   })
 })

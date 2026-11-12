@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto"
+import type { Logger } from "pino"
 
 import type { Prisma } from "../../../../generated/prisma/client.ts"
 import { connectCopilot } from "../../../../domains/copilot-connection/connect-copilot/index.ts"
@@ -21,6 +22,7 @@ import { deleteCopilotConnection } from "../../../../repositories/copilot-connec
 import { getCopilotConnection } from "../../../../repositories/copilot-connections/get-copilot-connection/index.ts"
 import { replaceCopilotConnection } from "../../../../repositories/copilot-connections/replace-copilot-connection/index.ts"
 import { findAdministratorHubSession } from "../../../../repositories/hub-sessions/find-administrator-hub-session/index.ts"
+import { lockAdministratorHubSession } from "../../../../repositories/hub-sessions/lock-administrator-hub-session/index.ts"
 import { isEffectiveAdministrator } from "../../../../repositories/memberships/is-effective-administrator/index.ts"
 import { createSecurityAudit } from "../../../../repositories/security-audits/create-security-audit/index.ts"
 import type { CopilotConnectionTransactionRepositories } from "../../../../domains/copilot-connection/types.ts"
@@ -28,6 +30,7 @@ import type { CopilotConnectionRouteDependencies } from "../types.ts"
 
 export async function createCopilotConnectionRouteDependencies(
   environment: NodeJS.ProcessEnv,
+  logger: Logger,
 ): Promise<CopilotConnectionRouteDependencies> {
   const configuration = await readLearningConfiguration(environment)
   const applicationOrigin = environment.HUB_APPLICATION_ORIGIN
@@ -46,7 +49,7 @@ export async function createCopilotConnectionRouteDependencies(
       advanceState: () => advanceCopilotConnectionState(transaction),
       clearRefusal: () => clearCopilotCredentialRefusal(transaction),
       deleteConnection: () => deleteCopilotConnection(transaction),
-      findAdministratorSession: (digest) => findAdministratorHubSession(transaction, digest),
+      lockAdministratorSession: (digest) => lockAdministratorHubSession(transaction, digest),
       getConnection: () => getCopilotConnection(transaction),
       lockState: () => lockCopilotConnectionState(transaction),
       replaceConnection: (input) => replaceCopilotConnection(transaction, input),
@@ -65,6 +68,9 @@ export async function createCopilotConnectionRouteDependencies(
   return {
     applicationOrigin,
     findSession,
+    reportFailure: (code) => {
+      logger.warn({ copilotFailureCode: code }, "Copilot connection check failed")
+    },
     connect: ({ sessionDigest, signal }) =>
       withCopilotConnectionCheck(() =>
         connectCopilot(

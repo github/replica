@@ -149,6 +149,7 @@ describe("runApi()", () => {
       findSession: vi.fn().mockResolvedValue({
         membershipId: "11111111-1111-4111-8111-111111111111",
       }),
+      reportFailure: vi.fn(),
       status: vi.fn().mockResolvedValue({
         configured: true,
         connected: false,

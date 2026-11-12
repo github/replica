@@ -13,7 +13,7 @@ function repositories(
     advanceState: vi.fn().mockResolvedValue(undefined),
     clearRefusal: vi.fn().mockResolvedValue(undefined),
     deleteConnection: vi.fn().mockResolvedValue(false),
-    findAdministratorSession: vi.fn().mockResolvedValue({ membershipId: randomUUID() }),
+    lockAdministratorSession: vi.fn().mockResolvedValue({ membershipId: randomUUID() }),
     getConnection: vi.fn().mockResolvedValue(null),
     lockState: vi.fn().mockResolvedValue({ generation: 1n }),
     recordRefusal: vi.fn().mockResolvedValue(true),
@@ -30,7 +30,7 @@ describe("connectCopilot()", () => {
   }
 
   it("rereads administrator authority after credential validation", async () => {
-    const records = repositories({ findAdministratorSession: vi.fn().mockResolvedValue(null) })
+    const records = repositories({ lockAdministratorSession: vi.fn().mockResolvedValue(null) })
     const check = vi.fn().mockResolvedValue({ signedIn: true, login: "octocat", models: [] })
 
     await expect(
@@ -52,7 +52,7 @@ describe("connectCopilot()", () => {
 
     expect(check).toHaveBeenCalledOnce()
     expect(vi.mocked(records.lockState).mock.invocationCallOrder[0]).toBeLessThan(
-      vi.mocked(records.findAdministratorSession).mock.invocationCallOrder[0]!,
+      vi.mocked(records.lockAdministratorSession).mock.invocationCallOrder[0]!,
     )
     expect(records.replaceConnection).not.toHaveBeenCalled()
     expect(records.writeAudit).not.toHaveBeenCalled()
@@ -93,7 +93,7 @@ describe("connectCopilot()", () => {
     const auditId = randomUUID()
     const verifiedAt = new Date("2026-11-10T23:00:00Z")
     const records = repositories({
-      findAdministratorSession: vi.fn().mockResolvedValue({ membershipId: actorMembershipId }),
+      lockAdministratorSession: vi.fn().mockResolvedValue({ membershipId: actorMembershipId }),
       getConnection: vi.fn().mockResolvedValue({ id: previousConnectionId }),
     })
     const createId = vi.fn().mockReturnValueOnce(connectionId).mockReturnValueOnce(auditId)

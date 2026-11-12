@@ -103,7 +103,7 @@ function RealCopilotConnection({ page }: { page: CopilotConnectionPageData }) {
   const busy = fetcher.state !== "idle" || revalidator.state !== "idle"
   const result = fetcher.data
   useEffect(() => {
-    if (result?.saved !== true || revalidatedResult.current === result) return
+    if (!result || revalidatedResult.current === result) return
     revalidatedResult.current = result
     void revalidator.revalidate()
   }, [result, revalidator])
