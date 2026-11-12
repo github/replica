@@ -57,7 +57,7 @@ Before marking any local row `verified`, follow its incoming local link when pre
 
 For each built page, including non-representatives and the source page, compare its heading and distinguishing content with its own `content.json`. For each auth/download/deferred boundary, check the intended explanation and safe, redacted destination without signing in, downloading or submitting real data. A verified boundary means that boundary works, not that excluded functionality was built.
 
-Append a concise evidence reference and the observed route/content checks to the row's `note`, preserving any scope-exclusion reason. Keep rows `built` until checked. If a required check is unavailable, use `blocked` with a nonblank text note naming the specific blocker and remaining assertion; do not hide an observed defect as a visual difference. Representative fidelity still uses both viewports; other rows need a normal-viewport route/content check, not another screenshot matrix.
+Append a concise evidence reference and the observed route/content checks to the row's nonblank text `note`, preserving any scope-exclusion reason. Every verified local row needs that note; the ledger checks its presence, not the truth of the rendered evidence. Keep rows `built` until checked. If a required check is unavailable, use `blocked` with a nonblank text note naming the specific blocker and remaining assertion; do not hide an observed defect as a visual difference. Representative fidelity still uses both viewports; other rows need a normal-viewport route/content check, not another screenshot matrix.
 
 ## Handoff
 

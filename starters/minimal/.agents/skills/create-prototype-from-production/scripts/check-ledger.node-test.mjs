@@ -32,6 +32,7 @@ const hub = {
   decision: "build",
   route: "/cards",
   status: "verified",
+  note: "Fixture evidence: /cards renders the Cards heading and product grid.",
 }
 
 test("accepts a complete final ledger", () => {
@@ -42,6 +43,7 @@ test("accepts a complete final ledger", () => {
       url: "https://example.com/loans",
       route: "/loans?term=12#details",
       representative: false,
+      note: "Fixture evidence: /loans?term=12#details renders the loan terms.",
     },
     { url: "https://example.org/", foundIn: ["footer"], decision: "stub-external" },
     {
@@ -50,6 +52,7 @@ test("accepts a complete final ledger", () => {
       decision: "stub-auth",
       route: "/login",
       status: "verified",
+      note: "Fixture evidence: /login renders the sign-in boundary and destination.",
     },
   ]
   assert.deepEqual(checkLedger(ledger(pages), { final: true }), [])
@@ -101,6 +104,7 @@ test("accepts a normalized HTTP subpath source with query and fragment and nonne
       url: "http://EXAMPLE.com:80/loans?term=24#details",
       route: "/loans?term=24#details",
       representative: false,
+      note: "Fixture evidence: /loans?term=24#details renders the selected loan terms.",
     },
     { url: "mailto:support@example.com", foundIn: ["footer"], decision: "stub-external" },
     { url: "tel:+15555550123", foundIn: ["footer"], decision: "stub-external" },
@@ -207,8 +211,9 @@ test("allows the source to remain an auth, download or explicitly deferred local
         decision,
         route: "/source-boundary",
         status: "verified",
+        note: `Fixture evidence: /source-boundary renders the ${decision} explanation and destination.`,
       }
-      if (decision === "deferred") page.note = "The agreed scope excludes the source page."
+      if (decision === "deferred") page.note += " The agreed scope excludes the source page."
       for (const final of [false, true]) {
         assert.deepEqual(checkLedger(ledger([page]), { final }), [], `final: ${final}`)
       }
@@ -225,21 +230,27 @@ test("requires a nonblank reason when the source is explicitly deferred", async 
           foundIn: ["source"],
           decision: "deferred",
           route: "/source-boundary",
-          status: "verified",
+          status: "planned",
           note,
         },
       ])
       for (const final of [false, true]) {
-        assert.notDeepEqual(checkLedger(value, { final }), [], `final: ${final}`)
+        assert.match(
+          checkLedger(value, { final }).join("\n"),
+          /source:.*(?:scope|reason)/i,
+          `final: ${final}`,
+        )
       }
     })
   }
 })
 
-test("rejects planned pages at handoff but not during discovery", () => {
-  const pages = [{ ...hub, status: "planned" }]
-  assert.deepEqual(checkLedger(ledger(pages)), [])
-  assert.match(checkLedger(ledger(pages), { final: true }).join("\n"), /not final/)
+test("allows planned and built pages without notes during discovery but not at handoff", () => {
+  for (const status of ["planned", "built"]) {
+    const pages = [{ ...hub, status, note: undefined }]
+    assert.deepEqual(checkLedger(ledger(pages)), [], status)
+    assert.match(checkLedger(ledger(pages), { final: true }).join("\n"), /not final/, status)
+  }
 })
 
 test("requires exactly one representative per family", () => {
@@ -255,11 +266,104 @@ test("rejects a URL listed under two decisions", () => {
 test("rejects duplicate routes and unexplained blocks", () => {
   const pages = [
     hub,
-    { ...hub, url: "https://example.com/x", representative: false, status: "blocked" },
+    {
+      ...hub,
+      url: "https://example.com/x",
+      representative: false,
+      status: "blocked",
+      note: undefined,
+    },
   ]
   const problems = checkLedger(ledger(pages)).join("\n")
   assert.match(problems, /also used by/)
   assert.match(problems, /blocked without a note/)
+})
+
+test("reports row constraints without exposing URL, route or family values", async (t) => {
+  const markers = {
+    user: "synthetic-user-marker",
+    password: "synthetic-password-marker",
+    host: "synthetic-host-marker",
+    path: "synthetic-path-marker",
+    query: "synthetic-query-marker",
+    fragment: "synthetic-fragment-marker",
+    route: "synthetic-route-marker",
+    family: "synthetic-family-marker",
+  }
+  const privateUrl = `https://${markers.user}:${markers.password}@example.com/${markers.path}?filter=${markers.query}#${markers.fragment}`
+  const privateRoute = `/${markers.route}?state=${markers.query}#${markers.fragment}`
+  for (const [name, overrides, constraint] of [
+    ["duplicate route", {}, /route.*(?:also used|duplicate)/i],
+    [
+      "invalid target",
+      { url: privateUrl.replace("example.com", `${markers.host}.example.org`) },
+      /build target.*source origin/i,
+    ],
+    ["family count", { family: markers.family }, /exactly one representative/i],
+  ]) {
+    await t.test(name, () => {
+      const pages = [
+        {
+          ...hub,
+          ...(name === "duplicate route"
+            ? {
+                route: privateRoute,
+                note: "Fixture evidence: the listed route renders the Cards heading and grid.",
+              }
+            : {}),
+        },
+        {
+          ...hub,
+          url: privateUrl,
+          route: privateRoute,
+          representative: false,
+          note: "Fixture evidence: the listed route renders its expected heading and content.",
+          ...overrides,
+        },
+      ]
+      const problems = checkLedger(ledger(pages), { final: true }).join("\n")
+
+      assert.match(problems, constraint)
+      for (const marker of Object.values(markers)) {
+        assert.equal(problems.includes(marker), false, "diagnostics exposed a synthetic marker")
+      }
+      assert.match(problems, /pages\[1\]/)
+    })
+  }
+})
+
+test("requires evidence notes on verified rows for every local decision", async (t) => {
+  for (const [decision, note] of [
+    ["build", undefined],
+    ["stub-auth", " \t\n"],
+    ["stub-download", 42],
+    ["deferred", {}],
+  ]) {
+    await t.test(decision, () => {
+      const page = {
+        ...hub,
+        url: "https://example.com/verified",
+        route: "/verified",
+        representative: false,
+        decision,
+        note,
+      }
+      for (const final of [false, true]) {
+        const explained = {
+          ...page,
+          note: `Fixture evidence: /verified renders the ${decision} content and destination.`,
+        }
+        assert.deepEqual(checkLedger(ledger([hub, explained]), { final }), [], `final: ${final}`)
+      }
+      for (const final of [false, true]) {
+        assert.match(
+          checkLedger(ledger([hub, page]), { final }).join("\n"),
+          /note/i,
+          `final: ${final}`,
+        )
+      }
+    })
+  }
 })
 
 test("requires a nonblank string note on every blocked local decision", async (t) => {
@@ -320,6 +424,7 @@ test("requires HTTP(S) originals for auth, download and deferred local boundarie
         decision,
         route: "/boundary",
         status: "verified",
+        note: "Fixture evidence: /boundary renders the explanation and inert destination.",
       }
       assert.notDeepEqual(checkLedger(ledger([hub, page]), { final: true }), [])
     })
@@ -329,8 +434,8 @@ test("requires HTTP(S) originals for auth, download and deferred local boundarie
 test("requires a local route and final status for local boundaries", () => {
   const login = { url: "https://login.example.com/", foundIn: ["header"], decision: "stub-auth" }
   const missing = checkLedger(ledger([hub, login]), { final: true }).join("\n")
-  assert.match(missing, /login\.example\.com\/: local boundary has no local route/)
-  assert.match(missing, /login\.example\.com\/: unknown status/)
+  assert.match(missing, /pages\[1\]: local boundary has no local route/)
+  assert.match(missing, /pages\[1\]: unknown status/)
 
   const planned = { ...login, route: "/login", status: "planned" }
   assert.match(checkLedger(ledger([hub, planned]), { final: true }).join("\n"), /not final/)
@@ -381,6 +486,7 @@ test("reports every local decision by status in the CLI summary", (t) => {
       decision: "stub-auth",
       route: "/login",
       status: "verified",
+      note: "Fixture evidence: /login renders the sign-in boundary and destination.",
     },
     { url: "https://example.org/", foundIn: ["footer"], decision: "stub-external" },
   ]
@@ -416,12 +522,26 @@ test("returns CLI validation diagnostics and JSON for malformed ledger shapes", 
   }
 })
 
+test("reports malformed JSON without echoing document contents in CLI output", (t) => {
+  const directory = fixtureDirectory(t)
+  const path = join(directory, "coverage.json")
+  const marker = "SYNTH_X"
+  writeFileSync(path, marker)
+
+  const result = spawnSync(process.execPath, [checker, path], { encoding: "utf8" })
+
+  assert.ifError(result.error)
+  assert.equal(result.status, 2, result.stderr)
+  assert.match(result.stderr, /JSON|pars|syntax|malformed/i)
+  assert.equal(`${result.stdout}${result.stderr}`.includes(marker), false)
+})
+
 test("accepts planned discovery through the CLI but rejects it with --final", (t) => {
   const directory = fixtureDirectory(t)
   mkdirSync(join(directory, "reference"))
   writeFileSync(
     join(directory, "reference", "coverage.json"),
-    JSON.stringify(ledger([{ ...hub, status: "planned" }])),
+    JSON.stringify(ledger([{ ...hub, status: "planned", note: undefined }])),
   )
   const discovery = spawnSync(process.execPath, [checker], {
     cwd: directory,
@@ -444,7 +564,7 @@ test("rejects unknown CLI options instead of accepting planned discovery", async
     await t.test(option, (t) => {
       const directory = fixtureDirectory(t)
       const path = join(directory, "coverage.json")
-      writeFileSync(path, JSON.stringify(ledger([{ ...hub, status: "planned" }])))
+      writeFileSync(path, JSON.stringify(ledger([{ ...hub, status: "planned", note: undefined }])))
       const result = spawnSync(process.execPath, [checker, option, path], { encoding: "utf8" })
       assert.equal(result.status, 2, result.stderr)
       assert.ok(result.stderr.includes(option), result.stderr)

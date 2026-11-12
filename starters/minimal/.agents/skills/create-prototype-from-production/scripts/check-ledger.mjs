@@ -50,7 +50,7 @@ export function checkLedger(ledger, { final = false } = {}) {
       continue
     }
     const url = absoluteUrl(page.url)
-    const label = url?.href ?? `pages[${index}]`
+    const label = `pages[${index}]`
     if (!url) {
       problems.push(`${label}: requires an absolute destination URL`)
     } else {
@@ -59,7 +59,7 @@ export function checkLedger(ledger, { final = false } = {}) {
       if (url.href === source?.href) sourcePage = page
     }
     if (!DECISIONS.has(page.decision))
-      problems.push(`${label}: unknown decision ${JSON.stringify(page.decision)}`)
+      problems.push(`${label}: unknown decision`)
     if (!Array.isArray(page.foundIn) || page.foundIn.length === 0)
       problems.push(`${label}: foundIn is empty`)
     if (
@@ -88,14 +88,16 @@ export function checkLedger(ledger, { final = false } = {}) {
       /[\u0000-\u001f\u007f]/.test(page.route)
     )
       problems.push(`${label}: ${kind} has no local route`)
-    if (!STATUSES.has(page.status)) problems.push(`${label}: unknown status ${JSON.stringify(page.status)}`)
+    if (!STATUSES.has(page.status)) problems.push(`${label}: unknown status`)
     if (final && !FINAL_STATUSES.has(page.status))
-      problems.push(`${label}: status ${JSON.stringify(page.status)} is not final`)
+      problems.push(`${label}: status is not final`)
     if (page.status === "blocked" && !isNonblankString(page.note))
       problems.push(`${label}: blocked without a note; expected a nonblank string`)
+    if (page.status === "verified" && !isNonblankString(page.note))
+      problems.push(`${label}: verified without an evidence note; expected a nonblank string`)
 
     if (routes.has(page.route))
-      problems.push(`${label}: route ${page.route} also used by ${routes.get(page.route)}`)
+      problems.push(`${label}: local route also used by ${routes.get(page.route)}`)
     routes.set(page.route, label)
     if (page.decision !== "build") continue
 
@@ -103,7 +105,7 @@ export function checkLedger(ledger, { final = false } = {}) {
       problems.push(`${label}: build page has no family`)
       continue
     }
-    const family = families.get(page.family) ?? { representatives: 0 }
+    const family = families.get(page.family) ?? { representatives: 0, label }
     if (page.representative) family.representatives += 1
     families.set(page.family, family)
   }
@@ -119,10 +121,10 @@ export function checkLedger(ledger, { final = false } = {}) {
     problems.push("source: deferred without a scope-exclusion reason")
   }
 
-  for (const [name, family] of families) {
+  for (const family of families.values()) {
     if (family.representatives !== 1) {
       problems.push(
-        `family ${name}: needs exactly one representative, found ${family.representatives}`,
+        `${family.label}: family needs exactly one representative, found ${family.representatives}`,
       )
     }
   }
@@ -157,11 +159,18 @@ if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.ar
   const final = args.includes("--final")
   const path = resolve(paths[0] ?? "reference/coverage.json")
 
-  let ledger
+  let contents
   try {
-    ledger = JSON.parse(readFileSync(path, "utf8"))
+    contents = readFileSync(path, "utf8")
   } catch (error) {
     console.error(`Cannot read ledger ${path}: ${error.message}`)
+    process.exit(2)
+  }
+  let ledger
+  try {
+    ledger = JSON.parse(contents)
+  } catch {
+    console.error("Cannot parse ledger: expected valid JSON.")
     process.exit(2)
   }
 

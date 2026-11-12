@@ -50,6 +50,8 @@ Download only assets that built pages use, from URLs observed in the browser evi
 
 Replica Build rejects any served file over 25 MiB, and GitHub rejects any file over 100 MiB. Default to serving a copy under 25 MiB for larger assets; record the choice without asking a routine question. Serve a larger original only when the request explicitly requires it, and report that Replica Build will reject it. Keep each replaced original under `reference/originals/` and record both hashes in `assets.json`. Never commit a file over 100 MiB, served or not: add it to `.gitignore` and record its source URL and hash so it can be downloaded again.
 
+These serving and commit limits do not bound transfers or retained capture data. This skill does not enforce per-download byte/time limits or a total capture budget; a large or unending response can exhaust local resources on a host without its own controls. Record actual host limits and any missing protection without treating the serving cap as a download cap. Enforced bounded capture remains a separate follow-up.
+
 ### Active formats
 
 Captured SVG/SVGZ, HTML, scripts and other executable document formats must not be served unchanged, even below the size cap. Image-element rendering does not make an SVG safe to open as a document. Use an inert raster derivative made by a trusted, already available converter with scripting and external-resource loading disabled. Do not use a regular-expression sanitizer, install a new tool silently or fall back to serving the original. If safe conversion is unavailable or fails, mark the affected page blocked with the specific asset limitation and continue independent work.

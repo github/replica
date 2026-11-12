@@ -118,18 +118,30 @@ test("creates exact bundled owner documents without promoting captured or draft 
 })
 
 test("preserves real context directories and rejects unsafe roots without changing them", async (t) => {
-  for (const relativeRoot of [".agents/context", ".github/contexts"]) {
-    for (const kind of [
-      "empty directory",
+  for (const [relativeRoot, withCurrentContext] of [
+    [".agents/context", false],
+    [".github/contexts", false],
+    [".github/contexts", true],
+  ]) {
+    const kinds = [
+      ...(!withCurrentContext ? ["empty directory"] : []),
       "incomplete directory",
       "file",
       "dangling symlink",
       "readable symlink",
-    ]) {
-      await t.test(`${relativeRoot}: ${kind}`, (t) => {
+    ]
+    for (const kind of kinds) {
+      const name = `${relativeRoot}: ${kind}${withCurrentContext ? " beside current context" : ""}`
+      await t.test(name, (t) => {
         const consumer = temporaryDirectory(t)
         const context = join(consumer, relativeRoot)
         const existing = "Existing team guidance must remain unchanged.\n"
+        const current = join(consumer, ".agents", "context")
+        const currentGuidance = "Current team guidance stays separate from legacy guidance.\n"
+        if (withCurrentContext) {
+          mkdirSync(current, { recursive: true })
+          writeFileSync(join(current, "TEAM.md"), currentGuidance)
+        }
         let target = "missing-context"
         mkdirSync(dirname(context), { recursive: true })
         if (kind.endsWith("directory")) {
@@ -149,13 +161,14 @@ test("preserves real context directories and rejects unsafe roots without changi
 
         const result = bootstrap(consumer)
 
-        if (kind.endsWith("directory")) {
-          assert.equal(result.status, 0, result.stderr)
+        if (withCurrentContext) {
+          assert.deepEqual(readdirSync(consumer).sort(), [".agents", ".github"])
+          assert.deepEqual(readdirSync(join(consumer, ".agents")), ["context"])
+          assert.deepEqual(readdirSync(current), ["TEAM.md"])
+          assert.equal(readFileSync(join(current, "TEAM.md"), "utf8"), currentGuidance)
         } else {
-          assert.notEqual(result.status, 0)
-          assert.ok(result.stderr.includes(relativeRoot), result.stderr)
+          assert.deepEqual(readdirSync(consumer), [dirname(relativeRoot)])
         }
-        assert.deepEqual(readdirSync(consumer), [dirname(relativeRoot)])
         assert.deepEqual(readdirSync(dirname(context)), [basename(context)])
         if (kind.endsWith("directory")) {
           assert.deepEqual(
@@ -174,6 +187,15 @@ test("preserves real context directories and rejects unsafe roots without changi
             assert.deepEqual(readdirSync(target), ["REPOSITORY.md"])
             assert.equal(readFileSync(join(target, "REPOSITORY.md"), "utf8"), existing)
           }
+        }
+        if (kind.endsWith("directory")) {
+          assert.equal(result.status, 0, result.stderr)
+          if (withCurrentContext) {
+            assert.ok(result.stdout.includes(".agents/context"), result.stdout)
+          }
+        } else {
+          assert.notEqual(result.status, 0)
+          assert.ok(result.stderr.includes(relativeRoot), result.stderr)
         }
       })
     }
