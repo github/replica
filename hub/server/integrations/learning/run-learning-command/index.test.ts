@@ -19,6 +19,7 @@ describe("runLearningCommand()", () => {
         LC_ALL: "C",
         PATH: process.env.PATH,
         REPLICA_LEARNING_ROOT: "/private/learning",
+        REPLICA_LEARNING_SECRET: "must-not-leak",
         SECRET_FROM_HUB: "must-not-leak",
         TZ: "UTC",
       },
@@ -35,10 +36,11 @@ describe("runLearningCommand()", () => {
       HOME: "/private/home",
       LANG: "en_US.UTF-8",
       LC_ALL: "C",
-      REPLICA_LEARNING_ROOT: "/private/learning",
       TMPDIR: result.temporaryDirectory,
       TZ: "UTC",
     })
+    expect(result.environment.REPLICA_LEARNING_ROOT).toBeUndefined()
+    expect(result.environment.REPLICA_LEARNING_SECRET).toBeUndefined()
     expect(result.environment.SECRET_FROM_HUB).toBeUndefined()
     expect(result.temporaryDirectoryMode).toBe(0o700)
     await expect(stat(result.temporaryDirectory)).rejects.toMatchObject({ code: "ENOENT" })
@@ -63,12 +65,9 @@ describe("runLearningCommand()", () => {
     const marker = resolve(directory, "child.pid")
 
     await expect(
-      runLearningCommand(["copilot", "status"], {
+      runLearningCommand([marker], {
         cliPath: resolve(fixtures, "hang-with-child.mjs"),
-        environment: {
-          PATH: process.env.PATH,
-          REPLICA_LEARNING_PROCESS_MARKER: marker,
-        },
+        environment: { PATH: process.env.PATH },
         timeoutMs: 250,
       }),
     ).rejects.toMatchObject({ code: "timeout" })
@@ -109,12 +108,9 @@ describe("runLearningCommand()", () => {
     })
 
     await expect(
-      runLearningCommand(["copilot", "status"], {
+      runLearningCommand([marker], {
         cliPath: resolve(fixtures, "exit-with-child.mjs"),
-        environment: {
-          PATH: process.env.PATH,
-          REPLICA_LEARNING_PROCESS_MARKER: marker,
-        },
+        environment: { PATH: process.env.PATH },
       }),
     ).resolves.toEqual({ complete: true })
 

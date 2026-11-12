@@ -16,10 +16,7 @@ function commandEnvironment(
 ) {
   const environment: NodeJS.ProcessEnv = { TMPDIR: temporaryDirectory }
   for (const [name, value] of Object.entries(source)) {
-    if (
-      value !== undefined &&
-      (passedVariables.has(name) || name.startsWith("REPLICA_LEARNING_"))
-    ) {
+    if (value !== undefined && passedVariables.has(name)) {
       environment[name] = value
     }
   }

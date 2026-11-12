@@ -27,11 +27,10 @@ Hub has no repository product model on the current branch, so it does not create
 The runner starts Node.js with the configured CLI entry point, appends `--json`, and gives the child only:
 
 - `PATH`, `HOME`, `LANG`, `LC_ALL`, and `TZ`.
-- Variables beginning with `REPLICA_LEARNING_`.
 - `COPILOT_GITHUB_TOKEN` only for an explicitly token-backed command.
 - A new private `TMPDIR`.
 
-Hub does not pass database, authentication, workload-identity, storage, or other deployment credentials. Standard output is limited to 16 MiB, standard error to 1 MiB, and the default deadline is 60 seconds. A timeout, output overflow, cancellation, or surviving descendant kills the command's process group before Hub removes the temporary directory.
+Hub passes store paths and repository scope as command arguments, not inherited `REPLICA_LEARNING_*` variables. It does not pass database, authentication, workload-identity, storage, or other deployment credentials. Standard output is limited to 16 MiB, standard error to 1 MiB, and the default deadline is 60 seconds. A timeout, output overflow, cancellation, or surviving descendant kills the command's process group before Hub removes the temporary directory.
 
 Later repository mutations use the PostgreSQL advisory-lock primitive for one Hub-wide learning execution at a time. Losing that database connection aborts the operation and its command through the shared signal. This preserves the CLI process boundary without moving package policy into Hub.
 
