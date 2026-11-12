@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { Box, Text, useInput, useStdout } from "ink"
-import { ConfirmInput, Spinner, TextInput, ThemeProvider } from "@inkjs/ui"
+import { ConfirmInput, MultiSelect, Spinner, TextInput, ThemeProvider } from "@inkjs/ui"
 
 import { CloudPicker } from "../../cloud-picker/index.tsx"
 import { SearchSelect } from "../../search-select/index.tsx"
@@ -56,6 +56,15 @@ export function TerminalShell({
     1,
     size.rows - headerHeight - 1 - 2 - (activity.length ? activity.length + 2 : 0),
   )
+  const optionRows =
+    question?.kind === "multi-select"
+      ? Math.max(
+          1,
+          ...question.options.map(({ label }) =>
+            Math.ceil(label.length / Math.max(1, size.columns - 8)),
+          ),
+        )
+      : 1
   useInput((input, key) => {
     if (key.ctrl && input === "c") cancel()
     if (question?.kind === "wait" && key.return) question.resolve()
@@ -108,6 +117,21 @@ export function TerminalShell({
           />
         </Box>
       )}
+      {question?.kind === "multi-select" && (
+        <Box flexDirection="column" key={view.revision}>
+          <Text bold>{question.message}</Text>
+          <Text dimColor>Up/Down moves. Space checks/unchecks. Enter submits checked options.</Text>
+          <MultiSelect
+            options={question.options}
+            defaultValue={question.initial}
+            visibleOptionCount={Math.max(
+              1,
+              Math.min(8, Math.floor((panelHeight - 5) / optionRows)),
+            )}
+            onSubmit={question.resolve}
+          />
+        </Box>
+      )}
       {question?.kind === "wait" && (
         <Box flexDirection="column">
           <Text color={terminalColors.warning}>Action needed: {question.message}</Text>
@@ -128,15 +152,21 @@ export function TerminalShell({
         {!tiny && (
           <>
             <Text bold color={terminalColors.accent}>
-              Replica Hub installation
+              {view.removing ? "Replica Hub removal" : "Replica Hub installation"}
             </Text>
-            <Progress
-              phase={view.phase}
-              configureOnly={configureOnly}
-              complete={view.complete}
-              compact={compact}
-              blocked={question?.kind === "wait" || view.notice?.level === "error"}
-            />
+            {view.removing ? (
+              <Text color={terminalColors.warning}>
+                {view.complete ? "Removal complete" : "Remove selected deployments (destructive)"}
+              </Text>
+            ) : (
+              <Progress
+                phase={view.phase}
+                configureOnly={configureOnly}
+                complete={view.complete}
+                compact={compact}
+                blocked={question?.kind === "wait" || view.notice?.level === "error"}
+              />
+            )}
           </>
         )}
         <Box marginTop={tiny ? 0 : 1} flexDirection="column" flexGrow={fullscreen ? 1 : 0}>

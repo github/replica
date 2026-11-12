@@ -7,6 +7,7 @@ export default defineConfig({
       "installer/**/*.test.ts",
       "installer/**/*.test.tsx",
       "azure/install/**/*.test.ts",
+      "azure/remove/**/*.test.ts",
       "terraform/**/*.test.ts",
     ],
     exclude: [...configDefaults.exclude, "installer/command/describe/index.test.ts"],

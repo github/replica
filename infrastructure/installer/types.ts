@@ -12,6 +12,11 @@ export interface DeploymentConfig {
   }
 }
 
+export interface RemovalTarget {
+  path: string
+  config: DeploymentConfig
+}
+
 export interface CommandOptions {
   cwd?: string
   env?: NodeJS.ProcessEnv
@@ -48,6 +53,12 @@ export interface FieldDefinition {
 }
 
 export interface InstallerUI {
+  removal?(active: boolean): void
+  multiSelect?(
+    message: string,
+    options: { label: string; value: string }[],
+    initial?: string[],
+  ): Promise<string[]>
   status(message: string): void
   notice?(level: NoticeLevel, message: string): void
   phase?(phase: WizardPhase): void | Promise<void>

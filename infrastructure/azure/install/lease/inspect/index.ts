@@ -3,6 +3,7 @@ import { createHash } from "node:crypto"
 import { verifyInstallationGroup } from "../../group/index.ts"
 import { installationNames } from "../../settings.ts"
 import type { AzureInstallation, RecoveryInspection } from "../../types.ts"
+import { readBlobLease } from "../read/index.ts"
 
 const record = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value)
@@ -59,7 +60,14 @@ export async function inspectRecovery(
     if (!record(state) || typeof state.name !== "string" || !state.name.startsWith(prefix))
       throw new Error("Azure returned unknown Terraform state metadata. No lock was cleared.")
     if (!state.name.endsWith(".tfstate")) continue
-    const lease = state.lease
+    let lease = state.lease
+    if (
+      !record(lease) ||
+      lease.status !== "unlocked" ||
+      typeof lease.state !== "string" ||
+      !["available", "broken", "expired"].includes(lease.state)
+    )
+      lease = await readBlobLease(context, names.stateAccount, "terraform", state.name)
     evidence.push(
       JSON.stringify([
         "state",
@@ -72,7 +80,8 @@ export async function inspectRecovery(
     if (
       !record(lease) ||
       lease.status !== "unlocked" ||
-      !["available", "broken", "expired"].includes(String(lease.state))
+      typeof lease.state !== "string" ||
+      !["available", "broken", "expired"].includes(lease.state)
     )
       blockers.push(
         `Terraform state ${state.name} is locked or its status is unknown. Wait for Terraform to finish, or review its recovery separately. The wizard never force-unlocks Terraform state.`,

@@ -11,6 +11,13 @@ export type Question =
       resolve: (value: string) => void
     }
   | { kind: "confirm"; message: string; resolve: (value: boolean) => void }
+  | {
+      kind: "multi-select"
+      message: string
+      options: { label: string; value: string }[]
+      initial: string[]
+      resolve: (value: string[]) => void
+    }
   | { kind: "wait"; message: string; resolve: () => void }
 
 export interface TerminalView {
@@ -22,4 +29,5 @@ export interface TerminalView {
   phase: WizardPhase
   complete: boolean
   welcome: boolean
+  removing?: boolean
 }

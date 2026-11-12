@@ -366,6 +366,8 @@ describe("private installer telemetry", () => {
       text: vi.fn(async () => secret.answer),
       field: vi.fn(async () => secret.answer),
       select: vi.fn(async () => secret.choice),
+      multiSelect: vi.fn(async () => [secret.choice]),
+      removal: vi.fn(),
       confirm: vi.fn(async () => {
         throw new Error(secret.error)
       }),
@@ -386,6 +388,11 @@ describe("private installer telemetry", () => {
     await observed.field?.(field, secret.answer)
     await observed.field?.({ ...field, id: secret.fieldId }, secret.answer)
     await observed.select(secret.message, [{ label: secret.message, value: secret.choice }])
+    await expect(observed.multiSelect!(secret.message, [{ label: secret.message, value: secret.choice }], [secret.choice]))
+      .resolves.toEqual([secret.choice])
+    expect(ui.multiSelect).toHaveBeenCalledWith(secret.message, [{ label: secret.message, value: secret.choice }], [secret.choice])
+    observed.removal!(true)
+    expect(ui.removal).toHaveBeenCalledWith(true)
     await observed.wait(secret.message)
     await expect(observed.confirm(secret.message)).rejects.toThrow(secret.error)
     await expect(
@@ -403,6 +410,7 @@ describe("private installer telemetry", () => {
     for (const value of Object.values(secret)) expect(saved).not.toContain(value)
     const entries = await records(telemetry.path)
     expect(completed(entries, "installer.command.az.storage.account.create").status).toBe("ok")
+    expect(completed(entries, "installer.prompt.multi_select").status).toBe("ok")
     const cancelled = completed(entries, "installer.command.other")
     expect(cancelled.status).toBe("error")
     expect(JSON.stringify(cancelled.attributes)).toMatch(/cancel|abort/i)

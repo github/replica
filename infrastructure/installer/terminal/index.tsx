@@ -110,6 +110,18 @@ export function createTerminalUI(
         options: options.map((option) => ({ ...option, label: plain(option.label) })),
         resolve,
       })),
+    multiSelect: (message, options, initial = []) =>
+      ask<string[]>((resolve) => ({
+        kind: "multi-select",
+        message: plain(message),
+        options: options.map((option) => ({ ...option, label: plain(option.label) })),
+        initial,
+        resolve,
+      })),
+    removal(active) {
+      view.removing = active
+      draw()
+    },
     confirm: (message) =>
       ask<boolean>((resolve) => ({ kind: "confirm", message: plain(message), resolve })),
     wait: (message) => ask<void>((resolve) => ({ kind: "wait", message: plain(message), resolve })),

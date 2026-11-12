@@ -3,9 +3,12 @@ import type { AzureInstallation, RecoveryInspection } from "../../types.ts"
 import { installationNames } from "../../settings.ts"
 import { inspectRecovery } from "../inspect/index.ts"
 import { stopHub } from "../../../stop-hub/index.ts"
+import { readBlobLease } from "../read/index.ts"
 
 const unlocked = (lease: Record<string, unknown>) =>
-  lease.status === "unlocked" && ["available", "broken", "expired"].includes(String(lease.state))
+  lease.status === "unlocked" &&
+  typeof lease.state === "string" &&
+  ["available", "broken", "expired"].includes(lease.state)
 const retained = (lease: Record<string, unknown>) =>
   lease.status === "locked" && lease.state === "leased" && lease.duration === "infinite"
 
@@ -14,10 +17,15 @@ export async function recoverLease(
   account: string,
   container: string,
   blob: string,
+  { removalApproved = false, onShutdown }: { removalApproved?: boolean; onShutdown?(): void } = {},
 ) {
   const { azure, ui, config } = context
   const select = ui.select
-  if (!select) return
+  if (!select) {
+    if (removalApproved)
+      throw new Error("Removal lock recovery requires an interactive removal session.")
+    return
+  }
   const installation =
     account === installationNames(config).stateAccount &&
     container === "terraform" &&
@@ -27,6 +35,8 @@ export async function recoverLease(
     throw new Error(
       "Wizard recovery supports only this installation's operational locks, never Terraform state or other blobs.",
     )
+  if (removalApproved && release && account !== `${config.name.replaceAll("-", "")}hub`)
+    throw new Error("Removal recovery cannot clear another storage account's release lock.")
   const coordinates = `${account}/${container}/${blob}`
   const releaseAccount = release ? account : undefined
   const args = ["--account-name", account, "--container-name", container]
@@ -34,21 +44,9 @@ export async function recoverLease(
   let reviewing = false
   let hub: RecoveryInspection["hub"]
   let hubStopped = false
+  let removalChecks = 0
   async function readLease(): Promise<Record<string, unknown>> {
-    const value: unknown = JSON.parse(
-      await azure(
-        "storage",
-        "blob",
-        "show",
-        ...args,
-        "--name",
-        blob,
-        "--auth-mode",
-        "login",
-        "--query",
-        "properties.lease",
-      ),
-    )
+    const value = await readBlobLease(context, account, container, blob)
     if (typeof value !== "object" || value === null || Array.isArray(value))
       throw new Error("Azure did not return lease metadata. No lock was cleared.")
     return value as Record<string, unknown>
@@ -66,17 +64,22 @@ export async function recoverLease(
     hub = undefined
     feedback = {
       level: "error",
-      message: `Recovery could not be verified for ${coordinates}. ${error instanceof Error ? error.message : "Inspection failed."}\nDo not assume the lock was cleared. Recheck its current state before continuing.`,
+      message: `Recovery could not be verified for ${coordinates}. ${error instanceof SyntaxError ? "Azure returned invalid recovery metadata; the response was not printed." : error instanceof Error ? error.message : "Inspection failed."}\nDo not assume the lock was cleared. Recheck its current state before continuing.`,
     }
     notice(feedback.level, feedback.message)
     return feedback.message
   }
   while (true) {
+    if (removalApproved && removalChecks++ >= 2)
+      throw new Error(
+        `Operational-lock recovery conditions changed at ${coordinates}. No further recovery was attempted; inspect the current owner before retrying.`,
+      )
     let lease: Record<string, unknown>
     try {
       lease = await readLease()
     } catch (error) {
       const message = report(error)
+      if (removalApproved) throw error
       const choice = await select.call(ui, message, [
         { label: "Recheck the lock", value: "retry" },
         { label: "Exit and keep saved progress", value: "exit" },
@@ -86,41 +89,53 @@ export async function recoverLease(
       continue
     }
     if (unlocked(lease)) return
+    if (removalApproved && !retained(lease))
+      throw new Error(
+        `The lease at ${coordinates} is finite, changing, or unknown. Confirmed removal did not clear it.`,
+      )
     const explanation =
       (hubStopped
-        ? "Hub shutdown completed earlier in this recovery attempt. Hub can remain offline until a release succeeds; recovery does not restart it.\n\n"
+        ? "Hub shutdown completed earlier in this recovery attempt. Hub can remain offline after recovery; recovery does not restart it.\n\n"
         : "") +
       (feedback?.message ??
-        (retained(lease)
-          ? "Another deployment or an interrupted run may own this lock; age alone does not make it safe to clear.\nTo clear it and continue, the wizard checks safety first, then asks for confirmation. Resources and saved progress are kept."
-          : "This lease is finite, changing, or unknown. Recovery is not available; wait for its owner to finish or review its state before rechecking."))
+        (removalApproved
+          ? "The confirmed removal includes guarded cleanup of this operational lock. Rechecking ownership, Terraform state, jobs and Hub safety before continuing; no additional approval is requested."
+          : retained(lease)
+            ? "Another deployment or an interrupted run may own this lock; age alone does not make it safe to clear.\nTo clear it and continue, the wizard checks safety first, then asks for confirmation. Resources and saved progress are kept."
+            : "This lease is finite, changing, or unknown. Recovery is not available; wait for its owner to finish or review its state before rechecking."))
     notice(
       feedback?.level ?? "warning",
       `Deployment lock: ${coordinates}\nSubscription: ${config.azure.subscriptionId}${reviewing ? "" : `\n${explanation}`}`,
     )
     feedback = undefined
-    const choice = await select.call(
-      ui,
-      reviewing
-        ? `Deployment lock recovery did not complete.\n\n${explanation}\n\n${hub ? "Choose controlled Hub shutdown, recheck safety, or exit and keep saved progress." : "Resolve the reported issue before rechecking, or exit and keep saved progress."}`
-        : "How would you like to handle the deployment lock?",
-      [
-        {
-          label:
-            reviewing && retained(lease)
-              ? "Recheck safety before clearing the lock"
-              : "Recheck without clearing the lock",
-          value: "retry",
-        },
-        ...(retained(lease) && !reviewing
-          ? [{ label: "Clear lock and continue (after safety checks)", value: "recover" }]
-          : []),
-        ...(retained(lease) && hub
-          ? [{ label: "Stop Hub for recovery and continue", value: "stop-hub" }]
-          : []),
-        { label: "Exit and keep saved progress", value: "exit" },
-      ],
-    )
+    const choice = removalApproved
+      ? hub
+        ? "stop-hub"
+        : reviewing
+          ? "retry"
+          : "recover"
+      : await select.call(
+          ui,
+          reviewing
+            ? `Deployment lock recovery did not complete.\n\n${explanation}\n\n${hub ? "Choose controlled Hub shutdown, recheck safety, or exit and keep saved progress." : "Resolve the reported issue before rechecking, or exit and keep saved progress."}`
+            : "How would you like to handle the deployment lock?",
+          [
+            {
+              label:
+                reviewing && retained(lease)
+                  ? "Recheck safety before clearing the lock"
+                  : "Recheck without clearing the lock",
+              value: "retry",
+            },
+            ...(retained(lease) && !reviewing
+              ? [{ label: "Clear lock and continue (after safety checks)", value: "recover" }]
+              : []),
+            ...(retained(lease) && hub
+              ? [{ label: "Stop Hub for recovery and continue", value: "stop-hub" }]
+              : []),
+            { label: "Exit and keep saved progress", value: "exit" },
+          ],
+        )
     if (choice === "exit")
       throw new Error(
         reviewing
@@ -143,6 +158,10 @@ export async function recoverLease(
       if (requestedHub) {
         hub = inspection.hub
         if (inspection.hub?.id.toLowerCase() !== requestedHub.id.toLowerCase()) {
+          if (removalApproved)
+            throw new Error(
+              `Verified Hub identity or activity changed at ${coordinates}. No shutdown or lock clearing was started.`,
+            )
           feedback = {
             level: "warning",
             message: `Hub shutdown was not started. Recovery conditions changed.\n\n${inspection.blockers.join("\n\n") || "Hub no longer requires shutdown. Recheck lock recovery."}`,
@@ -150,6 +169,7 @@ export async function recoverLease(
           continue
         }
         if (
+          !removalApproved &&
           !(await ui.confirm(
             `Authorize downtime for Hub ${inspection.hub.name} in resource group ${config.azure.resourceGroup}, subscription ${config.azure.subscriptionId}?\nVerified app: ${inspection.hub.id}\nDeactivate its active revisions and wait for every old replica to stop. No app or database will be deleted, and no setup/provisioning job will be cancelled.\nConfirm that all previous installer, Terraform, and release processes have stopped, including other terminals, machines, and CI. Also confirm that old provisioning/setup/migration database sessions have ended and that partial migrations, database ownership, and temporary provisioning grants have been reviewed.\nThe lock at ${coordinates} will remain retained until a separate clearing confirmation. Hub may remain stopped if later recovery fails or is cancelled.`,
           ))
@@ -171,6 +191,10 @@ export async function recoverLease(
           fresh.evidence !== inspection.evidence ||
           fresh.databaseReview !== inspection.databaseReview
         ) {
+          if (removalApproved)
+            throw new Error(
+              `Recovery evidence changed at ${coordinates}. The operational lock was not cleared.\n${fresh.blockers.join("\n\n")}`,
+            )
           feedback = {
             level: "warning",
             message: `Hub shutdown was not started. The lease or recovery conditions changed during consent.\n\n${fresh.blockers.join("\n\n")}`,
@@ -179,6 +203,7 @@ export async function recoverLease(
         }
         hub = undefined
         ui.status("Deactivating verified Hub revisions and waiting up to five minutes for replicas")
+        onShutdown?.()
         try {
           await stopHub({
             name: requestedHub.name,
@@ -202,11 +227,14 @@ export async function recoverLease(
             message: `Hub shutdown did not complete. Hub may be partially or fully stopped. No lock-clearing command was issued; inspect the current state before retrying.\n\n${message}`,
           }
           notice(feedback.level, feedback.message)
+          if (removalApproved) throw error
           continue
         }
         notice(
           "warning",
-          "Hub replicas have stopped. The deployment lock remains retained pending fresh recovery checks and separate clearing approval.",
+          removalApproved
+            ? "Hub replicas have stopped. Rechecking safety before operational-lock cleanup under the confirmed removal."
+            : "Hub replicas have stopped. The deployment lock remains retained pending fresh recovery checks and separate clearing approval.",
         )
         hubStopped = true
         inspection = await inspectRecovery(context, releaseAccount)
@@ -217,6 +245,10 @@ export async function recoverLease(
           level: "warning",
           message: `The deployment lock was not cleared.\n\n${inspection.blockers.join("\n\n")}`,
         }
+        if (removalApproved && !hub)
+          throw new Error(
+            `Operational lock ${coordinates} was not cleared.\n${inspection.blockers.join("\n\n")}`,
+          )
         continue
       }
       notice(
@@ -224,6 +256,7 @@ export async function recoverLease(
         `Azure checks found no locked Terraform state, active job executions, or running Hub revisions/replicas. Azure cannot prove that a deployment process on another machine has stopped${inspection.databaseReview ? " or that old database sessions have ended" : ""}.`,
       )
       if (
+        !removalApproved &&
         !(await ui.confirm(
           `Confirm that all previous installer, Terraform, and release processes have stopped, including other terminals, machines, and CI.${inspection.databaseReview ? " Also confirm that old provisioning/setup/migration database sessions have ended and that partial migrations, database ownership, and temporary provisioning grants have been reviewed using the installation recovery guide." : ""}\nClear only the deployment lock at ${coordinates} in subscription ${config.azure.subscriptionId}? Resources and saved progress will be kept. This does not repair or replay database work.`,
         ))
@@ -241,6 +274,10 @@ export async function recoverLease(
         fresh.evidence !== inspection.evidence ||
         fresh.databaseReview !== inspection.databaseReview
       ) {
+        if (removalApproved)
+          throw new Error(
+            `Recovery evidence changed at ${coordinates}. The operational lock was not cleared.\n${fresh.blockers.join("\n\n")}`,
+          )
         hub = fresh.hub
         feedback = {
           level: "warning",
@@ -253,6 +290,8 @@ export async function recoverLease(
       }
       if (unlocked(current)) return
       if (!retained(current)) {
+        if (removalApproved)
+          throw new Error(`The operational lease changed at ${coordinates}. It was not cleared.`)
         feedback = {
           level: "warning",
           message:
@@ -275,10 +314,14 @@ export async function recoverLease(
       )
       if (!unlocked(await readLease()))
         throw new Error("Azure has not confirmed that the selected lock is unlocked.")
-      notice("success", `Cleared the deployment lock at ${coordinates}. Continuing with setup.`)
+      notice(
+        "success",
+        `Cleared the deployment lock at ${coordinates}. Continuing with ${removalApproved ? "removal" : "setup"}.`,
+      )
       return
     } catch (error) {
       report(error)
+      if (removalApproved) throw error
     }
   }
 }

@@ -2,6 +2,7 @@ import { resolve, dirname } from "node:path"
 import { parseArgs, styleText } from "node:util"
 
 import { installAzure } from "../azure/install/index.ts"
+import { removeAzureDeployments } from "../azure/remove/index.ts"
 import { azurePreflight } from "../azure/install/preflight/index.ts"
 import { CommandExecutionError, runCommand } from "./command/index.ts"
 import { loadConfig } from "./config/index.ts"
@@ -25,7 +26,7 @@ const { values } = parseArgs({
 })
 if (values.help) {
   console.log(
-    "Usage: npm run setup:server -- [--config FILE] [--configure-only] [--no-fullscreen]\nStart by choosing Create, Update, Resume (when available), or Exit without local writes or Azure calls.\nConfig paths are relative to infrastructure/ when using the root shortcut.\nCreate keeps previous files and uses a fresh path; --config FILE uses that path only when unused.\nUpdate/Resume can select local configurations or an explicit config-file path.\nInteractive progress is saved in a private companion draft; restart to resume.\nAutomation: --config FILE --non-interactive --approve-deployment\nApproval includes billable resources, role assignments, image publication, temporary provisioning cleanup, and a maintenance-window release.\nAutomation requires a clean source checkout and does not authorize removing state network restrictions; rerun interactively for separate consent.",
+    "Usage: npm run setup:server -- [--config FILE] [--configure-only] [--no-fullscreen]\nStart by choosing Create, Update, Remove deployments (destructive), Resume (when available), or Exit before local writes or Azure calls.\nConfig paths are relative to infrastructure/ when using the root shortcut.\nCreate keeps previous files and uses a fresh path; --config FILE uses that path only when unused.\nUpdate/Resume and removal can select local configurations or explicit config-file paths.\nRemoval requires multi-selection, irreversible confirmation, and each exact deployment name. It creates no backups and retains local files.\nRemoval is interactive only and unavailable with --configure-only; --approve-deployment never authorizes deletion.\nInteractive setup progress is saved in a private companion draft; restart to resume setup.\nAutomation: --config FILE --non-interactive --approve-deployment\nApproval includes billable resources, role assignments, image publication, temporary provisioning cleanup, and a maintenance-window release.\nAutomation requires a clean source checkout and does not authorize removing state network restrictions; rerun interactively for separate consent.",
   )
 } else {
   const abort = new AbortController()
@@ -63,12 +64,17 @@ if (values.help) {
       entry = await selectInstallerEntry(terminal, {
         directory: resolve(import.meta.dirname, "../.local"),
         configPath: values.config,
+        configureOnly: values["configure-only"],
       })
       if (entry) {
+        if (entry.action === "remove" && values["configure-only"])
+          throw new Error("Configuration-only mode cannot remove deployments.")
         path = entry.path
-        existing = entry.existing
-        session = await openSession(path, { fresh: entry.action === "create" })
-        await validateInstallerEntry(entry, session)
+        if (entry.action !== "remove") {
+          existing = entry.existing
+          session = await openSession(path, { fresh: entry.action === "create" })
+          await validateInstallerEntry(entry, session)
+        }
       } else message = "Setup exited. No local files or Azure resources were changed."
     }
     if (values["non-interactive"] || entry) {
@@ -106,17 +112,20 @@ if (values.help) {
       } else {
         if (!terminal || !entry) throw new Error("Select a setup action before continuing.")
         const ui = telemetry.observe(terminal)
-        message = await runWizard({
-          ui,
-          run,
-          path,
-          directory: dirname(path),
-          existing,
-          configureOnly: values["configure-only"],
-          session,
-          entryAction: entry.action,
-          signal: abort.signal,
-        })
+        message =
+          entry.action === "remove"
+            ? await removeAzureDeployments(entry.targets, { run, ui, signal: abort.signal })
+            : await runWizard({
+                ui,
+                run,
+                path,
+                directory: dirname(path),
+                existing,
+                configureOnly: values["configure-only"],
+                session,
+                entryAction: entry.action,
+                signal: abort.signal,
+              })
       }
     }
   } catch (error) {

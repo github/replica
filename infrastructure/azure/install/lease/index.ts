@@ -92,6 +92,32 @@ export async function acquireLease(
     throw new Error("Azure did not return an installation lease.")
   let released = false
   return {
+    get held() {
+      return !released
+    },
+    async verify() {
+      if (released) throw new Error("The owned lease is no longer held.")
+      await azure("storage", "blob", "lease", "renew", ...args, "--lease-id", lease)
+    },
+    async deleteBlob() {
+      if (released) throw new Error("The owned lease is no longer held.")
+      await azure(
+        "storage",
+        "blob",
+        "delete",
+        "--account-name",
+        account,
+        "--container-name",
+        container,
+        "--name",
+        blob,
+        "--auth-mode",
+        "login",
+        "--lease-id",
+        lease,
+      )
+      released = true
+    },
     async release() {
       await azure("storage", "blob", "lease", "release", ...args, "--lease-id", lease)
       released = true

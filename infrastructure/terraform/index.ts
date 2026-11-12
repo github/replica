@@ -17,6 +17,7 @@ export function terraformModule({
   preapproved = false,
   retryApply,
   signal,
+  validatePlan,
 }: {
   directory: string
   dataDirectory: string
@@ -26,6 +27,7 @@ export function terraformModule({
   preapproved?: boolean
   retryApply?(error: CommandExecutionError): boolean
   signal?: AbortSignal
+  validatePlan?(value: unknown): void
 }) {
   const command = (args: string[]) => {
     signal?.throwIfAborted()
@@ -87,6 +89,7 @@ export function terraformModule({
               change: { actions: string[]; replace_paths?: (string | number)[][] }
             }[]
           }
+          validatePlan?.(plan)
           const changes = (plan.resource_changes ?? []).filter(({ change }) =>
             change.actions.some((action) => action !== "no-op" && action !== "read"),
           )
@@ -111,7 +114,7 @@ export function terraformModule({
             )
           ) {
             const message =
-              "Temporary cleanup plan contains resources or actions outside the approved provisioning job, identity, and grants. No cleanup changes were applied; review the plan and state."
+              "Destroy plan contains resources or actions outside the approved removal scope. No cleanup changes were applied; review the plan and state."
             ui.notice?.("error", message)
             throw new Error(message)
           }
