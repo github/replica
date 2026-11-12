@@ -51,12 +51,12 @@ const prototypes = [
   },
 ]
 const buildAuthor = {
-  commitAuthorProvider: "local",
-  commitAuthorIssuer: "local",
-  commitAuthorProviderUserId: "sample-build-author",
-  commitAuthorLogin: "sample-author",
-  commitAuthorName: "Sample Author",
-  commitAuthorAvatarUrl: null,
+  authorProvider: "local",
+  authorIssuer: "local",
+  authorProviderUserId: "sample-build-author",
+  authorLogin: "sample-author",
+  authorName: "Sample Author",
+  authorAvatarUrl: null,
 }
 const builds = [
   {

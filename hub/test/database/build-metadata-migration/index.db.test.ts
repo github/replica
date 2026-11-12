@@ -120,21 +120,21 @@ describe("Build metadata", () => {
 
           const unknownMetadata = {
             commit_sha: null,
-            commit_author_provider: null,
-            commit_author_issuer: null,
-            commit_author_provider_user_id: null,
-            commit_author_login: null,
-            commit_author_name: null,
-            commit_author_avatar_url: null,
+            author_provider: null,
+            author_issuer: null,
+            author_provider_user_id: null,
+            author_login: null,
+            author_name: null,
+            author_avatar_url: null,
             started_at: null,
             finished_at: null,
             failure_summary: null,
           }
           const builds = await database.query(
             `SELECT id, prototype_id, number, state, workflow_created_at, created_at, updated_at,
-                    commit_sha, commit_author_provider, commit_author_issuer,
-                    commit_author_provider_user_id, commit_author_login, commit_author_name,
-                    commit_author_avatar_url, started_at, finished_at, failure_summary
+                    commit_sha, author_provider, author_issuer,
+                    author_provider_user_id, author_login, author_name,
+                    author_avatar_url, started_at, finished_at, failure_summary
              FROM builds WHERE prototype_id = $1 ORDER BY number`,
             [prototypeId],
           )
@@ -189,7 +189,7 @@ describe("Build metadata", () => {
     migrationTestTimeoutMs,
   )
 
-  it("round-trips an external commit author and permits an author name without an account", async () => {
+  it("round-trips an external author and permits an author name without an account", async () => {
     const repository = await prisma.repository.create({
       data: { nameWithOwner: "team/design", defaultBranch: "main" },
     })
@@ -198,12 +198,12 @@ describe("Build metadata", () => {
     })
     const metadata = {
       commitSha: "a".repeat(40),
-      commitAuthorProvider: "github",
-      commitAuthorIssuer: "https://github.com",
-      commitAuthorProviderUserId: "external-account-42",
-      commitAuthorLogin: "example-author",
-      commitAuthorName: "Example Author",
-      commitAuthorAvatarUrl: "https://example.test/avatar.png",
+      authorProvider: "github",
+      authorIssuer: "https://github.com",
+      authorProviderUserId: "external-account-42",
+      authorLogin: "example-author",
+      authorName: "Example Author",
+      authorAvatarUrl: "https://example.test/avatar.png",
       startedAt: new Date("2026-11-12T10:00:00Z"),
       finishedAt: new Date("2026-11-12T10:05:00Z"),
       failureSummary: "An example Build failed.",
@@ -219,21 +219,21 @@ describe("Build metadata", () => {
     await database.connect()
     onTestFinished(() => database.end())
     const stored = await database.query(
-      `SELECT commit_sha, commit_author_provider, commit_author_issuer,
-              commit_author_provider_user_id, commit_author_login, commit_author_name,
-              commit_author_avatar_url, started_at, finished_at, failure_summary
+      `SELECT commit_sha, author_provider, author_issuer,
+              author_provider_user_id, author_login, author_name,
+              author_avatar_url, started_at, finished_at, failure_summary
        FROM builds WHERE id = $1`,
       [build.id],
     )
     expect(stored.rows).toEqual([
       {
         commit_sha: metadata.commitSha,
-        commit_author_provider: metadata.commitAuthorProvider,
-        commit_author_issuer: metadata.commitAuthorIssuer,
-        commit_author_provider_user_id: metadata.commitAuthorProviderUserId,
-        commit_author_login: metadata.commitAuthorLogin,
-        commit_author_name: metadata.commitAuthorName,
-        commit_author_avatar_url: metadata.commitAuthorAvatarUrl,
+        author_provider: metadata.authorProvider,
+        author_issuer: metadata.authorIssuer,
+        author_provider_user_id: metadata.authorProviderUserId,
+        author_login: metadata.authorLogin,
+        author_name: metadata.authorName,
+        author_avatar_url: metadata.authorAvatarUrl,
         started_at: metadata.startedAt,
         finished_at: metadata.finishedAt,
         failure_summary: metadata.failureSummary,
@@ -244,14 +244,14 @@ describe("Build metadata", () => {
       data: {
         prototypeId: prototype.id,
         number: 2,
-        commitAuthorName: "Author Without Account",
+        authorName: "Author Without Account",
       },
     })
     expect(nameOnly).toMatchObject({
-      commitAuthorProvider: null,
-      commitAuthorIssuer: null,
-      commitAuthorProviderUserId: null,
-      commitAuthorName: "Author Without Account",
+      authorProvider: null,
+      authorIssuer: null,
+      authorProviderUserId: null,
+      authorName: "Author Without Account",
     })
   })
 
@@ -282,8 +282,8 @@ describe("Build metadata", () => {
       await expect(
         database.query(
           `UPDATE builds SET
-             commit_author_provider = $2, commit_author_issuer = $3,
-             commit_author_provider_user_id = $4
+             author_provider = $2, author_issuer = $3,
+             author_provider_user_id = $4
            WHERE id = $1`,
           [build.id, provider, issuer, providerUserId],
         ),

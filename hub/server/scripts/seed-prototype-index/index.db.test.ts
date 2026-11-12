@@ -14,12 +14,12 @@ describe("prototype index seed", () => {
       state: true,
       workflowCreatedAt: true,
       commitSha: true,
-      commitAuthorProvider: true,
-      commitAuthorIssuer: true,
-      commitAuthorProviderUserId: true,
-      commitAuthorLogin: true,
-      commitAuthorName: true,
-      commitAuthorAvatarUrl: true,
+      authorProvider: true,
+      authorIssuer: true,
+      authorProviderUserId: true,
+      authorLogin: true,
+      authorName: true,
+      authorAvatarUrl: true,
       startedAt: true,
       finishedAt: true,
       failureSummary: true,
@@ -33,12 +33,12 @@ describe("prototype index seed", () => {
     )
     for (const build of samples) {
       expect(build.commitSha).toMatch(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/)
-      expect(build.commitAuthorProvider).toMatch(/\S/)
-      expect(build.commitAuthorIssuer).toMatch(/\S/)
-      expect(build.commitAuthorProviderUserId).toMatch(/\S/)
-      expect(build.commitAuthorLogin).toMatch(/\S/)
-      expect(build.commitAuthorName).toMatch(/\S/)
-      expect(build.commitAuthorProviderUserId).not.toBe(user.id)
+      expect(build.authorProvider).toMatch(/\S/)
+      expect(build.authorIssuer).toMatch(/\S/)
+      expect(build.authorProviderUserId).toMatch(/\S/)
+      expect(build.authorLogin).toMatch(/\S/)
+      expect(build.authorName).toMatch(/\S/)
+      expect(build.authorProviderUserId).not.toBe(user.id)
       if (build.state === "queued") {
         expect(build.startedAt).toBeNull()
         expect(build.finishedAt).toBeNull()
@@ -73,12 +73,12 @@ describe("prototype index seed", () => {
         where: { id: build.id },
         data: {
           commitSha: null,
-          commitAuthorProvider: "changed-provider",
-          commitAuthorIssuer: "https://changed.example.test",
-          commitAuthorProviderUserId: "changed-external-id",
-          commitAuthorLogin: "changed-login",
-          commitAuthorName: "Changed Author",
-          commitAuthorAvatarUrl: "https://example.test/changed.png",
+          authorProvider: "changed-provider",
+          authorIssuer: "https://changed.example.test",
+          authorProviderUserId: "changed-external-id",
+          authorLogin: "changed-login",
+          authorName: "Changed Author",
+          authorAvatarUrl: "https://example.test/changed.png",
           startedAt:
             build.state === "running" || build.state === "successful" || build.state === "failed"
               ? new Date("2000-01-01T00:00:00Z")
