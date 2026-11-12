@@ -9,6 +9,7 @@ import { revokeAdministratorAssignment } from "../../../repositories/membership-
 import { lockAdministratorManagementTargets } from "../../../repositories/memberships/lock-administrator-management-targets/index.ts"
 import { lockEffectiveAdministrators } from "../../../repositories/memberships/lock-effective-administrators/index.ts"
 import { createSecurityAudit } from "../../../repositories/security-audits/create-security-audit/index.ts"
+import { disconnectCopilotConnectionForMembership } from "../../../repositories/copilot-connection-state/disconnect-copilot-connection-for-membership/index.ts"
 import type { AdministratorManagementRepositories } from "../run-administrator-management-transaction/types.ts"
 
 export function createAdministratorManagementRepositories(
@@ -17,6 +18,8 @@ export function createAdministratorManagementRepositories(
   return {
     createAssignment: (input) => createAdministratorAssignment(transaction, input),
     createSecurityAudit: (input) => createSecurityAudit(transaction, input),
+    disconnectCopilotConnection: (membershipId) =>
+      disconnectCopilotConnectionForMembership(transaction, membershipId),
     endOpenSessions: (membershipId) => endOpenHubSessionsForMembership(transaction, membershipId),
     lockActiveAssignment: (membershipId) =>
       lockActiveAdministratorAssignment(transaction, membershipId),

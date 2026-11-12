@@ -8,6 +8,7 @@ export interface AdministratorManagementRepositories {
     membershipId: string
   }): Promise<{ id: string }>
   createSecurityAudit(input: CreateSecurityAuditEvent): Promise<unknown>
+  disconnectCopilotConnection?(membershipId: string): Promise<boolean>
   endOpenSessions(membershipId: string): Promise<Array<{ id: string }>>
   lockActiveAssignment(membershipId: string): Promise<{ id: string } | null>
   lockEffectiveAdministratorAssignments(membershipIds: string[]): Promise<Array<{ id: string }>>

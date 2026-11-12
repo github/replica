@@ -65,7 +65,9 @@ const eventSchema = z.discriminatedUnion("type", [
       authorizationId: z.uuid(),
       id: z.uuid(),
       operation: z.enum([
+        "CONNECT_COPILOT",
         "DESIGNATE_ADMINISTRATORS",
+        "DISCONNECT_COPILOT",
         "END_ALL_HUB_SESSIONS",
         "REVOKE_ADMINISTRATOR",
       ]),
@@ -73,6 +75,17 @@ const eventSchema = z.discriminatedUnion("type", [
       reason: z.string().min(1).max(100).optional(),
       targetCount: z.number().int().min(0).max(50),
       type: z.literal("administrator_authorization"),
+    })
+    .strict(),
+  z
+    .object({
+      actorMembershipId: z.uuid().nullable(),
+      connectorMembershipId: z.uuid().optional(),
+      id: z.uuid(),
+      operation: z.enum(["connect", "disconnect", "view"]),
+      outcome: z.enum(["success", "denied", "failure"]),
+      reason: z.string().min(1).max(100).optional(),
+      type: z.literal("copilot_connection"),
     })
     .strict(),
   z

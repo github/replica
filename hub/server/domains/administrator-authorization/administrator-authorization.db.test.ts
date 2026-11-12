@@ -407,18 +407,21 @@ describe("administrator authorization persistence", () => {
       cancelSensitiveAuthorization(prisma, {
         hubSessionId: randomUUID(),
         id: fixture.authorizationId,
+        scope: "administrator",
       }),
     ).resolves.toBeNull()
     await expect(
       cancelSensitiveAuthorization(prisma, {
         hubSessionId: fixture.hubSessionId,
         id: fixture.authorizationId,
+        scope: "administrator",
       }),
     ).resolves.toMatchObject({ id: fixture.authorizationId })
     await expect(
       cancelSensitiveAuthorization(prisma, {
         hubSessionId: fixture.hubSessionId,
         id: fixture.authorizationId,
+        scope: "administrator",
       }),
     ).resolves.toBeNull()
     await expect(

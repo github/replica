@@ -8,6 +8,7 @@ import { endOpenHubSessionsForMembership } from "../../../repositories/hub-sessi
 import { createProviderAssignment } from "../../../repositories/membership-assignments/create-provider-assignment/index.ts"
 import { createOrRestoreBootstrapAssignment } from "../../../repositories/membership-assignments/create-or-restore-bootstrap-assignment/index.ts"
 import { endProviderAssignment } from "../../../repositories/membership-assignments/end-provider-assignment/index.ts"
+import { disconnectCopilotConnectionForMembership } from "../../../repositories/copilot-connection-state/disconnect-copilot-connection-for-membership/index.ts"
 import { lockActiveMembershipAssignments } from "../../../repositories/membership-assignments/lock-active-membership-assignments/index.ts"
 import { lockActiveProviderAssignment } from "../../../repositories/membership-assignments/lock-active-provider-assignment/index.ts"
 import { createMembership } from "../../../repositories/memberships/create-membership/index.ts"
@@ -36,6 +37,8 @@ export function runAdmissionTransaction<Result>(
           createHubSession: (input) => createHubSession(transaction, input),
           createOrRestoreMembership: (input) => createOrRestoreMembership(transaction, input),
           createSecurityAudit: (input) => createSecurityAudit(transaction, input),
+          disconnectCopilotConnection: (membershipId) =>
+            disconnectCopilotConnectionForMembership(transaction, membershipId),
           endProviderAssignment: (input) => endProviderAssignment(transaction, input),
           endOpenHubSessionsForMembership: (membershipId) =>
             endOpenHubSessionsForMembership(transaction, membershipId),

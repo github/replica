@@ -48,7 +48,14 @@ export interface AuthenticationCallbackDependencies extends RateLimitDependencie
     }
     sessionDigest: string
     sensitiveAuthorizationId: string
-  }): Promise<"DESIGNATE_ADMINISTRATORS" | "END_ALL_HUB_SESSIONS" | "REVOKE_ADMINISTRATOR" | false>
+  }): Promise<
+    | "CONNECT_COPILOT"
+    | "DESIGNATE_ADMINISTRATORS"
+    | "DISCONNECT_COPILOT"
+    | "END_ALL_HUB_SESSIONS"
+    | "REVOKE_ADMINISTRATOR"
+    | null
+  >
   admit(input: {
     proof: AuthenticationProofResult
     providerAssignment?: {
@@ -83,12 +90,37 @@ export interface SignOutDependencies {
 
 export interface AuthenticationRouteDependencies {
   administrators?: AdministratorRouteDependencies
+  copilotConnection?: CopilotConnectionRouteDependencies
   currentSession: CurrentSessionDependencies
   entra?: ProviderAuthenticationRouteDependencies
   github?: ProviderAuthenticationRouteDependencies
   local?: ProviderAuthenticationRouteDependencies
   sessionRevocation?: SessionRevocationRouteDependencies
   signOut: SignOutDependencies
+}
+
+export interface CopilotConnectionRouteDependencies {
+  applicationOrigin: string
+  cancel(input: { authorizationId: string; hubSessionId: string }): Promise<boolean>
+  continue(input: {
+    authorizationId: string
+    hubSessionId: string
+    operation: "CONNECT_COPILOT" | "DISCONNECT_COPILOT"
+  }): Promise<{ connected: boolean }>
+  findSession: AdministratorRouteDependencies["findSession"]
+  getAuthorization: AdministratorRouteDependencies["getAuthorization"]
+  getState(): Promise<{
+    connected: boolean
+    connectedAt: Date | null
+    connectedBy: { login: string | null; membershipId: string; name: string | null } | null
+    generation: bigint
+    refusedAt: Date | null
+    tokenNeedsCheck: boolean
+    verifiedAt: Date | null
+  }>
+  recordView(actorMembershipId: string): Promise<unknown>
+  start: AdministratorRouteDependencies["start"]
+  tokenConfigured: boolean
 }
 
 export interface ProviderAuthenticationRouteDependencies {
@@ -103,9 +135,15 @@ export interface StartAdministratorAuthorizationDependencies extends RateLimitDe
   secureCookie: boolean
   start(input: {
     actorMembershipId: string
+    expectedCopilotGeneration?: bigint
     externalIdentityId: string
     hubSessionId: string
-    operation: "DESIGNATE_ADMINISTRATORS" | "END_ALL_HUB_SESSIONS" | "REVOKE_ADMINISTRATOR"
+    operation:
+      | "CONNECT_COPILOT"
+      | "DESIGNATE_ADMINISTRATORS"
+      | "DISCONNECT_COPILOT"
+      | "END_ALL_HUB_SESSIONS"
+      | "REVOKE_ADMINISTRATOR"
     targetMembershipIds: string[]
   }): Promise<{
     authorizationId: string
@@ -132,7 +170,12 @@ export interface AdministratorRouteDependencies {
   } | null>
   getAuthorization(input: { authorizationId: string; hubSessionId: string }): Promise<{
     expiresAt: Date
-    operation: "DESIGNATE_ADMINISTRATORS" | "END_ALL_HUB_SESSIONS" | "REVOKE_ADMINISTRATOR"
+    operation:
+      | "CONNECT_COPILOT"
+      | "DESIGNATE_ADMINISTRATORS"
+      | "DISCONNECT_COPILOT"
+      | "END_ALL_HUB_SESSIONS"
+      | "REVOKE_ADMINISTRATOR"
     targets: Array<{
       login: string | null
       membershipId: string

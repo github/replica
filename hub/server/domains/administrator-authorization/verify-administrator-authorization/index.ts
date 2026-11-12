@@ -34,13 +34,25 @@ export async function verifyAdministratorAuthorization(
     getAuthorizationAuditData(id: string): Promise<{
       actorMembershipId: string
       expired: boolean
-      operation: "DESIGNATE_ADMINISTRATORS" | "END_ALL_HUB_SESSIONS" | "REVOKE_ADMINISTRATOR"
+      operation:
+        | "CONNECT_COPILOT"
+        | "DESIGNATE_ADMINISTRATORS"
+        | "DISCONNECT_COPILOT"
+        | "END_ALL_HUB_SESSIONS"
+        | "REVOKE_ADMINISTRATOR"
       targetCount: number
     } | null>
     runTransaction: AdministratorAuthorizationVerificationTransaction
     writeAudit(event: CreateSecurityAuditEvent): Promise<unknown>
   },
-): Promise<boolean> {
+): Promise<
+  | "CONNECT_COPILOT"
+  | "DESIGNATE_ADMINISTRATORS"
+  | "DISCONNECT_COPILOT"
+  | "END_ALL_HUB_SESSIONS"
+  | "REVOKE_ADMINISTRATOR"
+  | null
+> {
   const parsed = inputSchema.parse(rawInput)
   const input = {
     ...parsed,
@@ -110,7 +122,7 @@ export async function verifyAdministratorAuthorization(
                   type: "administrator_authorization",
                 })
               }
-              return false
+              return null
             }
           }
           const verified = await repositories.verifySensitiveAuthorization({
@@ -135,7 +147,7 @@ export async function verifyAdministratorAuthorization(
                 type: "administrator_authorization",
               })
             }
-            return false
+            return null
           }
           await repositories.createSecurityAudit({
             actorMembershipId: verified.actorMembershipId,
@@ -146,7 +158,7 @@ export async function verifyAdministratorAuthorization(
             targetCount: verified.targetCount,
             type: "administrator_authorization",
           })
-          return true
+          return verified.operation
         }),
       (error) => error instanceof AdmissionTransactionConflictError,
     )

@@ -7,6 +7,7 @@ import { findAuthenticationProvider } from "../../../repositories/authentication
 import { lockAuthenticationProvidersForReconciliation } from "../../../repositories/authentication-providers/lock-authentication-providers-for-reconciliation/index.ts"
 import { selectAuthenticationProviderRevision } from "../../../repositories/authentication-providers/select-authentication-provider-revision/index.ts"
 import { createSecurityAudit } from "../../../repositories/security-audits/create-security-audit/index.ts"
+import { disconnectCopilotConnectionWithoutEffectiveAdministrator } from "../../../repositories/copilot-connection-state/disconnect-copilot-connection-without-effective-administrator/index.ts"
 import { incrementSessionRevocationState } from "../../../repositories/session-revocation-states/increment-session-revocation-state/index.ts"
 import { classifyPrismaTransactionError } from "../../../integrations/prisma/classify-transaction-error/index.ts"
 import { IdentityTransactionConflictError } from "../errors.ts"
@@ -29,6 +30,8 @@ export function runProviderRevisionTransaction<Result>(
           createAuthenticationProviderRevision: (input) =>
             createAuthenticationProviderRevision(transaction, input),
           createSecurityAudit: (input) => createSecurityAudit(transaction, input),
+          disconnectCopilotConnectionWithoutEffectiveAdministrator: () =>
+            disconnectCopilotConnectionWithoutEffectiveAdministrator(transaction),
           disableAuthenticationProvider: (providerId) =>
             disableAuthenticationProvider(transaction, providerId),
           enableAuthenticationProvider: (input) => enableAuthenticationProvider(transaction, input),

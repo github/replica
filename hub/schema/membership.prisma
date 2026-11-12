@@ -4,9 +4,10 @@ model Membership {
   userId String @unique @map("user_id") @db.Uuid
 
   // Relations
-  user        User                   @relation(fields: [userId], references: [id], onDelete: Restrict)
-  assignments MembershipAssignment[]
-  sessions    HubSession[]
+  user                    User                     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  assignments             MembershipAssignment[]
+  copilotConnections      CopilotConnectionState[]
+  sessions                HubSession[]
   sensitiveAuthorizations SensitiveAuthorization[]
   copilotConnections CopilotConnection[]
 

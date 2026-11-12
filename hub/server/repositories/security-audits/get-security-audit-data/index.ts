@@ -110,6 +110,27 @@ export function getSecurityAuditData(
           targetCount: event.targetCount,
         },
       }
+    case "copilot_connection":
+      return {
+        id: event.id,
+        action: `copilot.connection.${event.operation}`,
+        outcome:
+          event.outcome === "success"
+            ? SecurityAuditOutcome.SUCCESS
+            : event.outcome === "denied"
+              ? SecurityAuditOutcome.DENIED
+              : SecurityAuditOutcome.FAILURE,
+        targetType: "copilot_connection",
+        targetId: "global",
+        context: {
+          actorMembershipId: event.actorMembershipId,
+          ...(event.connectorMembershipId
+            ? { connectorMembershipId: event.connectorMembershipId }
+            : {}),
+          operation: event.operation,
+          ...(event.reason ? { reason: event.reason } : {}),
+        },
+      }
     case "all_hub_sessions_ended":
       return {
         id: event.id,

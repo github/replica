@@ -86,10 +86,24 @@ export interface AdministratorAuthorizationAudit extends SecurityAuditEvent {
   type: "administrator_authorization"
   actorMembershipId: string
   authorizationId: string
-  operation: "DESIGNATE_ADMINISTRATORS" | "END_ALL_HUB_SESSIONS" | "REVOKE_ADMINISTRATOR"
+  operation:
+    | "CONNECT_COPILOT"
+    | "DESIGNATE_ADMINISTRATORS"
+    | "DISCONNECT_COPILOT"
+    | "END_ALL_HUB_SESSIONS"
+    | "REVOKE_ADMINISTRATOR"
   phase: "requested" | "verified" | "completed" | "denied" | "expired" | "cancelled"
   reason?: string
   targetCount: number
+}
+
+export interface CopilotConnectionAudit extends SecurityAuditEvent {
+  type: "copilot_connection"
+  actorMembershipId: string | null
+  connectorMembershipId?: string
+  operation: "connect" | "disconnect" | "view"
+  outcome: "success" | "denied" | "failure"
+  reason?: string
 }
 
 export interface AllHubSessionsEndedAudit extends SecurityAuditEvent {
@@ -225,6 +239,7 @@ export type CreateSecurityAuditEvent =
   | AdministratorManagementDeniedAudit
   | AdministratorManagementFailedAudit
   | AdministratorAuthorizationAudit
+  | CopilotConnectionAudit
   | AllHubSessionsEndedAudit
   | AllHubSessionsEndFailedAudit
   | AdmissionDeniedAudit

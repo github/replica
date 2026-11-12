@@ -35,6 +35,21 @@ export async function revokeHubAdministratorWithRepositories(
   if (remainingAdministrators.length === 0) {
     throw new AdministratorManagementDeniedError("last_administrator")
   }
+  if (
+    !remainingAdministrators.some(
+      ({ membershipId }) => membershipId === input.targetMembershipId,
+    ) &&
+    (await repositories.disconnectCopilotConnection?.(input.targetMembershipId))
+  ) {
+    await repositories.createSecurityAudit({
+      actorMembershipId: input.actorMembershipId,
+      id: createId(),
+      operation: "disconnect",
+      outcome: "success",
+      reason: "connector_role_removed",
+      type: "copilot_connection",
+    })
+  }
   await repositories.createSecurityAudit({
     actorMembershipId: input.actorMembershipId,
     assignmentId: assignment.id,

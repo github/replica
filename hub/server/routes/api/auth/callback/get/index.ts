@@ -80,6 +80,8 @@ export function get(dependencies: AuthenticationCallbackDependencies): RequestHa
           303,
           operation === "END_ALL_HUB_SESSIONS"
             ? `/settings/sessions/confirm?authorizationId=${completed.sensitiveAuthorizationId}`
+            : operation === "CONNECT_COPILOT" || operation === "DISCONNECT_COPILOT"
+              ? `/settings/copilot/confirm?authorizationId=${completed.sensitiveAuthorizationId}`
             : `/settings/administrators/confirm?authorizationId=${completed.sensitiveAuthorizationId}`,
         )
         return

@@ -10,7 +10,12 @@ export async function getSensitiveAuthorization(
       login: string | null
       membershipId: string | null
       name: string | null
-      operation: "DESIGNATE_ADMINISTRATORS" | "END_ALL_HUB_SESSIONS" | "REVOKE_ADMINISTRATOR"
+      operation:
+        | "CONNECT_COPILOT"
+        | "DESIGNATE_ADMINISTRATORS"
+        | "DISCONNECT_COPILOT"
+        | "END_ALL_HUB_SESSIONS"
+        | "REVOKE_ADMINISTRATOR"
       provider: string | null
       verifiedAt: Date
     }>
