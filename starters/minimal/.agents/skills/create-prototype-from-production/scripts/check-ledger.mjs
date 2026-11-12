@@ -65,8 +65,7 @@ export function checkLedger(ledger, { final = false } = {}) {
       urls.add(url.href)
       if (url.href === source?.href) sourcePage = page
     }
-    if (!DECISIONS.has(page.decision))
-      problems.push(`${label}: unknown decision`)
+    if (!DECISIONS.has(page.decision)) problems.push(`${label}: unknown decision`)
     if (!Array.isArray(page.foundIn) || page.foundIn.length === 0)
       problems.push(`${label}: foundIn is empty`)
     if (
@@ -83,29 +82,31 @@ export function checkLedger(ledger, { final = false } = {}) {
     )
       problems.push(`${label}: external target must be off-origin HTTP(S), mailto: or tel:`)
     if (url && LOCAL_BOUNDARIES.has(page.decision) && !HTTP_PROTOCOLS.has(url.protocol))
-      problems.push(`${label}: local boundary target must be HTTP(S); record non-web actions in page notes`)
+      problems.push(
+        `${label}: local boundary target must be HTTP(S); record non-web actions in page notes`,
+      )
     if (page.decision !== "build" && !LOCAL_BOUNDARIES.has(page.decision)) continue
 
     const kind = page.decision === "build" ? "build page" : "local boundary"
-    if (
-      typeof page.route !== "string" ||
-      !page.route.startsWith("/") ||
-      page.route.startsWith("//") ||
-      page.route.includes("\\") ||
-      /[\u0000-\u001f\u007f]/.test(page.route)
-    )
-      problems.push(`${label}: ${kind} has no local route`)
+    const hasLocalRoute =
+      typeof page.route === "string" &&
+      page.route.startsWith("/") &&
+      !page.route.startsWith("//") &&
+      !page.route.includes("\\") &&
+      !/[\u0000-\u001f\u007f]/.test(page.route)
+    if (!hasLocalRoute) problems.push(`${label}: ${kind} has no local route`)
     if (!STATUSES.has(page.status)) problems.push(`${label}: unknown status`)
-    if (final && !FINAL_STATUSES.has(page.status))
-      problems.push(`${label}: status is not final`)
+    if (final && !FINAL_STATUSES.has(page.status)) problems.push(`${label}: status is not final`)
     if (page.status === "blocked" && !isNonblankString(page.note))
       problems.push(`${label}: blocked without a note; expected a nonblank string`)
     if (page.status === "verified" && !isNonblankString(page.note))
       problems.push(`${label}: verified without an evidence note; expected a nonblank string`)
 
-    if (routes.has(page.route))
-      problems.push(`${label}: local route also used by ${routes.get(page.route)}`)
-    routes.set(page.route, label)
+    if (hasLocalRoute) {
+      if (routes.has(page.route))
+        problems.push(`${label}: local route also used by ${routes.get(page.route)}`)
+      routes.set(page.route, label)
+    }
     if (page.decision !== "build") continue
 
     if (typeof page.family !== "string") {
@@ -121,10 +122,7 @@ export function checkLedger(ledger, { final = false } = {}) {
     problems.push("source: no row represents the source URL")
   } else if (sourcePage?.decision === "stub-external") {
     problems.push("source: requires a build page or local boundary, not an outbound-only stub")
-  } else if (
-    sourcePage?.decision === "deferred" &&
-    !isNonblankString(sourcePage.note)
-  ) {
+  } else if (sourcePage?.decision === "deferred" && !isNonblankString(sourcePage.note)) {
     problems.push("source: deferred without a scope-exclusion reason")
   }
 

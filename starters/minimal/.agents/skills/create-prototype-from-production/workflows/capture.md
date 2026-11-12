@@ -4,6 +4,8 @@ Capture effort follows families, not pages.
 
 Apply Discover's [URL privacy checks](./discover.md#url-privacy) before saving page URLs, link targets, asset provenance or screenshots. Preserve public routing state but never persist secret values. If an artifact cannot be safely redacted, report that capture blocked rather than committing it.
 
+Before any HTTP or browser-byte retrieval, verify the [public-source network controls](./discover.md#public-source-requests) for the actual client. Connections must enforce public addresses despite DNS changes, validate every redirect before following it, and cover discovery navigation and browser-generated requests. If that boundary cannot be verified, block capture before requesting bytes; an observed asset URL, isolated profile or static check is not sufficient. Recheck coverage when changing clients rather than bypassing it through a fallback.
+
 ## Required capture limits
 
 Before any remote request, including Discover's initial probe, verify that the selected runtime enforces all of these limits:

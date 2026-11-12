@@ -1,4 +1,4 @@
-import { realpathSync } from "node:fs"
+import { readSync, realpathSync } from "node:fs"
 import { BlockList, isIP } from "node:net"
 import { pathToFileURL } from "node:url"
 
@@ -46,6 +46,14 @@ const credentialParameters = new Set([
   "signature",
   "sig",
   "jwt",
+  "secret",
+  "secretkey",
+  "privatekey",
+  "authtoken",
+  "oauthtoken",
+  "resettoken",
+  "invitetoken",
+  "sessiontoken",
 ])
 const jwt = /^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/
 
@@ -56,18 +64,24 @@ export function checkPublicUrl(value) {
   if (!["http:", "https:"].includes(url.protocol)) return "requires an absolute HTTP(S) URL"
   if (url.username || url.password) return "embedded URL credentials are not allowed"
 
-  const fragment = url.hash.slice(1)
-  const fragmentParameters = new URLSearchParams(fragment.slice(fragment.indexOf("?") + 1))
-  const parameters = [...url.searchParams, ...fragmentParameters]
+  let fragment
   let components
   try {
-    components = [url.pathname, fragment].flatMap((part) =>
-      decodeURIComponent(part).split(/[/?&#=]/),
+    fragment = decodeURIComponent(url.hash.slice(1))
+    components = [decodeURIComponent(url.pathname), fragment].flatMap((part) =>
+      part.split(/[/?&#=]/),
     )
   } catch (error) {
     if (!(error instanceof URIError)) throw error
     return "invalid encoded URL components are not allowed"
   }
+  const fragmentQueries = [fragment]
+  const queryStart = fragment.indexOf("?")
+  if (queryStart >= 0) fragmentQueries.push(fragment.slice(queryStart + 1))
+  const parameters = [
+    ...url.searchParams,
+    ...fragmentQueries.flatMap((query) => [...new URLSearchParams(query)]),
+  ]
   if (
     parameters.some(
       ([name, value]) =>
@@ -98,18 +112,47 @@ export function checkPublicUrl(value) {
       "localdomain",
       "localdomain4",
       "localdomain6",
+      "test",
+      "invalid",
+      "example",
+      "alt",
+      "onion",
     ].some((suffix) => host === suffix || host.endsWith(`.${suffix}`))
   ) {
-    return "local hostname destination is not allowed"
+    return "local or reserved hostname destination is not allowed"
   }
+}
+
+function readStdinUrl() {
+  const maximumBytes = 64 * 1024
+  const buffer = Buffer.alloc(maximumBytes + 1)
+  let length = 0
+  while (length < buffer.length) {
+    const bytes = readSync(0, buffer, length, buffer.length - length, null)
+    if (bytes === 0) break
+    length += bytes
+  }
+  if (length > maximumBytes) throw new Error("URL stdin input exceeds 64 KiB.")
+  const value = new TextDecoder("utf-8", { fatal: true }).decode(buffer.subarray(0, length)).trim()
+  if (!value || /\s/.test(value)) throw new Error("Expected exactly one URL on stdin.")
+  return value
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
   if (process.argv.length !== 3) {
-    console.error("Usage: node check-public-url.mjs URL")
+    console.error("Usage: node check-public-url.mjs URL | --stdin")
     process.exit(2)
   }
-  const problem = checkPublicUrl(process.argv[2])
+  let value = process.argv[2]
+  if (value === "--stdin") {
+    try {
+      value = readStdinUrl()
+    } catch (error) {
+      console.error(`Cannot read reference URL: ${error.message}`)
+      process.exit(2)
+    }
+  }
+  const problem = checkPublicUrl(value)
   if (problem) {
     console.error(`Cannot use reference URL: ${problem}.`)
     process.exit(1)

@@ -42,11 +42,26 @@ test("rejects nonempty credential-like parameters without exposing supplied valu
       "signature",
       "sig",
       "jwt",
+      "secret",
+      "secret_key",
+      "private_key",
+      "auth_token",
+      "oauth_token",
+      "reset_token",
+      "invite_token",
+      "session_token",
     ].map((key) => [`${key} query parameter`, `?${key}=fixture-query-marker`]),
     ["mixed-case hyphenated key", "?AcCeSs-ToKeN=fixture-query-marker"],
+    ["mixed-case hyphenated private key", "?PrIvAtE-KeY=fixture-query-marker"],
     ["percent-encoded query key", "?%61pi%5Fkey=fixture-query-marker"],
     ["fragment parameter", "#access_token=fixture-fragment-marker"],
+    ["question mark inside fragment value", "#access_token=fixture-fragment-marker?view=full"],
+    ["encoded fragment assignment", "#access_token%3Dfixture-fragment-marker"],
     ["SPA fragment parameter", "#/callback?client%2DSeCrEt=fixture-fragment-marker"],
+    [
+      "encoded SPA separator and assignment",
+      "#/callback%3Fclient_secret%3Dfixture-fragment-marker",
+    ],
     ["nonempty repeated parameter", "?token=&token=fixture-query-marker"],
   ]) {
     await t.test(name, () => {
@@ -80,7 +95,7 @@ test("rejects recognizable synthetic JWT values outside credential-like paramete
   }
 })
 
-test("rejects local hostname forms after case and trailing-dot normalization", async () => {
+test("rejects local and special-use hostname suffixes after normalization", async (t) => {
   const { checkPublicUrl } = await import("./check-public-url.mjs")
   for (const [name, url] of [
     ["single-label host", "https://intranet/"],
@@ -92,8 +107,15 @@ test("rejects local hostname forms after case and trailing-dot normalization", a
     ["conventional localhost alias", "https://localhost.localdomain/"],
     ["conventional IPv4 alias", "https://localhost4.LOCALDOMAIN4./"],
     ["conventional IPv6 alias", "https://localhost6.localdomain6/"],
+    ["testing suffix with subdomains, case and trailing dot", "https://service.fixture.TeSt./"],
+    ["invalid suffix", "https://unresolved.fixture.invalid/reference"],
+    ["example suffix", "https://service.example/"],
+    ["alternative naming suffix", "https://service.alt/"],
+    ["onion suffix", "https://service.onion/"],
   ]) {
-    assert.match(checkPublicUrl(url) ?? "", /\S/, name)
+    await t.test(name, () => {
+      assert.match(checkPublicUrl(url) ?? "", /\S/)
+    })
   }
 })
 
@@ -178,7 +200,12 @@ test("accepts public names, CDN URLs and public IPs without discarding URL state
     ],
     ["CDN asset", "https://cdn.jsdelivr.net/fixture/hero.png?width=1280#image"],
     ["HTTP with a port", "http://EXAMPLE.com:8080/cards"],
-    ["dotted name without public DNS", "https://unresolved.fixture.invalid/reference"],
+    [
+      "dotted public-TLD fixture without DNS lookup",
+      "https://unresolved.fixture-site.net/reference",
+    ],
+    ["example under the public net TLD", "https://example.net/reference"],
+    ["example under the public org TLD", "https://example.org/reference"],
     ["localhost only in a public-name label", "https://localhost.example.com/reference"],
     ["local words outside the hostname", "https://example.com/localhost?filter=internal#local"],
     ["public IPv4", "https://8.8.8.8/reference"],
@@ -194,25 +221,34 @@ test("accepts public names, CDN URLs and public IPs without discarding URL state
   }
 })
 
-test("CLI accepts one public URL while making its static-only result explicit without echoing input", () => {
+test("CLI accepts public URL arguments and literal stdin while reporting static-only checks", async (t) => {
   const url =
-    "https://cli-host-marker.example.com/cli-path-marker?state=cli-query-marker#cli-fragment-marker"
-  const result = spawnSync(process.execPath, [checker, url], {
-    encoding: "utf8",
-    timeout: 5000,
-  })
-  assert.ifError(result.error)
-  assert.equal(result.status, 0, result.stderr)
-  const output = `${result.stdout}${result.stderr}`
-  assert.match(output, /static/i)
-  assert.match(output, /(?:not|no|unverified)[^\n.]*DNS|DNS[^\n.]*(?:not|unverified)/i)
-  assert.match(output, /(?:not|no|unverified)[^\n.]*network|network[^\n.]*(?:not|unverified)/i)
-  assert.doesNotMatch(output, /cli-(?:host|path|query|fragment)-marker/)
-  assert.equal(output.includes(url), false)
+    "https://cli-host-marker.example.com/cli-path-marker?state=cli-query-marker&key=$fixture;literal|data#cli-fragment-marker"
+  for (const [name, args, input] of [
+    ["URL argument", [url], undefined],
+    ["whitespace-wrapped literal stdin", ["--stdin"], ` \t${url}\r\n`],
+    ["exactly 64 KiB of stdin", ["--stdin"], url.padEnd(64 * 1024, " ")],
+  ]) {
+    await t.test(name, () => {
+      const result = spawnSync(process.execPath, [checker, ...args], {
+        input,
+        encoding: "utf8",
+        timeout: 5000,
+      })
+      assert.ifError(result.error)
+      assert.equal(result.status, 0, result.stderr)
+      const output = `${result.stdout}${result.stderr}`
+      assert.match(output, /static/i)
+      assert.match(output, /(?:not|no|unverified)[^\n.]*DNS|DNS[^\n.]*(?:not|unverified)/i)
+      assert.match(output, /(?:not|no|unverified)[^\n.]*network|network[^\n.]*(?:not|unverified)/i)
+      assert.doesNotMatch(output, /cli-(?:host|path|query|fragment)-marker/)
+      assert.equal(output.includes(url), false)
+    })
+  }
 })
 
 test("CLI rejects private, credential-bearing and malformed targets without exposing supplied values", async (t) => {
-  for (const [name, url] of [
+  for (const [name, url, stdin = false, problem = /\S/] of [
     [
       "private target",
       "https://cli-host-marker.internal/cli-path-marker?state=cli-query-marker#cli-fragment-marker",
@@ -226,16 +262,29 @@ test("CLI rejects private, credential-bearing and malformed targets without expo
       "https://cli-host-marker.example.com/cli-path-marker?access_token=cli-query-marker#cli-fragment-marker",
     ],
     ["malformed target", "https://[cli-malformed-marker"],
+    [
+      "private stdin target",
+      "https://127.1/cli-path-marker?state=cli-query-marker#cli-fragment-marker",
+      true,
+      /private|local|non.?public|not public/i,
+    ],
+    [
+      "secret stdin target",
+      "https://cli-host-marker.example.com/cli-path-marker?access_token=cli-query-marker#cli-fragment-marker",
+      true,
+      /secret|credential/i,
+    ],
   ]) {
     await t.test(name, () => {
-      const result = spawnSync(process.execPath, [checker, url], {
+      const result = spawnSync(process.execPath, [checker, ...(stdin ? ["--stdin"] : [url])], {
+        input: stdin ? `${url}\n` : undefined,
         encoding: "utf8",
         timeout: 5000,
       })
       assert.ifError(result.error)
       assert.equal(result.status, 1, result.stderr)
       const output = `${result.stdout}${result.stderr}`
-      assert.match(output, /\S/)
+      assert.match(output, problem)
       assert.doesNotMatch(output, /MODULE_NOT_FOUND|node:internal\//)
       assert.doesNotMatch(output, /cli-[a-z-]+-marker/)
       assert.equal(output.includes(url), false)
@@ -243,8 +292,10 @@ test("CLI rejects private, credential-bearing and malformed targets without expo
   }
 })
 
-test("CLI requires exactly one argument and keeps excess values out of usage diagnostics", async (t) => {
-  for (const [name, args] of [
+test("CLI rejects incorrect arguments or stdin data without exposing supplied values", async (t) => {
+  const url =
+    "https://cli-host-marker.example.com/cli-path-marker?state=cli-query-marker#cli-fragment-marker"
+  for (const [name, args, input] of [
     ["missing URL", []],
     [
       "excess URL",
@@ -253,17 +304,34 @@ test("CLI requires exactly one argument and keeps excess values out of usage dia
         "https://cli-second-marker.example.com/reference",
       ],
     ],
+    ["missing stdin data", ["--stdin"], ""],
+    ["blank stdin data", ["--stdin"], " \t\r\n"],
+    ["extra stdin argument", ["--stdin", "https://cli-extra-marker.example.com/reference"], url],
+    ["internal newline", ["--stdin"], url.replace("cli-path-marker", "cli-path-\nmarker")],
+    ["internal carriage return", ["--stdin"], url.replace("cli-path-marker", "cli-path-\rmarker")],
+    ["multiple URL lines", ["--stdin"], `${url}\nhttps://cli-second-marker.example.com/reference`],
+    [
+      "multiple URLs on one line",
+      ["--stdin"],
+      `${url} https://cli-second-marker.example.com/reference`,
+    ],
+    [
+      "one UTF-8 byte over 64 KiB before trimming",
+      ["--stdin"],
+      `${url.padEnd(64 * 1024 - 1, " ")}\u00a0`,
+    ],
   ]) {
     await t.test(name, () => {
       const result = spawnSync(process.execPath, [checker, ...args], {
+        input,
         encoding: "utf8",
         timeout: 5000,
       })
-      assert.ifError(result.error)
       assert.equal(result.status, 2, result.stderr)
+      assert.ifError(result.error)
       const output = `${result.stdout}${result.stderr}`
       assert.match(output, /\S/)
-      assert.doesNotMatch(output, /cli-(?:first|second)-marker/)
+      assert.doesNotMatch(output, /cli-[a-z-]+-marker/)
     })
   }
 })

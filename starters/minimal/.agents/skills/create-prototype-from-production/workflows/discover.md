@@ -26,13 +26,13 @@ The controls must enforce public destinations at the actual connection, covering
 
 Verify the [required capture limits](./capture.md#required-capture-limits) for those same tools before any remote access. If either network enforcement or bounded capture cannot be established, do not fetch, navigate or download, even for the initial source probe. Record the missing control and report source capture blocked. Continue only independent offline work from existing approved captures; do not invent captured content or claim complete coverage. A fallback client or browser must satisfy the same requirements. Never change shared host, firewall, proxy or MCP settings merely to bypass this blocker.
 
-Only the authorized public source and observed public asset origins are network targets. After the host preflight and URL privacy checks, run the static target check from the prototype root before the first source request and each later explicit remote navigation/download:
+Only the authorized public source and observed public asset origins are network targets. After the host preflight and URL privacy checks, write the safe normalized URL as plain data to an owned regular `reference/next-target.txt` through a structured file-editing tool. Do not follow file or directory symlinks for this input or overwrite unrelated files. Run the static target check from the prototype root before the first source request and each later explicit remote navigation/download:
 
 ```sh
-node .agents/skills/create-prototype-from-production/scripts/check-public-url.mjs https://example.com/
+node .agents/skills/create-prototype-from-production/scripts/check-public-url.mjs --stdin < reference/next-target.txt
 ```
 
-Pass the actual safe, normalized target as one argument using the tool's argument handling, never by constructing shell commands from captured text. The check rejects URL credentials, obvious secret-bearing components, known local hostnames and nonpublic IP literals, including loopback, private, link-local/metadata and mapped-address forms. It performs no DNS lookup or network request. The ledger uses the same check for every HTTP(S) source/destination; it does not verify host enforcement.
+Keep that command and input path trusted and literal. Never splice a captured URL into a shell command, `echo`, heredoc or generated code; shell metacharacters in a valid URL remain data, not commands. The stdin mode accepts one URL within 64 KiB of input. The check rejects URL credentials, obvious secret-bearing components, known local or reserved hostnames and nonpublic IP literals, including loopback, private, link-local/metadata and mapped-address forms. It performs no DNS lookup or network request. The ledger uses the same check for every HTTP(S) source/destination; it does not verify host enforcement.
 
 If the source fails, report capture blocked without visiting it. For rejected links/assets, record a redacted skipped-action note on the owning page and keep any corresponding control disabled or mock-only; do not create a rejected-target ledger row or invent a public replacement. Never bypass rejection with another client or browser-byte fallback. Continue independent authorized work without a routine question. Keep `mailto:` and `tel:` as outbound actions without fetching them; other schemes do not authorize execution or network access.
 

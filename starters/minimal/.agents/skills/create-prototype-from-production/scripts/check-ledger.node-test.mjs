@@ -126,7 +126,8 @@ test("rejects embedded credentials on every destination decision", async (t) => 
 })
 
 test("rejects an obvious-private source without exposing its URL", () => {
-  const url = "https://127.1/cards?state=fixture-private-source-query#fixture-private-source-fragment"
+  const url =
+    "https://127.1/cards?state=fixture-private-source-query#fixture-private-source-fragment"
   const value = {
     ...ledger([{ ...hub, url }]),
     source: url,
@@ -354,6 +355,21 @@ test("rejects duplicate routes and unexplained blocks", () => {
   const problems = checkLedger(ledger(pages)).join("\n")
   assert.match(problems, /also used by/)
   assert.match(problems, /blocked without a note/)
+})
+
+test("does not reserve missing or invalid local routes for duplicate checks", () => {
+  for (const route of [undefined, "relative-path"]) {
+    const pages = [
+      { ...hub, route },
+      { ...hub, url: "https://example.com/loans", route, representative: false },
+    ]
+    const problems = checkLedger(ledger(pages))
+    assert.equal(problems.filter((problem) => problem.includes("has no local route")).length, 2)
+    assert.equal(
+      problems.some((problem) => problem.includes("local route also used")),
+      false,
+    )
+  }
 })
 
 test("reports row constraints without exposing URL, route or family values", async (t) => {
