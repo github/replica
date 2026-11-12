@@ -136,6 +136,10 @@ describe("server runtime", () => {
     const createAuthenticationRouteDependencies = vi
       .fn<(environment: NodeJS.ProcessEnv) => Promise<typeof authentication>>()
       .mockResolvedValue(authentication)
+    const copilotConnection = { applicationOrigin: "http://127.0.0.1:5173" }
+    const createCopilotConnectionRouteDependencies = vi
+      .fn()
+      .mockResolvedValue(copilotConnection)
     const disableAuthenticationProviders = vi.fn()
     const product = {}
     const createProductRouteDependencies = vi.fn().mockReturnValue(product)
@@ -157,6 +161,10 @@ describe("server runtime", () => {
     vi.doMock("./routes/api/product/create-product-route-dependencies/index.ts", () => ({
       createProductRouteDependencies,
     }))
+    vi.doMock(
+      "./routes/api/copilot-connection/create-copilot-connection-route-dependencies/index.ts",
+      () => ({ createCopilotConnectionRouteDependencies }),
+    )
 
     await expect(import("./index.ts")).resolves.toBeDefined()
 
@@ -169,7 +177,10 @@ describe("server runtime", () => {
     })
     expect(Buffer.from(environment.HUB_AUTHENTICATION_ENCRYPTION_KEY!, "base64")).toHaveLength(32)
     expect(Buffer.from(environment.HUB_BOOTSTRAP_SECRET!, "base64url")).toHaveLength(32)
-    expect(runApi).toHaveBeenCalledWith(expect.objectContaining({ authentication, product }))
+    expect(createCopilotConnectionRouteDependencies).toHaveBeenCalledWith(environment)
+    expect(runApi).toHaveBeenCalledWith(
+      expect.objectContaining({ authentication, copilotConnection, product }),
+    )
   })
 
   it("requires a database when authentication is configured", async () => {
