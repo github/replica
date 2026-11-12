@@ -59,7 +59,7 @@ export async function checkImage() {
       image,
       "sh",
       "-c",
-      "test -w /app/storage/learning && test -f /opt/replica/learning/bin/replica-learning.mjs && cd /opt/replica/learning && node --input-type=module -e 'await import(\"@github/copilot-sdk\")'",
+      'test -w /app/storage/learning && test -f /opt/replica/learning/bin/replica-learning.mjs && cd /opt/replica/learning && node --input-type=module -e \'import {readFile} from "node:fs/promises"; await import("@github/copilot-sdk"); const manifest = JSON.parse(await readFile("node_modules/@github/copilot-sdk/package.json", "utf8")); if (manifest.version !== "1.0.28") process.exit(1)\'',
     )
     docker("network", "create", network)
     networkCreated = true

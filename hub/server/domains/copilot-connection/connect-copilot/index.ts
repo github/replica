@@ -1,6 +1,10 @@
 import { z } from "zod"
 
-import type { CopilotCredentialProviderKey } from "../../copilot-credentials/types.ts"
+import { CopilotCredentialError } from "../../../integrations/github/create-installation-access-token/errors.ts"
+import type {
+  CopilotCredentialProviderKey,
+  GitHubAppInstallationIdentity,
+} from "../../copilot-credentials/types.ts"
 import { LearningCommandError } from "../../../integrations/learning/run-learning-command/errors.ts"
 import { CopilotConnectionError } from "../errors.ts"
 import type {
@@ -26,6 +30,7 @@ export async function connectCopilot(
     authorizationId?: string
     credentialProvider: {
       configurationDigest: string | null
+      githubAppInstallation?: GitHubAppInstallationIdentity | null
       key: CopilotCredentialProviderKey
     }
     hubSessionId?: string
@@ -48,13 +53,18 @@ export async function connectCopilot(
     now: () => Date
     readSnapshot: () => Promise<CopilotConnectionSnapshot>
     recordFailure: (input: {
+      appId?: string
+      billedOrganization?: string
       credentialProvider: CopilotCredentialProviderKey
       sessionDigest: string
     }) => Promise<boolean>
     recordRefusal: (input: {
+      appId?: string
       at: Date
+      billedOrganization?: string
       credentialDigest: string
       credentialProvider: CopilotCredentialProviderKey
+      reason?: "credential_permission_denied" | "credential_refused" | "credential_revoked"
       sessionDigest: string
       snapshot: CopilotConnectionSnapshot
     }) => Promise<"connection_changed" | "not_authorized" | "recorded">
@@ -73,6 +83,12 @@ export async function connectCopilot(
   if (!credentialProvider.configurationDigest) {
     await writeAudit({
       actorMembershipId: actor.membershipId,
+      ...(credentialProvider.githubAppInstallation
+        ? {
+            appId: credentialProvider.githubAppInstallation.appId,
+            billedOrganization: credentialProvider.githubAppInstallation.organization,
+          }
+        : {}),
       credentialProvider: credentialProvider.key,
       id: createId(),
       phase: "denied",
@@ -89,12 +105,27 @@ export async function connectCopilot(
   try {
     statusSchema.parse(await check())
   } catch (error) {
-    const refused = error instanceof LearningCommandError && error.code === "unauthorized"
+    const refusalCode =
+      error instanceof CopilotCredentialError && error.code === "installation_revoked"
+        ? "credential_revoked"
+        : error instanceof CopilotCredentialError && error.code === "permission_denied"
+          ? "credential_permission_denied"
+          : error instanceof LearningCommandError && error.code === "unauthorized"
+            ? "credential_refused"
+            : null
+    const refused = refusalCode !== null
     if (refused) {
       const result = await recordRefusal({
+        ...(credentialProvider.githubAppInstallation
+          ? {
+              appId: credentialProvider.githubAppInstallation.appId,
+              billedOrganization: credentialProvider.githubAppInstallation.organization,
+            }
+          : {}),
         at: now(),
         credentialDigest,
         credentialProvider: credentialProvider.key,
+        ...(refusalCode === "credential_refused" ? {} : { reason: refusalCode }),
         sessionDigest,
         snapshot,
       })
@@ -113,6 +144,12 @@ export async function connectCopilot(
     } else {
       if (
         !(await recordFailure({
+          ...(credentialProvider.githubAppInstallation
+            ? {
+                appId: credentialProvider.githubAppInstallation.appId,
+                billedOrganization: credentialProvider.githubAppInstallation.organization,
+              }
+            : {}),
           credentialProvider: credentialProvider.key,
           sessionDigest,
         }))
@@ -123,10 +160,14 @@ export async function connectCopilot(
       }
     }
     throw new CopilotConnectionError(
-      refused ? "credential_refused" : "unavailable",
-      refused
-        ? "Copilot refused the configured credential."
-        : "Hub could not check the configured Copilot credential.",
+      refusalCode ?? "unavailable",
+      refusalCode === "credential_revoked"
+        ? "The configured GitHub App installation was removed or revoked."
+        : refusalCode === "credential_permission_denied"
+          ? "The configured GitHub App installation cannot request read-only Copilot access."
+          : refusalCode === "credential_refused"
+            ? "Copilot refused the configured credential."
+            : "Hub could not check the configured Copilot credential.",
       { cause: error },
     )
   }
@@ -186,6 +227,12 @@ export async function connectCopilot(
     await repositories.advanceState()
     await repositories.writeAudit({
       actorMembershipId: session.membershipId,
+      ...(credentialProvider.githubAppInstallation
+        ? {
+            appId: credentialProvider.githubAppInstallation.appId,
+            billedOrganization: credentialProvider.githubAppInstallation.organization,
+          }
+        : {}),
       connectionId,
       credentialProvider: credentialProvider.key,
       id: createId(),

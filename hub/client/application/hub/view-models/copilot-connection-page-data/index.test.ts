@@ -18,6 +18,7 @@ describe("copilotConnectionPageData()", () => {
       configured: false,
       connected: false,
       savedConnection: false,
+      credentialIdentity: null,
       connectedBy: null,
       refusedAt: null,
       verifiedAt: null,
@@ -34,6 +35,7 @@ describe("copilotConnectionPageData()", () => {
       configured: true,
       connected: false,
       savedConnection: false,
+      credentialIdentity: null,
       connectedBy: null,
       refusedAt: null,
       verifiedAt: null,
@@ -53,6 +55,7 @@ describe("copilotConnectionPageData()", () => {
       configured: true,
       connected: true,
       savedConnection: true,
+      credentialIdentity: null,
       connectedBy: {
         login: "octocat",
         membershipId: session.membershipId,
@@ -73,6 +76,7 @@ describe("copilotConnectionPageData()", () => {
       configured: true,
       connected: false,
       savedConnection: true,
+      credentialIdentity: null,
       connectedBy: null,
       refusedAt: "2026-11-11T13:00:00.000Z",
       verifiedAt: null,
@@ -82,5 +86,27 @@ describe("copilotConnectionPageData()", () => {
     if (data.accessDenied) throw new Error("The administrator must receive connection controls.")
     expect(data.connect?.label).toBe("Connect Copilot")
     expect(data.disconnect?.label).toBe("Disconnect Copilot")
+  })
+
+  it("names the billed organization and GitHub App for installation credentials", () => {
+    const data = copilotConnectionPageData(session, {
+      configured: true,
+      connected: false,
+      savedConnection: false,
+      credentialIdentity: {
+        appId: "123",
+        installationId: "456",
+        organization: "github",
+      },
+      connectedBy: null,
+      refusedAt: null,
+      verifiedAt: null,
+    })
+
+    expect(data.accessDenied).toBe(false)
+    if (data.accessDenied) throw new Error("The administrator must receive connection controls.")
+    expect(data.usageLabel).toMatch(/billed to the github organization through GitHub App 123/)
+    expect(data.connect?.consequence).toMatch(/github organization through GitHub App 123/)
+    expect([data.usageLabel, data.connect?.consequence].join(" ")).not.toContain("456")
   })
 })

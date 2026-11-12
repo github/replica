@@ -74,12 +74,26 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const NotConnected: Story = {}
+export const OrganizationInstallation: Story = {
+  args: {
+    data: {
+      ...data,
+      usageLabel:
+        "Copilot usage is billed to the github organization through GitHub App 12345. Organization model policy, budget, and installation revocation continue to apply.",
+      connect: {
+        ...connect,
+        consequence:
+          "Hub asks Copilot to verify a fresh credential for the github organization through GitHub App 12345. Later learning runs may send review comment text without reviewer identity. The organization's Copilot model policy, budget, and App installation revocation continue to apply.",
+      },
+    },
+  },
+}
 export const NoToken: Story = {
   args: {
     data: {
       ...data,
       credentialLabel:
-        "Configure a Copilot credential provider before connecting. Simple deployments can explicitly select ambient CLI authentication or the environment-token provider.",
+        "Configure a Copilot credential provider before connecting. Production deployments can use a GitHub App installation; simple deployments can explicitly select ambient CLI authentication or the environment-token provider.",
       connect: null,
     },
   },

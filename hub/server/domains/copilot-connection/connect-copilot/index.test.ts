@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto"
 import { describe, expect, it, vi } from "vitest"
 
 import { LearningCommandError } from "../../../integrations/learning/run-learning-command/errors"
+import { CopilotCredentialError } from "../../../integrations/github/create-installation-access-token/errors"
 
 import type { CopilotConnectionTransactionRepositories } from "../types"
 import { connectCopilot } from "."
@@ -27,6 +28,15 @@ describe("connectCopilot()", () => {
   const credentialProvider = {
     configurationDigest: "a".repeat(64),
     key: "environment_token" as const,
+  }
+  const githubAppCredentialProvider = {
+    configurationDigest: "b".repeat(64),
+    githubAppInstallation: {
+      appId: "123",
+      installationId: "456",
+      organization: "github",
+    },
+    key: "github_app_installation" as const,
   }
 
   it("rereads administrator authority after credential validation", async () => {
@@ -201,6 +211,89 @@ describe("connectCopilot()", () => {
     })
     expect(runTransaction).not.toHaveBeenCalled()
     expect(writeAudit).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["installation_revoked", "credential_revoked"],
+    ["permission_denied", "credential_permission_denied"],
+  ] as const)("records %s as terminal refusal %s", async (providerCode, connectionCode) => {
+    const checkedAt = new Date("2026-11-10T23:00:00Z")
+    const snapshot = { connectionId: null, generation: 3n }
+    const recordRefusal = vi.fn().mockResolvedValue("recorded")
+    const recordFailure = vi.fn()
+
+    await expect(
+      connectCopilot(
+        {
+          credentialProvider: githubAppCredentialProvider,
+          sessionDigest: "session-digest",
+        },
+        {
+          check: vi
+            .fn()
+            .mockRejectedValue(
+              new CopilotCredentialError(providerCode, "GitHub refused the installation."),
+            ),
+          createId: randomUUID,
+          findAdministratorSession: vi.fn().mockResolvedValue({ membershipId: randomUUID() }),
+          now: () => checkedAt,
+          readSnapshot: vi.fn().mockResolvedValue(snapshot),
+          recordFailure,
+          recordRefusal,
+          runTransaction: vi.fn(),
+          writeAudit: vi.fn(),
+        },
+      ),
+    ).rejects.toMatchObject({ code: connectionCode })
+
+    expect(recordRefusal).toHaveBeenCalledWith({
+      appId: "123",
+      at: checkedAt,
+      billedOrganization: "github",
+      credentialDigest: githubAppCredentialProvider.configurationDigest,
+      credentialProvider: githubAppCredentialProvider.key,
+      reason: connectionCode,
+      sessionDigest: "session-digest",
+      snapshot,
+    })
+    expect(recordFailure).not.toHaveBeenCalled()
+  })
+
+  it("records transient provider unavailability as a failure rather than a refusal", async () => {
+    const recordFailure = vi.fn().mockResolvedValue(true)
+    const recordRefusal = vi.fn()
+
+    await expect(
+      connectCopilot(
+        {
+          credentialProvider: githubAppCredentialProvider,
+          sessionDigest: "session-digest",
+        },
+        {
+          check: vi
+            .fn()
+            .mockRejectedValue(
+              new CopilotCredentialError("unavailable", "GitHub is temporarily unavailable."),
+            ),
+          createId: randomUUID,
+          findAdministratorSession: vi.fn().mockResolvedValue({ membershipId: randomUUID() }),
+          now: () => new Date(),
+          readSnapshot: vi.fn().mockResolvedValue({ connectionId: null, generation: 3n }),
+          recordFailure,
+          recordRefusal,
+          runTransaction: vi.fn(),
+          writeAudit: vi.fn(),
+        },
+      ),
+    ).rejects.toMatchObject({ code: "unavailable" })
+
+    expect(recordFailure).toHaveBeenCalledWith({
+      appId: "123",
+      billedOrganization: "github",
+      credentialProvider: githubAppCredentialProvider.key,
+      sessionDigest: "session-digest",
+    })
+    expect(recordRefusal).not.toHaveBeenCalled()
   })
 
   it("does not persist a refused credential after administrator authority is lost", async () => {

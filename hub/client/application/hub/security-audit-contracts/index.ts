@@ -12,6 +12,7 @@ const securityAuditContextSchema = z
   .superRefine((context, refinement) => {
     for (const [key, value] of Object.entries(context)) {
       if (
+        key !== "credentialProvider" &&
         /^(?:access|refresh|id)?token$|secret|password|credential|cookie|authorization|privatekey|clientassertion|apikey/i.test(
           key,
         )
