@@ -86,10 +86,18 @@ export interface AdministratorAuthorizationAudit extends SecurityAuditEvent {
   type: "administrator_authorization"
   actorMembershipId: string
   authorizationId: string
-  operation: "DESIGNATE_ADMINISTRATORS" | "REVOKE_ADMINISTRATOR"
+  operation: "DESIGNATE_ADMINISTRATORS" | "END_ALL_HUB_SESSIONS" | "REVOKE_ADMINISTRATOR"
   phase: "requested" | "verified" | "completed" | "denied" | "expired" | "cancelled"
   reason?: string
   targetCount: number
+}
+
+export interface AllHubSessionsEndedAudit extends SecurityAuditEvent {
+  type: "all_hub_sessions_ended"
+  actorMembershipId: string
+  cancelledAuthorizationCount: number
+  endedSessionCount: number
+  revision: number
 }
 
 export interface SessionCreatedAudit extends SecurityAuditEvent {
@@ -202,6 +210,7 @@ export type CreateSecurityAuditEvent =
   | AdministratorManagementDeniedAudit
   | AdministratorManagementFailedAudit
   | AdministratorAuthorizationAudit
+  | AllHubSessionsEndedAudit
   | AdmissionDeniedAudit
   | AdmissionFailedAudit
   | ExternalIdentityCreatedAudit

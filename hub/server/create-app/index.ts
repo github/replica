@@ -27,13 +27,17 @@ export function createApp({
     [
       "/api/auth",
       "/api/administrators",
+      "/api/session-revocation",
       "/api/security-audits",
       "/api/workspace",
       "/api/repositories",
     ],
     authenticationSecurity(),
   )
-  app.use(/^(?!\/api\/(?:auth|administrators\/authorizations)(?:\/|$)).*/i, express.json())
+  app.use(
+    /^(?!\/api\/(?:auth|administrators\/authorizations|session-revocation\/authorizations)(?:\/|$)).*/i,
+    express.json(),
+  )
 
   routes(app, { authentication, broadcast, isReady, logger, product })
   app.use("/api", respondNotFound)

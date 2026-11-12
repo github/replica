@@ -22,6 +22,7 @@ import type {
   AdministratorManagementDeniedAudit,
   AdministratorManagementFailedAudit,
   AdministratorAuthorizationAudit,
+  AllHubSessionsEndedAudit,
   SessionCreatedAudit,
   SessionEndedAudit,
 } from "../create-security-audit/types.ts"
@@ -40,6 +41,7 @@ export type ParsedSecurityAuditEvent =
   | AdministratorManagementDeniedAudit
   | AdministratorManagementFailedAudit
   | AdministratorAuthorizationAudit
+  | AllHubSessionsEndedAudit
   | SessionCreatedAudit
   | SessionEndedAudit
   | (Omit<ExternalIdentityCreatedAudit, "provider"> & { provider: ProviderKey })

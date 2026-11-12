@@ -9,10 +9,23 @@ const inputSchema = z
     hubSessionId: z.uuid(),
     id: z.uuid(),
     lifetimeSeconds: z.number().int().min(60).max(600),
-    operation: z.enum(["DESIGNATE_ADMINISTRATORS", "REVOKE_ADMINISTRATOR"]),
-    targetMembershipIds: z.array(z.uuid()).min(1).max(50),
+    operation: z.enum(["DESIGNATE_ADMINISTRATORS", "END_ALL_HUB_SESSIONS", "REVOKE_ADMINISTRATOR"]),
+    targetMembershipIds: z.array(z.uuid()).max(50),
   })
   .strict()
+  .superRefine((value, context) => {
+    const targetCount = value.targetMembershipIds.length
+    if (
+      (value.operation === "END_ALL_HUB_SESSIONS" && targetCount !== 0) ||
+      (value.operation === "DESIGNATE_ADMINISTRATORS" && targetCount === 0) ||
+      (value.operation === "REVOKE_ADMINISTRATOR" && targetCount !== 1)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "The sensitive authorization targets are invalid.",
+      })
+    }
+  })
 
 export async function createSensitiveAuthorization(
   database: Pick<Prisma.TransactionClient, "$queryRaw">,

@@ -34,7 +34,7 @@ export async function verifyAdministratorAuthorization(
     getAuthorizationAuditData(id: string): Promise<{
       actorMembershipId: string
       expired: boolean
-      operation: "DESIGNATE_ADMINISTRATORS" | "REVOKE_ADMINISTRATOR"
+      operation: "DESIGNATE_ADMINISTRATORS" | "END_ALL_HUB_SESSIONS" | "REVOKE_ADMINISTRATOR"
       targetCount: number
     } | null>
     runTransaction: AdministratorAuthorizationVerificationTransaction

@@ -13,7 +13,7 @@ export async function verifySensitiveAuthorization(
     Array<{
       actorMembershipId: string
       id: string
-      operation: "DESIGNATE_ADMINISTRATORS" | "REVOKE_ADMINISTRATOR"
+      operation: "DESIGNATE_ADMINISTRATORS" | "END_ALL_HUB_SESSIONS" | "REVOKE_ADMINISTRATOR"
       targetCount: number
     }>
   >`

@@ -80,8 +80,8 @@ export function settingsPublic(state: SettingsPublicResponse, search: URLSearchP
       : "End all Hub sessions",
     description:
       signedOut && state.sessionRevoked
-        ? "Your session has ended. Existing browser sessions and canvas credentials no longer authorize access. Pending connection approvals and signed-in preview handoffs have ended. Sign in again to continue."
-        : "Sign everyone out of this Hub and disconnect existing Copilot canvas connections. People can sign in and approve new connections afterward.",
+        ? "Your session ended with every other existing Hub session. People can sign in again to continue."
+        : "Sign everyone out of this Hub. People can sign in again afterward.",
     pageTitle: "End all Hub sessions",
     auditLabel: "Security audit",
     auditPath: allowed ? resourcePath("/settings/audit", search) : null,
@@ -99,13 +99,13 @@ export function settingsPublic(state: SettingsPublicResponse, search: URLSearchP
     canRevoke: allowed,
     scope:
       signedOut && state.sessionRevoked
-        ? "Public share links and public previews have not changed. People can sign in and approve new canvas connections."
-        : "Hub will end existing browser sessions and revoke canvas access and refresh credentials. Pending canvas approvals and signed-in preview access will end, including existing handoffs. Public share links and public previews will not change.",
+        ? "The global session revision advanced. Existing sessions and pending authentication or sensitive authorization state no longer authorize access. Product data and public links did not change."
+        : "Hub will advance the global session revision, end every active browser session, and invalidate pending sign-ins and sensitive authorizations. Product data and public links will not change.",
     ownSession: allowed
       ? `Your own session (@${state.session.viewer?.login}) will end too. This browser will show the result without requiring another sign-in.`
       : null,
     verification:
-      "GitHub must have verified this browser's account within the last five minutes. If verification is required, Hub ends the sessions after it succeeds.",
+      "Hub will ask the current session's authentication provider to verify the same account before the change.",
     counts: null,
     emptyLabel: null,
     confirmLabel: "I understand this will end everyone's sessions, including my own.",

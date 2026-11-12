@@ -40,6 +40,8 @@ The administrator-management API and retained frontend list and search existing 
 
 The administrator security-audit API and retained frontend list Hub-wide identity and administrator records newest first through bounded opaque-cursor pagination. The API rereads the live administrator session and projects stored records through action-specific presentation allowlists. The frontend keeps the cursor opaque, shows stable membership UUIDs when available, and does not load provisional product workspace contracts. Repository audit, export, retention changes, and deletion remain separate work.
 
+The administrator session-revocation API and retained frontend show current Hub authentication counts and require explicit confirmation plus fresh authorization through the current session provider. Continuing one verified operation atomically advances the global revision, cancels other open sensitive authorizations, ends every open Hub session, and records the security audit. It does not revoke Copilot connections or change product data.
+
 ## Frontend
 
 ```mermaid

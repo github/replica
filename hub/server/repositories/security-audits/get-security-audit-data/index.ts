@@ -92,7 +92,10 @@ export function getSecurityAuditData(
     case "administrator_authorization":
       return {
         id: event.id,
-        action: `administrator.authorization.${event.phase}`,
+        action:
+          event.operation === "END_ALL_HUB_SESSIONS"
+            ? `session.revocation.authorization.${event.phase}`
+            : `administrator.authorization.${event.phase}`,
         outcome:
           event.phase === "denied" || event.phase === "expired"
             ? SecurityAuditOutcome.DENIED
@@ -105,6 +108,20 @@ export function getSecurityAuditData(
           phase: event.phase,
           ...(event.reason ? { reason: event.reason } : {}),
           targetCount: event.targetCount,
+        },
+      }
+    case "all_hub_sessions_ended":
+      return {
+        id: event.id,
+        action: "session.revocation.end_all",
+        outcome: SecurityAuditOutcome.SUCCESS,
+        targetType: "session_revocation_state",
+        targetId: "global",
+        context: {
+          actorMembershipId: event.actorMembershipId,
+          cancelledAuthorizationCount: event.cancelledAuthorizationCount,
+          endedSessionCount: event.endedSessionCount,
+          revision: event.revision,
         },
       }
     case "session_created":
