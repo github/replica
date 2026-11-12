@@ -23,6 +23,7 @@ export async function disconnectCopilot(
     if (!connection || !(await repositories.deleteConnection())) {
       throw new CopilotConnectionError("not_connected", "Copilot is not connected.")
     }
+    await repositories.clearRefusal()
     await repositories.advanceState()
     await repositories.writeAudit({
       actorMembershipId: session.membershipId,

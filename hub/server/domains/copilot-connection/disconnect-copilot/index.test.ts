@@ -9,12 +9,13 @@ function repositories(
 ): CopilotConnectionTransactionRepositories {
   return {
     advanceState: vi.fn().mockResolvedValue(undefined),
+    clearRefusal: vi.fn().mockResolvedValue(undefined),
     deleteConnection: vi.fn().mockResolvedValue(true),
     findAdministratorSession: vi.fn().mockResolvedValue({ membershipId: randomUUID() }),
     getConnection: vi.fn().mockResolvedValue({ id: randomUUID() }),
     lockState: vi.fn().mockResolvedValue({ generation: 1n }),
     replaceConnection: vi.fn().mockResolvedValue(undefined),
-    refuseConnection: vi.fn().mockResolvedValue(false),
+    recordRefusal: vi.fn().mockResolvedValue(false),
     writeAudit: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   }
@@ -87,6 +88,7 @@ describe("disconnectCopilot()", () => {
       ),
     ).resolves.toEqual({ disconnected: true })
 
+    expect(records.clearRefusal).toHaveBeenCalledOnce()
     expect(records.advanceState).toHaveBeenCalledOnce()
     expect(records.writeAudit).toHaveBeenCalledWith({
       actorMembershipId,

@@ -9,7 +9,6 @@ export function getCopilotConnectionStatus(
     }
     credentialDigest: string
     credentialProvider: string
-    refusedAt: Date | null
     verifiedAt: Date
   } | null,
   credentialProvider: {
@@ -17,14 +16,27 @@ export function getCopilotConnectionStatus(
     key: CopilotCredentialProviderKey
   },
   connectedByIsAdministrator: boolean,
+  refusal: {
+    credentialDigest: string | null
+    credentialProvider: string | null
+    refusedAt: Date | null
+  },
 ) {
   const matchesVerifiedCredential = Boolean(
     connection &&
     credentialProvider.configurationDigest === connection.credentialDigest &&
     credentialProvider.key === connection.credentialProvider,
   )
+  const matchesRefusedCredential = Boolean(
+    credentialProvider.configurationDigest &&
+    credentialProvider.configurationDigest === refusal.credentialDigest &&
+    credentialProvider.key === refusal.credentialProvider,
+  )
   const connected = Boolean(
-    connection && matchesVerifiedCredential && connectedByIsAdministrator && !connection.refusedAt,
+    connection &&
+    matchesVerifiedCredential &&
+    connectedByIsAdministrator &&
+    !matchesRefusedCredential,
   )
   return {
     configured: credentialProvider.configurationDigest !== null,
@@ -33,7 +45,7 @@ export function getCopilotConnectionStatus(
       connection && matchesVerifiedCredential && connectedByIsAdministrator
         ? connection.connectedBy
         : null,
-    refusedAt: matchesVerifiedCredential ? (connection?.refusedAt ?? null) : null,
+    refusedAt: matchesRefusedCredential ? refusal.refusedAt : null,
     verifiedAt: matchesVerifiedCredential ? (connection?.verifiedAt ?? null) : null,
   }
 }

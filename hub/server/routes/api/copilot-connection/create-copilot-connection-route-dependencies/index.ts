@@ -13,12 +13,13 @@ import { readLearningConfiguration } from "../../../../domains/learning/read-lea
 import { runLearningCommand } from "../../../../integrations/learning/run-learning-command/index.ts"
 import { prisma } from "../../../../integrations/prisma/index.ts"
 import { advanceCopilotConnectionState } from "../../../../repositories/copilot-connection-states/advance-copilot-connection-state/index.ts"
+import { clearCopilotCredentialRefusal } from "../../../../repositories/copilot-connection-states/clear-copilot-credential-refusal/index.ts"
 import { getCopilotConnectionState } from "../../../../repositories/copilot-connection-states/get-copilot-connection-state/index.ts"
 import { lockCopilotConnectionState } from "../../../../repositories/copilot-connection-states/lock-copilot-connection-state/index.ts"
+import { recordCopilotCredentialRefusal } from "../../../../repositories/copilot-connection-states/record-copilot-credential-refusal/index.ts"
 import { deleteCopilotConnection } from "../../../../repositories/copilot-connections/delete-copilot-connection/index.ts"
 import { getCopilotConnection } from "../../../../repositories/copilot-connections/get-copilot-connection/index.ts"
 import { replaceCopilotConnection } from "../../../../repositories/copilot-connections/replace-copilot-connection/index.ts"
-import { refuseCopilotConnection } from "../../../../repositories/copilot-connections/refuse-copilot-connection/index.ts"
 import { findAdministratorHubSession } from "../../../../repositories/hub-sessions/find-administrator-hub-session/index.ts"
 import { isEffectiveAdministrator } from "../../../../repositories/memberships/is-effective-administrator/index.ts"
 import { createSecurityAudit } from "../../../../repositories/security-audits/create-security-audit/index.ts"
@@ -43,12 +44,13 @@ export async function createCopilotConnectionRouteDependencies(
   ): CopilotConnectionTransactionRepositories {
     return {
       advanceState: () => advanceCopilotConnectionState(transaction),
+      clearRefusal: () => clearCopilotCredentialRefusal(transaction),
       deleteConnection: () => deleteCopilotConnection(transaction),
       findAdministratorSession: (digest) => findAdministratorHubSession(transaction, digest),
       getConnection: () => getCopilotConnection(transaction),
       lockState: () => lockCopilotConnectionState(transaction),
       replaceConnection: (input) => replaceCopilotConnection(transaction, input),
-      refuseConnection: (input) => refuseCopilotConnection(transaction, input),
+      recordRefusal: (input) => recordCopilotCredentialRefusal(transaction, input),
       writeAudit: (event) => createSecurityAudit(transaction, event),
     }
   }
@@ -103,6 +105,8 @@ export async function createCopilotConnectionRouteDependencies(
       disconnectCopilot({ sessionDigest }, { createId: randomUUID, runTransaction }),
     status: async () => {
       const connection = await getCopilotConnection(prisma)
+      const state = await getCopilotConnectionState(prisma)
+      if (!state) throw new Error("The Copilot connection state is unavailable.")
       const connectedByIsAdministrator = connection
         ? await isEffectiveAdministrator(prisma, connection.connectedByMembershipId)
         : false
@@ -116,12 +120,16 @@ export async function createCopilotConnectionRouteDependencies(
               },
               credentialDigest: connection.credentialDigest,
               credentialProvider: connection.credentialProvider,
-              refusedAt: connection.refusedAt,
               verifiedAt: connection.verifiedAt,
             }
           : null,
         configuration.copilotCredentialProvider,
         connectedByIsAdministrator,
+        {
+          credentialDigest: state.refusedCredentialDigest,
+          credentialProvider: state.refusedCredentialProvider,
+          refusedAt: state.refusedAt,
+        },
       )
     },
   }

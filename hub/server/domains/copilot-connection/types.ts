@@ -5,9 +5,14 @@ export interface CopilotConnectionSnapshot {
 
 export interface CopilotConnectionTransactionRepositories {
   advanceState: () => Promise<unknown>
+  clearRefusal: () => Promise<unknown>
   deleteConnection: () => Promise<boolean>
   findAdministratorSession: (sessionDigest: string) => Promise<{ membershipId: string } | null>
-  getConnection: () => Promise<{ credentialProvider: string; id: string } | null>
+  getConnection: () => Promise<{
+    credentialDigest: string
+    credentialProvider: string
+    id: string
+  } | null>
   lockState: () => Promise<{ generation: bigint } | null>
   replaceConnection: (input: {
     connectedByMembershipId: string
@@ -16,10 +21,9 @@ export interface CopilotConnectionTransactionRepositories {
     id: string
     verifiedAt: Date
   }) => Promise<unknown>
-  refuseConnection: (input: {
+  recordRefusal: (input: {
     credentialDigest: string
     credentialProvider: string
-    id: string
     refusedAt: Date
   }) => Promise<boolean>
   writeAudit: (input: {

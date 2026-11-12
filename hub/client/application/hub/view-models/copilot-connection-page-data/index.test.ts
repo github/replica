@@ -41,6 +41,8 @@ describe("copilotConnectionPageData()", () => {
     if (data.accessDenied) throw new Error("The administrator must receive connection controls.")
     expect(data.credentialLabel).toBeNull()
     expect(data.connect?.label).toBe("Connect Copilot")
-    expect([data.description, data.connect?.consequence].join(" ")).not.toMatch(/\btoken\b/i)
+    expect([data.description, data.connect?.consequence].join(" ")).not.toMatch(
+      /operator-provided token|configured token/i,
+    )
   })
 })

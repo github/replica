@@ -119,6 +119,25 @@ describe("Copilot connection foundation migration", () => {
         data: { generation: -1n },
       }),
     ).rejects.toThrow()
+    await expect(
+      prisma.copilotConnectionState.update({
+        where: { key: "global" },
+        data: { refusedAt: new Date() },
+      }),
+    ).rejects.toThrow()
+    await expect(
+      prisma.copilotConnectionState.update({
+        where: { key: "global" },
+        data: {
+          refusedAt: new Date(),
+          refusedCredentialDigest: "a".repeat(64),
+          refusedCredentialProvider: "environment_token",
+        },
+      }),
+    ).resolves.toMatchObject({
+      refusedCredentialDigest: "a".repeat(64),
+      refusedCredentialProvider: "environment_token",
+    })
 
     const userId = randomUUID()
     const membershipId = randomUUID()

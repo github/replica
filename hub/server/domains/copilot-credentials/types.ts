@@ -1,7 +1,4 @@
-export type CopilotCredentialProviderKey =
-  | "ambient_cli"
-  | "environment_token"
-  | "unconfigured"
+export type CopilotCredentialProviderKey = "ambient_cli" | "environment_token" | "unconfigured"
 
 export interface CopilotCredential {
   githubToken?: string

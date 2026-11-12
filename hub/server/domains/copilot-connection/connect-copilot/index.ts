@@ -151,6 +151,7 @@ export async function connectCopilot(
       id: connectionId,
       verifiedAt: now(),
     })
+    await repositories.clearRefusal()
     await repositories.advanceState()
     await repositories.writeAudit({
       actorMembershipId: session.membershipId,

@@ -9,11 +9,16 @@ function repositories(
 ): CopilotConnectionTransactionRepositories {
   return {
     advanceState: vi.fn().mockResolvedValue(undefined),
+    clearRefusal: vi.fn().mockResolvedValue(undefined),
     deleteConnection: vi.fn().mockResolvedValue(false),
     findAdministratorSession: vi.fn().mockResolvedValue({ membershipId: randomUUID() }),
-    getConnection: vi.fn().mockResolvedValue({ id: randomUUID() }),
+    getConnection: vi.fn().mockResolvedValue({
+      credentialDigest: "a".repeat(64),
+      credentialProvider: "environment_token",
+      id: randomUUID(),
+    }),
     lockState: vi.fn().mockResolvedValue({ generation: 1n }),
-    refuseConnection: vi.fn().mockResolvedValue(true),
+    recordRefusal: vi.fn().mockResolvedValue(true),
     replaceConnection: vi.fn().mockResolvedValue(undefined),
     writeAudit: vi.fn().mockResolvedValue(undefined),
     ...overrides,
@@ -28,7 +33,11 @@ describe("recordCopilotConnectionRefusal()", () => {
     const at = new Date("2026-11-12T12:00:00Z")
     const records = repositories({
       findAdministratorSession: vi.fn().mockResolvedValue({ membershipId }),
-      getConnection: vi.fn().mockResolvedValue({ id: connectionId }),
+      getConnection: vi.fn().mockResolvedValue({
+        credentialDigest: "a".repeat(64),
+        credentialProvider: "environment_token",
+        id: connectionId,
+      }),
     })
 
     await expect(
@@ -50,10 +59,9 @@ describe("recordCopilotConnectionRefusal()", () => {
     expect(vi.mocked(records.lockState).mock.invocationCallOrder[0]).toBeLessThan(
       vi.mocked(records.findAdministratorSession).mock.invocationCallOrder[0]!,
     )
-    expect(records.refuseConnection).toHaveBeenCalledWith({
+    expect(records.recordRefusal).toHaveBeenCalledWith({
       credentialDigest: "a".repeat(64),
       credentialProvider: "environment_token",
-      id: connectionId,
       refusedAt: at,
     })
     expect(records.advanceState).toHaveBeenCalledOnce()
@@ -87,12 +95,12 @@ describe("recordCopilotConnectionRefusal()", () => {
       ),
     ).resolves.toBe("recorded")
 
-    expect(records.refuseConnection).not.toHaveBeenCalled()
+    expect(records.recordRefusal).toHaveBeenCalledOnce()
     expect(records.advanceState).toHaveBeenCalledOnce()
   })
 
-  it("does not advance or audit when the connection row changed before refusal", async () => {
-    const records = repositories({ refuseConnection: vi.fn().mockResolvedValue(false) })
+  it("does not advance or audit when refusal state cannot be recorded", async () => {
+    const records = repositories({ recordRefusal: vi.fn().mockResolvedValue(false) })
 
     await expect(
       recordCopilotConnectionRefusal(

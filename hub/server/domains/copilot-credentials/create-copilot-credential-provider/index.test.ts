@@ -35,10 +35,7 @@ describe("createCopilotCredentialProvider()", () => {
 
   it.each([
     [{ REPLICA_COPILOT_TOKEN: "credential" }, /AUTHENTICATION=environment-token/],
-    [
-      { REPLICA_COPILOT_AUTHENTICATION: "environment-token" },
-      /REPLICA_COPILOT_TOKEN is required/,
-    ],
+    [{ REPLICA_COPILOT_AUTHENTICATION: "environment-token" }, /REPLICA_COPILOT_TOKEN is required/],
     [
       {
         REPLICA_COPILOT_AUTHENTICATION: "ambient-cli",

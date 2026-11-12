@@ -40,7 +40,7 @@ export function settingsCopilot(
       : {
           label: "Connect Copilot",
           consequence:
-            "Hub will ask Copilot, with the configured credential, to read new review comments from every repository on this Hub and suggest learnings, including while you are signed out. Copilot never sees who wrote a comment. GitHub attributes usage to the account or organization represented by the credential. Hub checks the credential with Copilot first, and never stores or shows it.",
+            "Hub will ask Copilot, with the configured credential, to read new review comments from every repository on this Hub and suggest learnings, including while you are signed out. Copilot never sees who wrote a comment. The available local providers attribute usage to the signed-in account or user-token identity. Hub checks the credential with Copilot first, and never stores or shows it.",
           confirmLabel: "I understand that Hub will use this Copilot credential for this Hub.",
           verification,
         },

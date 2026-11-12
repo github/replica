@@ -50,7 +50,7 @@ export function copilotConnectionPageData(
         : {
             label: status.verifiedAt ? "Check and connect Copilot" : "Connect Copilot",
             consequence:
-              "Hub asks Copilot to verify the configured credential. Later learning runs may send review comment text without reviewer identity. GitHub attributes usage to the account or organization represented by that credential.",
+              "Hub asks Copilot to verify the configured credential. Later learning runs may send review comment text without reviewer identity. The available local providers attribute usage to the signed-in account or user-token identity.",
             confirmLabel: "I understand and confirm connecting Copilot for this Hub.",
             verification,
           },

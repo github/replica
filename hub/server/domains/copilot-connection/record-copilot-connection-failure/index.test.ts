@@ -13,11 +13,12 @@ describe("recordCopilotConnectionFailure()", () => {
     const writeAudit = vi.fn().mockResolvedValue(undefined)
     const records = {
       advanceState: vi.fn(),
+      clearRefusal: vi.fn(),
       deleteConnection: vi.fn(),
       findAdministratorSession,
       getConnection: vi.fn(),
       lockState,
-      refuseConnection: vi.fn(),
+      recordRefusal: vi.fn(),
       replaceConnection: vi.fn(),
       writeAudit,
     } satisfies CopilotConnectionTransactionRepositories

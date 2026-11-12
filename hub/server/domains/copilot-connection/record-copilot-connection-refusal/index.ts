@@ -33,22 +33,23 @@ export function recordCopilotConnectionRefusal(
     ) {
       return "connection_changed" as const
     }
-    if (connection) {
-      if (
-        !(await repositories.refuseConnection({
-          credentialDigest: input.credentialDigest,
-          credentialProvider: input.credentialProvider,
-          id: connection.id,
-          refusedAt: input.at,
-        }))
-      ) {
-        return "connection_changed" as const
-      }
+    if (
+      !(await repositories.recordRefusal({
+        credentialDigest: input.credentialDigest,
+        credentialProvider: input.credentialProvider,
+        refusedAt: input.at,
+      }))
+    ) {
+      return "connection_changed" as const
     }
     await repositories.advanceState()
     await repositories.writeAudit({
       actorMembershipId: session.membershipId,
-      connectionId: connection?.id,
+      connectionId:
+        connection?.credentialProvider === input.credentialProvider &&
+        connection.credentialDigest === input.credentialDigest
+          ? connection.id
+          : undefined,
       credentialProvider: input.credentialProvider,
       id: createId(),
       phase: "denied",

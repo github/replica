@@ -13,6 +13,11 @@ describe("getCopilotConnectionStatus()", () => {
     configurationDigest: "a".repeat(64),
     key: "environment_token" as const,
   }
+  const noRefusal = {
+    credentialDigest: null,
+    credentialProvider: null,
+    refusedAt: null,
+  }
 
   it("reports the same provider and configuration as connected", () => {
     const verifiedAt = new Date("2026-11-11T12:00:00.000Z")
@@ -20,11 +25,10 @@ describe("getCopilotConnectionStatus()", () => {
       connectedBy,
       credentialDigest: provider.configurationDigest,
       credentialProvider: provider.key,
-      refusedAt: null,
       verifiedAt,
     }
 
-    expect(getCopilotConnectionStatus(connection, provider, true)).toEqual({
+    expect(getCopilotConnectionStatus(connection, provider, true, noRefusal)).toEqual({
       configured: true,
       connected: true,
       connectedBy,
@@ -38,11 +42,10 @@ describe("getCopilotConnectionStatus()", () => {
       connectedBy,
       credentialDigest: provider.configurationDigest,
       credentialProvider: "github_app",
-      refusedAt: null,
       verifiedAt: new Date("2026-11-11T12:00:00.000Z"),
     }
 
-    expect(getCopilotConnectionStatus(connection, provider, true)).toEqual({
+    expect(getCopilotConnectionStatus(connection, provider, true, noRefusal)).toEqual({
       configured: true,
       connected: false,
       connectedBy: null,
@@ -56,11 +59,10 @@ describe("getCopilotConnectionStatus()", () => {
       connectedBy,
       credentialDigest: "b".repeat(64),
       credentialProvider: provider.key,
-      refusedAt: null,
       verifiedAt: new Date("2026-11-11T12:00:00.000Z"),
     }
 
-    expect(getCopilotConnectionStatus(connection, provider, true)).toMatchObject({
+    expect(getCopilotConnectionStatus(connection, provider, true, noRefusal)).toMatchObject({
       connected: false,
       connectedBy: null,
       refusedAt: null,
@@ -73,11 +75,10 @@ describe("getCopilotConnectionStatus()", () => {
       connectedBy,
       credentialDigest: provider.configurationDigest,
       credentialProvider: provider.key,
-      refusedAt: null,
       verifiedAt: new Date("2026-11-11T12:00:00.000Z"),
     }
 
-    expect(getCopilotConnectionStatus(connection, provider, false)).toMatchObject({
+    expect(getCopilotConnectionStatus(connection, provider, false, noRefusal)).toMatchObject({
       connected: false,
       connectedBy: null,
     })
@@ -89,11 +90,15 @@ describe("getCopilotConnectionStatus()", () => {
       connectedBy,
       credentialDigest: provider.configurationDigest,
       credentialProvider: provider.key,
-      refusedAt,
       verifiedAt: new Date("2026-11-11T12:00:00.000Z"),
     }
+    const refusal = {
+      credentialDigest: provider.configurationDigest,
+      credentialProvider: provider.key,
+      refusedAt,
+    }
 
-    expect(getCopilotConnectionStatus(connection, provider, true)).toMatchObject({
+    expect(getCopilotConnectionStatus(connection, provider, true, refusal)).toMatchObject({
       connected: false,
       connectedBy,
       refusedAt,
@@ -103,10 +108,40 @@ describe("getCopilotConnectionStatus()", () => {
         connection,
         { ...provider, configurationDigest: "b".repeat(64) },
         true,
+        refusal,
       ),
     ).toMatchObject({
       connectedBy: null,
       refusedAt: null,
+    })
+  })
+
+  it("does not assign stale verification metadata to a refused rotated credential", () => {
+    const rotatedProvider = { ...provider, configurationDigest: "b".repeat(64) }
+    const refusedAt = new Date("2026-11-11T13:00:00.000Z")
+
+    expect(
+      getCopilotConnectionStatus(
+        {
+          connectedBy,
+          credentialDigest: provider.configurationDigest,
+          credentialProvider: provider.key,
+          verifiedAt: new Date("2026-11-11T12:00:00.000Z"),
+        },
+        rotatedProvider,
+        true,
+        {
+          credentialDigest: rotatedProvider.configurationDigest,
+          credentialProvider: rotatedProvider.key,
+          refusedAt,
+        },
+      ),
+    ).toEqual({
+      configured: true,
+      connected: false,
+      connectedBy: null,
+      refusedAt,
+      verifiedAt: null,
     })
   })
 })

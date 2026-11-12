@@ -42,7 +42,5 @@ export function createCopilotCredentialProvider(
     }
     return createEnvironmentCopilotCredentialProvider(environment)
   }
-  throw new Error(
-    "REPLICA_COPILOT_AUTHENTICATION must be ambient-cli or environment-token.",
-  )
+  throw new Error("REPLICA_COPILOT_AUTHENTICATION must be ambient-cli or environment-token.")
 }

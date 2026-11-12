@@ -24,10 +24,7 @@ describe("readLearningConfiguration()", () => {
     onTestFinished(() => rm(applicationRoot, { force: true, recursive: true }))
 
     await expect(
-      readLearningConfiguration(
-        { REPLICA_COPILOT_TOKEN: "credential" },
-        applicationRoot,
-      ),
+      readLearningConfiguration({ REPLICA_COPILOT_TOKEN: "credential" }, applicationRoot),
     ).rejects.toThrow(
       "REPLICA_COPILOT_AUTHENTICATION=environment-token is required when REPLICA_COPILOT_TOKEN is set.",
     )

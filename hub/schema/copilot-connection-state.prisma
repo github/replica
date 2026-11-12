@@ -3,8 +3,11 @@ model CopilotConnectionState {
   id String @id @default(uuid()) @db.Uuid
 
   // Attribute columns
-  key        String @unique @default("global") @db.VarChar(20)
-  generation BigInt @default(0)
+  key                       String    @unique @default("global") @db.VarChar(20)
+  generation                BigInt    @default(0)
+  refusedCredentialProvider String?   @map("refused_credential_provider") @db.VarChar(100)
+  refusedCredentialDigest   String?   @map("refused_credential_digest") @db.VarChar(64)
+  refusedAt                 DateTime? @map("refused_at") @db.Timestamptz(3)
 
   // Timestamp columns
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)

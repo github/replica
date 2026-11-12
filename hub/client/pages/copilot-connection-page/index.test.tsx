@@ -18,9 +18,7 @@ describe("CopilotConnectionPage()", () => {
   it("asks for confirmation before connecting and says who pays for usage", () => {
     renderPage(story.args.data)
     expect(screen.getByRole("heading", { name: "Copilot is not connected" })).toBeInTheDocument()
-    expect(
-      screen.getByText(/GitHub attributes usage .* represented by that credential/),
-    ).toBeInTheDocument()
+    expect(screen.getByText(/signed-in account or user-token identity/)).toBeInTheDocument()
     const checkbox = screen.getByRole("checkbox", {
       name: "I understand and confirm connecting Copilot for this Hub.",
     })

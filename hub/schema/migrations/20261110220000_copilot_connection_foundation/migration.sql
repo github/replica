@@ -2,12 +2,25 @@ CREATE TABLE "copilot_connection_states" (
   "id" UUID NOT NULL,
   "key" VARCHAR(20) NOT NULL DEFAULT 'global',
   "generation" BIGINT NOT NULL DEFAULT 0,
+  "refused_credential_provider" VARCHAR(100),
+  "refused_credential_digest" VARCHAR(64),
+  "refused_at" TIMESTAMPTZ(3),
   "created_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "updated_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
   CONSTRAINT "copilot_connection_states_pkey" PRIMARY KEY ("id"),
   CONSTRAINT "copilot_connection_states_key_check" CHECK ("key" = 'global'),
-  CONSTRAINT "copilot_connection_states_generation_check" CHECK ("generation" >= 0)
+  CONSTRAINT "copilot_connection_states_generation_check" CHECK ("generation" >= 0),
+  CONSTRAINT "copilot_connection_states_refusal_check" CHECK (
+    ("refused_credential_provider" IS NULL AND "refused_credential_digest" IS NULL AND "refused_at" IS NULL)
+    OR (
+      "refused_credential_provider" IS NOT NULL
+      AND length("refused_credential_provider") > 0
+      AND "refused_credential_digest" IS NOT NULL
+      AND "refused_credential_digest" ~ '^[0-9a-f]{64}$'
+      AND "refused_at" IS NOT NULL
+    )
+  )
 );
 
 CREATE UNIQUE INDEX "copilot_connection_states_key_key"
@@ -23,7 +36,6 @@ CREATE TABLE "copilot_connections" (
   "credential_provider" VARCHAR(100) NOT NULL,
   "credential_digest" VARCHAR(64) NOT NULL,
   "verified_at" TIMESTAMPTZ(3) NOT NULL,
-  "refused_at" TIMESTAMPTZ(3),
   "created_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "updated_at" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
