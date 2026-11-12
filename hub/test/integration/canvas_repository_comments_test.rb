@@ -163,10 +163,11 @@ class CanvasRepositoryCommentsTest < ActionDispatch::IntegrationTest
     root = create_comment(prototype, 1)
     another = create_comment(prototype, 2)
     another.thread.create_reply!(user: @author, body: "Unrelated reply")
+    # Tie creation times before deleting so deletion cannot precede creation across a clock tick.
+    timestamp = Time.current
     replies = 4.times.map { root.thread.create_reply!(user: @author, body: "Selected reply") }
-    replies.second.thread.delete_body!(actor: @author)
-    timestamp = Time.current.change(usec: 0)
     ReviewComment.where(id: replies.map(&:id)).update_all(created_at: timestamp)
+    replies.second.thread.delete_body!(actor: @author)
     path = canvas_api_review_comment_thread_path(@repository.route_id, prototype, root)
     assert_no_difference "ReviewThreadRead.count" do
       get path, params: { pageSize: 1 }, headers: @headers
