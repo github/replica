@@ -22,7 +22,7 @@ export function resolveLocalSignInEnvironment(environment: NodeJS.ProcessEnv): N
   }
   if (configuration.githubConfigured || configuration.entraConfigured) {
     throw new LocalSignInConfigurationError(
-      "HUB_LOCAL_SIGN_IN cannot be combined with GitHub or Entra sign-in settings.",
+      "HUB_LOCAL_SIGN_IN cannot be combined with GitHub or Entra settings. Remove those settings to use local sign-in, or run npm run dev:api:live to use a configured provider.",
     )
   }
   const listenerHost = environment.HOST?.trim().toLowerCase() ?? "127.0.0.1"

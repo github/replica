@@ -174,7 +174,6 @@ describe("HubApplication()", () => {
   })
 
   it("offers local developer sign-in when the API enables it", async () => {
-    window.history.replaceState({}, "", "/")
     vi.stubGlobal(
       "fetch",
       vi.fn((input: RequestInfo | URL) =>
@@ -210,7 +209,6 @@ describe("HubApplication()", () => {
 
     expect(await screen.findByRole("button", { name: "Verify with GitHub" })).toBeInTheDocument()
     expect(screen.queryByRole("button", { name: /local/i })).toBeNull()
-    window.history.replaceState({}, "", "/")
   })
 
   it("shows an explicit discovery failure with no fallback actions", async () => {

@@ -112,6 +112,55 @@ describe("server runtime", () => {
     )
   })
 
+  it("passes resolved local defaults to authentication composition", async () => {
+    const authentication = {
+      currentSession: {},
+      local: {
+        administratorEnrollment: {},
+        callback: {},
+        signIn: {},
+      },
+      signOut: {},
+    }
+    const createAuthenticationRouteDependencies = vi
+      .fn<(environment: NodeJS.ProcessEnv) => Promise<typeof authentication>>()
+      .mockResolvedValue(authentication)
+    const disableAuthenticationProviders = vi.fn()
+    const product = {}
+    const createProductRouteDependencies = vi.fn().mockReturnValue(product)
+    vi.stubEnv("DATABASE_URL", "postgresql://replica:replica@127.0.0.1:5432/replica")
+    vi.stubEnv("HOST", "127.0.0.1")
+    vi.stubEnv("HUB_APPLICATION_ORIGIN", "")
+    vi.stubEnv("HUB_AUTHENTICATION_ENCRYPTION_KEY", "")
+    vi.stubEnv("HUB_BOOTSTRAP_SECRET", "")
+    vi.stubEnv("HUB_LOCAL_SIGN_IN", "true")
+    vi.stubEnv("NODE_ENV", "development")
+    vi.mocked(parseRuntimeConfig).mockReturnValue({
+      ...apiConfiguration,
+      databaseUrl: "postgresql://replica:replica@127.0.0.1:5432/replica",
+    })
+    vi.doMock("./routes/api/auth/create-authentication-route-dependencies/index.ts", () => ({
+      createAuthenticationRouteDependencies,
+      disableAuthenticationProviders,
+    }))
+    vi.doMock("./routes/api/product/create-product-route-dependencies/index.ts", () => ({
+      createProductRouteDependencies,
+    }))
+
+    await expect(import("./index.ts")).resolves.toBeDefined()
+
+    expect(createAuthenticationRouteDependencies).toHaveBeenCalledOnce()
+    const environment = createAuthenticationRouteDependencies.mock.calls[0]![0]
+    expect(environment).toMatchObject({
+      HUB_APPLICATION_ORIGIN: "http://127.0.0.1:5173",
+      HUB_LOCAL_SIGN_IN: "true",
+      NODE_ENV: "development",
+    })
+    expect(Buffer.from(environment.HUB_AUTHENTICATION_ENCRYPTION_KEY!, "base64")).toHaveLength(32)
+    expect(Buffer.from(environment.HUB_BOOTSTRAP_SECRET!, "base64url")).toHaveLength(32)
+    expect(runApi).toHaveBeenCalledWith(expect.objectContaining({ authentication, product }))
+  })
+
   it("requires a database when authentication is configured", async () => {
     vi.stubEnv("HUB_APPLICATION_ORIGIN", "https://hub.example.test")
     vi.stubEnv("GITHUB_CLIENT_ID", "github-client")

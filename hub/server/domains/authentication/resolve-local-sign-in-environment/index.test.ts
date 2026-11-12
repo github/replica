@@ -31,7 +31,9 @@ describe("resolveLocalSignInEnvironment()", () => {
   it("refuses to run alongside GitHub sign-in", () => {
     expect(() =>
       resolveLocalSignInEnvironment({ ...localEnvironment, GITHUB_CLIENT_ID: "github-client" }),
-    ).toThrow("HUB_LOCAL_SIGN_IN cannot be combined with GitHub or Entra sign-in settings.")
+    ).toThrow(
+      "HUB_LOCAL_SIGN_IN cannot be combined with GitHub or Entra settings. Remove those settings to use local sign-in, or run npm run dev:api:live to use a configured provider.",
+    )
   })
 
   it("refuses an application origin that other machines can reach", () => {
