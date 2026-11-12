@@ -1,0 +1,33 @@
+model Build {
+  // ID columns
+  id          String @id @default(uuid()) @db.Uuid
+  prototypeId String @map("prototype_id") @db.Uuid
+
+  // Relations
+  prototype  Prototype   @relation("PrototypeBuilds", fields: [prototypeId], references: [id], onDelete: Restrict)
+  currentFor Prototype[] @relation("CurrentPrototypeBuild")
+
+  // Attribute columns
+  number               Int
+  state                BuildState @default(queued)
+  commitSha            String?    @map("commit_sha") @db.VarChar(64)
+  authorProvider       String?    @map("author_provider") @db.VarChar(100)
+  authorIssuer         String?    @map("author_issuer") @db.VarChar(500)
+  authorProviderUserId String?    @map("author_provider_user_id") @db.VarChar(500)
+  authorLogin          String?    @map("author_login") @db.VarChar(255)
+  authorName           String?    @map("author_name") @db.VarChar(255)
+  authorAvatarUrl      String?    @map("author_avatar_url") @db.VarChar(2048)
+  workflowCreatedAt    DateTime?  @map("workflow_created_at") @db.Timestamptz(3)
+  startedAt            DateTime?  @map("started_at") @db.Timestamptz(3)
+  finishedAt           DateTime?  @map("finished_at") @db.Timestamptz(3)
+  failureSummary       String?    @map("failure_summary") @db.VarChar(1000)
+
+  // Timestamp columns
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([id, prototypeId])
+  @@unique([prototypeId, number])
+  @@unique([prototypeId, commitSha])
+  @@map("builds")
+}

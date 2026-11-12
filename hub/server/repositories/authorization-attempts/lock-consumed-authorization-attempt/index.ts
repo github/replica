@@ -9,14 +9,16 @@ export async function lockConsumedAuthorizationAttempt(
       bootstrapSecretDigest: string | null
       consumedAt: Date | null
       providerRevisionId: string
-      purpose: "SIGN_IN" | "ADMIN_ENROLLMENT"
+      purpose: "SIGN_IN" | "ADMIN_ENROLLMENT" | "ADMINISTRATOR_MANAGEMENT"
+      sessionRevocationRevision: number
     }>
   >`
     SELECT
       "consumed_at" AS "consumedAt",
       "bootstrap_secret_digest" AS "bootstrapSecretDigest",
       "provider_revision_id" AS "providerRevisionId",
-      "purpose"::text
+      "purpose"::text,
+      "session_revocation_revision" AS "sessionRevocationRevision"
     FROM "authorization_attempts"
     WHERE "id" = ${id}::uuid
     FOR UPDATE

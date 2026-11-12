@@ -1,0 +1,183 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="900" viewBox="0 0 1400 900">
+  <title>Workspace previews</title>
+  <defs>
+    <g id="shell">
+      <rect width="1400" height="900" fill="#f6f8fa" />
+      <rect width="1400" height="80" fill="#fff" />
+      <rect y="80" width="240" height="820" fill="#fff" />
+      <path d="M0 80h1400M240 80v820" stroke="#d1d9e0" />
+      <g fill="#59636e" font-family="system-ui,sans-serif" font-size="20">
+        <text x="32" y="49" fill="#1f2328" font-weight="650">Workspace</text>
+        <text x="32" y="140">Overview</text>
+        <text x="32" y="196">Projects</text>
+        <text x="32" y="252">Teams</text>
+        <text x="32" y="308">Activity</text>
+        <text x="32" y="364">Settings</text>
+      </g>
+    </g>
+    <g id="card">
+      <rect width="324" height="178" rx="12" fill="#fff" stroke="#d1d9e0" />
+      <rect x="24" y="84" width="180" height="12" rx="6" fill="#d1d9e0" />
+      <rect x="24" y="110" width="240" height="12" rx="6" fill="#eaeef2" />
+    </g>
+  </defs>
+  <view id="overview" viewBox="0 0 1400 900" />
+  <view id="overview-narrow" viewBox="240 80 500 820" />
+  <view id="search" viewBox="1400 0 1400 900" />
+  <view id="search-narrow" viewBox="1640 80 500 820" />
+  <view id="activity" viewBox="2800 0 1400 900" />
+  <view id="activity-narrow" viewBox="3040 80 500 820" />
+  <view id="settings" viewBox="4200 0 1400 900" />
+  <view id="settings-narrow" viewBox="4440 80 500 820" />
+  <view id="planning" viewBox="5600 0 1400 900" />
+  <view id="planning-narrow" viewBox="5840 80 500 820" />
+  <view id="welcome" viewBox="7000 0 1400 900" />
+  <view id="welcome-narrow" viewBox="7240 80 500 820" />
+  <g font-family="system-ui,sans-serif" fill="#1f2328">
+    <use href="#shell" />
+    <text x="290" y="160" font-size="36" font-weight="650">Your projects</text>
+    <text x="290" y="204" font-size="20" fill="#59636e">
+      A clear view of what is moving forward.
+    </text>
+    <rect x="290" y="242" width="1000" height="140" rx="14" fill="#ddf4ff" />
+    <text x="320" y="291" font-size="22">This week</text>
+    <text x="320" y="343" font-size="36" font-weight="650">12 milestones reached</text>
+    <g transform="translate(290 420)">
+      <use href="#card" />
+      <text x="24" y="48" font-size="22">Onboarding</text>
+    </g>
+    <g transform="translate(632 420)">
+      <use href="#card" />
+      <text x="24" y="48" font-size="22">Navigation</text>
+    </g>
+    <g transform="translate(974 420)">
+      <use href="#card" />
+      <text x="24" y="48" font-size="22">Design system</text>
+    </g>
+    <g transform="translate(290 624)">
+      <use href="#card" />
+      <text x="24" y="48" font-size="22">Account settings</text>
+    </g>
+  </g>
+  <g transform="translate(1400)" font-family="system-ui,sans-serif" fill="#1f2328">
+    <use href="#shell" />
+    <text x="290" y="160" font-size="36" font-weight="650">Find your next step</text>
+    <rect
+      x="290"
+      y="206"
+      width="1000"
+      height="64"
+      rx="10"
+      fill="#fff"
+      stroke="#0969da"
+      stroke-width="2"
+    />
+    <text x="316" y="246" font-size="22">Search projects, people, and conversations</text>
+    <rect x="290" y="298" width="168" height="40" rx="20" fill="#ddf4ff" />
+    <text x="312" y="325" font-size="18">Assigned to me</text>
+    <g transform="translate(290 374)">
+      <use href="#card" />
+      <text x="24" y="48" font-size="22">Improve first-run setup</text>
+    </g>
+    <g transform="translate(632 374)">
+      <use href="#card" />
+      <text x="24" y="48" font-size="22">Review empty states</text>
+    </g>
+    <g transform="translate(290 576)">
+      <use href="#card" />
+      <text x="24" y="48" font-size="22">Keyboard navigation</text>
+    </g>
+  </g>
+  <g transform="translate(2800)" font-family="system-ui,sans-serif" fill="#1f2328">
+    <use href="#shell" />
+    <text x="290" y="160" font-size="36" font-weight="650">Team activity</text>
+    <text x="290" y="204" font-size="20" fill="#59636e">Recent updates across your workspace.</text>
+    <path d="M330 270v470" stroke="#d1d9e0" stroke-width="3" />
+    <g fill="#1a7f37">
+      <circle cx="330" cy="292" r="13" />
+      <circle cx="330" cy="452" r="13" />
+      <circle cx="330" cy="612" r="13" />
+    </g>
+    <g font-size="24">
+      <text x="374" y="300">Onboarding improvements released</text>
+      <text x="374" y="460">Navigation review completed</text>
+      <text x="374" y="620">New milestones added to the roadmap</text>
+    </g>
+    <g font-size="19" fill="#59636e">
+      <text x="374" y="340">Avery Chen · 24 minutes ago</text>
+      <text x="374" y="500">Jordan Ellis · 2 hours ago</text>
+      <text x="374" y="660">Riley Patel · Yesterday</text>
+    </g>
+  </g>
+  <g transform="translate(4200)" font-family="system-ui,sans-serif" fill="#1f2328">
+    <use href="#shell" />
+    <text x="290" y="160" font-size="36" font-weight="650">Workspace preferences</text>
+    <rect x="290" y="210" width="1000" height="530" rx="12" fill="#fff" stroke="#d1d9e0" />
+    <g font-size="22">
+      <text x="320" y="264">Workspace name</text>
+      <text x="320" y="408">Email notifications</text>
+      <text x="320" y="520">Default project visibility</text>
+    </g>
+    <rect x="320" y="288" width="600" height="56" rx="8" fill="#f6f8fa" stroke="#d1d9e0" />
+    <text x="340" y="324" font-size="20">Product design</text>
+    <rect x="320" y="436" width="48" height="26" rx="13" fill="#1a7f37" />
+    <circle cx="354" cy="449" r="10" fill="#fff" />
+    <text x="320" y="562" font-size="20" fill="#59636e">
+      Visible to everyone in the organization
+    </text>
+    <rect x="320" y="626" width="184" height="50" rx="8" fill="#1a7f37" />
+    <text x="343" y="659" font-size="20" fill="#fff">Save preferences</text>
+  </g>
+  <g transform="translate(5600)" font-family="system-ui,sans-serif" fill="#1f2328">
+    <use href="#shell" />
+    <text x="290" y="160" font-size="36" font-weight="650">Product roadmap</text>
+    <g font-size="21">
+      <text x="290" y="236">Next up</text>
+      <text x="632" y="236">In progress</text>
+      <text x="974" y="236">Ready for review</text>
+    </g>
+    <g transform="translate(290 270)">
+      <use href="#card" />
+      <text x="24" y="48" font-size="21">Saved filters</text>
+    </g>
+    <g transform="translate(632 270)">
+      <use href="#card" />
+      <text x="24" y="48" font-size="21">Project overview</text>
+    </g>
+    <g transform="translate(974 270)">
+      <use href="#card" />
+      <text x="24" y="48" font-size="21">Team permissions</text>
+    </g>
+    <g transform="translate(290 474)">
+      <use href="#card" />
+      <text x="24" y="48" font-size="21">Activity summaries</text>
+    </g>
+    <g transform="translate(632 474)">
+      <use href="#card" />
+      <text x="24" y="48" font-size="21">Search shortcuts</text>
+    </g>
+    <g transform="translate(974 474)">
+      <use href="#card" />
+      <text x="24" y="48" font-size="21">Release notes</text>
+    </g>
+  </g>
+  <g transform="translate(7000)" font-family="system-ui,sans-serif" fill="#1f2328">
+    <use href="#shell" />
+    <rect x="290" y="134" width="1000" height="300" rx="20" fill="#dafbe1" />
+    <text x="330" y="214" font-size="24">A good place to start</text>
+    <text x="330" y="288" font-size="48" font-weight="650">Welcome to your workspace</text>
+    <text x="330" y="340" font-size="22">Bring your team, projects, and next steps together.</text>
+    <g transform="translate(290 474)">
+      <use href="#card" />
+      <text x="24" y="48" font-size="22">Create a project</text>
+    </g>
+    <g transform="translate(632 474)">
+      <use href="#card" />
+      <text x="24" y="48" font-size="22">Invite your team</text>
+    </g>
+    <g transform="translate(974 474)">
+      <use href="#card" />
+      <text x="24" y="48" font-size="22">Explore recent work</text>
+    </g>
+  </g>
+</svg>

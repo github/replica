@@ -16,6 +16,7 @@ describe("createGitHubAuthenticationContext()", () => {
 
     expect(context.applicationOrigin).toBe("http://[::1]:5173")
     expect(context.callbackUri).toBe("http://[::1]:5173/api/auth/github/callback")
+    expect(context.requiresProviderAssignmentEvidence).toBe(false)
     expect(context.secureCookie).toBe(false)
   })
 })

@@ -1,8 +1,12 @@
 import "dotenv/config"
 
 import { createConfiguredArtifactStorage } from "./domains/artifacts/create-configured-artifact-storage/index.ts"
+import { LocalSignInConfigurationError } from "./domains/authentication/errors.ts"
+import { readAuthenticationConfigurationState } from "./domains/authentication/read-authentication-configuration-state/index.ts"
+import { resolveLocalSignInEnvironment } from "./domains/authentication/resolve-local-sign-in-environment/index.ts"
 import { startTelemetry } from "./integrations/opentelemetry/start-telemetry/index.ts"
 import { logger } from "./integrations/pino/index.ts"
+import { isMissingDatabaseSchema } from "./integrations/prisma/is-missing-database-schema/index.ts"
 import { runApi } from "./run-api/index.ts"
 import { setup } from "./scripts/setup/index.ts"
 import { startServerProcesses } from "./start-server-processes/index.ts"
@@ -10,6 +14,9 @@ import { parseRuntimeConfig } from "./utils/parse-runtime-config/index.ts"
 import { jobProcessors } from "./workers/configuration.ts"
 import { runJobWorker } from "./workers/run-job-worker/index.ts"
 import type { AuthenticationRouteDependencies } from "./routes/api/auth/types.ts"
+import type { ProductRouteDependencies } from "./routes/api/product/types.ts"
+
+class AuthenticationConfigurationError extends Error {}
 
 try {
   const configuration = parseRuntimeConfig(process.env)
@@ -32,10 +39,59 @@ try {
     }
     const trustedProxyHops = runsApi ? configuredTrustedProxyHops : 0
     let authentication: AuthenticationRouteDependencies | undefined
-    if (runsApi && process.env.HUB_APPLICATION_ORIGIN) {
-      const { createAuthenticationRouteDependencies } =
-        await import("./routes/api/auth/create-authentication-route-dependencies/index.ts")
-      authentication = createAuthenticationRouteDependencies(process.env)
+    let product: ProductRouteDependencies | undefined
+    if (runsApi) {
+      const authenticationEnvironment = resolveLocalSignInEnvironment(process.env)
+      const authenticationConfiguration =
+        readAuthenticationConfigurationState(authenticationEnvironment)
+      if (
+        (authenticationConfiguration.providerConfigured ||
+          authenticationConfiguration.sharedConfigured) &&
+        !authenticationConfiguration.applicationOrigin
+      ) {
+        throw new AuthenticationConfigurationError(
+          "HUB_APPLICATION_ORIGIN is required when authentication settings are configured.",
+        )
+      }
+      if (
+        authenticationConfiguration.applicationOrigin &&
+        !authenticationConfiguration.providerConfigured
+      ) {
+        throw new AuthenticationConfigurationError(
+          "Configure GitHub, Entra, or local sign-in when HUB_APPLICATION_ORIGIN is set.",
+        )
+      }
+      if (
+        (authenticationConfiguration.providerConfigured ||
+          authenticationConfiguration.sharedConfigured ||
+          authenticationConfiguration.applicationOrigin) &&
+        !configuration.databaseUrl
+      ) {
+        throw new AuthenticationConfigurationError(
+          "DATABASE_URL is required when authentication settings are configured.",
+        )
+      }
+      if (configuration.databaseUrl) {
+        const { createAuthenticationRouteDependencies, disableAuthenticationProviders } =
+          await import("./routes/api/auth/create-authentication-route-dependencies/index.ts")
+        try {
+          if (authenticationConfiguration.providerConfigured) {
+            authentication = await createAuthenticationRouteDependencies(authenticationEnvironment)
+            const { createProductRouteDependencies } =
+              await import("./routes/api/product/create-product-route-dependencies/index.ts")
+            product = createProductRouteDependencies()
+          } else {
+            await disableAuthenticationProviders()
+          }
+        } catch (error) {
+          if (isMissingDatabaseSchema(error)) {
+            throw new AuthenticationConfigurationError(
+              "Hub database setup is required before API startup. Run npm run setup.",
+            )
+          }
+          throw error
+        }
+      }
     }
     if (configuration.mode === "setup") await setup()
     else if (configuration.mode === "api")
@@ -44,6 +100,7 @@ try {
         logger,
         isReady: isStorageReady,
         authentication,
+        product,
         trustedProxyHops,
       })
     else {
@@ -56,6 +113,7 @@ try {
           logger,
           isStorageReady,
           authentication,
+          product,
           trustedProxyHops,
         })
       } else {
@@ -76,9 +134,12 @@ try {
   } finally {
     await telemetry.shutdown()
   }
-} catch {
+} catch (error) {
   logger.fatal(
-    "Hub failed; check runtime configuration, dependencies, telemetry, and shutdown time.",
+    error instanceof AuthenticationConfigurationError ||
+      error instanceof LocalSignInConfigurationError
+      ? error.message
+      : "Hub failed; check runtime configuration, dependencies, telemetry, and shutdown time.",
   )
   process.exit(1)
 }

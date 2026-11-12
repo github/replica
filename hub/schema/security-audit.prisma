@@ -14,5 +14,6 @@ model SecurityAudit {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@index([action, createdAt])
+  @@index([createdAt(sort: Desc), id(sort: Desc)])
   @@map("security_audits")
 }

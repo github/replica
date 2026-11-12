@@ -10,10 +10,18 @@ import type {
   ProviderRevisionPersistFailedAudit,
   ProviderRevisionSelectedAudit,
   ProviderRevisionValidationFailedAudit,
+  AuthenticationProviderLifecycleAudit,
+  AuthenticationProvidersReconcileFailedAudit,
+  SessionRevocationAdvancedAudit,
   MembershipAssignmentCreatedAudit,
   MembershipAssignmentRestoredAudit,
   MembershipCreatedAudit,
   MembershipRestoredAudit,
+  ProviderMembershipAssignmentAudit,
+  AdministratorMembershipAssignmentAudit,
+  AdministratorManagementDeniedAudit,
+  AdministratorManagementFailedAudit,
+  AdministratorAuthorizationAudit,
   SessionCreatedAudit,
   SessionEndedAudit,
 } from "../create-security-audit/types.ts"
@@ -27,6 +35,11 @@ export type ParsedSecurityAuditEvent =
   | MembershipAssignmentRestoredAudit
   | MembershipCreatedAudit
   | MembershipRestoredAudit
+  | ProviderMembershipAssignmentAudit
+  | AdministratorMembershipAssignmentAudit
+  | AdministratorManagementDeniedAudit
+  | AdministratorManagementFailedAudit
+  | AdministratorAuthorizationAudit
   | SessionCreatedAudit
   | SessionEndedAudit
   | (Omit<ExternalIdentityCreatedAudit, "provider"> & { provider: ProviderKey })
@@ -39,3 +52,10 @@ export type ParsedSecurityAuditEvent =
   | (Omit<ProviderRevisionPersistFailedAudit, "providerKey"> & {
       providerKey: ProviderKey
     })
+  | (Omit<AuthenticationProviderLifecycleAudit, "providerKey"> & {
+      providerKey: ProviderKey
+    })
+  | (Omit<AuthenticationProvidersReconcileFailedAudit, "providerKeys"> & {
+      providerKeys: ProviderKey[]
+    })
+  | SessionRevocationAdvancedAudit

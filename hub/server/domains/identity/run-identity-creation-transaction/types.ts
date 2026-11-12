@@ -10,6 +10,13 @@ export interface IdentityCreationRepositories {
   createSecurityAudit(input: CreateSecurityAuditEvent): Promise<unknown>
   createUser(input: CreateUserInput): Promise<unknown>
   findExternalIdentity(tuple: ExternalIdentityTuple): Promise<{ id: string; userId: string } | null>
+  lockAttempt(id: string): Promise<{
+    consumedAt: Date | null
+    providerRevisionId: string
+    sessionRevocationRevision: number
+  } | null>
+  lockProvider(key: string): Promise<{ enabled: boolean; selectedRevisionId: string | null } | null>
+  lockRevocation(): Promise<{ revision: number } | null>
 }
 
 export type FindExternalIdentityForTransaction = (

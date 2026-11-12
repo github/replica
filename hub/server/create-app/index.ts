@@ -16,16 +16,26 @@ export function createApp({
   clientDirectory,
   isReady,
   logger,
+  product,
   trustedProxyHops = 0,
 }: CreateAppOptions = {}) {
   const app = express()
   app.disable("x-powered-by")
   app.set("trust proxy", trustedProxyHops)
   app.use(createRequestLogger(logger))
-  app.use("/api/auth", authenticationSecurity())
-  app.use(/^(?!\/api\/auth(?:\/|$)).*/i, express.json())
+  app.use(
+    [
+      "/api/auth",
+      "/api/administrators",
+      "/api/security-audits",
+      "/api/workspace",
+      "/api/repositories",
+    ],
+    authenticationSecurity(),
+  )
+  app.use(/^(?!\/api\/(?:auth|administrators\/authorizations)(?:\/|$)).*/i, express.json())
 
-  routes(app, { authentication, broadcast, isReady, logger })
+  routes(app, { authentication, broadcast, isReady, logger, product })
   app.use("/api", respondNotFound)
   if (clientDirectory) {
     const directory = resolve(clientDirectory)

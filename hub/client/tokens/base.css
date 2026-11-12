@@ -1,0 +1,133 @@
+@import "@primer/react-brand/lib/css/main.css";
+@import "@primer/react-brand/fonts/fonts.css";
+
+/* New Hub styles use --hub-*; keep Brand mappings here, not in components. */
+:root,
+[data-color-mode] {
+  --hub-canvas-default: var(--brand-color-canvas-default);
+  --hub-canvas-white: var(--base-color-scale-white-0);
+  --hub-canvas-muted: var(--brand-color-canvas-muted);
+  --hub-canvas-subtle: var(--brand-color-canvas-subtle);
+  --hub-fg-default: var(--brand-color-text-default);
+  --hub-fg-muted: var(--brand-color-text-muted);
+  --hub-fg-on-emphasis: var(--brand-color-text-onEmphasis);
+  --hub-fg-link: var(--brand-color-text-link-rest);
+  --hub-fg-danger: var(--brand-color-danger-fg);
+  --hub-danger-emphasis: var(--brand-color-danger-emphasis);
+  --hub-fg-on-danger: var(--brand-color-text-onEmphasis);
+  --hub-fg-success: var(--brand-color-success-fg);
+  --hub-success-emphasis: var(--brand-color-success-emphasis);
+  --hub-border-default: var(--brand-color-border-default);
+  --hub-border-muted: var(--brand-color-border-muted);
+  --hub-focus: var(--brand-color-focus);
+  --hub-primary-bg: var(--brand-button-primary-bgColor-rest);
+  --hub-primary-bg-hover: var(--brand-button-primary-bgColor-hover);
+  --hub-primary-bg-active: var(--brand-button-primary-bgColor-active);
+  --hub-primary-fg: var(--brand-button-primary-fgColor-rest);
+  --hub-accent: var(--brand-color-accent-primary);
+  --hub-accent-subtle: color-mix(
+    in srgb,
+    var(--brand-color-accent-primary) 12%,
+    var(--brand-color-canvas-default)
+  );
+  --hub-danger-subtle: var(--brand-color-danger-subtle);
+  --hub-success-subtle: var(--brand-color-success-subtle);
+  --hub-attention: var(--brand-color-accent-secondary);
+  --hub-attention-subtle: color-mix(
+    in srgb,
+    var(--brand-color-accent-secondary) 12%,
+    var(--brand-color-canvas-default)
+  );
+  --hub-border-width-thick: var(--brand-borderWidth-thick);
+  --hub-text-size-small: var(--base-size-12);
+  --hub-shadow-floating: 0 0.5rem 1.5rem rgb(0 0 0 / 16%);
+  --hub-shadow-control-raised: 0 0.0625rem 0.125rem rgb(0 0 0 / 8%);
+  --hub-shadow-control-field: 0 0.0625rem 0 rgb(0 0 0 / 3%), 0 0.125rem 0.125rem rgb(0 0 0 / 2%);
+  --hub-shadow-selection: 0 0.0625rem 0.1875rem rgb(0 0 0 / 12%);
+  --hub-shadow-review-overlay: 0 0.75rem 2rem rgb(1 4 9 / 30%);
+  --hub-shadow-review-marker: 0 0 2px rgb(1 4 9 / 21%), 0 3px 5px rgb(1 4 9 / 19.6%);
+  --hub-layer-mock-tools: 10000;
+  --hub-layer-loading: 10010;
+  --hub-layer-toast: 10015;
+  --hub-layer-action-warning: 10020;
+  --hub-space-4: var(--base-size-4);
+  --hub-space-8: var(--base-size-8);
+  --hub-space-12: var(--base-size-12);
+  --hub-space-16: var(--base-size-16);
+  --hub-space-24: var(--base-size-24);
+  --hub-space-32: var(--base-size-32);
+  --hub-radius-small: var(--brand-borderRadius-small);
+  --hub-radius-medium: var(--brand-borderRadius-medium);
+  --hub-radius-large: var(--brand-borderRadius-large);
+  --hub-repository-sidebar-width: calc(
+    var(--base-size-128) + var(--base-size-96) + var(--base-size-24) + var(--base-size-2)
+  );
+  --hub-repository-sidebar-inset: var(--base-size-16);
+  --hub-repository-sidebar-collapsed-width: calc(
+    var(--base-size-40) + var(--hub-repository-sidebar-inset) + var(--hub-repository-sidebar-inset)
+  );
+  --hub-repository-control-width: calc(
+    var(--hub-repository-sidebar-width) - var(--hub-repository-sidebar-inset) -
+      var(--hub-repository-sidebar-inset) - var(--brand-borderWidth-thin)
+  );
+  --hub-repository-account-padding-top: var(--base-size-16);
+  --hub-repository-search-width: calc(var(--base-size-128) + var(--base-size-96));
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--brand-body-fontFamily);
+  font-feature-settings: "liga" 0;
+  font-variation-settings:
+    "ital" 0,
+    "opsz" 0,
+    "wdth" 100;
+  -webkit-font-smoothing: antialiased;
+}
+
+#app {
+  container-type: inline-size;
+}
+
+.hub-theme {
+  min-height: 100vh;
+  background: var(--hub-canvas-default);
+  color: var(--hub-fg-default);
+  color-scheme: light;
+  font-family: var(--brand-body-fontFamily);
+}
+
+:root[data-color-mode="light"] {
+  color-scheme: light;
+}
+
+:root[data-color-mode="dark"],
+.hub-theme[data-color-mode="dark"] {
+  color-scheme: dark;
+}
+
+[data-color-mode="dark"] {
+  --hub-shadow-floating: 0 0.5rem 1.5rem rgb(0 0 0 / 45%);
+  --hub-shadow-control-raised: 0 0.0625rem 0.125rem rgb(0 0 0 / 20%);
+  --hub-shadow-control-field: 0 0.0625rem 0 rgb(0 0 0 / 28%), 0 0.125rem 0.125rem rgb(0 0 0 / 5%);
+  --hub-shadow-selection: 0 0.0625rem 0.1875rem rgb(0 0 0 / 35%);
+  --hub-shadow-review-overlay: 0 0.75rem 2rem rgb(0 0 0 / 55%);
+  --hub-shadow-review-marker: 0 0 2px rgb(0 0 0 / 50%), 0 3px 5px rgb(0 0 0 / 45%);
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}

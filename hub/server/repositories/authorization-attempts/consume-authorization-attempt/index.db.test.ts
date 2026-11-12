@@ -41,6 +41,8 @@ describe("consumeAuthorizationAttempt()", () => {
         browserBindingDigest,
         purpose: "SIGN_IN",
         codeVerifierCiphertext: "encrypted-verifier",
+        nonceCiphertext: "encrypted-nonce",
+        sessionRevocationRevision: 7,
         expiresAt: new Date("2099-01-01T00:00:00Z"),
       },
     })
@@ -58,13 +60,20 @@ describe("consumeAuthorizationAttempt()", () => {
       }),
     ).resolves.toEqual({ consumedAt: null })
 
-    await expect(
-      consumeAuthorizationAttempt(prisma, { stateDigest, browserBindingDigest }),
-    ).resolves.toEqual({
+    const consumed = await consumeAuthorizationAttempt(prisma, {
+      stateDigest,
+      browserBindingDigest,
+    })
+    expect(consumed).toEqual({
       id,
       providerRevisionId,
       codeVerifierCiphertext: "encrypted-verifier",
+      createdAt: consumed?.createdAt,
+      nonceCiphertext: "encrypted-nonce",
+      purpose: "SIGN_IN",
+      sessionRevocationRevision: 7,
     })
+    expect(consumed?.createdAt).toBeInstanceOf(Date)
     await expect(
       consumeAuthorizationAttempt(prisma, { stateDigest, browserBindingDigest }),
     ).resolves.toBeNull()
@@ -83,6 +92,8 @@ describe("consumeAuthorizationAttempt()", () => {
         "browser_binding_digest",
         "purpose",
         "code_verifier_ciphertext",
+        "nonce_ciphertext",
+        "session_revocation_revision",
         "expires_at",
         "created_at",
         "updated_at"
@@ -93,6 +104,8 @@ describe("consumeAuthorizationAttempt()", () => {
         ${browserBindingDigest},
         'SIGN_IN',
         'encrypted-verifier',
+        'encrypted-nonce',
+        0,
         clock_timestamp() - interval '1 second',
         clock_timestamp() - interval '2 minutes',
         clock_timestamp() - interval '2 minutes'

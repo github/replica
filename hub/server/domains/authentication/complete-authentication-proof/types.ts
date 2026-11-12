@@ -1,10 +1,19 @@
-import type { AuthenticationProofResult, AuthenticationProviderAdapter } from "../types.ts"
+import type {
+  AuthenticationProofResult,
+  AuthenticationProviderAdapter,
+  ProviderAssignmentEvidence,
+} from "../types.ts"
 import type { SelectedProviderRevision } from "../start-authentication-proof/types.ts"
 
 export interface ConsumedAuthorizationAttempt {
   id: string
   codeVerifierCiphertext: string
+  createdAt: Date
+  nonceCiphertext: string | null
+  purpose: "SIGN_IN" | "ADMIN_ENROLLMENT" | "ADMINISTRATOR_MANAGEMENT"
   providerRevisionId: string
+  sensitiveAuthorizationId?: string | null
+  sessionRevocationRevision: number
 }
 
 export interface CompleteAuthenticationProofDependencies {
@@ -15,14 +24,27 @@ export interface CompleteAuthenticationProofDependencies {
     stateDigest: string
   }): Promise<ConsumedAuthorizationAttempt | null>
   decryptCodeVerifier(value: string): string
+  decryptNonce(value: string): string
   localConfigurationDigest: string
   localRevision: number
-  getSelectedProviderRevision(): Promise<SelectedProviderRevision | null>
+  getAuthenticationProofState(): Promise<{
+    selectedProviderRevision: SelectedProviderRevision | null
+    sessionRevocationRevision: number
+  } | null>
   resolveOrCreateIdentity(input: {
+    authorizationAttemptId: string
     issuer: string
     provider: string
+    providerRevisionId: string
+    sessionRevocationRevision: number
     subject: string
   }): Promise<{ externalIdentityId: string; userId: string }>
+  updateIdentityProfile(input: {
+    id: string
+    login: string
+    name: string | null
+    provider: string
+  }): Promise<void>
   writeDenialAudit(
     reason:
       | "configuration_changed"
@@ -39,5 +61,8 @@ export interface CompleteAuthenticationProofInput {
 }
 
 export interface CompleteAuthenticationProofResult {
+  purpose: "SIGN_IN" | "ADMIN_ENROLLMENT" | "ADMINISTRATOR_MANAGEMENT"
+  sensitiveAuthorizationId?: string
+  providerAssignment?: ProviderAssignmentEvidence & { providerRevisionId: string }
   proof: AuthenticationProofResult
 }

@@ -6,9 +6,9 @@ Hub contributors are rebuilding the app on `build/hub/new` before merging it int
 
 The team has chosen TypeScript, Express for the API, React and Vite for the frontend, and Vitest for tests. The old backend and the frontend code that connected to it have been removed rather than rewritten.
 
-The API responds to a health check, and the frontend displays the logo with light and dark themes. Storybook keeps the existing components and pages available for reuse.
+The API responds to a health check and gives signed-in members read access to the seeded repository index and prototype details. The frontend connects the retained pages for local exploration. Storybook remains the presentation workbench.
 
-Contributors can use PostgreSQL and Prisma locally or in the devcontainer. The database has a provider-neutral identity transaction foundation and a public GitHub sign-in flow. A reusable deployment bootstrap secret can enroll verified GitHub identities as Hub administrators. Deployment and product APIs have not been built. This app cannot yet find repositories, import Builds, host previews, save product data, or support reviews.
+Contributors can use PostgreSQL and Prisma locally or in the devcontainer. The database has a provider-neutral identity transaction foundation with explicit GitHub and single-tenant Microsoft Entra sign-in adapters. A reusable deployment bootstrap secret can enroll a verified provider identity as a Hub administrator. Members can browse a seeded, read-only repository index. The app cannot yet discover real repositories, import Builds, host published previews, edit product data, or support live multi-user reviews.
 
 The [production runtime](deployment.md) serves the built frontend and API and runs both workers in one image. Deployment runs database and job setup separately before starting that image. The Azure installation uses an explicit startup entrypoint to retrieve configured Key Vault values through each workload's managed identity before importing provisioning, setup, or runtime code. Local entrypoints and direct environment configuration remain unchanged.
 
@@ -16,7 +16,7 @@ The [production runtime](deployment.md) serves the built frontend and API and ru
 
 API code lives under `server/`. As features are added, route handlers will read requests, call domains, and return responses. The [code conventions](backend-architecture.md) explain repositories, integrations, utilities, domains, and which layers may import others. Put these directories under `server/` when they are needed; do not add empty implementations.
 
-`GET /api/health` returns `{ "status": "ok" }`; `GET /api/ready` reports operational readiness. Configured authentication routes start GitHub OAuth, complete admission, restore the current session, and sign out. Unknown API paths return a JSON 404 response; invalid JSON is rejected before routing. `createApp()` builds the Express app without starting a server. `server/index.ts` selects a runtime role and defaults to the local API.
+`GET /api/health` returns `{ "status": "ok" }`; `GET /api/ready` reports operational readiness. Configured authentication routes expose explicit GitHub and Entra starts and callbacks, complete admission, restore the current session, and sign out. Unknown API paths return a JSON 404 response; invalid JSON is rejected before routing. `createApp()` builds the Express app without starting a server. `server/index.ts` selects a runtime role and defaults to the local API.
 
 The [database guide](database.md) defines the multi-file Prisma schema and shared client in integrations. The health route remains a process check, not a database readiness check.
 
@@ -30,11 +30,15 @@ The [telemetry integration](telemetry.md) provides explicit server-side OpenTele
 
 The [WebSocket foundation](websockets.md) attaches to the API's HTTP server and broadcasts to local channel subscribers without persistence. The application rejects upgrades until access checks are supplied. Product channels, client recovery, and communication between processes are not implemented.
 
-The identity foundation stores Hub users, immutable external identity mappings, selected authentication provider revision digests, and bounded security audits. It does not store provider configuration. A provider adapter must validate its typed public configuration before the kernel computes a digest and starts the database transaction.
+The identity foundation stores Hub users, immutable external identity mappings, selected authentication provider revision digests, administrator-managed assignment history, and bounded security audits. It does not store provider configuration. A provider adapter must validate its typed public configuration before the kernel computes a digest and starts the database transaction.
 
-Domain operations receive only the transaction-scoped repositories they need. A successful state change and its success audit commit together. The kernel applies one fixed bounded retry policy to expected serializable and aggregate-creation races so consumers cannot disable convergence. A rejected database operation rolls back before its final denial or failure audit is written. External provider-validation failures write one typed audit after validation returns and before the operation fails. Audit callers select a typed kernel event; the repository builds the stored action and allowlisted context.
+Domain operations receive only the transaction-scoped repositories they need. A successful state change and its success audit commit together. The kernel applies one fixed bounded retry policy to expected serializable and aggregate-creation races so consumers cannot disable convergence. A rejected database operation rolls back before its final denial or failure audit is written. Accepted provider evidence that revokes authority may commit its transition and denial audits together while issuing no session. External provider-validation failures write one typed audit after validation returns and before the operation fails. Audit callers select a typed kernel event; the repository builds the stored action and allowlisted context.
 
-The [authentication and session flow](authentication.md) uses this foundation to validate explicit GitHub configuration, complete OAuth user authentication, resolve the immutable external identity, decide current Hub admission, and issue an opaque browser session. Provider network work remains outside identity transactions.
+The [authentication and session flow](authentication.md) uses this foundation to validate explicit GitHub and [Microsoft Entra OIDC](entra-oidc.md) configuration, complete provider user authentication, resolve the immutable external identity, apply current provider-owned assignment evidence, decide current Hub admission, and issue an opaque browser session. An installation may configure either or both providers, and provider network work remains outside identity transactions.
+
+The administrator-management API and retained frontend list and search existing Hub users, designate one to 50 administrators, and revoke one administrator-managed assignment. Sensitive role changes reuse the current session's GitHub, Entra, or local authorization flow and bind one short-lived, one-use continuation to the live session, external identity, operation, and target memberships. The callback and mutation reread current authority before changing roles. This surface does not invite users or manage general membership lifecycle.
+
+The administrator security-audit API and retained frontend list Hub-wide identity and administrator records newest first through bounded opaque-cursor pagination. The API rereads the live administrator session and projects stored records through action-specific presentation allowlists. The frontend keeps the cursor opaque, shows stable membership UUIDs when available, and does not load provisional product workspace contracts. Repository audit, export, retention changes, and deletion remain separate work.
 
 ## Frontend
 
@@ -47,12 +51,19 @@ flowchart LR
   Features --> Utilities
 ```
 
-Keep the existing `app/javascript/` layout. Application code starts React and will connect pages to the API. Pages assemble whole screens from typed props. Features combine components for one task. Components are reusable interface elements that do not need to know the larger task.
+Browser source lives directly under `client/`. Application code under `client/application/hub/` configures React Router Framework SPA Mode, calls the shared `fetch`/Zod request layer, and maps response records to page props. Pages assemble whole screens from typed props. Features combine components for one task. Components are reusable interface elements that do not need to know the larger task.
 
 Imports follow the arrows above. Shared components, hooks, and utilities must not import pages, features, or application code. Keep browser and server code separate. Agree on the API before adding types shared between them.
 
-The frontend displays the existing logo inside the theme provider. Existing pages and features use ordinary browser links. Their old destinations do not exist in the new API; keeping the interface does not make those features work.
+The theme provider wraps routes and their loading and error feedback.
+
+- In real mode, signed-out visitors use the authentication shell. Signed-in members can browse the read-only repository index and open prototype details. Administrators can use the administrator roster and Hub-wide security audit without loading provisional product data.
+- In mock mode, the root reads the simulated session. A nested layout loads the private workspace for signed-in pages.
+- Route loaders and actions request product data and refresh it after changes. Shareable filters and selections live in the URL.
+- Product screens keep product-facing copy. API failures remain visible errors.
+
+The application adapts retained internal links and GET forms to SPA navigation. Authentication POST forms use native browser submissions. Explicit adapters submit supported product mutations; unknown legacy form submissions receive visible feedback. The [frontend guide](frontend.md) owns the connected routes, provisional HTTP contracts, local development modes, and complete page inventory. Most real product APIs remain separate work.
 
 ## Other projects
 
-The starter, build action, learning package, and Copilot prototype extension remain separate projects. Canvas and Controls code stays at its existing `app/javascript/` paths so those projects can keep using it. Connecting the canvas to this Hub will require new API routes.
+The starter, build action, learning package, and Copilot prototype extension remain separate projects. The extension and build action import or bundle shared canvas and Controls code from `client/`. Connecting the canvas to this Hub will require new API routes.

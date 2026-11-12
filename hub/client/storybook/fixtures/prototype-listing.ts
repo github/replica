@@ -1,0 +1,31 @@
+import type { PrototypeListing } from "@utils/prototype-listing/types"
+
+export const prototypeListing: PrototypeListing = {
+  query: "",
+  author: "",
+  authorLabel: "All users",
+  matchingCount: 1,
+  page: 1,
+  pageCount: 1,
+  pagePath: "/repositories/2001",
+  authorsPath: "/repositories/2001/prototype_authors",
+  path: "/repositories/2001",
+  copy: {
+    author: "User",
+    me: "Me",
+    allAuthors: "All users",
+    searchAuthors: "Search users",
+    moreAuthors: "More",
+    firstAuthors: "First users",
+    noAuthors: "No matching users",
+    loading: "Loading users",
+    retry: "Retry",
+    authorsFailed: "Hub could not load users. Try again.",
+    resultsFailed: "Hub could not load prototypes. Your previous results are still shown.",
+    previous: "Previous",
+    next: "Next",
+    pagination: "Prototype pages",
+    updating: "Updating prototypes",
+    shown: "1 shown",
+  },
+}

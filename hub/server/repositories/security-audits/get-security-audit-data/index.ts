@@ -38,6 +38,75 @@ export function getSecurityAuditData(
         targetId: event.membershipId,
         context: {},
       }
+    case "provider_membership_assignment_created":
+    case "provider_membership_assignment_revoked":
+    case "provider_membership_assignment_superseded":
+      return {
+        id: event.id,
+        action: event.type.replaceAll("_", "."),
+        outcome: SecurityAuditOutcome.SUCCESS,
+        targetType: "membership_assignment",
+        targetId: event.assignmentId,
+        context: {
+          membershipId: event.membershipId,
+          role: event.role.toLowerCase(),
+          source: "authentication_provider",
+        },
+      }
+    case "administrator_membership_assignment_created":
+    case "administrator_membership_assignment_revoked":
+      return {
+        id: event.id,
+        action:
+          event.type === "administrator_membership_assignment_created"
+            ? "membership.assignment.administrator_created"
+            : "membership.assignment.administrator_revoked",
+        outcome: SecurityAuditOutcome.SUCCESS,
+        targetType: "membership_assignment",
+        targetId: event.assignmentId,
+        context: {
+          actorMembershipId: event.actorMembershipId,
+          source: "hub_administrator",
+          targetMembershipId: event.targetMembershipId,
+        },
+      }
+    case "administrator_management_denied":
+    case "administrator_management_failed":
+      return {
+        id: event.id,
+        action:
+          event.type === "administrator_management_denied"
+            ? "membership.administrator_management.denied"
+            : "membership.administrator_management.failed",
+        outcome:
+          event.type === "administrator_management_denied"
+            ? SecurityAuditOutcome.DENIED
+            : SecurityAuditOutcome.FAILURE,
+        targetType: "administrator_management",
+        context: {
+          actorMembershipId: event.actorMembershipId,
+          operation: event.operation,
+          reason: event.reason,
+        },
+      }
+    case "administrator_authorization":
+      return {
+        id: event.id,
+        action: `administrator.authorization.${event.phase}`,
+        outcome:
+          event.phase === "denied" || event.phase === "expired"
+            ? SecurityAuditOutcome.DENIED
+            : SecurityAuditOutcome.SUCCESS,
+        targetType: "sensitive_authorization",
+        targetId: event.authorizationId,
+        context: {
+          actorMembershipId: event.actorMembershipId,
+          operation: event.operation.toLowerCase(),
+          phase: event.phase,
+          ...(event.reason ? { reason: event.reason } : {}),
+          targetCount: event.targetCount,
+        },
+      }
     case "session_created":
     case "session_ended":
       return {
@@ -148,6 +217,41 @@ export function getSecurityAuditData(
           revision: event.revision,
           reason: event.reason,
         }),
+      }
+    case "authentication_provider_disabled":
+    case "authentication_provider_enabled":
+      return {
+        id: event.id,
+        action:
+          event.type === "authentication_provider_disabled"
+            ? "identity.authentication_provider.disabled"
+            : "identity.authentication_provider.enabled",
+        outcome: SecurityAuditOutcome.SUCCESS,
+        targetType: "authentication_provider",
+        targetId: event.providerId,
+        context: createSecurityAuditContextWithProviderKey({
+          provider: event.providerKey,
+        }),
+      }
+    case "authentication_providers_reconcile_failed":
+      return {
+        id: event.id,
+        action: "identity.authentication_providers.reconcile_failed",
+        outcome: SecurityAuditOutcome.FAILURE,
+        targetType: "authentication_providers",
+        context: {
+          providerKeys: event.providerKeys,
+          reason: event.reason,
+        },
+      }
+    case "session_revocation_advanced":
+      return {
+        id: event.id,
+        action: "session.revocation.advanced",
+        outcome: SecurityAuditOutcome.SUCCESS,
+        targetType: "session_revocation_state",
+        targetId: "global",
+        context: { reason: event.reason, revision: event.revision },
       }
   }
 }

@@ -1,9 +1,10 @@
+import { fileURLToPath } from "node:url"
 import react from "@vitejs/plugin-react"
 import { defineConfig } from "vite"
 import { viteAliases } from "./vite-aliases.ts"
 
 export default defineConfig({
-  root: new URL(".", import.meta.url).pathname,
+  root: fileURLToPath(new URL(".", import.meta.url)),
   publicDir: false,
   base: "/assets/",
   plugins: [react()],
@@ -14,7 +15,7 @@ export default defineConfig({
     cssCodeSplit: false,
     outDir: "../.github/extensions/replica-prototype/assets",
     rollupOptions: {
-      input: "app/javascript/application/start-prototype-canvas/index.tsx",
+      input: "client/application/start-prototype-canvas/index.tsx",
       output: {
         assetFileNames: (asset) =>
           asset.names.some((name) => name.endsWith(".woff2"))
@@ -24,7 +25,7 @@ export default defineConfig({
           groups: [
             {
               name: "improvement-notes-prototype",
-              test: /app[\\/]javascript[\\/]features[\\/]prototype-canvas-improvement-notes[\\/]/,
+              test: /client[\\/]features[\\/]prototype-canvas-improvement-notes[\\/]/,
               priority: 5,
               includeDependenciesRecursively: false,
             },

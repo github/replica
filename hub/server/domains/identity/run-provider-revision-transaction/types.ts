@@ -13,6 +13,7 @@ export interface SelectedProviderRevisionRecord {
 }
 
 export interface AuthenticationProviderRecord {
+  enabled: boolean
   id: string
   key: string
   selectedRevision: SelectedProviderRevisionRecord | null
@@ -35,8 +36,28 @@ export interface ProviderRevisionRepositories {
   ): Promise<unknown>
 }
 
+export interface AuthenticationProviderReconciliationRepositories extends ProviderRevisionRepositories {
+  disableAuthenticationProvider(providerId: string): Promise<unknown>
+  enableAuthenticationProvider(input: { providerId: string; revisionId: string }): Promise<unknown>
+  incrementSessionRevocation(): Promise<{ revision: number } | null>
+  lockAuthenticationProviders(): Promise<
+    Array<{
+      configurationDigest: string
+      enabled: boolean
+      id: string
+      key: string
+      revision: number
+      revisionId: string
+    }>
+  >
+}
+
 export type ProviderRevisionTransaction = <Result>(
   operation: (repositories: ProviderRevisionRepositories) => Promise<Result>,
+) => Promise<Result>
+
+export type AuthenticationProviderReconciliationTransaction = <Result>(
+  operation: (repositories: AuthenticationProviderReconciliationRepositories) => Promise<Result>,
 ) => Promise<Result>
 
 export interface ProviderRevisionDatabaseClient {

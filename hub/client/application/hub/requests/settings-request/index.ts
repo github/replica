@@ -1,0 +1,27 @@
+import type { z } from "zod"
+
+import { settingsQuerySchema } from "@application/hub/settings-contracts"
+import type { SettingsOperation } from "@application/hub/settings-contracts/types"
+
+import { ApiRequestError } from "../api-request-error"
+import { requestJson } from "../request-json"
+
+export function settingsRequest<T>(
+  request: Request,
+  path: "workspace" | "public" | "actions" | "admin-candidates",
+  schema: z.ZodType<T>,
+  operation?: SettingsOperation,
+  search?: URLSearchParams,
+) {
+  const source = new URL(request.url)
+  if (search) source.search = search.toString()
+  const query = settingsQuerySchema.safeParse(Object.fromEntries(source.searchParams))
+  if (!query.success) throw new ApiRequestError(400, "Invalid settings filters.")
+  const url = new URL(`/api/settings/${path}`, source.origin)
+  url.search = source.search
+  return requestJson(url, schema, {
+    method: operation ? "POST" : "GET",
+    body: operation ? JSON.stringify(operation) : undefined,
+    signal: request.signal,
+  })
+}

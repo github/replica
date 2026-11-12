@@ -8,12 +8,16 @@ export async function lockMembershipById(
     Array<{
       id: string
       lifecycle: "ACTIVE" | "SUSPENDED" | "REMOVED"
+      userId: string
     }>
   >`
-    SELECT "id", "lifecycle"::text
-    FROM "memberships"
-    WHERE "id" = ${id}::uuid
-    FOR UPDATE
+    SELECT
+      membership."id",
+      membership."lifecycle"::text,
+      membership."user_id" AS "userId"
+    FROM "memberships" membership
+    WHERE membership."id" = ${id}::uuid
+    FOR UPDATE OF membership
   `
   return rows[0] ?? null
 }

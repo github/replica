@@ -6,19 +6,28 @@ import { restoreHubSession } from "."
 function repositories(
   overrides: Partial<SessionRestoreRepositories> = {},
 ): SessionRestoreRepositories {
+  const membership = {
+    id: "membership-id",
+    lifecycle: "ACTIVE" as const,
+    userId: "user-id",
+  }
   const session = {
+    externalIdentityId: "external-identity-id",
     id: "session-id",
     membershipId: "membership-id",
     revocationRevision: 0,
   }
   return {
     findSession: vi.fn().mockResolvedValue(session),
+    getActiveProviderKeys: vi.fn().mockResolvedValue(["entra"]),
     getRevocation: vi.fn().mockResolvedValue({ revision: 0 }),
-    lockActiveAssignment: vi.fn().mockResolvedValue(true),
-    lockMembership: vi.fn().mockResolvedValue({
-      id: "membership-id",
-      lifecycle: "ACTIVE",
-    }),
+    lockActiveAssignments: vi
+      .fn()
+      .mockResolvedValue([
+        { id: "assignment-id", role: "MEMBER", source: "AUTHENTICATION_PROVIDER" },
+      ]),
+    lockMembership: vi.fn().mockResolvedValue(membership),
+    lockProvider: vi.fn().mockResolvedValue({ enabled: true, id: "provider-id" }),
     lockSession: vi.fn().mockResolvedValue(session),
     ...overrides,
   }
@@ -32,7 +41,37 @@ describe("restoreHubSession()", () => {
       restoreHubSession("a".repeat(64), {
         runTransaction: (operation) => operation(records),
       }),
-    ).resolves.toBe(true)
+    ).resolves.toEqual({
+      externalIdentityId: "external-identity-id",
+      membershipId: "membership-id",
+      userId: "user-id",
+      role: "MEMBER",
+    })
+  })
+
+  it("locks each provider before locking membership authority", async () => {
+    const order: string[] = []
+    const records = repositories({
+      getActiveProviderKeys: vi.fn().mockResolvedValue(["entra"]),
+      lockProvider: vi.fn().mockImplementation(() => {
+        order.push("provider")
+        return Promise.resolve({ enabled: true, id: "provider-id" })
+      }),
+      lockMembership: vi.fn().mockImplementation(() => {
+        order.push("membership")
+        return Promise.resolve({
+          id: "membership-id",
+          lifecycle: "ACTIVE",
+          userId: "user-id",
+        })
+      }),
+    })
+
+    await restoreHubSession("a".repeat(64), {
+      runTransaction: (operation) => operation(records),
+    })
+
+    expect(order).toEqual(["provider", "membership"])
   })
 
   it("fails closed when global revocation authority is missing", async () => {
@@ -40,6 +79,24 @@ describe("restoreHubSession()", () => {
     const records = repositories({
       getRevocation: vi.fn().mockResolvedValue(null),
       lockMembership,
+    })
+
+    await expect(
+      restoreHubSession("a".repeat(64), {
+        runTransaction: (operation) => operation(records),
+      }),
+    ).resolves.toBeNull()
+    expect(lockMembership).not.toHaveBeenCalled()
+  })
+
+  it("fails closed when an assignment provider is disabled", async () => {
+    const lockMembership = vi.fn()
+    const records = repositories({
+      lockMembership,
+      lockProvider: vi.fn().mockResolvedValue({
+        enabled: false,
+        id: "provider-id",
+      }),
     })
 
     await expect(
@@ -100,6 +157,7 @@ describe("restoreHubSession()", () => {
         lockMembership: vi.fn().mockResolvedValue({
           id: "membership-id",
           lifecycle,
+          userId: "user-id",
         }),
       })
 
@@ -110,4 +168,25 @@ describe("restoreHubSession()", () => {
       ).resolves.toBeNull()
     },
   )
+
+  it("returns administrator when any active assignment grants administrator authority", async () => {
+    const records = repositories({
+      getActiveProviderKeys: vi.fn().mockResolvedValue([]),
+      lockActiveAssignments: vi.fn().mockResolvedValue([
+        { id: "provider-assignment", role: "MEMBER", source: "AUTHENTICATION_PROVIDER" },
+        { id: "bootstrap-assignment", role: "ADMINISTRATOR", source: "BOOTSTRAP" },
+      ]),
+    })
+
+    await expect(
+      restoreHubSession("a".repeat(64), {
+        runTransaction: (operation) => operation(records),
+      }),
+    ).resolves.toEqual({
+      externalIdentityId: "external-identity-id",
+      membershipId: "membership-id",
+      userId: "user-id",
+      role: "ADMINISTRATOR",
+    })
+  })
 })

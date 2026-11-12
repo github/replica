@@ -1,0 +1,131 @@
+import type { RepositoriesShowPageData } from "@pages/repositories-show-page/types"
+import type { RepositoryResponse, WorkspaceResponse } from "@application/hub/contracts/types"
+
+import { buildStateLabel } from "../build-state-label"
+import { repositoryWorkspace } from "../repository-workspace"
+import { resourcePath } from "../resource-path"
+
+export function repositoryShowData(
+  workspace: WorkspaceResponse,
+  data: RepositoryResponse,
+  search: URLSearchParams,
+  options: { real?: boolean } = {},
+): RepositoriesShowPageData {
+  const path = `/repositories/${data.repository.id}`
+  const pageQuery = new URLSearchParams(search)
+  pageQuery.delete("page")
+  const pagePath = pageQuery.size ? `${path}?${pageQuery}` : path
+  const author = search.get("author") ?? ""
+  const selectedAuthor = data.authors.find((item) => item.id === author)
+  const authorLabel =
+    author === "me"
+      ? "Me"
+      : selectedAuthor
+        ? `@${selectedAuthor.login}`
+        : author
+          ? "Selected user"
+          : "All users"
+  const count = data.pagination.totalCount
+
+  return {
+    ...repositoryWorkspace(workspace, data.repository, search, options.real),
+    alert: null,
+    clearSearchLabel: "Clear search",
+    emptyHeading: "No prototypes yet",
+    emptyLabel: "No prototypes have been added to Hub yet.",
+    buildPrototypeLabel: "Build prototype",
+    galleryViewLabel: "Gallery view",
+    listViewLabel: "List view",
+    managePrototypesLabel: "Edit prototype listings",
+    managePrototypesPath: workspace.capabilities?.createPrototypes
+      ? resourcePath(`${path}/prototypes/manage`, search)
+      : undefined,
+    prototypeColumnLabel: "Prototype",
+    ownerColumnLabel: "Author",
+    buildColumnLabel: "Build",
+    passingLabel: "passing",
+    notPassingLabel: "not passing",
+    noBuildLabel: "No Build yet",
+    noSearchResultsHeading: "No prototypes found",
+    noSearchResultsDescription: "Try a different search or user, or clear the current filters.",
+    pageTitle: data.repository.nameWithOwner,
+    prototypes: data.prototypes.map((prototype) => {
+      const builds = [...prototype.builds].sort((first, second) => second.number - first.number)
+      const latestBuild = prototype.latestBuild === undefined ? builds[0] : prototype.latestBuild
+      const reviewBuild = builds.find((build) => build.previewUrl && build.desktopScreenshotUrl)
+      const prototypeAuthor = data.authors.find((item) =>
+        prototype.authorId ? item.id === prototype.authorId : item.login === prototype.authorLogin,
+      )
+      const authorName =
+        prototypeAuthor?.provider && prototypeAuthor.provider !== "github"
+          ? (prototypeAuthor.name ?? prototypeAuthor.login)
+          : prototype.authorLogin
+            ? `@${prototype.authorLogin}`
+            : "Unknown author"
+
+      return {
+        id: String(prototype.id),
+        name: prototype.name,
+        branchName: prototype.branchName,
+        description: prototype.description,
+        path: resourcePath(`${path}/prototypes/${prototype.id}`, search),
+        author: {
+          avatarUrl: prototypeAuthor?.avatarUrl ?? null,
+          label: prototype.authorLogin ? `By ${authorName}` : authorName,
+          ownerLabel: authorName,
+          url:
+            prototype.authorLogin &&
+            (!prototypeAuthor?.provider || prototypeAuthor.provider === "github")
+              ? `https://github.com/${encodeURIComponent(prototype.authorLogin)}`
+              : null,
+        },
+        latestBuild: latestBuild
+          ? { state: latestBuild.state, stateLabel: buildStateLabel(latestBuild.state) }
+          : undefined,
+        previewFallbackLabel: builds.some((build) => build.previewUrl)
+          ? "Preview available. No screenshot was captured."
+          : "No preview available",
+        reviewBuild: reviewBuild?.desktopScreenshotUrl
+          ? {
+              number: reviewBuild.number,
+              screenshotAlt: `${prototype.name}, Build ${reviewBuild.number}`,
+              screenshotSrc: reviewBuild.desktopScreenshotUrl,
+            }
+          : undefined,
+      }
+    }),
+    prototypesCountLabel: `${count} ${count === 1 ? "prototype" : "prototypes"}`,
+    prototypesHeading: "Prototypes",
+    searchLabel: "Search prototypes",
+    viewLabel: "Prototype layout",
+    listing: {
+      query: search.get("q") ?? "",
+      author,
+      authorLabel,
+      matchingCount: count,
+      page: data.pagination.page,
+      pageCount: data.pagination.pageCount,
+      pagePath,
+      authorsPath: `/api/repositories/${data.repository.id}/authors`,
+      path: search.size ? `${path}?${search}` : path,
+      copy: {
+        author: "User",
+        me: "Me",
+        allAuthors: "All users",
+        searchAuthors: "Search users",
+        moreAuthors: "More",
+        firstAuthors: "First users",
+        noAuthors: "No matching users",
+        loading: "Loading users",
+        retry: "Retry",
+        authorsFailed: "Hub could not load users. Try again.",
+        resultsFailed: "Hub could not load prototypes. Try again.",
+        previous: "Previous",
+        next: "Next",
+        pagination: "Prototype pages",
+        updating: "Updating prototypes",
+        shown: `${data.prototypes.length} shown`,
+      },
+    },
+  }
+}

@@ -1,0 +1,125 @@
+.add-hub-administrators {
+  width: min(100% - 2rem, 36rem);
+  max-height: calc(100dvh - 2rem);
+  padding: 1.5rem;
+  overflow: hidden;
+  border: 1px solid var(--hub-border-default);
+  border-radius: var(--hub-radius-medium);
+  background: var(--hub-canvas-default);
+  color: var(--hub-fg-default);
+}
+
+.add-hub-administrators::backdrop {
+  background: rgb(0 0 0 / 60%);
+}
+
+.add-hub-administrators__content > *,
+.add-hub-administrators form > * {
+  margin: 0;
+}
+
+.add-hub-administrators__content > * + *,
+.add-hub-administrators form > * + * {
+  margin-top: 1rem;
+}
+
+.add-hub-administrators__results {
+  max-height: 18rem;
+  margin-inline: -0.25rem;
+  padding: 0.25rem;
+  overflow: auto;
+}
+
+.add-hub-administrators__body {
+  max-height: calc(100dvh - 4.5rem - 2px);
+  margin: -0.25rem;
+  padding: 0.25rem;
+  overflow: auto;
+}
+
+.add-hub-administrators__body,
+.add-hub-administrators__results {
+  --scroll-fade-start: 0rem;
+  --scroll-fade-end: 0rem;
+}
+
+.add-hub-administrators [data-scroll-start] {
+  --scroll-fade-start: 0.75rem;
+}
+
+.add-hub-administrators [data-scroll-end] {
+  --scroll-fade-end: 0.75rem;
+}
+
+.add-hub-administrators [data-scroll-start],
+.add-hub-administrators [data-scroll-end] {
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    black var(--scroll-fade-start),
+    black calc(100% - var(--scroll-fade-end)),
+    transparent
+  );
+}
+
+@media (forced-colors: active) {
+  .add-hub-administrators [data-scroll-start],
+  .add-hub-administrators [data-scroll-end] {
+    mask-image: none;
+  }
+}
+
+.add-hub-administrators__users {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.add-hub-administrators__search-error {
+  display: grid;
+  justify-items: start;
+  gap: var(--hub-space-12);
+}
+
+.add-hub-administrators__confirmation {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.75rem 0;
+  overflow-wrap: anywhere;
+}
+
+.add-hub-administrators__user {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2rem;
+  padding: 0.25rem 0;
+  font-size: 0.875rem;
+}
+
+.add-hub-administrators__identity {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.125rem 0.5rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.add-hub-administrators__identity > span {
+  color: var(--hub-fg-muted);
+}
+
+.add-hub-administrators__user > :first-child,
+.add-hub-administrators__confirmation > :first-child {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.add-hub-administrators__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--hub-space-8);
+}

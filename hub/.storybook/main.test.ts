@@ -1,10 +1,9 @@
-import { mkdtemp, rm } from "node:fs/promises"
-import { tmpdir } from "node:os"
+import { mkdir, mkdtemp, rm } from "node:fs/promises"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath, URL } from "node:url"
 
 import { describe, expect, it, vi } from "vitest"
-import { createServer, type Plugin, type UserConfig, type ViteDevServer } from "vite"
+import { createServer, normalizePath, type Plugin, type UserConfig, type ViteDevServer } from "vite"
 
 vi.mock("../vite-aliases.ts", () => ({ viteAliases: {} }))
 
@@ -12,10 +11,11 @@ import config from "./main"
 
 describe("Storybook viteFinal()", () => {
   it("serves the source controls validator as browser-compatible ESM", async () => {
-    const cacheDir = await mkdtemp(join(tmpdir(), "replica-storybook-controls-"))
+    const root = resolve(dirname(fileURLToPath(import.meta.url)), "..")
+    await mkdir(join(root, ".local"), { recursive: true })
+    const cacheDir = await mkdtemp(join(root, ".local", "storybook-controls-cache-"))
     let server: ViteDevServer | undefined
     try {
-      const root = resolve(dirname(fileURLToPath(import.meta.url)), "..")
       server = await createServer(
         config.viteFinal({
           configFile: false,
@@ -37,9 +37,11 @@ describe("Storybook viteFinal()", () => {
       const origin = `http://127.0.0.1:${address.port}`
       const validationFile = resolve(
         root,
-        "app/javascript/utils/prototype-controls/controls-validation.mjs",
+        "client/utils/prototype-controls/controls-validation.mjs",
       )
-      const response = await fetch(`${origin}/@fs${validationFile}?v=cache-suffixed-importer`)
+      const response = await fetch(
+        `${origin}/@fs/${normalizePath(validationFile)}?v=cache-suffixed-importer`,
+      )
       expect(response.ok).toBe(true)
       const source = await response.text()
       const optimizedImport = source.match(

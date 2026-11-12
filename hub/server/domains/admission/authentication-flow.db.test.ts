@@ -10,6 +10,7 @@ import { createApp } from "../../create-app"
 import { createLogger } from "../../integrations/pino/create-logger"
 import { prisma } from "../../integrations/prisma"
 import { createAuthenticationRouteDependencies } from "../../routes/api/auth/create-authentication-route-dependencies"
+import { disableAuthenticationProviders } from "../../routes/api/auth/create-authentication-route-dependencies"
 import { restoreHubSession } from "./restore-hub-session"
 import { runSessionRestoreTransaction } from "./run-session-restore-transaction"
 
@@ -33,25 +34,36 @@ function cookieValue(response: Response, name: string) {
   return match ? decodeURIComponent(match[1]!) : null
 }
 
+function deferred<Value>() {
+  let resolve!: (value: Value) => void
+  const promise = new Promise<Value>((complete) => {
+    resolve = complete
+  })
+  return { promise, resolve }
+}
+
 async function openServer(
   userIds: number[],
   logger?: ReturnType<typeof createLogger>,
-  environment = runtimeEnvironment(),
+  environment: NodeJS.ProcessEnv = runtimeEnvironment(),
+  providerRequestOverride?: ReturnType<typeof vi.fn<typeof fetch>>,
 ) {
   let userIndex = 0
-  const providerRequest = vi.fn((input: string | URL | Request) => {
-    const url = input instanceof Request ? input.url : input.toString()
-    if (url === "https://github.com/login/oauth/access_token") {
-      return Promise.resolve(
-        Response.json({ access_token: "provider-token", token_type: "bearer" }),
-      )
-    }
-    if (url === "https://api.github.com/user") {
-      return Promise.resolve(Response.json({ id: userIds[userIndex++]! }))
-    }
-    throw new Error(`Unexpected provider request: ${url}`)
-  })
-  const dependencies = createAuthenticationRouteDependencies(environment, providerRequest)
+  const providerRequest =
+    providerRequestOverride ??
+    vi.fn((input: string | URL | Request) => {
+      const url = input instanceof Request ? input.url : input.toString()
+      if (url === "https://github.com/login/oauth/access_token") {
+        return Promise.resolve(
+          Response.json({ access_token: "provider-token", token_type: "bearer" }),
+        )
+      }
+      if (url === "https://api.github.com/user") {
+        return Promise.resolve(Response.json({ id: userIds[userIndex++]! }))
+      }
+      throw new Error(`Unexpected provider request: ${url}`)
+    })
+  const dependencies = await createAuthenticationRouteDependencies(environment, providerRequest)
   const server = createServer(
     createApp({ authentication: dependencies, ...(logger ? { logger } : {}) }),
   )
@@ -113,6 +125,25 @@ async function waitForMembershipLock(inspector: pg.Client) {
   return null
 }
 
+async function waitForAuthenticationCompletionLock(inspector: pg.Client, lockerPid: number) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const result = await inspector.query<{ pid: number }>(
+      `SELECT pid
+       FROM pg_stat_activity
+       WHERE datname = current_database()
+         AND pid <> $1
+         AND state = 'active'
+         AND wait_event_type = 'Lock'
+       ORDER BY query_start DESC
+       LIMIT 1`,
+      [lockerPid],
+    )
+    if (result.rows[0]) return result.rows[0].pid
+    await Promise.resolve()
+  }
+  return null
+}
+
 describe("Hub admission and session flow", () => {
   it("audits malformed verification state before provider or admission work", async () => {
     const records: string[] = []
@@ -131,7 +162,8 @@ describe("Hub admission and session flow", () => {
       await prisma.$executeRaw`
         INSERT INTO "authorization_attempts" (
           "id", "provider_revision_id", "state_digest", "browser_binding_digest",
-          "purpose", "code_verifier_ciphertext", "expires_at", "created_at", "updated_at"
+          "purpose", "code_verifier_ciphertext", "nonce_ciphertext",
+          "session_revocation_revision", "expires_at", "created_at", "updated_at"
         ) VALUES (
           ${attemptId}::uuid,
           ${providerRevision.id}::uuid,
@@ -139,6 +171,8 @@ describe("Hub admission and session flow", () => {
           ${createHash("sha256").update(browserBinding).digest("hex")},
           'SIGN_IN',
           ${malformedCiphertext},
+          'encrypted-nonce',
+          0,
           CURRENT_TIMESTAMP + interval '5 minutes',
           CURRENT_TIMESTAMP,
           CURRENT_TIMESTAMP
@@ -254,12 +288,23 @@ describe("Hub admission and session flow", () => {
         ["/?authentication=denied", "/?authentication=success"],
       )
       expect(await prisma.hubSession.count()).toBe(2)
+      const currentMembership = await prisma.membership.findFirstOrThrow({
+        select: { id: true, userId: true },
+      })
 
       const restored = await fetch(`${server.baseUrl}/api/auth/session`, {
         headers: { cookie: `hub_session=${encodeURIComponent(firstSession!)}` },
       })
       expect(restored.status).toBe(200)
-      expect(await restored.json()).toEqual({ authenticated: true })
+      expect(await restored.json()).toEqual({
+        authenticated: true,
+        membershipId: currentMembership.id,
+        userId: currentMembership.userId,
+        provider: "github",
+        login: "101",
+        name: null,
+        role: "ADMINISTRATOR",
+      })
       const auditCountBeforeRestores = await prisma.securityAudit.count()
       const repeatedRestores = await Promise.all(
         Array.from({ length: 20 }, () =>
@@ -329,6 +374,7 @@ describe("Hub admission and session flow", () => {
       const attempt = await prisma.authorizationAttempt.findFirstOrThrow({
         select: { bootstrapSecretDigest: true, purpose: true },
       })
+
       expect(attempt).toEqual({
         bootstrapSecretDigest: originalDigest,
         purpose: "ADMIN_ENROLLMENT",
@@ -386,6 +432,267 @@ describe("Hub admission and session flow", () => {
     }
   })
 
+  it("denies old-version admission after disable and identical revision-two reactivation", async () => {
+    const environment = runtimeEnvironment()
+    const original = await openServer([], undefined, environment)
+    try {
+      await startAuthentication(
+        original.baseUrl,
+        "/api/auth/github/admin-enrollment/start",
+        new URLSearchParams({
+          bootstrap_secret: "bootstrap-secret-that-is-at-least-32-characters",
+        }),
+      )
+    } finally {
+      await original.close()
+    }
+    const selectedRevisionId = (
+      await prisma.authenticationProvider.findUniqueOrThrow({
+        where: { key: "github" },
+        select: { selectedRevisionId: true },
+      })
+    ).selectedRevisionId
+
+    await disableAuthenticationProviders()
+    const oldVersionAttempt = {
+      browserCookie: `old-version-browser-${"b".repeat(32)}`,
+      state: `old-version-state-${"s".repeat(32)}`,
+    }
+    await prisma.authorizationAttempt.create({
+      data: {
+        bootstrapSecretDigest: createHash("sha256")
+          .update("bootstrap-secret-that-is-at-least-32-characters")
+          .digest("hex"),
+        browserBindingDigest: createHash("sha256")
+          .update(oldVersionAttempt.browserCookie)
+          .digest("hex"),
+        codeVerifierCiphertext: "old-version-encrypted-verifier",
+        expiresAt: new Date(Date.now() + 60_000),
+        id: randomUUID(),
+        nonceCiphertext: "old-version-encrypted-nonce",
+        providerRevisionId: selectedRevisionId!,
+        purpose: "ADMIN_ENROLLMENT",
+        sessionRevocationRevision: 1,
+        stateDigest: createHash("sha256").update(oldVersionAttempt.state).digest("hex"),
+      },
+    })
+    const reenabled = await openServer([701], undefined, {
+      ...environment,
+      GITHUB_PROVIDER_REVISION: "2",
+    })
+    try {
+      const provider = await prisma.authenticationProvider.findUniqueOrThrow({
+        where: { key: "github" },
+        select: {
+          enabled: true,
+          selectedRevision: { select: { id: true, revision: true } },
+        },
+      })
+      expect(provider.enabled).toBe(true)
+      expect(provider.selectedRevision?.revision).toBe(2)
+      expect(typeof provider.selectedRevision?.id).toBe("string")
+      expect(provider.selectedRevision!.id).not.toBe(selectedRevisionId)
+
+      const stale = await completeAuthentication(reenabled.baseUrl, oldVersionAttempt)
+
+      expect(stale.headers.get("location")).toBe("/?authentication=denied")
+      expect(cookieValue(stale, "hub_session")).toBeNull()
+      expect(reenabled.providerRequest).not.toHaveBeenCalled()
+      expect(await prisma.user.count()).toBe(0)
+      expect(await prisma.externalIdentity.count()).toBe(0)
+      expect(await prisma.membership.count()).toBe(0)
+      expect(await prisma.membershipAssignment.count()).toBe(0)
+      expect(await prisma.hubSession.count()).toBe(0)
+
+      const replay = await completeAuthentication(reenabled.baseUrl, oldVersionAttempt)
+      expect(replay.headers.get("location")).toBe("/?authentication=denied")
+      expect(reenabled.providerRequest).not.toHaveBeenCalled()
+
+      const freshAttempt = await startAuthentication(
+        reenabled.baseUrl,
+        "/api/auth/github/admin-enrollment/start",
+        new URLSearchParams({
+          bootstrap_secret: "bootstrap-secret-that-is-at-least-32-characters",
+        }),
+      )
+      const fresh = await completeAuthentication(reenabled.baseUrl, freshAttempt)
+
+      expect(fresh.headers.get("location")).toBe("/?authentication=success")
+      expect(cookieValue(fresh, "hub_session")).toBeTruthy()
+      expect(reenabled.providerRequest).toHaveBeenCalledTimes(2)
+      expect(await prisma.membershipAssignment.count()).toBe(1)
+      expect(await prisma.hubSession.count()).toBe(1)
+    } finally {
+      await reenabled.close()
+    }
+  })
+
+  it("signs in the local developer as an administrator after local sign-in returns", async () => {
+    const environment = {
+      HUB_APPLICATION_ORIGIN: applicationOrigin,
+      HUB_AUTHENTICATION_ENCRYPTION_KEY: randomBytes(32).toString("base64"),
+      HUB_BOOTSTRAP_SECRET: "bootstrap-secret-that-is-at-least-32-characters",
+      HUB_LOCAL_SIGN_IN: "true",
+    }
+    async function signIn() {
+      const server = await openServer([], undefined, environment)
+      try {
+        const attempt = await startAuthentication(server.baseUrl, "/api/auth/local/start")
+        const callback = await fetch(
+          `${server.baseUrl}/api/auth/local/callback?code=local&state=${attempt.state}`,
+          {
+            headers: { cookie: `hub_auth_browser=${encodeURIComponent(attempt.browserCookie)}` },
+            redirect: "manual",
+          },
+        )
+        expect(callback.headers.get("location")).toBe("/?authentication=success")
+        const session = await fetch(`${server.baseUrl}/api/auth/session`, {
+          headers: {
+            cookie: `hub_session=${encodeURIComponent(cookieValue(callback, "hub_session")!)}`,
+          },
+        })
+        return (await session.json()) as unknown
+      } finally {
+        await server.close()
+      }
+    }
+
+    expect(await signIn()).toMatchObject({
+      login: "local-developer",
+      provider: "local",
+      role: "ADMINISTRATOR",
+    })
+    await disableAuthenticationProviders()
+
+    expect(await signIn()).toMatchObject({ provider: "local", role: "ADMINISTRATOR" })
+    expect(await prisma.membership.count()).toBe(1)
+    const provider = await prisma.authenticationProvider.findUniqueOrThrow({
+      where: { key: "local" },
+      select: { selectedRevision: { select: { revision: true } } },
+    })
+    expect(provider.selectedRevision?.revision).toBe(2)
+  })
+
+  it("fails closed when global revocation advances during provider network work", async () => {
+    const providerStarted = deferred<void>()
+    const tokenResponse = deferred<Response>()
+    const providerRequest = vi.fn<typeof fetch>((input) => {
+      const url = input instanceof Request ? input.url : input.toString()
+      if (url === "https://github.com/login/oauth/access_token") {
+        providerStarted.resolve()
+        return tokenResponse.promise
+      }
+      if (url === "https://api.github.com/user") {
+        return Promise.resolve(Response.json({ id: 702 }))
+      }
+      throw new Error(`Unexpected provider request: ${url}`)
+    })
+    const server = await openServer([702], undefined, runtimeEnvironment(), providerRequest)
+    try {
+      const attempt = await startAuthentication(
+        server.baseUrl,
+        "/api/auth/github/admin-enrollment/start",
+        new URLSearchParams({
+          bootstrap_secret: "bootstrap-secret-that-is-at-least-32-characters",
+        }),
+      )
+      const completion = completeAuthentication(server.baseUrl, attempt)
+      await providerStarted.promise
+      await prisma.sessionRevocationState.update({
+        where: { key: "global" },
+        data: { revision: { increment: 1 } },
+      })
+      tokenResponse.resolve(Response.json({ access_token: "provider-token", token_type: "bearer" }))
+
+      const response = await completion
+
+      expect(response.headers.get("location")).toBe("/?authentication=denied")
+      expect(cookieValue(response, "hub_session")).toBeNull()
+      expect(providerRequest).toHaveBeenCalledTimes(2)
+      expect(await prisma.user.count()).toBe(0)
+      expect(await prisma.externalIdentity.count()).toBe(0)
+      expect(await prisma.membership.count()).toBe(0)
+      expect(await prisma.membershipAssignment.count()).toBe(0)
+      expect(await prisma.hubSession.count()).toBe(0)
+    } finally {
+      tokenResponse.resolve(Response.json({ access_token: "unused", token_type: "bearer" }))
+      await server.close()
+    }
+  })
+
+  it("creates no identity when revocation advances immediately before identity mutation", async () => {
+    const providerStarted = deferred<void>()
+    const tokenResponse = deferred<Response>()
+    const providerRequest = vi.fn<typeof fetch>((input) => {
+      const url = input instanceof Request ? input.url : input.toString()
+      if (url === "https://github.com/login/oauth/access_token") {
+        providerStarted.resolve()
+        return tokenResponse.promise
+      }
+      if (url === "https://api.github.com/user") {
+        return Promise.resolve(Response.json({ id: 703 }))
+      }
+      throw new Error(`Unexpected provider request: ${url}`)
+    })
+    const server = await openServer([703], undefined, runtimeEnvironment(), providerRequest)
+    const locker = new pg.Client({ connectionString: getDatabaseUrl() })
+    const inspector = new pg.Client({ connectionString: getDatabaseUrl() })
+    await Promise.all([locker.connect(), inspector.connect()])
+    const lockerPid = (await locker.query<{ pid: number }>(`SELECT pg_backend_pid() AS pid`))
+      .rows[0]!.pid
+    try {
+      const attempt = await startAuthentication(
+        server.baseUrl,
+        "/api/auth/github/admin-enrollment/start",
+        new URLSearchParams({
+          bootstrap_secret: "bootstrap-secret-that-is-at-least-32-characters",
+        }),
+      )
+      await locker.query("BEGIN")
+      await locker.query(`SELECT id FROM authentication_providers WHERE key = 'github' FOR UPDATE`)
+      await locker.query(`LOCK TABLE users IN ACCESS EXCLUSIVE MODE`)
+
+      const completion = completeAuthentication(server.baseUrl, attempt)
+      await providerStarted.promise
+      tokenResponse.resolve(Response.json({ access_token: "provider-token", token_type: "bearer" }))
+      expect(await waitForAuthenticationCompletionLock(inspector, lockerPid)).not.toBeNull()
+      await locker.query(
+        `UPDATE session_revocation_states
+         SET revision = revision + 1, updated_at = clock_timestamp()
+         WHERE key = 'global'`,
+      )
+      await locker.query("COMMIT")
+
+      const response = await completion
+
+      expect(response.headers.get("location")).toBe("/?authentication=denied")
+      expect(cookieValue(response, "hub_session")).toBeNull()
+      expect(await prisma.user.count()).toBe(0)
+      expect(await prisma.externalIdentity.count()).toBe(0)
+      expect(await prisma.membership.count()).toBe(0)
+      expect(await prisma.membershipAssignment.count()).toBe(0)
+      expect(await prisma.hubSession.count()).toBe(0)
+      expect(
+        await prisma.securityAudit.count({
+          where: {
+            action: {
+              in: [
+                "identity.external.created",
+                "membership.created",
+                "membership.assignment.created",
+                "session.created",
+              ],
+            },
+          },
+        }),
+      ).toBe(0)
+    } finally {
+      tokenResponse.resolve(Response.json({ access_token: "unused", token_type: "bearer" }))
+      await Promise.allSettled([locker.query("ROLLBACK")])
+      await Promise.all([locker.end(), inspector.end(), server.close()])
+    }
+  })
+
   it("keeps bootstrap reusable for another administrator and restores removed authority", async () => {
     const server = await openServer([201, 202, 201, 201, 201])
     const secret = "bootstrap-secret-that-is-at-least-32-characters"
@@ -426,20 +733,22 @@ describe("Hub admission and session flow", () => {
       expect(oldSessions).toHaveLength(3)
 
       const alreadyEndedSession = oldSessions[0]!
-      const alreadyEndedAt = new Date()
+      const alreadyEndedAt = new Date(Date.now() + 1_000)
       await prisma.hubSession.update({
         where: { id: alreadyEndedSession.id },
         data: { endedAt: alreadyEndedAt },
       })
 
-      await prisma.membership.update({
-        where: { id: firstMembershipId },
-        data: { lifecycle: "REMOVED" },
-      })
-      await prisma.membershipAssignment.updateMany({
-        where: { membershipId: firstMembershipId },
-        data: { lifecycle: "REVOKED" },
-      })
+      await prisma.$executeRaw`
+        UPDATE "memberships"
+        SET "lifecycle" = 'REMOVED', "updated_at" = clock_timestamp()
+        WHERE "id" = ${firstMembershipId}::uuid
+      `
+      await prisma.$executeRaw`
+        UPDATE "membership_assignments"
+        SET "lifecycle" = 'REVOKED', "updated_at" = clock_timestamp()
+        WHERE "membership_id" = ${firstMembershipId}::uuid
+      `
       const assignmentRestoreAuditsBefore = await prisma.securityAudit.count({
         where: { action: "membership.assignment.restored" },
       })
@@ -592,9 +901,24 @@ describe("Hub admission and session flow", () => {
   })
 
   it("does not admit an active member assignment", async () => {
+    const providerId = randomUUID()
+    const providerRevisionId = randomUUID()
     const userId = randomUUID()
     const identityId = randomUUID()
     const membershipId = randomUUID()
+    await prisma.$transaction(async (transaction) => {
+      await transaction.authenticationProvider.create({
+        data: { enabled: false, id: providerId, key: "disabled-fixture-provider" },
+      })
+      await transaction.authenticationProviderRevision.create({
+        data: {
+          configurationDigest: "f".repeat(64),
+          id: providerRevisionId,
+          providerId,
+          revision: 1,
+        },
+      })
+    })
     await prisma.user.create({ data: { id: userId } })
     await prisma.externalIdentity.create({
       data: {
@@ -613,7 +937,9 @@ describe("Hub admission and session flow", () => {
         id: randomUUID(),
         membershipId,
         externalIdentityId: identityId,
-        source: "BOOTSTRAP",
+        providerAssignmentSubject: randomUUID(),
+        providerRevisionId,
+        source: "AUTHENTICATION_PROVIDER",
         role: "MEMBER",
       },
     })
@@ -659,29 +985,44 @@ describe("Hub admission and session flow", () => {
       )
       const enrolled = await completeAuthentication(server.baseUrl, enrollment)
       const session = cookieValue(enrolled, "hub_session")!
-      await prisma.membership.updateMany({ data: { lifecycle: "SUSPENDED" } })
+      await prisma.$executeRaw`
+        UPDATE "memberships"
+        SET "lifecycle" = 'SUSPENDED', "updated_at" = clock_timestamp()
+      `
       const suspended = await fetch(`${server.baseUrl}/api/auth/session`, {
         headers: { cookie: `hub_session=${encodeURIComponent(session)}` },
       })
       expect(suspended.status).toBe(401)
       expect(suspended.headers.get("set-cookie")).toBeNull()
 
-      await prisma.membership.updateMany({ data: { lifecycle: "ACTIVE" } })
+      await prisma.$executeRaw`
+        UPDATE "memberships"
+        SET "lifecycle" = 'ACTIVE', "updated_at" = clock_timestamp()
+      `
       const secondSignIn = await startAuthentication(server.baseUrl, "/api/auth/github/start")
       const secondSignedIn = await completeAuthentication(server.baseUrl, secondSignIn)
       const secondSession = cookieValue(secondSignedIn, "hub_session")!
-      await prisma.membershipAssignment.updateMany({ data: { lifecycle: "REVOKED" } })
+      await prisma.$executeRaw`
+        UPDATE "membership_assignments"
+        SET "lifecycle" = 'REVOKED', "updated_at" = clock_timestamp()
+      `
       expect(
         await fetch(`${server.baseUrl}/api/auth/session`, {
           headers: { cookie: `hub_session=${encodeURIComponent(secondSession)}` },
         }),
       ).toMatchObject({ status: 401 })
 
-      await prisma.membershipAssignment.updateMany({ data: { lifecycle: "ACTIVE" } })
+      await prisma.$executeRaw`
+        UPDATE "membership_assignments"
+        SET "lifecycle" = 'ACTIVE', "updated_at" = clock_timestamp()
+      `
       const thirdSignIn = await startAuthentication(server.baseUrl, "/api/auth/github/start")
       const thirdSignedIn = await completeAuthentication(server.baseUrl, thirdSignIn)
       const thirdSession = cookieValue(thirdSignedIn, "hub_session")!
-      await prisma.membership.updateMany({ data: { lifecycle: "REMOVED" } })
+      await prisma.$executeRaw`
+        UPDATE "memberships"
+        SET "lifecycle" = 'REMOVED', "updated_at" = clock_timestamp()
+      `
       expect(
         await fetch(`${server.baseUrl}/api/auth/session`, {
           headers: { cookie: `hub_session=${encodeURIComponent(thirdSession)}` },

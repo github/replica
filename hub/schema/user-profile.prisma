@@ -1,0 +1,20 @@
+model UserProfile {
+  // ID columns
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @unique @map("user_id") @db.Uuid
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  // Attribute columns
+  provider String  @db.VarChar(100)
+  login    String  @db.VarChar(200)
+  name     String? @db.VarChar(200)
+
+  // Timestamp columns
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([login])
+  @@map("user_profiles")
+}

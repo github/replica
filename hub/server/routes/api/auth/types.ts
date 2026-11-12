@@ -1,4 +1,5 @@
 import type { AuthenticationProofResult } from "../../../domains/authentication/types.ts"
+import type { SecurityAuditListResult } from "../../../repositories/security-audits/list-security-audits/types.ts"
 
 export interface RateLimitDependencies {
   checkRateLimit(
@@ -23,14 +24,39 @@ export interface StartAdministratorEnrollmentDependencies extends StartAuthentic
 }
 
 export interface AuthenticationCallbackDependencies extends RateLimitDependencies {
+  callbackIssuer?: string
   secureCookie: boolean
-  complete(input: {
-    browserBinding: string
-    code: string
-    state: string
-  }): Promise<{ proof: AuthenticationProofResult }>
+  complete(input: { browserBinding: string; code: string; state: string }): Promise<{
+    purpose: "SIGN_IN" | "ADMIN_ENROLLMENT" | "ADMINISTRATOR_MANAGEMENT"
+    sensitiveAuthorizationId?: string
+    proof: AuthenticationProofResult
+    providerAssignment?: {
+      assignmentSubject: string | null
+      issuedAt: Date
+      providerRevisionId: string
+      role: "MEMBER" | "ADMINISTRATOR" | null
+    }
+  }>
+  verifyAdministratorAuthorization?(input: {
+    authorizationAttemptId: string
+    externalIdentityId: string
+    providerAssignment?: {
+      assignmentSubject: string | null
+      issuedAt: Date
+      providerRevisionId: string
+      role: "MEMBER" | "ADMINISTRATOR" | null
+    }
+    sessionDigest: string
+    sensitiveAuthorizationId: string
+  }): Promise<boolean>
   admit(input: {
     proof: AuthenticationProofResult
+    providerAssignment?: {
+      assignmentSubject: string | null
+      issuedAt: Date
+      providerRevisionId: string
+      role: "MEMBER" | "ADMINISTRATOR" | null
+    }
     sessionDigest: string
     sessionId: string
   }): Promise<{
@@ -39,7 +65,14 @@ export interface AuthenticationCallbackDependencies extends RateLimitDependencie
 }
 
 export interface CurrentSessionDependencies {
-  restore(sessionDigest: string): Promise<true | null>
+  restore(sessionDigest: string): Promise<{
+    membershipId: string
+    userId: string
+    provider: string
+    login: string
+    name: string | null
+    role: "MEMBER" | "ADMINISTRATOR"
+  } | null>
 }
 
 export interface SignOutDependencies {
@@ -49,9 +82,62 @@ export interface SignOutDependencies {
 }
 
 export interface AuthenticationRouteDependencies {
-  callback: AuthenticationCallbackDependencies
+  administrators?: AdministratorRouteDependencies
   currentSession: CurrentSessionDependencies
-  signIn: StartAuthenticationDependencies
+  entra?: ProviderAuthenticationRouteDependencies
+  github?: ProviderAuthenticationRouteDependencies
+  local?: ProviderAuthenticationRouteDependencies
   signOut: SignOutDependencies
+}
+
+export interface ProviderAuthenticationRouteDependencies {
+  administratorAuthorization?: StartAdministratorAuthorizationDependencies
   administratorEnrollment: StartAdministratorEnrollmentDependencies
+  callback: AuthenticationCallbackDependencies
+  signIn: StartAuthenticationDependencies
+}
+
+export interface StartAdministratorAuthorizationDependencies extends RateLimitDependencies {
+  applicationOrigin: string
+  secureCookie: boolean
+  start(input: {
+    actorMembershipId: string
+    externalIdentityId: string
+    hubSessionId: string
+    operation: "DESIGNATE_ADMINISTRATORS" | "REVOKE_ADMINISTRATOR"
+    targetMembershipIds: string[]
+  }): Promise<{
+    authorizationId: string
+    authorizationUrl: string
+    browserBinding: string
+    expiresAt: Date
+  }>
+}
+
+export interface AdministratorRouteDependencies {
+  applicationOrigin: string
+  cancel(input: { authorizationId: string; hubSessionId: string }): Promise<boolean>
+  continue(input: {
+    authorizationId: string
+    hubSessionId: string
+    operation: "DESIGNATE_ADMINISTRATORS" | "REVOKE_ADMINISTRATOR"
+    targetMembershipIds: string[]
+  }): Promise<unknown>
+  findSession(sessionDigest: string): Promise<{
+    externalIdentityId: string
+    id: string
+    membershipId: string
+    providerKey: string
+  } | null>
+  getAuthorization(input: { authorizationId: string; hubSessionId: string }): Promise<unknown>
+  list(input: {
+    before?: { createdAt: Date; membershipId: string }
+    limit?: number
+  }): Promise<unknown>
+  listSecurityAudits(input: {
+    before?: { createdAt: Date; id: string }
+    limit?: number
+  }): Promise<SecurityAuditListResult>
+  search(input: { limit?: number; query: string }): Promise<unknown>
+  start: Partial<Record<"entra" | "github" | "local", StartAdministratorAuthorizationDependencies>>
 }

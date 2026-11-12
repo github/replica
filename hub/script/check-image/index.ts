@@ -72,10 +72,13 @@ export async function checkImage() {
     )
     databaseCreated = true
     const deadline = Date.now() + 60_000
+    // The initialization server accepts Unix sockets before TCP is ready.
     while (
-      spawnSync("docker", ["exec", database, "pg_isready", "-U", "replica", "-d", "replica"], {
-        stdio: "ignore",
-      }).status !== 0
+      spawnSync(
+        "docker",
+        ["exec", database, "pg_isready", "-h", "127.0.0.1", "-U", "replica", "-d", "replica"],
+        { stdio: "ignore" },
+      ).status !== 0
     ) {
       assert(Date.now() < deadline, "PostgreSQL did not become ready")
       await new Promise((resolve) => setTimeout(resolve, 500))

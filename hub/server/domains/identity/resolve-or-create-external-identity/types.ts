@@ -1,9 +1,14 @@
 import type { CreateSecurityAuditEvent } from "../../../repositories/security-audits/create-security-audit/types.ts"
-import type { IdentityCreationTransaction } from "../run-identity-creation-transaction/types.ts"
+import type {
+  IdentityCreationRepositories,
+  IdentityCreationTransaction,
+} from "../run-identity-creation-transaction/types.ts"
 
 export interface ResolveOrCreateExternalIdentityDependencies {
   createId(): string
+  isExpectedTransactionDenial?(error: unknown): boolean
   runTransaction: IdentityCreationTransaction
+  validateTransaction?(repositories: IdentityCreationRepositories): Promise<void>
   writeAudit(input: CreateSecurityAuditEvent): Promise<unknown>
 }
 

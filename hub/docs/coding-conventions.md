@@ -13,15 +13,26 @@ Follow the [database conventions](database.md#schema-conventions) for Prisma mod
 - Omit `/index.ts` and `/index.tsx` from imports in frontend code and Vitest tests. Keep explicit `.ts` file paths in server runtime and Node-loaded tooling, including Storybook configuration. Native Node does not resolve directory imports; the server compiler rewrites its paths for production.
 - Keep HTTP parsing and responses outside domains. Validate input and return explicit errors when introducing real API behavior.
 
+React Router Framework entry modules under `application/hub/` are the exception to the one-function export rule. The framework discovers these exports together:
+
+- The default route component.
+- Named loaders and actions.
+- Metadata, layout, and error boundary exports.
+
+Keep reusable request functions and view-model adapters in their own function directories.
+
+Route loaders, actions, and their URL or form readers can throw a `Response` to select React Router's status-aware error feedback. The lint exception is limited to those entry points; ordinary request and application errors remain `Error` instances.
+
 ## Frontend layers
 
 Application code imports Pages, Pages import Features, and Features import Components, hooks, and utilities. Imports must not point back up these layers. Keep presentation props typed and independent of a backend framework.
 
-Preserve the existing `app/javascript/{application,pages,features,components,hooks,utils}/` layout. Keep page orchestration in application code rather than hiding requests or authorization inside presentation.
+Preserve the existing `client/{application,pages,features,components,hooks,utils}/` layout. Keep page orchestration in application code rather than hiding requests or authorization inside presentation.
 
 ## Interface
 
-- Use Primer Brand components and tokens first. Hub-owned styles use the semantic `--hub-*` mappings in `app/javascript/tokens/base.css`.
+- Use Primer Brand components and tokens first. Hub-owned styles use the semantic `--hub-*` mappings in `client/tokens/base.css`.
+- Verify every exact `--hub-*` token exists in the semantic mappings. Stories and tests must use states reachable through the runtime contract rather than inventing presentation-only states.
 - When Brand lacks an app primitive, build a focused, accessible Hub-owned control instead of importing `@primer/react`.
 - Keep `HubThemeProvider` around application and Storybook content so portals inherit the resolved theme.
 - Use Storybook as the presentation workbench and add or update colocated stories for meaningful visual changes.

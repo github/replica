@@ -28,7 +28,16 @@ export async function consumeAuthorizationAttempt(
       `
       if (!locked.length) return null
       const consumed = await transaction.$queryRaw<
-        Array<{ id: string; code_verifier_ciphertext: string; provider_revision_id: string }>
+        Array<{
+          id: string
+          code_verifier_ciphertext: string
+          created_at: Date
+          nonce_ciphertext: string | null
+          purpose: "SIGN_IN" | "ADMIN_ENROLLMENT" | "ADMINISTRATOR_MANAGEMENT"
+          provider_revision_id: string
+          sensitive_authorization_id: string | null
+          session_revocation_revision: number
+        }>
       >`
         UPDATE "authorization_attempts"
         SET "consumed_at" = clock_timestamp(), "updated_at" = clock_timestamp()
@@ -36,14 +45,29 @@ export async function consumeAuthorizationAttempt(
           AND "browser_binding_digest" = ${parsed.browserBindingDigest}
           AND "consumed_at" IS NULL
           AND "expires_at" > clock_timestamp()
-        RETURNING "id", "code_verifier_ciphertext", "provider_revision_id"
+        RETURNING
+          "id",
+          "code_verifier_ciphertext",
+          "created_at",
+          "nonce_ciphertext",
+          "purpose",
+          "provider_revision_id",
+          "sensitive_authorization_id",
+          "session_revocation_revision"
       `
       const attempt = consumed[0]
       return attempt
         ? {
             id: attempt.id,
             codeVerifierCiphertext: attempt.code_verifier_ciphertext,
+            createdAt: attempt.created_at,
+            nonceCiphertext: attempt.nonce_ciphertext,
+            purpose: attempt.purpose,
             providerRevisionId: attempt.provider_revision_id,
+            ...(attempt.sensitive_authorization_id
+              ? { sensitiveAuthorizationId: attempt.sensitive_authorization_id }
+              : {}),
+            sessionRevocationRevision: attempt.session_revocation_revision,
           }
         : null
     },

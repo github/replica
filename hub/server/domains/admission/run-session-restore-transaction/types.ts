@@ -2,17 +2,28 @@ import type { Prisma } from "../../../generated/prisma/client.ts"
 
 export interface SessionRestoreRepositories {
   findSession(digest: string): Promise<{
+    externalIdentityId: string | null
     id: string
     membershipId: string
     revocationRevision: number
   } | null>
   getRevocation(): Promise<{ revision: number } | null>
-  lockActiveAssignment(membershipId: string): Promise<boolean>
+  getActiveProviderKeys(membershipId: string): Promise<string[]>
+  lockActiveAssignments(membershipId: string): Promise<
+    Array<{
+      id: string
+      role: "MEMBER" | "ADMINISTRATOR"
+      source: "BOOTSTRAP" | "AUTHENTICATION_PROVIDER" | "HUB_ADMINISTRATOR"
+    }>
+  >
   lockMembership(membershipId: string): Promise<{
     id: string
     lifecycle: "ACTIVE" | "SUSPENDED" | "REMOVED"
+    userId: string
   } | null>
+  lockProvider(key: string): Promise<{ enabled: boolean; id: string } | null>
   lockSession(digest: string): Promise<{
+    externalIdentityId: string | null
     id: string
     membershipId: string
     revocationRevision: number

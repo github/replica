@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Team workspace</title>
+    <style>
+      :root {
+        --preview-canvas-default: light-dark(white, #151b23);
+        --preview-canvas-subtle: light-dark(#f6f8fa, #0d1117);
+        --preview-fg-default: light-dark(#1f2328, #f0f6fc);
+        --preview-fg-muted: light-dark(#59636e, #9198a1);
+        --preview-fg-link: light-dark(#0969da, #79c0ff);
+        --preview-border-default: light-dark(#d1d9e0, #3d444d);
+        color-scheme: light dark;
+        font-family: system-ui, sans-serif;
+      }
+      body {
+        margin: 0;
+        background: var(--preview-canvas-subtle);
+        color: var(--preview-fg-default);
+      }
+      header,
+      main {
+        max-width: 64rem;
+        margin: auto;
+        padding: 2rem;
+      }
+      header {
+        display: flex;
+        justify-content: space-between;
+        border-bottom: 1px solid var(--preview-border-default);
+      }
+      a {
+        color: var(--preview-fg-link);
+      }
+      h1 {
+        font-size: clamp(2rem, 5vw, 4rem);
+        margin-block: 2rem 1rem;
+      }
+      .cards {
+        --card-spacing: 1;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+        gap: calc(var(--card-spacing) * 1rem);
+        margin-block: 2rem;
+      }
+      article {
+        background: var(--preview-canvas-default);
+        padding: 1.5rem;
+        border: 1px solid var(--preview-border-default);
+        border-radius: 0.75rem;
+      }
+      .notice {
+        color: var(--preview-fg-muted);
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <strong>Prototype workspace</strong>
+      <a href="#details">Explore the workspace</a>
+    </header>
+    <main>
+      <p class="notice">Your team's workspace</p>
+      <h1 id="name">Welcome to the prototype</h1>
+      <p id="description">Bring your projects, conversations, and next steps together.</p>
+      <div class="cards" id="details">
+        <article>
+          <h2>Explore</h2>
+          <p>Find current projects and see what your team is working on.</p>
+        </article>
+        <article>
+          <h2>Refine</h2>
+          <p>Turn feedback into clear decisions and useful next steps.</p>
+        </article>
+        <article>
+          <h2>Compare</h2>
+          <p>Review recent changes and follow how an idea develops.</p>
+        </article>
+      </div>
+    </main>
+    <script>
+      const name = new URLSearchParams(location.search).get("prototype")
+      if (name) document.getElementById("name").textContent = name
+      window.prototypePreview = {
+        readDescription() {
+          return !document.getElementById("description").hidden
+        },
+        writeDescription(visible) {
+          document.getElementById("description").hidden = !visible
+        },
+      }
+    </script>
+    <script src="/previews/controls-bridge.js"></script>
+    <script src="/previews/bridge.js"></script>
+  </body>
+</html>

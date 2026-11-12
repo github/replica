@@ -6,9 +6,13 @@ import * as prettier from "prettier"
 const project = fileURLToPath(
   new URL("../../.github/extensions/replica-prototype/tsconfig.json", import.meta.url),
 )
+// Resolve the CLI rather than the package entry, which exposes the compiler API.
+const compiler = fileURLToPath(
+  new URL("./bin/tsc", import.meta.resolve("@typescript/native/package.json")),
+)
 const compilation = spawnSync(
-  "tsc",
-  ["--project", project, "--noEmit", "false", "--listEmittedFiles"],
+  process.execPath,
+  [compiler, "--project", project, "--noEmit", "false", "--listEmittedFiles"],
   { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] },
 )
 

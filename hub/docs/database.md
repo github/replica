@@ -16,6 +16,8 @@ Hub requires PostgreSQL 17 or newer. Choose a stable supported major available f
 - Put each model in a kebab-case `.prisma` file and each enum in a kebab-case `.enum.prisma` file.
 - Store migrations in `schema/migrations/` and commit them with their schema changes.
 
+Assign schema and enum values to the earliest accepted stack layer that needs them, including an imminent dependent layer with an agreed contract. Do not add speculative product values without an accepted consumer.
+
 Use singular PascalCase model and enum names. Follow these field and table conventions:
 
 - Map every model to a plural `snake_case` table with `@@map`.
@@ -67,6 +69,22 @@ npm run db:generate
 `npm ci` also generates the client. Generated TypeScript lives under the ignored `server/generated/prisma/` directory and compiles with the API. Schema validation and generation do not require a running database or `DATABASE_URL`; migration and database commands require both. Generate again after changing a schema.
 
 Use `db:migrate` only with a local development database. It needs permission to create a shadow database to calculate migrations. `npm run db:deploy` applies committed migrations without creating new ones; database tests use this command so constraints in committed migrations are exercised. It is not a production deployment setup. `npm run db:studio` opens Prisma's database editor and should be used only with an intended development database.
+
+Prefer idiomatic Prisma operations for ordinary create, read, update, and delete behavior. Use raw SQL only for a named semantic Prisma cannot express, such as row locks, `SKIP LOCKED`, atomic returning behavior, partial-index behavior, or database-owned time. Cover that semantic with a focused PostgreSQL test.
+
+Keep ordinary value and shape validation in application code. Add a database guard only for a named cross-writer, concurrency, or history invariant that every writer must preserve. Document the invariant and cover its rejection behavior.
+
+For prototypes, one active branch has one identity per repository, including concurrent writes. Retired branches keep their history. A registered prototype must have a nonblank name and cannot be a replica branch.
+
+A Build number is positive and unique within its prototype. A known commit SHA uses 40 or 64 lowercase hexadecimal characters and is also unique within its prototype. A prototype's current Build, if set, belongs to that prototype.
+
+Builds retain the author's provider, issuer, and provider user ID independently of Hub user IDs. For a workflow Build, the author is the Git commit author. Those three identity values must be present together or absent together. Login, name, and avatar are snapshots and may be unavailable. When Build timestamps are present, they must match its state; older Builds may keep both timestamps unknown. A failure summary belongs only to a failed Build and is limited to 1,000 bytes.
+
+Builds created before commit metadata was stored retain `NULL` for unknown values during the upgrade. A later detail API must represent missing values rather than inventing them. This migration does not import Rails records or map their integer IDs.
+
+PostgreSQL `CHECK` expressions accept `NULL` unless the expression explicitly rejects it. Write nullable-branch checks so every invalid `NULL` combination evaluates to false. Design indexes from the real equality, range, ordering, and partial predicates used by lock, restore, and lookup queries.
+
+Validate schema changes on both a fresh database and an upgrade from the exact base. Migration tests should seed representative base records and prove required data, backfills, relationships, and constraints after deployment. Do not enumerate the complete migration, table, column, or index inventory. Split PostgreSQL enum additions from statements that use the new values when transactional enum visibility requires a committed boundary.
 
 ## Deployment database roles
 

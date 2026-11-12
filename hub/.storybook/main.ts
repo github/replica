@@ -17,16 +17,18 @@ const config = {
     { from: "./preview-fixtures/build-controls-definitions", to: "/" },
   ],
   stories: [
-    "../app/javascript/application/**/stories.tsx",
-    "../app/javascript/components/**/stories.tsx",
-    "../app/javascript/features/**/stories.tsx",
-    "../app/javascript/pages/**/stories.tsx",
-    "../app/javascript/storybook/**/stories.tsx",
+    "../client/application/**/stories.tsx",
+    "../client/components/**/stories.tsx",
+    "../client/features/**/stories.tsx",
+    "../client/pages/**/stories.tsx",
+    "../client/storybook/**/stories.tsx",
   ],
   addons: ["@storybook/addon-docs", "@storybook/addon-a11y"],
   framework: {
     name: "@storybook/react-vite",
-    options: {},
+    options: {
+      builder: { viteConfigPath: "./.storybook/vite.config.ts" },
+    },
   },
   docs: {
     defaultName: "Documentation",

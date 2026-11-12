@@ -6,19 +6,19 @@ import { viteAliases } from "../vite-aliases.ts"
 const check = process.argv.includes("--check")
 for (const [entry, destination, fileName, name] of [
   [
-    "app/javascript/utils/prototype-controls/browser-entry.mjs",
-    "app/javascript/utils/prototype-controls/",
+    "client/utils/prototype-controls/browser-entry.mjs",
+    "client/utils/prototype-controls/",
     "browser.js",
     "ReplicaControlsAdapter",
   ],
   [
-    "app/javascript/features/install-replica-controls-bridge/index.ts",
-    "app/javascript/features/install-replica-controls-bridge/",
+    "client/features/install-replica-controls-bridge/index.ts",
+    "client/features/install-replica-controls-bridge/",
     "bridge.js",
     "ReplicaBuildControlsBridge",
   ],
   [
-    "app/javascript/features/build-controls/story-preview/index.ts",
+    "client/features/build-controls/story-preview/index.ts",
     ".storybook/preview-fixtures/build-controls/",
     "controls.js",
     "ReplicaBuildControlsStory",

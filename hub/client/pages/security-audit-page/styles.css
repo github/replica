@@ -1,0 +1,107 @@
+.security-audit-page {
+  display: grid;
+  gap: 1.5rem;
+  max-width: 75rem;
+  margin-inline: auto;
+  padding: 1.5rem;
+}
+
+.security-audit-page__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.security-audit-page__scope {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--base-size-8);
+}
+
+.security-audit-page__records {
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-gutter: stable;
+}
+
+.security-audit-page table {
+  width: 100%;
+  min-width: 52rem;
+  table-layout: fixed;
+  border-collapse: collapse;
+  background: var(--hub-canvas-default);
+}
+
+.security-audit-page th,
+.security-audit-page td {
+  padding: 0.75rem;
+  border-bottom: 1px solid var(--hub-border-default);
+  text-align: start;
+  vertical-align: top;
+  overflow-wrap: break-word;
+}
+
+.security-audit-page__caption {
+  text-align: start;
+  font-weight: 600;
+}
+
+.security-audit-page th:nth-child(1),
+.security-audit-page td:nth-child(1) {
+  width: 23%;
+}
+
+.security-audit-page th:nth-child(2),
+.security-audit-page td:nth-child(2) {
+  width: 21%;
+}
+
+.security-audit-page th:nth-child(3),
+.security-audit-page td:nth-child(3) {
+  width: 19%;
+}
+
+.security-audit-page th:nth-child(4),
+.security-audit-page td:nth-child(4) {
+  width: 25%;
+}
+
+.security-audit-page th:nth-child(5),
+.security-audit-page td:nth-child(5) {
+  width: 12%;
+}
+
+.security-audit-page td:nth-child(1),
+.security-audit-page td:nth-child(5) {
+  white-space: nowrap;
+}
+
+.security-audit-page td:nth-child(2) code {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.security-audit-page td:nth-child(3) {
+  overflow-wrap: anywhere;
+}
+
+.security-audit-page__context {
+  display: grid;
+  gap: var(--base-size-8);
+  margin: 0;
+}
+
+.security-audit-page__context div {
+  display: grid;
+  gap: var(--base-size-4);
+}
+
+.security-audit-page__context dt {
+  font-weight: 600;
+}
+
+.security-audit-page__context dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}

@@ -81,12 +81,36 @@ async function createAdmissionAuthority() {
 }
 
 describe("admission database guards", () => {
+  it("deploys provider assignment enum values at the supported PostgreSQL minimum or newer", async () => {
+    const server = await prisma.$queryRaw<Array<{ serverMajor: number }>>`
+      SELECT current_setting('server_version_num')::integer / 10000 AS "serverMajor"
+    `
+    expect(server[0]!.serverMajor).toBeGreaterThanOrEqual(17)
+
+    const values = await prisma.$queryRaw<Array<{ enumName: string; value: string }>>`
+      SELECT type.typname AS "enumName", value.enumlabel AS value
+      FROM pg_type type
+      JOIN pg_enum value ON value.enumtypid = type.oid
+      WHERE type.typname IN ('MembershipAssignmentLifecycle', 'MembershipAssignmentSource')
+      ORDER BY type.typname, value.enumsortorder
+    `
+    expect(values).toEqual([
+      { enumName: "MembershipAssignmentLifecycle", value: "ACTIVE" },
+      { enumName: "MembershipAssignmentLifecycle", value: "SUPERSEDED" },
+      { enumName: "MembershipAssignmentLifecycle", value: "REVOKED" },
+      { enumName: "MembershipAssignmentSource", value: "BOOTSTRAP" },
+      { enumName: "MembershipAssignmentSource", value: "AUTHENTICATION_PROVIDER" },
+      { enumName: "MembershipAssignmentSource", value: "HUB_ADMINISTRATOR" },
+    ])
+  })
+
   it("keeps the authorization attempt purpose selected by the server", async () => {
     const providerRevisionId = await createProviderRevision()
     const attempt = await prisma.authorizationAttempt.create({
       data: {
         id: randomUUID(),
         providerRevisionId,
+        sessionRevocationRevision: 0,
         stateDigest: "a".repeat(64),
         browserBindingDigest: "b".repeat(64),
         codeVerifierCiphertext: "encrypted",
@@ -116,6 +140,7 @@ describe("admission database guards", () => {
       data: {
         id: randomUUID(),
         providerRevisionId,
+        sessionRevocationRevision: 0,
         stateDigest: "a".repeat(64),
         browserBindingDigest: "b".repeat(64),
         codeVerifierCiphertext: "encrypted",
@@ -208,6 +233,43 @@ describe("admission database guards", () => {
     await expect(
       prisma.membershipAssignment.delete({ where: { id: assignmentId } }),
     ).rejects.toThrow("history cannot be deleted")
+  })
+
+  it("requires provider provenance while allowing bootstrap provenance to remain null", async () => {
+    const providerRevisionId = await createProviderRevision()
+    const { firstIdentityId, firstMembershipId } = await createAdmissionAuthority()
+
+    await expect(
+      prisma.$executeRaw`
+        INSERT INTO membership_assignments (
+          id,
+          membership_id,
+          external_identity_id,
+          provider_revision_id,
+          source,
+          role,
+          provider_assignment_subject
+        ) VALUES (
+          ${randomUUID()}::uuid,
+          ${firstMembershipId}::uuid,
+          ${firstIdentityId}::uuid,
+          ${providerRevisionId}::uuid,
+          'AUTHENTICATION_PROVIDER',
+          'MEMBER',
+          NULL
+        )
+      `,
+    ).rejects.toThrow()
+
+    await expect(
+      prisma.membershipAssignment.findUniqueOrThrow({
+        where: { id: (await prisma.membershipAssignment.findFirstOrThrow()).id },
+        select: { providerAssignmentSubject: true, source: true },
+      }),
+    ).resolves.toEqual({
+      providerAssignmentSubject: null,
+      source: "BOOTSTRAP",
+    })
   })
 
   it("allows one session termination while preserving session history", async () => {

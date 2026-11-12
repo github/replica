@@ -1,0 +1,19 @@
+.hub-app-frame {
+  min-block-size: 100dvh;
+}
+
+.hub-route-outlet {
+  min-block-size: 100dvh;
+}
+
+@media (width < 48rem) {
+  .hub-app-frame > #app {
+    min-block-size: 100dvh;
+  }
+
+  .hub-application,
+  .hub-route-outlet {
+    min-block-size: 0;
+    block-size: 100dvh;
+  }
+}

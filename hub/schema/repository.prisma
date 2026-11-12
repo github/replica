@@ -1,0 +1,18 @@
+model Repository {
+  // ID columns
+  id String @id @default(uuid()) @db.Uuid
+
+  // Relations
+  prototypes Prototype[]
+
+  // Attribute columns
+  nameWithOwner String    @map("name_with_owner") @db.VarChar(255)
+  defaultBranch String    @map("default_branch") @db.VarChar(255)
+  removedAt     DateTime? @map("removed_at") @db.Timestamptz(3)
+
+  // Timestamp columns
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("repositories")
+}

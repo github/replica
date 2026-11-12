@@ -1,6 +1,10 @@
 # Hub development
 
-Use the Hub devcontainer for Node.js and its pinned PostgreSQL version, or run Node.js locally with PostgreSQL 17 or newer. Hub can expose GitHub sign-in and reusable administrator enrollment when every authentication setting is configured. See [Deployment](deployment.md) for the production runtime.
+Use the Hub devcontainer for Node.js and its pinned PostgreSQL version, or run Node.js locally with PostgreSQL 17 or newer. Hub can expose GitHub, Microsoft Entra, or both sign-in choices and reusable administrator enrollment when the shared settings and at least one provider profile are configured. See [Deployment](deployment.md) for the production runtime.
+
+## Frontend without a backend
+
+Follow [Routed frontend](frontend.md) for local startup, data modes, and route examples. The local frontend can run without PostgreSQL or the API server.
 
 ## Devcontainer
 
@@ -10,6 +14,8 @@ Compose starts the app container after PostgreSQL is healthy. Both images use De
 
 The repository is mounted at `/workspaces/replica`, with `hub/` as the working directory. Compose supplies `DATABASE_URL` with the `db` service hostname. Local database credentials in Compose are for development only. The database port is published only on host loopback.
 
+After the container opens and PostgreSQL is healthy, run `npm run setup` before starting `npm run dev:api`. Run setup again after pulling new migrations.
+
 ## Local Node.js
 
 Use npm and a Node.js version supported by `engines.node` in `hub/package.json`. From `hub/`, start only the database and copy the local configuration:
@@ -18,13 +24,23 @@ Use npm and a Node.js version supported by `engines.node` in `hub/package.json`.
 docker compose -f .devcontainer/compose.yaml up -d db
 cp .env.example .env
 npm ci --engine-strict
+npm run setup
 ```
 
-The example URL connects to PostgreSQL on `127.0.0.1:5432`. To use another development database, set `DATABASE_URL` in `.env` instead. Do not commit credentials. The health route does not query the database. Authentication routes require the database and remain unavailable until their settings are configured.
+The example URL connects to PostgreSQL on `127.0.0.1:5432`. To use another development database, set `DATABASE_URL` in `.env` instead. Do not commit credentials. With `DATABASE_URL` set, API startup requires a reachable, migrated database so it can reconcile configured providers and durably disable removed providers before serving requests. Run `npm run setup` after creating or updating the database and before `npm run dev:api`.
 
-## Start the app
+For a true process-only health check without database or authentication composition, leave `DATABASE_URL` and all authentication settings unset and run `node server/index.ts` directly. The health route itself does not query the database, but a database-backed API still fails closed at startup when the database is unreachable or its schema has not been set up.
 
-Run these commands from `hub/`, inside the devcontainer or with local Node.js:
+## Start with the real API
+
+Run these commands from `hub/`, inside the devcontainer or with local Node.js. First choose how you will sign in:
+
+| Command | Sign-in | Use it when |
+| --- | --- | --- |
+| `npm run dev:api` | One fixed local developer who is a Hub administrator | You want to try or test Hub without setting up a sign-in provider. This is the default. |
+| `npm run dev:api:live` | GitHub or Entra, as configured in `.env` | You are testing provider sign-in, administrator enrollment through a provider, or real user identities. |
+
+For example, to start with local sign-in:
 
 ```sh
 npm run dev:api
@@ -36,11 +52,29 @@ In a second terminal, also from `hub/`, start Vite:
 npm run dev
 ```
 
-Open <http://127.0.0.1:5173>. Vite serves the frontend and forwards `/api` requests to Express at <http://127.0.0.1:3001>. `GET /api/health` and `GET /api/ready` return JSON. The [authentication and Hub session guide](authentication.md) describes the configured sign-in routes.
+Open <http://127.0.0.1:5173>. React Router's Vite development server forwards `/api` requests to Express at <http://127.0.0.1:3001>. `GET /api/health` and `GET /api/ready` return JSON. The [authentication and Hub session guide](authentication.md) describes configured sign-in and enrollment. A signed-in member opens the first available repository, or an empty workspace when none exist. The real index supports search, user filtering, pagination, and latest Build status. Prototype details are read-only; hosted previews, Build history, and live review remain unavailable.
 
-The API registers authentication routes when `HUB_APPLICATION_ORIGIN` is configured. Set the GitHub client, provider revision, encryption key, and bootstrap secret settings documented in `.env.example` at the same time. Both development servers accept connections only from this machine. Stop each with Ctrl+C.
+With `npm run dev:api`, the home page shows **Sign in as local developer**. Selecting it signs you in as one fixed local developer who is a Hub administrator. No password or outside account is involved. The API refuses to start in this mode unless `NODE_ENV` is `development` and `DATABASE_URL` points at a local development database. It also requires `HOST` to be `127.0.0.1`, `::1`, or `localhost` and `HUB_APPLICATION_ORIGIN` to be a loopback origin. It refuses GitHub or Entra settings at the same time. Unset origin, encryption key, and bootstrap secret values get local defaults. See [Local developer sign-in](authentication.md#local-developer-sign-in) for how this mode reuses the normal sign-in checks. The command defaults `NODE_ENV` to `development` and enables local sign-in for you.
 
-No authentication-provider database seed is required. The first sign-in start validates the configured GitHub adapter and persists only its provider key, revision number, and public-configuration digest.
+Remove GitHub or Entra settings from `.env` before switching to local mode; otherwise, use `npm run dev:api:live`. Starting local mode on a database with enabled providers disables those providers. To switch back to live mode on that database, increase the revision of each provider you re-enable by exactly one above its last stored revision. For example, if the last GitHub revision was `1`, set `GITHUB_PROVIDER_REVISION=2`.
+
+With `npm run dev:api:live`, configure `HUB_APPLICATION_ORIGIN` and at least one complete GitHub or Entra profile. Set the shared encryption key and bootstrap secret at the same time. This command refuses to start without provider settings and disables local sign-in even if it is enabled in `.env`. See `.env.example` and [Microsoft Entra OIDC](entra-oidc.md). With the default `HOST`, both development servers accept connections only from this machine. Stop each with Ctrl+C.
+
+No authentication-provider database seed is required. API startup validates each configured provider adapter and persists only its provider key, revision number, and public-configuration digest.
+
+To populate a local index, sign in as the local developer once, then run:
+
+```sh
+NODE_ENV=development npm run db:seed:index
+```
+
+When you sign in through GitHub or Entra instead, find your `userId` in the browser's `/api/auth/session` response and pass it to the seed:
+
+```sh
+NODE_ENV=development npm run db:seed:index -- USER_UUID
+```
+
+The command requires an active Hub member and a local development database. It accepts a loopback PostgreSQL URL or the exact devcontainer database URL, and rejects query parameters that override the host, address, port, or service. It creates a sample repository and six prototypes with fixed IDs. Five show each Build state, and one has no Build. Their commit and author values are synthetic. Running it again restores those samples, including metadata added after an upgrade. All active Hub members can currently read every non-removed repository. Repository discovery and per-repository authorization are not connected; do not add real repository data until those controls exist.
 
 Vite also forwards WebSocket upgrades under `/api`. The `/api/realtime` endpoint rejects connections until application access checks are connected; see [WebSocket updates](websockets.md). Stopping the API closes its WebSocket connections as well.
 
@@ -71,7 +105,7 @@ npm run build
 npm start
 ```
 
-The build produces `dist/client/` and `dist/server/`. `npm start` runs only the compiled API by default. In a separate terminal, `npm run preview` serves the built frontend for local inspection. The [production image](deployment.md) serves both on one port and runs both workers.
+The build generates Framework route types and produces `dist/client/` and `dist/server/`. `npm start` runs only the compiled API by default. In a separate terminal, `npm run preview` serves the built frontend in real mode for local inspection. Development-only assets are not included in production. The [production image](deployment.md) serves the frontend and API on one port and runs both workers; unknown API routes remain JSON 404 responses rather than returning the frontend document.
 
 Use `npm run storybook` to view the existing components and pages at <http://localhost:6006>. They use sample data, not the new API.
 
