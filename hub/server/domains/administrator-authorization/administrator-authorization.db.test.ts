@@ -179,7 +179,7 @@ describe("administrator authorization persistence", () => {
         },
         verificationDependencies(),
       ),
-    ).resolves.toBe(true)
+    ).resolves.toBe("DESIGNATE_ADMINISTRATORS")
     const verified = await prisma.sensitiveAuthorization.findUniqueOrThrow({
       select: { verifiedAt: true },
       where: { id: fixture.authorizationId },
@@ -278,7 +278,7 @@ describe("administrator authorization persistence", () => {
         },
         verificationDependencies(),
       ),
-    ).resolves.toBe(false)
+    ).resolves.toBeNull()
     await expect(
       prisma.membershipAssignment.findUniqueOrThrow({
         select: { lifecycle: true },

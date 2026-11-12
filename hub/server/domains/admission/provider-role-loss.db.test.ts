@@ -7,7 +7,7 @@ import { withFailingSecurityAudit } from "../../../test/database/with-failing-se
 import { admitAuthenticationProof } from "./admit-authentication-proof"
 import { runAdmissionTransaction } from "./run-admission-transaction"
 
-async function createProviderRoleSession() {
+async function createProviderRoleSession(role: "MEMBER" | "ADMINISTRATOR" = "MEMBER") {
   const providerId = randomUUID()
   const providerRevisionId = randomUUID()
   const userId = randomUUID()
@@ -52,7 +52,7 @@ async function createProviderRoleSession() {
         membershipId,
         providerAssignmentSubject: "22222222-2222-4222-8222-222222222222",
         providerRevisionId,
-        role: "MEMBER",
+        role,
         source: "AUTHENTICATION_PROVIDER",
       },
     })
@@ -195,11 +195,7 @@ describe("provider role-loss admission", () => {
   ])(
     "%s and updates the Copilot connection",
     async (_case, role, withRemainingAdministratorSource, expectedConnection) => {
-      const records = await createProviderRoleSession()
-      await prisma.membershipAssignment.update({
-        data: { role: "ADMINISTRATOR" },
-        where: { id: records.assignmentId },
-      })
+      const records = await createProviderRoleSession("ADMINISTRATOR")
       if (withRemainingAdministratorSource) {
         await prisma.membershipAssignment.create({
           data: {
