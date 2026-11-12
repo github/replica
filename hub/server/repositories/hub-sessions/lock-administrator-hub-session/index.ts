@@ -12,7 +12,7 @@ export async function lockAdministratorHubSession(
       providerKey: string
     }>
   >`
-    SELECT DISTINCT
+    SELECT
       session."id",
       session."membership_id" AS "membershipId",
       session."external_identity_id" AS "externalIdentityId",
