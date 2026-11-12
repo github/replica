@@ -23,6 +23,7 @@ export function prototypeShowData(
     selectedBuild,
     search,
     surface: "preview",
+    real: options.real,
   })
 
   return {

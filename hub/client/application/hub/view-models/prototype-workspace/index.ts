@@ -17,6 +17,7 @@ export function prototypeWorkspace({
   selectedBuild,
   search,
   surface,
+  real = false,
 }: {
   workspace: WorkspaceResponse
   repository: RepositoryRecord
@@ -24,6 +25,7 @@ export function prototypeWorkspace({
   selectedBuild: BuildRecord | null
   search: URLSearchParams
   surface: "preview" | "build" | "history"
+  real?: boolean
 }): PrototypeWorkspaceData {
   const path = `/repositories/${repository.id}/prototypes/${prototype.id}`
   const builds = [...prototype.builds].sort((first, second) => second.number - first.number)
@@ -51,7 +53,7 @@ export function prototypeWorkspace({
   })
 
   return {
-    ...repositoryWorkspace(workspace, repository, search),
+    ...repositoryWorkspace(workspace, repository, search, real),
     author: {
       avatarUrl: author?.avatarUrl ?? null,
       label: authorName ? `By ${authorName}` : "Unknown author",

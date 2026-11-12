@@ -388,6 +388,8 @@ describe("real prototype index", () => {
     )
 
     expect(screen.queryByRole("button", { name: "More actions" })).not.toBeInTheDocument()
+    expect(document.querySelector('form[action="/api/auth/session/sign-out"]')).not.toBeNull()
+    expect(document.querySelector('form[action="/session"]')).toBeNull()
 
     fireEvent.click(screen.getByRole("button", { name: /Build 1.*v1/i }))
     const successful = screen.getByRole("menuitem", { name: /v3/i }).querySelector("a")
