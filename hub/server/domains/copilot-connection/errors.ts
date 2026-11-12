@@ -1,5 +1,6 @@
 export class CopilotConnectionError extends Error {
   readonly code:
+    | "busy"
     | "connection_changed"
     | "not_authorized"
     | "not_connected"

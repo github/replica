@@ -119,6 +119,10 @@ function RealCopilotConnection({ page }: { page: CopilotConnectionPageData }) {
           action: `${location.pathname}${location.search}`,
         })
       }}
+      shouldIntercept={(form) => {
+        const action = new URL(form.action, window.location.href)
+        return action.pathname === "/settings/copilot"
+      }}
     >
       <CopilotConnectionPage data={page} />
     </SettingsFormBoundary>

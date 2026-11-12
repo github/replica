@@ -59,6 +59,17 @@ describe("server runtime", () => {
     )
   })
 
+  it("reports the invalid learning root that prevents startup", async () => {
+    vi.stubEnv("REPLICA_LEARNING_ROOT", "public/learning")
+
+    await expect(import("./index.ts")).rejects.toThrow("Unexpected process exit: 1")
+
+    expect(runApi).not.toHaveBeenCalled()
+    expect(logger.fatal).toHaveBeenCalledWith(
+      "REPLICA_LEARNING_ROOT must be a dedicated private directory outside the public web root.",
+    )
+  })
+
   it.each([
     ["provider", "GITHUB_CLIENT_ID"],
     ["shared", "HUB_BOOTSTRAP_SECRET"],

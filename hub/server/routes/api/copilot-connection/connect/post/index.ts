@@ -26,13 +26,15 @@ export function post(dependencies: CopilotConnectionRouteDependencies): RequestH
         const status =
           error.code === "not_authorized"
             ? 403
-            : error.code === "token_missing"
+            : error.code === "busy"
               ? 409
-              : error.code === "connection_changed"
+              : error.code === "token_missing"
                 ? 409
-                : error.code === "token_refused"
-                  ? 422
-                  : 503
+                : error.code === "connection_changed"
+                  ? 409
+                  : error.code === "token_refused"
+                    ? 422
+                    : 503
         response.status(status).json({ error: error.message })
         return
       }

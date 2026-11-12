@@ -3,6 +3,7 @@ import "dotenv/config"
 import { createConfiguredArtifactStorage } from "./domains/artifacts/create-configured-artifact-storage/index.ts"
 import { LocalSignInConfigurationError } from "./domains/authentication/errors.ts"
 import { readLearningConfiguration } from "./domains/learning/read-learning-configuration/index.ts"
+import { LearningConfigurationError } from "./domains/learning/errors.ts"
 import { readAuthenticationConfigurationState } from "./domains/authentication/read-authentication-configuration-state/index.ts"
 import { resolveLocalSignInEnvironment } from "./domains/authentication/resolve-local-sign-in-environment/index.ts"
 import { startTelemetry } from "./integrations/opentelemetry/start-telemetry/index.ts"
@@ -148,7 +149,9 @@ try {
     error instanceof AuthenticationConfigurationError ||
       error instanceof LocalSignInConfigurationError
       ? error.message
-      : "Hub failed; check runtime configuration, dependencies, telemetry, and shutdown time.",
+      : error instanceof LearningConfigurationError
+        ? error.message
+        : "Hub failed; check runtime configuration, dependencies, telemetry, and shutdown time.",
   )
   process.exit(1)
 }

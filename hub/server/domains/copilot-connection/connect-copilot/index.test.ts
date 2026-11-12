@@ -15,6 +15,7 @@ function repositories(
     findAdministratorSession: vi.fn().mockResolvedValue({ membershipId: randomUUID() }),
     getConnection: vi.fn().mockResolvedValue(null),
     lockState: vi.fn().mockResolvedValue({ generation: 1n }),
+    refuseConnection: vi.fn().mockResolvedValue(true),
     replaceConnection: vi.fn().mockResolvedValue(undefined),
     writeAudit: vi.fn().mockResolvedValue(undefined),
     ...overrides,
@@ -44,6 +45,9 @@ describe("connectCopilot()", () => {
     ).rejects.toMatchObject({ code: "not_authorized" })
 
     expect(check).toHaveBeenCalledWith("secret-token")
+    expect(vi.mocked(records.lockState).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(records.findAdministratorSession).mock.invocationCallOrder[0]!,
+    )
     expect(records.replaceConnection).not.toHaveBeenCalled()
     expect(records.writeAudit).not.toHaveBeenCalled()
   })

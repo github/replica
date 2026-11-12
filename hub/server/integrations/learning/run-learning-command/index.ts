@@ -36,6 +36,23 @@ function stopProcessTree(pid: number | undefined) {
   }
 }
 
+async function stopRemainingProcessGroup(pid: number | undefined) {
+  if (pid === undefined) return
+  stopProcessTree(pid)
+  const deadline = Date.now() + stopTimeoutMs
+  while (Date.now() < deadline) {
+    try {
+      process.kill(-pid, 0)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ESRCH") return
+      throw error
+    }
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 10)
+    })
+  }
+}
+
 export async function runLearningCommand(
   arguments_: string[],
   {
@@ -165,11 +182,23 @@ export async function runLearningCommand(
         }
         errors.push(piece)
       })
-      void closed.then((code) => {
+      void closed.then(async (code) => {
         if (settled) return
         settled = true
         clearTimeout(timer)
         signal?.removeEventListener("abort", abort)
+        try {
+          await stopRemainingProcessGroup(child.pid)
+        } catch (error) {
+          reject(
+            new LearningCommandError(
+              "learning_failed",
+              "Hub could not stop the replica-learning process group.",
+              { cause: error },
+            ),
+          )
+          return
+        }
         const stdout = Buffer.concat(output).toString("utf8")
         const stderr = Buffer.concat(errors).toString("utf8").trim()
         if (code !== 0) {

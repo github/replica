@@ -6,6 +6,25 @@ import { describe, expect, it, onTestFinished } from "vitest"
 import { readLearningConfiguration } from "."
 
 describe("readLearningConfiguration()", () => {
+  it("rejects a learning root under the configured client directory", async () => {
+    const applicationRoot = resolve(`server/domains/learning/.root-test-${randomUUID()}`)
+    const clientDirectory = resolve(applicationRoot, "client-build")
+    await mkdir(clientDirectory, { recursive: true })
+    onTestFinished(() => rm(applicationRoot, { force: true, recursive: true }))
+
+    await expect(
+      readLearningConfiguration(
+        {
+          CLIENT_DIRECTORY: clientDirectory,
+          REPLICA_LEARNING_ROOT: resolve(clientDirectory, "learning"),
+        },
+        applicationRoot,
+      ),
+    ).rejects.toThrow(
+      "REPLICA_LEARNING_ROOT must be a dedicated private directory outside the public web root.",
+    )
+  })
+
   it("rejects a learning root under the public web root", async () => {
     const applicationRoot = resolve(`server/domains/learning/.root-test-${randomUUID()}`)
     await mkdir(resolve(applicationRoot, "public"), { recursive: true })

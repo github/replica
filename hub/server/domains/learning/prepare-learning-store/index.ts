@@ -17,22 +17,26 @@ export async function prepareLearningStore({
   repositoryKey,
   repositoryScope,
   root,
+  staticDirectories,
 }: {
   applicationRoot?: string
   repositoryKey: string
   repositoryScope: string
   root: string
+  staticDirectories: string[]
 }) {
   const key = repositoryKeySchema.parse(repositoryKey)
   const scope = repositoryScopeSchema.parse(repositoryScope)
   const directory = await validatePrivateStorageRoot(resolve(root, "repositories", key), {
     applicationRoot,
+    excludedDirectories: staticDirectories,
     name: "REPLICA_LEARNING_ROOT",
     publicRoot: resolve(applicationRoot, "public"),
   })
   await mkdir(directory, { mode: 0o700, recursive: true })
   await validatePrivateStorageRoot(directory, {
     applicationRoot,
+    excludedDirectories: staticDirectories,
     name: "REPLICA_LEARNING_ROOT",
     publicRoot: resolve(applicationRoot, "public"),
   })

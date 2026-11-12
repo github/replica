@@ -14,11 +14,11 @@ export async function disconnectCopilot(
   },
 ) {
   return runTransaction(async (repositories) => {
+    await repositories.lockState()
     const session = await repositories.findAdministratorSession(sessionDigest)
     if (!session) {
       throw new CopilotConnectionError("not_authorized", "Administrator access is required.")
     }
-    await repositories.lockState()
     const connection = await repositories.getConnection()
     if (!connection || !(await repositories.deleteConnection())) {
       throw new CopilotConnectionError("not_connected", "Copilot is not connected.")

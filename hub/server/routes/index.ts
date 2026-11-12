@@ -192,11 +192,13 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
     app.post(
       "/api/copilot-connection/connect",
       requireOrigin(copilotConnection.applicationOrigin),
+      express.json({ limit: "4kb", strict: true }),
       handleCopilotConnectionConnectPost(copilotConnection),
     )
     app.delete(
       "/api/copilot-connection",
       requireOrigin(copilotConnection.applicationOrigin),
+      express.json({ limit: "4kb", strict: true }),
       handleCopilotConnectionDisconnectDelete(copilotConnection),
     )
   }

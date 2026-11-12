@@ -15,6 +15,11 @@ export interface CopilotConnectionTransactionRepositories {
     tokenDigest: string
     verifiedAt: Date
   }) => Promise<unknown>
+  refuseConnection: (input: {
+    id: string
+    refusedAt: Date
+    tokenDigest: string
+  }) => Promise<boolean>
   writeAudit: (input: {
     actorMembershipId: string | null
     connectionId?: string

@@ -75,4 +75,44 @@ describe("runLearningCommand()", () => {
       expect(exists).toBe(false)
     }
   })
+
+  it("stops a surviving descendant after the command exits normally", async () => {
+    const directory = resolve(`server/integrations/learning/.process-test-${randomUUID()}`)
+    await mkdir(directory)
+    const marker = resolve(directory, "child.pid")
+    onTestFinished(async () => {
+      try {
+        const childPid = Number(await readFile(marker, "utf8"))
+        try {
+          process.kill(childPid, "SIGKILL")
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error
+        }
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+      } finally {
+        await rm(directory, { force: true, recursive: true })
+      }
+    })
+
+    await expect(
+      runLearningCommand(["copilot", "status"], {
+        cliPath: resolve(fixtures, "exit-with-child.mjs"),
+        environment: {
+          PATH: process.env.PATH,
+          REPLICA_LEARNING_PROCESS_MARKER: marker,
+        },
+      }),
+    ).resolves.toEqual({ complete: true })
+
+    const childPid = Number(await readFile(marker, "utf8"))
+    let exists = true
+    try {
+      process.kill(childPid, 0)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error
+      exists = false
+    }
+    expect(exists).toBe(false)
+  })
 })

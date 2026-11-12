@@ -5,6 +5,7 @@ import type { AddressInfo } from "node:net"
 import { describe, expect, it, vi } from "vitest"
 
 import { createApp } from "../../../create-app"
+import { CopilotConnectionError } from "../../../domains/copilot-connection/errors"
 import type { CopilotConnectionRouteDependencies } from "./types"
 
 const applicationOrigin = "http://127.0.0.1:5173"
@@ -95,6 +96,33 @@ describe("copilotConnectionRoutes()", () => {
     })
   })
 
+  it.each([
+    ["connect", "POST", "/api/copilot-connection/connect"],
+    ["disconnect", "DELETE", "/api/copilot-connection"],
+  ] as const)(
+    "rejects cross-origin %s before parsing its mutation body",
+    async (_name, method, path) => {
+      const copilotConnection = dependencies()
+
+      await withServer(copilotConnection, async (baseUrl) => {
+        const response = await fetch(`${baseUrl}${path}`, {
+          method,
+          headers: {
+            "content-type": "application/json",
+            cookie: `hub_session=${sessionValue}`,
+            origin: "https://attacker.example",
+          },
+          body: "{",
+        })
+
+        expect(response.status).toBe(403)
+        expect(copilotConnection.findSession).not.toHaveBeenCalled()
+        expect(copilotConnection.connect).not.toHaveBeenCalled()
+        expect(copilotConnection.disconnect).not.toHaveBeenCalled()
+      })
+    },
+  )
+
   it("passes the live session digest to explicit connection mutations", async () => {
     const copilotConnection = dependencies()
     const digest = createHash("sha256").update(sessionValue).digest("hex")
@@ -115,6 +143,49 @@ describe("copilotConnectionRoutes()", () => {
       expect(disconnectResponse.status).toBe(204)
       expect(copilotConnection.connect).toHaveBeenCalledWith({ sessionDigest: digest })
       expect(copilotConnection.disconnect).toHaveBeenCalledWith({ sessionDigest: digest })
+    })
+  })
+
+  it("returns conflict when the connection changes during disconnect", async () => {
+    const copilotConnection = dependencies()
+    vi.mocked(copilotConnection.disconnect).mockRejectedValue(
+      new CopilotConnectionError(
+        "connection_changed",
+        "The Copilot connection changed during this request.",
+      ),
+    )
+
+    await withServer(copilotConnection, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/copilot-connection`, {
+        method: "DELETE",
+        headers: mutationHeaders(),
+        body: JSON.stringify({ confirmed: true }),
+      })
+
+      expect(response.status).toBe(409)
+      await expect(response.json()).resolves.toEqual({
+        error: "The Copilot connection changed during this request.",
+      })
+    })
+  })
+
+  it("returns conflict when another connection check is already running", async () => {
+    const copilotConnection = dependencies()
+    vi.mocked(copilotConnection.connect).mockRejectedValue(
+      new CopilotConnectionError("busy", "Another Copilot connection check is still running."),
+    )
+
+    await withServer(copilotConnection, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/copilot-connection/connect`, {
+        method: "POST",
+        headers: mutationHeaders(),
+        body: JSON.stringify({ confirmed: true }),
+      })
+
+      expect(response.status).toBe(409)
+      await expect(response.json()).resolves.toEqual({
+        error: "Another Copilot connection check is still running.",
+      })
     })
   })
 })

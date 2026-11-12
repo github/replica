@@ -39,9 +39,15 @@ export async function validatePrivateStorageRoot(
   input: string,
   {
     applicationRoot,
+    excludedDirectories = [],
     name,
     publicRoot,
-  }: { applicationRoot: string; name: string; publicRoot: string },
+  }: {
+    applicationRoot: string
+    excludedDirectories?: string[]
+    name: string
+    publicRoot: string
+  },
 ) {
   if (!input.trim() || input.includes("\0")) {
     throw new Error(`${name} must name a private directory.`)
@@ -53,13 +59,19 @@ export async function validatePrivateStorageRoot(
     const application = await canonicalPath(resolve(applicationRoot))
     const storage = await canonicalPath(resolve(applicationRoot, "storage"))
     const publicDirectory = await canonicalPath(resolve(publicRoot))
+    const excluded = await Promise.all(
+      excludedDirectories.map((directory) => canonicalPath(resolve(directory))),
+    )
     const filesystemRoot = resolve(path, sep)
     if (
       canonical === filesystemRoot ||
       canonical === application ||
       canonical === storage ||
       canonical === publicDirectory ||
-      canonical.startsWith(`${publicDirectory}${sep}`)
+      canonical.startsWith(`${publicDirectory}${sep}`) ||
+      excluded.some(
+        (directory) => canonical === directory || canonical.startsWith(`${directory}${sep}`),
+      )
     ) {
       throw new Error("The path is not a dedicated private directory.")
     }

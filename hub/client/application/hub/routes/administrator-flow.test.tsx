@@ -112,6 +112,35 @@ function administrator(login = "octocat", membershipId = actorMembershipId) {
 }
 
 describe("administrator frontend integration", () => {
+  it("does not intercept account-menu sign-out on the Copilot page", async () => {
+    const connect = vi.fn()
+    const disconnect = vi.fn()
+    await renderApplication("/settings/copilot", [
+      authenticatedSession(),
+      http.get(`${window.location.origin}/api/copilot-connection`, () =>
+        HttpResponse.json({
+          configured: true,
+          connected: false,
+          connectedBy: null,
+          refusedAt: null,
+          verifiedAt: null,
+        }),
+      ),
+      http.post(`${window.location.origin}/api/copilot-connection/connect`, connect),
+      http.delete(`${window.location.origin}/api/copilot-connection`, disconnect),
+    ])
+
+    await screen.findByRole("heading", { name: "Copilot is not connected" })
+    const signOutForm = document.querySelector<HTMLFormElement>(
+      'form[action="/api/auth/session/sign-out"]',
+    )
+    if (!signOutForm) throw new Error("Sign out must belong to a form.")
+
+    expect(fireEvent.submit(signOutForm)).toBe(true)
+    expect(connect).not.toHaveBeenCalled()
+    expect(disconnect).not.toHaveBeenCalled()
+  }, 10_000)
+
   it("uses the real Copilot status and mutation APIs with visible action results", async () => {
     const mutations: Array<{ body: unknown; method: string; path: string }> = []
     let connected = false

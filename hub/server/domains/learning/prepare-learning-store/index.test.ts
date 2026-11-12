@@ -6,6 +6,31 @@ import { describe, expect, it, onTestFinished } from "vitest"
 import { prepareLearningStore } from "."
 
 describe("prepareLearningStore()", () => {
+  it.each([
+    ["source public directory", 0],
+    ["configured client directory", 1],
+  ] as const)("rejects a repository store under the %s", async (_label, index) => {
+    const applicationRoot = resolve(`server/domains/learning/.store-test-${randomUUID()}`)
+    const staticDirectories = [
+      resolve(applicationRoot, "public"),
+      resolve(applicationRoot, "client-build"),
+    ]
+    const root = resolve(staticDirectories[index]!, "learning")
+    onTestFinished(() => rm(applicationRoot, { force: true, recursive: true }))
+
+    await expect(
+      prepareLearningStore({
+        applicationRoot,
+        repositoryKey: randomUUID(),
+        repositoryScope: "github.com/repositories/replica",
+        root,
+        staticDirectories,
+      }),
+    ).rejects.toThrow(
+      "REPLICA_LEARNING_ROOT must be a dedicated private directory outside the public web root.",
+    )
+  })
+
   it("creates a private repository directory and configuration without persisting product data", async () => {
     const applicationRoot = resolve(`server/domains/learning/.store-test-${randomUUID()}`)
     const root = resolve(applicationRoot, "learning")
@@ -17,6 +42,7 @@ describe("prepareLearningStore()", () => {
       repositoryKey,
       repositoryScope: "github.com/repositories/replica",
       root,
+      staticDirectories: [resolve(applicationRoot, "public")],
     })
 
     expect(result).toEqual({

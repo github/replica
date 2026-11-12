@@ -13,6 +13,22 @@ import { getDatabaseUrl } from "../get-database-url"
 import { resetDatabase } from "."
 
 describe("resetDatabase() with job storage", () => {
+  it("reseeds the deployment-wide Copilot connection state", async () => {
+    const databaseUrl = getDatabaseUrl()
+    const client = new pg.Client({ connectionString: databaseUrl })
+    await client.connect()
+    onTestFinished(() => client.end())
+    await client.query("DELETE FROM public.copilot_connection_states")
+
+    await resetDatabase(databaseUrl)
+
+    const state = await client.query<{ generation: string; key: string }>(
+      `SELECT generation::text, key
+       FROM public.copilot_connection_states`,
+    )
+    expect(state.rows).toEqual([{ generation: "0", key: "global" }])
+  })
+
   it("preserves migration ledgers across repeated resets while clearing jobs, schedules, and application rows", async () => {
     const databaseUrl = getDatabaseUrl()
     const client = new pg.Client({ connectionString: databaseUrl })

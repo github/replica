@@ -25,7 +25,11 @@ export function delete_(dependencies: CopilotConnectionRouteDependencies): Reque
       if (error instanceof CopilotConnectionError) {
         response
           .status(
-            error.code === "not_authorized" ? 403 : error.code === "not_connected" ? 409 : 503,
+            error.code === "not_authorized"
+              ? 403
+              : error.code === "not_connected" || error.code === "connection_changed"
+                ? 409
+                : 503,
           )
           .json({ error: error.message })
         return
