@@ -67,6 +67,13 @@ const credentialParameters = new Set([
 const jwt =
   /(?:^|[^A-Za-z0-9_-])eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+(?=$|[^A-Za-z0-9_-])/
 
+function decodeComponent(value) {
+  // Nested values may be ordinary text with literal percent signs.
+  return new URLSearchParams(
+    `component=${value.replaceAll("&", "%26").replaceAll("+", "%2B")}`,
+  ).get("component")
+}
+
 export function checkUrlPrivacy(source) {
   const pending = [source]
   const seen = new Set()
@@ -78,17 +85,9 @@ export function checkUrlPrivacy(source) {
     if (url.username || url.password) return "embedded URL credentials are not allowed"
 
     const rawFragment = url.hash.slice(1)
-    let pathname
-    let fragment
-    let components
-    try {
-      pathname = decodeURIComponent(url.pathname)
-      fragment = decodeURIComponent(rawFragment)
-      components = [pathname, fragment].flatMap((part) => part.split(/[/?&#=;]/))
-    } catch (error) {
-      if (!(error instanceof URIError)) throw error
-      return "invalid encoded URL components are not allowed"
-    }
+    const pathname = decodeComponent(url.pathname)
+    const fragment = decodeComponent(rawFragment)
+    const components = [pathname, fragment].flatMap((part) => part.split(/[/?&#=;]/))
     const matrixPaths = [url.pathname, pathname]
     const fragmentQueries = []
     // Keep trailing delimiters so nested credential values starting with # remain nonempty.
@@ -130,15 +129,19 @@ export function checkUrlPrivacy(source) {
       return "secret-bearing URL components are not allowed"
     }
     for (const [, value] of parameters) {
-      if (
-        !/^(?:https?:|[a-z][a-z0-9+.-]*:\/\/|mailto:|tel:|\/|\.\.?\/|[?#])/i.test(value) &&
-        !/^(?:[a-z0-9._~/-]|%[a-f0-9]{2})+[?#]/i.test(value)
-      )
-        continue
       // The fixed base only parses relative values; nested URLs are never requested.
       const nested = URL.parse(value, "https://url.invalid/")
-      if (!nested) return "invalid nested URL components are not allowed"
-      pending.push(nested)
+      if (!nested) continue
+      const nestedPath = decodeComponent(nested.pathname)
+      if (
+        nested.username ||
+        nested.password ||
+        nested.search ||
+        nested.hash ||
+        (nestedPath.includes(";") && (URL.canParse(value) || /[/\\]/.test(value))) ||
+        jwt.test(nestedPath)
+      )
+        pending.push(nested)
     }
   }
 }
@@ -148,6 +151,13 @@ export function checkPublicUrl(value) {
     return "requires an absolute HTTP(S) URL"
   const url = new URL(value)
   if (!["http:", "https:"].includes(url.protocol)) return "requires an absolute HTTP(S) URL"
+  try {
+    decodeURIComponent(url.pathname)
+    decodeURIComponent(url.hash.slice(1))
+  } catch (error) {
+    if (!(error instanceof URIError)) throw error
+    return "invalid encoded URL components are not allowed"
+  }
   const privacyProblem = checkUrlPrivacy(url)
   if (privacyProblem) return privacyProblem
 

@@ -212,6 +212,11 @@ test("accepts a normalized HTTP subpath source with query and fragment and nonne
       foundIn: ["footer"],
       decision: "stub-external",
     },
+    {
+      url: "mailto:support@example.com?body=Re%3A+50%25+off%3F",
+      foundIn: ["footer"],
+      decision: "stub-external",
+    },
     { url: "tel:+15555550123;ext=42", foundIn: ["footer"], decision: "stub-external" },
     { url: "https://example.com/help", foundIn: ["footer"], decision: "stub-external" },
     { url: "http://example.com:8080/help", foundIn: ["footer"], decision: "stub-external" },

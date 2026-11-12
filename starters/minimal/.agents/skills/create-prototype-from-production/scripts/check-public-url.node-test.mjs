@@ -129,6 +129,22 @@ test("rejects credentials inside URL-valued parameters without exposing supplied
       "return_to",
       "callback?access_token=fixture-nested-marker",
     ],
+    [
+      "absolute redirect with leading parser whitespace",
+      "next",
+      " \thttps://example.net/callback?access_token=fixture-nested-marker",
+    ],
+    [
+      "backslash-rooted relative redirect",
+      "return_to",
+      String.raw`\callback?access_token=fixture-nested-marker`,
+    ],
+    ["Unicode relative redirect", "return_to", "café?access_token=fixture-nested-marker"],
+    [
+      "opaque custom-scheme redirect",
+      "next",
+      "custom-app:callback?access_token=fixture-nested-marker",
+    ],
     ["credential behind two redirect levels", "next", nestedRedirect],
     [
       "embedded credentials in a URL-valued state parameter",
@@ -401,6 +417,10 @@ test("accepts public names, CDN URLs and public IPs without discarding URL state
     [
       "ordinary search text with a percent sign and question mark",
       "https://example.com/catalog?q=100%25+cotton%3F",
+    ],
+    [
+      "ordinary search text with a query-like suffix",
+      "https://example.com/catalog?q=100%25+cotton%3Ffit%3Dsmall",
     ],
   ]) {
     assert.equal(checkPublicUrl(url), undefined, name)
