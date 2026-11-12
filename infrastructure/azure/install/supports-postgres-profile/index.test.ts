@@ -60,6 +60,36 @@ it("does not combine an advertised SKU and version from different catalogues", (
   expect(supportsPostgresProfile([skuOnly, versionOnly], guidedPostgresProfile)).toBe(false)
 })
 
+it("accepts Azure visible and default capabilities in an unrestricted location", () => {
+  const data = {
+    ...catalogue(),
+    restricted: "Disabled",
+    status: "Visible",
+    supportedServerVersions: [{ name: "17", status: "Default" }],
+    supportedServerEditions: [{
+      name: "Burstable",
+      status: "Available",
+      supportedServerSkus: [{ name: "Standard_B1ms", status: "Visible" }],
+    }],
+  }
+
+  expect(supportsPostgresProfile([data], guidedPostgresProfile)).toBe(true)
+})
+
+it("excludes Azure restricted locations even when their capabilities are available", () => {
+  expect(supportsPostgresProfile([{
+    restricted: "Enabled",
+    status: "Available",
+  }], guidedPostgresProfile)).toBe(false)
+})
+
+it("refuses structured restriction values instead of coercing them to a boolean string", () => {
+  expect(() => supportsPostgresProfile([{
+    ...catalogue(),
+    restricted: ["false"],
+  }], guidedPostgresProfile)).toThrow(/invalid|unrecognized/i)
+})
+
 it("returns unsupported for empty valid catalogue lists and supported-member arrays", () => {
   const noVersions = catalogue()
   noVersions.supportedServerVersions = []

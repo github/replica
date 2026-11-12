@@ -18,7 +18,8 @@ export function supportsPostgresProfile(value: unknown, profile: PostgresProfile
     const status = value.status
     if (status === undefined || status === null) return true
     if (typeof status !== "string") invalid()
-    if (["available", "enabled", "supported"].includes(status.toLowerCase())) return true
+    if (["available", "visible", "default", "enabled", "supported"].includes(status.toLowerCase()))
+      return true
     if (
       [
         "unavailable",
@@ -51,15 +52,19 @@ export function supportsPostgresProfile(value: unknown, profile: PostgresProfile
     invalid()
   const catalogues = entries(value).map((catalogue) => {
     const restricted = catalogue.restricted
+    const restriction = typeof restricted === "string" ? restricted.toLowerCase() : restricted
     if (
       restricted !== undefined &&
       restricted !== null &&
       typeof restricted !== "boolean" &&
-      !["true", "false"].includes(String(restricted).toLowerCase())
+      !(
+        typeof restriction === "string" &&
+        ["true", "false", "enabled", "disabled"].includes(restriction)
+      )
     )
       invalid()
     const enabled =
-      available(catalogue) && restricted !== true && String(restricted).toLowerCase() !== "true"
+      available(catalogue) && restriction !== true && restriction !== "true" && restriction !== "enabled"
     if (!enabled) return { available: false, versions: [], editions: [] }
     return {
       available: true,
