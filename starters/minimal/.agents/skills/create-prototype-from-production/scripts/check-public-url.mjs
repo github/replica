@@ -2,6 +2,10 @@ import { realpathSync } from "node:fs"
 import { BlockList, isIP } from "node:net"
 import { pathToFileURL } from "node:url"
 
+const supported = new BlockList()
+supported.addSubnet("0.0.0.0", 0, "ipv4")
+supported.addSubnet("2000::", 3, "ipv6")
+
 const blocked = new BlockList()
 for (const subnet of [
   "0.0.0.0/8",
@@ -19,18 +23,10 @@ for (const subnet of [
   "203.0.113.0/24",
   "224.0.0.0/4",
   "240.0.0.0/4",
-  "::/96",
-  "64:ff9b::/96",
-  "64:ff9b:1::/48",
-  "100::/64",
   "2001::/23",
   "2001:db8::/32",
   "2002::/16",
   "3fff::/20",
-  "fc00::/7",
-  "fe80::/10",
-  "fec0::/10",
-  "ff00::/8",
 ]) {
   const [network, prefix] = subnet.split("/")
   blocked.addSubnet(network, Number(prefix), isIP(network) === 6 ? "ipv6" : "ipv4")
@@ -46,13 +42,20 @@ export function checkPublicUrl(value) {
   const host = url.hostname.replace(/^\[|\]$/g, "").replace(/\.+$/, "").toLowerCase()
   const family = isIP(host)
   if (family) {
-    if (blocked.check(host, family === 6 ? "ipv6" : "ipv4"))
+    const type = family === 6 ? "ipv6" : "ipv4"
+    if (!supported.check(host, type) || blocked.check(host, type))
       return "nonpublic IP destination is not allowed"
   } else if (
     !host.includes(".") ||
-    ["localhost", "local", "internal", "home.arpa"].some(
-      (suffix) => host === suffix || host.endsWith(`.${suffix}`),
-    )
+    [
+      "localhost",
+      "local",
+      "internal",
+      "home.arpa",
+      "localdomain",
+      "localdomain4",
+      "localdomain6",
+    ].some((suffix) => host === suffix || host.endsWith(`.${suffix}`))
   ) {
     return "local hostname destination is not allowed"
   }

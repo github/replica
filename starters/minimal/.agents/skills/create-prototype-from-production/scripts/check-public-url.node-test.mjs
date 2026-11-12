@@ -33,6 +33,9 @@ test("rejects local hostname forms after case and trailing-dot normalization", a
     ["local suffix", "https://service.LOCAL./"],
     ["internal suffix", "https://service.INTERNAL./"],
     ["home.arpa suffix", "https://router.HOME.ARPA./"],
+    ["conventional localhost alias", "https://localhost.localdomain/"],
+    ["conventional IPv4 alias", "https://localhost4.LOCALDOMAIN4./"],
+    ["conventional IPv6 alias", "https://localhost6.localdomain6/"],
   ]) {
     assert.match(checkPublicUrl(url) ?? "", /\S/, name)
   }
@@ -83,6 +86,8 @@ test("rejects local, reserved and transition IPv6 reference targets including ma
     ["Teredo transition", "2001::1"],
     ["documentation network", "2001:db8::1"],
     ["6to4 transition", "2002:a00:1::"],
+    ["unsupported IPv6 range 1", "4000::1"],
+    ["unsupported IPv6 range 2", "8000::1"],
     ["mapped link-local metadata", "::ffff:169.254.169.254"],
     ["hexadecimal mapped loopback", "::ffff:7f00:1"],
   ]) {
@@ -106,6 +111,7 @@ test("accepts public names, CDN URLs and public IPs without discarding URL state
     ["above private class B", "https://172.32.0.1/reference"],
     ["outside private class C", "https://192.169.1.1/reference"],
     ["public IPv6", "https://[2606:4700:4700::1111]/reference?view=full#details"],
+    ["public mapped IPv4", "https://[::ffff:8.8.8.8]/reference"],
   ]) {
     assert.equal(checkPublicUrl(url), undefined, name)
   }
