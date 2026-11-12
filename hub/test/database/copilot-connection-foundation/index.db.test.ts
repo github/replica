@@ -34,6 +34,8 @@ describe("Copilot connection foundation migration", () => {
           "20261109150000_administrator_authorization_purpose",
           "20261109160000_administrator_authorization_api",
           "20261110170000_security_audit_read_index",
+          "20261110170013_prototype_index",
+          "20261110190000_prototype_build_status",
         ]
         for (const migrationName of parentMigrations) {
           const migration = await readFile(
