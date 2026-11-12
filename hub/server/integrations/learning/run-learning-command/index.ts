@@ -6,6 +6,17 @@ import { spawn } from "node:child_process"
 import { LearningCommandError } from "./errors.ts"
 
 const passedVariables = new Set(["PATH", "HOME", "LANG", "LC_ALL", "TZ"])
+const childVariables = [...passedVariables, "COPILOT_GITHUB_TOKEN", "TMPDIR"]
+const bootstrap = `
+  import { pathToFileURL } from "node:url";
+  const allowed = new Set(${JSON.stringify(childVariables)});
+  for (const name of Object.keys(process.env)) {
+    if (!allowed.has(name)) delete process.env[name];
+  }
+  const [entryPoint, ...arguments_] = process.argv.slice(1);
+  process.argv = [process.execPath, entryPoint, ...arguments_];
+  await import(pathToFileURL(entryPoint).href);
+`
 const errorPattern = /^error \(([a-z_]+)\): (.+)$/m
 const stopTimeoutMs = 1_000
 
@@ -87,12 +98,16 @@ export async function runLearningCommand(
   await chmod(temporaryDirectory, 0o700)
   try {
     return await new Promise<unknown>((resolve, reject) => {
-      const child = spawn(nodePath, [cliPath, ...arguments_, "--json"], {
-        cwd: directory ?? temporaryDirectory,
-        detached: true,
-        env: commandEnvironment(environment, temporaryDirectory, githubToken),
-        stdio: ["ignore", "pipe", "pipe"],
-      })
+      const child = spawn(
+        nodePath,
+        ["--input-type=module", "--eval", bootstrap, cliPath, ...arguments_, "--json"],
+        {
+          cwd: directory ?? temporaryDirectory,
+          detached: true,
+          env: commandEnvironment(environment, temporaryDirectory, githubToken),
+          stdio: ["ignore", "pipe", "pipe"],
+        },
+      )
       const output: Buffer[] = []
       const errors: Buffer[] = []
       const closed = new Promise<number | null>((resolve) => {

@@ -31,11 +31,12 @@ describe("runLearningCommand()", () => {
     }
 
     expect(result.arguments).toEqual(["copilot", "status", "--json"])
-    expect(result.environment).toMatchObject({
+    expect(result.environment).toEqual({
       COPILOT_GITHUB_TOKEN: "explicit-token",
       HOME: "/private/home",
       LANG: "en_US.UTF-8",
       LC_ALL: "C",
+      PATH: process.env.PATH,
       TMPDIR: result.temporaryDirectory,
       TZ: "UTC",
     })
