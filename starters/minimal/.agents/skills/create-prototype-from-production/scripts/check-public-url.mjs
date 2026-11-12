@@ -88,7 +88,12 @@ export function checkPublicUrl(value) {
   }
   const matrixPaths = [url.pathname, pathname]
   const fragmentQueries = []
-  for (const part of [rawFragment, fragment]) {
+  // Keep trailing delimiters so nested credential values starting with # remain nonempty.
+  const fragmentParts = [rawFragment, fragment].flatMap((part) => [
+    part,
+    ...part.split(/(?<=#)/).slice(1),
+  ])
+  for (const part of fragmentParts) {
     const route = part.replace(/^!/, "")
     const queryStart = route.indexOf("?")
     if (route.startsWith("/")) {

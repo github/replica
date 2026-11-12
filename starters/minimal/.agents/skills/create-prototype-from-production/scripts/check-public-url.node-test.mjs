@@ -67,6 +67,25 @@ test("rejects nonempty credential-like parameters without exposing supplied valu
     ["hashbang fragment parameter", "#!access_token=fixture-fragment-marker"],
     ["slash-prefixed fragment parameters", "#/access_token=fixture-fragment-marker"],
     ["hashbang slash-prefixed parameters", "#!/access_token=fixture-fragment-marker"],
+    ["nested SPA fragment parameter", "#/callback#access_token=fixture-fragment-marker"],
+    ["nested hashbang parameter", "#!/callback#access_token=fixture-fragment-marker"],
+    [
+      "encoded nested fragment separator and assignment",
+      "#/callback%23access_token%3Dfixture-fragment-marker",
+    ],
+    [
+      "fragment delimiter inside a nested credential value",
+      "#/callback#access_token=#fixture-fragment-marker",
+    ],
+    [
+      "encoded delimiters inside a nested credential value",
+      "#/callback%23access_token%3D%23fixture-fragment-marker",
+    ],
+    [
+      "credential after multiple nested fragments",
+      "#/callback#section#access_token=fixture-fragment-marker",
+    ],
+    ["fragment delimiter inside a credential value", "#access_token=#fixture-fragment-marker"],
     ["normalized signing credential in fragment", "#x_gOoG_cReDeNtIaL=fixture-fragment-marker"],
     [
       "encoded separator at start of fragment credential value",
@@ -242,6 +261,11 @@ test("accepts public names, CDN URLs and public IPs without discarding URL state
     [
       "ordinary SPA parameters",
       "https://example.com/#/callback?code=fixture-code&state=fixture-state&key=fixture-key",
+    ],
+    ["public nested section fragment", "https://example.com/#/catalog#details"],
+    [
+      "public nested fragment parameters",
+      "https://example.com/#/catalog#code=SKU&state=CA&key=public-cache",
     ],
     ["ordinary hashbang parameters", "https://example.com/#!code=SKU&state=CA&key=public-cache"],
     [
