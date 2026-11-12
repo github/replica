@@ -45,7 +45,9 @@ function existingContext(root) {
     const entry = existingEntry(join(root, path))
     if (!entry) continue
     if (!entry.isDirectory() || entry.isSymbolicLink()) {
-      throw new Error(`${path} must be a real directory, not a file or link; the entry was left unchanged.`)
+      throw new Error(
+        `${path} must be a real directory, not a file or link; the entry was left unchanged.`,
+      )
     }
     selected ??= path
   }
@@ -53,12 +55,14 @@ function existingContext(root) {
 }
 
 function bootstrapContext() {
-  if (process.argv.length > 2) throw new Error("Run bootstrap-context.mjs without arguments from the prototype root.")
+  if (process.argv.length > 2)
+    throw new Error("Run bootstrap-context.mjs without arguments from the prototype root.")
 
   const root = process.cwd()
   checkParents(root)
   const existing = existingContext(root)
-  if (existing) return `Preserved ${existing}; existing guidance was not changed or checked for completeness.`
+  if (existing)
+    return `Preserved ${existing}; existing guidance was not changed or checked for completeness.`
 
   const documents = CONTEXT_FILES.map((name) => [
     name,
@@ -82,9 +86,12 @@ function bootstrapContext() {
     try {
       rmSync(staging, { recursive: true, force: true })
     } catch (cleanupError) {
-      throw new Error(`${error.message}; cannot remove bootstrap staging ${staging}: ${cleanupError.message}`, {
-        cause: error,
-      })
+      throw new Error(
+        `${error.message}; cannot remove bootstrap staging ${staging}: ${cleanupError.message}`,
+        {
+          cause: error,
+        },
+      )
     }
     throw error
   }

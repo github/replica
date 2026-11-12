@@ -58,6 +58,15 @@ test("accepts a complete final ledger", () => {
   assert.deepEqual(checkLedger(ledger(pages), { final: true }), [])
 })
 
+test("requires discovery evidence on outbound rows before discovery or final handoff", () => {
+  for (const foundIn of [undefined, [], "footer"]) {
+    const page = { url: "https://example.org/help", decision: "stub-external", foundIn }
+    for (const final of [false, true]) {
+      assert.match(checkLedger(ledger([hub, page]), { final }).join("\n"), /pages\[1\]:.*foundIn/)
+    }
+  }
+})
+
 test("rejects a ledger without runtime isolation proof", () => {
   const value = { ...ledger([hub]), browser: undefined }
   assert.match(checkLedger(value).join("\n"), /isolation proof/)
@@ -630,6 +639,37 @@ test("reports every local decision by status in the CLI summary", (t) => {
     "deferred/blocked": 1,
     "stub-external": 1,
   })
+})
+
+test("rejects unknown coverage values and excludes them from the CLI summary", (t) => {
+  const directory = fixtureDirectory(t)
+  const path = join(directory, "coverage.json")
+  const pages = [
+    hub,
+    {
+      url: "https://example.org/fixture-url-marker",
+      foundIn: ["footer"],
+      decision: "fixture-decision-marker",
+    },
+    {
+      url: "https://example.com/fixture-url-marker",
+      foundIn: ["header"],
+      decision: "stub-auth",
+      route: "/fixture-route-marker",
+      status: "fixture-status-marker",
+    },
+  ]
+  writeFileSync(path, JSON.stringify(ledger(pages)))
+  const result = spawnSync(process.execPath, [checker, "--final", path], {
+    encoding: "utf8",
+    timeout: 5000,
+  })
+  assert.ifError(result.error)
+  assert.equal(result.status, 1, result.stderr)
+  assert.match(result.stderr, /pages\[1\]: unknown decision/)
+  assert.match(result.stderr, /pages\[2\]: unknown status/)
+  assert.doesNotMatch(`${result.stdout}${result.stderr}`, /fixture-[a-z-]+-marker/)
+  assert.deepEqual(JSON.parse(result.stdout), { "build/verified": 1 })
 })
 
 test("returns CLI validation diagnostics and JSON for malformed ledger shapes", async (t) => {
