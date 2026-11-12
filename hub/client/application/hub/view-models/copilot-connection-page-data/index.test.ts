@@ -17,6 +17,7 @@ describe("copilotConnectionPageData()", () => {
     const data = copilotConnectionPageData(session, {
       configured: false,
       connected: false,
+      savedConnection: false,
       connectedBy: null,
       refusedAt: null,
       verifiedAt: null,
@@ -32,6 +33,7 @@ describe("copilotConnectionPageData()", () => {
     const data = copilotConnectionPageData(session, {
       configured: true,
       connected: false,
+      savedConnection: false,
       connectedBy: null,
       refusedAt: null,
       verifiedAt: null,
@@ -44,5 +46,41 @@ describe("copilotConnectionPageData()", () => {
     expect([data.description, data.connect?.consequence].join(" ")).not.toMatch(
       /operator-provided token|configured token/i,
     )
+  })
+
+  it("offers an explicit recheck and disconnect for an active saved connection", () => {
+    const data = copilotConnectionPageData(session, {
+      configured: true,
+      connected: true,
+      savedConnection: true,
+      connectedBy: {
+        login: "octocat",
+        membershipId: session.membershipId,
+        name: "The Octocat",
+      },
+      refusedAt: null,
+      verifiedAt: "2026-11-10T23:00:00.000Z",
+    })
+
+    expect(data.accessDenied).toBe(false)
+    if (data.accessDenied) throw new Error("The administrator must receive connection controls.")
+    expect(data.connect?.label).toBe("Check Copilot connection")
+    expect(data.disconnect?.label).toBe("Disconnect Copilot")
+  })
+
+  it("keeps disconnect available when a saved connection is inactive", () => {
+    const data = copilotConnectionPageData(session, {
+      configured: true,
+      connected: false,
+      savedConnection: true,
+      connectedBy: null,
+      refusedAt: "2026-11-11T13:00:00.000Z",
+      verifiedAt: null,
+    })
+
+    expect(data.accessDenied).toBe(false)
+    if (data.accessDenied) throw new Error("The administrator must receive connection controls.")
+    expect(data.connect?.label).toBe("Connect Copilot")
+    expect(data.disconnect?.label).toBe("Disconnect Copilot")
   })
 })

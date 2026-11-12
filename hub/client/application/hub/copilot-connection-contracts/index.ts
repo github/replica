@@ -4,6 +4,7 @@ export const copilotConnectionStatusSchema = z
   .object({
     configured: z.boolean(),
     connected: z.boolean(),
+    savedConnection: z.boolean(),
     connectedBy: z
       .object({
         login: z.string().nullable(),

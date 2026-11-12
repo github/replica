@@ -41,6 +41,7 @@ export function getCopilotConnectionStatus(
   return {
     configured: credentialProvider.configurationDigest !== null,
     connected,
+    savedConnection: connection !== null,
     connectedBy:
       connection && matchesVerifiedCredential && connectedByIsAdministrator
         ? connection.connectedBy

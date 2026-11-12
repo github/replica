@@ -298,7 +298,7 @@ function contextFor(record: SecurityAuditListRecord): Record<string, string | nu
         .safeParse(record.context)
       return parsed.success
         ? {
-            credentialProvider: parsed.data.credentialProvider,
+            provider: parsed.data.credentialProvider,
             phase: parsed.data.phase,
             ...(parsed.data.reason ? { reason: parsed.data.reason } : {}),
             ...(targetId ? { targetId } : {}),

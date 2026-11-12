@@ -65,7 +65,7 @@ export async function createCopilotConnectionRouteDependencies(
   return {
     applicationOrigin,
     findSession,
-    connect: ({ sessionDigest }) =>
+    connect: ({ sessionDigest, signal }) =>
       withCopilotConnectionCheck(() =>
         connectCopilot(
           {
@@ -82,6 +82,7 @@ export async function createCopilotConnectionRouteDependencies(
                 cliPath: configuration.cliPath,
                 githubToken: credential.githubToken,
                 nodePath: configuration.nodePath,
+                signal,
               })
             },
             createId: randomUUID,

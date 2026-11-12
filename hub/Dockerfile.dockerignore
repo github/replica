@@ -14,9 +14,11 @@ hub/node_modules
 hub/dist
 hub/coverage
 hub/storybook-static
+hub/storage
 hub/server/generated
 hub/**/*.test.*
 hub/**/stories.tsx
 hub/.storybook
 
 packages/learning/node_modules
+packages/learning/.test-work

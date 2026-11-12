@@ -58,6 +58,17 @@ describe("securityAuditPageData()", () => {
             targetId: "88888888-8888-4888-8888-888888888888",
           },
         },
+        {
+          id: "99999999-9999-4999-8999-999999999999",
+          occurredAt: "2026-11-10T08:00:00.000Z",
+          action: "copilot.connection.connected",
+          outcome: "success",
+          actor: { membershipId: "44444444-4444-4444-8444-444444444444" },
+          context: {
+            provider: "environment_token",
+            phase: "connected",
+          },
+        },
       ],
       nextCursor: cursor,
     })
@@ -89,6 +100,14 @@ describe("securityAuditPageData()", () => {
         context: [
           { label: "Membership", value: "77777777-7777-4777-8777-777777777777" },
           { label: "Target", value: "88888888-8888-4888-8888-888888888888" },
+        ],
+        outcome: "Succeeded",
+      }),
+      expect.objectContaining({
+        action: "copilot.connection.connected",
+        context: [
+          { label: "Provider", value: "environment_token" },
+          { label: "Phase", value: "connected" },
         ],
         outcome: "Succeeded",
       }),

@@ -419,7 +419,7 @@ describe("presentSecurityAudit()", () => {
         action: `copilot.connection.${phase}`,
         actor: { membershipId: actorMembershipId },
         context: {
-          credentialProvider: "environment_token",
+          provider: "environment_token",
           phase,
           ...(reason ? { reason } : {}),
           ...(hasConnectionId ? { targetId: providerId } : {}),

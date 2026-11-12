@@ -32,7 +32,7 @@ describe("CopilotConnectionPage()", () => {
     expect(screen.queryByRole("button", { name: "Disconnect Copilot" })).not.toBeInTheDocument()
   })
 
-  it("shows who connected Copilot and offers only disconnecting", () => {
+  it("shows who connected Copilot and offers rechecking or disconnecting", () => {
     renderPage(Connected.args!.data!)
     expect(
       screen.getByText(
@@ -42,7 +42,7 @@ describe("CopilotConnectionPage()", () => {
     expect(
       screen.getByText("Copilot last answered on 2026-11-10T23:00:00.000Z."),
     ).toBeInTheDocument()
-    expect(screen.queryByRole("button", { name: /Connect Copilot/ })).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Check Copilot connection" })).toBeInTheDocument()
     const form = screen.getByRole("button", { name: "Disconnect Copilot" }).closest("form")
     expect(form?.querySelector('[name="_method"]')).toHaveValue("delete")
     expect(

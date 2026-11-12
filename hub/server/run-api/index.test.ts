@@ -13,6 +13,7 @@ import { createLogger } from "../integrations/pino/create-logger"
 import { attachRealtimeServer } from "../integrations/ws/attach-realtime-server"
 import type * as RealtimeModule from "../integrations/ws/attach-realtime-server"
 import type { RealtimeServer } from "../integrations/ws/types"
+import type { CopilotConnectionRouteDependencies } from "../routes/api/copilot-connection/types"
 
 vi.mock("../create-app", { spy: true })
 vi.mock("../integrations/ws/attach-realtime-server", { spy: true })
@@ -22,7 +23,11 @@ vi.mock("node:http", async (importOriginal) => {
   return { ...actual, createServer: vi.fn(actual.createServer) }
 })
 
-async function startApi(options: { port: number; shutdownTimeoutMs?: number }) {
+async function startApi(options: {
+  port: number
+  shutdownTimeoutMs?: number
+  copilotConnection?: CopilotConnectionRouteDependencies
+}) {
   const { runApi } = await import(".")
   const logger = createLogger({ level: "silent" })
   const readiness = vi.spyOn(logger, "info")
@@ -118,6 +123,67 @@ describe("runApi()", () => {
       await running
     }
 
+    expect(settled).toBe(true)
+  })
+
+  it("cancels a Copilot check and waits for its cleanup during shutdown", async () => {
+    const cleanup = deferred<void>()
+    const started = deferred<AbortSignal>()
+    async function connect({
+      signal,
+    }: Parameters<CopilotConnectionRouteDependencies["connect"]>[0]) {
+      if (!signal) throw new Error("The API lifecycle signal is required.")
+      started.resolve(signal)
+      if (!signal.aborted) {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true })
+        })
+      }
+      await cleanup.promise
+      throw signal.reason
+    }
+    const copilotConnection: CopilotConnectionRouteDependencies = {
+      applicationOrigin: "http://127.0.0.1:5173",
+      connect: vi.fn(connect),
+      disconnect: vi.fn(),
+      findSession: vi.fn().mockResolvedValue({
+        membershipId: "11111111-1111-4111-8111-111111111111",
+      }),
+      status: vi.fn().mockResolvedValue({
+        configured: true,
+        connected: false,
+        savedConnection: false,
+        connectedBy: null,
+        refusedAt: null,
+        verifiedAt: null,
+      }),
+    }
+    const { server, running, signal } = await startApi({ port: 0, copilotConnection })
+    await once(server, "listening")
+    const { port } = server.address() as AddressInfo
+    const response = fetch(`http://127.0.0.1:${port}/api/copilot-connection/connect`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        cookie: "hub_session=current-session",
+        origin: copilotConnection.applicationOrigin,
+      },
+      body: JSON.stringify({ confirmed: true }),
+    })
+    const operationSignal = await started.promise
+    let settled = false
+    void running.finally(() => {
+      settled = true
+    })
+
+    signal("SIGTERM")
+    await vi.waitFor(() => expect(operationSignal.aborted).toBe(true))
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    expect(settled).toBe(false)
+
+    cleanup.resolve()
+    await response
+    await running
     expect(settled).toBe(true)
   })
 

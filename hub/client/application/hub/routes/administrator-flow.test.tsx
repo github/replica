@@ -121,6 +121,7 @@ describe("administrator frontend integration", () => {
         HttpResponse.json({
           configured: true,
           connected: false,
+          savedConnection: false,
           connectedBy: null,
           refusedAt: null,
           verifiedAt: null,
@@ -141,6 +142,34 @@ describe("administrator frontend integration", () => {
     expect(disconnect).not.toHaveBeenCalled()
   }, 10_000)
 
+  it("allows an administrator to disconnect an inactive saved Copilot connection", async () => {
+    const disconnect = vi.fn(() => new HttpResponse(null, { status: 204 }))
+    await renderApplication("/settings/copilot", [
+      authenticatedSession(),
+      http.get(`${window.location.origin}/api/copilot-connection`, () =>
+        HttpResponse.json({
+          configured: true,
+          connected: false,
+          savedConnection: true,
+          connectedBy: null,
+          refusedAt: "2026-11-11T13:00:00.000Z",
+          verifiedAt: null,
+        }),
+      ),
+      http.delete(`${window.location.origin}/api/copilot-connection`, disconnect),
+    ])
+
+    expect(await screen.findByRole("button", { name: "Disconnect Copilot" })).toBeVisible()
+    fireEvent.click(
+      screen.getByRole("checkbox", {
+        name: "I understand and confirm disconnecting Copilot for this Hub.",
+      }),
+    )
+    fireEvent.click(screen.getByRole("button", { name: "Disconnect Copilot" }))
+
+    await waitFor(() => expect(disconnect).toHaveBeenCalledTimes(1))
+  }, 10_000)
+
   it("uses the real Copilot status and mutation APIs with visible action results", async () => {
     const mutations: Array<{ body: unknown; method: string; path: string }> = []
     let connected = false
@@ -150,6 +179,7 @@ describe("administrator frontend integration", () => {
         HttpResponse.json({
           configured: true,
           connected,
+          savedConnection: connected,
           connectedBy: connected
             ? {
                 login: "octocat",

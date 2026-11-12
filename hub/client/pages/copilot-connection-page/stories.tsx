@@ -59,7 +59,7 @@ const connected: AvailableData = {
   connectedBy: "@octocat connected Copilot. Membership 9b96cae1-099f-474f-bb1f-6f8ef78a4575.",
   verifiedLabel: "Copilot last answered on 2026-11-10T23:00:00.000Z.",
   refusedLabel: null,
-  connect: null,
+  connect: { ...connect, label: "Check Copilot connection" },
   disconnect,
 }
 

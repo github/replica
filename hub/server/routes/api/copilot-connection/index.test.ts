@@ -20,6 +20,7 @@ function dependencies(): CopilotConnectionRouteDependencies {
     status: vi.fn().mockResolvedValue({
       configured: true,
       connected: false,
+      savedConnection: false,
       connectedBy: null,
       refusedAt: null,
       verifiedAt: null,
@@ -53,6 +54,34 @@ function mutationHeaders() {
 }
 
 describe("copilotConnectionRoutes()", () => {
+  it("reports saved connection presence separately from active connected state", async () => {
+    const copilotConnection = dependencies()
+    vi.mocked(copilotConnection.status).mockResolvedValueOnce({
+      configured: true,
+      connected: false,
+      savedConnection: true,
+      connectedBy: null,
+      refusedAt: new Date("2026-11-11T13:00:00.000Z"),
+      verifiedAt: null,
+    })
+
+    await withServer(copilotConnection, async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/api/copilot-connection`, {
+        headers: { cookie: `hub_session=${sessionValue}` },
+      })
+
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toEqual({
+        configured: true,
+        connected: false,
+        savedConnection: true,
+        connectedBy: null,
+        refusedAt: "2026-11-11T13:00:00.000Z",
+        verifiedAt: null,
+      })
+    })
+  })
+
   it.each([
     ["connect", "POST", "/api/copilot-connection/connect"],
     ["disconnect", "DELETE", "/api/copilot-connection"],

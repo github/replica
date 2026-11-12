@@ -31,6 +31,7 @@ describe("getCopilotConnectionStatus()", () => {
     expect(getCopilotConnectionStatus(connection, provider, true, noRefusal)).toEqual({
       configured: true,
       connected: true,
+      savedConnection: true,
       connectedBy,
       refusedAt: null,
       verifiedAt,
@@ -48,6 +49,7 @@ describe("getCopilotConnectionStatus()", () => {
     expect(getCopilotConnectionStatus(connection, provider, true, noRefusal)).toEqual({
       configured: true,
       connected: false,
+      savedConnection: true,
       connectedBy: null,
       refusedAt: null,
       verifiedAt: null,
@@ -139,6 +141,7 @@ describe("getCopilotConnectionStatus()", () => {
     ).toEqual({
       configured: true,
       connected: false,
+      savedConnection: true,
       connectedBy: null,
       refusedAt,
       verifiedAt: null,
