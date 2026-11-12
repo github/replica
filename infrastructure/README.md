@@ -1,10 +1,10 @@
 # Azure Hub installation
 
-Operators can provision a durable Hub, run setup before every release, and replace the image without replacing its database or artifacts. This reference chooses Terraform with AzureRM to follow the team's Terraform experience; it is an implementation choice, not an application dependency. The configuration is flat under [`azure/`](azure/) rather than split into one-resource modules.
+Operators can provision a durable Hub, run setup before every release, and replace the image without replacing its database or artifacts. This reference chooses Terraform with AzureRM to follow the team's Terraform experience; it is an implementation choice, not an application dependency. The main installation is flat under [`azure/`](azure/) rather than split into one-resource modules.
 
 Definitions are grouped by responsibility: [`networking.tf`](azure/networking.tf), [`database.tf`](azure/database.tf), [`storage.tf`](azure/storage.tf), [`roles.tf`](azure/roles.tf), [`environment.tf`](azure/environment.tf), [`application.tf`](azure/application.tf), and [`setup.tf`](azure/setup.tf). Shared tags and the resource group remain in [`main.tf`](azure/main.tf). These files form one Terraform module; moving declarations between them does not change resource addresses or require state migration.
 
-This installs the current Hub, not hosted previews, review collaboration, user admission, or a sign-in provider. A public HTTPS endpoint does not authorize users or isolate prototype previews. Confirm product access requirements before exposing sensitive data.
+The current Hub supports GitHub sign-in and reusable administrator enrollment when configured. This reference does not configure those optional authentication settings by default, and hosted previews and review collaboration are not built yet. Supply the protected settings from [Hub deployment](../hub/docs/deployment.md#image-and-runtime), including the exact protected proxy-chain length, before enabling authentication. A public HTTPS endpoint does not authorize users or isolate prototype previews.
 
 ## What is created
 
@@ -16,9 +16,17 @@ Each installation has its own resource group tagged with its application, instal
 - Separate Hub and setup user-assigned identities. Only Hub receives `Storage Blob Data Contributor` on the artifacts container. Each identity can read only its referenced Key Vault secrets and, when configured, pull from an existing ACR. No vault or registry is created or owned.
 - Log Analytics with 30-day retention, a Container Apps environment, a manual setup job, and, after successful setup, one combined Hub app.
 
+Two optional modules have separate Terraform states and lifecycles. [`azure/foundation/`](azure/foundation/main.tf) creates an installation-owned ACR and RBAC-enabled Key Vault in a separate resource group, with `AcrPush` and `Key Vault Secrets Officer` grants for the deployment identity. The vault has 90-day soft deletion and purge protection. Pass its registry and vault outputs to the main installation; the main module still accepts existing resources and never owns their teardown.
+
+[`azure/provision/`](azure/provision/main.tf) creates a temporary private-network database-role provisioning job and identity in the installation's Container Apps environment. It accepts the same immutable image and exactly three versioned Key Vault references: `DATABASE_URL` for the administrator, `HUB_MIGRATION_PASSWORD`, and `HUB_RUNTIME_PASSWORD`. Each secret URL must belong to the supplied `vault_id`. Omit `registry_id` for a public image; an existing ACR requires its resource ID and grants only the provisioning identity pull access. The job has one replica, no automatic retries, and a ten-minute timeout. An authorized operator must run it once against a fresh database, verify that exact execution succeeded, and remove the temporary job, identity, and grants before release. Do not rerun it against an installed database or grant its administrator secret to Hub or setup. The existing private-network operator script remains an alternative.
+
+Initialize each optional module against its own protected backend state key, review its declared inputs and Terraform plan, and authorize its apply separately. Never share a state key with the main installation. Neither module starts Hub or replaces the serialized release command.
+
 The app has external HTTPS ingress and minimum and maximum one replica **per revision**. Multiple-revision mode permits explicit deactivation before releases. Azure's single-revision mode deliberately overlaps old and new processes while readiness is checked, so it is unsuitable for this maintenance-window strategy. Do not activate old revisions alongside the combined worker. This is not a high-availability or zero-downtime installation.
 
 The runtime receives `RUNTIME_MODE=combined`, `HOST=0.0.0.0`, `PORT=3001`, `CLIENT_DIRECTORY=/app/dist/client`, `SHUTDOWN_TIMEOUT_MS=30000`, and `NODE_ENV=production`. Artifacts use `ARTIFACT_STORAGE_PROVIDER=azure`, the provisioned `AZURE_STORAGE_ACCOUNT`, `AZURE_STORAGE_CONTAINER=artifacts`, and Hub's `AZURE_CLIENT_ID`. `DATABASE_URL` references a Key Vault secret for the `replica_runtime` database role with `sslmode=verify-full`. Optional `runtime_secret_references` map environment names to vault resource IDs and HTTPS secret URLs. Container Apps resolves these references using Hub's identity; Hub does not implement a separate secret-resolution framework.
+
+Terraform ignores only Azure-assigned PostgreSQL availability-zone and Container Apps infrastructure-resource-group values. It still checks other drift and owns both images. The installation output exposes authoritative app, resource-group, and storage-account IDs; before the first release, the app ID is `null`.
 
 The setup job uses the same digest and command `node dist/server/scripts/setup/index.js`. Its only environment settings are `NODE_ENV=production`, `RUNTIME_MODE=setup`, `DATABASE_RUNTIME_ROLE=replica_runtime`, and its own Key Vault-backed `DATABASE_URL` for `replica_migration`. It receives no artifact configuration or additional runtime secrets. It has one replica, no automatic retries, and a 30-minute timeout. Hub's readiness probe is `/api/ready`; startup and liveness use `/api/health`. Azure allows 60 seconds for termination, covering the 30-second application drain and up to five seconds of telemetry flushing with platform margin.
 
@@ -28,7 +36,7 @@ Neither workload receives the PostgreSQL administrator credential. A separate, o
 
 Use the Terraform version constrained in [`versions.tf`](azure/versions.tf), a Node.js version supported by `scripts/package.json`, and a current Azure CLI with Container Apps job and revision commands. CI performs formatting, validation, mocked Terraform tests, and release-orchestration tests without cloud credentials. It does not deploy.
 
-An authorized administrator must first create the **separate** Terraform backend: a dedicated state resource group, Storage account, and private container. Enable TLS, Entra authorization, Blob versioning and soft deletion; restrict network access to deployment runners and grant only the deployment identity `Storage Blob Data Contributor` on the state container. These bootstrap resources are not part of this installation's state or teardown. Never store this state in the app's artifacts account.
+An authorized administrator must first create the **separate** Terraform backend: a dedicated state resource group, Storage account, and private container. Enable TLS, Entra authorization, Blob versioning and soft deletion; disable shared-key authorization and anonymous Blob access, and grant the deployment identity `Storage Blob Data Contributor` on the state container. Apply any network restrictions required by deployment policy and ensure the runner can reach the account. These bootstrap resources are not part of this installation's state or teardown. Never store this state in the app's artifacts account.
 
 For automation, configure a dedicated deployment identity with a federated workload identity credential rather than a client secret. Bind its issuer to `https://token.actions.githubusercontent.com`, audience to `api://AzureADTokenExchange`, and subject to the exact protected repository/environment, such as `repo:YOUR_ORG/YOUR_REPO:environment:hub-production`. Protect that environment and deployment branch. A future release workflow needs `id-token: write` and must authenticate Azure CLI as the same identity; the infrastructure-check workflow intentionally has no such permission.
 
@@ -36,7 +44,9 @@ Set `ARM_CLIENT_ID`, `ARM_TENANT_ID`, `ARM_SUBSCRIPTION_ID`, and `ARM_USE_OIDC=t
 
 The deployment identity needs resource creation/update rights for the installation, role-assignment rights for the artifact container, referenced Key Vault secrets and optional registry, and Blob data-plane rights on the installation's account for the lock blob. Resource `Contributor` alone does not grant data access or role assignment. An administrator must authorize initial resource-group creation and inherited Blob data access for bootstrap, then narrow ongoing deployment grants to the installation resource group, referenced secrets, existing registry, and backend container. Precreated/imported infrastructure needs a separately reviewed initial plan rather than the empty-state bootstrap command. Do not grant either workload identity deployment or state access.
 
-Register `Microsoft.App`, `Microsoft.OperationalInsights`, `Microsoft.Network`, `Microsoft.Storage`, `Microsoft.DBforPostgreSQL`, and `Microsoft.ManagedIdentity` beforehand. The provider does not register services across the subscription. Allow time for newly assigned RBAC roles to propagate before setup.
+The main module's optional `grant_deployment_storage_access=true` grants the authenticated Terraform deployment identity `Storage Blob Data Contributor` on the installation account. It defaults to `false`; use it only when this account-level grant matches the deployment policy. It does not grant access to the separate state backend.
+
+Register `Microsoft.App`, `Microsoft.OperationalInsights`, `Microsoft.Network`, `Microsoft.Storage`, `Microsoft.DBforPostgreSQL`, and `Microsoft.ManagedIdentity` beforehand. Before applying the optional foundation module, also register `Microsoft.ContainerRegistry` and `Microsoft.KeyVault`. The providers do not register services across the subscription. Allow time for newly assigned RBAC roles to propagate before setup.
 
 Copy [`backend.hcl.example`](azure/backend.hcl.example) to `infrastructure/azure/backend.hcl` and [`installation.tfvars.example`](azure/installation.tfvars.example) to `infrastructure/azure/installation.tfvars`. Both real files are ignored. Replace every placeholder, choose a globally unique name, and resolve an existing image to its real `registry/repository@sha256:...` digest. Use either a public image or an existing ACR; private non-ACR registry credentials and ACR's ABAC repository-permissions mode are not covered by this reference.
 
@@ -84,7 +94,7 @@ The operator must approve the maintenance window and inspect intended configurat
 
 Terraform owns the image in both resources. There is deliberately **no** `ignore_changes` or out-of-band `az containerapp update --image`: a later infrastructure apply cannot silently use a stale image. Provisioning and rollout are separated by the two phases above. Never run a full Terraform apply directly on an installed Hub, start a setup job manually, or change revisions in the portal outside this serialized procedure. Terraform state locking alone does not protect setup-to-rollout ordering. The app's `prevent_destroy` guard rejects accidental `deploy_hub=false` on later full plans.
 
-Plans reject resource deletion and replacement during normal releases. A database major upgrade, region move, rename, or replacement needs a reviewed migration/recovery plan, not an override of that guard. The release script deletes its sensitive saved plan on exit. It leaves Hub stopped and retains the infinite lease after any release failure; it never reactivates an older process automatically against a possibly migrated schema.
+Plans reject resource deletion and replacement during normal releases. A database major upgrade, region move, rename, or replacement needs a reviewed migration/recovery plan, not an override of that guard. The release script stores sensitive plans under `TF_DATA_DIR` when nonempty, otherwise under the module's `.terraform/`, and deletes them on exit. Relative `TF_DATA_DIR` paths resolve against `infrastructure/azure/`, matching Terraform's `-chdir` behavior; protect that directory if it is outside the module. Failures identify a fixed command label and available exit code without printing arguments or tool output. It leaves Hub stopped and retains the infinite lease after any release failure; it never reactivates an older process automatically against a possibly migrated schema.
 
 ### Recover a failed release
 
@@ -139,15 +149,17 @@ Storage-account deletion does not preserve a usable Blob backup just because obj
 
 ## Credential-free checks and evidence limits
 
-From `infrastructure/azure/`:
+From `infrastructure/azure/`, check the main installation:
 
 ```sh
 terraform init -backend=false -input=false -lockfile=readonly
 terraform fmt -check -recursive
 terraform validate
 terraform test
-node --test deploy-hub/index.test.ts
+node --test deploy-hub/index.test.ts stop-hub/index.test.ts ../installer/command/describe/index.test.ts
 ```
+
+Run the same Terraform initialization, formatting, validation, and test commands from `foundation/` and `provision/` to check the optional modules. CI checks each module using both supported Terraform versions in [the workflow matrix](../.github/workflows/hub-infrastructure.yml).
 
 Terraform tests use AzureRM mocks, not an Azure subscription. Orchestration tests replace command execution and HTTPS requests, proving ordering and failure gates rather than Azure behavior. Readiness includes a bounded, non-writing container-properties request through Hub's managed identity; it detects unavailable storage but does not prove write or delete authorization. Worker readiness remains initialization-only. Before production, an authorized tenant exercise must verify provisioning, private PostgreSQL connectivity and TLS, separate database roles, Key Vault resolution, identity-based Blob/ACR access after RBAC propagation, failed setup blocking rollout, maintenance shutdown and revision behavior, HTTPS/readiness, persistence across replacement, custom TLS when configured, backup restoration, and owned-resource teardown. No real-cloud result is implied by these local checks.
 

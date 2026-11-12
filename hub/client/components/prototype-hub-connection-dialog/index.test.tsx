@@ -217,7 +217,9 @@ it("saves an edited URL before connecting and retains invalid drafts and save fa
   fireEvent.click(screen.getByRole("button", { name: "Save Hub" }))
   await screen.findByRole("link", { name: "https://new.example.com" })
   expect(showModal).toHaveBeenCalledOnce()
-  expect(screen.getByRole("button", { name: "Edit Hub URL" })).toHaveFocus()
+  await waitFor(() => {
+    expect(screen.getByRole("button", { name: "Edit Hub URL" })).toHaveFocus()
+  })
   expect(onSelectHub).toHaveBeenLastCalledWith("https://new.example.com")
   expect(screen.queryByRole("alert")).not.toBeInTheDocument()
   fireEvent.click(screen.getByRole("button", { name: "Connect to the Hub" }))

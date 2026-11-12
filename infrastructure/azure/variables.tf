@@ -18,6 +18,12 @@ variable "location" {
   description = "Azure region supporting Container Apps and PostgreSQL Flexible Server."
 }
 
+variable "resource_group_name" {
+  type        = string
+  default     = null
+  description = "Optional dedicated installation resource group name. Existing unmanaged groups are not adopted automatically."
+}
+
 variable "owner" {
   type        = string
   description = "Team responsible for cost, releases, and recovery."

@@ -1,5 +1,20 @@
 mock_provider "azurerm" {
   override_during = plan
+  mock_data "azurerm_client_config" {
+    defaults = {
+      object_id = "00000000-0000-0000-0000-000000000005"
+    }
+  }
+  mock_resource "azurerm_resource_group" {
+    defaults = {
+      id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/test-hub"
+    }
+  }
+  mock_resource "azurerm_container_app" {
+    defaults = {
+      id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/test-hub/providers/Microsoft.App/containerApps/test-hub-hub"
+    }
+  }
   mock_resource "azurerm_virtual_network" {
     defaults = {
       id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/test-hub/providers/Microsoft.Network/virtualNetworks/test"
@@ -41,6 +56,23 @@ mock_provider "azurerm" {
   mock_resource "azurerm_container_app_environment" {
     defaults = {
       id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/test-hub/providers/Microsoft.App/managedEnvironments/test"
+    }
+  }
+}
+
+mock_provider "azurerm" {
+  alias           = "rerun"
+  override_during = apply
+
+  mock_resource "azurerm_container_app_environment" {
+    defaults = {
+      id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/test-hub/providers/Microsoft.App/managedEnvironments/test"
+    }
+  }
+  mock_resource "azurerm_postgresql_flexible_server" {
+    defaults = {
+      id   = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/test-hub/providers/Microsoft.DBforPostgreSQL/flexibleServers/test"
+      fqdn = "test.postgres.database.azure.com"
     }
   }
 }
@@ -91,11 +123,50 @@ run "bootstrap_keeps_hub_stopped" {
   }
   assert {
     condition = (
+      length(data.azurerm_client_config.deployment) == 0 &&
+      length(azurerm_role_assignment.deployment_storage) == 0
+    )
+    error_message = "Deployment Blob access must remain opt-in without reading or granting a deployment principal by default."
+  }
+  assert {
+    condition = (
+      output.installation.app_id == null &&
+      output.installation.resource_group_id == azurerm_resource_group.hub.id &&
+      output.installation.resource_group_id == "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/test-hub" &&
+      output.installation.storage_account_id == azurerm_storage_account.artifacts.id &&
+      output.installation.storage_account_id == "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/test-hub/providers/Microsoft.Storage/storageAccounts/testhub"
+    )
+    error_message = "Bootstrap coordinates must expose authoritative group and storage IDs without claiming a deployed app."
+  }
+  assert {
+    condition = (
       azurerm_container_app_job.setup.template[0].container[0].command == tolist(["node", "dist/server/scripts/setup/index.js"]) &&
       azurerm_container_app_job.setup.manual_trigger_config[0].parallelism == 1 &&
       azurerm_container_app_job.setup.replica_retry_limit == 0
     )
     error_message = "Setup must run explicitly, once per execution, without automatic retries."
+  }
+}
+
+run "deployment_blob_access_is_an_explicit_account_scoped_grant" {
+  command = plan
+
+  variables {
+    grant_deployment_storage_access = true
+  }
+
+  assert {
+    condition = (
+      length(data.azurerm_client_config.deployment) == 1 &&
+      length(azurerm_role_assignment.deployment_storage) == 1 &&
+      azurerm_role_assignment.deployment_storage[0].scope == azurerm_storage_account.artifacts.id &&
+      azurerm_role_assignment.deployment_storage[0].role_definition_name == "Storage Blob Data Contributor" &&
+      azurerm_role_assignment.deployment_storage[0].principal_id == data.azurerm_client_config.deployment[0].object_id &&
+      azurerm_role_assignment.deployment_storage[0].principal_id == "00000000-0000-0000-0000-000000000005" &&
+      azurerm_role_assignment.deployment_storage[0].principal_id != azurerm_user_assigned_identity.hub.principal_id &&
+      azurerm_role_assignment.deployment_storage[0].principal_id != azurerm_user_assigned_identity.setup.principal_id
+    )
+    error_message = "Opt-in Blob access must grant only the authenticated deployment principal on the installation storage account, not a workload or the artifacts container."
   }
 }
 
@@ -109,6 +180,10 @@ run "durable_state_requires_private_authenticated_access" {
       azurerm_postgresql_flexible_server.database.backup_retention_days >= 7
     )
     error_message = "PostgreSQL must be private, TLS-only, and retain recoverable backups."
+  }
+  assert {
+    condition     = contains(coalesce(azurerm_subnet.database.service_endpoints, []), "Microsoft.Storage")
+    error_message = "The database subnet must retain Microsoft.Storage for PostgreSQL WAL archival."
   }
   assert {
     condition = (
@@ -132,6 +207,13 @@ run "combined_release_uses_one_image_and_bounded_shutdown" {
     acr_id     = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/existing/providers/Microsoft.ContainerRegistry/registries/existing"
   }
 
+  assert {
+    condition = (
+      output.installation.app_id == azurerm_container_app.hub[0].id &&
+      output.installation.app_id == "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/test-hub/providers/Microsoft.App/containerApps/test-hub-hub"
+    )
+    error_message = "A deployed app must expose its actual Azure resource ID for the deployment report."
+  }
   assert {
     condition = (
       azurerm_container_app.hub[0].template[0].min_replicas == 1 &&
@@ -260,4 +342,70 @@ run "hostname_without_certificate_is_rejected" {
     custom_hostname = "hub.example.com"
   }
   expect_failures = [var.certificate_id]
+}
+
+run "azure_assigned_resource_state" {
+  command   = apply
+  state_key = "azure-assigned"
+
+  providers = {
+    azurerm = azurerm.rerun
+  }
+
+  # Both properties are optional, not computed, so provider mocks cannot populate
+  # them. Seed only these resources through a mocked apply, never a state edit.
+  module {
+    source = "./tests/fixtures/azure-assigned"
+  }
+
+  assert {
+    condition = (
+      azurerm_container_app_environment.hub.infrastructure_resource_group_name == "ME_test-hub-environment_test-hub_eastus2" &&
+      azurerm_postgresql_flexible_server.database.zone == "2"
+    )
+    error_message = "The mock apply must retain Azure-assigned properties before testing a rerun."
+  }
+}
+
+run "rerun_retains_azure_assigned_resource_properties" {
+  command   = plan
+  state_key = "azure-assigned"
+
+  providers = {
+    azurerm = azurerm.rerun
+  }
+
+  assert {
+    condition     = azurerm_container_app_environment.hub.infrastructure_resource_group_name == "ME_test-hub-environment_test-hub_eastus2"
+    error_message = "Rerunning must retain the Azure-owned infrastructure resource group."
+  }
+  assert {
+    condition     = azurerm_postgresql_flexible_server.database.zone == "2"
+    error_message = "Rerunning must retain the Azure-assigned PostgreSQL zone."
+  }
+}
+
+run "rerun_still_plans_configured_resource_changes" {
+  command   = plan
+  state_key = "azure-assigned"
+
+  providers = {
+    azurerm = azurerm.rerun
+  }
+
+  variables {
+    owner                 = "new-owning-team"
+    postgres_sku          = "B_Standard_B2s"
+    backup_retention_days = 21
+  }
+
+  assert {
+    condition = (
+      azurerm_container_app_environment.hub.tags.owner == "new-owning-team" &&
+      azurerm_postgresql_flexible_server.database.tags.owner == "new-owning-team" &&
+      azurerm_postgresql_flexible_server.database.sku_name == "B_Standard_B2s" &&
+      azurerm_postgresql_flexible_server.database.backup_retention_days == 21
+    )
+    error_message = "Ignoring service-assigned placement must not hide configured resource changes."
+  }
 }
