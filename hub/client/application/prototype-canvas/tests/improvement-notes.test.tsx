@@ -144,17 +144,21 @@ describe("App()", () => {
       sync: "local",
       revision: 1,
     })
-    const view = render(
-      <App
-        config={{
-          name: "Demo",
-          prototypeUrl: `${origin}/settings?tab=account#profile`,
-          previewUrl: "http://127.0.0.1:6789/settings?tab=account#profile",
-          token: "local",
-          pickAndPolish: true,
-        }}
-      />,
-    )
+    const view = await act(async () => {
+      const view = render(
+        <App
+          config={{
+            name: "Demo",
+            prototypeUrl: `${origin}/settings?tab=account#profile`,
+            previewUrl: "http://127.0.0.1:6789/settings?tab=account#profile",
+            token: "local",
+            pickAndPolish: true,
+          }}
+        />,
+      )
+      await vi.dynamicImportSettled()
+      return view
+    })
     const card = await screen.findByRole("button", {
       name: "Open improvement: Make the save action clearer.",
     })
