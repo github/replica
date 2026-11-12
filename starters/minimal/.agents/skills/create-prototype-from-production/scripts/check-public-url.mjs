@@ -64,7 +64,8 @@ const credentialParameters = new Set([
   "xgoogsignature",
   "xgoogcredential",
 ])
-const jwt = /^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/
+const jwt =
+  /(?:^|[^A-Za-z0-9_-])eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+(?=$|[^A-Za-z0-9_-])/
 
 export function checkPublicUrl(value) {
   if (typeof value !== "string" || !value.trim() || !URL.canParse(value))

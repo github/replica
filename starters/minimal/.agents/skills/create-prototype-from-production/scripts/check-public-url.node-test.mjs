@@ -126,6 +126,10 @@ test("rejects recognizable synthetic JWT values outside credential-like paramete
   for (const [name, suffix] of [
     ["unrelated query key", `/fixture-path-marker?code=${jwt}`],
     ["bare JWT query", `/fixture-path-marker?${jwt}`],
+    [
+      "JWT inside a nested redirect value",
+      `/fixture-path-marker?next=${encodeURIComponent(`https://example.net/callback?code=${jwt}`)}`,
+    ],
     ["percent-decoded path component", `/fixture-path-marker/${encodedJwt}`],
     ["percent-decoded SPA fragment component", `/fixture-path-marker#/callback/${encodedJwt}`],
     ["matrix value before another parameter", `/fixture-path-marker;state=${encodedJwt};view=grid`],
@@ -233,6 +237,10 @@ test("accepts public names, CDN URLs and public IPs without discarding URL state
       "https://example.com/#/callback?code=fixture-code&state=fixture-state&key=fixture-key",
     ],
     ["ordinary hashbang parameters", "https://example.com/#!code=SKU&state=CA&key=public-cache"],
+    [
+      "public nested redirect",
+      `https://example.com/?next=${encodeURIComponent("https://example.net/catalog?code=SKU&state=CA&key=public-cache")}`,
+    ],
     [
       "public matrix parameters",
       "https://example.com/catalog;view=grid;state=CA;code=SKU;key=public-cache",
