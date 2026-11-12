@@ -223,6 +223,34 @@ describe("createInstallationAccessToken()", () => {
     await expect(mintToken()).rejects.toMatchObject({ code: "permission_denied" })
   })
 
+  it("rejects a token that includes any additional permission", async () => {
+    const mintToken = createInstallationAccessToken({
+      appId: "123",
+      installationId: "456",
+      organization: "github",
+      signer: { sign: vi.fn().mockResolvedValue("app-jwt") },
+      fetch: vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(successfulInstallationResponse())
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              expires_at: "2026-11-12T19:00:00.000Z",
+              permissions: {
+                contents: "write",
+                organization_copilot_requests: "read",
+              },
+              token: "overprivileged-token",
+            }),
+            { status: 201, headers: { "content-type": "application/json" } },
+          ),
+        ),
+      now: () => now,
+    })
+
+    await expect(mintToken()).rejects.toMatchObject({ code: "permission_denied" })
+  })
+
   it.each(["installation", "token"] as const)(
     "classifies an unreadable %s response as transient unavailability",
     async (responseType) => {

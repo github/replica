@@ -10,7 +10,7 @@ const responseSchema = z
       .object({
         organization_copilot_requests: z.literal("read"),
       })
-      .loose(),
+      .strict(),
     token: z.string().min(1).max(2_000),
   })
   .loose()
