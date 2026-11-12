@@ -55,7 +55,7 @@ describe("recordCopilotConnectionFailure()", () => {
       advanceState: vi.fn(),
       clearRefusal: vi.fn(),
       deleteConnection: vi.fn(),
-      findAdministratorSession: vi.fn().mockResolvedValue({ membershipId: randomUUID() }),
+      lockAdministratorSession: vi.fn().mockResolvedValue({ membershipId: randomUUID() }),
       getConnection: vi.fn(),
       lockState: vi.fn().mockResolvedValue({ generation: 1n }),
       recordRefusal: vi.fn(),

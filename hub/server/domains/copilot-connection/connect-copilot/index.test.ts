@@ -176,7 +176,7 @@ describe("connectCopilot()", () => {
     const actorMembershipId = randomUUID()
     const transactionMembershipId = randomUUID()
     const records = repositories({
-      findAdministratorSession: vi
+      lockAdministratorSession: vi
         .fn()
         .mockResolvedValue({ membershipId: transactionMembershipId }),
     })
