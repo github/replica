@@ -173,19 +173,19 @@ export async function reconcileAuthenticationProviders(
                 providerKey: provider.key,
               })
             }
-            const disconnected =
-              await repositories.disconnectCopilotConnectionWithoutEffectiveAdministrator?.()
-            if (disconnected) {
-              await repositories.createSecurityAudit({
-                actorMembershipId: null,
-                connectorMembershipId: disconnected.membershipId,
-                id: dependencies.createId(),
-                operation: "disconnect",
-                outcome: "success",
-                reason: "connector_role_removed",
-                type: "copilot_connection",
-              })
-            }
+          }
+          const disconnected =
+            await repositories.disconnectCopilotConnectionWithoutEffectiveAdministrator?.()
+          if (disconnected) {
+            await repositories.createSecurityAudit({
+              actorMembershipId: null,
+              connectorMembershipId: disconnected.membershipId,
+              id: dependencies.createId(),
+              operation: "disconnect",
+              outcome: "success",
+              reason: "connector_role_removed",
+              type: "copilot_connection",
+            })
           }
           return result
         }),

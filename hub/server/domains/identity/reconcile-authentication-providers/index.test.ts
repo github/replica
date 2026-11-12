@@ -238,6 +238,55 @@ describe("reconcileAuthenticationProviders()", () => {
     )
   })
 
+  it("disconnects Copilot when provider revision replacement ends the connector's authority", async () => {
+    const providerId = randomUUID()
+    const records = repositories([
+      {
+        configurationDigest: "a".repeat(64),
+        enabled: true,
+        id: providerId,
+        key: "github",
+        revision: 1,
+        revisionId: randomUUID(),
+      },
+    ])
+    const membershipId = randomUUID()
+    records.createAuthenticationProviderRevision.mockResolvedValue({
+      configurationDigest: "b".repeat(64),
+      id: randomUUID(),
+      providerId,
+      revision: 2,
+    })
+    records.disconnectCopilotConnectionWithoutEffectiveAdministrator.mockResolvedValue({
+      membershipId,
+    })
+
+    await reconcileAuthenticationProviders(
+      [
+        {
+          canonicalPublicConfiguration: '{"provider":"github","revision":2}',
+          providerKey: "github",
+          revision: 2,
+        },
+      ],
+      {
+        createId: randomUUID,
+        runTransaction: (operation) => operation(records),
+        writeAudit: vi.fn(),
+      },
+    )
+
+    expect(records.disconnectCopilotConnectionWithoutEffectiveAdministrator).toHaveBeenCalledOnce()
+    expect(records.createSecurityAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        connectorMembershipId: membershipId,
+        operation: "disconnect",
+        reason: "connector_role_removed",
+        type: "copilot_connection",
+      }),
+    )
+  })
+
   it("writes one terminal retry-exhaustion audit after the bounded transaction policy", async () => {
     const writeAudit = vi.fn()
     const runTransaction = vi.fn().mockRejectedValue(new IdentityTransactionConflictError())
