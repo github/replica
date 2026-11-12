@@ -44,21 +44,21 @@ Local preview HTML and representative SVG images are synthetic assets, not publi
 
 Start the mock development server before opening these examples. The links use the default port, `5173`; replace it with the port printed by the CLI if you start the server on another port. The [retained-page inventory](#retained-page-inventory) includes example links for every connected page.
 
-| Route                                                                     | Connected presentation                                                                      | URL state                                                                    | Open an example                                                                              |
+| Route | Connected presentation | URL state | Open an example |
 | --- | --- | --- | --- |
-| `/`                                                                       | Redirects to a repository or mock sign-in, or shows an empty workspace                      | Selection comes from session and workspace responses                         | [Home](http://127.0.0.1:5173/)                                                               |
-| `/repositories`                                                           | Selects the first accessible repository, or shows an empty workspace                        | Uses the same selection behavior as Home; no separate repository-list screen | [Repositories](http://127.0.0.1:5173/repositories)                                           |
-| `/sign-in`                                                                | Mock sign-in using the retained home page                                                   | Already signed-in viewers return to their workspace                          | [Sign-in](http://127.0.0.1:5173/sign-in)                                                     |
-| `/session`                                                                | Sign-in/out action; POST only, not a page                                                   | `intent` selects sign-in or sign-out                                         | [Sign-in form](http://127.0.0.1:5173/sign-in); persona changes use the separate test toolbar |
-| `/settings/administrators`                                                | Real administrator roster, candidate search, and bounded opaque-cursor pagination           | `before` is the server cursor; `result` carries completion feedback          | Requires a configured real-mode administrator session                                        |
-| `/settings/administrators/:membershipId/revoke`                           | Explicit confirmation before provider authorization                                         | Membership IDs are UUIDs; `before` retains the authoritative list page       | Requires a configured real-mode administrator session                                        |
-| `/settings/administrators/confirm`                                        | Continue or cancel the provider-verified role change                                        | `authorizationId` is the server authorization UUID                           | Provider callback destination                                                                |
-| `/settings/audit?scope=hub`                                               | Real Hub-wide administrator security records; mock mode retains Hub and repository fixtures | `before` is the opaque server cursor; real mode accepts only Hub scope       | Requires a configured real-mode administrator session                                        |
-| `/repositories/:repositoryId`                                             | Repository prototypes                                                                       | `q`, `author`, `page`, `view`                                                | [github/prototype](http://127.0.0.1:5173/repositories/2001)                                  |
-| `/repositories/:repositoryId/prototypes/:prototypeId`                     | Preview, metadata, and review conversations                                                 | `build` pins the preview; `comment` opens a conversation                     | [Welcome review](http://127.0.0.1:5173/repositories/2001/prototypes/1?build=3&comment=1)     |
-| `/repositories/:repositoryId/prototypes/:prototypeId/builds`              | Build history                                                                               | `page`                                                                       | [Welcome build history](http://127.0.0.1:5173/repositories/2001/prototypes/1/builds)         |
-| `/repositories/:repositoryId/prototypes/:prototypeId/builds/:buildNumber` | Build metadata and representative images                                                    | Build selection is in the path                                               | [Successful Build 3](http://127.0.0.1:5173/repositories/2001/prototypes/1/builds/3)          |
-| Other paths                                                               | Explicit not-found feedback                                                                 | No success-shaped placeholder                                                | [Not-found page (intentional 404)](http://127.0.0.1:5173/not-connected)                      |
+| `/` | Redirects to a repository or mock sign-in, or shows an empty workspace | Selection comes from session and workspace responses | [Home](http://127.0.0.1:5173/) |
+| `/repositories` | Selects the first accessible repository, or shows an empty workspace | Uses the same selection behavior as Home; no separate repository-list screen | [Repositories](http://127.0.0.1:5173/repositories) |
+| `/sign-in` | Mock sign-in using the retained home page | Already signed-in viewers return to their workspace | [Sign-in](http://127.0.0.1:5173/sign-in) |
+| `/session` | Sign-in/out action; POST only, not a page | `intent` selects sign-in or sign-out | [Sign-in form](http://127.0.0.1:5173/sign-in); persona changes use the separate test toolbar |
+| `/settings/administrators` | Real administrator roster, candidate search, and bounded opaque-cursor pagination | `before` is the server cursor; `result` carries completion feedback | Requires a configured real-mode administrator session |
+| `/settings/administrators/:membershipId/revoke` | Explicit confirmation before provider authorization | Membership IDs are UUIDs; `before` retains the authoritative list page | Requires a configured real-mode administrator session |
+| `/settings/administrators/confirm` | Continue or cancel the provider-verified role change | `authorizationId` is the server authorization UUID | Provider callback destination |
+| `/settings/audit?scope=hub` | Real Hub-wide administrator security records; mock mode retains Hub and repository fixtures | `before` is the opaque server cursor; real mode accepts only Hub scope | Requires a configured real-mode administrator session |
+| `/repositories/:repositoryId` | Repository prototypes | `q`, `author`, `page`, `view` | [github/prototype](http://127.0.0.1:5173/repositories/2001) |
+| `/repositories/:repositoryId/prototypes/:prototypeId` | Preview, metadata, and review conversations | `build` pins the preview; `comment` opens a conversation | [Welcome review](http://127.0.0.1:5173/repositories/2001/prototypes/1?build=3&comment=1) |
+| `/repositories/:repositoryId/prototypes/:prototypeId/builds` | Build history | `page` | [Welcome build history](http://127.0.0.1:5173/repositories/2001/prototypes/1/builds) |
+| `/repositories/:repositoryId/prototypes/:prototypeId/builds/:buildNumber` | Build metadata and representative images | Build selection is in the path | [Successful Build 3](http://127.0.0.1:5173/repositories/2001/prototypes/1/builds/3) |
+| Other paths | Explicit not-found feedback | No success-shaped placeholder | [Not-found page (intentional 404)](http://127.0.0.1:5173/not-connected) |
 
 Other seeded page states:
 
@@ -114,49 +114,49 @@ Use this map to find the frontend destination when converting a Rails page. The 
 
 `:repo` stands for the repository ID; actual parameter names differ between frameworks. Optional `repositoryId` query parameters that only preserve sidebar context are omitted. This is a page-URL map, not an API or mutation-endpoint inventory, a promise of identifier compatibility, or evidence of backend feature parity.
 
-| Page                          | Rails                                                     | React Router                                                      |
+| Page | Rails | React Router |
 | --- | --- | --- |
-| Home                          | `/`                                                       | `/`                                                               |
-| Sign-in                       | Home with authentication actions                          | `/sign-in`                                                        |
-| Welcome                       | `/welcome`                                                | `/welcome`                                                        |
-| Repositories                  | `/repositories`                                           | `/repositories`                                                   |
-| Prototypes                    | `/repositories/:repo`                                     | `/repositories/:repo`                                             |
-| Create prototype              | `/repositories/:repo/new`                                 | `/repositories/:repo/new`                                         |
-| Manage prototypes             | `/repositories/:repo/prototypes/manage`                   | `/repositories/:repo/prototypes/manage`                           |
-| Prototype                     | `/repositories/:repo/prototypes/:prototypeId`             | `/repositories/:repo/prototypes/:prototypeId`                     |
-| Build history                 | `/repositories/:repo/prototypes/:prototypeId/builds`      | `/repositories/:repo/prototypes/:prototypeId/builds`              |
-| Specific Build                | `/repositories/:repo/prototypes/:prototypeId/builds/:id`  | `/repositories/:repo/prototypes/:prototypeId/builds/:buildNumber` |
-| Prototype share links         | `/repositories/:repo/prototypes/:prototypeId/share_links` | `/repositories/:repo/prototypes/:prototypeId/share-links`         |
-| Browse template               | `/repositories/:repo/templates/:templateId`               | `/repositories/:repo/templates/:templateId`                       |
-| Analytics                     | `/repositories/:repo/analytics`                           | `/repositories/:repo/analytics`                                   |
-| Learnings                     | `/repositories/:repo/learnings`                           | `/repositories/:repo/learnings`                                   |
-| Notifications                 | `/notifications`                                          | `/notifications`                                                  |
-| Public shared Build           | `/share/:public_id`                                       | `/shared/:shareId`                                                |
-| Hub administrators            | `/hub_admins`                                             | `/settings/administrators`                                        |
-| Public sharing                | `/sharing_settings`                                       | `/settings/sharing`                                               |
-| End all Hub sessions          | `/session_revocation`                                     | `/settings/sessions`                                              |
-| Copilot connection            | `/copilot`                                                | `/settings/copilot`                                               |
-| Repository security audit     | `/repositories/:repo/security_audit`                      | `/settings/audit?scope=repository&repositoryId=:repo`             |
-| Hub security audit            | `/security_audit`                                         | `/settings/audit?scope=hub`                                       |
-| Canvas connections            | `/canvas/connections`                                     | `/settings/canvas`                                                |
-| Canvas pairing approval       | `/canvas/pair/:user_code`                                 | `/settings/canvas/approve`                                        |
-| Administrator enrollment      | `/operator/enrollment`                                    | `/settings/enroll`                                                |
-| Fresh authorization           | `/authorization/:id`                                      | `/settings/authorize`                                             |
-| GitHub App                    | `/github_app`                                             | `/settings/github`                                                |
-| GitHub App setup              | `/setup`                                                  | `/settings/github/setup`                                          |
-| Manual GitHub App setup       | `/setup/manual`                                           | `/settings/github/register`                                       |
-| Setup callback / installation | `/setup/callback`, `/setup/install`                       | `/settings/github/installed`                                      |
+| Home | `/` | `/` |
+| Sign-in | Home with authentication actions | `/sign-in` |
+| Welcome | `/welcome` | `/welcome` |
+| Repositories | `/repositories` | `/repositories` |
+| Prototypes | `/repositories/:repo` | `/repositories/:repo` |
+| Create prototype | `/repositories/:repo/new` | `/repositories/:repo/new` |
+| Manage prototypes | `/repositories/:repo/prototypes/manage` | `/repositories/:repo/prototypes/manage` |
+| Prototype | `/repositories/:repo/prototypes/:prototypeId` | `/repositories/:repo/prototypes/:prototypeId` |
+| Build history | `/repositories/:repo/prototypes/:prototypeId/builds` | `/repositories/:repo/prototypes/:prototypeId/builds` |
+| Specific Build | `/repositories/:repo/prototypes/:prototypeId/builds/:id` | `/repositories/:repo/prototypes/:prototypeId/builds/:buildNumber` |
+| Prototype share links | `/repositories/:repo/prototypes/:prototypeId/share_links` | `/repositories/:repo/prototypes/:prototypeId/share-links` |
+| Browse template | `/repositories/:repo/templates/:templateId` | `/repositories/:repo/templates/:templateId` |
+| Analytics | `/repositories/:repo/analytics` | `/repositories/:repo/analytics` |
+| Learnings | `/repositories/:repo/learnings` | `/repositories/:repo/learnings` |
+| Notifications | `/notifications` | `/notifications` |
+| Public shared Build | `/share/:public_id` | `/shared/:shareId` |
+| Hub administrators | `/hub_admins` | `/settings/administrators` |
+| Public sharing | `/sharing_settings` | `/settings/sharing` |
+| End all Hub sessions | `/session_revocation` | `/settings/sessions` |
+| Copilot connection | `/copilot` | `/settings/copilot` |
+| Repository security audit | `/repositories/:repo/security_audit` | `/settings/audit?scope=repository&repositoryId=:repo` |
+| Hub security audit | `/security_audit` | `/settings/audit?scope=hub` |
+| Canvas connections | `/canvas/connections` | `/settings/canvas` |
+| Canvas pairing approval | `/canvas/pair/:user_code` | `/settings/canvas/approve` |
+| Administrator enrollment | `/operator/enrollment` | `/settings/enroll` |
+| Fresh authorization | `/authorization/:id` | `/settings/authorize` |
+| GitHub App | `/github_app` | `/settings/github` |
+| GitHub App setup | `/setup` | `/settings/github/setup` |
+| Manual GitHub App setup | `/setup/manual` | `/settings/github/register` |
+| Setup callback / installation | `/setup/callback`, `/setup/install` | `/settings/github/installed` |
 
 The React `/repositories` entry selects the first accessible repository or shows the empty state; it is not a separate repository-list screen. Build record IDs and Build numbers are different identifiers. The setup and installation mapping represents a consolidated frontend flow, not a replacement for the Rails provider callback protocol.
 
 Compatibility redirects cover earlier React URLs, not every Rails URL:
 
-| Previous React URL                       | Canonical destination           |
+| Previous React URL | Canonical destination |
 | --- | --- |
 | `/settings/analytics?repositoryId=:repo` | `/repositories/:repo/analytics` |
 | `/settings/learnings?repositoryId=:repo` | `/repositories/:repo/learnings` |
-| `/admin/sharing`                         | `/settings/sharing`             |
-| `/settings/admins`                       | `/settings/administrators`      |
+| `/admin/sharing` | `/settings/sharing` |
+| `/settings/admins` | `/settings/administrators` |
 
 These redirects retain other query parameters. The repository-settings redirects remove `repositoryId` after moving it into the path; without it, they select the first accessible repository. Explicit invalid or unavailable repository context remains an error.
 
@@ -183,7 +183,7 @@ Unsupported actions show a visible failure without requiring development control
 
 These are frontend/mock contracts under [the application contracts](../client/application/hub/contracts/index.ts), not Prisma models or already-implemented Express endpoints. Repository and prototype identifiers are strings that accept UUIDs or positive whole numbers, so the server can issue UUIDs while mocks keep their numeric values. Template and share identifiers accept URL-safe opaque values rather than requiring the mock generator's format. Build commits accept full SHA-1 or SHA-256 object names. Coordinate real identifiers and contracts with backend work.
 
-| HTTP interface                                                                                                                        | Result                                                                                       |
+| HTTP interface | Result |
 | --- | --- |
 | `GET`, `POST`, `DELETE /api/session` | Viewer and capabilities; no mock profile or revision metadata |
 | `GET /api/workspace` | Viewer and repository navigation |
@@ -207,15 +207,15 @@ In real mode, Express implements `GET /api/workspace`, `GET /api/repositories/:r
 
 Real administrator management does not use the provisional settings contracts:
 
-| HTTP interface                                     | Result                                                                                                                                            |
+| HTTP interface | Result |
 | --- | --- |
-| `GET /api/auth/session`                            | Current role, membership UUID, user UUID, provider, login, and name                                                                               |
-| `GET /api/administrators?limit=&before=`           | Effective administrators and the next opaque cursor; provider presentation may be unavailable, so the membership UUID remains the stable identity |
-| `GET /api/administrators/candidates?query=&limit=` | Existing active non-administrator memberships matched by provider login or name, with provider and membership identity shown before selection     |
-| `POST /api/administrators/authorizations/start`    | Provider URL, authorization UUID and expiry bound to the exact operation and one to 50 membership UUIDs                                           |
-| `GET /api/administrators/authorizations/:id`       | Verified unconsumed operation and server-owned targets shown before callback continuation                                                         |
-| `POST /api/administrators/authorizations/continue` | Exact JSON continuation; reason codes become visible recovery guidance for stale and conflicting role changes                                     |
-| `POST /api/administrators/authorizations/cancel`   | Cancel the server-owned authorization without changing roles                                                                                      |
+| `GET /api/auth/session` | Current role, membership UUID, user UUID, provider, login, and name |
+| `GET /api/administrators?limit=&before=` | Effective administrators and the next opaque cursor; provider presentation may be unavailable, so the membership UUID remains the stable identity |
+| `GET /api/administrators/candidates?query=&limit=` | Existing active non-administrator memberships matched by provider login or name, with provider and membership identity shown before selection |
+| `POST /api/administrators/authorizations/start` | Provider URL, authorization UUID and expiry bound to the exact operation and one to 50 membership UUIDs |
+| `GET /api/administrators/authorizations/:id` | Verified unconsumed operation and server-owned targets shown before callback continuation |
+| `POST /api/administrators/authorizations/continue` | Exact JSON continuation; reason codes become visible recovery guidance for stale and conflicting role changes |
+| `POST /api/administrators/authorizations/cancel` | Cancel the server-owned authorization without changing roles |
 
 Errors use an HTTP status and `{ "error": "..." }`. Request schemas and the same response schemas check the JSON fixtures and HTTP boundary. Server-side input validation and authorization remain separate backend responsibilities.
 
@@ -267,35 +267,35 @@ Examples use seeded identifiers. A new tab starts with the Owner persona; use **
 
 GitHub App setup, registration, and installation pages can be opened directly without reproducing a provider protocol first. The default fixture has an installed GitHub App and a connected Copilot service, so their normal settings are available to the administrator persona. Fresh authorization uses a pending continuation from a connection change or enrollment action.
 
-| Page module                                                            | Intent and current connection                                                                                                                | Open an example                                                                                                                                        |
+| Page module | Intent and current connection | Open an example |
 | --- | --- | --- |
-| [Repositories index](../client/pages/repositories-index-page/)         | Repository-free navigation at `/` and `/repositories`                                                                                        | [Empty workspace in Storybook](http://localhost:6006/?path=/story/hub-pages-repositories--empty)                                                       |
-| [Repositories show](../client/pages/repositories-show-page/)           | Connected repository listing, filters, and pagination                                                                                        | [github/prototype](http://127.0.0.1:5173/repositories/2001)                                                                                            |
-| [Prototypes show](../client/pages/prototypes-show-page/)               | Preview, metadata, and mock review conversations                                                                                             | [Welcome review](http://127.0.0.1:5173/repositories/2001/prototypes/1?build=3&comment=1)                                                               |
-| [Builds index](../client/pages/builds-index-page/)                     | Connected build history                                                                                                                      | [Welcome history](http://127.0.0.1:5173/repositories/2001/prototypes/1/builds)                                                                         |
-| [Builds show](../client/pages/builds-show-page/)                       | Connected build details                                                                                                                      | [Successful Build 3](http://127.0.0.1:5173/repositories/2001/prototypes/1/builds/3)                                                                    |
-| [Home](../client/pages/home-index-page/)                               | `/sign-in`                                                                                                                                   | [Mock sign-in](http://127.0.0.1:5173/sign-in)                                                                                                          |
-| [Analytics](../client/pages/analytics-page/)                           | `/repositories/:repositoryId/analytics`                                                                                                      | [Repository analytics](http://127.0.0.1:5173/repositories/2001/analytics)                                                                              |
-| [Canvas pairings](../client/pages/canvas-pairings-page/)               | `/settings/canvas` and `/settings/canvas/approve`                                                                                            | [Connections](http://127.0.0.1:5173/settings/canvas?repositoryId=2001) and [approval](http://127.0.0.1:5173/settings/canvas/approve?repositoryId=2001) |
-| [Copilot connection](../client/pages/copilot-connection-page/)         | `/settings/copilot`                                                                                                                          | [Mock Copilot connection](http://127.0.0.1:5173/settings/copilot)                                                                                      |
-| [Fresh authorization](../client/pages/fresh-authorization-page/)       | Mock `/settings/authorize`; real `/settings/administrators/confirm?authorizationId=:uuid`                                                    | [Administrator continuation in Storybook](http://localhost:6006/?path=/story/hub-pages-security-fresh-authorization--continuing)                       |
-| [GitHub App](../client/pages/github-app-page/)                         | `/settings/github`                                                                                                                           | [Mock App settings](http://127.0.0.1:5173/settings/github)                                                                                             |
-| [GitHub App install](../client/pages/github-app-setup-install-page/)   | `/settings/github/installed`                                                                                                                 | [Installation after registration](http://127.0.0.1:5173/settings/github/installed)                                                                     |
-| [GitHub App register](../client/pages/github-app-setup-register-page/) | `/settings/github/register`                                                                                                                  | [Registration after setup](http://127.0.0.1:5173/settings/github/register)                                                                             |
-| [GitHub App setup](../client/pages/github-app-setup-show-page/)        | `/settings/github/setup`                                                                                                                     | [Start mock App setup](http://127.0.0.1:5173/settings/github/setup)                                                                                    |
-| [Admin confirmation](../client/pages/hub-admin-confirmation-page/)     | Real `/settings/administrators/:membershipId/:operation`; mock retained route stays request-only                                             | [Confirmation states in Storybook](http://localhost:6006/?path=/story/hub-pages-security-hub-administrator-confirmation--remove)                       |
-| [Admin enrollment](../client/pages/hub-admin-enrollment-page/)         | `/settings/enroll`                                                                                                                           | [Mock enrollment](http://127.0.0.1:5173/settings/enroll)                                                                                               |
-| [Admins](../client/pages/hub-admins-page/)                             | Real `/settings/administrators`; mock `/settings/admins`                                                                                     | [Administrator roster in Storybook](http://localhost:6006/?path=/story/hub-pages-security-hub-administrators--multiple)                                |
-| [Learnings](../client/pages/learnings-page/)                           | `/repositories/:repositoryId/learnings`                                                                                                      | [Repository learnings](http://127.0.0.1:5173/repositories/2001/learnings)                                                                              |
-| [New prototype](../client/pages/new-prototype-page/)                   | `/repositories/:repositoryId/new`                                                                                                            | [Create a prototype](http://127.0.0.1:5173/repositories/2001/new)                                                                                      |
-| [Notifications](../client/pages/notifications-page/)                   | `/notifications`                                                                                                                             | [Notifications](http://127.0.0.1:5173/notifications)                                                                                                   |
-| [Prototype management](../client/pages/prototype-management-page/)     | `/repositories/:repositoryId/prototypes/manage`                                                                                              | [Edit prototype listings](http://127.0.0.1:5173/repositories/2001/prototypes/manage)                                                                   |
-| [Replica browse](../client/pages/replica-browse-page/)                 | `/repositories/:repositoryId/templates/:templateId`                                                                                          | [Browse the default template](http://127.0.0.1:5173/repositories/2001/templates/default)                                                               |
-| [Security audit](../client/pages/security-audit-page/)                 | Real Hub-wide read at `/settings/audit?scope=hub`; mock repository fixtures at `/settings/audit?scope=repository&repositoryId=:repositoryId` | [Mock repository activity](http://127.0.0.1:5173/settings/audit?scope=repository&repositoryId=2001)                                                    |
-| [Session revocation](../client/pages/session-revocation-page/)         | `/settings/sessions`                                                                                                                         | [Mock browser session](http://127.0.0.1:5173/settings/sessions)                                                                                        |
-| [Share links](../client/pages/share-links-index-page/)                 | `/repositories/:repositoryId/prototypes/:prototypeId/share-links`                                                                            | [Welcome share links](http://127.0.0.1:5173/repositories/2001/prototypes/1/share-links)                                                                |
-| [Shared build](../client/pages/shared-builds-show-page/)               | `/shared/:shareId`                                                                                                                           | [Active shared preview](http://127.0.0.1:5173/shared/demo-active)                                                                                      |
-| [Sharing settings](../client/pages/sharing-settings-page/)             | `/settings/sharing`                                                                                                                          | [Mock sharing controls](http://127.0.0.1:5173/settings/sharing)                                                                                        |
-| [Welcome](../client/pages/welcome-page/)                               | `/welcome`                                                                                                                                   | [Welcome page](http://127.0.0.1:5173/welcome)                                                                                                          |
+| [Repositories index](../client/pages/repositories-index-page/) | Repository-free navigation at `/` and `/repositories` | [Empty workspace in Storybook](http://localhost:6006/?path=/story/hub-pages-repositories--empty) |
+| [Repositories show](../client/pages/repositories-show-page/) | Connected repository listing, filters, and pagination | [github/prototype](http://127.0.0.1:5173/repositories/2001) |
+| [Prototypes show](../client/pages/prototypes-show-page/) | Preview, metadata, and mock review conversations | [Welcome review](http://127.0.0.1:5173/repositories/2001/prototypes/1?build=3&comment=1) |
+| [Builds index](../client/pages/builds-index-page/) | Connected build history | [Welcome history](http://127.0.0.1:5173/repositories/2001/prototypes/1/builds) |
+| [Builds show](../client/pages/builds-show-page/) | Connected build details | [Successful Build 3](http://127.0.0.1:5173/repositories/2001/prototypes/1/builds/3) |
+| [Home](../client/pages/home-index-page/) | `/sign-in` | [Mock sign-in](http://127.0.0.1:5173/sign-in) |
+| [Analytics](../client/pages/analytics-page/) | `/repositories/:repositoryId/analytics` | [Repository analytics](http://127.0.0.1:5173/repositories/2001/analytics) |
+| [Canvas pairings](../client/pages/canvas-pairings-page/) | `/settings/canvas` and `/settings/canvas/approve` | [Connections](http://127.0.0.1:5173/settings/canvas?repositoryId=2001) and [approval](http://127.0.0.1:5173/settings/canvas/approve?repositoryId=2001) |
+| [Copilot connection](../client/pages/copilot-connection-page/) | `/settings/copilot` | [Mock Copilot connection](http://127.0.0.1:5173/settings/copilot) |
+| [Fresh authorization](../client/pages/fresh-authorization-page/) | Mock `/settings/authorize`; real `/settings/administrators/confirm?authorizationId=:uuid` | [Administrator continuation in Storybook](http://localhost:6006/?path=/story/hub-pages-security-fresh-authorization--continuing) |
+| [GitHub App](../client/pages/github-app-page/) | `/settings/github` | [Mock App settings](http://127.0.0.1:5173/settings/github) |
+| [GitHub App install](../client/pages/github-app-setup-install-page/) | `/settings/github/installed` | [Installation after registration](http://127.0.0.1:5173/settings/github/installed) |
+| [GitHub App register](../client/pages/github-app-setup-register-page/) | `/settings/github/register` | [Registration after setup](http://127.0.0.1:5173/settings/github/register) |
+| [GitHub App setup](../client/pages/github-app-setup-show-page/) | `/settings/github/setup` | [Start mock App setup](http://127.0.0.1:5173/settings/github/setup) |
+| [Admin confirmation](../client/pages/hub-admin-confirmation-page/) | Real `/settings/administrators/:membershipId/:operation`; mock retained route stays request-only | [Confirmation states in Storybook](http://localhost:6006/?path=/story/hub-pages-security-hub-administrator-confirmation--remove) |
+| [Admin enrollment](../client/pages/hub-admin-enrollment-page/) | `/settings/enroll` | [Mock enrollment](http://127.0.0.1:5173/settings/enroll) |
+| [Admins](../client/pages/hub-admins-page/) | Real `/settings/administrators`; mock `/settings/admins` | [Administrator roster in Storybook](http://localhost:6006/?path=/story/hub-pages-security-hub-administrators--multiple) |
+| [Learnings](../client/pages/learnings-page/) | `/repositories/:repositoryId/learnings` | [Repository learnings](http://127.0.0.1:5173/repositories/2001/learnings) |
+| [New prototype](../client/pages/new-prototype-page/) | `/repositories/:repositoryId/new` | [Create a prototype](http://127.0.0.1:5173/repositories/2001/new) |
+| [Notifications](../client/pages/notifications-page/) | `/notifications` | [Notifications](http://127.0.0.1:5173/notifications) |
+| [Prototype management](../client/pages/prototype-management-page/) | `/repositories/:repositoryId/prototypes/manage` | [Edit prototype listings](http://127.0.0.1:5173/repositories/2001/prototypes/manage) |
+| [Replica browse](../client/pages/replica-browse-page/) | `/repositories/:repositoryId/templates/:templateId` | [Browse the default template](http://127.0.0.1:5173/repositories/2001/templates/default) |
+| [Security audit](../client/pages/security-audit-page/) | Real Hub-wide read at `/settings/audit?scope=hub`; mock repository fixtures at `/settings/audit?scope=repository&repositoryId=:repositoryId` | [Mock repository activity](http://127.0.0.1:5173/settings/audit?scope=repository&repositoryId=2001) |
+| [Session revocation](../client/pages/session-revocation-page/) | `/settings/sessions` | [Mock browser session](http://127.0.0.1:5173/settings/sessions) |
+| [Share links](../client/pages/share-links-index-page/) | `/repositories/:repositoryId/prototypes/:prototypeId/share-links` | [Welcome share links](http://127.0.0.1:5173/repositories/2001/prototypes/1/share-links) |
+| [Shared build](../client/pages/shared-builds-show-page/) | `/shared/:shareId` | [Active shared preview](http://127.0.0.1:5173/shared/demo-active) |
+| [Sharing settings](../client/pages/sharing-settings-page/) | `/settings/sharing` | [Mock sharing controls](http://127.0.0.1:5173/settings/sharing) |
+| [Welcome](../client/pages/welcome-page/) | `/welcome` | [Welcome page](http://127.0.0.1:5173/welcome) |
 
 Settings collection filters use the URL. Repository-owned Analytics and Learnings use the path identifier. The real Hub-wide audit carries only `scope=hub` and the opaque `before` cursor; mock repository audit uses `repositoryId` to select fixture records. Use focused request/store/route tests for cross-page behavior and existing page tests for local interactions. Review visual changes in Storybook and capture affected stories following the [Storybook guide](storybook.md#ui-changes-and-pull-request-evidence). Do not freeze whole DOM trees, incidental copy, or provisional APIs as the migration's ground truth.
