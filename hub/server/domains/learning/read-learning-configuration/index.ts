@@ -1,14 +1,12 @@
 import { resolve } from "node:path"
 
 import { validatePrivateStorageRoot } from "../../../utils/validate-private-storage-root/index.ts"
-import type { GitHubAppJwtSigner } from "../../../integrations/github/create-github-app-jwt-signer/types.ts"
 import { createCopilotCredentialProvider } from "../../copilot-credentials/create-copilot-credential-provider/index.ts"
 import { LearningConfigurationError } from "../errors.ts"
 
 export async function readLearningConfiguration(
   environment: NodeJS.ProcessEnv,
   applicationRoot = process.cwd(),
-  dependencies: { githubAppJwtSigner?: GitHubAppJwtSigner } = {},
 ) {
   const clientDirectory = environment.CLIENT_DIRECTORY?.trim()
   let root: string
@@ -35,7 +33,7 @@ export async function readLearningConfiguration(
   const nodePath = environment.REPLICA_LEARNING_NODE?.trim() || process.execPath
   let copilotCredentialProvider
   try {
-    copilotCredentialProvider = createCopilotCredentialProvider(environment, dependencies)
+    copilotCredentialProvider = createCopilotCredentialProvider(environment)
   } catch (error) {
     throw new LearningConfigurationError(
       error instanceof Error ? error.message : "Copilot credential configuration is invalid.",

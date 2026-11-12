@@ -172,6 +172,41 @@ describe("connectCopilot()", () => {
     ).resolves.toEqual({ connectionId })
   })
 
+  it("writes the GitHub App and billed organization in the successful connection audit", async () => {
+    const actorMembershipId = randomUUID()
+    const transactionMembershipId = randomUUID()
+    const records = repositories({
+      findAdministratorSession: vi
+        .fn()
+        .mockResolvedValue({ membershipId: transactionMembershipId }),
+    })
+
+    await connectCopilot(
+      { credentialProvider: githubAppCredentialProvider, sessionDigest: "session-digest" },
+      {
+        check: vi.fn().mockResolvedValue({ signedIn: true, login: null, models: [] }),
+        createId: randomUUID,
+        findAdministratorSession: vi.fn().mockResolvedValue({ membershipId: actorMembershipId }),
+        now: () => new Date(),
+        readSnapshot: vi.fn().mockResolvedValue({ connectionId: null, generation: 1n }),
+        recordFailure: vi.fn().mockResolvedValue(true),
+        recordRefusal: vi.fn().mockResolvedValue("recorded"),
+        runTransaction: (operation) => operation(records),
+        writeAudit: vi.fn(),
+      },
+    )
+
+    expect(records.writeAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actorMembershipId: transactionMembershipId,
+        appId: "123",
+        billedOrganization: "github",
+        credentialProvider: "github_app_installation",
+        phase: "connected",
+      }),
+    )
+  })
+
   it("records a refused credential against its provider identity without starting a connection transaction", async () => {
     const actorMembershipId = randomUUID()
     const connectionId = randomUUID()
@@ -244,7 +279,11 @@ describe("connectCopilot()", () => {
           writeAudit: vi.fn(),
         },
       ),
-    ).rejects.toMatchObject({ code: connectionCode })
+    ).rejects.toMatchObject(
+      providerCode === "permission_denied"
+        ? { code: connectionCode, message: "GitHub refused the installation." }
+        : { code: connectionCode },
+    )
 
     expect(recordRefusal).toHaveBeenCalledWith({
       appId: "123",

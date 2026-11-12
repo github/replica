@@ -70,7 +70,7 @@ describe("createGitHubAppInstallationCopilotCredentialProvider()", () => {
             account: { login: "GitHub", type: "Organization" },
             app_id: 123,
             id: 456,
-            permissions: { copilot_requests: "read" },
+            permissions: { organization_copilot_requests: "read" },
           }),
           { status: 200, headers: { "content-type": "application/json" } },
         ),
@@ -79,7 +79,7 @@ describe("createGitHubAppInstallationCopilotCredentialProvider()", () => {
         new Response(
           JSON.stringify({
             expires_at: "2026-11-12T19:00:00.000Z",
-            permissions: { copilot_requests: "read" },
+            permissions: { organization_copilot_requests: "read" },
             token: "installation-token",
           }),
           { status: 201, headers: { "content-type": "application/json" } },
@@ -103,10 +103,27 @@ describe("createGitHubAppInstallationCopilotCredentialProvider()", () => {
     const authorization = new Headers(request.mock.calls[0]?.[1]?.headers).get("authorization")
     const jwt = authorization?.replace("Bearer ", "") ?? ""
     const [header, payload, signature] = jwt.split(".")
-    expect(JSON.parse(Buffer.from(payload!, "base64url").toString())).toMatchObject({ iss: "123" })
+    expect(JSON.parse(Buffer.from(payload!, "base64url").toString())).toEqual({
+      exp: 1_794_506_940,
+      iat: 1_794_506_340,
+      iss: "123",
+    })
     const verifier = createVerify("RSA-SHA256")
     verifier.update(`${header}.${payload}`)
     verifier.end()
     expect(verifier.verify(publicKey, Buffer.from(signature!, "base64url"))).toBe(true)
+  })
+
+  it("reports invalid identity settings in plain language", () => {
+    expect(() =>
+      createGitHubAppInstallationCopilotCredentialProvider({
+        GITHUB_APP_ID: "not-an-id",
+        GITHUB_APP_PRIVATE_KEY: privateKey(),
+        REPLICA_COPILOT_GITHUB_INSTALLATION_ID: "",
+        REPLICA_COPILOT_GITHUB_ORGANIZATION: "-invalid",
+      }),
+    ).toThrow(
+      "GITHUB_APP_ID, REPLICA_COPILOT_GITHUB_INSTALLATION_ID, REPLICA_COPILOT_GITHUB_ORGANIZATION must provide positive numeric App and installation IDs and a valid organization login.",
+    )
   })
 })

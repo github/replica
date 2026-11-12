@@ -2,14 +2,12 @@ import { createHash } from "node:crypto"
 
 import { createEnvironmentCopilotCredentialProvider } from "../create-environment-copilot-credential-provider/index.ts"
 import { createGitHubAppInstallationCopilotCredentialProvider } from "../create-github-app-installation-copilot-credential-provider/index.ts"
-import type { GitHubAppJwtSigner } from "../../../integrations/github/create-github-app-jwt-signer/types.ts"
 import type { CopilotCredentialProvider } from "../types.ts"
 
 const ambientDigest = createHash("sha256").update("ambient_cli:v1").digest("hex")
 
 export function createCopilotCredentialProvider(
   environment: NodeJS.ProcessEnv,
-  dependencies: { githubAppJwtSigner?: GitHubAppJwtSigner } = {},
 ): CopilotCredentialProvider {
   const mode = environment.REPLICA_COPILOT_AUTHENTICATION?.trim()
   const hasEnvironmentToken = Boolean(environment.REPLICA_COPILOT_TOKEN?.trim())
@@ -70,10 +68,7 @@ export function createCopilotCredentialProvider(
         "REPLICA_COPILOT_TOKEN must be unset when REPLICA_COPILOT_AUTHENTICATION=github-app-installation.",
       )
     }
-    return createGitHubAppInstallationCopilotCredentialProvider(
-      environment,
-      dependencies.githubAppJwtSigner,
-    )
+    return createGitHubAppInstallationCopilotCredentialProvider(environment)
   }
   throw new Error(
     "REPLICA_COPILOT_AUTHENTICATION must be ambient-cli, environment-token, or github-app-installation.",

@@ -9,7 +9,7 @@ function successfulResponse(token: string) {
   return new Response(
     JSON.stringify({
       expires_at: "2026-11-12T19:00:00.000Z",
-      permissions: { copilot_requests: "read" },
+      permissions: { organization_copilot_requests: "read" },
       token,
     }),
     { status: 201, headers: { "content-type": "application/json" } },
@@ -21,7 +21,7 @@ function successfulInstallationResponse(
     account?: { login: string; type: string }
     app_id?: number
     id?: number
-    permissions?: { copilot_requests: string }
+    permissions?: { organization_copilot_requests: string }
   } = {},
 ) {
   return new Response(
@@ -29,7 +29,7 @@ function successfulInstallationResponse(
       account: { login: "GitHub", type: "Organization" },
       app_id: 123,
       id: 456,
-      permissions: { copilot_requests: "read" },
+      permissions: { organization_copilot_requests: "read" },
       ...overrides,
     }),
     { status: 200, headers: { "content-type": "application/json" } },
@@ -77,7 +77,7 @@ describe("createInstallationAccessToken()", () => {
       "https://api.github.com/app/installations/456/access_tokens",
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({ permissions: { copilot_requests: "read" } }),
+        body: JSON.stringify({ permissions: { organization_copilot_requests: "read" } }),
         redirect: "error",
         headers: {
           accept: "application/vnd.github+json",
@@ -130,7 +130,7 @@ describe("createInstallationAccessToken()", () => {
     ["App ID", { app_id: 124 }],
     ["organization login", { account: { login: "octo-org", type: "Organization" } }],
     ["organization account type", { account: { login: "GitHub", type: "User" } }],
-    ["Copilot Requests permission", { permissions: { copilot_requests: "write" } }],
+    ["Copilot Requests permission", { permissions: { organization_copilot_requests: "write" } }],
   ])("refuses a mismatched %s before requesting a token", async (_label, overrides) => {
     const request = vi
       .fn<typeof fetch>()
@@ -165,6 +165,23 @@ describe("createInstallationAccessToken()", () => {
     await expect(mintToken()).rejects.toMatchObject({ code })
   })
 
+  it.each([
+    new Response(null, { status: 429 }),
+    new Response(null, { status: 403, headers: { "x-ratelimit-remaining": "0" } }),
+    new Response(null, { status: 403, headers: { "retry-after": "5" } }),
+  ])("classifies throttling as transient unavailability", async (response) => {
+    const mintToken = createInstallationAccessToken({
+      appId: "123",
+      installationId: "456",
+      organization: "github",
+      signer: { sign: vi.fn().mockResolvedValue("app-jwt") },
+      fetch: vi.fn<typeof fetch>().mockResolvedValue(response),
+      now: () => now,
+    })
+
+    await expect(mintToken()).rejects.toMatchObject({ code: "unavailable" })
+  })
+
   it("classifies transport failures as transient unavailability", async () => {
     const mintToken = createInstallationAccessToken({
       appId: "123",
@@ -194,7 +211,7 @@ describe("createInstallationAccessToken()", () => {
           new Response(
             JSON.stringify({
               expires_at: "2026-11-12T19:00:00.000Z",
-              permissions: { copilot_requests: "write" },
+              permissions: { organization_copilot_requests: "write" },
               token: "overprivileged-token",
             }),
             { status: 201, headers: { "content-type": "application/json" } },
@@ -205,6 +222,32 @@ describe("createInstallationAccessToken()", () => {
 
     await expect(mintToken()).rejects.toMatchObject({ code: "permission_denied" })
   })
+
+  it.each(["installation", "token"] as const)(
+    "classifies an unreadable %s response as transient unavailability",
+    async (responseType) => {
+      const unreadable = new Response("{}", { status: responseType === "installation" ? 200 : 201 })
+      vi.spyOn(unreadable, "text").mockRejectedValue(new Error("connection reset"))
+      const request = vi.fn<typeof fetch>()
+      if (responseType === "installation") {
+        request.mockResolvedValue(unreadable)
+      } else {
+        request
+          .mockResolvedValueOnce(successfulInstallationResponse())
+          .mockResolvedValueOnce(unreadable)
+      }
+      const mintToken = createInstallationAccessToken({
+        appId: "123",
+        installationId: "456",
+        organization: "github",
+        signer: { sign: vi.fn().mockResolvedValue("app-jwt") },
+        fetch: request,
+        now: () => now,
+      })
+
+      await expect(mintToken()).rejects.toMatchObject({ code: "unavailable" })
+    },
+  )
 
   it("does not let one concurrent failure poison another acquisition", async () => {
     const signer = { sign: vi.fn().mockResolvedValue("app-jwt") }

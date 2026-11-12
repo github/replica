@@ -20,12 +20,25 @@ export function createGitHubAppInstallationCopilotCredentialProvider(
   environment: NodeJS.ProcessEnv,
   signer?: GitHubAppJwtSigner,
 ): CopilotCredentialProvider {
-  const configuration = identityConfigurationSchema.parse({
+  const parsedConfiguration = identityConfigurationSchema.safeParse({
     GITHUB_APP_ID: environment.GITHUB_APP_ID?.trim(),
     REPLICA_COPILOT_GITHUB_INSTALLATION_ID:
       environment.REPLICA_COPILOT_GITHUB_INSTALLATION_ID?.trim(),
     REPLICA_COPILOT_GITHUB_ORGANIZATION: environment.REPLICA_COPILOT_GITHUB_ORGANIZATION?.trim(),
   })
+  if (!parsedConfiguration.success) {
+    const names = [
+      ...new Set(
+        parsedConfiguration.error.issues
+          .map((issue) => issue.path[0])
+          .filter((name): name is string => typeof name === "string"),
+      ),
+    ].join(", ")
+    throw new Error(
+      `${names || "GitHub App installation configuration"} must provide positive numeric App and installation IDs and a valid organization login.`,
+    )
+  }
+  const configuration = parsedConfiguration.data
   const privateKey = environment.GITHUB_APP_PRIVATE_KEY?.replaceAll("\\n", "\n").trim()
   const jwtSigner =
     signer ??

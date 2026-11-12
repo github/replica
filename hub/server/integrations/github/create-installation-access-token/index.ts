@@ -8,7 +8,7 @@ const responseSchema = z
     expires_at: z.iso.datetime({ offset: true }),
     permissions: z
       .object({
-        copilot_requests: z.literal("read"),
+        organization_copilot_requests: z.literal("read"),
       })
       .loose(),
     token: z.string().min(1).max(2_000),
@@ -26,7 +26,7 @@ const installationSchema = z
     id: z.number().int().positive(),
     permissions: z
       .object({
-        copilot_requests: z.literal("read"),
+        organization_copilot_requests: z.literal("read"),
       })
       .loose(),
   })
@@ -40,6 +40,17 @@ function classifyResponse(response: Response) {
       "The configured GitHub App installation is unavailable.",
     )
   }
+  if (
+    response.status === 429 ||
+    (response.status === 403 &&
+      (response.headers.get("x-ratelimit-remaining") === "0" ||
+        response.headers.has("retry-after")))
+  ) {
+    throw new CopilotCredentialError(
+      "unavailable",
+      "GitHub temporarily limited installation credential requests.",
+    )
+  }
   if (response.status === 401 || response.status === 403 || response.status === 422) {
     throw new CopilotCredentialError(
       "permission_denied",
@@ -51,6 +62,14 @@ function classifyResponse(response: Response) {
       "unavailable",
       "GitHub could not issue an installation credential.",
     )
+  }
+}
+
+async function readJson(response: Response, message: string): Promise<unknown> {
+  try {
+    return JSON.parse(await response.text()) as unknown
+  } catch (error) {
+    throw new CopilotCredentialError("unavailable", message, { cause: error })
   }
 }
 
@@ -89,8 +108,12 @@ export function createInstallationAccessToken(input: CreateInstallationAccessTok
     }
     classifyResponse(installationResponse)
     let installation: z.infer<typeof installationSchema>
+    const installationData = await readJson(
+      installationResponse,
+      "GitHub returned an unreadable App installation response.",
+    )
     try {
-      installation = installationSchema.parse(await installationResponse.json())
+      installation = installationSchema.parse(installationData)
     } catch (error) {
       throw new CopilotCredentialError(
         "permission_denied",
@@ -119,7 +142,7 @@ export function createInstallationAccessToken(input: CreateInstallationAccessTok
             ...headers,
             "content-type": "application/json",
           },
-          body: JSON.stringify({ permissions: { copilot_requests: "read" } }),
+          body: JSON.stringify({ permissions: { organization_copilot_requests: "read" } }),
           redirect: "error",
           signal: AbortSignal.timeout(requestTimeoutMs),
         },
@@ -133,8 +156,12 @@ export function createInstallationAccessToken(input: CreateInstallationAccessTok
     }
     classifyResponse(response)
     let parsed: z.infer<typeof responseSchema>
+    const responseData = await readJson(
+      response,
+      "GitHub returned an unreadable installation credential response.",
+    )
     try {
-      parsed = responseSchema.parse(await response.json())
+      parsed = responseSchema.parse(responseData)
     } catch (error) {
       throw new CopilotCredentialError(
         "permission_denied",

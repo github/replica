@@ -12,7 +12,11 @@ function repositories(
     clearRefusal: vi.fn().mockResolvedValue(undefined),
     deleteConnection: vi.fn().mockResolvedValue(true),
     lockAdministratorSession: vi.fn().mockResolvedValue({ membershipId: randomUUID() }),
-    getConnection: vi.fn().mockResolvedValue({ id: randomUUID() }),
+    getConnection: vi.fn().mockResolvedValue({
+      credentialDigest: "a".repeat(64),
+      credentialProvider: "environment_token",
+      id: randomUUID(),
+    }),
     lockState: vi.fn().mockResolvedValue({ generation: 1n }),
     replaceConnection: vi.fn().mockResolvedValue(undefined),
     recordRefusal: vi.fn().mockResolvedValue(false),
@@ -102,5 +106,66 @@ describe("disconnectCopilot()", () => {
       phase: "disconnected",
       type: "copilot_connection",
     })
+  })
+
+  it("attributes a matching GitHub App installation in the disconnect audit", async () => {
+    const connectionId = randomUUID()
+    const actorMembershipId = randomUUID()
+    const records = repositories({
+      lockAdministratorSession: vi.fn().mockResolvedValue({ membershipId: actorMembershipId }),
+      getConnection: vi.fn().mockResolvedValue({
+        credentialDigest: "a".repeat(64),
+        credentialProvider: "github_app_installation",
+        id: connectionId,
+      }),
+    })
+
+    await disconnectCopilot(
+      {
+        credentialProvider: {
+          configurationDigest: "a".repeat(64),
+          githubAppInstallation: { appId: "123", organization: "github" },
+          key: "github_app_installation",
+        },
+        sessionDigest: "session-digest",
+      },
+      { createId: randomUUID, runTransaction: (operation) => operation(records) },
+    )
+
+    expect(records.writeAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actorMembershipId,
+        appId: "123",
+        billedOrganization: "github",
+        connectionId,
+        credentialProvider: "github_app_installation",
+      }),
+    )
+  })
+
+  it("does not attribute a changed GitHub App configuration in the disconnect audit", async () => {
+    const records = repositories({
+      getConnection: vi.fn().mockResolvedValue({
+        credentialDigest: "a".repeat(64),
+        credentialProvider: "github_app_installation",
+        id: randomUUID(),
+      }),
+    })
+
+    await disconnectCopilot(
+      {
+        credentialProvider: {
+          configurationDigest: "b".repeat(64),
+          githubAppInstallation: { appId: "124", organization: "octo-org" },
+          key: "github_app_installation",
+        },
+        sessionDigest: "session-digest",
+      },
+      { createId: randomUUID, runTransaction: (operation) => operation(records) },
+    )
+
+    const audit = vi.mocked(records.writeAudit).mock.calls[0]?.[0]
+    expect(audit).not.toHaveProperty("appId")
+    expect(audit).not.toHaveProperty("billedOrganization")
   })
 })

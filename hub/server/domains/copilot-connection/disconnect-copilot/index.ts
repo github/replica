@@ -67,7 +67,8 @@ export async function disconnectCopilot(
     await repositories.clearRefusal()
     await repositories.advanceState()
     const githubAppInstallation =
-      credentialProvider?.key === connection.credentialProvider &&
+      credentialProvider &&
+      credentialProvider.key === connection.credentialProvider &&
       credentialProvider.configurationDigest === connection.credentialDigest
         ? credentialProvider.githubAppInstallation
         : null

@@ -88,6 +88,16 @@ export const OrganizationInstallation: Story = {
     },
   },
 }
+export const ConnectedOrganizationInstallation: Story = {
+  args: {
+    data: {
+      ...connected,
+      notice: "Copilot is connected.",
+      usageLabel:
+        "Copilot usage is billed to the github organization through GitHub App 12345. Organization model policy, budget, and installation revocation continue to apply.",
+    },
+  },
+}
 export const NoToken: Story = {
   args: {
     data: {

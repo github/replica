@@ -164,7 +164,9 @@ export async function connectCopilot(
       refusalCode === "credential_revoked"
         ? "The configured GitHub App installation was removed or revoked."
         : refusalCode === "credential_permission_denied"
-          ? "The configured GitHub App installation cannot request read-only Copilot access."
+          ? error instanceof CopilotCredentialError
+            ? error.message
+            : "The configured GitHub App installation cannot request read-only Copilot access."
           : refusalCode === "credential_refused"
             ? "Copilot refused the configured credential."
             : "Hub could not check the configured Copilot credential.",
