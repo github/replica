@@ -27,7 +27,7 @@ Every link in the shell must resolve to a built route or a stub. Real
 submissions stay disabled. Update the `status` of each row with a local route,
 boundaries included, to `built` as routes land.
 
-Unsupported non-web actions recorded in page notes use disabled or mock-only controls, not live original-scheme links or fabricated ledger destinations. Keep their limitations visible in the handoff.
+Unsupported non-web actions and rejected private-reference targets recorded in page notes use disabled or mock-only controls, not live original-target links or fabricated ledger destinations. Keep their limitations visible in the handoff. The source-target check does not apply to the separately authorized local prototype preview.
 
 ## Representative gate
 

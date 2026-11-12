@@ -18,11 +18,19 @@ A secret-bearing URL grants no new access or permission. Keep any necessary orig
 
 ### Public-source requests
 
-Only the authorized public source and observed public asset origins are network targets. Before an explicit navigation or download, inspect the normalized HTTP(S) URL. Never intentionally request private-network, loopback, link-local or metadata destinations, or treat a link on a public page as permission to access them. Keep `mailto:` and `tel:` as outbound actions without fetching them; other schemes do not authorize execution or network access.
+Only the authorized public source and observed public asset origins are network targets. Before the first source fetch/navigation and each later explicit remote navigation/download, run the static target check from the prototype root:
 
-Use destination-address and redirect checks when the actual transport exposes them. If a target is rejected, do not bypass that rejection with another client or browser-byte fallback. Defer the affected operation, record the reason and continue independent authorized work without a routine question.
+```sh
+node .agents/skills/create-prototype-from-production/scripts/check-public-url.mjs https://example.com/
+```
 
-These are workflow guardrails, not complete network isolation. This skill does not enforce DNS-to-connection binding, automatic redirects or browser subresource egress. An isolated browser profile does not provide that protection. Record the host's actual controls and any missing protection; do not report private-network isolation as verified without enforcement. Complete egress protection remains a separate follow-up.
+Pass the actual safe, normalized target as one argument using the tool's argument handling, never by constructing shell commands from captured text. The check rejects URL credentials, known local hostnames and nonpublic IP literals, including loopback, private, link-local/metadata and mapped-address forms. It performs no DNS lookup or network request. The ledger uses the same check for every HTTP(S) source/destination.
+
+If the source fails, report capture blocked without visiting it. For rejected links/assets, record a redacted skipped-action note on the owning page and keep any corresponding control disabled or mock-only; do not create a private-destination ledger row or invent a public replacement. Never bypass rejection with another client or browser-byte fallback. Continue independent authorized work without a routine question. Keep `mailto:` and `tel:` as outbound actions without fetching them; other schemes do not authorize execution or network access.
+
+Apply the same check to any redirect target exposed before following it, and use actual transport address/redirect restrictions where available. Passing the static check does not prove a hostname resolves publicly or make automatic redirects safe. This helper does not bind DNS to connections or intercept automatic browser requests/subresources; an isolated browser profile does not provide that protection either. Record actual host controls and missing protection. Complete egress enforcement remains a separate follow-up.
+
+This preflight applies to remote reference requests, not the separately authorized localhost prototype preview. Do not change shared browser/MCP settings or block local validation to apply it.
 
 Probe access once per origin: one `web_fetch` of the source page. If it fails (403, redirect error, challenge page), use the browser for every page on that origin and never retry `web_fetch` there. Record the method in `access`. Static assets on CDNs may still download with plain HTTP; probe them separately in capture. Never change user agent, headers, cookies or proxies to get past a denial.
 
@@ -73,6 +81,8 @@ Each URL appears once. A login dialog, menu or panel that opens on a page is
 not its own row: note it on that page's row.
 
 Same-origin HTTP(S) destinations need a build or local-boundary decision, never an external stub that bypasses routing. Every local row's original target must be HTTP(S), even when it would only be shown as text. These URL checks enforce coverage decisions, not private-network isolation.
+
+Known local/private HTTP(S) targets that fail the static check are skipped-action notes, not build, outbound or boundary rows. Record the limitation without visiting the target.
 
 Record unsupported non-web actions, such as custom app-store schemes, in the owning HTTP(S) page's `note`, retaining only a safe, redacted target and control location as inert text. Do not create standalone rows, fetch or execute those targets, or give prototype controls live links to them. Use a disabled or mock-only control. An observed HTTP(S) fallback may receive a row; never invent a fallback URL to pass validation.
 

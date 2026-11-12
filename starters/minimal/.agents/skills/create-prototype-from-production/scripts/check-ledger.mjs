@@ -2,6 +2,8 @@ import { readFileSync, realpathSync } from "node:fs"
 import { resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
+import { checkPublicUrl } from "./check-public-url.mjs"
+
 const DECISIONS = new Set(["build", "stub-external", "stub-auth", "stub-download", "deferred"])
 const STATUSES = new Set(["planned", "built", "verified", "blocked"])
 const FINAL_STATUSES = new Set(["verified", "blocked"])
@@ -26,12 +28,8 @@ export function checkLedger(ledger, { final = false } = {}) {
   const problems = []
 
   const source = absoluteUrl(ledger.source)
-  if (!source || !HTTP_PROTOCOLS.has(source.protocol)) {
-    problems.push("source: requires an absolute HTTP(S) source URL")
-  }
-  if (source && (source.username || source.password)) {
-    problems.push("source: embedded URL credentials are not allowed")
-  }
+  const sourceProblem = checkPublicUrl(ledger.source)
+  if (sourceProblem) problems.push(`source: ${sourceProblem}`)
   if (!ledger.browser || ledger.browser.cookies !== 0 || ledger.browser.pages !== 1) {
     problems.push("browser: runtime isolation proof requires zero cookies and exactly one page")
   }
@@ -57,8 +55,12 @@ export function checkLedger(ledger, { final = false } = {}) {
     if (!url) {
       problems.push(`${label}: requires an absolute destination URL`)
     } else {
-      if (url.username || url.password)
+      if (HTTP_PROTOCOLS.has(url.protocol)) {
+        const problem = checkPublicUrl(page.url)
+        if (problem) problems.push(`${label}: ${problem}`)
+      } else if (url.username || url.password) {
         problems.push(`${label}: embedded URL credentials are not allowed`)
+      }
       if (urls.has(url.href)) problems.push(`${label}: listed more than once`)
       urls.add(url.href)
       if (url.href === source?.href) sourcePage = page

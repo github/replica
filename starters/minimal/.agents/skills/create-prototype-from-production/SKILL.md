@@ -24,6 +24,8 @@ Everything else is a stated default, never a question: use the site's real publi
 
 This workflow never signs in, submits real data, pushes, publishes, changes other repositories or performs destructive actions. Those require a separate task and explicit authorization.
 
+Remote reference URLs must pass the [public-source target check](./workflows/discover.md#public-source-requests) before explicit navigation or download. Known local/private destinations are outside this skill's public-source scope. This check is separate from the authorized localhost prototype preview and does not establish DNS, redirect or browser-request isolation.
+
 When authorized, commit at the end of Capture and again at the end of Build. If a commit cannot be made, report the failure and preserve the work; do not claim it was committed.
 
 ## Phases

@@ -125,6 +125,54 @@ test("rejects embedded credentials on every destination decision", async (t) => 
   }
 })
 
+test("rejects an obvious-private source without exposing its URL", () => {
+  const url = "https://127.1/cards?state=fixture-private-source-query#fixture-private-source-fragment"
+  const value = {
+    ...ledger([{ ...hub, url }]),
+    source: url,
+    access: { "https://127.0.0.1": "browser" },
+  }
+  for (const final of [false, true]) {
+    const problems = checkLedger(value, { final }).join("\n")
+    assert.match(problems, /^source:/m, `final: ${final}`)
+    assert.doesNotMatch(problems, /127\.1|fixture-private-source-/)
+  }
+})
+
+test("rejects obvious-private HTTP(S) targets on every destination decision", async (t) => {
+  for (const [decision, target] of [
+    ["build", "https://127.0.0.1/other"],
+    ["stub-auth", "https://169.254.169.254/other"],
+    ["stub-download", "http://192.168.10.2/other"],
+    ["deferred", "https://fixture-private-host.internal/other"],
+    ["stub-external", "https://[::ffff:169.254.169.254]/other"],
+  ]) {
+    await t.test(decision, () => {
+      const source = decision === "build" ? "https://127.0.0.1/cards" : hub.url
+      const page = {
+        ...hub,
+        url: `${target}?state=fixture-private-row-query#fixture-private-row-fragment`,
+        foundIn: ["footer"],
+        representative: false,
+        route: "/other",
+        decision,
+        note: "Fixture evidence: /other renders the expected content or boundary explanation.",
+      }
+      const value = {
+        ...ledger([{ ...hub, url: source }, page]),
+        source,
+        access: { [new URL(source).origin]: "browser" },
+      }
+      for (const final of [false, true]) {
+        const problems = checkLedger(value, { final }).join("\n")
+        assert.match(problems, /^pages\[1\]:/m, `final: ${final}`)
+        assert.equal(problems.includes(target), false)
+        assert.doesNotMatch(problems, /fixture-private-(?:host|row)-/)
+      }
+    })
+  }
+})
+
 test("accepts a normalized HTTP subpath source with query and fragment and nonnetwork outbound URLs", () => {
   const value = ledger([
     { ...hub, url: "http://example.com/cards?term=12#details" },
@@ -487,6 +535,10 @@ test("checks the ledger when run from a path with spaces", (t) => {
   const script = join(directory, "with space", "check-ledger.mjs")
   mkdirSync(join(directory, "with space"))
   copyFileSync(checker, script)
+  copyFileSync(
+    new URL("./check-public-url.mjs", import.meta.url),
+    join(directory, "with space", "check-public-url.mjs"),
+  )
   const path = join(directory, "coverage ledger.json")
   writeFileSync(path, JSON.stringify(ledger([hub])))
   const result = spawnSync(process.execPath, [script, path], {
