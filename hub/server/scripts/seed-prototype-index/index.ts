@@ -78,6 +78,14 @@ const prototypes = [
     description: "A prototype without a Build yet.",
   },
 ]
+const buildAuthor = {
+  commitAuthorProvider: "local",
+  commitAuthorIssuer: "local",
+  commitAuthorProviderUserId: "sample-build-author",
+  commitAuthorLogin: "sample-author",
+  commitAuthorName: "Sample Author",
+  commitAuthorAvatarUrl: null,
+}
 const builds = [
   {
     id: "00000000-0000-4000-8000-000000000301",
@@ -86,6 +94,9 @@ const builds = [
     state: "queued",
     workflowCreatedAt: null,
     createdAt: new Date("2026-11-10T12:00:00Z"),
+    startedAt: null,
+    finishedAt: null,
+    failureSummary: null,
   },
   {
     id: "00000000-0000-4000-8000-000000000302",
@@ -94,6 +105,9 @@ const builds = [
     state: "successful",
     workflowCreatedAt: new Date("2026-11-10T12:01:00Z"),
     createdAt: new Date("2026-11-10T12:02:00Z"),
+    startedAt: new Date("2026-11-10T12:02:10Z"),
+    finishedAt: new Date("2026-11-10T12:03:00Z"),
+    failureSummary: null,
   },
   {
     id: "00000000-0000-4000-8000-000000000303",
@@ -102,6 +116,9 @@ const builds = [
     state: "running",
     workflowCreatedAt: new Date("2026-11-10T12:03:00Z"),
     createdAt: new Date("2026-11-10T12:04:00Z"),
+    startedAt: new Date("2026-11-10T12:04:10Z"),
+    finishedAt: null,
+    failureSummary: null,
   },
   {
     id: "00000000-0000-4000-8000-000000000304",
@@ -110,6 +127,9 @@ const builds = [
     state: "failed",
     workflowCreatedAt: new Date("2026-11-10T12:05:00Z"),
     createdAt: new Date("2026-11-10T12:06:00Z"),
+    startedAt: new Date("2026-11-10T12:06:10Z"),
+    finishedAt: new Date("2026-11-10T12:07:00Z"),
+    failureSummary: "The sample Build failed.",
   },
   {
     id: "00000000-0000-4000-8000-000000000305",
@@ -118,6 +138,9 @@ const builds = [
     state: "superseded",
     workflowCreatedAt: null,
     createdAt: new Date("2026-11-10T12:07:00Z"),
+    startedAt: null,
+    finishedAt: new Date("2026-11-10T12:08:00Z"),
+    failureSummary: null,
   },
 ] as const
 
@@ -146,10 +169,15 @@ try {
       })
     }
     for (const build of builds) {
+      const record = {
+        ...build,
+        ...buildAuthor,
+        commitSha: build.number.toString(16).padStart(40, "0"),
+      }
       await database.build.upsert({
         where: { id: build.id },
-        create: build,
-        update: build,
+        create: record,
+        update: record,
       })
       await database.prototype.update({
         where: { id: build.prototypeId },
