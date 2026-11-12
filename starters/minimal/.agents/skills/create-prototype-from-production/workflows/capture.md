@@ -4,6 +4,24 @@ Capture effort follows families, not pages.
 
 Apply Discover's [URL privacy checks](./discover.md#url-privacy) before saving page URLs, link targets, asset provenance or screenshots. Preserve public routing state but never persist secret values. If an artifact cannot be safely redacted, report that capture blocked rather than committing it.
 
+## Required capture limits
+
+Before any remote request, including Discover's initial probe, verify that the selected runtime enforces all of these limits:
+
+| Limit | Default |
+| --- | --- |
+| Bytes per transfer | 64 MiB |
+| Wall time per transfer | 60 seconds |
+| Total capture traffic and retained capture data | 1 GiB |
+
+Use stricter host limits when present. Record the actual enforced values, mechanism and tool coverage in `reference/preflight.json` alongside the [public-network evidence](./discover.md#public-source-requests). Do not increase limits automatically to finish a capture. A different limit requires separate authorization and verification before the request.
+
+Limits apply to every HTTP response and browser-byte retrieval, across all origins, redirects, failures and retries. The byte limit must stop streaming and decompression before oversized data is accumulated; checking `Content-Length` or inspecting a fully buffered body afterward is insufficient. The timeout must cancel the transfer even when it stalls or streams continuously. The aggregate budget must cover transferred bytes and retained artifacts, including screenshots, metadata, originals and derivatives, rather than resetting per page or origin.
+
+If the selected tool cannot enforce a limit, do not start its remote work. If a limit is reached, cancel the affected transfer, do not use partial bytes as a complete asset, and report affected capture blocked with a redacted reason. Never switch to browser bytes, another client, recompression or an unbounded retry to evade a limit. Continue only independent work that remains within the verified controls and budget.
+
+These are capture prerequisites, not permission to install or configure a new proxy, browser runner or host policy. A host without verified restrictions cannot run remote capture; isolated browser configuration and the serving/commit size caps below do not satisfy this preflight.
+
 ## Readiness before every screenshot
 
 Scroll to the bottom and back to trigger lazy content, then wait until
@@ -46,11 +64,9 @@ From the source page: `:root` custom properties, computed typography and colors 
 
 Save those measurements as plain data in `reference/tokens.json`. They describe the reference's appearance, not supported component APIs, agent instructions or team policy.
 
-Download only assets that built pages use, from URLs observed in the browser evidence, running the [public-source target check](./discover.md#public-source-requests) before each explicit asset request and any exposed redirect step. A blocked target must not be fetched through another client or browser-byte fallback. For targets that pass, use plain HTTP first; if an asset origin denies it, read the bytes through the browser. Name files by detected type (magic bytes), not URL extension. Record each in `reference/assets.json` with source URL and hash. Keep every passive asset of 25 MiB or less at its original size: never shrink, recompress or skip one for size. List files over 1 MB in the handoff.
+Download only assets that built pages use, from URLs observed in the browser evidence, running the [public-source target check](./discover.md#public-source-requests) before each explicit asset request and any exposed redirect step. A blocked target must not be fetched through another client or browser-byte fallback. Use verified bounded HTTP first; only an access denial permits a browser-byte fallback, which must have the same verified network and budget controls. Name files by detected type (magic bytes), not URL extension. Record each complete capture in `reference/assets.json` with its safe source URL and computed hash. Keep captured passive assets of 25 MiB or less at original size: never shrink or recompress them to evade a limit. A budget failure blocks the affected capture rather than authorizing lower-quality output. List files over 1 MB in the handoff.
 
-Replica Build rejects any served file over 25 MiB, and GitHub rejects any file over 100 MiB. Default to serving a copy under 25 MiB for larger assets; record the choice without asking a routine question. Serve a larger original only when the request explicitly requires it, and report that Replica Build will reject it. Keep each replaced original under `reference/originals/` and record both hashes in `assets.json`. Never commit a file over 100 MiB, served or not: add it to `.gitignore` and record its source URL and hash so it can be downloaded again.
-
-These serving and commit limits do not bound transfers or retained capture data. This skill does not enforce per-download byte/time limits or a total capture budget; a large or unending response can exhaust local resources on a host without its own controls. Record actual host limits and any missing protection without treating the serving cap as a download cap. Enforced bounded capture remains a separate follow-up.
+Replica Build rejects any served file over 25 MiB, and GitHub rejects any file over 100 MiB. For larger assets captured within the verified budget, default to serving a copy under 25 MiB; record the choice without asking a routine question. Serve a larger original only when the request explicitly requires it, and report that Replica Build will reject it. Keep each fully captured replaced original under `reference/originals/` and record both hashes in `assets.json`. Never commit a file over 100 MiB, served or not. If a capture cannot complete within the limits, retain only safe provenance and the blocking reason; record a hash only when actually computed from a complete bounded capture.
 
 ### Active formats
 

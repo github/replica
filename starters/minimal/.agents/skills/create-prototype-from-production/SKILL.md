@@ -20,11 +20,13 @@ For attended runs, ask only unanswered intake questions before opening the site,
 1. **Coverage.** Default: the requested source page plus every first-level web destination, discovered from links in that page's body, header (including opened menus), mobile menu and footer. Only HTTP(S) destinations receive local ledger rows. Keep `mailto:`/`tel:` as outbound actions and record other non-web actions in their owning page's notes, not standalone rows. Alternatives: named sections only, or full sitemap. Record an explicit source-page exclusion as a deferred row with its reason.
 2. **Go-ahead** for this repository: install locked dependencies if missing, run the local preview, build the prototype, and make focused local commits. Fixed starter context follows the app's scoped rules below. No push or publish.
 
-Everything else is a stated default, never a question: use the site's real public assets and copy for a private demo; preserve its language; disable real submissions; keep external sites as outbound links; stop at login, OTP and CAPTCHA walls; keep passive assets of 25 MiB or less at original size, and serve a copy under 25 MiB for larger ones unless the request explicitly chooses otherwise. Captured active formats require the safe derivatives and original-file isolation defined in Capture, regardless of size.
+Everything else is a stated default, never a question: use the site's real public assets and copy for a private demo; preserve its language; disable real submissions; keep external sites as outbound links; stop at login, OTP and CAPTCHA walls; keep captured passive assets of 25 MiB or less at original size, and serve a copy under 25 MiB for larger ones unless the request explicitly chooses otherwise. All capture is subject to the enforced limits below. Captured active formats require the safe derivatives and original-file isolation defined in Capture, regardless of size.
 
 This workflow never signs in, submits real data, pushes, publishes, changes other repositories or performs destructive actions. Those require a separate task and explicit authorization.
 
-Remote reference URLs must pass the [public-source target check](./workflows/discover.md#public-source-requests) before explicit navigation or download. Known local/private destinations are outside this skill's public-source scope. This check is separate from the authorized localhost prototype preview and does not establish DNS, redirect or browser-request isolation.
+Remote capture requires the [verified public-network controls](./workflows/discover.md#public-source-requests) and [enforced capture limits](./workflows/capture.md#required-capture-limits) before any reference request, including the first probe. If the host cannot establish both for the selected browser and download tools, report remote capture blocked; do not make an unprotected request or configure new host infrastructure to continue. Independent offline work from existing approved captures and the authorized localhost prototype preview may continue.
+
+Remote reference URLs must also pass the shared static target check before explicit navigation or download. Known private destinations and obvious secret-bearing URLs are outside this skill's public-source scope. A static pass does not establish URL privacy, public DNS resolution, redirect safety or browser-request isolation.
 
 When authorized, commit at the end of Capture and again at the end of Build. If a commit cannot be made, report the failure and preserve the work; do not claim it was committed.
 
@@ -65,6 +67,7 @@ Use the existing approved context or fixed starter baseline for Build. Proposed 
 | "Fetch got 403, use web search / indexed pages"               | Use the isolated browser for that origin. Search results are not the site.     |
 | "Raw HTML is enough to find the links"                        | Menus and mobile navigation render at runtime. Discover in the browser.        |
 | "The MCP is configured isolated, so captures are isolated"    | Prove it at runtime before the first visit (discover workflow).                |
+| "The public URL passed, so remote requests are safe"          | Verify network enforcement and capture limits first; otherwise capture is blocked. |
 | "Ask about every minor choice"                               | Use stated defaults; unattended runs never issue blocking questions.           |
 | "Capture every page in full at both widths"                   | Full captures for family representatives only. Members get content extraction. |
 | "The canvas preflight always stops local work"                | Explicitly authorized unattended runs have a narrow local-preview exception.   |

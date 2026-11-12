@@ -27,7 +27,7 @@ Every link in the shell must resolve to a built route or a stub. Real
 submissions stay disabled. Update the `status` of each row with a local route,
 boundaries included, to `built` as routes land.
 
-Unsupported non-web actions and rejected private-reference targets recorded in page notes use disabled or mock-only controls, not live original-target links or fabricated ledger destinations. Keep their limitations visible in the handoff. The source-target check does not apply to the separately authorized local prototype preview.
+Unsupported non-web actions and rejected reference targets recorded in page notes use disabled or mock-only controls, not live original-target links or fabricated ledger destinations. Keep their limitations visible in the handoff. The source-target check does not apply to the separately authorized local prototype preview.
 
 ## Representative gate
 
@@ -63,6 +63,6 @@ Append a concise evidence reference and the observed route/content checks to the
 
 Run the app's declared type check, tests, build and formatting check before handoff. Fix failures and report unavailable checks; a passing ledger does not replace them.
 
-Confirm Capture's URL privacy, active-original serving and packaged-output checks before reporting those safeguards verified. Preserve any missing network-isolation or browser evidence as a limitation, not a passing check.
+Confirm Discover's required network preflight and Capture's enforced limits, URL privacy, active-original serving and packaged-output checks before reporting those safeguards verified. Missing network or transfer-limit evidence blocks remote capture; it is not permission to continue and list the risk afterward. Offline work and separately authorized local preview may continue, but do not claim new source capture or complete coverage without the required evidence.
 
 `node .agents/skills/create-prototype-from-production/scripts/check-ledger.mjs --final` must pass. When authorized, commit the build separately from the capture commit. Report ledger counts by decision and status, unsupported non-web actions from page notes, the difference list, assets over 1 MB, defaults applied, deferred operations, unavailable checks, commit status, and the preview URL when running. Blocked work is not a completed build.

@@ -12,6 +12,7 @@ test("requires an absolute credential-free HTTP(S) reference URL", async () => {
     ["relative path", "/cards"],
     ["hostname without a scheme", "example.com/cards"],
     ["malformed URL", "https://[fixture-malformed-marker"],
+    ["malformed encoded path", "https://example.com/fixture-%ZZ-marker"],
     ["local file", "file:///fixture-file-marker"],
     ["nonnetwork action", "mailto:fixture-mail-marker@example.com"],
     ["username", "https://fixture-user-marker@example.com/cards"],
@@ -21,6 +22,61 @@ test("requires an absolute credential-free HTTP(S) reference URL", async () => {
     assert.match(problem ?? "", /\S/, name)
     assert.doesNotMatch(problem, /fixture-[a-z-]+-marker/, name)
     assert.equal(problem.includes(value), false, name)
+  }
+})
+
+test("rejects nonempty credential-like parameters without exposing supplied values", async (t) => {
+  const { checkPublicUrl } = await import("./check-public-url.mjs")
+  for (const [name, suffix] of [
+    ...[
+      "token",
+      "access_token",
+      "refresh_token",
+      "id_token",
+      "client_secret",
+      "api_key",
+      "password",
+      "passwd",
+      "session_id",
+      "authorization",
+      "signature",
+      "sig",
+      "jwt",
+    ].map((key) => [`${key} query parameter`, `?${key}=fixture-query-marker`]),
+    ["mixed-case hyphenated key", "?AcCeSs-ToKeN=fixture-query-marker"],
+    ["percent-encoded query key", "?%61pi%5Fkey=fixture-query-marker"],
+    ["fragment parameter", "#access_token=fixture-fragment-marker"],
+    ["SPA fragment parameter", "#/callback?client%2DSeCrEt=fixture-fragment-marker"],
+    ["nonempty repeated parameter", "?token=&token=fixture-query-marker"],
+  ]) {
+    await t.test(name, () => {
+      const url = `https://fixture-host-marker.example.com/fixture-path-marker${suffix}`
+      const problem = checkPublicUrl(url)
+      assert.match(problem ?? "", /\S/)
+      assert.doesNotMatch(problem, /fixture-[a-z-]+-marker/)
+      assert.equal(problem.includes(url), false)
+    })
+  }
+})
+
+test("rejects recognizable synthetic JWT values outside credential-like parameters", async (t) => {
+  const { checkPublicUrl } = await import("./check-public-url.mjs")
+  const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJmaXh0dXJlIn0.c3ludGhldGlj"
+  const encodedJwt = jwt.replaceAll(".", "%2E")
+  for (const [name, suffix] of [
+    ["unrelated query key", `/fixture-path-marker?code=${jwt}`],
+    ["percent-decoded path component", `/fixture-path-marker/${encodedJwt}`],
+    ["percent-decoded SPA fragment component", `/fixture-path-marker#/callback/${encodedJwt}`],
+  ]) {
+    await t.test(name, () => {
+      const url = `https://fixture-host-marker.example.com${suffix}`
+      const problem = checkPublicUrl(url)
+      assert.match(problem ?? "", /\S/)
+      assert.doesNotMatch(problem, /fixture-[a-z-]+-marker/)
+      assert.equal(problem.includes(jwt), false)
+      assert.equal(problem.includes(encodedJwt), false)
+      assert.equal(problem.includes(url), false)
+    })
   }
 })
 
@@ -99,6 +155,27 @@ test("accepts public names, CDN URLs and public IPs without discarding URL state
   const { checkPublicUrl } = await import("./check-public-url.mjs")
   for (const [name, url] of [
     ["query and fragment", "https://example.com/cards?term=12&locale=pt-BR#details"],
+    [
+      "ordinary public code, state and key",
+      "https://example.com/callback?code=fixture-code&state=fixture-state&key=fixture-key",
+    ],
+    [
+      "ordinary SPA parameters",
+      "https://example.com/#/callback?code=fixture-code&state=fixture-state&key=fixture-key",
+    ],
+    ["empty credential parameters", "https://example.com/cards?token=&password#access_token=&jwt"],
+    [
+      "empty SPA credential parameters",
+      "https://example.com/#/callback?client_secret=&authorization",
+    ],
+    [
+      "synthetic high-entropy cache key",
+      "https://cdn.example.com/fixture/hero.png?key=p7Dq2Vx9Zm4Kc8Hr1Tf6Yw3Ls0Bn5Ga2Qi8Ue4Ro9Jv1Mz6Sd3Fp7Xk0Ch5Wt8Ay2Nl4Ej9Vu6Kb1",
+    ],
+    [
+      "synthetic hashed CDN asset filename",
+      "https://cdn.example.com/fixture/app-8c2f741de0a95b63f79a046e21d8cb55a6249d037e1b5f80c6932aab74d160ef.js",
+    ],
     ["CDN asset", "https://cdn.jsdelivr.net/fixture/hero.png?width=1280#image"],
     ["HTTP with a port", "http://EXAMPLE.com:8080/cards"],
     ["dotted name without public DNS", "https://unresolved.fixture.invalid/reference"],
@@ -143,6 +220,10 @@ test("CLI rejects private, credential-bearing and malformed targets without expo
     [
       "credentials",
       "https://cli-user-marker:cli-password-marker@example.com/cli-path-marker?state=cli-query-marker#cli-fragment-marker",
+    ],
+    [
+      "query credentials",
+      "https://cli-host-marker.example.com/cli-path-marker?access_token=cli-query-marker#cli-fragment-marker",
     ],
     ["malformed target", "https://[cli-malformed-marker"],
   ]) {

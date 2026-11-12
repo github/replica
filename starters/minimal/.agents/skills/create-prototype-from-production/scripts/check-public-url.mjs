@@ -32,6 +32,23 @@ for (const subnet of [
   blocked.addSubnet(network, Number(prefix), isIP(network) === 6 ? "ipv6" : "ipv4")
 }
 
+const credentialParameters = new Set([
+  "token",
+  "accesstoken",
+  "refreshtoken",
+  "idtoken",
+  "clientsecret",
+  "apikey",
+  "password",
+  "passwd",
+  "sessionid",
+  "authorization",
+  "signature",
+  "sig",
+  "jwt",
+])
+const jwt = /^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/
+
 export function checkPublicUrl(value) {
   if (typeof value !== "string" || !value.trim() || !URL.canParse(value))
     return "requires an absolute HTTP(S) URL"
@@ -39,7 +56,33 @@ export function checkPublicUrl(value) {
   if (!["http:", "https:"].includes(url.protocol)) return "requires an absolute HTTP(S) URL"
   if (url.username || url.password) return "embedded URL credentials are not allowed"
 
-  const host = url.hostname.replace(/^\[|\]$/g, "").replace(/\.+$/, "").toLowerCase()
+  const fragment = url.hash.slice(1)
+  const fragmentParameters = new URLSearchParams(fragment.slice(fragment.indexOf("?") + 1))
+  const parameters = [...url.searchParams, ...fragmentParameters]
+  let components
+  try {
+    components = [url.pathname, fragment].flatMap((part) =>
+      decodeURIComponent(part).split(/[/?&#=]/),
+    )
+  } catch (error) {
+    if (!(error instanceof URIError)) throw error
+    return "invalid encoded URL components are not allowed"
+  }
+  if (
+    parameters.some(
+      ([name, value]) =>
+        value.length > 0 &&
+        (credentialParameters.has(name.toLowerCase().replace(/[-_]/g, "")) || jwt.test(value)),
+    ) ||
+    components.some((part) => jwt.test(part))
+  ) {
+    return "secret-bearing URL components are not allowed"
+  }
+
+  const host = url.hostname
+    .replace(/^\[|\]$/g, "")
+    .replace(/\.+$/, "")
+    .toLowerCase()
   const family = isIP(host)
   if (family) {
     const type = family === 6 ? "ipv6" : "ipv4"
