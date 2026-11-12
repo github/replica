@@ -88,13 +88,15 @@ async function renderApplication(path: string) {
 }
 
 describe("real prototype index", () => {
-  it("opens the first repository after sign-in without offering prototype details", async () => {
+  it("opens prototype details from the real index after sign-in", async () => {
     vi.stubEnv("MODE", "development")
     vi.stubEnv("DEV", true)
     const repositoryId = "11111111-1111-4111-8111-111111111111"
     const prototypeId = "22222222-2222-4222-8222-222222222222"
     const unknownPrototypeId = "33333333-3333-4333-8333-333333333333"
     const entraPrototypeId = "88888888-8888-4888-8888-888888888888"
+    const fallbackPrototypeId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    const unknownProviderPrototypeId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
     const userId = "44444444-4444-4444-8444-444444444444"
     const authorId = "77777777-7777-4777-8777-777777777777"
     const entraAuthorId = "99999999-9999-4999-8999-999999999999"
@@ -111,6 +113,26 @@ describe("real prototype index", () => {
       reviewPrototypes: false,
       manageSharing: false,
       administerHub: false,
+    }
+    const successfulBuild = {
+      number: 1,
+      repositoryId,
+      prototypeId,
+      state: "successful",
+      commitSha: null,
+      commitAuthorProvider: "github",
+      commitAuthorIssuer: "https://github.com",
+      commitAuthorProviderUserId: "mona-id",
+      commitAuthorLogin: null,
+      commitAuthorName: null,
+      commitAuthorAvatarUrl: null,
+      createdAt: "2026-11-10T12:00:00.000Z",
+      startedAt: null,
+      finishedAt: null,
+      previewUrl: null,
+      desktopScreenshotUrl: null,
+      narrowScreenshotUrl: null,
+      failureSummary: null,
     }
     let signedIn = false
     const requests: string[] = []
@@ -212,6 +234,85 @@ describe("real prototype index", () => {
             })
           : new HttpResponse(null, { status: 401 }),
       ),
+      http.get(
+        `${window.location.origin}/api/repositories/${repositoryId}/prototypes/${prototypeId}`,
+        ({ request }) => {
+          const selectedBuild =
+            new URL(request.url).searchParams.get("build") === "3"
+              ? { ...successfulBuild, number: 3 }
+              : successfulBuild
+          return HttpResponse.json({
+            repository,
+            prototype: {
+              id: prototypeId,
+              repositoryId,
+              name: "Welcome flow",
+              branchName: "prototype/welcome",
+              description: "A welcoming start.",
+              authorProvider: "github",
+              authorLogin: "mona",
+              authorName: "Mona",
+              canEdit: false,
+              latestBuild: { number: 1, state: "successful" },
+              builds: [
+                successfulBuild,
+                { ...successfulBuild, number: 2, state: "failed" },
+                { ...successfulBuild, number: 3 },
+              ],
+            },
+            selectedBuild,
+            showPrototypeInfo: false,
+          })
+        },
+      ),
+      http.get(
+        `${window.location.origin}/api/repositories/${repositoryId}/prototypes/:prototypeId`,
+        ({ params }) => {
+          const authors: Record<
+            string,
+            { authorProvider: string | null; authorLogin: string | null; authorName: string | null }
+          > = {
+            [entraPrototypeId]: {
+              authorProvider: "entra",
+              authorLogin: "mona@example.test",
+              authorName: "Mona",
+            },
+            [fallbackPrototypeId]: {
+              authorProvider: "entra",
+              authorLogin: "sam@example.test",
+              authorName: null,
+            },
+            [unknownProviderPrototypeId]: {
+              authorProvider: null,
+              authorLogin: "legacy-author",
+              authorName: null,
+            },
+            [unknownPrototypeId]: { authorProvider: null, authorLogin: null, authorName: null },
+          }
+          const author = authors[String(params.prototypeId)]
+          if (!author) return new HttpResponse(null, { status: 404 })
+          return HttpResponse.json({
+            repository,
+            prototype: {
+              id: params.prototypeId,
+              repositoryId,
+              name: "Design",
+              branchName: "prototype/design",
+              description: null,
+              ...author,
+              canEdit: false,
+              latestBuild: null,
+              builds: [],
+            },
+            selectedBuild: null,
+            showPrototypeInfo: false,
+          })
+        },
+      ),
+      http.get(
+        `${window.location.origin}/api/repositories/${repositoryId}/prototypes/:prototypeId/review-comments`,
+        () => new HttpResponse(null, { status: 404 }),
+      ),
     )
     const searches: string[] = []
     server.events.on("request:start", ({ request }) => {
@@ -241,7 +342,7 @@ describe("real prototype index", () => {
     expect(within(results).getByText("Unattributed flow")).toBeVisible()
     expect(within(results).getByText("Unknown author").closest("a")).toBeNull()
     expect(within(results).getByText("By Mona").closest("a")).toBeNull()
-    expect(detailLinks(results, repositoryId)).toHaveLength(0)
+    expect(detailLinks(results, repositoryId)).toHaveLength(3)
     expect(githubAuthorPaths(results)).toContain("/mona")
     expect(githubAuthorPaths(results).every((path) => path === "/mona")).toBe(true)
     expect(screen.getByRole("button", { name: "User: All users" })).toBeInTheDocument()
@@ -261,7 +362,7 @@ describe("real prototype index", () => {
     expect(within(listResults).getByText("Unattributed flow")).toBeVisible()
     expect(within(listResults).getByText("Unknown author").closest("a")).toBeNull()
     expect(within(listResults).getByText("Mona").closest("a")).toBeNull()
-    expect(detailLinks(listResults, repositoryId)).toHaveLength(0)
+    expect(detailLinks(listResults, repositoryId)).toHaveLength(3)
     expect(githubAuthorPaths(listResults)).toContain("/mona")
     expect(githubAuthorPaths(listResults).every((path) => path === "/mona")).toBe(true)
     expect(within(listResults).getByRole("columnheader", { name: "Build" })).toBeVisible()
@@ -273,6 +374,56 @@ describe("real prototype index", () => {
     fireEvent.change(search, { target: { value: " welcome " } })
     fireEvent.keyDown(search, { key: "Enter" })
     await waitFor(() => expect(searches).toContain(`/api/repositories/${repositoryId}?q=welcome`))
+
+    fireEvent.click(screen.getByRole("link", { name: "Welcome flow" }))
+    expect(
+      await screen.findByText("Preview hosting is not available for this Build."),
+    ).toBeVisible()
+    expect(router.state.location.pathname).toBe(
+      `/repositories/${repositoryId}/prototypes/${prototypeId}`,
+    )
+    expect(screen.getByLabelText("By @mona").closest("a")).toHaveAttribute(
+      "href",
+      "https://github.com/mona",
+    )
+
+    expect(screen.queryByRole("button", { name: "More actions" })).not.toBeInTheDocument()
+    expect(document.querySelector('form[action="/api/auth/session/sign-out"]')).not.toBeNull()
+    expect(document.querySelector('form[action="/session"]')).toBeNull()
+
+    fireEvent.click(screen.getByRole("button", { name: /Build 1.*v1/i }))
+    const successful = screen.getByRole("menuitem", { name: /v3/i }).querySelector("a")
+    expect(successful).toHaveAttribute(
+      "href",
+      `/repositories/${repositoryId}/prototypes/${prototypeId}?build=3`,
+    )
+    expect(screen.queryByRole("menuitem", { name: /v2/i })?.querySelector("a")).toBeFalsy()
+    if (!successful) throw new Error("The successful Build needs a link.")
+    fireEvent.click(successful)
+    await waitFor(() => expect(router.state.location.search).toBe("?build=3"))
+    expect(await screen.findByText("Build 3 has no preview")).toBeVisible()
+    await act(async () =>
+      router.navigate(
+        `/repositories/${repositoryId}/prototypes/${entraPrototypeId}?view=minimized`,
+      ),
+    )
+    expect((await screen.findByLabelText("By Mona")).closest("a")).toBeNull()
+    expect(document.querySelector(".review-workspace-layer")).toHaveAttribute(
+      "data-minimized",
+      "false",
+    )
+    await act(async () =>
+      router.navigate(`/repositories/${repositoryId}/prototypes/${fallbackPrototypeId}`),
+    )
+    expect((await screen.findByLabelText("By sam@example.test")).closest("a")).toBeNull()
+    await act(async () =>
+      router.navigate(`/repositories/${repositoryId}/prototypes/${unknownProviderPrototypeId}`),
+    )
+    expect((await screen.findByLabelText("By legacy-author")).closest("a")).toBeNull()
+    await act(async () =>
+      router.navigate(`/repositories/${repositoryId}/prototypes/${unknownPrototypeId}`),
+    )
+    expect((await screen.findByLabelText("Unknown author")).closest("a")).toBeNull()
   }, 15_000)
 
   it("shows a repository failure instead of an empty index", async () => {

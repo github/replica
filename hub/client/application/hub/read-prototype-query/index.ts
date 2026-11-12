@@ -9,9 +9,10 @@ export function readPrototypeQuery(request: Request): PrototypeQuery {
   })
 
   if (!result.success) {
+    const invalidBuild = result.error.issues.some((issue) => issue.path[0] === "build")
     throw new Response(
       result.error.issues.map((issue) => `${issue.path.join(".")}: ${issue.message}`).join(" "),
-      { status: 400 },
+      { status: invalidBuild ? 404 : 400 },
     )
   }
   return result.data

@@ -117,10 +117,17 @@ describe("Hub repository journey", () => {
     expect(router.state.location.pathname).toBe(`/repositories/${repositoryId}`)
     await router.settle(() => fireEvent.click(welcome))
     expect(await screen.findByTitle(`Welcome, Build ${latestBuild} preview`)).toBeInTheDocument()
+    expect(screen.getByLabelText("By @octocat").closest("a")).toHaveAttribute(
+      "href",
+      "https://github.com/octocat",
+    )
     expect(
       screen.getByRole<HTMLInputElement>("textbox", { name: "Preview URL" }).value,
     ).not.toMatch(/mock|synthetic|simulat(?:ed|ion)/i)
     fireEvent.click(screen.getByRole("button", { name: "More actions" }))
+    expect(
+      screen.getByRole("menuitem", { name: "Share links" }).querySelector("a"),
+    ).toHaveAttribute("href", `/repositories/${repositoryId}/prototypes/${prototypeId}/share-links`)
     const history = screen.getByRole("menuitem", { name: "History" }).querySelector("a")
     if (!history) throw new Error("The History action has no link.")
     await router.settle(() => fireEvent.click(history))
@@ -134,11 +141,93 @@ describe("Hub repository journey", () => {
 
     expect(await screen.findByRole("heading", { name: "Build 2", level: 2 })).toBeInTheDocument()
     expect(screen.getByText("Failed")).toBeInTheDocument()
+    expect(screen.getByText("By @mona").closest("a")).toHaveAttribute(
+      "href",
+      "https://github.com/mona",
+    )
     if (!failedBuild.failureSummary) throw new Error("The failed Build needs an explanation.")
     expect(screen.getByText(failedBuild.failureSummary)).toBeInTheDocument()
     expect(router.state.location.pathname).toBe(
       `/repositories/${repositoryId}/prototypes/${prototypeId}/builds/2`,
     )
+  }, 15_000)
+
+  it("shows commit authors in Build history and details", async () => {
+    const store = createMockStore({ origin: window.location.origin })
+    const history = store.getBuildHistory("2001", "1")
+    const authors = [
+      {
+        provider: "entra",
+        login: "sam@example.test",
+        name: "Sam Rivera",
+      },
+      {
+        provider: "entra",
+        login: "lee@example.test",
+        name: null,
+      },
+      {
+        provider: "github",
+        login: "mona",
+        name: "Mona Lisa",
+      },
+      { provider: null, login: null, name: null },
+      { provider: null, login: "legacy-author", name: null },
+    ]
+    const builds = authors.map((author, index) => ({
+      ...history.builds[index]!,
+      commitAuthorProvider: author.provider,
+      commitAuthorLogin: author.login,
+      commitAuthorName: author.name,
+    }))
+    const server = setupServer(...createMockHandlers(store))
+    server.use(
+      http.get(`${window.location.origin}/api/repositories/2001/prototypes/1/builds`, () =>
+        HttpResponse.json({ ...history, builds }),
+      ),
+      http.get(
+        `${window.location.origin}/api/repositories/2001/prototypes/1/builds/:number`,
+        ({ params }) => {
+          const build = builds.find(({ number }) => String(number) === params.number)
+          if (!build) return new HttpResponse(null, { status: 404 })
+          return HttpResponse.json({ ...store.getBuild("2001", "1", build.number), build })
+        },
+      ),
+    )
+    const router = await renderHubFlow(server, "/repositories/2001/prototypes/1/builds")
+
+    expect(screen.getByText("By Sam Rivera").closest("a")).toBeNull()
+    expect(screen.getByText("By lee@example.test").closest("a")).toBeNull()
+    expect(screen.getByText("By @mona").closest("a")).toHaveAttribute(
+      "href",
+      "https://github.com/mona",
+    )
+    expect(screen.getByText("Unknown author").closest("a")).toBeNull()
+    expect(screen.getByText("By legacy-author").closest("a")).toBeNull()
+
+    await router.settle(() =>
+      router.navigate(`/repositories/2001/prototypes/1/builds/${builds[0]!.number}`),
+    )
+    expect(screen.getByText("By Sam Rivera").closest("a")).toBeNull()
+    await router.settle(() =>
+      router.navigate(`/repositories/2001/prototypes/1/builds/${builds[1]!.number}`),
+    )
+    expect(screen.getByText("By lee@example.test").closest("a")).toBeNull()
+    await router.settle(() =>
+      router.navigate(`/repositories/2001/prototypes/1/builds/${builds[2]!.number}`),
+    )
+    expect(screen.getByText("By @mona").closest("a")).toHaveAttribute(
+      "href",
+      "https://github.com/mona",
+    )
+    await router.settle(() =>
+      router.navigate(`/repositories/2001/prototypes/1/builds/${builds[3]!.number}`),
+    )
+    expect(screen.getByText("Unknown author").closest("a")).toBeNull()
+    await router.settle(() =>
+      router.navigate(`/repositories/2001/prototypes/1/builds/${builds[4]!.number}`),
+    )
+    expect(screen.getByText("By legacy-author").closest("a")).toBeNull()
   }, 15_000)
 
   it("retains a failed edit draft and publishes a successful retry consistently", async () => {

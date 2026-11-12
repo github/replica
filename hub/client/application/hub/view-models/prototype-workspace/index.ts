@@ -17,6 +17,7 @@ export function prototypeWorkspace({
   selectedBuild,
   search,
   surface,
+  real = false,
 }: {
   workspace: WorkspaceResponse
   repository: RepositoryRecord
@@ -24,22 +25,42 @@ export function prototypeWorkspace({
   selectedBuild: BuildRecord | null
   search: URLSearchParams
   surface: "preview" | "build" | "history"
+  real?: boolean
 }): PrototypeWorkspaceData {
   const path = `/repositories/${repository.id}/prototypes/${prototype.id}`
   const builds = [...prototype.builds].sort((first, second) => second.number - first.number)
-  const latestBuild = builds[0]
+  const latestBuild =
+    prototype.latestBuild === undefined
+      ? builds[0]
+      : (builds.find(({ number }) => number === prototype.latestBuild?.number) ??
+        prototype.latestBuild)
   const pinnedBuild = search.has("build") ? (selectedBuild?.number ?? null) : null
-  const author = workspace.viewer.login === prototype.authorLogin ? workspace.viewer : null
+  const githubAuthor =
+    prototype.authorProvider === undefined || prototype.authorProvider === "github"
+  const authorName =
+    githubAuthor && prototype.authorLogin
+      ? `@${prototype.authorLogin}`
+      : prototype.authorName || prototype.authorLogin
+  const author =
+    prototype.authorLogin &&
+    workspace.viewer.login === prototype.authorLogin &&
+    (prototype.authorProvider === undefined ||
+      prototype.authorProvider === workspace.viewer.provider)
+      ? workspace.viewer
+      : null
   const previewPath = resourcePath(path, search, {
     build: selectedBuild?.previewUrl ? selectedBuild.number : null,
   })
 
   return {
-    ...repositoryWorkspace(workspace, repository, search),
+    ...repositoryWorkspace(workspace, repository, search, real),
     author: {
       avatarUrl: author?.avatarUrl ?? null,
-      label: `By @${prototype.authorLogin}`,
-      url: `https://github.com/${encodeURIComponent(prototype.authorLogin)}`,
+      label: authorName ? `By ${authorName}` : "Unknown author",
+      url:
+        githubAuthor && prototype.authorLogin
+          ? `https://github.com/${encodeURIComponent(prototype.authorLogin)}`
+          : null,
     },
     branchName: prototype.branchName,
     branchPath: resourcePath(path, search),
@@ -48,7 +69,7 @@ export function prototypeWorkspace({
       number: build.number,
       label: `v${build.number}`,
       path:
-        surface === "preview" && build.previewUrl
+        surface === "preview" && build.state === "successful"
           ? resourcePath(path, search, { build: build.number })
           : resourcePath(`${path}/builds/${build.number}`, search),
       state: build.state,
@@ -81,6 +102,7 @@ export function prototypeWorkspace({
     }),
     prototypeInfoLabel: "About this prototype",
     repositoryPath: resourcePath(`/repositories/${repository.id}`, search),
+    selectedBuildNumber: selectedBuild?.number,
     selectedBuild: selectedBuild
       ? {
           number: selectedBuild.number,

@@ -82,14 +82,17 @@ export function createMockStore({ origin, seed = createFixtureSeed() }: Options)
     throw new Error("The mock fixture contains duplicate records.")
   }
   for (const prototype of data.prototypes) {
-    if (!repositories.has(prototype.repositoryId) || !userLogins.has(prototype.authorLogin)) {
+    if (
+      !repositories.has(prototype.repositoryId) ||
+      (prototype.authorLogin !== null && !userLogins.has(prototype.authorLogin))
+    ) {
       throw new Error("A mock prototype refers to a missing repository or user.")
     }
   }
   const builds = data.builds.map((build) => {
     if (
       !prototypeKeys.has(`${build.repositoryId}/${build.prototypeId}`) ||
-      !userLogins.has(build.commitAuthorLogin)
+      (build.commitAuthorLogin !== null && !userLogins.has(build.commitAuthorLogin))
     ) {
       throw new Error("A mock build refers to a missing prototype or commit author.")
     }

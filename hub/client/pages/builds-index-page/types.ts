@@ -9,13 +9,13 @@ export interface BuildsIndexPageData extends PrototypeWorkspaceData {
       url: string | null
     }
     commitLabel: string
-    commitSha: string
+    commitSha: string | null
     createdAt: string
     createdLabel: string
     number: number
     numberLabel: string
     path: string
-    shortCommitSha: string
+    shortCommitSha: string | null
     state: BuildState
     stateLabel: string
   }>

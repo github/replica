@@ -34,7 +34,7 @@ export function BuildsIndexPage({ data }: { data: BuildsIndexPageData }) {
                   </InlineLink>
 
                   <span className="build-history__meta">
-                    <Text size="100" title={build.commitSha}>
+                    <Text size="100" title={build.commitSha ?? undefined}>
                       {build.commitLabel}
                     </Text>
 

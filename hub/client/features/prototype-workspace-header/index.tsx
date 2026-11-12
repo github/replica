@@ -47,7 +47,8 @@ export function PrototypeWorkspaceHeader({
   })
   const dark = resolvedColorMode === "dark"
   const themeLabel = dark ? data.useLightThemeLabel : data.useDarkThemeLabel
-  const selectedVersion = data.selectedBuild?.number ?? data.latestBuild?.number
+  const selectedVersion =
+    data.selectedBuildNumber ?? data.selectedBuild?.number ?? data.latestBuild?.number
   const menuLinks = data.browseReplica
     ? []
     : [
@@ -60,7 +61,9 @@ export function PrototypeWorkspaceHeader({
               },
             ]
           : []),
-        { label: data.historyLabel, path: data.historyPath, icon: HistoryIcon },
+        ...(data.historyPath
+          ? [{ label: data.historyLabel, path: data.historyPath, icon: HistoryIcon }]
+          : []),
         ...(data.selectedBuild?.detailsPath && data.selectedBuild.detailsLabel
           ? [
               {
@@ -214,7 +217,7 @@ export function PrototypeWorkspaceHeader({
                     key={build.number}
                     build={build}
                     path={path}
-                    selected={build.number === data.selectedBuild?.number}
+                    selected={build.number === selectedVersion}
                     onKeyDown={activateMenuLink}
                   />
                 )
@@ -228,7 +231,7 @@ export function PrototypeWorkspaceHeader({
         <PrototypeReviewControls {...reviewControls} noBuild={!data.selectedBuild} />
       ) : null}
 
-      {!data.browseReplica ? (
+      {!data.browseReplica && menuLinks.length > 0 ? (
         <Tooltip text={data.moreActionsLabel} type="description">
           <div className="review-shell__more-menu">
             <ActionMenu selectionVariant="none" size="small" menuAlignment="end">

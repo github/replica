@@ -35,8 +35,16 @@ export const buildSchema = z.object({
   repositoryId: recordIdentifierSchema,
   prototypeId: recordIdentifierSchema,
   state: buildStateSchema,
-  commitSha: z.string().regex(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/i),
-  commitAuthorLogin: z.string().min(1),
+  commitSha: z
+    .string()
+    .regex(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/i)
+    .nullable(),
+  commitAuthorProvider: z.string().min(1).nullable().optional(),
+  commitAuthorIssuer: z.string().min(1).nullable().optional(),
+  commitAuthorProviderUserId: z.string().min(1).nullable().optional(),
+  commitAuthorLogin: z.string().nullable(),
+  commitAuthorName: z.string().nullable().optional(),
+  commitAuthorAvatarUrl: httpUrl.nullable().optional(),
   createdAt: timestamp,
   startedAt: timestamp.nullable(),
   finishedAt: timestamp.nullable(),
@@ -52,7 +60,9 @@ export const prototypeSchema = z.object({
   name: z.string().min(1),
   branchName: z.string().min(1),
   description: z.string().nullable(),
-  authorLogin: z.string().min(1),
+  authorLogin: z.string().min(1).nullable(),
+  authorName: z.string().nullable().optional(),
+  authorProvider: z.string().min(1).nullable().optional(),
   canEdit: z.boolean(),
   latestBuild: z.object({ number: identifier, state: buildStateSchema }).nullable().optional(),
   builds: z.array(buildSchema),
@@ -147,6 +157,14 @@ export const routeQuerySchema = z.object({
   build: z.coerce.number().int().positive().optional(),
 })
 
-export const prototypeQuerySchema = routeQuerySchema.pick({ build: true }).extend({
-  view: z.enum(["gallery", "list", "minimized"]).optional(),
-})
+export const prototypeQuerySchema = z
+  .object({
+    build: z
+      .string()
+      .regex(/^[1-9]\d*$/)
+      .transform(Number)
+      .pipe(z.number().int())
+      .optional(),
+    view: z.enum(["gallery", "list", "minimized"]).optional(),
+  })
+  .strict()
