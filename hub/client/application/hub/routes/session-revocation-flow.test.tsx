@@ -119,6 +119,18 @@ function authenticatedSession() {
   return http.get(`${window.location.origin}/api/auth/session`, () => HttpResponse.json(session()))
 }
 
+function submitWith(button: HTMLButtonElement) {
+  const form = button.form
+  if (!form) throw new Error("Submit button must belong to a form.")
+  form.dispatchEvent(
+    new SubmitEvent("submit", {
+      bubbles: true,
+      cancelable: true,
+      submitter: button,
+    }),
+  )
+}
+
 describe("real session revocation frontend integration", () => {
   it("shows current authentication counts before provider verification", async () => {
     const { requests } = await renderApplication("/settings/sessions", [
@@ -165,6 +177,59 @@ describe("real session revocation frontend integration", () => {
     })
   })
 
+  it("explains how to recover when authorization start is denied", async () => {
+    await renderApplication("/settings/sessions", [
+      authenticatedSession(),
+      http.get(`${window.location.origin}/api/session-revocation`, () =>
+        HttpResponse.json(status()),
+      ),
+      http.post(`${window.location.origin}/api/session-revocation/authorizations/start`, () =>
+        HttpResponse.json({ error: "not_authorized" }, { status: 403 }),
+      ),
+    ])
+
+    fireEvent.click(await screen.findByRole("checkbox"))
+    fireEvent.click(screen.getByRole("button", { name: "Verify and continue" }))
+
+    expect(await screen.findByText("Your account is no longer a Hub administrator.")).toBeVisible()
+  })
+
+  it("cancels before verification without starting authorization", async () => {
+    const starts = vi.fn()
+    await renderApplication("/settings/sessions", [
+      authenticatedSession(),
+      http.get(`${window.location.origin}/api/session-revocation`, () =>
+        HttpResponse.json(status()),
+      ),
+      http.post(`${window.location.origin}/api/session-revocation/authorizations/start`, starts),
+    ])
+
+    submitWith(await screen.findByRole("button", { name: "Cancel" }))
+
+    expect(
+      await screen.findByText("Session revocation was cancelled. No sessions ended."),
+    ).toBeVisible()
+    expect(starts).not.toHaveBeenCalled()
+  })
+
+  it("does not intercept native sign-out before verification", async () => {
+    const starts = vi.fn()
+    await renderApplication("/settings/sessions", [
+      authenticatedSession(),
+      http.get(`${window.location.origin}/api/session-revocation`, () =>
+        HttpResponse.json(status()),
+      ),
+      http.post(`${window.location.origin}/api/session-revocation/authorizations/start`, starts),
+    ])
+    const signOutForm = document.querySelector<HTMLFormElement>(
+      'form[action="/api/auth/session/sign-out"]',
+    )
+    if (!signOutForm) throw new Error("Sign out must belong to a form.")
+
+    expect(fireEvent.submit(signOutForm)).toBe(true)
+    expect(starts).not.toHaveBeenCalled()
+  })
+
   it("continues the verified operation and keeps the signed-out result visible", async () => {
     let continued = false
     const { requests } = await renderApplication(
@@ -208,5 +273,107 @@ describe("real session revocation frontend integration", () => {
     ).toBeVisible()
     expect(continued).toBe(true)
     expect(requests.filter((request) => request === "GET /api/auth/session")).toHaveLength(2)
+  })
+
+  it("cancels verified authorization without continuing revocation", async () => {
+    const cancellations: unknown[] = []
+    const continuations = vi.fn()
+    await renderApplication(`/settings/sessions/confirm?authorizationId=${authorizationId}`, [
+      authenticatedSession(),
+      http.get(`${window.location.origin}/api/session-revocation`, () =>
+        HttpResponse.json(status()),
+      ),
+      http.get(
+        `${window.location.origin}/api/session-revocation/authorizations/${authorizationId}`,
+        () =>
+          HttpResponse.json({
+            authorization: {
+              expiresAt: "2026-11-12T17:00:00.000Z",
+              operation: "END_ALL_HUB_SESSIONS",
+              verifiedAt: "2026-11-12T16:55:00.000Z",
+            },
+          }),
+      ),
+      http.post(
+        `${window.location.origin}/api/session-revocation/authorizations/cancel`,
+        async ({ request }) => {
+          cancellations.push(await request.json())
+          return new HttpResponse(null, { status: 204 })
+        },
+      ),
+      http.post(
+        `${window.location.origin}/api/session-revocation/authorizations/continue`,
+        continuations,
+      ),
+    ])
+
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel" }))
+
+    await vi.waitFor(() => expect(cancellations).toEqual([{ authorizationId }]))
+    expect(
+      await screen.findByText("Session revocation was cancelled. No sessions ended."),
+    ).toBeVisible()
+    expect(continuations).not.toHaveBeenCalled()
+  })
+
+  it("explains how to recover when verified authorization expires", async () => {
+    await renderApplication(`/settings/sessions/confirm?authorizationId=${authorizationId}`, [
+      authenticatedSession(),
+      http.get(`${window.location.origin}/api/session-revocation`, () =>
+        HttpResponse.json(status()),
+      ),
+      http.get(
+        `${window.location.origin}/api/session-revocation/authorizations/${authorizationId}`,
+        () =>
+          HttpResponse.json({
+            authorization: {
+              expiresAt: "2026-11-12T17:00:00.000Z",
+              operation: "END_ALL_HUB_SESSIONS",
+              verifiedAt: "2026-11-12T16:55:00.000Z",
+            },
+          }),
+      ),
+      http.post(`${window.location.origin}/api/session-revocation/authorizations/continue`, () =>
+        HttpResponse.json({ error: "expired" }, { status: 409 }),
+      ),
+    ])
+
+    fireEvent.click(await screen.findByRole("button", { name: "End all sessions now" }))
+
+    expect(
+      await screen.findByText("This authorization expired. Start the session revocation again."),
+    ).toBeVisible()
+  })
+
+  it("does not intercept native sign-out after verification", async () => {
+    const continuations = vi.fn()
+    await renderApplication(`/settings/sessions/confirm?authorizationId=${authorizationId}`, [
+      authenticatedSession(),
+      http.get(`${window.location.origin}/api/session-revocation`, () =>
+        HttpResponse.json(status()),
+      ),
+      http.get(
+        `${window.location.origin}/api/session-revocation/authorizations/${authorizationId}`,
+        () =>
+          HttpResponse.json({
+            authorization: {
+              expiresAt: "2026-11-12T17:00:00.000Z",
+              operation: "END_ALL_HUB_SESSIONS",
+              verifiedAt: "2026-11-12T16:55:00.000Z",
+            },
+          }),
+      ),
+      http.post(
+        `${window.location.origin}/api/session-revocation/authorizations/continue`,
+        continuations,
+      ),
+    ])
+    const signOutForm = document.querySelector<HTMLFormElement>(
+      'form[action="/api/auth/session/sign-out"]',
+    )
+    if (!signOutForm) throw new Error("Sign out must belong to a form.")
+
+    expect(fireEvent.submit(signOutForm)).toBe(true)
+    expect(continuations).not.toHaveBeenCalled()
   })
 })

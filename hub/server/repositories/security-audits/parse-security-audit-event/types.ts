@@ -22,6 +22,7 @@ import type {
   AdministratorManagementDeniedAudit,
   AdministratorManagementFailedAudit,
   AdministratorAuthorizationAudit,
+  AllHubSessionsEndFailedAudit,
   AllHubSessionsEndedAudit,
   SessionCreatedAudit,
   SessionEndedAudit,
@@ -41,6 +42,7 @@ export type ParsedSecurityAuditEvent =
   | AdministratorManagementDeniedAudit
   | AdministratorManagementFailedAudit
   | AdministratorAuthorizationAudit
+  | AllHubSessionsEndFailedAudit
   | AllHubSessionsEndedAudit
   | SessionCreatedAudit
   | SessionEndedAudit

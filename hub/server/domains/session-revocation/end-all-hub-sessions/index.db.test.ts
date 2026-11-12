@@ -303,8 +303,82 @@ describe("endAllHubSessions()", () => {
         }),
       ).resolves.toEqual({ endedAt: null })
       await expect(
+        prisma.securityAudit.findMany({
+          select: { action: true, context: true, outcome: true },
+          where: {
+            action:
+              expectedReason === "expired"
+                ? "session.revocation.authorization.expired"
+                : "session.revocation.authorization.denied",
+          },
+        }),
+      ).resolves.toEqual([
+        {
+          action:
+            expectedReason === "expired"
+              ? "session.revocation.authorization.expired"
+              : "session.revocation.authorization.denied",
+          context: {
+            actorMembershipId: fixture.actor.membershipId,
+            operation: "end_all_hub_sessions",
+            phase: expectedReason === "expired" ? "expired" : "denied",
+            reason: expectedReason,
+            targetCount: 0,
+          },
+          outcome: "DENIED",
+        },
+      ])
+      await expect(
         prisma.securityAudit.count({ where: { action: "session.revocation.end_all" } }),
       ).resolves.toBe(0)
     },
   )
+
+  it("writes focused failure evidence after session termination rolls back", async () => {
+    const fixture = await createFixture()
+    const before = await getSessionRevocationStatus(prisma)
+    await prisma.$executeRawUnsafe(`
+      CREATE FUNCTION fail_session_revocation_termination()
+      RETURNS trigger AS $$
+      BEGIN
+        RAISE EXCEPTION 'session termination unavailable';
+      END;
+      $$ LANGUAGE plpgsql
+    `)
+    await prisma.$executeRawUnsafe(`
+      CREATE TRIGGER fail_session_revocation_termination
+      BEFORE UPDATE ON hub_sessions
+      FOR EACH ROW EXECUTE FUNCTION fail_session_revocation_termination()
+    `)
+    try {
+      await expect(
+        endAllHubSessions(prisma, {
+          authorizationId: fixture.authorizationId,
+          hubSessionId: fixture.actorSessionId,
+        }),
+      ).rejects.toThrow()
+    } finally {
+      await prisma.$executeRawUnsafe(
+        `DROP TRIGGER fail_session_revocation_termination ON hub_sessions`,
+      )
+      await prisma.$executeRawUnsafe(`DROP FUNCTION fail_session_revocation_termination()`)
+    }
+
+    await expect(getSessionRevocationStatus(prisma)).resolves.toEqual(before)
+    await expect(
+      prisma.securityAudit.findMany({
+        select: { action: true, context: true, outcome: true },
+        where: { action: "session.revocation.end_all_failed" },
+      }),
+    ).resolves.toEqual([
+      {
+        action: "session.revocation.end_all_failed",
+        context: {
+          actorMembershipId: fixture.actor.membershipId,
+          reason: "transaction_error",
+        },
+        outcome: "FAILURE",
+      },
+    ])
+  })
 })

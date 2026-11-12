@@ -4,6 +4,7 @@ import { Prisma } from "../../../generated/prisma/client.ts"
 
 import { classifyPrismaTransactionError } from "../../../integrations/prisma/classify-transaction-error/index.ts"
 import { createSecurityAudit } from "../../../repositories/security-audits/create-security-audit/index.ts"
+import { getSensitiveAuthorizationAuditData } from "../../../repositories/sensitive-authorizations/get-sensitive-authorization-audit-data/index.ts"
 import { endAllOpenHubSessions } from "../../../repositories/hub-sessions/end-all-open-hub-sessions/index.ts"
 import { lockLiveHubSession } from "../../../repositories/hub-sessions/lock-live-hub-session/index.ts"
 import { lockEffectiveAdministrators } from "../../../repositories/memberships/lock-effective-administrators/index.ts"
@@ -119,9 +120,48 @@ export async function endAllHubSessions(database: SessionRevocationDatabase, raw
       (error) => error instanceof SessionRevocationTransactionConflictError,
     )
   } catch (error) {
-    if (error instanceof SessionRevocationTransactionConflictError) {
-      throw new SessionRevocationPersistenceError({ cause: error })
+    const reason =
+      error instanceof SessionRevocationDeniedError
+        ? error.reason
+        : error instanceof SessionRevocationTransactionConflictError
+          ? "retry_exhausted"
+          : "transaction_error"
+    const authorization = await getSensitiveAuthorizationAuditData(database, input.authorizationId)
+    if (authorization?.operation === "END_ALL_HUB_SESSIONS") {
+      try {
+        await database.$transaction(async (transaction) => {
+          if (!(error instanceof SessionRevocationDeniedError)) {
+            await createSecurityAudit(transaction, {
+              actorMembershipId: authorization.actorMembershipId,
+              id: randomUUID(),
+              reason:
+                error instanceof SessionRevocationTransactionConflictError
+                  ? "retry_exhausted"
+                  : "transaction_error",
+              type: "all_hub_sessions_end_failed",
+            })
+          }
+          await createSecurityAudit(transaction, {
+            actorMembershipId: authorization.actorMembershipId,
+            authorizationId: input.authorizationId,
+            id: randomUUID(),
+            operation: authorization.operation,
+            phase: reason === "expired" || authorization.expired ? "expired" : "denied",
+            reason,
+            targetCount: authorization.targetCount,
+            type: "administrator_authorization",
+          })
+        })
+      } catch (auditError) {
+        throw new AggregateError(
+          [error, auditError],
+          "The session revocation denial and its audits could not all be recorded.",
+          { cause: auditError },
+        )
+      }
     }
-    throw error
+    throw error instanceof SessionRevocationTransactionConflictError
+      ? new SessionRevocationPersistenceError({ cause: error })
+      : error
   }
 }

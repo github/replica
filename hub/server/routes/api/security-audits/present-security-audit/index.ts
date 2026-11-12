@@ -39,6 +39,7 @@ function actorFor(record: SecurityAuditListRecord) {
     case "session.revocation.authorization.denied":
     case "session.revocation.authorization.expired":
     case "session.revocation.authorization.cancelled":
+    case "session.revocation.end_all_failed":
     case "membership.administrator_management.denied":
     case "membership.administrator_management.failed":
     case "membership.assignment.administrator_created":
@@ -124,6 +125,16 @@ function contextFor(record: SecurityAuditListRecord): Record<string, string | nu
             ...(targetId ? { targetId } : {}),
           }
         : {}
+    }
+    case "session.revocation.end_all_failed": {
+      const parsed = z
+        .object({
+          actorMembershipId: z.uuid(),
+          reason: z.enum(["retry_exhausted", "transaction_error"]),
+        })
+        .strict()
+        .safeParse(record.context)
+      return parsed.success ? { reason: parsed.data.reason } : {}
     }
     case "membership.administrator_management.denied":
     case "membership.administrator_management.failed": {

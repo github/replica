@@ -124,6 +124,18 @@ export function getSecurityAuditData(
           revision: event.revision,
         },
       }
+    case "all_hub_sessions_end_failed":
+      return {
+        id: event.id,
+        action: "session.revocation.end_all_failed",
+        outcome: SecurityAuditOutcome.FAILURE,
+        targetType: "session_revocation_state",
+        targetId: "global",
+        context: {
+          actorMembershipId: event.actorMembershipId,
+          reason: event.reason,
+        },
+      }
     case "session_created":
     case "session_ended":
       return {

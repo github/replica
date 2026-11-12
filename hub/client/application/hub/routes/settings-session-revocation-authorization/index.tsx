@@ -10,6 +10,7 @@ import { continueSessionRevocationAuthorization } from "@application/hub/request
 import { getCurrentHubSession } from "@application/hub/requests/get-current-hub-session"
 import { getSessionRevocationAuthorization } from "@application/hub/requests/get-session-revocation-authorization"
 import { getSessionRevocationStatus } from "@application/hub/requests/get-session-revocation-status"
+import { sessionRevocationErrorMessage } from "@application/hub/session-revocation-error-message"
 import { sessionRevocationPageData } from "@application/hub/view-models/session-revocation-page-data"
 
 import type { Route } from "./+types/index"
@@ -62,9 +63,19 @@ export default function SettingsSessionRevocationAuthorization({
     <div
       onSubmit={(event) => {
         if (!(event.target instanceof HTMLFormElement)) return
+        if (
+          event.target.action !== new URL(loaderData.page.submitPath, window.location.href).href
+        ) {
+          return
+        }
         event.preventDefault()
         if (submission.state === "pending") return
-        const form = new FormData(event.target)
+        const submitter =
+          event.nativeEvent instanceof SubmitEvent ? event.nativeEvent.submitter : null
+        const form = new FormData(
+          event.target,
+          submitter instanceof HTMLElement ? submitter : undefined,
+        )
         const request = new Request(window.location.href)
         setSubmission({ state: "pending", error: null })
         const operation =
@@ -85,7 +96,7 @@ export default function SettingsSessionRevocationAuthorization({
             state: "idle",
             error:
               error instanceof ApiRequestError
-                ? error.message
+                ? sessionRevocationErrorMessage(error.message)
                 : "The API response was invalid. Session revocation could not be confirmed.",
           })
         })

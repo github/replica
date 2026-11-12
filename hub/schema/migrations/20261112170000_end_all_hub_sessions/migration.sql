@@ -1,5 +1,3 @@
-ALTER TYPE "SensitiveAuthorizationOperation" ADD VALUE 'END_ALL_HUB_SESSIONS';
-
 ALTER TABLE "sensitive_authorizations"
   DROP CONSTRAINT "sensitive_authorizations_targets_check";
 

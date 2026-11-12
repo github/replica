@@ -15,7 +15,7 @@ function routeDependencies() {
   const startEnrollment = vi.fn()
   const endSession = vi.fn()
   const completeProof = vi.fn()
-  const verifyAdministratorAuthorization = vi.fn().mockResolvedValue(true)
+  const verifyAdministratorAuthorization = vi.fn().mockResolvedValue("DESIGNATE_ADMINISTRATORS")
   const admitSession = vi.fn()
   const restoreSession = vi.fn()
   const verifyBootstrapSecret = vi.fn().mockReturnValue(false)
@@ -337,6 +337,70 @@ describe("authenticationRoutes()", () => {
         sessionDigest: createHash("sha256").update("retained-session").digest("hex"),
         sensitiveAuthorizationId,
       })
+      expect(admitSession).not.toHaveBeenCalled()
+      expect(response.headers.get("set-cookie")).not.toContain("hub_session=")
+    })
+  })
+
+  it("routes verified global session revocation to its confirmation page", async () => {
+    const { admitSession, completeProof, dependencies, verifyAdministratorAuthorization } =
+      routeDependencies()
+    const sensitiveAuthorizationId = "00000000-0000-4000-8000-000000000020"
+    completeProof.mockResolvedValue({
+      purpose: "ADMINISTRATOR_MANAGEMENT",
+      sensitiveAuthorizationId,
+      proof: {
+        authorizationAttemptId: "00000000-0000-4000-8000-000000000010",
+        externalIdentityId: "00000000-0000-4000-8000-000000000012",
+      },
+    })
+    verifyAdministratorAuthorization.mockResolvedValue("END_ALL_HUB_SESSIONS")
+
+    await withServer(dependencies, async (baseUrl) => {
+      const response = await fetch(
+        `${baseUrl}/api/auth/github/callback?code=provider-code&state=${"s".repeat(32)}`,
+        {
+          headers: {
+            cookie: `hub_auth_browser=${"b".repeat(32)}; hub_session=retained-session`,
+          },
+          redirect: "manual",
+        },
+      )
+
+      expect(response.status).toBe(303)
+      expect(response.headers.get("location")).toBe(
+        `/settings/sessions/confirm?authorizationId=${sensitiveAuthorizationId}`,
+      )
+      expect(admitSession).not.toHaveBeenCalled()
+    })
+  })
+
+  it("denies administrator authorization when callback verification returns false", async () => {
+    const { admitSession, completeProof, dependencies, verifyAdministratorAuthorization } =
+      routeDependencies()
+    completeProof.mockResolvedValue({
+      purpose: "ADMINISTRATOR_MANAGEMENT",
+      sensitiveAuthorizationId: "00000000-0000-4000-8000-000000000020",
+      proof: {
+        authorizationAttemptId: "00000000-0000-4000-8000-000000000010",
+        externalIdentityId: "00000000-0000-4000-8000-000000000012",
+      },
+    })
+    verifyAdministratorAuthorization.mockResolvedValue(false)
+
+    await withServer(dependencies, async (baseUrl) => {
+      const response = await fetch(
+        `${baseUrl}/api/auth/github/callback?code=provider-code&state=${"s".repeat(32)}`,
+        {
+          headers: {
+            cookie: `hub_auth_browser=${"b".repeat(32)}; hub_session=retained-session`,
+          },
+          redirect: "manual",
+        },
+      )
+
+      expect(response.status).toBe(303)
+      expect(response.headers.get("location")).toBe("/?authentication=denied")
       expect(admitSession).not.toHaveBeenCalled()
       expect(response.headers.get("set-cookie")).not.toContain("hub_session=")
     })

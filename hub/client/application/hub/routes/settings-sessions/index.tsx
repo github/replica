@@ -7,6 +7,7 @@ import { ApiContractError } from "@application/hub/requests/api-contract-error"
 import { ApiRequestError } from "@application/hub/requests/api-request-error"
 import { getCurrentHubSession } from "@application/hub/requests/get-current-hub-session"
 import { getSessionRevocationStatus } from "@application/hub/requests/get-session-revocation-status"
+import { sessionRevocationErrorMessage } from "@application/hub/session-revocation-error-message"
 import { startSessionRevocationAuthorization } from "@application/hub/requests/start-session-revocation-authorization"
 import { SettingsRouteScreen } from "@application/hub/screens/settings-route-screen"
 import { sessionRevocationPageData } from "@application/hub/view-models/session-revocation-page-data"
@@ -76,9 +77,19 @@ export default function SettingsSessions({
       <div
         onSubmit={(event) => {
           if (!(event.target instanceof HTMLFormElement)) return
+          if (
+            event.target.action !== new URL(loaderData.page.submitPath, window.location.href).href
+          ) {
+            return
+          }
           event.preventDefault()
           if (submission.pending) return
-          const form = new FormData(event.target)
+          const submitter =
+            event.nativeEvent instanceof SubmitEvent ? event.nativeEvent.submitter : null
+          const form = new FormData(
+            event.target,
+            submitter instanceof HTMLElement ? submitter : undefined,
+          )
           if (form.get("cancelled") === "1") {
             void navigate("/settings/sessions?result=cancelled")
             return
@@ -101,7 +112,7 @@ export default function SettingsSessions({
                 pending: false,
                 error:
                   error instanceof ApiRequestError
-                    ? error.message
+                    ? sessionRevocationErrorMessage(error.message)
                     : "The API response was invalid. Provider authorization could not start.",
               })
             })

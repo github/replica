@@ -138,6 +138,31 @@ describe("end all Hub sessions migration compatibility", () => {
           options,
         )
 
+        const migrationCommits = await database.query<{
+          migrationName: string
+          startedAt: Date
+          finishedAt: Date
+        }>(
+          `SELECT migration_name AS "migrationName", started_at AS "startedAt",
+                  finished_at AS "finishedAt"
+           FROM _prisma_migrations
+           WHERE migration_name IN (
+             '20261112165900_add_end_all_hub_sessions_operation',
+             '20261112170000_end_all_hub_sessions'
+           )
+           ORDER BY started_at ASC, migration_name ASC`,
+        )
+        expect(migrationCommits.rows).toHaveLength(2)
+        expect(migrationCommits.rows[0]?.migrationName).toBe(
+          "20261112165900_add_end_all_hub_sessions_operation",
+        )
+        expect(migrationCommits.rows[0]?.finishedAt).toBeInstanceOf(Date)
+        expect(migrationCommits.rows[1]?.migrationName).toBe("20261112170000_end_all_hub_sessions")
+        expect(migrationCommits.rows[1]?.finishedAt).toBeInstanceOf(Date)
+        expect(migrationCommits.rows[0]!.finishedAt.getTime()).toBeLessThanOrEqual(
+          migrationCommits.rows[1]!.startedAt.getTime(),
+        )
+
         await expect(
           database.query(
             `SELECT operation, target_membership_ids AS "targetMembershipIds"

@@ -44,6 +44,14 @@ const eventSchema = z.discriminatedUnion("type", [
   z
     .object({
       actorMembershipId: z.uuid(),
+      id: z.uuid(),
+      reason: z.enum(["retry_exhausted", "transaction_error"]),
+      type: z.literal("all_hub_sessions_end_failed"),
+    })
+    .strict(),
+  z
+    .object({
+      actorMembershipId: z.uuid(),
       cancelledAuthorizationCount: z.number().int().nonnegative(),
       endedSessionCount: z.number().int().nonnegative(),
       id: z.uuid(),

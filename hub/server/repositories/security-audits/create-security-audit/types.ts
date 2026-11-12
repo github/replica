@@ -100,6 +100,12 @@ export interface AllHubSessionsEndedAudit extends SecurityAuditEvent {
   revision: number
 }
 
+export interface AllHubSessionsEndFailedAudit extends SecurityAuditEvent {
+  type: "all_hub_sessions_end_failed"
+  actorMembershipId: string
+  reason: "retry_exhausted" | "transaction_error"
+}
+
 export interface SessionCreatedAudit extends SecurityAuditEvent {
   type: "session_created"
   sessionId: string
@@ -211,6 +217,7 @@ export type CreateSecurityAuditEvent =
   | AdministratorManagementFailedAudit
   | AdministratorAuthorizationAudit
   | AllHubSessionsEndedAudit
+  | AllHubSessionsEndFailedAudit
   | AdmissionDeniedAudit
   | AdmissionFailedAudit
   | ExternalIdentityCreatedAudit
