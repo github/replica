@@ -445,7 +445,7 @@ describe("presentSecurityAudit()", () => {
         context: {
           appId: "123",
           billedOrganization: "github",
-          credentialProvider: "github_app_installation",
+          provider: "github_app_installation",
           phase: "connected",
           targetId: providerId,
         },

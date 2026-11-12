@@ -55,10 +55,9 @@ export function copilotConnectionPageData(
             : status.verifiedAt
               ? "Check and connect Copilot"
               : "Connect Copilot",
-          consequence:
-            status.credentialIdentity
-              ? `Hub asks Copilot to verify a fresh credential for the ${status.credentialIdentity.organization} organization through GitHub App ${status.credentialIdentity.appId}. Later learning runs may send review comment text without reviewer identity. The organization's Copilot model policy, budget, and App installation revocation continue to apply.`
-              : "Hub asks Copilot to verify the configured credential. Later learning runs may send review comment text without reviewer identity. The available local providers attribute usage to the signed-in account or user-token identity.",
+          consequence: status.credentialIdentity
+            ? `Hub asks Copilot to verify a fresh credential for the ${status.credentialIdentity.organization} organization through GitHub App ${status.credentialIdentity.appId}. Later learning runs may send review comment text without reviewer identity. The organization's Copilot model policy, budget, and App installation revocation continue to apply.`
+            : "Hub asks Copilot to verify the configured credential. Later learning runs may send review comment text without reviewer identity. The available local providers attribute usage to the signed-in account or user-token identity.",
           confirmLabel: "I understand and confirm connecting Copilot for this Hub.",
           verification,
         },

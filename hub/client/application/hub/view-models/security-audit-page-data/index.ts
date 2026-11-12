@@ -7,7 +7,6 @@ import { administratorWorkspace } from "../administrator-workspace"
 const contextLabels: Record<string, string> = {
   appId: "GitHub App",
   billedOrganization: "Billed organization",
-  credentialProvider: "Credential provider",
   membershipId: "Membership",
   operation: "Operation",
   phase: "Phase",

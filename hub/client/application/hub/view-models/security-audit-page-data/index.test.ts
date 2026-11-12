@@ -135,7 +135,7 @@ describe("securityAuditPageData()", () => {
           context: {
             appId: "123",
             billedOrganization: "github",
-            credentialProvider: "github_app_installation",
+            provider: "github_app_installation",
             phase: "connected",
           },
         },
@@ -146,7 +146,7 @@ describe("securityAuditPageData()", () => {
     expect(securityAuditPageData(session, response).events[0]?.context).toEqual([
       { label: "GitHub App", value: "123" },
       { label: "Billed organization", value: "github" },
-      { label: "Credential provider", value: "github_app_installation" },
+      { label: "Provider", value: "github_app_installation" },
       { label: "Phase", value: "connected" },
     ])
   })
