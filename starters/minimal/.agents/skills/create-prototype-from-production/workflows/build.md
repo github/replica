@@ -59,6 +59,12 @@ For each built page, including non-representatives and the source page, compare 
 
 Append a concise evidence reference and the observed route/content checks to the row's nonblank text `note`, preserving any scope-exclusion reason. Every verified local row needs that note; the ledger checks its presence, not the truth of the rendered evidence. Keep rows `built` until checked. If a required check is unavailable, use `blocked` with a nonblank text note naming the specific blocker and remaining assertion; do not hide an observed defect as a visual difference. Representative fidelity still uses both viewports; other rows need a normal-viewport route/content check, not another screenshot matrix.
 
+## Select the entry page
+
+After the last scaffold call, [set `.prototype.startPage`](../../../../REPLICA.md#set-the-start-page) to open the source row's local route unless a different entry page was already agreed. Minimal's scaffolder selects each route as it creates it, so do not leave the last child route as the entry page by accident. Use `/` for the root or `/#/route-name` for a hash-routed page, retaining required query and fragment state.
+
+Open the preview at that exact `startPage` and verify the intended page and content before handoff. Repeat this check if any later scaffold call changes the metadata. An unavailable rendered check remains a reported blocker, not a verified landing page.
+
 ## Handoff
 
 Run the app's declared type check, tests, build and formatting check before handoff. Fix failures and report unavailable checks; a passing ledger does not replace them.
