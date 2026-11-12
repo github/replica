@@ -403,9 +403,15 @@ describe("real prototype index", () => {
     await waitFor(() => expect(router.state.location.search).toBe("?build=3"))
     expect(await screen.findByText("Build 3 has no preview")).toBeVisible()
     await act(async () =>
-      router.navigate(`/repositories/${repositoryId}/prototypes/${entraPrototypeId}`),
+      router.navigate(
+        `/repositories/${repositoryId}/prototypes/${entraPrototypeId}?view=minimized`,
+      ),
     )
     expect((await screen.findByLabelText("By Mona")).closest("a")).toBeNull()
+    expect(document.querySelector(".review-workspace-layer")).toHaveAttribute(
+      "data-minimized",
+      "false",
+    )
     await act(async () =>
       router.navigate(`/repositories/${repositoryId}/prototypes/${fallbackPrototypeId}`),
     )

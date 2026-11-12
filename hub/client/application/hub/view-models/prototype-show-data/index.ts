@@ -75,7 +75,8 @@ export function prototypeShowData(
     minimizeHubLabel: "Minimize Hub UI",
     maximizeHubLabel: "Maximize Hub UI",
     dragControlsLabel: "Move preview controls. Drag or use arrow keys.",
-    minimizedPreview: search.get("view") === "minimized",
+    // The restore control lives on the preview, so stay expanded without one.
+    minimizedPreview: Boolean(previewBuild?.previewUrl) && search.get("view") === "minimized",
     pageTitle: `${data.prototype.name} · ${data.repository.nameWithOwner}`,
     prototypeId: data.prototype.id,
     repositoryId: data.repository.id,
