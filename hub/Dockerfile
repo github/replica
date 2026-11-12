@@ -12,7 +12,7 @@ RUN --mount=type=cache,id=replica-hub-npm,target=/root/.npm \
       node -e 'const fs=require("node:fs"); const lock=JSON.parse(fs.readFileSync("package-lock.json","utf8")); for(const entry of Object.values(lock.packages)){delete entry.resolved} fs.writeFileSync("package-lock.json",JSON.stringify(lock))'; \
       export npm_config_registry="$NPM_REGISTRY"; \
     fi; \
-    npm ci --engine-strict --no-audit --no-fund
+    npm ci --include=optional --engine-strict --fetch-retries=5 --prefer-offline --no-audit --no-fund
 COPY hub/ .
 RUN npm run build:runtime
 
@@ -26,7 +26,7 @@ RUN --mount=type=cache,id=replica-learning-npm,target=/root/.npm \
       node -e 'const fs=require("node:fs"); const lock=JSON.parse(fs.readFileSync("package-lock.json","utf8")); for(const entry of Object.values(lock.packages)){delete entry.resolved} fs.writeFileSync("package-lock.json",JSON.stringify(lock))'; \
       export npm_config_registry="$NPM_REGISTRY"; \
     fi; \
-    npm ci --omit=dev --engine-strict --no-audit --no-fund \
+    npm ci --omit=dev --include=optional --engine-strict --fetch-retries=5 --prefer-offline --no-audit --no-fund \
     && if [ ! -f node_modules/@github/copilot-sdk/package.json ]; then \
       echo "Copilot SDK was not installed" >&2; exit 1; \
     fi \

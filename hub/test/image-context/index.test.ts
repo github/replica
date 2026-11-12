@@ -37,25 +37,24 @@ describe("Hub image context", () => {
     }
   })
 
-  it("uses an alternate npm registry only when the build argument is explicit", async () => {
+  it("uses the configured npm registry only when the build argument is explicit", async () => {
     const [dockerfile, deploymentGuide] = await Promise.all([
       readFile(resolve("Dockerfile"), "utf8"),
       readFile(resolve("docs/deployment.md"), "utf8"),
     ])
 
-    expect(dockerfile).toContain("ARG NPM_FALLBACK_REGISTRY\n")
-    expect(dockerfile).not.toMatch(/ARG NPM_FALLBACK_REGISTRY=\S+/)
-    const fallbackInstalls = [...dockerfile.matchAll(/--registry="\$\{NPM_FALLBACK_REGISTRY\}"/g)]
-    expect(fallbackInstalls.length).toBeGreaterThan(0)
-    for (const install of fallbackInstalls) {
-      expect(dockerfile.slice(Math.max(0, install.index - 180), install.index)).toContain(
-        'test -n "${NPM_FALLBACK_REGISTRY}"',
-      )
-    }
+    expect(dockerfile.match(/ARG NPM_REGISTRY\n/g)).toHaveLength(2)
+    expect(dockerfile).not.toMatch(/ARG NPM_REGISTRY=\S+/)
+    expect(dockerfile.match(/if \[ -n "\$NPM_REGISTRY" \]; then/g)).toHaveLength(2)
+    expect(dockerfile.match(/delete entry\.resolved/g)).toHaveLength(2)
+    expect(dockerfile.match(/export npm_config_registry="\$NPM_REGISTRY"/g)).toHaveLength(2)
+    expect(dockerfile.match(/npm ci .*--include=optional/g)).toHaveLength(2)
+    expect(dockerfile.match(/npm ci .*--fetch-retries=5 .*--prefer-offline/g)).toHaveLength(2)
+    expect(dockerfile).not.toContain("NPM_FALLBACK_REGISTRY")
+    expect(deploymentGuide).toContain("--build-arg NPM_REGISTRY=https://YOUR_PROXY/")
     expect(deploymentGuide).toContain(
-      "--build-arg NPM_FALLBACK_REGISTRY=https://another.example/npm/",
+      "Without `NPM_REGISTRY`, the container needs public npm access.",
     )
-    expect(deploymentGuide).toContain("does not contact an alternate registry")
   })
 
   it("ignores both the source learning store and future hosted stores", async () => {

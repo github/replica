@@ -10,8 +10,6 @@ Host npm configuration is not inherited by the image build. Without `NPM_REGISTR
 
 Publishing is an explicit operator step, not a side effect of CI. From the approved checkout, authenticate to an authorized registry, then run `docker buildx build --file hub/Dockerfile --platform linux/amd64 --tag YOUR_REGISTRY/replica-hub:YOUR_COMMIT --push .`. Resolve the published digest with `docker buildx imagetools inspect YOUR_REGISTRY/replica-hub:YOUR_COMMIT` and give deployment the `registry/repository@sha256:...` reference, never the mutable tag.
 
-The image build uses the registry configured by npm. When that registry is unavailable, an operator may explicitly set `--build-arg NPM_FALLBACK_REGISTRY=https://another.example/npm/`; Hub does not contact an alternate registry unless this argument is nonempty.
-
 | Setting                                                  | Contract                                                                                                                                       |
 | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
 | `RUNTIME_MODE`                                           | `api` for source development; the image defaults to `combined`. `on-demand`, `scheduled`, and `setup` are separate roles using the same image. |
