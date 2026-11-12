@@ -1,7 +1,9 @@
 import "dotenv/config"
 
 import { createConfiguredArtifactStorage } from "./domains/artifacts/create-configured-artifact-storage/index.ts"
+import { LocalSignInConfigurationError } from "./domains/authentication/errors.ts"
 import { readAuthenticationConfigurationState } from "./domains/authentication/read-authentication-configuration-state/index.ts"
+import { resolveLocalSignInEnvironment } from "./domains/authentication/resolve-local-sign-in-environment/index.ts"
 import { startTelemetry } from "./integrations/opentelemetry/start-telemetry/index.ts"
 import { logger } from "./integrations/pino/index.ts"
 import { isMissingDatabaseSchema } from "./integrations/prisma/is-missing-database-schema/index.ts"
@@ -39,7 +41,9 @@ try {
     let authentication: AuthenticationRouteDependencies | undefined
     let product: ProductRouteDependencies | undefined
     if (runsApi) {
-      const authenticationConfiguration = readAuthenticationConfigurationState(process.env)
+      const authenticationEnvironment = resolveLocalSignInEnvironment(process.env)
+      const authenticationConfiguration =
+        readAuthenticationConfigurationState(authenticationEnvironment)
       if (
         (authenticationConfiguration.providerConfigured ||
           authenticationConfiguration.sharedConfigured) &&
@@ -54,7 +58,7 @@ try {
         !authenticationConfiguration.providerConfigured
       ) {
         throw new AuthenticationConfigurationError(
-          "Configure at least one GitHub or Entra provider when HUB_APPLICATION_ORIGIN is set.",
+          "Configure GitHub, Entra, or local sign-in when HUB_APPLICATION_ORIGIN is set.",
         )
       }
       if (
@@ -72,7 +76,7 @@ try {
           await import("./routes/api/auth/create-authentication-route-dependencies/index.ts")
         try {
           if (authenticationConfiguration.providerConfigured) {
-            authentication = await createAuthenticationRouteDependencies(process.env)
+            authentication = await createAuthenticationRouteDependencies(authenticationEnvironment)
             const { createProductRouteDependencies } =
               await import("./routes/api/product/create-product-route-dependencies/index.ts")
             product = createProductRouteDependencies()
@@ -132,7 +136,8 @@ try {
   }
 } catch (error) {
   logger.fatal(
-    error instanceof AuthenticationConfigurationError
+    error instanceof AuthenticationConfigurationError ||
+      error instanceof LocalSignInConfigurationError
       ? error.message
       : "Hub failed; check runtime configuration, dependencies, telemetry, and shutdown time.",
   )

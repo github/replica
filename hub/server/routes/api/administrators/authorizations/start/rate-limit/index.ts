@@ -17,7 +17,9 @@ export function rateLimit(dependencies: AdministratorRouteDependencies): Request
           ? dependencies.start.github
           : session.providerKey === "entra"
             ? dependencies.start.entra
-            : undefined
+            : session.providerKey === "local"
+              ? dependencies.start.local
+              : undefined
       if (!provider) {
         response.status(409).json({ error: "The session authentication provider is unavailable." })
         return

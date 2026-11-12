@@ -45,7 +45,7 @@ function deferred<Value>() {
 async function openServer(
   userIds: number[],
   logger?: ReturnType<typeof createLogger>,
-  environment = runtimeEnvironment(),
+  environment: NodeJS.ProcessEnv = runtimeEnvironment(),
   providerRequestOverride?: ReturnType<typeof vi.fn<typeof fetch>>,
 ) {
   let userIndex = 0
@@ -525,6 +525,52 @@ describe("Hub admission and session flow", () => {
     } finally {
       await reenabled.close()
     }
+  })
+
+  it("signs in the local developer as an administrator after local sign-in returns", async () => {
+    const environment = {
+      HUB_APPLICATION_ORIGIN: applicationOrigin,
+      HUB_AUTHENTICATION_ENCRYPTION_KEY: randomBytes(32).toString("base64"),
+      HUB_BOOTSTRAP_SECRET: "bootstrap-secret-that-is-at-least-32-characters",
+      HUB_LOCAL_SIGN_IN: "true",
+    }
+    async function signIn() {
+      const server = await openServer([], undefined, environment)
+      try {
+        const attempt = await startAuthentication(server.baseUrl, "/api/auth/local/start")
+        const callback = await fetch(
+          `${server.baseUrl}/api/auth/local/callback?code=local&state=${attempt.state}`,
+          {
+            headers: { cookie: `hub_auth_browser=${encodeURIComponent(attempt.browserCookie)}` },
+            redirect: "manual",
+          },
+        )
+        expect(callback.headers.get("location")).toBe("/?authentication=success")
+        const session = await fetch(`${server.baseUrl}/api/auth/session`, {
+          headers: {
+            cookie: `hub_session=${encodeURIComponent(cookieValue(callback, "hub_session")!)}`,
+          },
+        })
+        return (await session.json()) as unknown
+      } finally {
+        await server.close()
+      }
+    }
+
+    expect(await signIn()).toMatchObject({
+      login: "local-developer",
+      provider: "local",
+      role: "ADMINISTRATOR",
+    })
+    await disableAuthenticationProviders()
+
+    expect(await signIn()).toMatchObject({ provider: "local", role: "ADMINISTRATOR" })
+    expect(await prisma.membership.count()).toBe(1)
+    const provider = await prisma.authenticationProvider.findUniqueOrThrow({
+      where: { key: "local" },
+      select: { selectedRevision: { select: { revision: true } } },
+    })
+    expect(provider.selectedRevision?.revision).toBe(2)
   })
 
   it("fails closed when global revocation advances during provider network work", async () => {

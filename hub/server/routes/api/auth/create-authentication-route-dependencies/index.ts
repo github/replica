@@ -11,6 +11,7 @@ import { completeAuthenticationProof } from "../../../../domains/authentication/
 import type { CompleteAuthenticationProofDependencies } from "../../../../domains/authentication/complete-authentication-proof/types.ts"
 import { createEntraAuthenticationContext } from "../../../../domains/authentication/create-entra-authentication-context/index.ts"
 import { createGitHubAuthenticationContext } from "../../../../domains/authentication/create-github-authentication-context/index.ts"
+import { createLocalAuthenticationContext } from "../../../../domains/authentication/create-local-authentication-context/index.ts"
 import { createOpaqueValue } from "../../../../domains/authentication/create-opaque-value/index.ts"
 import { readAuthenticationConfigurationState } from "../../../../domains/authentication/read-authentication-configuration-state/index.ts"
 import { createSharedAuthenticationContext } from "../../../../domains/authentication/create-shared-authentication-context/index.ts"
@@ -31,6 +32,7 @@ import { verifyAdministratorAuthorization } from "../../../../domains/administra
 import { runAdministratorAuthorizationVerificationTransaction } from "../../../../domains/administrator-authorization/run-administrator-authorization-verification-transaction/index.ts"
 import { listEffectiveAdministrators } from "../../../../domains/administrator-management/list-effective-administrators/index.ts"
 import { prisma } from "../../../../integrations/prisma/index.ts"
+import { findLatestAuthenticationProviderRevision } from "../../../../repositories/authentication-providers/find-latest-authentication-provider-revision/index.ts"
 import { getAuthenticationProofState } from "../../../../repositories/authentication-providers/get-authentication-proof-state/index.ts"
 import { findCurrentSessionProfile } from "../../../../repositories/user-profiles/find-current-session-profile/index.ts"
 import { consumeAuthorizationAttempt } from "../../../../repositories/authorization-attempts/consume-authorization-attempt/index.ts"
@@ -92,9 +94,16 @@ export async function createAuthenticationRouteDependencies(
   const entraContext = configuration.entraConfigured
     ? createEntraAuthenticationContext(environment, request)
     : undefined
+  const localContext = configuration.localConfigured
+    ? createLocalAuthenticationContext(
+        environment,
+        await findLatestAuthenticationProviderRevision(prisma, "local"),
+      )
+    : undefined
   const contexts: AuthenticationContext[] = []
   if (githubContext) contexts.push(githubContext)
   if (entraContext) contexts.push(entraContext)
+  if (localContext) contexts.push(localContext)
   await Promise.all(
     contexts.map(async (context) => {
       try {
@@ -353,6 +362,7 @@ export async function createAuthenticationRouteDependencies(
 
   const github = githubContext ? createProviderDependencies(githubContext) : undefined
   const entra = entraContext ? createProviderDependencies(entraContext) : undefined
+  const local = localContext ? createProviderDependencies(localContext) : undefined
   return {
     administrators: {
       applicationOrigin: sharedContext.applicationOrigin,
@@ -394,6 +404,7 @@ export async function createAuthenticationRouteDependencies(
       start: {
         entra: entra?.administratorAuthorization,
         github: github?.administratorAuthorization,
+        local: local?.administratorAuthorization,
       },
     },
     currentSession: {
@@ -414,6 +425,7 @@ export async function createAuthenticationRouteDependencies(
     },
     entra,
     github,
+    local,
     signOut: {
       applicationOrigin: sharedContext.applicationOrigin,
       secureCookie: sharedContext.secureCookie,

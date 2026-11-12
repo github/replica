@@ -1,4 +1,4 @@
-import { MarkGithubIcon, OrganizationIcon } from "@primer/octicons-react"
+import { MarkGithubIcon, OrganizationIcon, PersonIcon } from "@primer/octicons-react"
 import { Button, Hero, Text } from "@primer/react-brand"
 import { useEffect, useId, useState } from "react"
 
@@ -135,7 +135,11 @@ export function HomeIndexPage({
               <Hero.ButtonGroup className="home__actions">
                 {data.signInActions.map((action) => {
                   const SignInIcon =
-                    action.provider === "github" ? MarkGithubIcon : OrganizationIcon
+                    action.provider === "github"
+                      ? MarkGithubIcon
+                      : action.provider === "local"
+                        ? PersonIcon
+                        : OrganizationIcon
                   return (
                     <Button
                       type="submit"

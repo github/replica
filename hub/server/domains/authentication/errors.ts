@@ -8,3 +8,10 @@ export class AuthenticationProofError extends Error {
     this.code = code
   }
 }
+
+export class LocalSignInConfigurationError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = "LocalSignInConfigurationError"
+  }
+}
