@@ -75,12 +75,13 @@ function decodeComponent(value) {
 }
 
 export function checkUrlPrivacy(source) {
+  const maximumNestedUrls = 64
   const pending = [source]
   const seen = new Set()
   while (pending.length > 0) {
     const url = pending.pop()
     if (seen.has(url.href)) continue
-    if (seen.size >= 64) return "too many nested URLs to inspect safely"
+    if (seen.size >= maximumNestedUrls) return "too many nested URLs to inspect safely"
     seen.add(url.href)
     if (url.username || url.password) return "embedded URL credentials are not allowed"
 
@@ -129,19 +130,31 @@ export function checkUrlPrivacy(source) {
       return "secret-bearing URL components are not allowed"
     }
     for (const [, value] of parameters) {
-      // The fixed base only parses relative values; nested URLs are never requested.
-      const nested = URL.parse(value, "https://url.invalid/")
-      if (!nested) continue
-      const nestedPath = decodeComponent(nested.pathname)
-      if (
-        nested.username ||
-        nested.password ||
-        nested.search ||
-        nested.hash ||
-        (nestedPath.includes(";") && (URL.canParse(value) || /[/\\]/.test(value))) ||
-        jwt.test(nestedPath)
-      )
-        pending.push(nested)
+      let candidate = value
+      for (let remaining = maximumNestedUrls; remaining > 0; remaining--) {
+        // The fixed base only parses relative values; nested URLs are never requested.
+        const nested = URL.parse(candidate, "https://url.invalid/")
+        if (nested) {
+          const nestedPath = decodeComponent(nested.pathname)
+          if (
+            nested.username ||
+            nested.password ||
+            nested.search ||
+            nested.hash ||
+            (nestedPath.includes(";") && (URL.canParse(candidate) || /[/\\]/.test(candidate))) ||
+            jwt.test(nestedPath)
+          ) {
+            pending.push(nested)
+            break
+          }
+        }
+        // Preserve parsed URL boundaries; inspect their parameter values separately.
+        if (URL.canParse(candidate)) break
+        const decoded = decodeComponent(candidate)
+        if (decoded === candidate) break
+        if (remaining === 1) return "too many encoded URL layers to inspect safely"
+        candidate = decoded
+      }
     }
   }
 }

@@ -162,6 +162,27 @@ test("rejects credentials inside URL-valued parameters without exposing supplied
   }
 })
 
+test("rejects credentials in repeatedly encoded URL-valued parameters without exposing supplied values", async (t) => {
+  const { checkPublicUrl } = await import("./check-public-url.mjs")
+  const destination = "https://example.net/reset?reset_token=fixture-encoded-marker"
+  for (const [name, value, layers] of [
+    ["double-encoded absolute redirect", destination, 2],
+    ["triple-encoded absolute redirect", destination, 3],
+    ["double-encoded relative redirect", "/reset?reset_token=fixture-encoded-marker", 2],
+    ["many encoding layers", destination, 128],
+  ]) {
+    await t.test(name, () => {
+      let encoded = value
+      for (let layer = 0; layer < layers; layer++) encoded = encodeURIComponent(encoded)
+      const url = `https://fixture-host-marker.example.com/fixture-path-marker?next=${encoded}`
+      const problem = checkPublicUrl(url)
+      assert.match(problem ?? "", /\S/)
+      assert.doesNotMatch(problem, /fixture-[a-z-]+-marker/)
+      assert.equal(problem.includes(url), false)
+    })
+  }
+})
+
 test("fails closed for a credential at the end of a deep redirect chain", async () => {
   const { checkPublicUrl } = await import("./check-public-url.mjs")
   let destination = "/callback?access_token=fixture-deep-marker"
@@ -353,6 +374,10 @@ test("accepts public names, CDN URLs and public IPs without discarding URL state
     [
       "public nested redirect",
       `https://example.com/?next=${encodeURIComponent("https://example.net/catalog?code=SKU&state=CA&key=public-cache")}`,
+    ],
+    [
+      "double-encoded public redirect with an encoded ampersand inside its code value",
+      `https://example.com/?next=${encodeURIComponent(encodeURIComponent("https://example.net/catalog?code=SKU%26access_token%3Dpublic-code&state=CA&key=public-cache"))}`,
     ],
     [
       "two-level public redirect with a relative destination",
