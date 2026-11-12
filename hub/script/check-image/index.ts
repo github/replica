@@ -59,7 +59,7 @@ export async function checkImage() {
       image,
       "sh",
       "-c",
-      "test -f /opt/replica/learning/bin/replica-learning.mjs && cd /opt/replica/learning && node --input-type=module -e 'await import(\"@github/copilot-sdk\")'",
+      "test -w /app/storage/learning && test -f /opt/replica/learning/bin/replica-learning.mjs && cd /opt/replica/learning && node --input-type=module -e 'await import(\"@github/copilot-sdk\")'",
     )
     docker("network", "create", network)
     networkCreated = true

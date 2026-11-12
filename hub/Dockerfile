@@ -47,6 +47,7 @@ COPY --from=build /app/node_modules ./node_modules
 RUN npm prune --omit=dev --ignore-scripts --offline && npm cache clean --force
 COPY --from=build /app/dist ./dist
 COPY --from=learning /opt/replica/learning /opt/replica/learning
+RUN mkdir -p /app/storage/learning && chown -R node:node /app/storage
 USER node
 EXPOSE 3001
 CMD ["node", "dist/server/index.js"]
