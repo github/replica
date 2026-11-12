@@ -146,6 +146,7 @@ describe("App()", () => {
         }}
       />,
     )
+    // Starter changes also run this suite; synchronize its lazy review surfaces before interaction.
     await act(async () => {
       await vi.dynamicImportSettled()
     })

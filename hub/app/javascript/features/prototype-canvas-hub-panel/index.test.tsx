@@ -977,6 +977,7 @@ it("creates Hub conversations and supports existing-thread actions", async () =>
     ),
   ).toHaveTextContent("Build #1")
   expect(screen.queryByText("Checking")).not.toBeInTheDocument()
+  // Bridge polling may follow selection; require the fresh command, not the last bridge message.
   postMessage.mockClear()
   fireEvent.click(screen.getByRole("button", { name: reviewCommentsCopy.commentMenuLabel }))
   fireEvent.click(
