@@ -76,7 +76,11 @@ Keep ordinary value and shape validation in application code. Add a database gua
 
 For prototypes, one active branch has one identity per repository, including concurrent writes. Retired branches keep their history. A registered prototype must have a nonblank name and cannot be a replica branch.
 
-A Build number is positive and unique within its prototype. A prototype's current Build, if set, belongs to that prototype.
+A Build number is positive and unique within its prototype. A known commit SHA uses 40 or 64 lowercase hexadecimal characters and is also unique within its prototype. A prototype's current Build, if set, belongs to that prototype.
+
+Builds retain the author's provider, issuer, and provider user ID independently of Hub user IDs. For a workflow Build, the author is the Git commit author. Those three identity values must be present together or absent together. Login, name, and avatar are snapshots and may be unavailable. When Build timestamps are present, they must match its state; older Builds may keep both timestamps unknown. A failure summary belongs only to a failed Build and is limited to 1,000 bytes.
+
+Builds created before commit metadata was stored retain `NULL` for unknown values during the upgrade. A later detail API must represent missing values rather than inventing them. This migration does not import Rails records or map their integer IDs.
 
 PostgreSQL `CHECK` expressions accept `NULL` unless the expression explicitly rejects it. Write nullable-branch checks so every invalid `NULL` combination evaluates to false. Design indexes from the real equality, range, ordering, and partial predicates used by lock, restore, and lookup queries.
 
