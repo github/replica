@@ -1,17 +1,11 @@
 import { createHash } from "node:crypto"
 import type { RequestHandler } from "express"
 
-import type {
-  AdministratorRouteDependencies,
-  CopilotConnectionRouteDependencies,
-} from "../../../../auth/types.ts"
+import type { AdministratorRouteDependencies } from "../../../../auth/types.ts"
 import { readAdministratorSession } from "../../../read-administrator-session/index.ts"
 
 export function rateLimit(
-  dependencies: Pick<
-    AdministratorRouteDependencies | CopilotConnectionRouteDependencies,
-    "findSession" | "start"
-  >,
+  dependencies: Pick<AdministratorRouteDependencies, "findSession" | "start">,
 ): RequestHandler {
   return async (request, response, next) => {
     try {

@@ -97,15 +97,6 @@ export interface AdministratorAuthorizationAudit extends SecurityAuditEvent {
   targetCount: number
 }
 
-export interface CopilotConnectionAudit extends SecurityAuditEvent {
-  type: "copilot_connection"
-  actorMembershipId: string | null
-  connectorMembershipId?: string
-  operation: "connect" | "disconnect" | "view"
-  outcome: "success" | "denied" | "failure"
-  reason?: string
-}
-
 export interface AllHubSessionsEndedAudit extends SecurityAuditEvent {
   type: "all_hub_sessions_ended"
   actorMembershipId: string
@@ -253,4 +244,3 @@ export type CreateSecurityAuditEvent =
   | AuthenticationProviderLifecycleAudit
   | AuthenticationProvidersReconcileFailedAudit
   | SessionRevocationAdvancedAudit
-  | CopilotConnectionAudit

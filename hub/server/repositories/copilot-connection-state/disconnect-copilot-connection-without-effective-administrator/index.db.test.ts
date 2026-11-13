@@ -61,47 +61,42 @@ async function createConnectedProviderAdministrator(withIndependentAdministrator
         },
       })
     }
-    await transaction.copilotConnectionState.update({
+    await transaction.copilotConnection.create({
       data: {
         connectedByMembershipId: membershipId,
-        generation: 7n,
-        tokenDigest: "a".repeat(64),
+        credentialDigest: "a".repeat(64),
+        credentialProvider: "environment_token",
+        id: randomUUID(),
         verifiedAt: new Date(),
       },
-      where: { key: "global" },
     })
   })
   return { membershipId, provider }
 }
 
-async function expectAutomaticDisconnection(membershipId: string) {
+async function expectAutomaticDisconnection() {
   await expect(
-    prisma.copilotConnectionState.findUniqueOrThrow({
-      select: {
-        connectedByMembershipId: true,
-        generation: true,
-        tokenDigest: true,
-        verifiedAt: true,
-      },
+    prisma.copilotConnection.findUnique({
       where: { key: "global" },
     }),
-  ).resolves.toEqual({
-    connectedByMembershipId: null,
-    generation: 8n,
-    tokenDigest: null,
-    verifiedAt: null,
-  })
+  ).resolves.toBeNull()
+  await expect(
+    prisma.copilotConnectionState.findUniqueOrThrow({
+      select: { generation: true },
+      where: { key: "global" },
+    }),
+  ).resolves.toEqual({ generation: 1n })
   await expect(
     prisma.securityAudit.findFirstOrThrow({
       select: { action: true, context: true, outcome: true },
-      where: { action: "copilot.connection.disconnect" },
+      where: { action: "copilot.connection.disconnected" },
     }),
   ).resolves.toEqual({
-    action: "copilot.connection.disconnect",
+    action: "copilot.connection.disconnected",
     context: {
       actorMembershipId: null,
-      connectorMembershipId: membershipId,
-      operation: "disconnect",
+      credentialProvider: "environment_token",
+      phase: "disconnected",
       reason: "connector_role_removed",
     },
     outcome: "SUCCESS",
@@ -110,15 +105,15 @@ async function expectAutomaticDisconnection(membershipId: string) {
 
 describe("disconnectCopilotConnectionWithoutEffectiveAdministrator()", () => {
   it("disconnects after provider removal returns no configured providers", async () => {
-    const { membershipId } = await createConnectedProviderAdministrator()
+    await createConnectedProviderAdministrator()
 
     await expect(reconcile(null)).resolves.toEqual([])
 
-    await expectAutomaticDisconnection(membershipId)
+    await expectAutomaticDisconnection()
   })
 
   it("disconnects when revision replacement makes the connector's provider assignment stale", async () => {
-    const { membershipId, provider } = await createConnectedProviderAdministrator()
+    const { provider } = await createConnectedProviderAdministrator()
 
     await expect(reconcile(2)).resolves.toEqual([
       expect.objectContaining({
@@ -128,7 +123,7 @@ describe("disconnectCopilotConnectionWithoutEffectiveAdministrator()", () => {
       }),
     ])
 
-    await expectAutomaticDisconnection(membershipId)
+    await expectAutomaticDisconnection()
   })
 
   it("preserves the connection when provider removal leaves an independent administrator source", async () => {
@@ -137,22 +132,20 @@ describe("disconnectCopilotConnectionWithoutEffectiveAdministrator()", () => {
     await expect(reconcile(null)).resolves.toEqual([])
 
     await expect(
-      prisma.copilotConnectionState.findUniqueOrThrow({
+      prisma.copilotConnection.findUniqueOrThrow({
         select: {
           connectedByMembershipId: true,
-          generation: true,
-          tokenDigest: true,
+          credentialDigest: true,
         },
         where: { key: "global" },
       }),
     ).resolves.toEqual({
       connectedByMembershipId: membershipId,
-      generation: 7n,
-      tokenDigest: "a".repeat(64),
+      credentialDigest: "a".repeat(64),
     })
     await expect(
       prisma.securityAudit.count({
-        where: { action: "copilot.connection.disconnect" },
+        where: { action: "copilot.connection.disconnected" },
       }),
     ).resolves.toBe(0)
   })

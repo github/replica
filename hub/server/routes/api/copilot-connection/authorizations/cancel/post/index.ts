@@ -1,8 +1,8 @@
 import type { RequestHandler } from "express"
 import { z } from "zod"
 
-import type { CopilotConnectionRouteDependencies } from "../../../../auth/types.ts"
-import { readAdministratorSession } from "../../../../administrators/read-administrator-session/index.ts"
+import type { CopilotConnectionRouteDependencies } from "../../../types.ts"
+import { readSessionDigest } from "../../../read-session-digest/index.ts"
 
 const bodySchema = z.object({ authorizationId: z.uuid() }).strict()
 
@@ -15,12 +15,20 @@ export function post(dependencies: CopilotConnectionRouteDependencies): RequestH
       return
     }
     try {
-      const session = await readAdministratorSession(request, dependencies)
+      const sessionDigest = readSessionDigest(request)
+      const session =
+        sessionDigest && dependencies.authorization
+          ? await dependencies.authorization.findSession(sessionDigest)
+          : null
       if (!session) {
         response.status(403).json({ error: "Administrator access is required." })
         return
       }
-      const cancelled = await dependencies.cancel({
+      if (!dependencies.authorization) {
+        response.status(404).json({ error: "Copilot authorization is unavailable." })
+        return
+      }
+      const cancelled = await dependencies.authorization.cancel({
         authorizationId: body.data.authorizationId,
         hubSessionId: session.id,
       })

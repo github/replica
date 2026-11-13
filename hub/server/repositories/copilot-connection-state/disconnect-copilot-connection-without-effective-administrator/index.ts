@@ -2,13 +2,21 @@ import type { Prisma } from "../../../generated/prisma/client.ts"
 
 export async function disconnectCopilotConnectionWithoutEffectiveAdministrator(
   database: Pick<Prisma.TransactionClient, "$queryRaw">,
-): Promise<{ membershipId: string } | null> {
-  const rows = await database.$queryRaw<Array<{ membershipId: string }>>`
+): Promise<{
+  connectionId: string
+  credentialProvider: string
+  membershipId: string
+} | null> {
+  const rows = await database.$queryRaw<
+    Array<{
+      connectionId: string
+      credentialProvider: string
+      membershipId: string
+    }>
+  >`
     WITH disconnected AS (
-      SELECT connection."id", connection."connected_by_membership_id"
-      FROM "copilot_connection_states" connection
+      DELETE FROM "copilot_connections" connection
       WHERE connection."key" = 'global'
-        AND connection."connected_by_membership_id" IS NOT NULL
         AND NOT EXISTS (
           SELECT 1
           FROM "membership_assignments" assignment
@@ -28,19 +36,21 @@ export async function disconnectCopilotConnectionWithoutEffectiveAdministrator(
               )
             )
         )
-      FOR UPDATE OF connection
+      RETURNING
+        connection."id",
+        connection."connected_by_membership_id",
+        connection."credential_provider"
+    ),
+    advanced AS (
+      UPDATE "copilot_connection_states"
+      SET "generation" = "generation" + 1, "updated_at" = clock_timestamp()
+      WHERE "key" = 'global' AND EXISTS (SELECT 1 FROM disconnected)
     )
-    UPDATE "copilot_connection_states" connection
-    SET
-      "connected_by_membership_id" = NULL,
-      "token_digest" = NULL,
-      "verified_at" = NULL,
-      "refused_at" = NULL,
-      "generation" = "generation" + 1,
-      "updated_at" = clock_timestamp()
+    SELECT
+      disconnected."id" AS "connectionId",
+      disconnected."connected_by_membership_id" AS "membershipId",
+      disconnected."credential_provider" AS "credentialProvider"
     FROM disconnected
-    WHERE connection."id" = disconnected."id"
-    RETURNING disconnected."connected_by_membership_id" AS "membershipId"
   `
   return rows[0] ?? null
 }

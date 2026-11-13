@@ -1,8 +1,8 @@
 import type { RequestHandler } from "express"
 import { z } from "zod"
 
-import type { CopilotConnectionRouteDependencies } from "../../../auth/types.ts"
-import { readAdministratorSession } from "../../../administrators/read-administrator-session/index.ts"
+import type { CopilotConnectionRouteDependencies } from "../../types.ts"
+import { readSessionDigest } from "../../read-session-digest/index.ts"
 
 const idSchema = z.uuid()
 
@@ -14,12 +14,20 @@ export function get(dependencies: CopilotConnectionRouteDependencies): RequestHa
         response.status(400).json({ error: "The authorization identifier is invalid." })
         return
       }
-      const session = await readAdministratorSession(request, dependencies)
+      const sessionDigest = readSessionDigest(request)
+      const session =
+        sessionDigest && dependencies.authorization
+          ? await dependencies.authorization.findSession(sessionDigest)
+          : null
       if (!session) {
         response.status(403).json({ error: "Administrator access is required." })
         return
       }
-      const authorization = (await dependencies.getAuthorization({
+      if (!dependencies.authorization) {
+        response.status(404).json({ error: "Copilot authorization is unavailable." })
+        return
+      }
+      const authorization = (await dependencies.authorization.getAuthorization({
         authorizationId: id.data,
         hubSessionId: session.id,
       })) as {

@@ -27,7 +27,6 @@ import type {
   AllHubSessionsEndedAudit,
   SessionCreatedAudit,
   SessionEndedAudit,
-  CopilotConnectionAudit,
 } from "../create-security-audit/types.ts"
 
 export type ParsedSecurityAuditEvent =
@@ -66,4 +65,3 @@ export type ParsedSecurityAuditEvent =
       providerKeys: ProviderKey[]
     })
   | SessionRevocationAdvancedAudit
-  | CopilotConnectionAudit

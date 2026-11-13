@@ -79,17 +79,6 @@ const eventSchema = z.discriminatedUnion("type", [
     .strict(),
   z
     .object({
-      actorMembershipId: z.uuid().nullable(),
-      connectorMembershipId: z.uuid().optional(),
-      id: z.uuid(),
-      operation: z.enum(["connect", "disconnect", "view"]),
-      outcome: z.enum(["success", "denied", "failure"]),
-      reason: z.string().min(1).max(100).optional(),
-      type: z.literal("copilot_connection"),
-    })
-    .strict(),
-  z
-    .object({
       id: z.uuid(),
       type: z.literal("bootstrap_attempt_denied"),
       reason: z.enum(["invalid_secret", "rate_limited"]),

@@ -6,6 +6,12 @@ export interface CopilotConnectionSnapshot {
 export interface CopilotConnectionTransactionRepositories {
   advanceState: () => Promise<unknown>
   clearRefusal: () => Promise<unknown>
+  continueAuthorization?: (input: {
+    actorMembershipId: string
+    authorizationId: string
+    hubSessionId: string
+    operation: "CONNECT_COPILOT" | "DISCONNECT_COPILOT"
+  }) => Promise<boolean>
   deleteConnection: () => Promise<boolean>
   lockAdministratorSession: (sessionDigest: string) => Promise<{ membershipId: string } | null>
   getConnection: () => Promise<{
@@ -26,13 +32,6 @@ export interface CopilotConnectionTransactionRepositories {
     credentialProvider: string
     refusedAt: Date
   }) => Promise<boolean>
-  writeAudit: (input: {
-    actorMembershipId: string | null
-    connectionId?: string
-    credentialProvider: string
-    id: string
-    phase: "connected" | "disconnected" | "denied" | "failed"
-    reason?: string
-    type: "copilot_connection"
-  }) => Promise<unknown>
+  writeAudit: (input: CreateSecurityAuditEvent) => Promise<unknown>
 }
+import type { CreateSecurityAuditEvent } from "../../repositories/security-audits/create-security-audit/types.ts"

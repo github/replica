@@ -90,37 +90,12 @@ export interface SignOutDependencies {
 
 export interface AuthenticationRouteDependencies {
   administrators?: AdministratorRouteDependencies
-  copilotConnection?: CopilotConnectionRouteDependencies
   currentSession: CurrentSessionDependencies
   entra?: ProviderAuthenticationRouteDependencies
   github?: ProviderAuthenticationRouteDependencies
   local?: ProviderAuthenticationRouteDependencies
   sessionRevocation?: SessionRevocationRouteDependencies
   signOut: SignOutDependencies
-}
-
-export interface CopilotConnectionRouteDependencies {
-  applicationOrigin: string
-  cancel(input: { authorizationId: string; hubSessionId: string }): Promise<boolean>
-  continue(input: {
-    authorizationId: string
-    hubSessionId: string
-    operation: "CONNECT_COPILOT" | "DISCONNECT_COPILOT"
-  }): Promise<{ connected: boolean }>
-  findSession: AdministratorRouteDependencies["findSession"]
-  getAuthorization: AdministratorRouteDependencies["getAuthorization"]
-  getState(): Promise<{
-    connected: boolean
-    connectedAt: Date | null
-    connectedBy: { login: string | null; membershipId: string; name: string | null } | null
-    generation: bigint
-    refusedAt: Date | null
-    tokenNeedsCheck: boolean
-    verifiedAt: Date | null
-  }>
-  recordView(actorMembershipId: string): Promise<unknown>
-  start: AdministratorRouteDependencies["start"]
-  tokenConfigured: boolean
 }
 
 export interface ProviderAuthenticationRouteDependencies {
@@ -156,6 +131,7 @@ export interface StartAdministratorAuthorizationDependencies extends RateLimitDe
 export interface AdministratorRouteDependencies {
   applicationOrigin: string
   cancel(input: { authorizationId: string; hubSessionId: string }): Promise<boolean>
+  cancelCopilot?(input: { authorizationId: string; hubSessionId: string }): Promise<boolean>
   continue(input: {
     authorizationId: string
     hubSessionId: string

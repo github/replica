@@ -136,16 +136,16 @@ export async function applyProviderAssignmentEvidence(
   }
   const assignments = await dependencies.repositories.lockActiveAssignments(membershipId)
   const administrator = assignments.some((assignment) => assignment.role === "ADMINISTRATOR")
-  if (
-    !administrator &&
-    (await dependencies.repositories.disconnectCopilotConnection(membershipId))
-  ) {
+  const disconnected = administrator
+    ? null
+    : await dependencies.repositories.disconnectCopilotConnection(membershipId)
+  if (disconnected) {
     await dependencies.repositories.createSecurityAudit({
       actorMembershipId: null,
-      connectorMembershipId: membershipId,
+      connectionId: disconnected.connectionId,
+      credentialProvider: disconnected.credentialProvider,
       id: dependencies.createId(),
-      operation: "disconnect",
-      outcome: "success",
+      phase: "disconnected",
       reason: "connector_role_removed",
       type: "copilot_connection",
     })

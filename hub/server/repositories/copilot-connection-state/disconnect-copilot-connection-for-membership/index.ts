@@ -1,18 +1,18 @@
 import type { Prisma } from "../../../generated/prisma/client.ts"
 
 export async function disconnectCopilotConnectionForMembership(
-  database: Pick<Prisma.TransactionClient, "copilotConnectionState">,
+  database: Pick<Prisma.TransactionClient, "copilotConnection" | "copilotConnectionState">,
   membershipId: string,
-): Promise<boolean> {
-  const result = await database.copilotConnectionState.updateMany({
-    data: {
-      connectedByMembershipId: null,
-      generation: { increment: 1 },
-      refusedAt: null,
-      tokenDigest: null,
-      verifiedAt: null,
-    },
+): Promise<{ connectionId: string; credentialProvider: string } | null> {
+  const connection = await database.copilotConnection.findFirst({
+    select: { credentialProvider: true, id: true },
     where: { connectedByMembershipId: membershipId, key: "global" },
   })
-  return result.count === 1
+  if (!connection) return null
+  await database.copilotConnection.delete({ where: { id: connection.id } })
+  await database.copilotConnectionState.update({
+    data: { generation: { increment: 1 } },
+    where: { key: "global" },
+  })
+  return { connectionId: connection.id, credentialProvider: connection.credentialProvider }
 }

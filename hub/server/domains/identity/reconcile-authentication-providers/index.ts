@@ -179,10 +179,10 @@ export async function reconcileAuthenticationProviders(
           if (disconnected) {
             await repositories.createSecurityAudit({
               actorMembershipId: null,
-              connectorMembershipId: disconnected.membershipId,
+              connectionId: disconnected.connectionId,
+              credentialProvider: disconnected.credentialProvider,
               id: dependencies.createId(),
-              operation: "disconnect",
-              outcome: "success",
+              phase: "disconnected",
               reason: "connector_role_removed",
               type: "copilot_connection",
             })

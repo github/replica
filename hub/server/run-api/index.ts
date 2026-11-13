@@ -58,7 +58,13 @@ export async function runApi({
       copilotConnection: copilotConnection
         ? {
             ...copilotConnection,
-            connect: (input) => copilotConnection.connect({ ...input, signal: operations.signal }),
+            continueAuthorization: copilotConnection.continueAuthorization
+              ? (input) =>
+                  copilotConnection.continueAuthorization!({
+                    ...input,
+                    signal: operations.signal,
+                  })
+              : undefined,
           }
         : undefined,
       product,

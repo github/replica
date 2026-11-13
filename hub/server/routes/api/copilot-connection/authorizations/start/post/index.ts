@@ -4,8 +4,8 @@ import { z } from "zod"
 import { AdministratorAuthorizationDeniedError } from "../../../../../../domains/administrator-authorization/errors.ts"
 import { browserAuthenticationCookieName } from "../../../../../../integrations/express/browser-authentication-cookie-name/index.ts"
 import { createAuthenticationCookie } from "../../../../../../integrations/express/create-authentication-cookie/index.ts"
-import type { CopilotConnectionRouteDependencies } from "../../../../auth/types.ts"
-import { readAdministratorSession } from "../../../../administrators/read-administrator-session/index.ts"
+import type { CopilotConnectionRouteDependencies } from "../../../types.ts"
+import { readSessionDigest } from "../../../read-session-digest/index.ts"
 
 const bodySchema = z
   .object({
@@ -18,7 +18,11 @@ export function post(dependencies: CopilotConnectionRouteDependencies): RequestH
   return async (request, response, next) => {
     response.locals.omitLogPayload = true
     try {
-      const session = await readAdministratorSession(request, dependencies)
+      const sessionDigest = readSessionDigest(request)
+      const session =
+        sessionDigest && dependencies.authorization
+          ? await dependencies.authorization.findSession(sessionDigest)
+          : null
       if (!session) {
         response.status(403).json({ error: "Administrator access is required." })
         return
@@ -28,28 +32,26 @@ export function post(dependencies: CopilotConnectionRouteDependencies): RequestH
         response.status(400).json({ error: "Confirm the Copilot connection change explicitly." })
         return
       }
-      const state = await dependencies.getState()
-      if (
-        (body.data.operation === "CONNECT_COPILOT" &&
-          state.connected &&
-          !state.refusedAt &&
-          !state.tokenNeedsCheck) ||
-        (body.data.operation === "DISCONNECT_COPILOT" && !state.connected)
-      ) {
+      if (!dependencies.authorization || !dependencies.getGeneration) {
+        response.status(404).json({ error: "Copilot authorization is unavailable." })
+        return
+      }
+      const state = await dependencies.status()
+      if (body.data.operation === "DISCONNECT_COPILOT" && !state.savedConnection) {
         response.status(409).json({ error: "The Copilot connection changed. Review it again." })
         return
       }
-      if (body.data.operation === "CONNECT_COPILOT" && !dependencies.tokenConfigured) {
+      if (body.data.operation === "CONNECT_COPILOT" && !state.configured) {
         response.status(409).json({ error: "Hub has no configured Copilot token." })
         return
       }
       const provider =
         session.providerKey === "github"
-          ? dependencies.start.github
+          ? dependencies.authorization.start.github
           : session.providerKey === "entra"
-            ? dependencies.start.entra
+            ? dependencies.authorization.start.entra
             : session.providerKey === "local"
-              ? dependencies.start.local
+              ? dependencies.authorization.start.local
               : undefined
       if (!provider) {
         response.status(409).json({ error: "The session authentication provider is unavailable." })
@@ -57,7 +59,7 @@ export function post(dependencies: CopilotConnectionRouteDependencies): RequestH
       }
       const started = await provider.start({
         actorMembershipId: session.membershipId,
-        expectedCopilotGeneration: state.generation,
+        expectedCopilotGeneration: await dependencies.getGeneration(),
         externalIdentityId: session.externalIdentityId,
         hubSessionId: session.id,
         operation: body.data.operation,

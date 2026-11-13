@@ -3,6 +3,7 @@ import type { Logger } from "pino"
 
 import type { Prisma } from "../../../../generated/prisma/client.ts"
 import { connectCopilot } from "../../../../domains/copilot-connection/connect-copilot/index.ts"
+import { continueCopilotAuthorization } from "../../../../domains/copilot-connection/continue-copilot-authorization/index.ts"
 import { disconnectCopilot } from "../../../../domains/copilot-connection/disconnect-copilot/index.ts"
 import { getCopilotConnectionStatus } from "../../../../domains/copilot-connection/get-copilot-connection-status/index.ts"
 import { readCopilotConnectionSnapshot } from "../../../../domains/copilot-connection/read-copilot-connection-snapshot/index.ts"
@@ -25,12 +26,15 @@ import { findAdministratorHubSession } from "../../../../repositories/hub-sessio
 import { lockAdministratorHubSession } from "../../../../repositories/hub-sessions/lock-administrator-hub-session/index.ts"
 import { isEffectiveAdministrator } from "../../../../repositories/memberships/is-effective-administrator/index.ts"
 import { createSecurityAudit } from "../../../../repositories/security-audits/create-security-audit/index.ts"
+import { continueCopilotSensitiveAuthorization } from "../../../../repositories/sensitive-authorizations/continue-copilot-sensitive-authorization/index.ts"
 import type { CopilotConnectionTransactionRepositories } from "../../../../domains/copilot-connection/types.ts"
 import type { CopilotConnectionRouteDependencies } from "../types.ts"
+import type { AdministratorRouteDependencies } from "../../auth/types.ts"
 
 export async function createCopilotConnectionRouteDependencies(
   environment: NodeJS.ProcessEnv,
-  logger: Logger,
+  _logger?: Logger,
+  authorization?: AdministratorRouteDependencies,
 ): Promise<CopilotConnectionRouteDependencies> {
   const configuration = await readLearningConfiguration(environment)
   const applicationOrigin = environment.HUB_APPLICATION_ORIGIN
@@ -48,6 +52,7 @@ export async function createCopilotConnectionRouteDependencies(
     return {
       advanceState: () => advanceCopilotConnectionState(transaction),
       clearRefusal: () => clearCopilotCredentialRefusal(transaction),
+      continueAuthorization: (input) => continueCopilotSensitiveAuthorization(transaction, input),
       deleteConnection: () => deleteCopilotConnection(transaction),
       lockAdministratorSession: (digest) => lockAdministratorHubSession(transaction, digest),
       getConnection: () => getCopilotConnection(transaction),
@@ -67,49 +72,76 @@ export async function createCopilotConnectionRouteDependencies(
 
   return {
     applicationOrigin,
-    findSession,
-    reportFailure: (code) => {
-      logger.warn({ copilotFailureCode: code }, "Copilot connection check failed")
-    },
-    connect: ({ sessionDigest, signal }) =>
-      withCopilotConnectionCheck(() =>
-        connectCopilot(
-          {
-            credentialProvider: configuration.copilotCredentialProvider,
-            sessionDigest,
-          },
-          {
-            check: async () => {
-              const credential = await configuration.copilotCredentialProvider.getCredential()
-              if (!credential) {
-                throw new Error("The configured Copilot credential is unavailable.")
-              }
-              return runLearningCommand(["copilot", "status"], {
-                cliPath: configuration.cliPath,
-                githubToken: credential.githubToken,
-                nodePath: configuration.nodePath,
-                signal,
-              })
-            },
-            createId: randomUUID,
-            findAdministratorSession: findSession,
-            now: () => new Date(),
-            readSnapshot: () =>
-              readCopilotConnectionSnapshot({
-                getConnection: () => getCopilotConnection(prisma),
-                getState: () => getCopilotConnectionState(prisma),
-              }),
-            recordFailure: (input) =>
-              recordCopilotConnectionFailure(input, { createId: randomUUID, runTransaction }),
-            recordRefusal: (input) =>
-              recordCopilotConnectionRefusal(input, { createId: randomUUID, runTransaction }),
-            runTransaction,
-            writeAudit: (event) => createSecurityAudit(prisma, event),
-          },
-        ),
+    authorization: authorization
+      ? {
+          cancel: (input) => (authorization.cancelCopilot ?? authorization.cancel)(input),
+          findSession: (sessionDigest) => authorization.findSession(sessionDigest),
+          getAuthorization: (input) => authorization.getAuthorization(input),
+          start: authorization.start,
+        }
+      : undefined,
+    continueAuthorization: (input) =>
+      continueCopilotAuthorization(prisma, input, ({ authorizationId, operation }) =>
+        operation === "CONNECT_COPILOT"
+          ? withCopilotConnectionCheck(() =>
+              connectCopilot(
+                {
+                  authorizationId,
+                  credentialProvider: configuration.copilotCredentialProvider,
+                  hubSessionId: input.hubSessionId,
+                  sessionDigest: input.sessionDigest,
+                },
+                {
+                  check: async () => {
+                    const credential = await configuration.copilotCredentialProvider.getCredential()
+                    if (!credential) {
+                      throw new Error("The configured Copilot credential is unavailable.")
+                    }
+                    return runLearningCommand(["copilot", "status"], {
+                      cliPath: configuration.cliPath,
+                      githubToken: credential.githubToken,
+                      nodePath: configuration.nodePath,
+                      signal: input.signal,
+                    })
+                  },
+                  createId: randomUUID,
+                  findAdministratorSession: findSession,
+                  now: () => new Date(),
+                  readSnapshot: () =>
+                    readCopilotConnectionSnapshot({
+                      getConnection: () => getCopilotConnection(prisma),
+                      getState: () => getCopilotConnectionState(prisma),
+                    }),
+                  recordFailure: (failure) =>
+                    recordCopilotConnectionFailure(failure, {
+                      createId: randomUUID,
+                      runTransaction,
+                    }),
+                  recordRefusal: (refusal) =>
+                    recordCopilotConnectionRefusal(refusal, {
+                      createId: randomUUID,
+                      runTransaction,
+                    }),
+                  runTransaction,
+                  writeAudit: (event) => createSecurityAudit(prisma, event),
+                },
+              ),
+            )
+          : disconnectCopilot(
+              {
+                authorizationId,
+                hubSessionId: input.hubSessionId,
+                sessionDigest: input.sessionDigest,
+              },
+              { createId: randomUUID, runTransaction },
+            ),
       ),
-    disconnect: ({ sessionDigest }) =>
-      disconnectCopilot({ sessionDigest }, { createId: randomUUID, runTransaction }),
+    findSession,
+    getGeneration: async () => {
+      const state = await getCopilotConnectionState(prisma)
+      if (!state) throw new Error("The Copilot connection state is unavailable.")
+      return state.generation
+    },
     status: async () => {
       const connection = await getCopilotConnection(prisma)
       const state = await getCopilotConnectionState(prisma)

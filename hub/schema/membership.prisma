@@ -6,10 +6,9 @@ model Membership {
   // Relations
   user                    User                     @relation(fields: [userId], references: [id], onDelete: Restrict)
   assignments             MembershipAssignment[]
-  copilotConnections      CopilotConnectionState[]
   sessions                HubSession[]
   sensitiveAuthorizations SensitiveAuthorization[]
-  copilotConnections CopilotConnection[]
+  copilotConnections      CopilotConnection[]
 
   // Attribute columns
   lifecycle MembershipLifecycle @default(ACTIVE)

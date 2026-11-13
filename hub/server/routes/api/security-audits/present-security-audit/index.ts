@@ -51,12 +51,6 @@ function actorFor(record: SecurityAuditListRecord) {
       const parsed = actorContextSchema.safeParse(record.context)
       return parsed.success ? { membershipId: parsed.data.actorMembershipId } : null
     }
-    case "copilot.connection.connect":
-    case "copilot.connection.disconnect":
-    case "copilot.connection.view": {
-      const parsed = actorContextSchema.safeParse(record.context)
-      return parsed.success ? { membershipId: parsed.data.actorMembershipId } : null
-    }
     case "session.created": {
       const parsed = membershipContextSchema.safeParse(record.context)
       return parsed.success ? { membershipId: parsed.data.membershipId } : null
@@ -196,28 +190,6 @@ function contextFor(record: SecurityAuditListRecord): Record<string, string | nu
             ...(parsed.data.reason ? { reason: parsed.data.reason } : {}),
             targetCount: parsed.data.targetCount,
             ...(targetId ? { targetId } : {}),
-          }
-        : {}
-    }
-    case "copilot.connection.connect":
-    case "copilot.connection.disconnect":
-    case "copilot.connection.view": {
-      const parsed = z
-        .object({
-          actorMembershipId: z.uuid().nullable(),
-          connectorMembershipId: z.uuid().optional(),
-          operation: z.enum(["connect", "disconnect", "view"]),
-          reason: reasonSchema.optional(),
-        })
-        .strict()
-        .safeParse(record.context)
-      return parsed.success
-        ? {
-            ...(parsed.data.connectorMembershipId
-              ? { connectorMembershipId: parsed.data.connectorMembershipId }
-              : {}),
-            operation: parsed.data.operation,
-            ...(parsed.data.reason ? { reason: parsed.data.reason } : {}),
           }
         : {}
     }

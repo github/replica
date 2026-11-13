@@ -29,8 +29,10 @@ import { get as handleSessionRevocationAuthorizationGet } from "./api/session-re
 import { post as handleSessionRevocationAuthorizationContinuePost } from "./api/session-revocation/authorizations/continue/post/index.ts"
 import { post as handleSessionRevocationAuthorizationCancelPost } from "./api/session-revocation/authorizations/cancel/post/index.ts"
 import { get as handleCopilotConnectionGet } from "./api/copilot-connection/get/index.ts"
-import { post as handleCopilotConnectionConnectPost } from "./api/copilot-connection/connect/post/index.ts"
-import { delete_ as handleCopilotConnectionDisconnectDelete } from "./api/copilot-connection/disconnect/delete/index.ts"
+import { post as handleCopilotAuthorizationStartPost } from "./api/copilot-connection/authorizations/start/post/index.ts"
+import { get as handleCopilotAuthorizationGet } from "./api/copilot-connection/authorizations/get/index.ts"
+import { post as handleCopilotAuthorizationContinuePost } from "./api/copilot-connection/authorizations/continue/post/index.ts"
+import { post as handleCopilotAuthorizationCancelPost } from "./api/copilot-connection/authorizations/cancel/post/index.ts"
 import type { RouteDependencies } from "./types.ts"
 
 /** Keep endpoint registration separate from the app's shared middleware. */
@@ -190,16 +192,27 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
   if (copilotConnection) {
     app.get("/api/copilot-connection", handleCopilotConnectionGet(copilotConnection))
     app.post(
-      "/api/copilot-connection/connect",
+      "/api/copilot-connection/authorizations/start",
       requireOrigin(copilotConnection.applicationOrigin),
+      administratorAuthorizationRateLimit(copilotConnection.authorization!),
       express.json({ limit: "4kb", strict: true }),
-      handleCopilotConnectionConnectPost(copilotConnection),
+      handleCopilotAuthorizationStartPost(copilotConnection),
     )
-    app.delete(
-      "/api/copilot-connection",
+    app.get(
+      "/api/copilot-connection/authorizations/:id",
+      handleCopilotAuthorizationGet(copilotConnection),
+    )
+    app.post(
+      "/api/copilot-connection/authorizations/continue",
       requireOrigin(copilotConnection.applicationOrigin),
       express.json({ limit: "4kb", strict: true }),
-      handleCopilotConnectionDisconnectDelete(copilotConnection),
+      handleCopilotAuthorizationContinuePost(copilotConnection),
+    )
+    app.post(
+      "/api/copilot-connection/authorizations/cancel",
+      requireOrigin(copilotConnection.applicationOrigin),
+      express.json({ limit: "4kb", strict: true }),
+      handleCopilotAuthorizationCancelPost(copilotConnection),
     )
   }
 }

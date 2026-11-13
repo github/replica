@@ -255,14 +255,14 @@ describe("administrator authorization persistence", () => {
         targetMembershipIds: [membershipId],
       },
     })
-    await prisma.copilotConnectionState.update({
+    await prisma.copilotConnection.create({
       data: {
         connectedByMembershipId: membershipId,
-        generation: 1n,
-        tokenDigest: "c".repeat(64),
+        credentialDigest: "c".repeat(64),
+        credentialProvider: "environment_token",
+        id: randomUUID(),
         verifiedAt: new Date(),
       },
-      where: { key: "global" },
     })
     const authorizationAttemptId = await createConsumedAuthorizationAttempt({
       authorizationId,
@@ -300,21 +300,20 @@ describe("administrator authorization persistence", () => {
     })
     expect(endedProviderSession.endedAt).toBeInstanceOf(Date)
     await expect(
-      prisma.copilotConnectionState.findUniqueOrThrow({
-        select: { connectedByMembershipId: true, generation: true },
+      prisma.copilotConnection.findUnique({
         where: { key: "global" },
       }),
-    ).resolves.toEqual({ connectedByMembershipId: null, generation: 2n })
+    ).resolves.toBeNull()
     await expect(
       prisma.securityAudit.findFirstOrThrow({
         select: { context: true },
-        where: { action: "copilot.connection.disconnect" },
+        where: { action: "copilot.connection.disconnected" },
       }),
     ).resolves.toEqual({
       context: {
         actorMembershipId: null,
-        connectorMembershipId: membershipId,
-        operation: "disconnect",
+        credentialProvider: "environment_token",
+        phase: "disconnected",
         reason: "connector_role_removed",
       },
     })

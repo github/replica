@@ -1,16 +1,14 @@
-import { useEffect, useRef } from "react"
-import { data, useFetcher, useLocation, useRevalidator } from "react-router"
+import { useState } from "react"
 
 import { CopilotConnectionPage } from "@pages/copilot-connection-page"
 import type { CopilotConnectionPageData } from "@pages/copilot-connection-page/types"
 import { ApiContractError } from "@application/hub/requests/api-contract-error"
 import { ApiRequestError } from "@application/hub/requests/api-request-error"
-import { changeCopilotConnection } from "@application/hub/requests/change-copilot-connection"
 import { getCopilotConnection } from "@application/hub/requests/get-copilot-connection"
 import { getCurrentHubSession } from "@application/hub/requests/get-current-hub-session"
+import { startCopilotAuthorization } from "@application/hub/requests/start-copilot-authorization"
+import { navigateToExternalUrl } from "@application/hub/navigate-to-external-url"
 import { SettingsRouteScreen } from "@application/hub/screens/settings-route-screen"
-import { SettingsFormBoundary } from "@application/hub/screens/settings-form-boundary"
-import type { SettingsActionResult } from "@application/hub/settings-contracts/types"
 import { copilotConnectionPageData } from "@application/hub/view-models/copilot-connection-page-data"
 
 import { settingsController } from "../settings-controller"
@@ -42,39 +40,10 @@ export async function clientLoader(
 
 export async function clientAction(args: Parameters<typeof controller.clientAction>[0]) {
   if (isMockMode()) return controller.clientAction(args)
-  if (args.request.method.toUpperCase() !== "POST") {
-    throw new Response("Method not allowed.", { status: 405, headers: { Allow: "POST" } })
-  }
-  try {
-    const form = await args.request.formData()
-    if (form.get("confirmed") !== "1") {
-      return data<SettingsActionResult>(
-        { saved: false, error: "Confirm the Copilot connection change." },
-        { status: 400 },
-      )
-    }
-    const operation = form.get("_method") === "delete" ? "disconnect" : "connect"
-    await changeCopilotConnection(args.request, operation)
-    return data<SettingsActionResult>({
-      saved: true,
-      notice: `Copilot ${operation === "connect" ? "connected" : "disconnected"}.`,
-      revision: 0,
-    })
-  } catch (error) {
-    if (error instanceof ApiRequestError) {
-      return data<SettingsActionResult>(
-        { saved: false, error: error.message },
-        { status: error.status >= 400 && error.status <= 599 ? error.status : 503 },
-      )
-    }
-    if (error instanceof ApiContractError) {
-      return data<SettingsActionResult>(
-        { saved: false, error: "The API response was invalid. No change was saved." },
-        { status: 502 },
-      )
-    }
-    throw error
-  }
+  throw new Response("Use fresh authorization to change the Copilot connection.", {
+    status: 405,
+    headers: { Allow: "GET" },
+  })
 }
 
 export function meta({ loaderData }: { loaderData?: SettingsRouteData | RealCopilotRouteData }) {
@@ -96,35 +65,49 @@ export default function SettingsCopilot({
 }
 
 function RealCopilotConnection({ page }: { page: CopilotConnectionPageData }) {
-  const fetcher = useFetcher<SettingsActionResult>()
-  const location = useLocation()
-  const revalidator = useRevalidator()
-  const revalidatedResult = useRef<SettingsActionResult | undefined>(undefined)
-  const busy = fetcher.state !== "idle" || revalidator.state !== "idle"
-  const result = fetcher.data
-  useEffect(() => {
-    if (!result || revalidatedResult.current === result) return
-    revalidatedResult.current = result
-    void revalidator.revalidate()
-  }, [result, revalidator])
+  const [submission, setSubmission] = useState<{ pending: boolean; error: string | null }>({
+    pending: false,
+    error: null,
+  })
   return (
-    <SettingsFormBoundary
-      busy={busy}
-      error={!busy && result?.saved === false ? result.error : null}
-      notice={!busy && result?.saved === true ? result.notice : null}
-      onSubmit={(input) => {
-        if (busy) return
-        void fetcher.submit(input, {
-          method: "post",
-          action: `${location.pathname}${location.search}`,
+    <div
+      onSubmit={(event) => {
+        if (!(event.target instanceof HTMLFormElement)) return
+        const action = new URL(event.target.action, window.location.href)
+        if (action.pathname !== "/settings/copilot") return
+        event.preventDefault()
+        if (submission.pending) return
+        const form = new FormData(event.target)
+        if (form.get("confirmed") !== "1") {
+          setSubmission({
+            pending: false,
+            error: "Confirm the Copilot connection change.",
+          })
+          return
+        }
+        const operation =
+          form.get("_method") === "delete" ? "DISCONNECT_COPILOT" : "CONNECT_COPILOT"
+        setSubmission({ pending: true, error: null })
+        void startCopilotAuthorization(new Request(window.location.href), {
+          confirmed: true,
+          operation,
         })
-      }}
-      shouldIntercept={(form) => {
-        const action = new URL(form.action, window.location.href)
-        return action.pathname === "/settings/copilot"
+          .then((started) => navigateToExternalUrl(started.authorizationUrl))
+          .catch((error: unknown) => {
+            if (!(error instanceof ApiRequestError) && !(error instanceof ApiContractError)) {
+              throw error
+            }
+            setSubmission({
+              pending: false,
+              error:
+                error instanceof ApiRequestError
+                  ? error.message
+                  : "The API response was invalid. Provider authorization could not start.",
+            })
+          })
       }}
     >
-      <CopilotConnectionPage data={page} />
-    </SettingsFormBoundary>
+      <CopilotConnectionPage data={{ ...page, alert: submission.error }} />
+    </div>
   )
 }

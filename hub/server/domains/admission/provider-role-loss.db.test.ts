@@ -207,14 +207,14 @@ describe("provider role-loss admission", () => {
           },
         })
       }
-      await prisma.copilotConnectionState.update({
+      await prisma.copilotConnection.create({
         data: {
           connectedByMembershipId: records.membershipId,
-          generation: 1n,
-          tokenDigest: "c".repeat(64),
+          credentialDigest: "c".repeat(64),
+          credentialProvider: "environment_token",
+          id: randomUUID(),
           verifiedAt: new Date(),
         },
-        where: { key: "global" },
       })
 
       const admission = applyProviderRole(records, role)
@@ -226,15 +226,15 @@ describe("provider role-loss admission", () => {
         })
       }
 
-      await expect(
-        prisma.copilotConnectionState.findUniqueOrThrow({
-          select: { connectedByMembershipId: true, generation: true },
-          where: { key: "global" },
-        }),
-      ).resolves.toEqual({
-        connectedByMembershipId: expectedConnection === "connected" ? records.membershipId : null,
-        generation: expectedConnection === "connected" ? 1n : 2n,
+      const connection = await prisma.copilotConnection.findUnique({
+        select: { connectedByMembershipId: true },
+        where: { key: "global" },
       })
+      expect(connection).toEqual(
+        expectedConnection === "connected"
+          ? { connectedByMembershipId: records.membershipId }
+          : null,
+      )
     },
   )
 })

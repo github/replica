@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto"
+import { randomUUID } from "node:crypto"
 
 import { admitAuthenticationProof } from "../../../../domains/admission/admit-authentication-proof/index.ts"
 import { checkAuthenticationRateLimit } from "../../../../domains/admission/check-authentication-rate-limit/index.ts"
@@ -30,11 +30,9 @@ import { continueAdministratorAuthorization } from "../../../../domains/administ
 import { AdministratorAuthorizationDeniedError } from "../../../../domains/administrator-authorization/errors.ts"
 import { verifyAdministratorAuthorization } from "../../../../domains/administrator-authorization/verify-administrator-authorization/index.ts"
 import { runAdministratorAuthorizationVerificationTransaction } from "../../../../domains/administrator-authorization/run-administrator-authorization-verification-transaction/index.ts"
-import { continueCopilotAuthorization } from "../../../../domains/copilot-connection/continue-copilot-authorization/index.ts"
 import { endAllHubSessions } from "../../../../domains/session-revocation/end-all-hub-sessions/index.ts"
 import { listEffectiveAdministrators } from "../../../../domains/administrator-management/list-effective-administrators/index.ts"
 import { prisma } from "../../../../integrations/prisma/index.ts"
-import { checkCopilotToken } from "../../../../integrations/copilot/check-copilot-token/index.ts"
 import { findLatestAuthenticationProviderRevision } from "../../../../repositories/authentication-providers/find-latest-authentication-provider-revision/index.ts"
 import { getAuthenticationProofState } from "../../../../repositories/authentication-providers/get-authentication-proof-state/index.ts"
 import { findCurrentSessionProfile } from "../../../../repositories/user-profiles/find-current-session-profile/index.ts"
@@ -48,7 +46,6 @@ import { findAdministratorHubSession } from "../../../../repositories/hub-sessio
 import { searchAdministratorCandidates } from "../../../../repositories/memberships/search-administrator-candidates/index.ts"
 import { getSessionRevocationStatus } from "../../../../repositories/session-revocation-states/get-session-revocation-status/index.ts"
 import { cancelSensitiveAuthorization } from "../../../../repositories/sensitive-authorizations/cancel-sensitive-authorization/index.ts"
-import { getCopilotConnectionState } from "../../../../repositories/copilot-connection-state/get-copilot-connection-state/index.ts"
 import { createSensitiveAuthorization } from "../../../../repositories/sensitive-authorizations/create-sensitive-authorization/index.ts"
 import { getSensitiveAuthorizationAuditData } from "../../../../repositories/sensitive-authorizations/get-sensitive-authorization-audit-data/index.ts"
 import { getSensitiveAuthorization } from "../../../../repositories/sensitive-authorizations/get-sensitive-authorization/index.ts"
@@ -406,22 +403,11 @@ export async function createAuthenticationRouteDependencies(
       id: input.authorizationId,
     })
   }
-  async function getCurrentCopilotState() {
-    const state = await getCopilotConnectionState(prisma)
-    const currentDigest = environment.REPLICA_COPILOT_TOKEN
-      ? createHash("sha256").update(environment.REPLICA_COPILOT_TOKEN).digest("hex")
-      : null
-    const tokenMatches = currentDigest !== null && state.tokenDigest === currentDigest
-    return {
-      ...state,
-      refusedAt: tokenMatches ? state.refusedAt : null,
-      tokenNeedsCheck: state.connected && currentDigest !== null && !tokenMatches,
-    }
-  }
   return {
     administrators: {
       applicationOrigin: sharedContext.applicationOrigin,
       cancel: (input) => cancelAuthorization(input, "administrator"),
+      cancelCopilot: (input) => cancelAuthorization(input, "copilot"),
       continue: (input) =>
         continueAdministratorAuthorization(prisma, {
           hubSessionId: input.hubSessionId,
@@ -439,40 +425,6 @@ export async function createAuthenticationRouteDependencies(
         github: github?.administratorAuthorization,
         local: local?.administratorAuthorization,
       },
-    },
-    copilotConnection: {
-      applicationOrigin: sharedContext.applicationOrigin,
-      cancel: (input) => cancelAuthorization(input, "copilot"),
-      continue: (input) =>
-        continueCopilotAuthorization(
-          prisma,
-          {
-            authorizationId: input.authorizationId,
-            hubSessionId: input.hubSessionId,
-            operation: input.operation,
-            ...(environment.REPLICA_COPILOT_TOKEN
-              ? { token: environment.REPLICA_COPILOT_TOKEN }
-              : {}),
-          },
-          checkCopilotToken,
-        ),
-      findSession,
-      getAuthorization,
-      getState: getCurrentCopilotState,
-      recordView: (actorMembershipId) =>
-        createSecurityAudit(prisma, {
-          actorMembershipId,
-          id: randomUUID(),
-          operation: "view",
-          outcome: "success",
-          type: "copilot_connection",
-        }),
-      start: {
-        entra: entra?.administratorAuthorization,
-        github: github?.administratorAuthorization,
-        local: local?.administratorAuthorization,
-      },
-      tokenConfigured: Boolean(environment.REPLICA_COPILOT_TOKEN),
     },
     currentSession: {
       restore: async (sessionDigest) => {

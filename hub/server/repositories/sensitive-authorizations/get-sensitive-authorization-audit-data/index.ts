@@ -7,6 +7,7 @@ export async function getSensitiveAuthorizationAuditData(
   const rows = await database.$queryRaw<
     Array<{
       actorMembershipId: string
+      continued: boolean
       expiresAt: Date
       expired: boolean
       operation:
@@ -23,6 +24,7 @@ export async function getSensitiveAuthorizationAuditData(
       "operation",
       "expires_at" AS "expiresAt",
       "expires_at" <= clock_timestamp() AS "expired",
+      "continued_at" IS NOT NULL AS "continued",
       cardinality("target_membership_ids") AS "targetCount"
     FROM "sensitive_authorizations"
     WHERE "id" = ${id}::uuid

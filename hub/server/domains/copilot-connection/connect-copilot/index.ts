@@ -18,13 +18,17 @@ const statusSchema = z
 
 export async function connectCopilot(
   {
+    authorizationId,
     credentialProvider,
+    hubSessionId,
     sessionDigest,
   }: {
+    authorizationId?: string
     credentialProvider: {
       configurationDigest: string | null
       key: CopilotCredentialProviderKey
     }
+    hubSessionId?: string
     sessionDigest: string
   },
   {
@@ -142,6 +146,33 @@ export async function connectCopilot(
         "connection_changed",
         "The Copilot connection changed while Hub checked the credential.",
       )
+    }
+    if (
+      authorizationId &&
+      (!hubSessionId ||
+        !repositories.continueAuthorization ||
+        !(await repositories.continueAuthorization({
+          actorMembershipId: session.membershipId,
+          authorizationId,
+          hubSessionId,
+          operation: "CONNECT_COPILOT",
+        })))
+    ) {
+      throw new CopilotConnectionError(
+        "not_authorized",
+        "The Copilot authorization is no longer available.",
+      )
+    }
+    if (authorizationId) {
+      await repositories.writeAudit({
+        actorMembershipId: session.membershipId,
+        authorizationId,
+        id: createId(),
+        operation: "CONNECT_COPILOT",
+        phase: "completed",
+        targetCount: 1,
+        type: "administrator_authorization",
+      })
     }
     const connectionId = createId()
     await repositories.replaceConnection({

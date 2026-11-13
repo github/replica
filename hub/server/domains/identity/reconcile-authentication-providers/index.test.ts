@@ -214,8 +214,11 @@ describe("reconcileAuthenticationProviders()", () => {
       },
     ])
     const membershipId = randomUUID()
+    const connectionId = randomUUID()
     records.incrementSessionRevocation.mockResolvedValue({ revision: 1 })
     records.disconnectCopilotConnectionWithoutEffectiveAdministrator.mockResolvedValue({
+      connectionId,
+      credentialProvider: "environment_token",
       membershipId,
     })
 
@@ -229,9 +232,9 @@ describe("reconcileAuthenticationProviders()", () => {
     expect(records.createSecurityAudit).toHaveBeenCalledWith(
       expect.objectContaining({
         actorMembershipId: null,
-        connectorMembershipId: membershipId,
-        operation: "disconnect",
-        outcome: "success",
+        connectionId,
+        credentialProvider: "environment_token",
+        phase: "disconnected",
         reason: "connector_role_removed",
         type: "copilot_connection",
       }),
@@ -251,6 +254,7 @@ describe("reconcileAuthenticationProviders()", () => {
       },
     ])
     const membershipId = randomUUID()
+    const connectionId = randomUUID()
     records.createAuthenticationProviderRevision.mockResolvedValue({
       configurationDigest: "b".repeat(64),
       id: randomUUID(),
@@ -258,6 +262,8 @@ describe("reconcileAuthenticationProviders()", () => {
       revision: 2,
     })
     records.disconnectCopilotConnectionWithoutEffectiveAdministrator.mockResolvedValue({
+      connectionId,
+      credentialProvider: "environment_token",
       membershipId,
     })
 
@@ -279,8 +285,10 @@ describe("reconcileAuthenticationProviders()", () => {
     expect(records.disconnectCopilotConnectionWithoutEffectiveAdministrator).toHaveBeenCalledOnce()
     expect(records.createSecurityAudit).toHaveBeenCalledWith(
       expect.objectContaining({
-        connectorMembershipId: membershipId,
-        operation: "disconnect",
+        actorMembershipId: null,
+        connectionId,
+        credentialProvider: "environment_token",
+        phase: "disconnected",
         reason: "connector_role_removed",
         type: "copilot_connection",
       }),

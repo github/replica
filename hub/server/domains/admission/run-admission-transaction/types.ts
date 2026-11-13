@@ -36,7 +36,9 @@ export interface AdmissionRepositories {
     transition: "created" | "restored" | "unchanged"
   }>
   createSecurityAudit(input: CreateSecurityAuditEvent): Promise<unknown>
-  disconnectCopilotConnection(membershipId: string): Promise<boolean>
+  disconnectCopilotConnection(
+    membershipId: string,
+  ): Promise<{ connectionId: string; credentialProvider: string } | null>
   endProviderAssignment(input: { id: string; lifecycle: "SUPERSEDED" | "REVOKED" }): Promise<void>
   endOpenHubSessionsForMembership(membershipId: string): Promise<Array<{ id: string }>>
   lockActiveAssignments(membershipId: string): Promise<

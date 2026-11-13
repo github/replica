@@ -341,14 +341,14 @@ describe("administrator management", () => {
       membershipId: target.membershipId,
       source: "HUB_ADMINISTRATOR",
     })
-    await prisma.copilotConnectionState.update({
+    await prisma.copilotConnection.create({
       data: {
         connectedByMembershipId: target.membershipId,
-        generation: 1n,
-        tokenDigest: "c".repeat(64),
+        credentialDigest: "c".repeat(64),
+        credentialProvider: "environment_token",
+        id: randomUUID(),
         verifiedAt: new Date(),
       },
-      where: { key: "global" },
     })
 
     await revokeHubAdministrator(
@@ -380,7 +380,7 @@ describe("administrator management", () => {
       ),
     ).toContain(target.membershipId)
     await expect(
-      prisma.copilotConnectionState.findUniqueOrThrow({
+      prisma.copilotConnection.findUniqueOrThrow({
         select: { connectedByMembershipId: true },
         where: { key: "global" },
       }),
@@ -412,14 +412,14 @@ describe("administrator management", () => {
       membershipId: connector.membershipId,
       source: "HUB_ADMINISTRATOR",
     })
-    await prisma.copilotConnectionState.update({
+    await prisma.copilotConnection.create({
       data: {
         connectedByMembershipId: connector.membershipId,
-        generation: 1n,
-        tokenDigest: "c".repeat(64),
+        credentialDigest: "c".repeat(64),
+        credentialProvider: "environment_token",
+        id: randomUUID(),
         verifiedAt: new Date(),
       },
-      where: { key: "global" },
     })
 
     await revokeHubAdministrator(
@@ -431,14 +431,17 @@ describe("administrator management", () => {
     )
 
     await expect(
+      prisma.copilotConnection.findUnique({
+        where: { key: "global" },
+      }),
+    ).resolves.toBeNull()
+    await expect(
       prisma.copilotConnectionState.findUniqueOrThrow({
-        select: { connectedByMembershipId: true, generation: true, tokenDigest: true },
+        select: { generation: true },
         where: { key: "global" },
       }),
     ).resolves.toEqual({
-      connectedByMembershipId: null,
-      generation: 2n,
-      tokenDigest: null,
+      generation: 1n,
     })
   })
 

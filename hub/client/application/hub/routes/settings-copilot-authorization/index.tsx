@@ -79,7 +79,7 @@ export default function SettingsCopilotAuthorization({
             : continueCopilotAuthorization(request, {
                 authorizationId: loaderData.authorizationId,
                 operation: loaderData.authorization.operation,
-              }).then((response) => (response.connected ? "connected" : "disconnected"))
+              }).then((response) => ("connectionId" in response ? "connected" : "disconnected"))
         void action
           .then((outcome) => navigate(`/settings/copilot?result=${outcome}`))
           .catch((error: unknown) => {

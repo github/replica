@@ -90,6 +90,7 @@ try {
             copilotConnection = await createCopilotConnectionRouteDependencies(
               authenticationEnvironment,
               logger,
+              authentication.administrators,
             )
           } else {
             await disableAuthenticationProviders()
