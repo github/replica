@@ -179,7 +179,7 @@ describe("administrator authorization persistence", () => {
         },
         verificationDependencies(),
       ),
-    ).resolves.toBe(true)
+    ).resolves.toBe("DESIGNATE_ADMINISTRATORS")
     const verified = await prisma.sensitiveAuthorization.findUniqueOrThrow({
       select: { verifiedAt: true },
       where: { id: fixture.authorizationId },
@@ -255,6 +255,15 @@ describe("administrator authorization persistence", () => {
         targetMembershipIds: [membershipId],
       },
     })
+    await prisma.copilotConnection.create({
+      data: {
+        connectedByMembershipId: membershipId,
+        credentialDigest: "c".repeat(64),
+        credentialProvider: "environment_token",
+        id: randomUUID(),
+        verifiedAt: new Date(),
+      },
+    })
     const authorizationAttemptId = await createConsumedAuthorizationAttempt({
       authorizationId,
       providerRevisionId,
@@ -278,7 +287,7 @@ describe("administrator authorization persistence", () => {
         },
         verificationDependencies(),
       ),
-    ).resolves.toBe(false)
+    ).resolves.toBeNull()
     await expect(
       prisma.membershipAssignment.findUniqueOrThrow({
         select: { lifecycle: true },
@@ -290,6 +299,24 @@ describe("administrator authorization persistence", () => {
       where: { id: hubSessionId },
     })
     expect(endedProviderSession.endedAt).toBeInstanceOf(Date)
+    await expect(
+      prisma.copilotConnection.findUnique({
+        where: { key: "global" },
+      }),
+    ).resolves.toBeNull()
+    await expect(
+      prisma.securityAudit.findFirstOrThrow({
+        select: { context: true },
+        where: { action: "copilot.connection.disconnected" },
+      }),
+    ).resolves.toEqual({
+      context: {
+        actorMembershipId: null,
+        credentialProvider: "environment_token",
+        phase: "disconnected",
+        reason: "connector_role_removed",
+      },
+    })
   })
 
   it("binds one-use continuation to the exact session, operation, and ordered targets", async () => {
@@ -407,18 +434,21 @@ describe("administrator authorization persistence", () => {
       cancelSensitiveAuthorization(prisma, {
         hubSessionId: randomUUID(),
         id: fixture.authorizationId,
+        scope: "administrator",
       }),
     ).resolves.toBeNull()
     await expect(
       cancelSensitiveAuthorization(prisma, {
         hubSessionId: fixture.hubSessionId,
         id: fixture.authorizationId,
+        scope: "administrator",
       }),
     ).resolves.toMatchObject({ id: fixture.authorizationId })
     await expect(
       cancelSensitiveAuthorization(prisma, {
         hubSessionId: fixture.hubSessionId,
         id: fixture.authorizationId,
+        scope: "administrator",
       }),
     ).resolves.toBeNull()
     await expect(

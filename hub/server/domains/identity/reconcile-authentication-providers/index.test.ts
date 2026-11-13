@@ -22,6 +22,7 @@ function repositories(
     createAuthenticationProvider: vi.fn(),
     createAuthenticationProviderRevision: vi.fn(),
     createSecurityAudit: vi.fn(),
+    disconnectCopilotConnectionWithoutEffectiveAdministrator: vi.fn().mockResolvedValue(null),
     disableAuthenticationProvider: vi.fn(),
     enableAuthenticationProvider: vi.fn(),
     findAuthenticationProvider: vi.fn(),
@@ -197,6 +198,99 @@ describe("reconcileAuthenticationProviders()", () => {
         providerKeys: [],
         reason: "transaction_error",
         type: "authentication_providers_reconcile_failed",
+      }),
+    )
+  })
+
+  it("disconnects Copilot when provider removal ends the connector's final administrator source", async () => {
+    const records = repositories([
+      {
+        configurationDigest: "a".repeat(64),
+        enabled: true,
+        id: randomUUID(),
+        key: "github",
+        revision: 1,
+        revisionId: randomUUID(),
+      },
+    ])
+    const membershipId = randomUUID()
+    const connectionId = randomUUID()
+    records.incrementSessionRevocation.mockResolvedValue({ revision: 1 })
+    records.disconnectCopilotConnectionWithoutEffectiveAdministrator.mockResolvedValue({
+      connectionId,
+      credentialProvider: "environment_token",
+      membershipId,
+    })
+
+    await reconcileAuthenticationProviders([], {
+      createId: randomUUID,
+      runTransaction: (operation) => operation(records),
+      writeAudit: vi.fn(),
+    })
+
+    expect(records.disconnectCopilotConnectionWithoutEffectiveAdministrator).toHaveBeenCalledOnce()
+    expect(records.createSecurityAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actorMembershipId: null,
+        connectionId,
+        credentialProvider: "environment_token",
+        phase: "disconnected",
+        reason: "connector_role_removed",
+        type: "copilot_connection",
+      }),
+    )
+  })
+
+  it("disconnects Copilot when provider revision replacement ends the connector's authority", async () => {
+    const providerId = randomUUID()
+    const records = repositories([
+      {
+        configurationDigest: "a".repeat(64),
+        enabled: true,
+        id: providerId,
+        key: "github",
+        revision: 1,
+        revisionId: randomUUID(),
+      },
+    ])
+    const membershipId = randomUUID()
+    const connectionId = randomUUID()
+    records.createAuthenticationProviderRevision.mockResolvedValue({
+      configurationDigest: "b".repeat(64),
+      id: randomUUID(),
+      providerId,
+      revision: 2,
+    })
+    records.disconnectCopilotConnectionWithoutEffectiveAdministrator.mockResolvedValue({
+      connectionId,
+      credentialProvider: "environment_token",
+      membershipId,
+    })
+
+    await reconcileAuthenticationProviders(
+      [
+        {
+          canonicalPublicConfiguration: '{"provider":"github","revision":2}',
+          providerKey: "github",
+          revision: 2,
+        },
+      ],
+      {
+        createId: randomUUID,
+        runTransaction: (operation) => operation(records),
+        writeAudit: vi.fn(),
+      },
+    )
+
+    expect(records.disconnectCopilotConnectionWithoutEffectiveAdministrator).toHaveBeenCalledOnce()
+    expect(records.createSecurityAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actorMembershipId: null,
+        connectionId,
+        credentialProvider: "environment_token",
+        phase: "disconnected",
+        reason: "connector_role_removed",
+        type: "copilot_connection",
       }),
     )
   })

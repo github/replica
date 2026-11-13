@@ -65,7 +65,9 @@ const eventSchema = z.discriminatedUnion("type", [
       authorizationId: z.uuid(),
       id: z.uuid(),
       operation: z.enum([
+        "CONNECT_COPILOT",
         "DESIGNATE_ADMINISTRATORS",
+        "DISCONNECT_COPILOT",
         "END_ALL_HUB_SESSIONS",
         "REVOKE_ADMINISTRATOR",
       ]),

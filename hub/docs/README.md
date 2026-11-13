@@ -12,6 +12,7 @@ Hub is being rebuilt. The [Hub overview](../README.md) describes what the baseli
 - [Artifact storage](artifact-storage.md): provider selection and immutable byte storage.
 - [Database](database.md): Prisma schema conventions, migrations, and the shared client.
 - [Authentication and Hub sessions](authentication.md): provider-neutral proof, reusable administrator enrollment, admission, browser sessions, and existing-user administrator management.
+- [Copilot connection](copilot.md): operator token configuration, fresh administrator authorization, durable connection state, and credential safety.
 - [Microsoft Entra OIDC](entra-oidc.md): single-tenant application, app-role, client-authentication, and manual setup contract.
 - [Logging](logging.md): application events, automatic request records, and payload safety.
 - [Telemetry](telemetry.md): explicit OpenTelemetry spans, safe attributes, and process lifetime.

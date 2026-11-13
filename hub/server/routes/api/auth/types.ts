@@ -48,7 +48,14 @@ export interface AuthenticationCallbackDependencies extends RateLimitDependencie
     }
     sessionDigest: string
     sensitiveAuthorizationId: string
-  }): Promise<"DESIGNATE_ADMINISTRATORS" | "END_ALL_HUB_SESSIONS" | "REVOKE_ADMINISTRATOR" | false>
+  }): Promise<
+    | "CONNECT_COPILOT"
+    | "DESIGNATE_ADMINISTRATORS"
+    | "DISCONNECT_COPILOT"
+    | "END_ALL_HUB_SESSIONS"
+    | "REVOKE_ADMINISTRATOR"
+    | null
+  >
   admit(input: {
     proof: AuthenticationProofResult
     providerAssignment?: {
@@ -103,9 +110,15 @@ export interface StartAdministratorAuthorizationDependencies extends RateLimitDe
   secureCookie: boolean
   start(input: {
     actorMembershipId: string
+    expectedCopilotGeneration?: bigint
     externalIdentityId: string
     hubSessionId: string
-    operation: "DESIGNATE_ADMINISTRATORS" | "END_ALL_HUB_SESSIONS" | "REVOKE_ADMINISTRATOR"
+    operation:
+      | "CONNECT_COPILOT"
+      | "DESIGNATE_ADMINISTRATORS"
+      | "DISCONNECT_COPILOT"
+      | "END_ALL_HUB_SESSIONS"
+      | "REVOKE_ADMINISTRATOR"
     targetMembershipIds: string[]
   }): Promise<{
     authorizationId: string
@@ -118,6 +131,7 @@ export interface StartAdministratorAuthorizationDependencies extends RateLimitDe
 export interface AdministratorRouteDependencies {
   applicationOrigin: string
   cancel(input: { authorizationId: string; hubSessionId: string }): Promise<boolean>
+  cancelCopilot?(input: { authorizationId: string; hubSessionId: string }): Promise<boolean>
   continue(input: {
     authorizationId: string
     hubSessionId: string
@@ -132,7 +146,12 @@ export interface AdministratorRouteDependencies {
   } | null>
   getAuthorization(input: { authorizationId: string; hubSessionId: string }): Promise<{
     expiresAt: Date
-    operation: "DESIGNATE_ADMINISTRATORS" | "END_ALL_HUB_SESSIONS" | "REVOKE_ADMINISTRATOR"
+    operation:
+      | "CONNECT_COPILOT"
+      | "DESIGNATE_ADMINISTRATORS"
+      | "DISCONNECT_COPILOT"
+      | "END_ALL_HUB_SESSIONS"
+      | "REVOKE_ADMINISTRATOR"
     targets: Array<{
       login: string | null
       membershipId: string

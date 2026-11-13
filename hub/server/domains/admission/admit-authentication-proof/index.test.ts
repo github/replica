@@ -35,6 +35,7 @@ function repositories(overrides: Partial<AdmissionRepositories> = {}) {
       transition: "created",
     }),
     createSecurityAudit: vi.fn().mockResolvedValue(undefined),
+    disconnectCopilotConnection: vi.fn().mockResolvedValue(false),
     endProviderAssignment: vi.fn().mockResolvedValue(undefined),
     endOpenHubSessionsForMembership: vi.fn().mockResolvedValue([]),
     lockActiveAssignments: vi

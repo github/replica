@@ -2,13 +2,18 @@ import type { Prisma } from "../../../generated/prisma/client.ts"
 
 export async function cancelSensitiveAuthorization(
   database: Pick<Prisma.TransactionClient, "$queryRaw">,
-  input: { id: string; hubSessionId: string },
+  input: { id: string; hubSessionId: string; scope: "administrator" | "copilot" | "sessions" },
 ) {
   const rows = await database.$queryRaw<
     Array<{
       actorMembershipId: string
       id: string
-      operation: "DESIGNATE_ADMINISTRATORS" | "END_ALL_HUB_SESSIONS" | "REVOKE_ADMINISTRATOR"
+      operation:
+        | "CONNECT_COPILOT"
+        | "DESIGNATE_ADMINISTRATORS"
+        | "DISCONNECT_COPILOT"
+        | "END_ALL_HUB_SESSIONS"
+        | "REVOKE_ADMINISTRATOR"
       targetCount: number
     }>
   >`
@@ -22,6 +27,26 @@ export async function cancelSensitiveAuthorization(
       "authentication_providers" provider
     WHERE "sensitive_authorizations"."id" = ${input.id}::uuid
       AND "sensitive_authorizations"."hub_session_id" = ${input.hubSessionId}::uuid
+      AND (
+        (
+          ${input.scope} = 'administrator'
+          AND "sensitive_authorizations"."operation" IN (
+            'DESIGNATE_ADMINISTRATORS',
+            'REVOKE_ADMINISTRATOR'
+          )
+        )
+        OR (
+          ${input.scope} = 'copilot'
+          AND "sensitive_authorizations"."operation" IN (
+            'CONNECT_COPILOT',
+            'DISCONNECT_COPILOT'
+          )
+        )
+        OR (
+          ${input.scope} = 'sessions'
+          AND "sensitive_authorizations"."operation" = 'END_ALL_HUB_SESSIONS'
+        )
+      )
       AND session."id" = "sensitive_authorizations"."hub_session_id"
       AND session."ended_at" IS NULL
       AND session."expires_at" > clock_timestamp()

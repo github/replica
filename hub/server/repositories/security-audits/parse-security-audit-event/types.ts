@@ -22,11 +22,11 @@ import type {
   AdministratorManagementDeniedAudit,
   AdministratorManagementFailedAudit,
   AdministratorAuthorizationAudit,
+  CopilotConnectionAudit,
   AllHubSessionsEndFailedAudit,
   AllHubSessionsEndedAudit,
   SessionCreatedAudit,
   SessionEndedAudit,
-  CopilotConnectionAudit,
 } from "../create-security-audit/types.ts"
 
 export type ParsedSecurityAuditEvent =
@@ -43,6 +43,7 @@ export type ParsedSecurityAuditEvent =
   | AdministratorManagementDeniedAudit
   | AdministratorManagementFailedAudit
   | AdministratorAuthorizationAudit
+  | CopilotConnectionAudit
   | AllHubSessionsEndFailedAudit
   | AllHubSessionsEndedAudit
   | SessionCreatedAudit
@@ -64,4 +65,3 @@ export type ParsedSecurityAuditEvent =
       providerKeys: ProviderKey[]
     })
   | SessionRevocationAdvancedAudit
-  | CopilotConnectionAudit

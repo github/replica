@@ -1,5 +1,5 @@
 import type { RouteConfigEntry } from "@react-router/dev/routes"
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
+import { act, fireEvent, render, screen, within } from "@testing-library/react"
 import { http, HttpResponse } from "msw"
 import { setupServer } from "msw/node"
 import type { ComponentType } from "react"
@@ -111,10 +111,30 @@ function administrator(login = "octocat", membershipId = actorMembershipId) {
   }
 }
 
+function workspace() {
+  return http.get(`${window.location.origin}/api/workspace`, () =>
+    HttpResponse.json({
+      viewer: {
+        id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        provider: "github",
+        login: "octocat",
+        name: "The Octocat",
+        avatarUrl: null,
+      },
+      capabilities: {
+        createPrototypes: false,
+        reviewPrototypes: false,
+        manageSharing: false,
+        administerHub: true,
+      },
+      repositories: [],
+    }),
+  )
+}
+
 describe("administrator frontend integration", () => {
   it("does not intercept account-menu sign-out on the Copilot page", async () => {
-    const connect = vi.fn()
-    const disconnect = vi.fn()
+    const startAuthorization = vi.fn()
     await renderApplication("/settings/copilot", [
       authenticatedSession(),
       http.get(`${window.location.origin}/api/copilot-connection`, () =>
@@ -127,8 +147,10 @@ describe("administrator frontend integration", () => {
           verifiedAt: null,
         }),
       ),
-      http.post(`${window.location.origin}/api/copilot-connection/connect`, connect),
-      http.delete(`${window.location.origin}/api/copilot-connection`, disconnect),
+      http.post(
+        `${window.location.origin}/api/copilot-connection/authorizations/start`,
+        startAuthorization,
+      ),
     ])
 
     await screen.findByRole("heading", { name: "Copilot is not connected" })
@@ -138,157 +160,7 @@ describe("administrator frontend integration", () => {
     if (!signOutForm) throw new Error("Sign out must belong to a form.")
 
     expect(fireEvent.submit(signOutForm)).toBe(true)
-    expect(connect).not.toHaveBeenCalled()
-    expect(disconnect).not.toHaveBeenCalled()
-  }, 10_000)
-
-  it("allows an administrator to disconnect an inactive saved Copilot connection", async () => {
-    const disconnect = vi.fn(() => new HttpResponse(null, { status: 204 }))
-    await renderApplication("/settings/copilot", [
-      authenticatedSession(),
-      http.get(`${window.location.origin}/api/copilot-connection`, () =>
-        HttpResponse.json({
-          configured: true,
-          connected: false,
-          savedConnection: true,
-          connectedBy: null,
-          refusedAt: "2026-11-11T13:00:00.000Z",
-          verifiedAt: null,
-        }),
-      ),
-      http.delete(`${window.location.origin}/api/copilot-connection`, disconnect),
-    ])
-
-    expect(await screen.findByRole("button", { name: "Disconnect Copilot" })).toBeVisible()
-    fireEvent.click(
-      screen.getByRole("checkbox", {
-        name: "I understand and confirm disconnecting Copilot for this Hub.",
-      }),
-    )
-    fireEvent.click(screen.getByRole("button", { name: "Disconnect Copilot" }))
-
-    await waitFor(() => expect(disconnect).toHaveBeenCalledTimes(1))
-  }, 10_000)
-
-  it("revalidates a connected page after Copilot refuses a recheck", async () => {
-    let refused = false
-    let statusRequests = 0
-    await renderApplication("/settings/copilot", [
-      authenticatedSession(),
-      http.get(`${window.location.origin}/api/copilot-connection`, () => {
-        statusRequests += 1
-        return HttpResponse.json({
-          configured: true,
-          connected: !refused,
-          savedConnection: true,
-          connectedBy: refused
-            ? null
-            : {
-                login: "octocat",
-                membershipId: actorMembershipId,
-                name: "The Octocat",
-              },
-          refusedAt: refused ? "2026-11-11T13:00:00.000Z" : null,
-          verifiedAt: "2026-11-10T23:00:00.000Z",
-        })
-      }),
-      http.post(`${window.location.origin}/api/copilot-connection/connect`, () => {
-        refused = true
-        return HttpResponse.json(
-          { error: "Copilot refused the configured credential." },
-          { status: 422 },
-        )
-      }),
-    ])
-
-    expect(await screen.findByRole("heading", { name: "Copilot is connected" })).toBeVisible()
-    fireEvent.click(
-      screen.getByRole("checkbox", {
-        name: "I understand and confirm connecting Copilot for this Hub.",
-      }),
-    )
-    fireEvent.click(screen.getByRole("button", { name: "Check Copilot connection" }))
-
-    expect(await screen.findByText("Copilot refused the configured credential.")).toBeVisible()
-    expect(await screen.findByRole("heading", { name: "Copilot is not connected" })).toBeVisible()
-    expect(screen.getByText(/Copilot refused the configured credential on/)).toBeVisible()
-    expect(screen.getByRole("button", { name: "Check and connect Copilot" })).toBeVisible()
-    expect(screen.getByRole("button", { name: "Disconnect Copilot" })).toBeVisible()
-    expect(statusRequests).toBeGreaterThan(1)
-  }, 10_000)
-
-  it("uses the real Copilot status and mutation APIs with visible action results", async () => {
-    const mutations: Array<{ body: unknown; method: string; path: string }> = []
-    let connected = false
-    await renderApplication("/settings/copilot", [
-      authenticatedSession(),
-      http.get(`${window.location.origin}/api/copilot-connection`, () =>
-        HttpResponse.json({
-          configured: true,
-          connected,
-          savedConnection: connected,
-          connectedBy: connected
-            ? {
-                login: "octocat",
-                membershipId: actorMembershipId,
-                name: "The Octocat",
-              }
-            : null,
-          refusedAt: null,
-          verifiedAt: connected ? "2026-11-10T23:00:00.000Z" : null,
-        }),
-      ),
-      http.post(`${window.location.origin}/api/copilot-connection/connect`, async ({ request }) => {
-        mutations.push({
-          body: await request.json(),
-          method: request.method,
-          path: new URL(request.url).pathname,
-        })
-        connected = true
-        return new HttpResponse(null, { status: 204 })
-      }),
-      http.delete(`${window.location.origin}/api/copilot-connection`, async ({ request }) => {
-        mutations.push({
-          body: await request.json(),
-          method: request.method,
-          path: new URL(request.url).pathname,
-        })
-        return HttpResponse.json({ error: "Copilot is temporarily unavailable." }, { status: 503 })
-      }),
-    ])
-
-    expect(await screen.findByRole("heading", { name: "Copilot is not connected" })).toBeVisible()
-    fireEvent.click(
-      screen.getByRole("checkbox", {
-        name: "I understand and confirm connecting Copilot for this Hub.",
-      }),
-    )
-    fireEvent.click(screen.getByRole("button", { name: "Connect Copilot" }))
-
-    expect(await screen.findByText("Copilot connected.")).toBeVisible()
-    expect(await screen.findByRole("heading", { name: "Copilot is connected" })).toBeVisible()
-    fireEvent.click(
-      screen.getByRole("checkbox", {
-        name: "I understand and confirm disconnecting Copilot for this Hub.",
-      }),
-    )
-    fireEvent.click(screen.getByRole("button", { name: "Disconnect Copilot" }))
-
-    expect(await screen.findByText("Copilot is temporarily unavailable.")).toBeVisible()
-    await waitFor(() =>
-      expect(mutations).toEqual([
-        {
-          body: { confirmed: true },
-          method: "POST",
-          path: "/api/copilot-connection/connect",
-        },
-        {
-          body: { confirmed: true },
-          method: "DELETE",
-          path: "/api/copilot-connection",
-        },
-      ]),
-    )
+    expect(startAuthorization).not.toHaveBeenCalled()
   }, 10_000)
 
   it("uses the real administrator contract and retains its opaque cursor", async () => {
@@ -765,6 +637,131 @@ describe("administrator frontend integration", () => {
 
     await vi.waitFor(() => {
       expect(`${router.state.location.pathname}${router.state.location.search}`).toBe(canonicalPath)
+    })
+  })
+
+  describe("Copilot connection frontend integration", () => {
+    it("loads the real connection API and starts the confirmed provider authorization", async () => {
+      const bodies: unknown[] = []
+      await renderApplication("/settings/copilot", [
+        authenticatedSession(),
+        workspace(),
+        http.get(`${window.location.origin}/api/copilot-connection`, () =>
+          HttpResponse.json({
+            configured: true,
+            connected: false,
+            savedConnection: false,
+            connectedBy: null,
+            refusedAt: null,
+            verifiedAt: null,
+          }),
+        ),
+        http.post(
+          `${window.location.origin}/api/copilot-connection/authorizations/start`,
+          async ({ request }) => {
+            bodies.push(await request.json())
+            return HttpResponse.json({
+              authorizationId,
+              authorizationUrl: "https://github.com/login/oauth/authorize",
+              expiresAt: "2026-11-09T20:06:00.000Z",
+            })
+          },
+        ),
+      ])
+
+      fireEvent.click(
+        await screen.findByRole("checkbox", {
+          name: /confirm connecting Copilot for this Hub/i,
+        }),
+      )
+      fireEvent.click(screen.getByRole("button", { name: "Connect Copilot" }))
+
+      await vi.waitFor(() =>
+        expect(bodies).toEqual([{ confirmed: true, operation: "CONNECT_COPILOT" }]),
+      )
+      expect(navigateToExternalUrl).toHaveBeenCalledWith("https://github.com/login/oauth/authorize")
+    })
+
+    it("continues the server-owned callback operation and returns to the live connection page", async () => {
+      const continuationBodies: unknown[] = []
+      const router = await renderApplication(
+        `/settings/copilot/confirm?authorizationId=${authorizationId}`,
+        [
+          authenticatedSession(),
+          workspace(),
+          http.get(
+            `${window.location.origin}/api/copilot-connection/authorizations/${authorizationId}`,
+            () =>
+              HttpResponse.json({
+                authorization: {
+                  operation: "DISCONNECT_COPILOT",
+                  verifiedAt: "2026-11-09T20:01:00.000Z",
+                  expiresAt: "2026-11-09T20:06:00.000Z",
+                },
+              }),
+          ),
+          http.post(
+            `${window.location.origin}/api/copilot-connection/authorizations/continue`,
+            async ({ request }) => {
+              continuationBodies.push(await request.json())
+              return HttpResponse.json({ disconnected: true })
+            },
+          ),
+          http.get(`${window.location.origin}/api/copilot-connection`, () =>
+            HttpResponse.json({
+              configured: true,
+              connected: false,
+              savedConnection: false,
+              connectedBy: null,
+              refusedAt: null,
+              verifiedAt: null,
+            }),
+          ),
+        ],
+      )
+
+      fireEvent.click(await screen.findByRole("button", { name: "Disconnect Copilot" }))
+
+      await vi.waitFor(() =>
+        expect(continuationBodies).toEqual([{ authorizationId, operation: "DISCONNECT_COPILOT" }]),
+      )
+      await vi.waitFor(() => {
+        expect(`${router.state.location.pathname}${router.state.location.search}`).toBe(
+          "/settings/copilot?result=disconnected",
+        )
+      })
+      expect(await screen.findByRole("heading", { name: "Copilot is not connected" })).toBeVisible()
+    })
+
+    it("does not intercept sign-out from the Copilot confirmation page", async () => {
+      const continuations = vi.fn()
+      await renderApplication(`/settings/copilot/confirm?authorizationId=${authorizationId}`, [
+        authenticatedSession(),
+        workspace(),
+        http.get(
+          `${window.location.origin}/api/copilot-connection/authorizations/${authorizationId}`,
+          () =>
+            HttpResponse.json({
+              authorization: {
+                operation: "CONNECT_COPILOT",
+                verifiedAt: "2026-11-09T20:01:00.000Z",
+                expiresAt: "2026-11-09T20:06:00.000Z",
+              },
+            }),
+        ),
+        http.post(
+          `${window.location.origin}/api/copilot-connection/authorizations/continue`,
+          continuations,
+        ),
+      ])
+
+      const signOutForm = document.querySelector<HTMLFormElement>(
+        'form[action="/api/auth/session/sign-out"]',
+      )
+      if (!signOutForm) throw new Error("Sign out must belong to a form.")
+
+      expect(fireEvent.submit(signOutForm)).toBe(true)
+      expect(continuations).not.toHaveBeenCalled()
     })
   })
 })

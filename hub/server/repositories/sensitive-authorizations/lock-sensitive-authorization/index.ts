@@ -8,11 +8,19 @@ export async function lockSensitiveAuthorization(
     Array<{
       actorMembershipId: string
       cancelledAt: Date | null
+      expectedCopilotGeneration: bigint | null
+      checkFinishedAt: Date | null
+      checkStartedAt: Date | null
       continuedAt: Date | null
       expiresAt: Date
       expired: boolean
       hubSessionId: string
-      operation: "DESIGNATE_ADMINISTRATORS" | "END_ALL_HUB_SESSIONS" | "REVOKE_ADMINISTRATOR"
+      operation:
+        | "CONNECT_COPILOT"
+        | "DESIGNATE_ADMINISTRATORS"
+        | "DISCONNECT_COPILOT"
+        | "END_ALL_HUB_SESSIONS"
+        | "REVOKE_ADMINISTRATOR"
       targetMembershipIds: string[]
       verifiedAt: Date | null
     }>
@@ -22,9 +30,12 @@ export async function lockSensitiveAuthorization(
       "actor_membership_id" AS "actorMembershipId",
       "operation",
       "target_membership_ids" AS "targetMembershipIds",
+      "expected_copilot_generation" AS "expectedCopilotGeneration",
       "expires_at" AS "expiresAt",
       "expires_at" <= clock_timestamp() AS "expired",
       "verified_at" AS "verifiedAt",
+      "check_finished_at" AS "checkFinishedAt",
+      "check_started_at" AS "checkStartedAt",
       "continued_at" AS "continuedAt",
       "cancelled_at" AS "cancelledAt"
     FROM "sensitive_authorizations"

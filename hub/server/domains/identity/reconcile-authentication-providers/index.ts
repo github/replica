@@ -174,6 +174,19 @@ export async function reconcileAuthenticationProviders(
               })
             }
           }
+          const disconnected =
+            await repositories.disconnectCopilotConnectionWithoutEffectiveAdministrator()
+          if (disconnected) {
+            await repositories.createSecurityAudit({
+              actorMembershipId: null,
+              connectionId: disconnected.connectionId,
+              credentialProvider: disconnected.credentialProvider,
+              id: dependencies.createId(),
+              phase: "disconnected",
+              reason: "connector_role_removed",
+              type: "copilot_connection",
+            })
+          }
           return result
         }),
       (error) => error instanceof IdentityTransactionConflictError,

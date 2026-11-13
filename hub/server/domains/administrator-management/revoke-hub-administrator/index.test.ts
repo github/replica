@@ -55,6 +55,7 @@ describe("revokeHubAdministrator()", () => {
     const records = {
       createAssignment: vi.fn(),
       createSecurityAudit: vi.fn().mockResolvedValue(undefined),
+      disconnectCopilotConnection: vi.fn().mockResolvedValue(false),
       endOpenSessions: vi.fn().mockResolvedValue([]),
       lockActiveAssignment: vi.fn().mockResolvedValue({ id: assignmentId }),
       lockEffectiveAdministratorAssignments: vi.fn().mockResolvedValue([]),

@@ -124,7 +124,9 @@ describe("server runtime", () => {
   })
 
   it("passes resolved local defaults to authentication composition", async () => {
+    const administrators = {}
     const authentication = {
+      administrators,
       currentSession: {},
       local: {
         administratorEnrollment: {},
@@ -175,7 +177,11 @@ describe("server runtime", () => {
     })
     expect(Buffer.from(environment.HUB_AUTHENTICATION_ENCRYPTION_KEY!, "base64")).toHaveLength(32)
     expect(Buffer.from(environment.HUB_BOOTSTRAP_SECRET!, "base64url")).toHaveLength(32)
-    expect(createCopilotConnectionRouteDependencies).toHaveBeenCalledWith(environment, logger)
+    expect(createCopilotConnectionRouteDependencies).toHaveBeenCalledWith(
+      environment,
+      logger,
+      administrators,
+    )
     expect(runApi).toHaveBeenCalledWith(
       expect.objectContaining({ authentication, copilotConnection, product }),
     )
@@ -254,7 +260,9 @@ describe("server runtime", () => {
     const disableAuthenticationProviders = vi.fn()
     const product = { listRepositories: vi.fn(), findRepositoryIndex: vi.fn() }
     const createProductRouteDependencies = vi.fn().mockReturnValue(product)
+    const administrators = {}
     const authentication = {
+      administrators,
       currentSession: {},
       github: {
         signIn: {},
@@ -290,7 +298,11 @@ describe("server runtime", () => {
 
     expect(createAuthenticationRouteDependencies).toHaveBeenCalledWith(process.env)
     expect(createProductRouteDependencies).toHaveBeenCalledOnce()
-    expect(createCopilotConnectionRouteDependencies).toHaveBeenCalledWith(process.env, logger)
+    expect(createCopilotConnectionRouteDependencies).toHaveBeenCalledWith(
+      process.env,
+      logger,
+      administrators,
+    )
     expect(disableAuthenticationProviders).not.toHaveBeenCalled()
     expect(runApi).toHaveBeenCalledWith(
       expect.objectContaining({ authentication, copilotConnection, product }),

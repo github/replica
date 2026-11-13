@@ -80,6 +80,16 @@ Global session revocation exposes:
 - `POST /api/session-revocation/authorizations/continue` with the authorization UUID. Success atomically ends all sessions and clears the actor's session cookie.
 - `POST /api/session-revocation/authorizations/cancel` with the authorization UUID.
 
+The Copilot connection reuses the same sensitive authorization boundary:
+
+- `GET /api/copilot-connection` returns the deployment connection state to a current administrator.
+- `POST /api/copilot-connection/authorizations/start` binds `CONNECT_COPILOT` or `DISCONNECT_COPILOT` to the current session, actor membership, and connection generation.
+- `GET /api/copilot-connection/authorizations/:id` returns the verified, unconsumed confirmation.
+- `POST /api/copilot-connection/authorizations/continue` consumes the authorization and changes the connection.
+- `POST /api/copilot-connection/authorizations/cancel` cancels it.
+
+The provider callback returns Copilot operations to `/settings/copilot/confirm`. A connection check runs outside the database transaction; the continuation then locks and compares the saved generation before committing, so a delayed result cannot restore or replace newer connection state.
+
 The retained administrator frontend uses `/settings/administrators` for the roster and candidate search. Every selection and confirmation shows the stable membership UUID plus available provider presentation; a missing profile never hides the target identity. It starts authorization through the JSON API, validates the returned provider URL and then leaves the app through native browser navigation. The provider callback returns to `/settings/administrators/confirm?authorizationId=<uuid>`, where the frontend displays the server-owned operation and targets before continuing or cancelling it through the JSON API. A successful self-removal immediately confirms that Hub ended the current session, removes administrator navigation, and keeps the signed-out completion result visible.
 
 The retained security-audit frontend uses `/settings/audit?scope=hub`. It restores the current administrator session, requests 50 records from `/api/security-audits`, and carries the server's opaque `nextCursor` only as the `before` URL parameter. It shows the stable actor membership UUID when available, action, outcome, UTC time, and the API's bounded allowlisted context. Unknown actions remain visible with no additional details. A `403` refreshes the current session before the route reports lost administrator access; malformed API responses and request failures remain visible. Repository audit in mock mode is a provisional fixture, not a production API.

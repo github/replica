@@ -6,18 +6,21 @@ model SensitiveAuthorization {
   externalIdentityId String @map("external_identity_id") @db.Uuid
 
   // Relations
-  hubSession          HubSession           @relation(fields: [hubSessionId], references: [id], onDelete: Restrict)
-  actorMembership     Membership           @relation(fields: [actorMembershipId], references: [id], onDelete: Restrict)
-  externalIdentity    ExternalIdentity     @relation(fields: [externalIdentityId], references: [id], onDelete: Restrict)
+  hubSession           HubSession            @relation(fields: [hubSessionId], references: [id], onDelete: Restrict)
+  actorMembership      Membership            @relation(fields: [actorMembershipId], references: [id], onDelete: Restrict)
+  externalIdentity     ExternalIdentity      @relation(fields: [externalIdentityId], references: [id], onDelete: Restrict)
   authorizationAttempt AuthorizationAttempt?
 
   // Attribute columns
-  operation           SensitiveAuthorizationOperation
-  targetMembershipIds String[]                        @map("target_membership_ids") @db.Uuid
-  expiresAt           DateTime                        @map("expires_at") @db.Timestamptz(3)
-  verifiedAt          DateTime?                       @map("verified_at") @db.Timestamptz(3)
-  continuedAt         DateTime?                       @map("continued_at") @db.Timestamptz(3)
-  cancelledAt         DateTime?                       @map("cancelled_at") @db.Timestamptz(3)
+  operation                 SensitiveAuthorizationOperation
+  targetMembershipIds       String[]                        @map("target_membership_ids") @db.Uuid
+  expectedCopilotGeneration BigInt?                         @map("expected_copilot_generation")
+  expiresAt                 DateTime                        @map("expires_at") @db.Timestamptz(3)
+  checkStartedAt            DateTime?                       @map("check_started_at") @db.Timestamptz(3)
+  checkFinishedAt           DateTime?                       @map("check_finished_at") @db.Timestamptz(3)
+  verifiedAt                DateTime?                       @map("verified_at") @db.Timestamptz(3)
+  continuedAt               DateTime?                       @map("continued_at") @db.Timestamptz(3)
+  cancelledAt               DateTime?                       @map("cancelled_at") @db.Timestamptz(3)
 
   // Timestamp columns
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)

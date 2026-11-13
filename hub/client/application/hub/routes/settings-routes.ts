@@ -10,6 +10,7 @@ export const settingsWorkspaceRoutes: RouteConfigEntry[] = [
   route("settings/canvas", "routes/settings-canvas/index.tsx"),
   route("settings/canvas/approve", "routes/settings-canvas-approval/index.tsx"),
   route("settings/copilot", "routes/settings-copilot/index.tsx"),
+  route("settings/copilot/confirm", "routes/settings-copilot-authorization/index.tsx"),
   route("settings/github", "routes/settings-github/index.tsx"),
   route("settings/admins", "routes/settings-admins/index.tsx"),
   route("settings/admins/:userId/:operation", "routes/settings-admin-confirmation/index.tsx"),

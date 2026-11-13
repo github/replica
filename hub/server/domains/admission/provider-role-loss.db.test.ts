@@ -7,7 +7,7 @@ import { withFailingSecurityAudit } from "../../../test/database/with-failing-se
 import { admitAuthenticationProof } from "./admit-authentication-proof"
 import { runAdmissionTransaction } from "./run-admission-transaction"
 
-async function createProviderRoleSession() {
+async function createProviderRoleSession(role: "MEMBER" | "ADMINISTRATOR" = "MEMBER") {
   const providerId = randomUUID()
   const providerRevisionId = randomUUID()
   const userId = randomUUID()
@@ -52,7 +52,7 @@ async function createProviderRoleSession() {
         membershipId,
         providerAssignmentSubject: "22222222-2222-4222-8222-222222222222",
         providerRevisionId,
-        role: "MEMBER",
+        role,
         source: "AUTHENTICATION_PROVIDER",
       },
     })
@@ -92,7 +92,10 @@ async function createProviderRoleSession() {
   }
 }
 
-function revokeProviderRole(records: Awaited<ReturnType<typeof createProviderRoleSession>>) {
+function applyProviderRole(
+  records: Awaited<ReturnType<typeof createProviderRoleSession>>,
+  role: "MEMBER" | null,
+) {
   return admitAuthenticationProof(
     {
       proof: {
@@ -100,10 +103,10 @@ function revokeProviderRole(records: Awaited<ReturnType<typeof createProviderRol
         externalIdentityId: records.externalIdentityId,
       },
       providerAssignment: {
-        assignmentSubject: null,
+        assignmentSubject: role === null ? null : "33333333-3333-4333-8333-333333333333",
         issuedAt: new Date("2026-11-04T20:00:00Z"),
         providerRevisionId: records.providerRevisionId,
-        role: null,
+        role,
       },
       providerKey: "entra",
       requiresProviderAssignmentEvidence: true,
@@ -118,6 +121,10 @@ function revokeProviderRole(records: Awaited<ReturnType<typeof createProviderRol
       writeAudit: (event) => createSecurityAudit(prisma, event),
     },
   )
+}
+
+function revokeProviderRole(records: Awaited<ReturnType<typeof createProviderRoleSession>>) {
+  return applyProviderRole(records, null)
 }
 
 describe("provider role-loss admission", () => {
@@ -180,4 +187,54 @@ describe("provider role-loss admission", () => {
       }),
     ).toBe(0)
   })
+
+  it.each([
+    ["downgrades the connector to member", "MEMBER" as const, false, null],
+    ["removes the connector's provider authority", null, false, null],
+    ["retains another administrator source", null, true, "connected"],
+  ])(
+    "%s and updates the Copilot connection",
+    async (_case, role, withRemainingAdministratorSource, expectedConnection) => {
+      const records = await createProviderRoleSession("ADMINISTRATOR")
+      if (withRemainingAdministratorSource) {
+        await prisma.membershipAssignment.create({
+          data: {
+            externalIdentityId: records.externalIdentityId,
+            id: randomUUID(),
+            membershipId: records.membershipId,
+            role: "ADMINISTRATOR",
+            source: "BOOTSTRAP",
+          },
+        })
+      }
+      await prisma.copilotConnection.create({
+        data: {
+          connectedByMembershipId: records.membershipId,
+          credentialDigest: "c".repeat(64),
+          credentialProvider: "environment_token",
+          id: randomUUID(),
+          verifiedAt: new Date(),
+        },
+      })
+
+      const admission = applyProviderRole(records, role)
+      if (role === null && !withRemainingAdministratorSource) {
+        await expect(admission).rejects.toMatchObject({ reason: "authority_missing" })
+      } else {
+        await expect(admission).resolves.toMatchObject({
+          role: withRemainingAdministratorSource ? "ADMINISTRATOR" : "MEMBER",
+        })
+      }
+
+      const connection = await prisma.copilotConnection.findUnique({
+        select: { connectedByMembershipId: true },
+        where: { key: "global" },
+      })
+      expect(connection).toEqual(
+        expectedConnection === "connected"
+          ? { connectedByMembershipId: records.membershipId }
+          : null,
+      )
+    },
+  )
 })

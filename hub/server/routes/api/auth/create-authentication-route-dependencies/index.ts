@@ -342,12 +342,12 @@ export async function createAuthenticationRouteDependencies(
               writeAudit: (event) => createSecurityAudit(prisma, event),
             },
           )
-          if (!verified) return false
+          if (!verified) return null
           const authorization = await getSensitiveAuthorizationAuditData(
             prisma,
             input.sensitiveAuthorizationId,
           )
-          return authorization?.operation ?? false
+          return authorization?.operation ?? null
         },
         admit: (input) =>
           admitAuthenticationProof(
@@ -371,11 +371,15 @@ export async function createAuthenticationRouteDependencies(
   const github = githubContext ? createProviderDependencies(githubContext) : undefined
   const entra = entraContext ? createProviderDependencies(entraContext) : undefined
   const local = localContext ? createProviderDependencies(localContext) : undefined
-  async function cancelAuthorization(input: { authorizationId: string; hubSessionId: string }) {
+  async function cancelAuthorization(
+    input: { authorizationId: string; hubSessionId: string },
+    scope: "administrator" | "copilot" | "sessions",
+  ) {
     return prisma.$transaction(async (transaction) => {
       const cancelled = await cancelSensitiveAuthorization(transaction, {
         id: input.authorizationId,
         hubSessionId: input.hubSessionId,
+        scope,
       })
       if (!cancelled) return false
       await createSecurityAudit(transaction, {
@@ -390,10 +394,20 @@ export async function createAuthenticationRouteDependencies(
       return true
     })
   }
+  function findSession(sessionDigest: string) {
+    return findAdministratorHubSession(prisma, sessionDigest)
+  }
+  function getAuthorization(input: { authorizationId: string; hubSessionId: string }) {
+    return getSensitiveAuthorization(prisma, {
+      hubSessionId: input.hubSessionId,
+      id: input.authorizationId,
+    })
+  }
   return {
     administrators: {
       applicationOrigin: sharedContext.applicationOrigin,
-      cancel: cancelAuthorization,
+      cancel: (input) => cancelAuthorization(input, "administrator"),
+      cancelCopilot: (input) => cancelAuthorization(input, "copilot"),
       continue: (input) =>
         continueAdministratorAuthorization(prisma, {
           hubSessionId: input.hubSessionId,
@@ -401,12 +415,8 @@ export async function createAuthenticationRouteDependencies(
           operation: input.operation,
           targetMembershipIds: input.targetMembershipIds,
         }),
-      findSession: (sessionDigest) => findAdministratorHubSession(prisma, sessionDigest),
-      getAuthorization: (input) =>
-        getSensitiveAuthorization(prisma, {
-          hubSessionId: input.hubSessionId,
-          id: input.authorizationId,
-        }),
+      findSession,
+      getAuthorization,
       list: (input) => listEffectiveAdministrators(prisma, input),
       listSecurityAudits: (input) => listSecurityAudits(prisma, input),
       search: (input) => searchAdministratorCandidates(prisma, input),
@@ -437,14 +447,10 @@ export async function createAuthenticationRouteDependencies(
     local,
     sessionRevocation: {
       applicationOrigin: sharedContext.applicationOrigin,
-      cancel: cancelAuthorization,
+      cancel: (input) => cancelAuthorization(input, "sessions"),
       continue: (input) => endAllHubSessions(prisma, input),
-      findSession: (sessionDigest) => findAdministratorHubSession(prisma, sessionDigest),
-      getAuthorization: (input) =>
-        getSensitiveAuthorization(prisma, {
-          hubSessionId: input.hubSessionId,
-          id: input.authorizationId,
-        }),
+      findSession,
+      getAuthorization,
       getStatus: () => getSessionRevocationStatus(prisma),
       secureCookie: sharedContext.secureCookie,
       start: {

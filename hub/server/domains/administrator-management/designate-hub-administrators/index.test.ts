@@ -87,6 +87,7 @@ describe("designateHubAdministrators()", () => {
     const records = {
       createAssignment: vi.fn().mockResolvedValue({ id: randomUUID() }),
       createSecurityAudit: vi.fn().mockResolvedValue(undefined),
+      disconnectCopilotConnection: vi.fn().mockResolvedValue(false),
       endOpenSessions: vi.fn().mockResolvedValue([]),
       lockActiveAssignment: vi.fn(),
       lockEffectiveAdministratorAssignments: vi.fn().mockResolvedValue([]),

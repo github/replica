@@ -37,6 +37,11 @@ export interface ProviderRevisionRepositories {
 }
 
 export interface AuthenticationProviderReconciliationRepositories extends ProviderRevisionRepositories {
+  disconnectCopilotConnectionWithoutEffectiveAdministrator(): Promise<{
+    connectionId: string
+    credentialProvider: string
+    membershipId: string
+  } | null>
   disableAuthenticationProvider(providerId: string): Promise<unknown>
   enableAuthenticationProvider(input: { providerId: string; revisionId: string }): Promise<unknown>
   incrementSessionRevocation(): Promise<{ revision: number } | null>

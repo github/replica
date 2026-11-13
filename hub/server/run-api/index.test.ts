@@ -129,9 +129,9 @@ describe("runApi()", () => {
   it("cancels a Copilot check and waits for its cleanup during shutdown", async () => {
     const cleanup = deferred<void>()
     const started = deferred<AbortSignal>()
-    async function connect({
+    async function continueAuthorization({
       signal,
-    }: Parameters<CopilotConnectionRouteDependencies["connect"]>[0]) {
+    }: Parameters<NonNullable<CopilotConnectionRouteDependencies["continueAuthorization"]>>[0]) {
       if (!signal) throw new Error("The API lifecycle signal is required.")
       started.resolve(signal)
       if (!signal.aborted) {
@@ -144,12 +144,21 @@ describe("runApi()", () => {
     }
     const copilotConnection: CopilotConnectionRouteDependencies = {
       applicationOrigin: "http://127.0.0.1:5173",
-      connect: vi.fn(connect),
-      disconnect: vi.fn(),
+      authorization: {
+        cancel: vi.fn(),
+        findSession: vi.fn().mockResolvedValue({
+          externalIdentityId: "github:1",
+          id: "22222222-2222-4222-8222-222222222222",
+          membershipId: "11111111-1111-4111-8111-111111111111",
+          providerKey: "github",
+        }),
+        getAuthorization: vi.fn(),
+        start: {},
+      },
+      continueAuthorization: vi.fn(continueAuthorization),
       findSession: vi.fn().mockResolvedValue({
         membershipId: "11111111-1111-4111-8111-111111111111",
       }),
-      reportFailure: vi.fn(),
       status: vi.fn().mockResolvedValue({
         configured: true,
         connected: false,
@@ -162,15 +171,21 @@ describe("runApi()", () => {
     const { server, running, signal } = await startApi({ port: 0, copilotConnection })
     await once(server, "listening")
     const { port } = server.address() as AddressInfo
-    const response = fetch(`http://127.0.0.1:${port}/api/copilot-connection/connect`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        cookie: "hub_session=current-session",
-        origin: copilotConnection.applicationOrigin,
+    const response = fetch(
+      `http://127.0.0.1:${port}/api/copilot-connection/authorizations/continue`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          cookie: "hub_session=current-session",
+          origin: copilotConnection.applicationOrigin,
+        },
+        body: JSON.stringify({
+          authorizationId: "33333333-3333-4333-8333-333333333333",
+          operation: "CONNECT_COPILOT",
+        }),
       },
-      body: JSON.stringify({ confirmed: true }),
-    })
+    )
     const operationSignal = await started.promise
     let settled = false
     void running.finally(() => {

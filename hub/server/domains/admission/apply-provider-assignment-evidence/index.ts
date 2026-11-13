@@ -135,6 +135,21 @@ export async function applyProviderAssignmentEvidence(
     }
   }
   const assignments = await dependencies.repositories.lockActiveAssignments(membershipId)
+  const administrator = assignments.some((assignment) => assignment.role === "ADMINISTRATOR")
+  const disconnected = administrator
+    ? null
+    : await dependencies.repositories.disconnectCopilotConnection(membershipId)
+  if (disconnected) {
+    await dependencies.repositories.createSecurityAudit({
+      actorMembershipId: null,
+      connectionId: disconnected.connectionId,
+      credentialProvider: disconnected.credentialProvider,
+      id: dependencies.createId(),
+      phase: "disconnected",
+      reason: "connector_role_removed",
+      type: "copilot_connection",
+    })
+  }
   if (!assignments.length) {
     return {
       denied: true,
@@ -144,8 +159,6 @@ export async function applyProviderAssignmentEvidence(
   return {
     denied: false,
     membershipId,
-    role: assignments.some((assignment) => assignment.role === "ADMINISTRATOR")
-      ? "ADMINISTRATOR"
-      : "MEMBER",
+    role: administrator ? "ADMINISTRATOR" : "MEMBER",
   }
 }

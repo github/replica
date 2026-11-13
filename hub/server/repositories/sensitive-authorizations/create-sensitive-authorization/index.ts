@@ -5,18 +5,29 @@ import type { Prisma } from "../../../generated/prisma/client.ts"
 const inputSchema = z
   .object({
     actorMembershipId: z.uuid(),
+    expectedCopilotGeneration: z.bigint().nonnegative().optional(),
     externalIdentityId: z.uuid(),
     hubSessionId: z.uuid(),
     id: z.uuid(),
     lifetimeSeconds: z.number().int().min(60).max(600),
-    operation: z.enum(["DESIGNATE_ADMINISTRATORS", "END_ALL_HUB_SESSIONS", "REVOKE_ADMINISTRATOR"]),
+    operation: z.enum([
+      "CONNECT_COPILOT",
+      "DESIGNATE_ADMINISTRATORS",
+      "DISCONNECT_COPILOT",
+      "END_ALL_HUB_SESSIONS",
+      "REVOKE_ADMINISTRATOR",
+    ]),
     targetMembershipIds: z.array(z.uuid()).max(50),
   })
   .strict()
   .superRefine((value, context) => {
     const targetCount = value.targetMembershipIds.length
+    const copilot =
+      value.operation === "CONNECT_COPILOT" || value.operation === "DISCONNECT_COPILOT"
     if (
+      copilot !== (value.expectedCopilotGeneration !== undefined) ||
       (value.operation === "END_ALL_HUB_SESSIONS" && targetCount !== 0) ||
+      (copilot && targetCount !== 1) ||
       (value.operation === "DESIGNATE_ADMINISTRATORS" && targetCount === 0) ||
       (value.operation === "REVOKE_ADMINISTRATOR" && targetCount !== 1)
     ) {
@@ -35,7 +46,8 @@ export async function createSensitiveAuthorization(
   const rows = await database.$queryRaw<Array<{ expiresAt: Date }>>`
     INSERT INTO "sensitive_authorizations" (
       "id", "hub_session_id", "actor_membership_id", "external_identity_id",
-      "operation", "target_membership_ids", "expires_at", "created_at", "updated_at"
+      "operation", "target_membership_ids", "expected_copilot_generation",
+      "expires_at", "created_at", "updated_at"
     )
     SELECT
       ${parsed.id}::uuid,
@@ -44,6 +56,7 @@ export async function createSensitiveAuthorization(
       session."external_identity_id",
       ${parsed.operation}::"SensitiveAuthorizationOperation",
       ${parsed.targetMembershipIds}::uuid[],
+      ${parsed.expectedCopilotGeneration ?? null}::bigint,
       clock_timestamp() + make_interval(secs => ${parsed.lifetimeSeconds}),
       clock_timestamp(),
       clock_timestamp()

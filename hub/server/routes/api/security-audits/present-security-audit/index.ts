@@ -171,7 +171,9 @@ function contextFor(record: SecurityAuditListRecord): Record<string, string | nu
         .object({
           actorMembershipId: z.uuid(),
           operation: z.enum([
+            "connect_copilot",
             "designate_administrators",
+            "disconnect_copilot",
             "end_all_hub_sessions",
             "revoke_administrator",
           ]),
