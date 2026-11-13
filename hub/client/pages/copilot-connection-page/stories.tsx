@@ -18,27 +18,27 @@ const shared = {
   },
   heading: "Copilot",
   description:
-    "A Hub administrator connects Copilot once for the whole Hub. Hub then asks Copilot to suggest learnings from prototype review comments, with a token that the person who runs Hub provides, so it works while everyone is signed out.",
+    "A Hub administrator connects Copilot once for this deployment. The operator-provided credential stays outside the database.",
   emptyLabel: "Learnings stays off until a Hub administrator connects Copilot.",
-  submitPath: "/copilot",
-  tokenLabel: null,
+  submitPath: "/settings/copilot",
+  credentialLabel: null,
 }
 
 const verification =
-  "This change requires GitHub verification within the last five minutes on this browser. If verification is required, Hub continues your confirmed change after it succeeds."
+  "Hub checks your live administrator session again after Copilot answers, before saving the change."
 
 const connect = {
   label: "Connect Copilot",
   consequence:
-    "Hub will ask Copilot, with the configured token, to read new review comments from every repository on this Hub and suggest learnings, including while you are signed out. Copilot never sees who wrote a comment. The usage counts toward the Copilot plan of the token's owner. Hub checks the token with Copilot first, and never stores or shows it.",
-  confirmLabel: "I understand that Hub will use this Copilot token for this Hub.",
+    "Hub asks Copilot to verify the configured credential. Later learning runs may send review comment text without reviewer identity. The available local providers attribute usage to the signed-in account or user-token identity.",
+  confirmLabel: "I understand and confirm connecting Copilot for this Hub.",
   verification,
 }
 
 const disconnect = {
   label: "Disconnect Copilot",
   consequence:
-    "Hub stops looking for learnings and turns off Learnings for every repository. Hub keeps every learning and decision, so connecting again restores them. The token stays where the person who runs Hub keeps it; they can revoke it on GitHub.",
+    "Hub stops new Copilot-backed learning work. Existing learning stores and decisions remain unchanged.",
   confirmLabel: "I understand and confirm disconnecting Copilot for this Hub.",
   verification,
 }
@@ -56,11 +56,10 @@ const connected: AvailableData = {
   accessDenied: false,
   connected: true,
   statusLabel: "Copilot is connected",
-  connectedBy: "@octocat connected Copilot on October 9, 2026.",
-  verifiedLabel: "Copilot last answered on October 10, 2026.",
-  usageLabel: "In the last 30 days, Learnings used 0.147 AI credits in 2 Copilot requests.",
+  connectedBy: "@octocat connected Copilot. Membership 9b96cae1-099f-474f-bb1f-6f8ef78a4575.",
+  verifiedLabel: "Copilot last answered on 2026-11-10T23:00:00.000Z.",
   refusedLabel: null,
-  connect: null,
+  connect: { ...connect, label: "Check Copilot connection" },
   disconnect,
 }
 
@@ -79,8 +78,8 @@ export const NoToken: Story = {
   args: {
     data: {
       ...data,
-      tokenLabel:
-        "Hub has no Copilot token. The person who runs Hub sets REPLICA_COPILOT_TOKEN to a fine-grained personal access token whose only permission is Copilot requests, then restarts Hub.",
+      credentialLabel:
+        "Configure a Copilot credential provider before connecting. Simple deployments can explicitly select ambient CLI authentication or the environment-token provider.",
       connect: null,
     },
   },
@@ -92,9 +91,10 @@ export const Refused: Story = {
   args: {
     data: {
       ...connected,
-      refusedLabel:
-        "Copilot refused the token on October 11, 2026, so Hub stopped looking for learnings. Replace REPLICA_COPILOT_TOKEN and restart Hub, or check the token again.",
-      connect: { ...connect, label: "Check the token again" },
+      connected: false,
+      statusLabel: "Copilot is not connected",
+      refusedLabel: "Copilot refused the configured credential on 2026-11-11T13:00:00.000Z.",
+      connect: { ...connect, label: "Check and connect Copilot" },
     },
   },
 }

@@ -19,7 +19,7 @@ export type CopilotConnectionPageData =
       connected: boolean
       statusLabel: string
       submitPath: string
-      tokenLabel: string | null
+      credentialLabel: string | null
       connectedBy?: string
       verifiedLabel?: string
       usageLabel?: string

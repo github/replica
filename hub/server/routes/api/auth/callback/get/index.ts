@@ -55,14 +55,7 @@ export function get(dependencies: AuthenticationCallbackDependencies): RequestHa
         if (
           !completed.sensitiveAuthorizationId ||
           !hubSessionValue ||
-          !dependencies.verifyAdministratorAuthorization ||
-          !(await dependencies.verifyAdministratorAuthorization({
-            authorizationAttemptId: completed.proof.authorizationAttemptId,
-            externalIdentityId: completed.proof.externalIdentityId,
-            providerAssignment: completed.providerAssignment,
-            sessionDigest: hashAuthenticationValue(hubSessionValue),
-            sensitiveAuthorizationId: completed.sensitiveAuthorizationId,
-          }))
+          !dependencies.verifyAdministratorAuthorization
         ) {
           throw new AuthenticationProofError(
             "attempt_invalid",
@@ -73,9 +66,24 @@ export function get(dependencies: AuthenticationCallbackDependencies): RequestHa
           "Set-Cookie",
           clearAuthenticationCookie(browserAuthenticationCookieName, dependencies.secureCookie),
         )
+        const operation = await dependencies.verifyAdministratorAuthorization({
+          authorizationAttemptId: completed.proof.authorizationAttemptId,
+          externalIdentityId: completed.proof.externalIdentityId,
+          providerAssignment: completed.providerAssignment,
+          sessionDigest: hashAuthenticationValue(hubSessionValue),
+          sensitiveAuthorizationId: completed.sensitiveAuthorizationId,
+        })
+        if (!operation) {
+          throw new AuthenticationProofError(
+            "attempt_invalid",
+            "The administrator authorization is no longer available.",
+          )
+        }
         response.redirect(
           303,
-          `/settings/administrators/confirm?authorizationId=${completed.sensitiveAuthorizationId}`,
+          operation === "END_ALL_HUB_SESSIONS"
+            ? `/settings/sessions/confirm?authorizationId=${completed.sensitiveAuthorizationId}`
+            : `/settings/administrators/confirm?authorizationId=${completed.sensitiveAuthorizationId}`,
         )
         return
       }

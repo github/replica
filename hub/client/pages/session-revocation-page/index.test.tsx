@@ -16,11 +16,11 @@ describe("SessionRevocationPage()", () => {
     )
     expect(screen.getByText(data.ownSession!)).toBeInTheDocument()
     expect(screen.getByText(data.scope)).toBeInTheDocument()
-    const checkbox = screen.getByRole("checkbox", { name: data.confirmLabel })
+    const checkbox = screen.getByRole("checkbox", { name: data.confirmLabel! })
     expect(checkbox).toBeRequired()
     expect(checkbox).not.toBeChecked()
     const form = checkbox.closest("form")!
-    expect(form).toHaveAttribute("action", "/session_revocation")
+    expect(form).toHaveAttribute("action", "/api/session-revocation/authorizations/start")
     expect(form).toHaveAttribute("method", "post")
     expect(form.querySelector('[name="authenticity_token"]')).toHaveValue("storybook-token")
     expect(form.checkValidity()).toBe(false)
@@ -47,6 +47,28 @@ describe("SessionRevocationPage()", () => {
     expect(screen.queryByRole("button")).toBeNull()
     expect(screen.queryByRole("navigation")).toBeNull()
     expect(screen.queryByRole("checkbox")).toBeNull()
+  })
+
+  it("uses the provider-verified authorization without asking for confirmation again", () => {
+    render(
+      <ThemeProvider>
+        <SessionRevocationPage
+          data={{
+            ...data,
+            authorizationId: "11111111-1111-4111-8111-111111111111",
+            confirmLabel: null,
+            submitPath: "/api/session-revocation/authorizations/continue",
+          }}
+        />
+      </ThemeProvider>,
+    )
+
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument()
+    const form = screen.getByRole("button", { name: "End all sessions" }).closest("form")!
+    expect(form).toHaveAttribute("action", "/api/session-revocation/authorizations/continue")
+    expect(form.querySelector('[name="authorizationId"]')).toHaveValue(
+      "11111111-1111-4111-8111-111111111111",
+    )
   })
 
   it("shows a denial without revealing credential counts or allowing submission", () => {

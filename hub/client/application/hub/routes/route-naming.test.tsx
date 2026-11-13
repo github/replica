@@ -50,8 +50,8 @@ const workspaceRoutes: RouteObject[] = [
   },
   {
     path: "/repositories/:repositoryId/learnings",
-    loader: (args) => loadLearnings({ ...args, serverLoader: unavailableServerRoute }),
-    action: (args) => saveLearnings({ ...args, serverAction: unavailableServerRoute }),
+    loader: loadLearnings,
+    action: saveLearnings,
     Component: LearningsComponent,
   },
   {
@@ -199,30 +199,41 @@ describe("Hub primary route names", () => {
 
   it("runs and accepts learnings for a non-first path repository without changing the query repository", async () => {
     const store = createMockStore({ origin: window.location.origin })
-    const firstQuery = settingsQuerySchema.parse({ repositoryId: "2001" })
-    const secondQuery = settingsQuerySchema.parse({ repositoryId: "2002" })
-    const firstLearnings = store.settings.getWorkspace(firstQuery).learnings
+    const firstState = store.learnings.get("2001")
+    if (firstState.accessDenied) throw new Error("The owner must administer repository learnings.")
+    const firstLearnings = firstState.learnings
     const server = setupServer(...createMockHandlers(store))
     const router = await renderHubFlow(server, "/repositories/2002/learnings?repositoryId=2001", {
       workspaceRoutes,
     })
     const run = screen.getByRole("button", { name: "Find learnings now" })
-    expect(new URL(run.closest("form")!.action).pathname).toBe("/repositories/2002/learnings")
+    expect(new URL(run.closest("form")!.action).pathname).toBe("/repositories/2002/learnings/runs")
     expect(screen.queryAllByRole("article")).toHaveLength(0)
 
     await router.settle(() => fireEvent.click(run))
 
-    const learning = store.settings.getWorkspace(secondQuery).learnings[0]!
+    const secondState = store.learnings.get("2002")
+    if (secondState.accessDenied) throw new Error("The owner must administer repository learnings.")
+    const learning = secondState.suggestions[0]!
     const suggestion = screen.getByRole("article", { name: learning.content })
     const accept = within(suggestion).getByRole("button", { name: "Accept" })
-    expect(new URL(accept.closest("form")!.action).pathname).toBe("/repositories/2002/learnings")
+    expect(new URL(accept.closest("form")!.action).pathname).toBe(
+      `/repositories/2002/learnings/${learning.id}/decision`,
+    )
     await router.settle(() => fireEvent.click(accept))
 
-    expect(store.settings.getWorkspace(secondQuery).learnings[0]).toMatchObject({
+    const acceptedState = store.learnings.get("2002")
+    if (acceptedState.accessDenied)
+      throw new Error("The owner must administer repository learnings.")
+    expect(acceptedState.learnings[0]).toMatchObject({
       id: learning.id,
-      state: "accepted",
+      status: "recalled",
     })
-    expect(store.settings.getWorkspace(firstQuery).learnings).toEqual(firstLearnings)
+    const unchangedFirstState = store.learnings.get("2001")
+    if (unchangedFirstState.accessDenied) {
+      throw new Error("The owner must administer repository learnings.")
+    }
+    expect(unchangedFirstState.learnings).toEqual(firstLearnings)
     expect(
       within(screen.getByRole("article", { name: learning.content })).getByRole("button", {
         name: "Retire",

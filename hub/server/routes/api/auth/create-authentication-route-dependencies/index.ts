@@ -32,6 +32,7 @@ import { continueAdministratorAuthorization } from "../../../../domains/administ
 import { AdministratorAuthorizationDeniedError } from "../../../../domains/administrator-authorization/errors.ts"
 import { verifyAdministratorAuthorization } from "../../../../domains/administrator-authorization/verify-administrator-authorization/index.ts"
 import { runAdministratorAuthorizationVerificationTransaction } from "../../../../domains/administrator-authorization/run-administrator-authorization-verification-transaction/index.ts"
+import { endAllHubSessions } from "../../../../domains/session-revocation/end-all-hub-sessions/index.ts"
 import { listEffectiveAdministrators } from "../../../../domains/administrator-management/list-effective-administrators/index.ts"
 import { prisma } from "../../../../integrations/prisma/index.ts"
 import { findLatestAuthenticationProviderRevision } from "../../../../repositories/authentication-providers/find-latest-authentication-provider-revision/index.ts"
@@ -46,6 +47,7 @@ import { upsertUserProfile } from "../../../../repositories/user-profiles/upsert
 import { findAdministratorHubSession } from "../../../../repositories/hub-sessions/find-administrator-hub-session/index.ts"
 import { findGitHubRepositoryAccessDenial } from "../../../../repositories/hub-sessions/find-github-repository-access-denial/index.ts"
 import { searchAdministratorCandidates } from "../../../../repositories/memberships/search-administrator-candidates/index.ts"
+import { getSessionRevocationStatus } from "../../../../repositories/session-revocation-states/get-session-revocation-status/index.ts"
 import { cancelSensitiveAuthorization } from "../../../../repositories/sensitive-authorizations/cancel-sensitive-authorization/index.ts"
 import { createSensitiveAuthorization } from "../../../../repositories/sensitive-authorizations/create-sensitive-authorization/index.ts"
 import { getSensitiveAuthorizationAuditData } from "../../../../repositories/sensitive-authorizations/get-sensitive-authorization-audit-data/index.ts"
@@ -335,7 +337,7 @@ export async function createAuthenticationRouteDependencies(
             writeDenialAudit: writeAuthenticationDenial,
           }),
         verifyAdministratorAuthorization: async (input) => {
-          return verifyAdministratorAuthorization(
+          const verified = await verifyAdministratorAuthorization(
             {
               ...input,
               providerKey: context.adapter.providerKey,
@@ -349,6 +351,12 @@ export async function createAuthenticationRouteDependencies(
               writeAudit: (event) => createSecurityAudit(prisma, event),
             },
           )
+          if (!verified) return false
+          const authorization = await getSensitiveAuthorizationAuditData(
+            prisma,
+            input.sensitiveAuthorizationId,
+          )
+          return authorization?.operation ?? false
         },
         admit: (input) =>
           admitAuthenticationProof(
@@ -372,28 +380,29 @@ export async function createAuthenticationRouteDependencies(
   const github = githubContext ? createProviderDependencies(githubContext) : undefined
   const entra = entraContext ? createProviderDependencies(entraContext) : undefined
   const local = localContext ? createProviderDependencies(localContext) : undefined
+  async function cancelAuthorization(input: { authorizationId: string; hubSessionId: string }) {
+    return prisma.$transaction(async (transaction) => {
+      const cancelled = await cancelSensitiveAuthorization(transaction, {
+        id: input.authorizationId,
+        hubSessionId: input.hubSessionId,
+      })
+      if (!cancelled) return false
+      await createSecurityAudit(transaction, {
+        actorMembershipId: cancelled.actorMembershipId,
+        authorizationId: cancelled.id,
+        id: randomUUID(),
+        operation: cancelled.operation,
+        phase: "cancelled",
+        targetCount: cancelled.targetCount,
+        type: "administrator_authorization",
+      })
+      return true
+    })
+  }
   return {
     administrators: {
       applicationOrigin: sharedContext.applicationOrigin,
-      cancel: async (input) => {
-        return prisma.$transaction(async (transaction) => {
-          const cancelled = await cancelSensitiveAuthorization(transaction, {
-            id: input.authorizationId,
-            hubSessionId: input.hubSessionId,
-          })
-          if (!cancelled) return false
-          await createSecurityAudit(transaction, {
-            actorMembershipId: cancelled.actorMembershipId,
-            authorizationId: cancelled.id,
-            id: randomUUID(),
-            operation: cancelled.operation,
-            phase: "cancelled",
-            targetCount: cancelled.targetCount,
-            type: "administrator_authorization",
-          })
-          return true
-        })
-      },
+      cancel: cancelAuthorization,
       continue: (input) =>
         continueAdministratorAuthorization(prisma, {
           hubSessionId: input.hubSessionId,
@@ -439,6 +448,24 @@ export async function createAuthenticationRouteDependencies(
     entra,
     github,
     local,
+    sessionRevocation: {
+      applicationOrigin: sharedContext.applicationOrigin,
+      cancel: cancelAuthorization,
+      continue: (input) => endAllHubSessions(prisma, input),
+      findSession: (sessionDigest) => findAdministratorHubSession(prisma, sessionDigest),
+      getAuthorization: (input) =>
+        getSensitiveAuthorization(prisma, {
+          hubSessionId: input.hubSessionId,
+          id: input.authorizationId,
+        }),
+      getStatus: () => getSessionRevocationStatus(prisma),
+      secureCookie: sharedContext.secureCookie,
+      start: {
+        entra: entra?.administratorAuthorization,
+        github: github?.administratorAuthorization,
+        local: local?.administratorAuthorization,
+      },
+    },
     signOut: {
       applicationOrigin: sharedContext.applicationOrigin,
       secureCookie: sharedContext.secureCookie,

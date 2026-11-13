@@ -14,7 +14,7 @@ Compose starts the app container after PostgreSQL is healthy. Both images use De
 
 The repository is mounted at `/workspaces/replica`, with `hub/` as the working directory. Compose supplies `DATABASE_URL` with the `db` service hostname. Local database credentials in Compose are for development only. The database port is published only on host loopback.
 
-After the container opens and PostgreSQL is healthy, run `npm run setup` before starting `npm run dev:api`. Run setup again after pulling new migrations.
+After the container opens and PostgreSQL is healthy, install the separate learning runtime with `npm ci --prefix ../packages/learning --engine-strict`, then run `npm run setup` before starting `npm run dev:api`. Run setup again after pulling new migrations.
 
 ## Local Node.js
 
@@ -24,6 +24,7 @@ Use npm and a Node.js version supported by `engines.node` in `hub/package.json`.
 docker compose -f .devcontainer/compose.yaml up -d db
 cp .env.example .env
 npm ci --engine-strict
+npm ci --prefix ../packages/learning --engine-strict
 npm run setup
 ```
 
@@ -67,6 +68,8 @@ Run `npm run env:init` from `hub/` to create `.env` from `.env.example` and gene
 Add the App's private key with `npm run env:init -- --private-key path/to/app.private-key.pem`; the script stores it as `GITHUB_APP_PRIVATE_KEY_BASE64`. Fill in the remaining GitHub values in `.env`, restart `npm run dev:api:live`, and refresh <http://127.0.0.1:5173/settings/github/setup> to check status and test the connection. Delete the downloaded `.pem` afterward.
 
 GitHub cannot deliver webhooks to `127.0.0.1`. Local Hubs still refresh repository access at each sign-in and can sync repositories from the setup page. To test webhooks, forward deliveries to `http://127.0.0.1:5173/api/github/webhooks` with a tunnel you control. See [GitHub repository access](authentication.md#github-repository-access).
+
+Configured authentication also registers the administrator-only [`/settings/copilot`](learning-foundation.md) flow. For local or backward-compatible use, explicitly select `REPLICA_COPILOT_AUTHENTICATION=ambient-cli`, or select `environment-token` and set `REPLICA_COPILOT_TOKEN`. These modes attribute usage to the represented individual identity and are not the production default. Without a provider, the page remains available but refuses connection. API and worker startup validate `REPLICA_LEARNING_ROOT` against source and configured static-file roots even before repository learning runs exist.
 
 No authentication-provider database seed is required. API startup validates each configured provider adapter and persists only its provider key, revision number, and public-configuration digest.
 

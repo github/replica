@@ -86,10 +86,24 @@ export interface AdministratorAuthorizationAudit extends SecurityAuditEvent {
   type: "administrator_authorization"
   actorMembershipId: string
   authorizationId: string
-  operation: "DESIGNATE_ADMINISTRATORS" | "REVOKE_ADMINISTRATOR"
+  operation: "DESIGNATE_ADMINISTRATORS" | "END_ALL_HUB_SESSIONS" | "REVOKE_ADMINISTRATOR"
   phase: "requested" | "verified" | "completed" | "denied" | "expired" | "cancelled"
   reason?: string
   targetCount: number
+}
+
+export interface AllHubSessionsEndedAudit extends SecurityAuditEvent {
+  type: "all_hub_sessions_ended"
+  actorMembershipId: string
+  cancelledAuthorizationCount: number
+  endedSessionCount: number
+  revision: number
+}
+
+export interface AllHubSessionsEndFailedAudit extends SecurityAuditEvent {
+  type: "all_hub_sessions_end_failed"
+  actorMembershipId: string
+  reason: "retry_exhausted" | "transaction_error"
 }
 
 export interface SessionCreatedAudit extends SecurityAuditEvent {
@@ -195,6 +209,15 @@ export interface GitHubAppConnectionTestedAudit extends SecurityAuditEvent {
   failedChecks: string[]
 }
 
+export interface CopilotConnectionAudit extends SecurityAuditEvent {
+  type: "copilot_connection"
+  actorMembershipId: string | null
+  connectionId?: string
+  credentialProvider: string
+  phase: "connected" | "disconnected" | "denied" | "failed"
+  reason?: string
+}
+
 export type CreateSecurityAuditEvent =
   | AuthenticationAttemptDeniedAudit
   | BootstrapAttemptDeniedAudit
@@ -209,6 +232,8 @@ export type CreateSecurityAuditEvent =
   | AdministratorManagementDeniedAudit
   | AdministratorManagementFailedAudit
   | AdministratorAuthorizationAudit
+  | AllHubSessionsEndedAudit
+  | AllHubSessionsEndFailedAudit
   | AdmissionDeniedAudit
   | AdmissionFailedAudit
   | ExternalIdentityCreatedAudit
@@ -221,3 +246,4 @@ export type CreateSecurityAuditEvent =
   | AuthenticationProvidersReconcileFailedAudit
   | SessionRevocationAdvancedAudit
   | GitHubAppConnectionTestedAudit
+  | CopilotConnectionAudit

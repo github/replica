@@ -43,16 +43,24 @@ export async function checkImage() {
       "docker",
       [
         "build",
+        "-f",
+        resolve(import.meta.dirname, "../../Dockerfile"),
         "-t",
         image,
         ...(registry ? ["--build-arg", `NPM_REGISTRY=${registry}`] : []),
-        resolve(import.meta.dirname, "../.."),
+        resolve(import.meta.dirname, "../../.."),
       ],
-      {
-        stdio: "inherit",
-      },
+      { stdio: "inherit" },
     )
     imageCreated = true
+    docker(
+      "run",
+      "--rm",
+      image,
+      "sh",
+      "-c",
+      "test -w /app/storage/learning && test -f /opt/replica/learning/bin/replica-learning.mjs && cd /opt/replica/learning && node --input-type=module -e 'await import(\"@github/copilot-sdk\")'",
+    )
     docker("network", "create", network)
     networkCreated = true
     docker(

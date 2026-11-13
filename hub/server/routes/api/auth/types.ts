@@ -55,7 +55,7 @@ export interface AuthenticationCallbackDependencies extends RateLimitDependencie
     }
     sessionDigest: string
     sensitiveAuthorizationId: string
-  }): Promise<boolean>
+  }): Promise<"DESIGNATE_ADMINISTRATORS" | "END_ALL_HUB_SESSIONS" | "REVOKE_ADMINISTRATOR" | false>
   admit(input: {
     proof: AuthenticationProofResult
     providerAssignment?: {
@@ -101,6 +101,7 @@ export interface AuthenticationRouteDependencies {
   entra?: ProviderAuthenticationRouteDependencies
   github?: ProviderAuthenticationRouteDependencies
   local?: ProviderAuthenticationRouteDependencies
+  sessionRevocation?: SessionRevocationRouteDependencies
   signOut: SignOutDependencies
 }
 
@@ -118,7 +119,7 @@ export interface StartAdministratorAuthorizationDependencies extends RateLimitDe
     actorMembershipId: string
     externalIdentityId: string
     hubSessionId: string
-    operation: "DESIGNATE_ADMINISTRATORS" | "REVOKE_ADMINISTRATOR"
+    operation: "DESIGNATE_ADMINISTRATORS" | "END_ALL_HUB_SESSIONS" | "REVOKE_ADMINISTRATOR"
     targetMembershipIds: string[]
   }): Promise<{
     authorizationId: string
@@ -143,7 +144,17 @@ export interface AdministratorRouteDependencies {
     membershipId: string
     providerKey: string
   } | null>
-  getAuthorization(input: { authorizationId: string; hubSessionId: string }): Promise<unknown>
+  getAuthorization(input: { authorizationId: string; hubSessionId: string }): Promise<{
+    expiresAt: Date
+    operation: "DESIGNATE_ADMINISTRATORS" | "END_ALL_HUB_SESSIONS" | "REVOKE_ADMINISTRATOR"
+    targets: Array<{
+      login: string | null
+      membershipId: string
+      name: string | null
+      provider: string | null
+    }>
+    verifiedAt: Date
+  } | null>
   list(input: {
     before?: { createdAt: Date; membershipId: string }
     limit?: number
@@ -154,4 +165,24 @@ export interface AdministratorRouteDependencies {
   }): Promise<SecurityAuditListResult>
   search(input: { limit?: number; query: string }): Promise<unknown>
   start: Partial<Record<"entra" | "github" | "local", StartAdministratorAuthorizationDependencies>>
+}
+
+export interface SessionRevocationRouteDependencies {
+  applicationOrigin: string
+  cancel(input: { authorizationId: string; hubSessionId: string }): Promise<boolean>
+  continue(input: { authorizationId: string; hubSessionId: string }): Promise<{
+    cancelledAuthorizationCount: number
+    endedSessionCount: number
+    revision: number
+  }>
+  findSession: AdministratorRouteDependencies["findSession"]
+  getAuthorization: AdministratorRouteDependencies["getAuthorization"]
+  getStatus(): Promise<{
+    activeSessionCount: number
+    pendingAuthenticationCount: number
+    pendingSensitiveAuthorizationCount: number
+    revision: number
+  } | null>
+  secureCookie: boolean
+  start: AdministratorRouteDependencies["start"]
 }

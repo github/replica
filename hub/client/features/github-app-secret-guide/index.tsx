@@ -131,7 +131,7 @@ export function GithubAppSecretGuide({ target, onTargetChange }: Props) {
             missing local values to <code>.env</code> without replacing existing values. Generate a
             webhook secret with <code>openssl rand -hex 32</code> and use the same value in GitHub
             and <code>.env</code>. Add the remaining GitHub values, then restart{" "}
-            <code>npm run dev:api</code>.
+            <code>npm run dev:api:live</code>.
           </Text>
           <CopyableCodeBlock code={localCommand} label="Write local GitHub App settings" />
         </>

@@ -291,14 +291,23 @@ function installationChanges(events: { command: string[] }[]) {
   )
 }
 
-it("preserves supported runtime, database and TLS customization in privately replaced installation inputs", async () => {
+it("preserves supported GitHub, runtime, database and TLS customization in privately replaced installation inputs", async () => {
   const s = await scenario({ existing: true })
   await installAzure(s.config, s)
   const workspace = installationWorkspace(s.config, s.directory)
   const filename = join(workspace, "installation.tfvars.json")
   const original = JSON.parse(await readFile(filename, "utf8")) as Record<string, unknown>
   const customization = {
+    hub_application_origin: "https://hub.example.com",
+    github_app_id: "123",
+    github_client_id: "Iv1.synthetic-client",
+    github_app_installation_id: "456",
+    github_provider_revision: 2,
     runtime_secret_references: {
+      GITHUB_APP_PRIVATE_KEY_BASE64: {
+        key_vault_id: `/subscriptions/${s.config.azure.subscriptionId}/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/service`,
+        secret_id: `https://service.vault.azure.net/secrets/github-app-private-key/${"d".repeat(32)}`,
+      },
       SERVICE_API_KEY: {
         key_vault_id: `/subscriptions/${s.config.azure.subscriptionId}/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/service`,
         secret_id: `https://service.vault.azure.net/secrets/api-key/${"c".repeat(32)}`,
@@ -339,6 +348,51 @@ it.each([
     change: { postgres_version: "18" },
   },
   { reason: "invalid backup retention", change: { backup_retention_days: 0 } },
+  { reason: "invalid GitHub App ID", change: { github_app_id: "not-an-id" } },
+  { reason: "invalid GitHub client ID", change: { github_client_id: "has whitespace" } },
+  { reason: "invalid GitHub installation ID", change: { github_app_installation_id: "0" } },
+  { reason: "invalid GitHub provider revision", change: { github_provider_revision: 1.5 } },
+  {
+    reason: "invalid Hub origin",
+    change: { hub_application_origin: "https://hub.example.com/path" },
+  },
+  {
+    reason: "GitHub private key without App identifiers",
+    change: {
+      runtime_secret_references: {
+        GITHUB_APP_PRIVATE_KEY_BASE64: {
+          key_vault_id:
+            "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/service",
+          secret_id: "https://service.vault.azure.net/secrets/github-app-private-key",
+        },
+      },
+    },
+  },
+  {
+    reason: "GitHub identifier stored as a secret reference",
+    change: {
+      runtime_secret_references: {
+        GITHUB_APP_ID: {
+          key_vault_id:
+            "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/service",
+          secret_id: "https://service.vault.azure.net/secrets/github-app-id",
+        },
+      },
+    },
+  },
+  {
+    reason: "conflicting Hub origin sources",
+    change: {
+      hub_application_origin: "https://hub.example.com",
+      runtime_secret_references: {
+        HUB_APPLICATION_ORIGIN: {
+          key_vault_id:
+            "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/service",
+          secret_id: "https://service.vault.azure.net/secrets/hub-origin",
+        },
+      },
+    },
+  },
   { reason: "different stored installation name", change: { name: "another-hub" } },
   { reason: "different stored ownership", change: { owner: "another-team" } },
   { reason: "different stored region", change: { location: "westus2" } },
@@ -398,8 +452,7 @@ it.each(["parent", "workspace"] as const)(
   "refuses a precreated shared %s directory without silently changing its permissions",
   async (path) => {
     const s = await scenario()
-    const directory =
-      path === "parent" ? s.directory : installationWorkspace(s.config, s.directory)
+    const directory = path === "parent" ? s.directory : installationWorkspace(s.config, s.directory)
     if (path === "workspace") await mkdir(directory, { mode: 0o700 })
     await chmod(directory, 0o777)
 
@@ -476,9 +529,9 @@ it("rejects another local writer for the same target even when configuration obj
   try {
     await entered.promise
 
-    await expect(
-      installAzure(structuredClone(s.config), { ...s, run: secondRun }),
-    ).rejects.toThrow(/workspace|writer|lock/i)
+    await expect(installAzure(structuredClone(s.config), { ...s, run: secondRun })).rejects.toThrow(
+      /workspace|writer|lock/i,
+    )
 
     const secondEvents = secondRun.mock.calls.map(([executable, args]) => ({
       command: [executable, ...args],

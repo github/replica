@@ -3,8 +3,6 @@ import type { z } from "zod"
 import type {
   analyticsDestinationSchema,
   canvasGrantSchema,
-  learningRecordSchema,
-  learningRunSchema,
   settingsAuditEventSchema,
   settingsCandidateResponseSchema,
   settingsMutationResponseSchema,
@@ -22,8 +20,6 @@ export type SettingsMutationResponse = z.infer<typeof settingsMutationResponseSc
 export type SettingsCandidateResponse = z.infer<typeof settingsCandidateResponseSchema>
 export type AnalyticsDestinationRecord = z.infer<typeof analyticsDestinationSchema>
 export type CanvasGrantRecord = z.infer<typeof canvasGrantSchema>
-export type LearningRecord = z.infer<typeof learningRecordSchema>
-export type LearningRunRecord = z.infer<typeof learningRunSchema>
 export type SettingsAuditEvent = z.infer<typeof settingsAuditEventSchema>
 export type SettingsActionResult =
   { saved: true; notice: string; revision: number } | { saved: false; error: string }
@@ -40,7 +36,6 @@ export type SettingsSection =
   | "admin-confirmation"
   | "enrollment"
   | "admins"
-  | "learnings"
   | "notifications"
   | "audit"
   | "sessions"

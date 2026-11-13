@@ -16,6 +16,7 @@ export function createApp({
   githubSetup,
   githubWebhooks,
   clientDirectory,
+  copilotConnection,
   isReady,
   logger,
   product,
@@ -29,6 +30,8 @@ export function createApp({
     [
       "/api/auth",
       "/api/administrators",
+      "/api/session-revocation",
+      "/api/copilot-connection",
       "/api/security-audits",
       "/api/workspace",
       "/api/repositories",
@@ -37,13 +40,14 @@ export function createApp({
     authenticationSecurity(),
   )
   app.use(
-    /^(?!\/api\/(?:auth|administrators\/authorizations|github\/webhooks)(?:\/|$)).*/i,
+    /^(?!\/api\/copilot-connection(?:\/|$))(?!\/api\/(?:auth|administrators\/authorizations|session-revocation\/authorizations|github\/webhooks)(?:\/|$)).*/i,
     express.json(),
   )
 
   routes(app, {
     authentication,
     broadcast,
+    copilotConnection,
     githubSetup,
     githubWebhooks,
     isReady,
@@ -68,7 +72,7 @@ export function createApp({
         return
       }
       response.setHeader("Cache-Control", "no-cache")
-      response.sendFile(resolve(directory, "index.html"))
+      response.sendFile("index.html", { root: directory, dotfiles: "deny" })
     })
   }
   app.use(respondNotFound)

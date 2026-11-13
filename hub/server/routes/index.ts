@@ -26,11 +26,27 @@ import { rateLimit as administratorAuthorizationRateLimit } from "./api/administ
 import { get as handleSecurityAuditsGet } from "./api/security-audits/get/index.ts"
 import { get as handleGitHubSetupStatusGet } from "./api/settings/github/status/get/index.ts"
 import { post as handleGitHubSetupTestPost } from "./api/settings/github/test/post/index.ts"
+import { get as handleSessionRevocationGet } from "./api/session-revocation/get/index.ts"
+import { post as handleSessionRevocationAuthorizationStartPost } from "./api/session-revocation/authorizations/start/post/index.ts"
+import { get as handleSessionRevocationAuthorizationGet } from "./api/session-revocation/authorizations/get/index.ts"
+import { post as handleSessionRevocationAuthorizationContinuePost } from "./api/session-revocation/authorizations/continue/post/index.ts"
+import { post as handleSessionRevocationAuthorizationCancelPost } from "./api/session-revocation/authorizations/cancel/post/index.ts"
+import { get as handleCopilotConnectionGet } from "./api/copilot-connection/get/index.ts"
+import { post as handleCopilotConnectionConnectPost } from "./api/copilot-connection/connect/post/index.ts"
+import { delete_ as handleCopilotConnectionDisconnectDelete } from "./api/copilot-connection/disconnect/delete/index.ts"
 import type { RouteDependencies } from "./types.ts"
 
 /** Keep endpoint registration separate from the app's shared middleware. */
 export function routes(app: Express, dependencies: RouteDependencies = {}): void {
-  const { authentication, githubSetup, githubWebhooks, isReady, logger, product } = dependencies
+  const {
+    authentication,
+    copilotConnection,
+    githubSetup,
+    githubWebhooks,
+    isReady,
+    logger,
+    product,
+  } = dependencies
   app.get("/api/health", handleApiHealthGet)
   app.get("/api/ready", (request, response) =>
     handleApiReadyGet(request, response, { isReady, logger }),
@@ -95,6 +111,35 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
         requireOrigin(authentication.administrators.applicationOrigin),
         express.json({ limit: "4kb", strict: true }),
         handleAdministratorAuthorizationCancelPost(authentication.administrators),
+      )
+    }
+    if (authentication.sessionRevocation) {
+      app.get(
+        "/api/session-revocation",
+        handleSessionRevocationGet(authentication.sessionRevocation),
+      )
+      app.post(
+        "/api/session-revocation/authorizations/start",
+        requireOrigin(authentication.sessionRevocation.applicationOrigin),
+        administratorAuthorizationRateLimit(authentication.sessionRevocation),
+        express.json({ limit: "4kb", strict: true }),
+        handleSessionRevocationAuthorizationStartPost(authentication.sessionRevocation),
+      )
+      app.get(
+        "/api/session-revocation/authorizations/:id",
+        handleSessionRevocationAuthorizationGet(authentication.sessionRevocation),
+      )
+      app.post(
+        "/api/session-revocation/authorizations/continue",
+        requireOrigin(authentication.sessionRevocation.applicationOrigin),
+        express.json({ limit: "4kb", strict: true }),
+        handleSessionRevocationAuthorizationContinuePost(authentication.sessionRevocation),
+      )
+      app.post(
+        "/api/session-revocation/authorizations/cancel",
+        requireOrigin(authentication.sessionRevocation.applicationOrigin),
+        express.json({ limit: "4kb", strict: true }),
+        handleSessionRevocationAuthorizationCancelPost(authentication.sessionRevocation),
       )
     }
     app.get(
@@ -166,6 +211,21 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
       "/api/auth/session/sign-out",
       requireOrigin(authentication.signOut.applicationOrigin),
       handleSignOutPost(authentication.signOut),
+    )
+  }
+  if (copilotConnection) {
+    app.get("/api/copilot-connection", handleCopilotConnectionGet(copilotConnection))
+    app.post(
+      "/api/copilot-connection/connect",
+      requireOrigin(copilotConnection.applicationOrigin),
+      express.json({ limit: "4kb", strict: true }),
+      handleCopilotConnectionConnectPost(copilotConnection),
+    )
+    app.delete(
+      "/api/copilot-connection",
+      requireOrigin(copilotConnection.applicationOrigin),
+      express.json({ limit: "4kb", strict: true }),
+      handleCopilotConnectionDisconnectDelete(copilotConnection),
     )
   }
 }

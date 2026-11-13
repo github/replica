@@ -7,7 +7,7 @@ import type { AdministratorRouteDependencies } from "../../auth/types.ts"
 
 export async function readAdministratorSession(
   request: Request,
-  dependencies: AdministratorRouteDependencies,
+  dependencies: Pick<AdministratorRouteDependencies, "findSession">,
 ) {
   const sessionValue = readCookie(request, hubSessionCookieName)
   return sessionValue

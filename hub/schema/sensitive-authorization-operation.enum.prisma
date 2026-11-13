@@ -1,4 +1,5 @@
 enum SensitiveAuthorizationOperation {
   DESIGNATE_ADMINISTRATORS
+  END_ALL_HUB_SESSIONS
   REVOKE_ADMINISTRATOR
 }

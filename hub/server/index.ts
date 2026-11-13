@@ -2,6 +2,8 @@ import "dotenv/config"
 
 import { createConfiguredArtifactStorage } from "./domains/artifacts/create-configured-artifact-storage/index.ts"
 import { LocalSignInConfigurationError } from "./domains/authentication/errors.ts"
+import { readLearningConfiguration } from "./domains/learning/read-learning-configuration/index.ts"
+import { LearningConfigurationError } from "./domains/learning/errors.ts"
 import { readAuthenticationConfigurationState } from "./domains/authentication/read-authentication-configuration-state/index.ts"
 import { createGitHubAuthenticationContext } from "./domains/authentication/create-github-authentication-context/index.ts"
 import { createSharedAuthenticationContext } from "./domains/authentication/create-shared-authentication-context/index.ts"
@@ -17,6 +19,7 @@ import { parseRuntimeConfig } from "./utils/parse-runtime-config/index.ts"
 import { jobProcessors } from "./workers/configuration.ts"
 import { runJobWorker } from "./workers/run-job-worker/index.ts"
 import type { AuthenticationRouteDependencies } from "./routes/api/auth/types.ts"
+import type { CopilotConnectionRouteDependencies } from "./routes/api/copilot-connection/types.ts"
 import type { ProductRouteDependencies } from "./routes/api/product/types.ts"
 import type { GitHubWebhookRouteDependencies } from "./routes/api/github/webhooks/types.ts"
 import type { GitHubSetupRouteDependencies } from "./routes/api/settings/github/types.ts"
@@ -25,6 +28,7 @@ class AuthenticationConfigurationError extends Error {}
 
 try {
   const configuration = parseRuntimeConfig(process.env)
+  if (configuration.mode !== "setup") await readLearningConfiguration(process.env)
   const storage =
     configuration.mode !== "setup" && configuration.hasArtifactStorage
       ? await createConfiguredArtifactStorage(process.env)
@@ -44,6 +48,7 @@ try {
     }
     const trustedProxyHops = runsApi ? configuredTrustedProxyHops : 0
     let authentication: AuthenticationRouteDependencies | undefined
+    let copilotConnection: CopilotConnectionRouteDependencies | undefined
     let product: ProductRouteDependencies | undefined
     let githubSetup: GitHubSetupRouteDependencies | undefined
     let githubWebhooks: GitHubWebhookRouteDependencies | undefined
@@ -104,6 +109,12 @@ try {
             product = createProductRouteDependencies({
               scopeGitHubMembers: authenticationConfiguration.githubConfigured,
             })
+            const { createCopilotConnectionRouteDependencies } =
+              await import("./routes/api/copilot-connection/create-copilot-connection-route-dependencies/index.ts")
+            copilotConnection = await createCopilotConnectionRouteDependencies(
+              authenticationEnvironment,
+              logger,
+            )
           } else {
             await disableAuthenticationProviders()
           }
@@ -151,6 +162,7 @@ try {
         authentication,
         githubSetup,
         githubWebhooks,
+        copilotConnection,
         product,
         trustedProxyHops,
       })
@@ -166,6 +178,7 @@ try {
           authentication,
           githubSetup,
           githubWebhooks,
+          copilotConnection,
           product,
           trustedProxyHops,
         })
@@ -192,7 +205,9 @@ try {
     error instanceof AuthenticationConfigurationError ||
       error instanceof LocalSignInConfigurationError
       ? error.message
-      : "Hub failed; check runtime configuration, dependencies, telemetry, and shutdown time.",
+      : error instanceof LearningConfigurationError
+        ? error.message
+        : "Hub failed; check runtime configuration, dependencies, telemetry, and shutdown time.",
   )
   process.exit(1)
 }

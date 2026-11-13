@@ -2,6 +2,7 @@ import type { Logger } from "pino"
 
 import { openDatabase } from "../integrations/postgres/open-database/index.ts"
 import type { AuthenticationRouteDependencies } from "../routes/api/auth/types.ts"
+import type { CopilotConnectionRouteDependencies } from "../routes/api/copilot-connection/types.ts"
 import type { ProductRouteDependencies } from "../routes/api/product/types.ts"
 import type { GitHubWebhookRouteDependencies } from "../routes/api/github/webhooks/types.ts"
 import type { GitHubSetupRouteDependencies } from "../routes/api/settings/github/types.ts"
@@ -20,6 +21,7 @@ export async function startServerProcesses(options: {
   scheduledConcurrency: number
   isStorageReady?: () => Promise<boolean>
   authentication?: AuthenticationRouteDependencies
+  copilotConnection?: CopilotConnectionRouteDependencies
   product?: ProductRouteDependencies
   githubSetup?: GitHubSetupRouteDependencies
   githubWebhooks?: GitHubWebhookRouteDependencies
