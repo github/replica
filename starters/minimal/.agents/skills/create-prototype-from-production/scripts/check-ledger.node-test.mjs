@@ -183,7 +183,7 @@ test("rejects obvious-private HTTP(S) targets on every destination decision", as
   }
 })
 
-test("rejects credential-bearing mail and telephone destinations without exposing supplied values", async (t) => {
+test("allows credential-like parameters on mail and telephone destinations", async (t) => {
   for (const [name, url] of [
     [
       "mail query credential",
@@ -198,7 +198,7 @@ test("rejects credential-bearing mail and telephone destinations without exposin
       const page = { url, foundIn: ["footer"], decision: "stub-external" }
       for (const final of [false, true]) {
         const problems = checkLedger(ledger([hub, page]), { final }).join("\n")
-        assert.match(problems, /^pages\[1\]:/m, `final: ${final}`)
+        assert.equal(problems, "", `final: ${final}`)
         assert.doesNotMatch(problems, /fixture-[a-z-]+-marker|\+15555550123/)
         assert.equal(problems.includes(url), false)
       }

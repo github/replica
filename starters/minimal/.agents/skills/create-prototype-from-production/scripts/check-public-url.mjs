@@ -1,6 +1,4 @@
-import { readSync, realpathSync } from "node:fs"
 import { BlockList, isIP } from "node:net"
-import { pathToFileURL } from "node:url"
 
 const supported = new BlockList()
 supported.addSubnet("0.0.0.0", 0, "ipv4")
@@ -32,148 +30,71 @@ for (const subnet of [
   blocked.addSubnet(network, Number(prefix), isIP(network) === 6 ? "ipv6" : "ipv4")
 }
 
-const credentialParameters = new Set([
-  "token",
-  "accesstoken",
-  "refreshtoken",
-  "idtoken",
-  "clientsecret",
-  "apikey",
-  "password",
-  "passwd",
-  "sessionid",
-  "authorization",
-  "signature",
-  "sig",
-  "jwt",
-  "secret",
-  "secretkey",
-  "privatekey",
-  "authtoken",
-  "oauthtoken",
-  "resettoken",
-  "invitetoken",
-  "sessiontoken",
-  "apitoken",
-  "accesskey",
-  "jsessionid",
-  "phpsessid",
-  "xamzsignature",
-  "xamzcredential",
-  "xamzsecuritytoken",
-  "xgoogsignature",
-  "xgoogcredential",
-])
+const CREDENTIAL_KEYS = new Set(
+  "token accesstoken refreshtoken idtoken authtoken apitoken sessiontoken resettoken invitetoken password passwd secret clientsecret apikey sessionid sid jsessionid phpsessid authorization jwt".split(
+    " ",
+  ),
+)
+const SIGNING_KEYS = new Set(
+  "sig signature keypairid policy se sp sv sr skoid sktid expires".split(" "),
+)
 const jwt =
   /(?:^|[^A-Za-z0-9_-])eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+(?=$|[^A-Za-z0-9_-])/
+const normalize = (name) => name.toLowerCase().replace(/[-_]/g, "")
+const credential = ([name, value]) =>
+  (value.length > 0 && CREDENTIAL_KEYS.has(normalize(name))) || jwt.test(value)
+const fragmentParams = (url) =>
+  new URLSearchParams(url.hash.slice(1).replace(/^!/, "").replace(/^[^?]*\?/, ""))
 
-function decodeComponent(value) {
-  // Nested values may be ordinary text with literal percent signs.
-  return new URLSearchParams(
-    `component=${value.replaceAll("&", "%26").replaceAll("+", "%2B")}`,
-  ).get("component")
+function safeDecode(value) {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return value
+  }
 }
 
-export function checkUrlPrivacy(source) {
-  const maximumNestedUrls = 64
-  const pending = [source]
-  const seen = new Set()
-  while (pending.length > 0) {
-    const url = pending.pop()
-    if (seen.has(url.href)) continue
-    if (seen.size >= maximumNestedUrls) return "too many nested URLs to inspect safely"
-    seen.add(url.href)
-    if (url.username || url.password) return "embedded URL credentials are not allowed"
+export function hasCredentials(value) {
+  const url = URL.parse(value)
+  if (
+    url &&
+    ([...url.searchParams, ...fragmentParams(url)].some(credential) ||
+      jwt.test(safeDecode(url.pathname)))
+  )
+    return "credential-bearing URL components are not allowed"
+}
 
-    const rawFragment = url.hash.slice(1)
-    const pathname = decodeComponent(url.pathname)
-    const fragment = decodeComponent(rawFragment)
-    const components = [pathname, fragment].flatMap((part) => part.split(/[/?&#=;]/))
-    const matrixPaths = [url.pathname, pathname]
-    const fragmentQueries = []
-    // Keep trailing delimiters so nested credential values starting with # remain nonempty.
-    const fragmentParts = [rawFragment, fragment].flatMap((part) => [
-      part,
-      ...part.split(/(?<=#)/).slice(1),
-    ])
-    for (const part of fragmentParts) {
-      const route = part.replace(/^!/, "")
-      const queryStart = route.indexOf("?")
-      if (route.startsWith("/")) {
-        const path = queryStart < 0 ? route : route.slice(0, queryStart)
-        matrixPaths.push(path)
-        if (/^\/[A-Za-z0-9_%.-]+=/.test(path)) fragmentQueries.push(path.slice(1))
-        if (queryStart >= 0) fragmentQueries.push(route.slice(queryStart + 1))
-      } else {
-        fragmentQueries.push(route)
-        if (queryStart >= 0) fragmentQueries.push(route.slice(queryStart + 1))
-      }
-    }
-    const matrixParameters = matrixPaths
-      .flatMap((path) => path.split("/").flatMap((segment) => segment.split(";").slice(1)))
-      // Matrix fields use semicolons, so ampersands remain part of a field's value.
-      .flatMap((field) => [...new URLSearchParams(field.replaceAll("&", "%26"))])
-    const parameters = [
-      ...url.searchParams,
-      ...fragmentQueries.flatMap((query) => [...new URLSearchParams(query)]),
-      ...matrixParameters,
-    ]
+export function redactUrl(value) {
+  const url = URL.parse(value)
+  if (!url) return value
+  const original = url.href
+  url.username = url.password = ""
+  const params = url.searchParams
+  let changed = false
+  for (const [name, content] of params) {
+    const key = normalize(name)
     if (
-      parameters.some(
-        ([name, value]) =>
-          jwt.test(name) ||
-          (value.length > 0 &&
-            (credentialParameters.has(name.toLowerCase().replace(/[-_]/g, "")) || jwt.test(value))),
-      ) ||
-      components.some((part) => jwt.test(part))
+      CREDENTIAL_KEYS.has(key) ||
+      SIGNING_KEYS.has(key) ||
+      /^(xamz|xgoog)/.test(key) ||
+      jwt.test(content)
     ) {
-      return "secret-bearing URL components are not allowed"
-    }
-    for (const [, value] of parameters) {
-      let candidate = value
-      for (let remaining = maximumNestedUrls; remaining > 0; remaining--) {
-        // The fixed base only parses relative values; nested URLs are never requested.
-        const nested = URL.parse(candidate, "https://url.invalid/")
-        if (nested) {
-          const nestedPath = decodeComponent(nested.pathname)
-          if (
-            nested.username ||
-            nested.password ||
-            nested.search ||
-            nested.hash ||
-            (nestedPath.includes(";") && (URL.canParse(candidate) || /[/\\]/.test(candidate))) ||
-            jwt.test(nestedPath)
-          ) {
-            pending.push(nested)
-            break
-          }
-        }
-        // Preserve parsed URL boundaries; inspect their parameter values separately.
-        if (URL.canParse(candidate)) break
-        const decoded = decodeComponent(candidate)
-        if (decoded === candidate) break
-        if (remaining === 1) return "too many encoded URL layers to inspect safely"
-        candidate = decoded
-      }
+      params.set(name, "REDACTED")
+      changed = true
     }
   }
+  if (changed) url.search = params.toString()
+  const replaceJwt = (part) =>
+    part.replace(new RegExp(jwt, "g"), (match) => match.replace(/eyJ.*/, "REDACTED"))
+  url.pathname = replaceJwt(url.pathname.replace(/;(jsessionid|phpsessid)=[^/?#]*/gi, ""))
+  url.hash = [...fragmentParams(url)].some(credential) ? "" : replaceJwt(url.hash)
+  return url.href === original ? value : url.href
 }
 
 export function checkPublicUrl(value) {
-  if (typeof value !== "string" || !value.trim() || !URL.canParse(value))
-    return "requires an absolute HTTP(S) URL"
-  const url = new URL(value)
-  if (!["http:", "https:"].includes(url.protocol)) return "requires an absolute HTTP(S) URL"
-  try {
-    decodeURIComponent(url.pathname)
-    decodeURIComponent(url.hash.slice(1))
-  } catch (error) {
-    if (!(error instanceof URIError)) throw error
-    return "invalid encoded URL components are not allowed"
-  }
-  const privacyProblem = checkUrlPrivacy(url)
-  if (privacyProblem) return privacyProblem
-
+  const url = typeof value === "string" && value.trim() ? URL.parse(value) : null
+  if (!url || !["http:", "https:"].includes(url.protocol)) return "requires an absolute HTTP(S) URL"
+  if (url.username || url.password) return "embedded URL credentials are not allowed"
   const host = url.hostname
     .replace(/^\[|\]$/g, "")
     .replace(/\.+$/, "")
@@ -185,63 +106,10 @@ export function checkPublicUrl(value) {
       return "nonpublic IP destination is not allowed"
   } else if (
     !host.includes(".") ||
-    [
-      "localhost",
-      "local",
-      "internal",
-      "intranet",
-      "private",
-      "corp",
-      "home",
-      "lan",
-      "home.arpa",
-      "localdomain",
-      "localdomain4",
-      "localdomain6",
-      "test",
-      "invalid",
-      "example",
-      "alt",
-      "onion",
-    ].some((suffix) => host === suffix || host.endsWith(`.${suffix}`))
+    "localhost local internal intranet private corp home lan home.arpa localdomain localdomain4 localdomain6 test invalid example alt onion"
+      .split(" ")
+      .some((suffix) => host === suffix || host.endsWith(`.${suffix}`))
   ) {
     return "local or reserved hostname destination is not allowed"
   }
-}
-
-function readStdinUrl() {
-  const maximumBytes = 64 * 1024
-  const buffer = Buffer.alloc(maximumBytes + 1)
-  let length = 0
-  while (length < buffer.length) {
-    const bytes = readSync(0, buffer, length, buffer.length - length, null)
-    if (bytes === 0) break
-    length += bytes
-  }
-  if (length > maximumBytes) throw new Error("URL stdin input exceeds 64 KiB.")
-  const value = new TextDecoder("utf-8", { fatal: true }).decode(buffer.subarray(0, length)).trim()
-  if (!value || /\s/.test(value)) throw new Error("Expected exactly one URL on stdin.")
-  return value
-}
-
-if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) {
-  if (process.argv.length !== 3) {
-    console.error("Usage: node check-public-url.mjs URL | --stdin")
-    process.exit(2)
-  }
-  let value = process.argv[2]
-  if (value === "--stdin") {
-    try {
-      value = readStdinUrl()
-    } catch (error) {
-      console.error(`Cannot read reference URL: ${error.message}`)
-      process.exit(2)
-    }
-  }
-  const problem = checkPublicUrl(value)
-  if (problem) {
-    console.error(`Cannot use reference URL: ${problem}.`)
-    process.exit(1)
-  }
-  console.log("Passed static URL checks; no DNS lookup or network request was performed.")
 }
