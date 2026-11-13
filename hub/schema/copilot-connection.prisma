@@ -1,0 +1,21 @@
+model CopilotConnection {
+  // ID columns
+  id                      String @id @default(uuid()) @db.Uuid
+  connectedByMembershipId String @map("connected_by_membership_id") @db.Uuid
+
+  // Relations
+  connectedByMembership Membership @relation(fields: [connectedByMembershipId], references: [id], onDelete: Restrict)
+
+  // Attribute columns
+  key                String    @unique @default("global") @db.VarChar(20)
+  credentialProvider String    @map("credential_provider") @db.VarChar(100)
+  credentialDigest   String    @map("credential_digest") @db.VarChar(64)
+  verifiedAt         DateTime  @map("verified_at") @db.Timestamptz(3)
+
+  // Timestamp columns
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([connectedByMembershipId])
+  @@map("copilot_connections")
+}

@@ -23,6 +23,7 @@ import { createMockSession } from "../create-mock-session"
 import { createFixtureSeed } from "../create-fixture-seed"
 import type { MockFlowContext } from "../flow-context/types"
 import { createReviewStore } from "../create-review-store"
+import { createLearningsStore } from "../create-learnings-store"
 import { createProductStore } from "../create-product-store"
 import { createSettingsStore } from "../create-settings-store"
 import { MockStoreError } from "../store-error"
@@ -175,6 +176,11 @@ export function createMockStore({ origin, seed = createFixtureSeed() }: Options)
     prototypeResponse,
   }
   const settings = createSettingsStore(flowContext)
+  const learnings = createLearningsStore(flowContext, {
+    copilot: () => settings.getCopilot(),
+    record: (operation, detail, repositoryId) =>
+      settings.recordLearningActivity(operation, detail, repositoryId),
+  })
 
   return {
     origin: apiOrigin,
@@ -182,6 +188,7 @@ export function createMockStore({ origin, seed = createFixtureSeed() }: Options)
     flowContext,
     review: createReviewStore(flowContext),
     product: createProductStore(flowContext),
+    learnings,
     settings,
     getWorkspace(): WorkspaceResponse {
       return {

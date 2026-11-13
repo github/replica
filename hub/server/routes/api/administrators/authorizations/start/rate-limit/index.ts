@@ -4,7 +4,9 @@ import type { RequestHandler } from "express"
 import type { AdministratorRouteDependencies } from "../../../../auth/types.ts"
 import { readAdministratorSession } from "../../../read-administrator-session/index.ts"
 
-export function rateLimit(dependencies: AdministratorRouteDependencies): RequestHandler {
+export function rateLimit(
+  dependencies: Pick<AdministratorRouteDependencies, "findSession" | "start">,
+): RequestHandler {
   return async (request, response, next) => {
     try {
       const session = await readAdministratorSession(request, dependencies)

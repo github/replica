@@ -11,6 +11,7 @@ export default [
   route("repositories", "routes/repositories/index.tsx"),
   route("settings/administrators", "routes/settings-administrators/index.tsx"),
   route("settings/administrators/confirm", "routes/settings-administrator-authorization/index.tsx"),
+  route("settings/sessions/confirm", "routes/settings-session-revocation-authorization/index.tsx"),
   route(
     "settings/administrators/:membershipId/:operation",
     "routes/settings-administrator-confirmation/index.tsx",

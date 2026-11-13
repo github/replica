@@ -12,7 +12,7 @@ export async function lockSensitiveAuthorization(
       expiresAt: Date
       expired: boolean
       hubSessionId: string
-      operation: "DESIGNATE_ADMINISTRATORS" | "REVOKE_ADMINISTRATOR"
+      operation: "DESIGNATE_ADMINISTRATORS" | "END_ALL_HUB_SESSIONS" | "REVOKE_ADMINISTRATOR"
       targetMembershipIds: string[]
       verifiedAt: Date | null
     }>

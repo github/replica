@@ -149,6 +149,33 @@ describe("real security audit frontend integration", () => {
     )
   })
 
+  it("accepts and renders the safe Copilot credential provider field", async () => {
+    await renderApplication("/settings/audit?scope=hub", [
+      authenticatedSession(),
+      http.get(`${window.location.origin}/api/security-audits`, () =>
+        HttpResponse.json({
+          records: [
+            {
+              id: "22222222-2222-4222-8222-222222222222",
+              occurredAt: "2026-11-10T12:00:00.000Z",
+              action: "copilot.connection.connected",
+              outcome: "success",
+              actor: { membershipId },
+              context: {
+                provider: "environment_token",
+                phase: "connected",
+              },
+            },
+          ],
+          nextCursor: null,
+        }),
+      ),
+    ])
+
+    expect(await screen.findByText("environment_token")).toBeVisible()
+    expect(screen.getByText("Provider")).toBeVisible()
+  })
+
   it("keeps the real Hub audit read-only without requesting product settings APIs", async () => {
     const { requests, router } = await renderApplication("/settings/audit?scope=hub", [
       authenticatedSession(),

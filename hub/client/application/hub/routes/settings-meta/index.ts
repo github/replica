@@ -17,7 +17,6 @@ export function settingsMeta(section: SettingsSection, loaderData?: SettingsRout
     "admin-confirmation": "Confirm Hub administrator role change",
     enrollment: "Enroll a Hub operator",
     admins: "Hub administrators",
-    learnings: "Learnings",
     notifications: "Inbox",
     audit: "Security audit",
     sessions: "End all Hub sessions",
@@ -25,7 +24,7 @@ export function settingsMeta(section: SettingsSection, loaderData?: SettingsRout
   }
   let title = labels[section]
   if (loaderData.surface === "workspace") {
-    if ((section === "analytics" || section === "learnings") && loaderData.state.repository) {
+    if (section === "analytics" && loaderData.state.repository) {
       title += ` - ${loaderData.state.repository.nameWithOwner}`
     } else if (section === "github" && loaderData.query.change) {
       title = {

@@ -11,6 +11,9 @@ describe("isAdministratorRoute()", () => {
     "/settings/audit",
     "/settings/audit/",
     "/Settings/Audit",
+    "/settings/copilot",
+    "/settings/copilot/",
+    "/Settings/Copilot",
   ])("classifies %s as an administrator route", (pathname) => {
     expect(isAdministratorRoute(new Request(`https://hub.example.test${pathname}`))).toBe(true)
   })

@@ -165,6 +165,34 @@ describe("SecurityAuditPage()", () => {
     )
   })
 
+  it("renders the safe Copilot credential provider field", () => {
+    render(
+      <ThemeProvider>
+        <SecurityAuditPage
+          data={{
+            ...data,
+            events: [
+              {
+                id: "11111111-1111-4111-8111-111111111111",
+                time: "2026-11-10T12:00:00.000Z",
+                action: "copilot.connection.connected",
+                actor: "Membership 22222222-2222-4222-8222-222222222222",
+                context: [
+                  { label: "Provider", value: "environment_token" },
+                  { label: "Phase", value: "connected" },
+                ],
+                outcome: "Succeeded",
+              },
+            ],
+          }}
+        />
+      </ThemeProvider>,
+    )
+
+    expect(screen.getByRole("table")).toHaveTextContent("Provider")
+    expect(screen.getByRole("table")).toHaveTextContent("environment_token")
+  })
+
   it("shows the verification result on the operator's existing return page", () => {
     const notice =
       "GitHub authorization succeeded for this connection only. Return to the action and submit it again within five minutes."

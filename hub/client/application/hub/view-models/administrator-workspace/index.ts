@@ -1,7 +1,10 @@
 import type { HubAdministrationWorkspaceData } from "@features/hub-administration-workspace/types"
 import type { CurrentHubSession } from "@application/hub/administrator-contracts/types"
 
-export function administratorWorkspace(session: CurrentHubSession): HubAdministrationWorkspaceData {
+export function administratorWorkspace(
+  session: CurrentHubSession,
+  selectedSection: HubAdministrationWorkspaceData["selectedSection"] = "admins",
+): HubAdministrationWorkspaceData {
   return {
     accountMenuLabel: `Account menu for @${session.login}`,
     authenticityToken: "",
@@ -19,7 +22,7 @@ export function administratorWorkspace(session: CurrentHubSession): HubAdministr
     productName: "Replica Hub",
     repositoriesLabel: "Home",
     repositoriesPath: "/",
-    selectedSection: "admins",
+    selectedSection,
     settingsNavigationLabel: "Security and settings",
     signOutLabel: "Sign out",
     signOutPath: "/api/auth/session/sign-out",
@@ -31,6 +34,16 @@ export function administratorWorkspace(session: CurrentHubSession): HubAdministr
         section: "admins",
         label: "Hub administrators",
         path: "/settings/administrators",
+      },
+      {
+        section: "sessions",
+        label: "End all Hub sessions",
+        path: "/settings/sessions",
+      },
+      {
+        section: "copilot",
+        label: "Copilot connection",
+        path: "/settings/copilot",
       },
     ],
   }

@@ -9,7 +9,7 @@ export async function getSensitiveAuthorizationAuditData(
       actorMembershipId: string
       expiresAt: Date
       expired: boolean
-      operation: "DESIGNATE_ADMINISTRATORS" | "REVOKE_ADMINISTRATOR"
+      operation: "DESIGNATE_ADMINISTRATORS" | "END_ALL_HUB_SESSIONS" | "REVOKE_ADMINISTRATOR"
       targetCount: number
     }>
   >`

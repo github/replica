@@ -12,157 +12,170 @@ import { ReviewRelativeTime } from "@features/review-relative-time"
 import type { AcceptedLearning, LearningSuggestion, LearningsPageData } from "./types"
 import "./styles.css"
 
-type Copy = LearningsPageData["copy"]
+type Copy = Extract<LearningsPageData, { accessDenied: false }>["copy"]
 
 /** Shows what Hub suggests and what agents get, so a repository administrator decides both. */
 export function LearningsPage({ data }: { data: LearningsPageData }) {
+  return (
+    <RepositoryWorkspace data={data}>
+      {data.accessDenied ? (
+        <div className="learnings-page">
+          <HubContentPageHeader headingAs="h1" title="Learnings" />
+          <HubAlert title={data.accessDeniedLabel} variant="warning" />
+        </div>
+      ) : (
+        <LearningsContent data={data} />
+      )}
+    </RepositoryWorkspace>
+  )
+}
+
+function LearningsContent({ data }: { data: Extract<LearningsPageData, { accessDenied: false }> }) {
   const copy = data.copy
 
   return (
-    <RepositoryWorkspace data={data}>
-      <div className="learnings-page">
-        <HubContentPageHeader
-          headingAs="h1"
-          title={copy.heading}
-          description={copy.description}
-          trailing={
-            data.run.available ? (
-              <form action={data.run.path} method="post">
-                <input type="hidden" name="authenticity_token" value={data.authenticityToken} />
-                <Button type="submit" variant="secondary">
-                  {copy.runLabel}
-                </Button>
-              </form>
-            ) : null
-          }
-        />
-        {data.alert ? <HubAlert title={data.alert} variant="critical" /> : null}
-        {data.notice ? <HubToast title={data.notice} /> : null}
-        {data.loadError ? <HubAlert title={data.loadError} variant="critical" /> : null}
-        {data.identityNotice ? <HubAlert title={data.identityNotice} variant="warning" /> : null}
+    <div className="learnings-page">
+      <HubContentPageHeader
+        headingAs="h1"
+        title={copy.heading}
+        description={copy.description}
+        trailing={
+          data.run.available ? (
+            <form action={data.run.path} method="post">
+              <input type="hidden" name="authenticity_token" value={data.authenticityToken} />
+              <Button type="submit" variant="secondary">
+                {copy.runLabel}
+              </Button>
+            </form>
+          ) : null
+        }
+      />
+      {data.alert ? <HubAlert title={data.alert} variant="critical" /> : null}
+      {data.notice ? <HubToast title={data.notice} /> : null}
+      {data.loadError ? <HubAlert title={data.loadError} variant="critical" /> : null}
+      {data.identityNotice ? <HubAlert title={data.identityNotice} variant="warning" /> : null}
 
-        <div className="learnings-page__status">
-          {data.status.refused ? (
-            <HubAlert title={data.status.message} variant="warning" />
-          ) : (
-            <Text as="p">{data.status.message}</Text>
-          )}
-          {data.status.activity ? (
-            <Text as="p" role="status">
-              {data.status.activity}
-            </Text>
-          ) : null}
-          <Text as="p" size="200" variant="muted">
-            {data.status.usage}
+      <div className="learnings-page__status">
+        {data.status.refused ? (
+          <HubAlert title={data.status.message} variant="warning" />
+        ) : (
+          <Text as="p">{data.status.message}</Text>
+        )}
+        {data.status.activity ? (
+          <Text as="p" role="status">
+            {data.status.activity}
           </Text>
-        </div>
-
-        <section className="learnings-page__section" aria-labelledby="learnings-suggestions">
-          <div className="learnings-page__section-header">
-            <Heading as="h2" size="5" id="learnings-suggestions">
-              {copy.suggestionsHeading}
-            </Heading>
-            <HubCounter>{data.suggestions.length}</HubCounter>
-          </div>
-          {data.suggestions.length ? (
-            data.suggestions.map((suggestion) => (
-              <Suggestion
-                key={suggestion.id}
-                suggestion={suggestion}
-                copy={copy}
-                authenticityToken={data.authenticityToken}
-                canDecide={data.canDecide !== false}
-              />
-            ))
-          ) : (
-            <Text as="p">{copy.suggestionsEmpty}</Text>
-          )}
-        </section>
-
-        <section className="learnings-page__section" aria-labelledby="learnings-accepted">
-          <div className="learnings-page__section-header">
-            <Heading as="h2" size="5" id="learnings-accepted">
-              {copy.acceptedHeading}
-            </Heading>
-            <HubCounter>{data.learnings.length}</HubCounter>
-          </div>
-          {data.learnings.length ? (
-            data.learnings.map((learning) => (
-              <Learning
-                key={learning.id}
-                learning={learning}
-                copy={copy}
-                authenticityToken={data.authenticityToken}
-                canDecide={data.canDecide !== false}
-              />
-            ))
-          ) : (
-            <Text as="p">{copy.acceptedEmpty}</Text>
-          )}
-        </section>
-
-        <section className="learnings-page__section" aria-labelledby="learnings-recall">
-          <Heading as="h2" size="5" id="learnings-recall">
-            {copy.recallHeading}
-          </Heading>
-          <Text as="p">{copy.recallDescription}</Text>
-          {data.recall.count ? (
-            <pre
-              className="learnings-page__recall"
-              role="region"
-              aria-labelledby="learnings-recall"
-              tabIndex={0}
-            >
-              {data.recall.text}
-            </pre>
-          ) : (
-            <Text as="p">{copy.recallEmpty}</Text>
-          )}
-        </section>
-
-        <section className="learnings-page__section" aria-labelledby="learnings-runs">
-          <Heading as="h2" size="5" id="learnings-runs">
-            {copy.runsHeading}
-          </Heading>
-          {data.runs.length ? (
-            <div
-              className="learnings-page__runs"
-              role="region"
-              aria-labelledby="learnings-runs"
-              tabIndex={0}
-            >
-              <table>
-                <thead>
-                  <tr>
-                    <th scope="col">{copy.runColumns.started}</th>
-                    <th scope="col">{copy.runColumns.startedBy}</th>
-                    <th scope="col">{copy.runColumns.result}</th>
-                    <th scope="col">{copy.runColumns.usage}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.runs.map((run) => (
-                    <tr key={run.id}>
-                      <td>
-                        <ReviewRelativeTime value={run.startedAt} />
-                      </td>
-                      <td>{run.startedBy}</td>
-                      <td>
-                        <span className="learnings-page__run-state">{run.stateLabel}</span>
-                        {run.result ? `: ${run.result}` : null}
-                      </td>
-                      <td>{run.usage}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <Text as="p">{copy.runsEmpty}</Text>
-          )}
-        </section>
+        ) : null}
+        <Text as="p" size="200" variant="muted">
+          {data.status.usage}
+        </Text>
       </div>
-    </RepositoryWorkspace>
+
+      <section className="learnings-page__section" aria-labelledby="learnings-suggestions">
+        <div className="learnings-page__section-header">
+          <Heading as="h2" size="5" id="learnings-suggestions">
+            {copy.suggestionsHeading}
+          </Heading>
+          <HubCounter>{data.suggestions.length}</HubCounter>
+        </div>
+        {data.suggestions.length ? (
+          data.suggestions.map((suggestion) => (
+            <Suggestion
+              key={`${suggestion.id}:${suggestion.digest}`}
+              suggestion={suggestion}
+              copy={copy}
+              authenticityToken={data.authenticityToken}
+              canDecide={data.canDecide}
+            />
+          ))
+        ) : (
+          <Text as="p">{copy.suggestionsEmpty}</Text>
+        )}
+      </section>
+
+      <section className="learnings-page__section" aria-labelledby="learnings-accepted">
+        <div className="learnings-page__section-header">
+          <Heading as="h2" size="5" id="learnings-accepted">
+            {copy.acceptedHeading}
+          </Heading>
+          <HubCounter>{data.learnings.length}</HubCounter>
+        </div>
+        {data.learnings.length ? (
+          data.learnings.map((learning) => (
+            <Learning
+              key={learning.id}
+              learning={learning}
+              copy={copy}
+              authenticityToken={data.authenticityToken}
+              canDecide={data.canDecide}
+            />
+          ))
+        ) : (
+          <Text as="p">{copy.acceptedEmpty}</Text>
+        )}
+      </section>
+
+      <section className="learnings-page__section" aria-labelledby="learnings-recall">
+        <Heading as="h2" size="5" id="learnings-recall">
+          {copy.recallHeading}
+        </Heading>
+        <Text as="p">{copy.recallDescription}</Text>
+        {data.recall.count ? (
+          <pre
+            className="learnings-page__recall"
+            role="region"
+            aria-labelledby="learnings-recall"
+            tabIndex={0}
+          >
+            {data.recall.text}
+          </pre>
+        ) : (
+          <Text as="p">{copy.recallEmpty}</Text>
+        )}
+      </section>
+
+      <section className="learnings-page__section" aria-labelledby="learnings-runs">
+        <Heading as="h2" size="5" id="learnings-runs">
+          {copy.runsHeading}
+        </Heading>
+        {data.runs.length ? (
+          <div
+            className="learnings-page__runs"
+            role="region"
+            aria-labelledby="learnings-runs"
+            tabIndex={0}
+          >
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">{copy.runColumns.started}</th>
+                  <th scope="col">{copy.runColumns.startedBy}</th>
+                  <th scope="col">{copy.runColumns.result}</th>
+                  <th scope="col">{copy.runColumns.usage}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.runs.map((run) => (
+                  <tr key={run.id}>
+                    <td>
+                      <ReviewRelativeTime value={run.startedAt} />
+                    </td>
+                    <td>{run.startedBy}</td>
+                    <td>
+                      <span className="learnings-page__run-state">{run.stateLabel}</span>
+                      {run.result ? `: ${run.result}` : null}
+                    </td>
+                    <td>{run.usage}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <Text as="p">{copy.runsEmpty}</Text>
+        )}
+      </section>
+    </div>
   )
 }
 

@@ -18,23 +18,22 @@ export const sessionRevocationData: SessionRevocationPageData = {
   sessionRevocationPath: null,
   pageTitle: "End all Hub sessions",
   heading: "End all Hub sessions",
-  description:
-    "Sign everyone out of this Hub and disconnect existing Copilot canvas connections. People can sign in and approve new connections afterward.",
+  description: "Sign everyone out of this Hub. People can sign in again afterward.",
   canRevoke: true,
   signedOut: false,
   scope:
-    "Hub will end existing browser sessions and revoke canvas access and refresh credentials. Pending canvas approvals and signed-in preview access will end, including existing handoffs. Public share links and public previews will not change.",
+    "Hub will advance the global session revision, end every active browser session, and invalidate pending sign-ins and sensitive authorizations. Product data and public links will not change.",
   ownSession:
     "Your own session (@octocat) will end too. This browser will show the result without requiring another sign-in.",
   verification:
-    "GitHub must have verified this browser's account within the last five minutes. If verification is required, Hub ends the sessions after it succeeds.",
+    "Hub will ask the current session's authentication provider to verify the same account before the change.",
   counts:
-    "3 browser sessions, 2 canvas connections, and 1 pending approval. Counts can change before confirmation.",
+    "3 active browser sessions, 2 in-flight sign-ins, and 1 pending sensitive authorization. Counts can change before confirmation.",
   emptyLabel: null,
   confirmLabel: "I understand this will end everyone's sessions, including my own.",
   submitLabel: "End all sessions",
   cancelLabel: "Cancel",
-  submitPath: "/session_revocation",
+  submitPath: "/api/session-revocation/authorizations/start",
   signInLabel: "Return to sign-in",
   signInPath: "/",
 }
@@ -43,9 +42,9 @@ const result: SessionRevocationPageData = {
   ...sessionRevocationData,
   heading: "All existing Hub sessions ended",
   description:
-    "Your session has ended. Existing browser sessions and canvas credentials no longer authorize access. Pending connection approvals and signed-in preview handoffs have ended. Sign in again to continue.",
+    "Your session ended with every other existing Hub session. People can sign in again to continue.",
   scope:
-    "Public share links and public previews have not changed. People can sign in and approve new canvas connections.",
+    "The global session revision advanced. Existing sessions and pending authentication or sensitive authorization state no longer authorize access. Product data and public links did not change.",
   canRevoke: false,
   signedOut: true,
   administrationWorkspace: null,
@@ -69,13 +68,28 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Confirmation: Story = {}
+export const ProviderVerified: Story = {
+  args: {
+    data: {
+      ...sessionRevocationData,
+      authorizationId: "11111111-1111-4111-8111-111111111111",
+      confirmLabel: null,
+      description:
+        "Your authentication provider verified this browser. Review the current counts, then end every existing Hub session or cancel without changing access.",
+      submitLabel: "End all sessions now",
+      submitPath: "/api/session-revocation/authorizations/continue",
+      verification: "The authorization is verified and can be used once before it expires.",
+    },
+  },
+}
 export const OnlyYourSession: Story = {
   args: {
     data: {
       ...sessionRevocationData,
-      counts: "1 browser session, 0 canvas connections, and 0 pending approvals.",
+      counts:
+        "1 active browser session, 0 in-flight sign-ins, and 0 pending sensitive authorizations.",
       emptyLabel:
-        "No other browser sessions, canvas connections, or pending approvals are active. Your own session will still end.",
+        "No other active sessions or pending authorization attempts are present. Your own session will still end.",
     },
   },
 }
@@ -95,12 +109,3 @@ export const Denied: Story = {
   },
 }
 export const Ended: Story = { args: { data: result } }
-export const DisconnectDeliveryFailed: Story = {
-  args: {
-    data: {
-      ...result,
-      alert:
-        "Credentials were revoked, but Hub could not deliver every live disconnect. Existing connections cannot authorize new subscriptions or receive review updates; periodic checks also close them. Ask the deployment operator to check the live connection service.",
-    },
-  },
-}

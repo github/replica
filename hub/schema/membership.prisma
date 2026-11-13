@@ -8,6 +8,7 @@ model Membership {
   assignments MembershipAssignment[]
   sessions    HubSession[]
   sensitiveAuthorizations SensitiveAuthorization[]
+  copilotConnections CopilotConnection[]
 
   // Attribute columns
   lifecycle MembershipLifecycle @default(ACTIVE)

@@ -54,16 +54,16 @@ function PublicShareComponent() {
   return <ProductPublicRoute loaderData={useLoaderData<typeof loadPublicShare>()} />
 }
 
-function LearningsComponent() {
-  return <SettingsLearningsRoute loaderData={useLoaderData<typeof loadLearnings>()} />
-}
-
 function AuditComponent() {
   return <SettingsAuditRoute loaderData={useLoaderData<typeof loadAudit>()} />
 }
 
 function CopilotComponent() {
   return <SettingsCopilotRoute loaderData={useLoaderData<typeof loadCopilot>()} />
+}
+
+function LearningsComponent() {
+  return <SettingsLearningsRoute loaderData={useLoaderData<typeof loadLearnings>()} />
 }
 
 function NotificationsComponent() {
@@ -101,12 +101,6 @@ const workspaceRoutes: RouteObject[] = [
     Component: ShareLinksComponent,
   },
   {
-    path: "/repositories/:repositoryId/learnings",
-    loader: (args) => loadLearnings({ ...args, serverLoader: unavailableServerRoute }),
-    action: (args) => saveLearnings({ ...args, serverAction: unavailableServerRoute }),
-    Component: LearningsComponent,
-  },
-  {
     path: "/settings/audit",
     loader: (args) => loadAudit({ ...args, serverLoader: unavailableServerRoute }),
     Component: AuditComponent,
@@ -115,6 +109,12 @@ const workspaceRoutes: RouteObject[] = [
     path: "/settings/copilot",
     loader: (args) => loadCopilot({ ...args, serverLoader: unavailableServerRoute }),
     Component: CopilotComponent,
+  },
+  {
+    path: "/repositories/:repositoryId/learnings",
+    loader: loadLearnings,
+    action: saveLearnings,
+    Component: LearningsComponent,
   },
   {
     path: "/notifications",
@@ -401,96 +401,6 @@ describe("Hub expanded frontend flows", () => {
       expect(privateReads).not.toHaveBeenCalled()
     },
   )
-
-  it("retains a failed learning edit and keeps the accepted wording in recall and audit across navigation", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    const server = setupServer(...createMockHandlers(store))
-    const router = await renderHubFlow(server, "/repositories/2001/learnings", {
-      workspaceRoutes,
-    })
-    const suggestion = await screen.findByRole("article", {
-      name: "Keep a visible label above every form field.",
-    })
-    fireEvent.click(within(suggestion).getByRole("button", { name: "Edit and accept" }))
-    const wording = within(suggestion).getByRole("textbox", { name: "Wording agents get" })
-    fireEvent.change(wording, { target: { value: "Use a visible label on every field." } })
-    const failedReads = vi.fn(() =>
-      HttpResponse.json({ error: "Loaded settings are unavailable." }, { status: 503 }),
-    )
-    server.use(
-      http.post(`${store.origin}/api/settings/actions`, () =>
-        HttpResponse.json({ error: "Decisions are temporarily unavailable." }, { status: 503 }),
-      ),
-      http.get(`${store.origin}/api/*`, failedReads),
-    )
-
-    await router.settle(() =>
-      fireEvent.click(within(suggestion).getByRole("button", { name: "Accept with this wording" })),
-    )
-
-    expect(
-      (await screen.findByText("Decisions are temporarily unavailable.")).closest('[role="alert"]'),
-    ).toBeInTheDocument()
-    expect(wording).toHaveValue("Use a visible label on every field.")
-    expect(failedReads).not.toHaveBeenCalled()
-    server.resetHandlers()
-    await router.settle(() =>
-      fireEvent.click(within(suggestion).getByRole("button", { name: "Accept with this wording" })),
-    )
-    expect(
-      await screen.findByRole("article", { name: "Use a visible label on every field." }),
-    ).toBeInTheDocument()
-    expect(
-      screen
-        .getAllByRole("region", { name: "What an agent gets" })
-        .map((region) => region.textContent)
-        .join("\n"),
-    ).toContain("Use a visible label on every field.")
-    await router.settle(() => router.navigate("/settings/audit?repositoryId=2001"))
-    const audit = await screen.findByRole("table", { name: "Security audit" })
-    const latest = within(audit).getAllByRole("row")[1]
-    if (!latest) throw new Error("The new learning decision must have an audit row.")
-    expect(within(latest).getByRole("cell", { name: "learning-decide" })).toBeInTheDocument()
-    await router.settle(() => router.navigate("/repositories/2001/learnings"))
-    expect(
-      await screen.findByRole("article", { name: "Use a visible label on every field." }),
-    ).toBeInTheDocument()
-    expect(screen.getAllByRole("button", { name: "Retire" }).length).toBeGreaterThan(0)
-  })
-
-  it("lets a reader inspect learnings without offering decisions or accepting a forged decision", async () => {
-    const store = createMockStore({ origin: window.location.origin })
-    store.session.select("reader")
-    const query = settingsQuerySchema.parse({ repositoryId: "2001" })
-    const learning = store.settings
-      .getWorkspace(query)
-      .learnings.find((item) => item.state === "suggested")
-    if (!learning) throw new Error("The reader must have a suggested learning to inspect.")
-    const server = setupServer(...createMockHandlers(store))
-    await renderHubFlow(server, "/repositories/2001/learnings", { workspaceRoutes })
-    expect(
-      await screen.findByRole("article", {
-        name: learning.content,
-      }),
-    ).toBeInTheDocument()
-    expect(screen.queryByRole("button", { name: "Retire" })).not.toBeInTheDocument()
-    expect(screen.queryByRole("button", { name: "Accept" })).not.toBeInTheDocument()
-    const forbidden = await fetch(`${store.origin}/api/settings/actions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        operation: "learning-decide",
-        repositoryId: "2001",
-        learningId: learning.id,
-        decision: "accept",
-        digest: learning.digest,
-      }),
-    })
-    expect(forbidden.status).toBe(403)
-    expect(
-      store.settings.getWorkspace(query).learnings.find((item) => item.id === learning.id),
-    ).toEqual(learning)
-  })
 
   it("keeps inbox read state when opening its real seeded conversation and returning", async () => {
     const store = createMockStore({ origin: window.location.origin })
