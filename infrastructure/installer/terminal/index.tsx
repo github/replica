@@ -110,14 +110,6 @@ export function createTerminalUI(
         options: options.map((option) => ({ ...option, label: plain(option.label) })),
         resolve,
       })),
-    multiSelect: (message, options, initial = []) =>
-      ask<string[]>((resolve) => ({
-        kind: "multi-select",
-        message: plain(message),
-        options: options.map((option) => ({ ...option, label: plain(option.label) })),
-        initial,
-        resolve,
-      })),
     removal(active) {
       view.removing = active
       draw()

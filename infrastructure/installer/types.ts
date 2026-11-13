@@ -54,11 +54,6 @@ export interface FieldDefinition {
 
 export interface InstallerUI {
   removal?(active: boolean): void
-  multiSelect?(
-    message: string,
-    options: { label: string; value: string }[],
-    initial?: string[],
-  ): Promise<string[]>
   status(message: string): void
   notice?(level: NoticeLevel, message: string): void
   phase?(phase: WizardPhase): void | Promise<void>

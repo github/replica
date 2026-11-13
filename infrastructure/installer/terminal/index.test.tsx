@@ -8,7 +8,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest"
 
 import { approveDeployment } from "../../azure/install/approval/index.ts"
 import { installationNames } from "../../azure/install/settings.ts"
-import { removeAzureDeployments } from "../../azure/remove/index.ts"
+import { removeAzureDeployment } from "../../azure/remove/index.ts"
 import { configurationFields } from "../config/fields/index.ts"
 import { CommandExecutionError } from "../command/index.ts"
 import { selectInstallerEntry } from "../entry/index.ts"
@@ -81,7 +81,9 @@ beforeEach(() => {
 afterEach(async () => {
   await Promise.all(terminals.splice(0).map((ui) => ui.close()))
   cleanup()
-  await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })))
+  await Promise.all(
+    directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })),
+  )
 })
 
 it.each(["full-screen", "inline"])(
@@ -177,14 +179,21 @@ it("keeps the deployment inventory and consent reachable with page keys before d
     if (executable === "git" && args[0] === "status") return " M hub/server/index.ts"
     throw new Error("The deployment review must not run a cloud command")
   })
-  const pending = approveDeployment({ config, directory: await entryDirectory(), run, ui })
+  const pending = approveDeployment({
+    config,
+    directory: await entryDirectory(),
+    run,
+    ui,
+  })
   const rejected = expect(pending).rejects.toThrow(/cancel/i)
   const settled = vi.fn()
   void pending.then(settled, settled)
   const names = installationNames(config)
   const consentKeys = /\by\/n\b/i
   // The review first snapshots the real Hub source, which is slow under full-suite load.
-  await vi.waitFor(() => expect(terminal.lastFrame()).toContain(names.stateGroup), { timeout: 15_000 })
+  await vi.waitFor(() => expect(terminal.lastFrame()).toContain(names.stateGroup), {
+    timeout: 15_000,
+  })
   expect(terminal.lastFrame()).not.toMatch(consentKeys)
   const visited = [terminal.lastFrame()!]
   const scrollUntil = async (key: string, expected: string | RegExp) => {
@@ -300,10 +309,7 @@ it.each(["cloud", "entry"])(
     const ui = open(abort)
     const directory = await entryDirectory()
     if (question === "cloud") ui.welcome!(true)
-    const pending =
-      question === "cloud"
-        ? ui.cloud()
-        : selectInstallerEntry(ui, { directory })
+    const pending = question === "cloud" ? ui.cloud() : selectInstallerEntry(ui, { directory })
     const terminal = show()
     await vi.waitFor(() => expect(terminal.lastFrame()).toContain("GitHub"))
     if (question === "entry") {
@@ -363,7 +369,9 @@ it("keeps the first question and its input usable while the welcome banner resiz
   const terminal = show()
   let dimensions = { columns: 80, rows: 36 }
   vi.spyOn(terminal.stdout, "columns", "get").mockImplementation(() => dimensions.columns)
-  Object.defineProperty(terminal.stdout, "rows", { get: () => dimensions.rows })
+  Object.defineProperty(terminal.stdout, "rows", {
+    get: () => dimensions.rows,
+  })
   terminal.stdout.emit("resize")
   await vi.waitFor(() => expect(terminal.lastFrame()).toContain("GitHub"))
   terminal.stdin.write("Up")
@@ -407,145 +415,141 @@ it("keeps the first question and its input usable while the welcome banner resiz
   expect(await readdir(directory)).toEqual([])
 })
 
-it("shows selection checkmarks before labels and preserves Space and Enter behavior", async () => {
-  const ui = open(new AbortController(), { fullscreen: false })
-  ui.removal!(true)
-  const pending = ui.multiSelect!("Select deployments", [
-    { label: "sample-first", value: "first" }, { label: "sample-second", value: "second" },
-  ], ["first"])
-  const terminal = show()
-  await vi.waitFor(() => expect(terminal.lastFrame()).toContain("sample-first"))
-  expect(terminal.lastFrame()).toContain("Replica Hub removal")
-  expect(terminal.lastFrame()).not.toContain("Choose cloud")
-  const selectedRow = terminal.lastFrame()!.split("\n").find((line) => line.includes("sample-first"))
-  expect(selectedRow).toMatch(/^\s*[\u2713\u2714]\s+sample-first/)
-
-  const before = terminal.lastFrame()
-  terminal.stdin.write(" ")
-  await vi.waitFor(() => expect(terminal.lastFrame()).not.toBe(before))
-  terminal.stdin.write("\r")
-
-  await expect(pending).resolves.toEqual([])
-  ui.removal!(false)
-  await vi.waitFor(() => expect(terminal.lastFrame()).toContain("Replica Hub installation"))
-})
-
-it("keeps Enter on an unchecked highlighted deployment in the picker until Space checks it", async () => {
+it("selects one removal installation with Enter without requiring a batch selection", async () => {
   const directory = await entryDirectory()
   const path = join(directory, "selected.json")
   const config: DeploymentConfig = {
-    version: 1, cloud: "azure", name: "sample-selection", owner: "sample-team",
+    version: 1,
+    cloud: "azure",
+    name: "sample-selection",
+    owner: "sample-team",
     azure: {
       subscriptionId: "00000000-0000-0000-0000-000000000001",
       tenantId: "00000000-0000-0000-0000-000000000002",
-      location: "eastus2", resourceGroup: "sample-selection-rg",
+      location: "eastus2",
+      resourceGroup: "sample-selection-rg",
     },
   }
   await writeFile(path, JSON.stringify(config), { mode: 0o600 })
   const ui = open(new AbortController(), { fullscreen: false })
   const pending = selectInstallerEntry(ui, { directory })
-  const settled = vi.fn()
-  void pending.then(settled, settled)
   const terminal = show()
 
   await vi.waitFor(() => expect(terminal.lastFrame()).toContain("What would you like to do?"))
   terminal.stdin.write("Remove")
   await vi.waitFor(() => expect(terminal.lastFrame()).toMatch(/Search:\s*Remove/))
   terminal.stdin.write("\r")
-  await vi.waitFor(() => expect(terminal.lastFrame()).toContain("Select saved deployments"))
-  terminal.stdin.write("\r")
-  await vi.waitFor(() => expect(terminal.lastFrame()).toContain("No deployments are checked"))
-  expect(terminal.lastFrame()).toContain("Space")
-  expect(terminal.lastFrame()).not.toContain("What would you like to do?")
-  expect(settled).not.toHaveBeenCalled()
-
-  terminal.stdin.write(" ")
-  await vi.waitFor(() => expect(terminal.lastFrame()).toMatch(/[\u2713\u2714].*sample-selection/))
+  await vi.waitFor(() => expect(terminal.lastFrame()).toContain("sample-selection"))
+  expect(terminal.lastFrame()).toContain("Replica Hub removal")
+  expect(terminal.lastFrame()).not.toContain("Choose cloud")
+  terminal.stdin.write("sample-selection")
+  await vi.waitFor(() => expect(terminal.lastFrame()).toMatch(/Search:\s*sample-selection/))
   terminal.stdin.write("\r")
   await expect(pending).resolves.toMatchObject({
-    action: "remove", targets: [{ path, config }],
+    action: "remove",
+    path,
+    target: { path, config },
   })
-  expect(terminal.lastFrame()).not.toContain("No deployments are checked")
   expect(await readdir(directory)).toEqual(["selected.json"])
 })
 
-it("renders batch selection, a scrollable destructive review, and a separate typed name for each target before commands", async () => {
-  vi.stubEnv("TERM", "xterm")
-  vi.stubEnv("INK_SCREEN_READER", "false")
-  const directory = await entryDirectory()
-  const targets = await Promise.all(["sample-first", "sample-second"].map(async (name) => {
-    const config: DeploymentConfig = {
-      version: 1, cloud: "azure", name, owner: "sample-team",
-      azure: {
-        subscriptionId: "00000000-0000-0000-0000-000000000001",
-        tenantId: "00000000-0000-0000-0000-000000000002",
-        location: "eastus2", resourceGroup: `${name}-rg`,
-      },
-    }
-    const path = join(directory, `${name}.json`)
-    await writeFile(path, JSON.stringify(config), { mode: 0o600 })
-    return { path, config }
-  }))
-  const run = vi.fn<RunCommand>(async (executable, args) => {
-    expect(executable).toBe("az")
-    if (args[0] === "account") return JSON.stringify({
-      id: targets[0]!.config.azure.subscriptionId, tenantId: targets[0]!.config.azure.tenantId,
+it.each(["decline", "confirm"] as const)(
+  "keeps single-choice removal read-only through its scrollable review and exact name step on %s",
+  async (decision) => {
+    vi.stubEnv("TERM", "xterm")
+    vi.stubEnv("INK_SCREEN_READER", "false")
+    const directory = await entryDirectory()
+    const targets = await Promise.all(
+      ["sample-first", "sample-second"].map(async (name) => {
+        const config: DeploymentConfig = {
+          version: 1,
+          cloud: "azure",
+          name,
+          owner: "sample-team",
+          azure: {
+            subscriptionId: "00000000-0000-0000-0000-000000000001",
+            tenantId: "00000000-0000-0000-0000-000000000002",
+            location: "eastus2",
+            resourceGroup: `${name}-rg`,
+          },
+        }
+        const path = join(directory, `${name}.json`)
+        await writeFile(path, JSON.stringify(config), { mode: 0o600 })
+        return { path, config }
+      }),
+    )
+    const run = vi.fn<RunCommand>(async (executable, args) => {
+      expect(executable).toBe("az")
+      if (args[0] === "account")
+        return JSON.stringify({
+          id: targets[1]!.config.azure.subscriptionId,
+          tenantId: targets[1]!.config.azure.tenantId,
+        })
+      if (args[0] === "group" && args[1] === "exists") return "false"
+      throw new Error("Terminal removal test must not mutate Azure")
     })
-    if (args[0] === "group" && args[1] === "exists") return "false"
-    throw new Error("Terminal removal test must not mutate Azure")
-  })
-  const ui = open(new AbortController(), { fullscreen: true })
-  ui.removal!(true)
-  const pending = (async () => {
-    const choices = await ui.multiSelect!("Select deployments", targets.map(({ path, config }) => ({ label: config.name, value: path })))
-    return removeAzureDeployments(targets.filter(({ path }) => choices.includes(path)), { run, ui })
-  })()
-  void pending.catch(() => undefined)
-  const terminal = show()
-  vi.spyOn(terminal.stdout, "columns", "get").mockReturnValue(80)
-  Object.defineProperty(terminal.stdout, "rows", { get: () => 24 })
-  terminal.stdout.emit("resize")
-  await vi.waitFor(() => expect(terminal.lastFrame()).toContain("sample-second"), { timeout: 10_000 })
-  for (const key of [" ", "\u001b[B", " "]) {
-    const before = terminal.lastFrame()
-    terminal.stdin.write(key)
-    await vi.waitFor(() => expect(terminal.lastFrame()).not.toBe(before))
-  }
-  terminal.stdin.write("\r")
-  await vi.waitFor(() => expect(terminal.lastFrame()).toContain("Permanently remove"))
-  expect(run).not.toHaveBeenCalled()
-  const visited: string[] = []
-  for (let page = 0; page < 12 && !/\by\/n\b/i.test(terminal.lastFrame()!); page++) {
+    const ui = open(new AbortController(), { fullscreen: true })
+    ui.removal!(true)
+    const pending = (async () => {
+      const choice = await ui.select(
+        "Select an installation",
+        targets.map(({ path, config }) => ({
+          label: config.name,
+          value: path,
+        })),
+      )
+      return removeAzureDeployment(
+        targets.find(({ path }) => path === choice)!,
+        { run, ui },
+      )
+    })()
+    void pending.catch(() => undefined)
+    const terminal = show()
+    vi.spyOn(terminal.stdout, "columns", "get").mockReturnValue(80)
+    Object.defineProperty(terminal.stdout, "rows", { get: () => 24 })
+    terminal.stdout.emit("resize")
+    await vi.waitFor(() => expect(terminal.lastFrame()).toContain("sample-second"), {
+      timeout: 10_000,
+    })
+    terminal.stdin.write("sample-second")
+    await vi.waitFor(() => expect(terminal.lastFrame()).toMatch(/Search:\s*sample-second/))
+    terminal.stdin.write("\r")
+    await vi.waitFor(() => expect(terminal.lastFrame()).toContain("Permanently remove"))
+    expect(run).not.toHaveBeenCalled()
+    const visited: string[] = []
+    for (let page = 0; page < 12 && !/\by\/n\b/i.test(terminal.lastFrame()!); page++) {
+      visited.push(terminal.lastFrame()!)
+      const before = terminal.lastFrame()
+      terminal.stdin.write("\u001b[6~")
+      await vi.waitFor(() => expect(terminal.lastFrame()).not.toBe(before))
+      expect(terminal.lastFrame()!.split("\n").length).toBeLessThanOrEqual(24)
+    }
     visited.push(terminal.lastFrame()!)
-    const before = terminal.lastFrame()
-    terminal.stdin.write("\u001b[6~")
-    await vi.waitFor(() => expect(terminal.lastFrame()).not.toBe(before))
-    expect(terminal.lastFrame()!.split("\n").length).toBeLessThanOrEqual(24)
-  }
-  visited.push(terminal.lastFrame()!)
-  expect(terminal.lastFrame()).toMatch(/\by\/n\b/i)
-  for (const { config } of targets) expect(visited.join("\n")).toContain(config.name)
-  expect(visited.join("\n")).toMatch(/No backups|No\s+backups/)
-  expect(visited.join("\n")).toMatch(/retention/)
-  terminal.stdin.write("y")
-  await vi.waitFor(() => expect(terminal.lastFrame()).toContain("exactly"))
-  terminal.stdin.write(targets[0]!.config.name)
-  await setImmediate()
-  terminal.stdin.write("\r")
-  await vi.waitFor(() => {
-    expect(terminal.lastFrame()).toContain(targets[1]!.config.name)
-    expect(terminal.lastFrame()).not.toContain(targets[0]!.config.name)
-  })
-  expect(run).not.toHaveBeenCalled()
-  terminal.stdin.write(targets[1]!.config.name)
-  await setImmediate()
-  terminal.stdin.write("\r")
-
-  await expect(pending).resolves.toMatch(/Removal finished/)
-  await vi.waitFor(() => expect(terminal.lastFrame()).toContain("Removal complete"))
-  for (const { path, config } of targets) expect(JSON.parse(await readFile(path, "utf8"))).toEqual(config)
-  expect((await readdir(directory)).some((name) => name.endsWith(".lock"))).toBe(false)
-})
+    expect(terminal.lastFrame()).toMatch(/\by\/n\b/i)
+    expect(visited.join("\n")).toContain(targets[1]!.config.name)
+    expect(visited.join("\n")).not.toContain(targets[0]!.config.name)
+    expect(visited.join("\n")).toMatch(/No backups|No\s+backups/)
+    expect(visited.join("\n")).toMatch(/retention/)
+    if (decision === "decline") {
+      terminal.stdin.write("\r")
+      await expect(pending).rejects.toMatchObject({ name: "AbortError" })
+      expect(run).not.toHaveBeenCalled()
+      expect(terminal.lastFrame()).not.toContain("exactly")
+    } else {
+      terminal.stdin.write("y")
+      await vi.waitFor(() => expect(terminal.lastFrame()).toContain("exactly"))
+      expect(run).not.toHaveBeenCalled()
+      terminal.stdin.write(targets[1]!.config.name)
+      await setImmediate()
+      terminal.stdin.write("\r")
+      await expect(pending).resolves.toMatch(/Removal finished/)
+      await vi.waitFor(() => expect(terminal.lastFrame()).toContain("Removal complete"))
+    }
+    for (const { path, config } of targets)
+      expect(JSON.parse(await readFile(path, "utf8"))).toEqual(config)
+    expect((await readdir(directory)).some((name) => name.endsWith(".lock"))).toBe(false)
+  },
+)
 
 it("keeps removal mounted through a read-only failure, full details, and an operator-selected recheck", async () => {
   const directory = await entryDirectory()
@@ -589,7 +593,7 @@ it("keeps removal mounted through a read-only failure, full details, and an oper
   })
   const abort = new AbortController()
   const ui = open(abort, { fullscreen: false })
-  const pending = removeAzureDeployments([{ path, config }], { run, ui, signal: abort.signal })
+  const pending = removeAzureDeployment({ path, config }, { run, ui, signal: abort.signal })
   const settled = vi.fn()
   void pending.then(settled, settled)
   const terminal = show()
@@ -615,7 +619,9 @@ it("keeps removal mounted through a read-only failure, full details, and an oper
   await vi.waitFor(() => expect(terminal.lastFrame()).toMatch(/Search:\s*Show full/))
   terminal.stdin.write("\r")
 
-  await vi.waitFor(() => expect(terminal.lastFrame()).toContain("Synthetic read-only failure details"))
+  await vi.waitFor(() =>
+    expect(terminal.lastFrame()).toContain("Synthetic read-only failure details"),
+  )
   expect(run).toHaveBeenCalledTimes(readsAtFailure)
   expect(settled).not.toHaveBeenCalled()
   expect(boundary.unmount).not.toHaveBeenCalled()

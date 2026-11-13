@@ -20,7 +20,7 @@ export type InstallerEntry =
   | {
       action: "remove"
       path: string
-      targets: RemovalTarget[]
+      target: RemovalTarget
     }
 
 interface Candidate {
@@ -154,7 +154,9 @@ export async function selectInstallerEntry(
       [
         { label: "Create a new installation", value: "create" },
         { label: "Update existing installation", value: "update" },
-        ...(!configureOnly ? [{ label: "Remove deployments (destructive)", value: "remove" }] : []),
+        ...(!configureOnly
+          ? [{ label: "Remove an installation (destructive)", value: "remove" }]
+          : []),
         ...(resumable ? [{ label: "Resume in progress setup", value: "resume" }] : []),
         { label: "Exit and do nothing", value: "exit" },
       ],
@@ -162,17 +164,13 @@ export async function selectInstallerEntry(
     if (action === "exit") return undefined
     if (action === "remove") {
       if (configureOnly) throw new Error("Configuration-only mode cannot remove deployments.")
-      if (!ui.multiSelect)
-        throw new Error("This terminal does not support deployment multi-selection.")
       ui.removal?.(true)
-      let selected: string[] = []
-      let guidanceShown = false
       while (true) {
         const discovered = await discover(ui, directory, known)
         const available = discovered.filter((candidate) => candidate.existing && !candidate.problem)
-        const choices = await ui.multiSelect(
+        const choice = await ui.select(
           [
-            "Select saved deployments to remove. Files do not prove cloud resources exist.",
+            "Choose one installation to remove. Saved files do not prove cloud resources exist.",
             ...discovered
               .filter(({ problem }) => problem)
               .map((candidate) => `Not selectable: ${label(candidate)}`),
@@ -182,61 +180,39 @@ export async function selectInstallerEntry(
             { label: "Enter another config-file path", value: "config-file" },
             { label: "Back to main menu (no removal)", value: "back" },
           ],
-          selected,
         )
-        if (!choices.length) {
-          const message =
-            "No deployments are checked. Press Space to check a deployment, then Enter to continue. To cancel, check Back to main menu and press Enter."
-          if (ui.notice) ui.notice("warning", message)
-          else ui.status(message)
-          selected = []
-          guidanceShown = true
-          continue
-        }
-        if (
-          choices.some(
-            (choice) =>
-              !["config-file", "back"].includes(choice) &&
-              !available.some(({ path }) => path === choice),
-          )
-        )
-          throw new Error("Select only listed deployment configurations.")
-        if (guidanceShown) {
-          if (ui.notice) ui.notice("info", "Selection updated. No removal has started.")
-          guidanceShown = false
-        }
-        if (choices.includes("back")) break
-        if (choices.includes("config-file")) {
-          selected = choices.filter((choice) => available.some(({ path }) => path === choice))
+        if (choice === "back") break
+        let previous: Candidate | undefined
+        let path: string
+        if (choice === "config-file") {
           try {
-            const path = configPath(await ui.text("Config-file path"))
+            path = configPath(await ui.text("Config-file path"))
             known.add(path)
-            const candidate = await inspect(path)
-            if (candidate.existing && !candidate.problem) selected.push(path)
-            else attention(ui, candidate.problem ?? "A complete saved configuration is required.")
+            previous = await inspect(path)
+            if (!previous.existing || previous.problem) {
+              attention(ui, previous.problem ?? "A complete saved configuration is required.")
+              continue
+            }
           } catch (error) {
             if (!(error instanceof InputValidationError)) throw error
             attention(ui, error.message)
+            continue
           }
-          continue
+        } else {
+          previous = available.find(({ path }) => path === choice)
+          if (!previous) throw new Error("Select only listed deployment configurations.")
+          path = choice
         }
-        const targets: RemovalTarget[] = []
-        for (const path of new Set(choices)) {
-          if (!available.some((candidate) => candidate.path === path))
-            throw new Error("Select only listed deployment configurations.")
-          const current = await inspect(path)
-          const previous = available.find((candidate) => candidate.path === path)
-          if (
-            !current.existing ||
-            current.problem ||
-            JSON.stringify(current.existing) !== JSON.stringify(previous?.existing)
+        const current = await inspect(path)
+        if (
+          !current.existing ||
+          current.problem ||
+          JSON.stringify(current.existing) !== JSON.stringify(previous.existing)
+        )
+          throw new Error(
+            "Selected configuration changed or needs attention. Removal was not started.",
           )
-            throw new Error(
-              "Selected configuration changed or needs attention. Removal was not started.",
-            )
-          targets.push({ path, config: current.existing })
-        }
-        return { action: "remove", path: targets[0]!.path, targets }
+        return { action: "remove", path, target: { path, config: current.existing } }
       }
       continue
     }
@@ -328,7 +304,7 @@ export async function validateInstallerEntry(
 ): Promise<void> {
   if (entry.action === "remove")
     throw new Error(
-      "Removal targets require destructive-flow validation, not setup-session activation.",
+      "A removal target requires destructive-flow validation, not setup-session activation.",
     )
   const current = await inspect(entry.path)
   if (
