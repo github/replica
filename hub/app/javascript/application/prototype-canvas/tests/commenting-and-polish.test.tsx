@@ -146,6 +146,10 @@ describe("App()", () => {
         }}
       />,
     )
+    // Starter changes also run this suite; synchronize its lazy review surfaces before interaction.
+    await act(async () => {
+      await vi.dynamicImportSettled()
+    })
     const comments = await screen.findByRole("button", { name: /^Comments, 1/ })
     const improvements = await screen.findByRole("button", {
       name: /^(Open|Close) Notes \(1\)$/,
