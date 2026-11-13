@@ -109,7 +109,10 @@ test("allows only off-origin HTTP, mail and telephone outbound stubs", () => {
     assert.deepEqual(checkLedger(ledger([hub, { ...outbound, url }])), [])
   }
   for (const url of ["https://example.com/other", "javascript:alert(1)"]) {
-    assert.match(problems(ledger([hub, { ...outbound, url }])), /external target must be off-origin/)
+    assert.match(
+      problems(ledger([hub, { ...outbound, url }])),
+      /external target must be off-origin/,
+    )
   }
 })
 
@@ -177,7 +180,10 @@ test("diagnostics do not echo supplied URLs or routes", () => {
   const url = "http://127.1/private-target"
   const route = "//private-route"
   const text = problems({
-    ...ledger([{ ...hub, url: source, route }, { ...other, url, route }]),
+    ...ledger([
+      { ...hub, url: source, route },
+      { ...other, url, route },
+    ]),
     source,
   })
   assert.ok(text.length > 0)

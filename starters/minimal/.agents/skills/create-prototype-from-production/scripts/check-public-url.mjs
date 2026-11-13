@@ -44,7 +44,12 @@ const normalize = (name) => name.toLowerCase().replace(/[-_]/g, "")
 const credential = ([name, value]) =>
   (value.length > 0 && CREDENTIAL_KEYS.has(normalize(name))) || jwt.test(value)
 const fragmentParams = (url) =>
-  new URLSearchParams(url.hash.slice(1).replace(/^!/, "").replace(/^[^?]*\?/, ""))
+  new URLSearchParams(
+    url.hash
+      .slice(1)
+      .replace(/^!/, "")
+      .replace(/^[^?]*\?/, ""),
+  )
 
 function safeDecode(value) {
   try {

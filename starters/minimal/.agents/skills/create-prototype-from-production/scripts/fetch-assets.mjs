@@ -84,7 +84,8 @@ export async function fetchAssets(
             total += chunk.length
             if (size > limits.maxBytes) fail("exceeds per-transfer limit")
             if (total > limits.maxTotalBytes) fail("exceeds run limit")
-            if (head.length < 512) head = Buffer.concat([head, chunk.subarray(0, 512 - head.length)])
+            if (head.length < 512)
+              head = Buffer.concat([head, chunk.subarray(0, 512 - head.length)])
             hash.update(chunk)
             yield chunk
           }
