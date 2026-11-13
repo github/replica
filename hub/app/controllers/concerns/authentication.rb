@@ -26,7 +26,10 @@ module Authentication
   def require_authentication
     resume_session
     if Current.user.nil?
-      session[:authentication_return_to] = request.fullpath if request.get?
+      # Leave cookie space for OAuth state and the rest of the session.
+      if request.get? && request.fullpath.bytesize <= 1.kilobyte
+        session[:authentication_return_to] = request.fullpath
+      end
       redirect_to root_path
     end
     response.headers["Cache-Control"] = "private, no-store" if Current.user
