@@ -19,6 +19,10 @@ export { createJsonLinesMemoryProvider } from "./src/providers/json-lines.mjs"
 export { createCopilotLabeler } from "./src/labelers/copilot.mjs"
 export { labelComments } from "./src/labeling.mjs"
 export { createSqliteMemoryProvider } from "./src/providers/sqlite.mjs"
+export { brandCheckQuestions } from "./src/decision/questions.mjs"
+export { planDecisionTasks } from "./src/decision/tasks.mjs"
+export { writeDecisionTaskset } from "./src/decision/taskset.mjs"
+export { default as DECISION_MODEL_CATALOG } from "./src/decision/models.json" with { type: "json" }
 export { SCHEMA_VERSIONS, memoryContentDigest, memoryReviewDigest } from "./src/records.mjs"
 export {
   HUB_COLLECTION_KIND,

@@ -228,4 +228,45 @@ describe("Hub review collections", () => {
       [],
     )
   })
+
+  it("records a thread that someone reopened and resolved again between imports", () => {
+    const first = read(weekOneLog())
+    const scope = { ...expected, host: "github.com" }
+    const episodeId = "ep_bbbbbbbbbbbbbbbb"
+    const resolved = structuredClone(first.threads.find((item) => item.root.id === 103))
+    function resolvedBy(at, login, githubId) {
+      const thread = structuredClone(resolved)
+      Object.assign(thread.root, {
+        resolvedAt: at,
+        resolvedByLogin: login,
+        resolvedByGithubId: githubId,
+      })
+      return thread
+    }
+    function events(thread, existing) {
+      return hubThreadEvents({ meta: first.meta, thread, scope, episodeId, existing })
+    }
+    const original = events(resolvedBy("2026-10-07T12:00:00.000000Z", "ben-manager"), [])
+
+    // Another reviewer resolved it again, later or at the very same time.
+    for (const at of ["2026-10-09T08:00:00.000000Z", "2026-10-07T12:00:00.000000Z"]) {
+      const again = resolvedBy(at, "cy-engineer")
+      const later = events(again, original)
+      assert.deepEqual(
+        later.map((event) => [event.type, event.payload.status, event.at, event.payload.by.id]),
+        [["status_change", "resolved", at, "github:cy-engineer"]],
+      )
+      assert.notEqual(later[0].id, original.at(-1).id)
+      assert.deepEqual(events(again, [...original, ...later]), [])
+    }
+    // The same reviewer, now named by a stable ID, did not resolve it again.
+    const resolvedAt = "2026-10-07T12:00:00.000000Z"
+    const adopted = events(resolvedBy(resolvedAt, "ben-manager", 43), [])
+    assert.deepEqual(events(resolvedBy(resolvedAt, "ben-manager", 43), original), [])
+    // A login given without the stable ID it had may now belong to someone else.
+    assert.deepEqual(
+      events(resolvedBy(resolvedAt, "ben-manager"), adopted).map((event) => event.payload.by.id),
+      ["github:ben-manager"],
+    )
+  })
 })

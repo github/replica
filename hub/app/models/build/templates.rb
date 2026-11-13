@@ -68,7 +68,8 @@ class Build::Templates < ActiveRecord::AssociatedObject
     false
   end
 
-  # Mirrors HTTP browser serialization without changing the declared destination.
+  # Mirrors HTTP browser serialization without changing the declared destination, so a path
+  # matches the location a browser reports for it.
   def self.browser_path(value)
     before_fragment, fragment = value.split("#", 2)
     pathname, query = before_fragment.split("?", 2)
@@ -77,7 +78,6 @@ class Build::Templates < ActiveRecord::AssociatedObject
     serialized += "##{URI::DEFAULT_PARSER.escape(fragment, /[^\x21-\x7e]|["<>`]/)}" if fragment.present?
     serialized
   end
-  private_class_method :browser_path
 
   # Stops a corrupt storage object before it can allocate an unbounded string.
   class BoundedDestination < StringIO

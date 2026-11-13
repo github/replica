@@ -1,8 +1,8 @@
 # Replica learning
 
-`@github/replica-learning` lets Replica learn from review evidence without training a model. It owns the version 1 learning contracts, the memory provider interface, built-in SQLite, JSON Lines, and in-memory providers, two reference consolidators, a conformance suite, the `replica-learning` command, and an example that plugs in [Agent Memory Repo](examples/agent-memory-repo/README.md). It isn't published to npm yet, so run it from a Replica checkout with a Node.js version matching `engines.node` in [package.json](package.json).
+`@github/replica-learning` lets Replica learn from review evidence without training a model. It owns the version 1 learning contracts, the memory provider interface, built-in SQLite, JSON Lines, and in-memory providers, two reference consolidators, a conformance suite, the `replica-learning` command, and an example that plugs in [Agent Memory Repo](examples/agent-memory-repo/README.md). It also prepares training for a team that chooses to post-train a [decision model](#decision-model). It isn't published to npm yet, so run it from a Replica checkout with a Node.js version matching `engines.node` in [package.json](package.json).
 
-The design and its trade-offs are in [ADR 0001](../../docs/adr/0001-learning-extension-architecture.md).
+The design and its trade-offs are in [ADR 0001](../../docs/adr/0001-learning-extension-architecture.md), and the decision model's in [ADR 0002](../../docs/adr/0002-decision-model-and-rl-environment.md).
 
 ## What the first loop does
 
@@ -50,6 +50,10 @@ node <replica-checkout>/packages/learning/bin/replica-learning.mjs doctor
 | `accept`, `reject`, `retire`, `supersede` | Records a person's decision |
 | `recall --task <text>` | Prints the accepted learnings for the next run. `--task-file -` reads the task from standard input instead, which keeps a person's prompt out of the process list. `--preview --by github:<login>` shows a person the same text without recording a use. Only a person can preview, so an agent never reads learnings without an audit entry |
 | `export --purpose <p>` | Writes a bundle of what that purpose may use; `--learnings-only` leaves out episodes and their comments |
+| `decision models` | Lists the base models suggested for a decision model, with their sizes and licenses |
+| `decision questions` | Prints the questions a decision model answers about a screenshot and whether training consent is recorded. `--preview --by github:<login>` shows a person the questions without recording a use |
+| `decision taskset --export <file> --builds <file> --out <dir>` | Writes labeled tasks from a training export and the Builds' screenshots, as [Decision model](#decision-model) describes |
+| `decision ask --endpoint <url> --questions <file> --screenshots <dir>` | Asks a deployed decision model how likely a Build's page follows each learning. `--model <deployment>` asks a chat-completions deployment instead. The key comes from `REPLICA_DECISION_KEY` |
 | `status`, `verify` | Reports counts and anything that needs attention, and re-checks every record |
 
 Add `--json` to any command for machine output.
@@ -61,7 +65,7 @@ Add `--json` to any command for machine output.
 - In a checkout, scope comes from its `origin` remote: its host and owner/name, such as `github.com/acme/checkout-prototypes`. The learning config cannot change it. A host that keeps each repository's store outside any checkout, such as Hub, names the repository with `--repository host/owner/name` and the store with `--dir`; if that directory is inside a checkout, Git must ignore it. The same owner/name on two hosts gets two scopes, and episode IDs include the scope, so the two never share records. The scope is asserted by whoever runs the command, not checked repository access, so a host checks access before it runs one. Hub review logs name only owner/name, so the importer checks the repository but cannot check the host. Every record carries its scope, and a store reads and writes only records in the caller's scope. Output never shows a user name or password from the remote URL.
 - The purposes are review, instruction, evaluation, analytics, training, and publication. Permission for one never implies another. A grant names its purposes and sources, and optionally the range of evidence times it covers. It covers a comment when it names the comment's source and its range contains the time the comment was written. A label counts only while the comment it judges does.
 - Withdrawing a purpose takes effect at once. Evidence stops serving that purpose, learnings built on it stop being recalled, and the command lists earlier exports that already copied it so their owners can be asked to delete it. A learning depends on its counterevidence too: it is used only while both the evidence and the contradictions a reviewer saw permit the purpose.
-- Evidence is append-only. An edited comment adds a version that supersedes the old one. A deleted comment adds a retraction that removes the earlier versions, and labels on them, from every purpose. Nothing is rewritten, with one exception the contract allows: a provider may remove an event's payload and record why in `redaction`. The event's digest still verifies, and a redacted event is never evidence. Labels and retractions name the event they apply to in `parentEventId`, which must match the payload and which the digest covers, so redacting one never loses its target and a redacted retraction still retracts.
+- Evidence is append-only. An edited comment adds a version that supersedes the old one. A thread that someone resolves or reopens adds a status change, and so does a thread resolved again since the last import. A deleted comment adds a retraction that removes the earlier versions, and labels on them, from every purpose. Nothing is rewritten, with one exception the contract allows: a provider may remove an event's payload and record why in `redaction`. The event's digest still verifies, and a redacted event is never evidence. Labels and retractions name the event they apply to in `parentEventId`, which must match the payload and which the digest covers, so redacting one never loses its target and a redacted retraction still retracts.
 - `redact` uses that exception when a person asks to remove a comment, for example its author. Every version of the comment and every label on them lose their text, keep their IDs and digests, and stop serving every purpose. Other comments, replies included, keep theirs. Versions are found by their edit links inside the thread and by their Hub comment ID, and a stored history that links the comment to another comment, or out of its thread, is refused with nothing removed. The command needs a reason, records who asked, and lists the accepted learnings that need rebuilding and the exports to follow up, including learnings-only exports of a learning that cites the comment. Each removed event's redaction note says who removed it, when, and why, and on a comment version it keeps the Hub comment ID, so the comment's other versions can still be found once the text is gone. A provider refuses a note that names a different comment. Each removal gets one audit entry built from that note. If the command fails part way, run it again: it finishes the removal, adds only the missing audit entries, and reports the same follow-ups. Two people removing the same comment at once each remove some versions, and every removal is audited once. A learning built on the comment is never shown, recalled, or exported again, because its evidence is gone, but its stored text, which may paraphrase the comment, is not rewritten; retire or replace it. Each event keeps its `payloadDigest`, so someone who guesses a very short comment's exact text and fields could confirm the guess. Importing the same snapshot again does not bring the text back, because the store already holds those events; an edit made later on Hub arrives as new text. Files outside the store, such as snapshots saved for import, keep the text until someone deletes them. It needs a provider with the `observation.redact` capability, which the built-in providers have.
 - A deleted comment keeps its text in the store unless the host asks otherwise. A host that erases deleted comments, as Hub does, imports with `--redact-deleted`. After recording the import, it removes the text of every comment the snapshot shows as deleted, and of the labels on it, the same way `redact` does, and records the importer as the one who removed it. It reports the learnings that need rebuilding and the exports to follow up. If the removal fails part way, the next such import finishes it. A host can instead remove one deleted comment with `redact --comment <hub-comment-id> --by <person>`, naming the person who deleted it. It removes the text the same way without an import, so it needs no active grant and stores no other comment. It removes nothing, and succeeds, when the store holds no text of that comment, so the host can run it again after a failure, or for a comment it never collected.
 - A host must not run `redact` or `redact --comment` while an import or labeling of the same store is in progress. Each reads the comment's events, then removes their text. Text that an import or a label stores in between stays, and `verify` does not report it. For a comment deleted at its source, later imports must also show it as deleted and use `--redact-deleted`, which removes what stayed. Hub meets both: its runs and deletion jobs share an execution-time lock, and its imports use `--redact-deleted`. [Hub operations](../../hub/docs/learnings.md#operations) explains the lock's lifetime and safe manual removal.
@@ -176,6 +180,66 @@ The recurrence consolidator is deterministic. By default it proposes accessibili
 
 [Agent Memory Repo](https://github.com/AgentMemoryRepo/agentmemoryrepo) is an open format for agent memory: a Git repo of Markdown entries, cleaned up by a periodic Dreaming agent. [`examples/agent-memory-repo`](examples/agent-memory-repo/README.md) plugs it in twice. Its Dreaming consolidator proposes merges of learnings that say the same thing, reports look-alikes that conflict, and flags outdated or contested learnings. That is pruning with a person's approval: records stay append-only, and recall stops using what a person merged away or retired. Its publisher copies accepted learnings into a memory repo through a learnings-only export, one file per repository, so other agents can read them and a withdrawal can find the copy.
 
+## Decision model
+
+A decision model is a small vision-language model that looks at screenshots of a page and answers typed questions with probabilities. `decision questions` turns the accepted learnings into those questions: one yes-or-no question per learning, keyed by its ID, which learning the page breaks most clearly, and how far it is from all of them. By default it asks about the first 64 learnings recall ranks, the most a taskset asks about, and it reports training consent only when an active grant for training covers Hub review comments. [ADR 0002](../../docs/adr/0002-decision-model-and-rl-environment.md) explains the design, and [Learnings](../../hub/docs/learnings.md#decision-model) shows how Hub prepares training. [Train and serve a decision model](../../docs/decision-model.md) goes from there to an endpoint that a prototype's workflow asks about each Build.
+
+`decision taskset` reads two files and writes tasks for the [brand-check environment](environments/brand-check/README.md):
+
+- A training export from `export --purpose training`. The command refuses any other purpose and a learnings-only export. It also refuses an export whose records fail their checks, that holds a record its manifest does not list or lacks one it does, or that files an event under another episode, because any of these can change a label.
+- A Builds file that names each Build's screenshots by page, width, and theme. `createdAt` is when GitHub made the Build, or when Hub found it, and orders a prototype's Builds with their numbers. `publishedAt` is when Hub published it. Paths are relative to the Builds file, and Hub writes one with `bin/rails 'replica:learning:decision_builds[<Hub repository ID>,<directory>]'`:
+
+```json
+{
+  "schemaVersion": "replica.decision-builds/v1",
+  "builds": [
+    {
+      "prototypeId": 12,
+      "number": 3,
+      "createdAt": "2026-10-06T08:00:00Z",
+      "publishedAt": "2026-10-06T09:00:00Z",
+      "screenshots": [
+        { "route": "/checkout", "size": "desktop", "theme": "light", "path": "12-3-default-desktop-light.png" },
+        { "route": "/checkout", "size": "narrow", "theme": "dark", "path": "12-3-default-narrow-dark.png" }
+      ]
+    }
+  ]
+}
+```
+
+A thread that supports an accepted learning labels its Build as breaking the learning on the page the thread points to. When the reviewer who wrote the cited comment, or the comment a cited label is about, resolved the thread after writing it, the latest Build that came after the thread's Build and was published by then follows the learning, unless a thread on that Build and page reports the same theme. Someone who only labeled the comment did not raise the problem, so their resolution does not count. Neither does a resolution that shares its time with another status change, because nothing in the export says which came last. Builds come in the order of `createdAt`, then number, because Hub numbers Builds as it finds them. A screenshot belongs to a thread's page only when its route matches the page exactly, including the query and fragment. Tasks are split into training, development, and test sets by prototype.
+
+A task shows every screenshot of its page, desktop before narrow and light before dark, because review comments do not record the width or theme the reviewer saw. A page gets a "breaks" label only when the Builds file has all four of its screenshots, since the problem may show only in a missing one. Even then, a problem the reviewer found after scrolling, opening a menu, or resizing the window to another width may not show in any screenshot. A "follows" label rests on the reviewer's check of the fix, which may have covered only one width and theme.
+
+Hub names each screenshot by the address the build action was asked to capture. The build action follows redirects and Controls URL defaults without recording where the page ended up, so a comment made at the address a page redirects to finds no screenshot.
+
+The output directory must be new and, inside a checkout, under `.replica/`. It holds:
+
+| File | Contents |
+| --- | --- |
+| `taskset.json` | The export it came from, task counts for each split and label, and how much evidence it skipped and why |
+| `tasks.jsonl` | One task per line: its split, images, the questions, labels for the yes-or-no questions the evidence answers, and where the labels came from |
+| `images/` | A copy of each screenshot, and of the image `--brand-sheet` names, which every task then shows first as a reference |
+
+The command skips evidence it cannot turn into a label, and reports each reason:
+
+| Reason | Meaning |
+| --- | --- |
+| `evidence-not-exported` | The export holds the learning but not the thread or comment it cites |
+| `evidence-not-hub-review` | The thread did not come from Hub review comments |
+| `evidence-not-comment` | The learning cites nothing in the thread that is a comment or a label on one |
+| `thread-start-unavailable` | The export does not hold the comment that started the thread, for example because someone deleted it |
+| `route-unknown` | The comment does not say which page it points to |
+| `status-ambiguous` | Two status changes on the thread share the latest time, so nothing says which came last |
+| `resolved-before-evidence` | The thread was resolved before someone wrote the cited comment, for example by editing it after the resolution |
+| `build-unknown` | The Builds file does not list the Build the thread started on, so no later Build can be found |
+| `resolved-without-later-build` | The thread was resolved before the prototype had a later Build |
+| `follows-contradicted` | A thread on the later Build reports the same theme |
+| `conflicting-labels` | One page got both labels for one learning |
+| `screenshot-missing` | The Builds file has no screenshot of that page |
+| `renderings-incomplete` | The page lacks a screenshot at one width or theme, so it gets no "breaks" label |
+| `learning-over-limit` | More than 64 learnings were accepted, and recall ranks this one below the first 64 |
+
 ## Local storage
 
 The default provider keeps every record in one SQLite file, `learning.sqlite`, in the learning data directory. In a checkout that directory is `.replica/learning/`, which the starter already ignores and no dev server or build serves. Inside a checkout, the command stores data and writes exports only under `.replica/`, after following links, and only when Git ignores that exact path. Anywhere else in the checkout it refuses, including the checkout root and directories whose names merely start with two dots. Directories are created with mode 0700 and files with 0600, and the providers refuse a directory other users can read. They also refuse a store file or directory that is a symbolic link, has a second name, or resolves outside the data directory, including the files SQLite keeps beside its database, and they open files without following links. Otherwise anyone who can write the data directory, such as a coding agent in the checkout, could plant a link that sends the store's reads and writes to another file. The SQLite driver built into Node.js cannot open a file without following links, so the SQLite provider checks the database file before it opens it and again right after, and refuses it unless it is the same file. It checks the files SQLite keeps beside the database right after opening, too. These checks guard against links placed ahead of time. A process running as the same user can still swap a file between them.
@@ -205,4 +269,4 @@ Anyone who can open the files sees every stored comment, whatever the grants say
 ## Not in this version
 
 - The commit SHA in comment results. Evidence pins the prototype and Build number, which Hub keeps unique per prototype. Naming the commit needs one more field in the canvas comment API.
-- Experience scenarios, a capture proxy, trainers, serving, and environments. The ADR describes how they attach to these contracts.
+- Experience scenarios, a capture proxy, a trainer, and serving. [ADR 0001](../../docs/adr/0001-learning-extension-architecture.md) describes how they attach to these contracts, and [ADR 0002](../../docs/adr/0002-decision-model-and-rl-environment.md) adds the first environment.

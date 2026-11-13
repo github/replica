@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "replica-brand-check"
+version = "0.1.0"
+description = "OpenEnv environment that scores a decision model's probability answers about Replica Build screenshots."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+dependencies = ["openenv-core==0.3.0"]
+
+[project.scripts]
+server = "replica_brand_check.server.app:main"
+
+[tool.setuptools]
+packages = ["replica_brand_check", "replica_brand_check.server"]
+package-dir = { "replica_brand_check" = ".", "replica_brand_check.server" = "server" }

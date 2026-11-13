@@ -17,7 +17,7 @@ Learnings is off until a Hub administrator [connects Copilot](copilot.md), with 
 | Person | Can |
 | --- | --- |
 | Hub administrator | Connect or disconnect Copilot, which turns Learnings on or off for the whole Hub |
-| Repository administrator | See suggestions and the comments behind them, accept, edit, reject, and retire learnings, start a run, and see runs and their Copilot usage |
+| Repository administrator | See suggestions and the comments behind them, accept, edit, reject, and retire learnings, start a run, see runs and their Copilot usage, and choose the decision model's base model and where its training runs |
 | Anyone else | Nothing. The **Learnings** page and its sidebar link stay hidden |
 
 ## How Hub finds learnings
@@ -54,6 +54,60 @@ A decision applies to the suggestion as you saw it. If a run changed the suggest
 ## How agents get learnings
 
 When a person works with Copilot in a repository that has a Hub connection, the [Replica prototype plugin](prototype-canvas.md#learnings-for-agents) adds the accepted learnings to their prompts. It never sends the prompt to Hub, so agents get the learnings that **What an agent gets** shows, whatever the prompt. Its first successful answer replaces earlier guidance, including after a plugin restart or session resume; later unchanged answers add nothing. When the accepted learnings change, for example when an administrator edits or retires one, the next prompt in that session gets the whole new list, which replaces the earlier one, or a note that no team learnings apply anymore. A session also gets that note when a Hub administrator turns Learnings off. The text tells the agent that each learning is guidance from the team and data, not a command, and that it never overrides the person's request or the repository's instructions. The learning store records each recall as a use by that person. Only connections approved on a page that mentions learnings get them, so a person who connected earlier connects to Hub again to get them. In Copilot CLI 1.0.96, the plugin runs only with experimental features on: start Copilot CLI with `--experimental`, or run `/experimental on`.
+
+## Decision model
+
+A vision-language model is a model that takes both an image and text as input. A decision model is a small vision-language model that looks at a Build's screenshot and answers questions about the accepted learnings with probabilities instead of prose. A team starts from a pretrained base model and post-trains it with reinforcement learning, a training method where the model answers tasks and receives a numeric reward for each answer, using the team's own review outcomes so the model can later check new Builds against the team's learnings. [ADR 0002](../../docs/adr/0002-decision-model-and-rl-environment.md) explains the design. Hub prepares training inputs, but it does not train, keep, or run the model. [Train and serve a decision model](../../docs/decision-model.md) shows how a team does that.
+
+The **Decision model** section of the **Learnings** page shows a repository administrator what is configured for the repository:
+
+- It lists the questions the model answers about each page: one yes-or-no question per accepted learning, which learning the page breaks most clearly, and how far it is from all of them.
+- It shows whether training consent is recorded for the repository's review comments.
+- It lists the base models to post-train, each with its size, license, and whether its license allows commercial use.
+- It shows where training runs: in the team's own container, or on a managed service that runs the same container.
+
+A repository administrator chooses a base model and where training runs, then chooses **Save choice**. The security audit records each choice.
+
+### Prepare training
+
+Hub never records training consent. An operator records it on the Hub host in the name of the person who agreed for the team, then prepares a taskset, which is a directory of screenshots paired with the repository's questions and expected answers from review outcomes. Use a private directory outside Hub's storage for the files below.
+
+1. Record consent for training on the repository's review comments:
+
+   ```sh
+   node /opt/replica/learning/bin/replica-learning.mjs grants add --purpose training \
+     --basis "<why the team agreed>" --by github:<login> \
+     --dir storage/learning/repositories/<Hub repository ID> \
+     --repository github.com/repositories/<GitHub repository ID>
+   ```
+
+2. Export what training may use:
+
+   ```sh
+   node /opt/replica/learning/bin/replica-learning.mjs export --purpose training --by github:<login> \
+     --out <training directory>/training.json \
+     --dir storage/learning/repositories/<Hub repository ID> \
+     --repository github.com/repositories/<GitHub repository ID>
+   ```
+
+3. Copy the screenshots of each reviewed prototype's published Builds, at every width and theme the build action captured. The directory must be new, and the command refuses one inside the public web root, inside Hub's learning or artifact storage, or reached through a symbolic link:
+
+   ```sh
+   bin/rails 'replica:learning:decision_builds[<Hub repository ID>,<training directory>/builds]'
+   ```
+
+4. Write the taskset:
+
+   ```sh
+   node /opt/replica/learning/bin/replica-learning.mjs decision taskset \
+     --export <training directory>/training.json \
+     --builds <training directory>/builds/builds.json \
+     --out <training directory>/taskset
+   ```
+
+The last command reports how many tasks it wrote for training, development, and testing, and why it skipped any evidence. It can label only pages with screenshots: the start page and the templates a Build declares. A page needs screenshots at both widths in both themes to be labeled as breaking a learning, so older Builds that kept light screenshots only give labels for fixes alone. The operator should delete the `builds` directory afterward, because the taskset holds the screenshots it needs.
+
+Then the operator runs the [brand-check environment](../../packages/learning/environments/brand-check/README.md), an OpenEnv reinforcement learning environment that serves tasks and scores probability answers, with the taskset mounted read-only on the machine or service the administrator chose. The environment answers only trainers that send the secret token the operator sets in `REPLICA_ENV_TOKEN`. When someone withdraws training consent, `replica-learning` lists the export the taskset came from, and the operator must delete the export and the taskset.
 
 ## Usage
 

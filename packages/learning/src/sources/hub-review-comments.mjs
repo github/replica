@@ -422,45 +422,71 @@ export function hubThreadEvents({ meta, thread, scope, episodeId, existing }) {
   }
 
   const statuses = known.filter((event) => event.type === "status_change")
-  const recorded = statuses.at(-1)?.payload?.status ?? "unresolved"
+  const last = statuses.at(-1)
+  const recorded = last?.payload?.status ?? "unresolved"
   const current = thread.root.resolvedAt ? "resolved" : "unresolved"
-  if (current !== recorded) {
+  function resolver() {
+    return thread.root.resolvedByLogin
+      ? reviewer(
+          thread.root.resolvedByLogin,
+          thread.root.resolvedByGithubId,
+          thread.root.resolvedByLocalId,
+          scope,
+          meta,
+        )
+      : undefined
+  }
+  // A thread reopened and resolved again between imports is still resolved, so only a new
+  // resolution time or another resolver shows that someone resolved it again.
+  const resolvedAgain =
+    current === "resolved" &&
+    recorded === "resolved" &&
+    (last.at !== thread.root.resolvedAt || !sameReviewer(last.payload.by, resolver(), scope, meta))
+  if (current !== recorded || resolvedAgain) {
     const at = thread.root.resolvedAt ?? meta.capturedAt
-    add({
-      schemaVersion: SCHEMA_VERSIONS.event,
-      id: derivedId("ev", { episodeId, status: current, at }),
+    const by = resolver()
+    // Two resolutions at the same time differ only in who resolved the thread.
+    const id = derivedId("ev", {
       episodeId,
-      scope,
-      type: "status_change",
+      status: current,
       at,
-      actor: thread.root.resolvedByLogin
-        ? reviewer(
-            thread.root.resolvedByLogin,
-            thread.root.resolvedByGithubId,
-            thread.root.resolvedByLocalId,
-            scope,
-            meta,
-          )
-        : { kind: "system", id: `system:${HUB_SOURCE}` },
-      payload: {
-        subject: { kind: "thread", id: thread.root.id },
-        status: current,
-        at,
-        ...(thread.root.resolvedByLogin
-          ? {
-              by: reviewer(
-                thread.root.resolvedByLogin,
-                thread.root.resolvedByGithubId,
-                thread.root.resolvedByLocalId,
-                scope,
-                meta,
-              ),
-            }
-          : {}),
-      },
+      ...(resolvedAgain && last.at === at ? { by: by?.id ?? null } : {}),
     })
+    if (!ids.has(id))
+      add({
+        schemaVersion: SCHEMA_VERSIONS.event,
+        id,
+        episodeId,
+        scope,
+        type: "status_change",
+        at,
+        actor: by ? { ...by } : { kind: "system", id: `system:${HUB_SOURCE}` },
+        payload: {
+          subject: { kind: "thread", id: thread.root.id },
+          status: current,
+          at,
+          ...(by ? { by } : {}),
+        },
+      })
   }
   return added
+}
+
+/**
+ * Whether a resolver names the same person as the recorded one. A stable ID matches only the same
+ * stable ID, because a login given without one may now belong to someone else. A login-only
+ * identity, which keeps its login only in its ID, matches the same login, so a reviewer whose
+ * login gains a stable ID stays the same person.
+ */
+function sameReviewer(recorded, current, scope, meta) {
+  if (!recorded || !current) return recorded === current
+  if (stableReviewer(recorded, scope, meta))
+    return stableReviewer(current, scope, meta) && recorded.id === current.id
+  return loginOf(recorded) === loginOf(current)
+}
+
+function loginOf(actor) {
+  return actor.login ?? actor.id.replace(/^github:/, "")
 }
 
 function reviewer(login, githubId, localId, scope, meta) {
