@@ -27,10 +27,15 @@ export function SessionRevocationPage({ data }: { data: SessionRevocationPageDat
 
           <form action={data.submitPath} method="post" className="session-revocation-page__form">
             <input type="hidden" name="authenticity_token" value={data.authenticityToken} />
-            <label className="session-revocation-page__checkbox">
-              <input type="checkbox" name="confirmed" value="1" required />
-              <span>{data.confirmLabel}</span>
-            </label>
+            {data.authorizationId ? (
+              <input type="hidden" name="authorizationId" value={data.authorizationId} />
+            ) : null}
+            {data.confirmLabel ? (
+              <label className="session-revocation-page__checkbox">
+                <input type="checkbox" name="confirmed" value="1" required />
+                <span>{data.confirmLabel}</span>
+              </label>
+            ) : null}
 
             <div className="hub-administration-page__actions">
               <Button type="submit" name="cancelled" value="1" formNoValidate variant="secondary">

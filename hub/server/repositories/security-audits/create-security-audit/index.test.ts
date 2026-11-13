@@ -4,6 +4,34 @@ import type { Prisma } from "../../../generated/prisma/client"
 import { createSecurityAudit } from "."
 
 describe("createSecurityAudit()", () => {
+  it("maps a failed global session revocation to a failure audit", async () => {
+    const create = vi.fn<(input: { data: Prisma.SecurityAuditCreateInput }) => Promise<unknown>>()
+    create.mockResolvedValue(undefined)
+
+    await createSecurityAudit(
+      { securityAudit: { create } },
+      {
+        actorMembershipId: "8a2479e7-3ca4-46f8-9749-c35d8e4eb09e",
+        id: "5dd31031-6f1c-4c16-87c2-aee5342145cc",
+        reason: "retry_exhausted",
+        type: "all_hub_sessions_end_failed",
+      },
+    )
+
+    expect(create).toHaveBeenCalledOnce()
+    expect(create.mock.calls[0]?.[0].data).toEqual({
+      action: "session.revocation.end_all_failed",
+      outcome: "FAILURE",
+      targetId: "global",
+      targetType: "session_revocation_state",
+      context: {
+        actorMembershipId: "8a2479e7-3ca4-46f8-9749-c35d8e4eb09e",
+        reason: "retry_exhausted",
+      },
+      id: "5dd31031-6f1c-4c16-87c2-aee5342145cc",
+    })
+  })
+
   it.each(["secret:workforce", "GitHub.App/V2", "Entra:Tenant", "custom+提供者"])(
     "stores the exact canonical provider key %s through the typed audit mapping",
     async (providerKey) => {

@@ -33,10 +33,21 @@ function actorFor(record: SecurityAuditListRecord) {
     case "administrator.authorization.denied":
     case "administrator.authorization.expired":
     case "administrator.authorization.cancelled":
+    case "session.revocation.authorization.requested":
+    case "session.revocation.authorization.verified":
+    case "session.revocation.authorization.completed":
+    case "session.revocation.authorization.denied":
+    case "session.revocation.authorization.expired":
+    case "session.revocation.authorization.cancelled":
+    case "session.revocation.end_all_failed":
     case "membership.administrator_management.denied":
     case "membership.administrator_management.failed":
     case "membership.assignment.administrator_created":
     case "membership.assignment.administrator_revoked": {
+      const parsed = actorContextSchema.safeParse(record.context)
+      return parsed.success ? { membershipId: parsed.data.actorMembershipId } : null
+    }
+    case "session.revocation.end_all": {
       const parsed = actorContextSchema.safeParse(record.context)
       return parsed.success ? { membershipId: parsed.data.actorMembershipId } : null
     }
@@ -115,6 +126,16 @@ function contextFor(record: SecurityAuditListRecord): Record<string, string | nu
           }
         : {}
     }
+    case "session.revocation.end_all_failed": {
+      const parsed = z
+        .object({
+          actorMembershipId: z.uuid(),
+          reason: z.enum(["retry_exhausted", "transaction_error"]),
+        })
+        .strict()
+        .safeParse(record.context)
+      return parsed.success ? { reason: parsed.data.reason } : {}
+    }
     case "membership.administrator_management.denied":
     case "membership.administrator_management.failed": {
       const parsed = z
@@ -132,14 +153,24 @@ function contextFor(record: SecurityAuditListRecord): Record<string, string | nu
     case "administrator.authorization.completed":
     case "administrator.authorization.denied":
     case "administrator.authorization.expired":
-    case "administrator.authorization.cancelled": {
+    case "administrator.authorization.cancelled":
+    case "session.revocation.authorization.requested":
+    case "session.revocation.authorization.verified":
+    case "session.revocation.authorization.completed":
+    case "session.revocation.authorization.denied":
+    case "session.revocation.authorization.expired":
+    case "session.revocation.authorization.cancelled": {
       const parsed = z
         .object({
           actorMembershipId: z.uuid(),
-          operation: z.enum(["designate_administrators", "revoke_administrator"]),
+          operation: z.enum([
+            "designate_administrators",
+            "end_all_hub_sessions",
+            "revoke_administrator",
+          ]),
           phase: z.enum(["requested", "verified", "completed", "denied", "expired", "cancelled"]),
           reason: reasonSchema.optional(),
-          targetCount: z.number().int().min(1).max(50),
+          targetCount: z.number().int().min(0).max(50),
         })
         .strict()
         .safeParse(record.context)
@@ -226,6 +257,24 @@ function contextFor(record: SecurityAuditListRecord): Record<string, string | nu
         .strict()
         .safeParse(record.context)
       return parsed.success ? parsed.data : {}
+    }
+    case "session.revocation.end_all": {
+      const parsed = z
+        .object({
+          actorMembershipId: z.uuid(),
+          cancelledAuthorizationCount: z.number().int().nonnegative(),
+          endedSessionCount: z.number().int().nonnegative(),
+          revision: z.number().int().nonnegative(),
+        })
+        .strict()
+        .safeParse(record.context)
+      return parsed.success
+        ? {
+            cancelledAuthorizationCount: parsed.data.cancelledAuthorizationCount,
+            endedSessionCount: parsed.data.endedSessionCount,
+            revision: parsed.data.revision,
+          }
+        : {}
     }
     default:
       return {}

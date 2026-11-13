@@ -369,6 +369,21 @@ describe("presentSecurityAudit()", () => {
       }),
     },
     {
+      label: "failed global session revocation",
+      event: {
+        actorMembershipId: membershipId,
+        id: auditId,
+        reason: "retry_exhausted",
+        type: "all_hub_sessions_end_failed",
+      },
+      expected: expectedRecord({
+        action: "session.revocation.end_all_failed",
+        actor: { membershipId },
+        context: { reason: "retry_exhausted" },
+        outcome: "failure",
+      }),
+    },
+    {
       label: "session revocation advancement",
       event: {
         id: auditId,

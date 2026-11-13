@@ -8,7 +8,8 @@ export interface SessionRevocationPageData extends HubAdministrationPageData {
   verification: string
   counts: string | null
   emptyLabel: string | null
-  confirmLabel: string
+  confirmLabel: string | null
+  authorizationId?: string | null
   submitLabel: string
   cancelLabel: string
   submitPath: string

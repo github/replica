@@ -8,9 +8,9 @@ export async function getSensitiveAuthorization(
     Array<{
       expiresAt: Date
       login: string | null
-      membershipId: string
+      membershipId: string | null
       name: string | null
-      operation: "DESIGNATE_ADMINISTRATORS" | "REVOKE_ADMINISTRATOR"
+      operation: "DESIGNATE_ADMINISTRATORS" | "END_ALL_HUB_SESSIONS" | "REVOKE_ADMINISTRATOR"
       provider: string | null
       verifiedAt: Date
     }>
@@ -30,7 +30,7 @@ export async function getSensitiveAuthorization(
     JOIN "authentication_provider_revisions" revision
       ON revision."id" = session."provider_revision_id"
     JOIN "authentication_providers" provider ON provider."id" = revision."provider_id"
-    JOIN LATERAL (
+    LEFT JOIN LATERAL (
       SELECT
         membership."id" AS "membershipId",
         profile."provider",
@@ -79,12 +79,9 @@ export async function getSensitiveAuthorization(
     ? {
         expiresAt: first.expiresAt,
         operation: first.operation,
-        targets: rows.map(({ login, membershipId, name, provider }) => ({
-          login,
-          membershipId,
-          name,
-          provider,
-        })),
+        targets: rows.flatMap(({ login, membershipId, name, provider }) =>
+          membershipId ? [{ login, membershipId, name, provider }] : [],
+        ),
         verifiedAt: first.verifiedAt,
       }
     : null
