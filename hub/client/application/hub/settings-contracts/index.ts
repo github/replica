@@ -2,7 +2,7 @@ import { z } from "zod"
 
 import { NOTIFICATION_SCHEMA } from "@utils/notification/schemas"
 
-import { recordIdentifierSchema, repositorySchema, userSchema } from "../contracts"
+import { recordIdentifierSchema, repositorySchema } from "../contracts"
 import { sessionResponseSchema } from "../session-contracts"
 
 const identifier = z.number().int().positive()
@@ -83,26 +83,6 @@ export const settingsCandidateResponseSchema = z.object({
   more: z.boolean(),
 })
 
-export const learningRecordSchema = z.object({
-  id: z.string().min(1),
-  repositoryId: recordIdentifierSchema,
-  content: z.string().trim().min(1).max(2000),
-  digest: z.string().min(1),
-  evidenceId: z.string().min(1),
-  version: identifier,
-  state: z.enum(["suggested", "accepted", "rejected", "retired"]),
-  decidedBy: z.string().nullable(),
-  reason: z.string().nullable(),
-})
-
-export const learningRunSchema = z.object({
-  id: identifier,
-  repositoryId: recordIdentifierSchema,
-  startedAt: timestamp,
-  startedBy: z.string().min(1),
-  state: z.enum(["queued", "running", "succeeded"]),
-})
-
 export const settingsAuditEventSchema = z.object({
   id: identifier,
   createdAt: timestamp,
@@ -141,8 +121,6 @@ export const settingsWorkspaceResponseSchema = settingsPublicResponseSchema.exte
     accessDenied: z.boolean(),
     users: z.array(administratorSchema),
   }),
-  learnings: z.array(learningRecordSchema),
-  learningRuns: z.array(learningRunSchema),
   notifications: z.object({
     items: z.array(NOTIFICATION_SCHEMA),
     unreadCount: z.number().int().nonnegative(),
@@ -156,8 +134,6 @@ export const settingsWorkspaceResponseSchema = settingsPublicResponseSchema.exte
     events: z.array(settingsAuditEventSchema),
     nextPage: identifier.nullable(),
   }),
-  evidenceAuthor: userSchema.nullable(),
-  evidencePrototype: z.object({ id: recordIdentifierSchema, name: z.string().min(1) }).nullable(),
 })
 
 export const settingsOperationSchema = z.discriminatedUnion("operation", [
@@ -247,18 +223,6 @@ export const settingsOperationSchema = z.discriminatedUnion("operation", [
       continuationId: authorizationContinuationSchema.shape.id,
     })
     .strict(),
-  z
-    .object({
-      operation: z.literal("learning-decide"),
-      repositoryId: recordIdentifierSchema,
-      learningId: learningRecordSchema.shape.id,
-      decision: z.enum(["accept", "reject", "retire"]),
-      digest: z.string().max(100).optional(),
-      content: z.string().trim().min(1).max(2000).optional(),
-      reason: z.string().trim().min(1).max(500).optional(),
-    })
-    .strict(),
-  z.object({ operation: z.literal("learning-run"), repositoryId: recordIdentifierSchema }).strict(),
   z
     .object({
       operation: z.literal("notification-read"),

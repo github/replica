@@ -197,6 +197,9 @@ These are frontend/mock contracts under [the application contracts](../client/ap
 | `GET /api/repositories/:repositoryId/templates` and `/api/repositories/:repositoryId/templates/:templateId` | Template browsing |
 | `GET /api/repositories/:repositoryId/prototype-management`, `PATCH /api/repositories/:repositoryId/prototype-management/:prototypeId` | Management records and metadata changes |
 | `POST /api/repositories/:repositoryId/prototype-candidates/:candidateId` | Synthetic branch registration |
+| `GET /api/repositories/:repositoryId/learnings` | Repository-authorized suggestions, exact evidence, accepted guidance, recall preview, recent runs, Copilot state, and usage |
+| `POST /api/repositories/:repositoryId/learnings/runs` | Request one repository learning run |
+| `POST /api/repositories/:repositoryId/learnings/:learningId/decision` | Accept, reject, or retire against the suggestion digest the administrator reviewed |
 | `/api/repositories/:repositoryId/prototypes/:prototypeId/share-links` | Build-pinned local links and revocation |
 | `GET /api/shared/:shareId` | Public preview or an explicit inactive-link state |
 | `GET`, `PATCH /api/product/sharing-settings` | Local sharing state |
@@ -219,7 +222,9 @@ Real administrator management does not use the provisional settings contracts:
 
 Errors use an HTTP status and `{ "error": "..." }`. Request schemas and the same response schemas check the JSON fixtures and HTTP boundary. Server-side input validation and authorization remain separate backend responsibilities.
 
-The [product contracts](../client/application/hub/product-contracts/index.ts), [settings contracts](../client/application/hub/settings-contracts/index.ts), and [session contracts](../client/application/hub/session-contracts/index.ts) define those provisional records. The review adapter injects this request boundary into the retained review hooks without changing their default consumers. Persona selection, scenarios, diagnostics, fixture generation, and local mutation rules belong to the mock runtime, not these contracts.
+The [product contracts](../client/application/hub/product-contracts/index.ts), [Learnings contracts](../client/application/hub/learnings-contracts/index.ts), [settings contracts](../client/application/hub/settings-contracts/index.ts), and [session contracts](../client/application/hub/session-contracts/index.ts) define those provisional records. The review adapter injects this request boundary into the retained review hooks without changing their default consumers. Persona selection, scenarios, diagnostics, fixture generation, and local mutation rules belong to the mock runtime, not these contracts.
+
+The Learnings backend still needs all three listed endpoints. Its read response must make repository authorization authoritative, return access denial without suggestion or evidence data, distinguish Hub-wide Copilot connection state from repository decision permission, and return exact review digests, replacement targets, evidence and contradiction counts, accepted-learning integrity states, recall text, recent run results, and decimal AI-credit usage. Decision writes must reject a stale digest and validate decision-specific fields. Run and decision writes must reread repository-administrator authority and return visible `403`, `409`, or `422` errors rather than success-shaped empty data. The local handlers keep only tab-lifetime development state and do not provide persistence, jobs, repository discovery, review import, or Copilot execution.
 
 ## Removing mocks
 

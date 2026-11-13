@@ -22,6 +22,9 @@ const data: LearningsPageData = {
   securityAuditPath: "/repositories/2001/security_audit",
   alert: null,
   notice: null,
+  accessDenied: false,
+  accessDeniedLabel: "You do not have permission to view this repository's learnings.",
+  canDecide: true,
   collapseNavigationLabel: "Collapse sidebar",
   expandNavigationLabel: "Expand sidebar",
   navigationLabel: "Repository navigation",
@@ -163,13 +166,11 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const Default: Story = {}
-export const ReadOnly: Story = {
+export const AccessDenied: Story = {
   args: {
     data: {
       ...data,
-      canDecide: false,
-      run: { ...data.run, available: false },
-      identityNotice: "You can view learnings, but you do not have permission to change them.",
+      accessDenied: true,
     },
   },
 }
@@ -324,6 +325,26 @@ export const DailyRunWaiting: Story = {
           stateLabel: "Waiting",
           result: null,
           usage: "None",
+        },
+        ...data.runs,
+      ],
+    },
+  },
+}
+
+export const FailedRun: Story = {
+  args: {
+    data: {
+      ...data,
+      runs: [
+        {
+          id: 3,
+          startedAt: "2026-10-10T04:07:00Z",
+          startedBy: "Daily",
+          state: "failed",
+          stateLabel: "Failed",
+          result: "Copilot could not label the remaining comments.",
+          usage: "0.011 AI credits in 1 request",
         },
         ...data.runs,
       ],

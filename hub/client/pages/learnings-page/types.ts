@@ -44,47 +44,54 @@ export interface LearningRun {
   usage: string
 }
 
-export interface LearningsPageData extends RepositoryWorkspaceData {
-  canDecide?: boolean
+type SharedLearningsPageData = RepositoryWorkspaceData & {
   pageTitle: string
   alert: string | null
   notice: string | null
-  copy: Record<
-    | "heading"
-    | "description"
-    | "runLabel"
-    | "suggestionsHeading"
-    | "suggestionsEmpty"
-    | "evidenceHeading"
-    | "contradictionsHeading"
-    | "replacementHeading"
-    | "deletedComment"
-    | "accept"
-    | "edit"
-    | "contentLabel"
-    | "acceptEdited"
-    | "reject"
-    | "rejectReason"
-    | "confirmReject"
-    | "cancel"
-    | "acceptedHeading"
-    | "acceptedEmpty"
-    | "retire"
-    | "retireReason"
-    | "confirmRetire"
-    | "recallHeading"
-    | "recallDescription"
-    | "recallEmpty"
-    | "runsHeading"
-    | "runsEmpty",
-    string
-  > & { runColumns: Record<"started" | "startedBy" | "result" | "usage", string> }
-  status: { message: string; refused: boolean; activity: string | null; usage: string }
-  run: { path: string; available: boolean }
-  loadError: string | null
-  identityNotice: string | null
-  suggestions: LearningSuggestion[]
-  learnings: AcceptedLearning[]
-  recall: { text: string; count: number }
-  runs: LearningRun[]
+  accessDeniedLabel: string
 }
+
+export type LearningsPageData =
+  | (SharedLearningsPageData & { accessDenied: true })
+  | (SharedLearningsPageData & {
+      accessDenied: false
+      canDecide: boolean
+      copy: Record<
+        | "heading"
+        | "description"
+        | "runLabel"
+        | "suggestionsHeading"
+        | "suggestionsEmpty"
+        | "evidenceHeading"
+        | "contradictionsHeading"
+        | "replacementHeading"
+        | "deletedComment"
+        | "accept"
+        | "edit"
+        | "contentLabel"
+        | "acceptEdited"
+        | "reject"
+        | "rejectReason"
+        | "confirmReject"
+        | "cancel"
+        | "acceptedHeading"
+        | "acceptedEmpty"
+        | "retire"
+        | "retireReason"
+        | "confirmRetire"
+        | "recallHeading"
+        | "recallDescription"
+        | "recallEmpty"
+        | "runsHeading"
+        | "runsEmpty",
+        string
+      > & { runColumns: Record<"started" | "startedBy" | "result" | "usage", string> }
+      status: { message: string; refused: boolean; activity: string | null; usage: string }
+      run: { path: string; available: boolean }
+      loadError: string | null
+      identityNotice: string | null
+      suggestions: LearningSuggestion[]
+      learnings: AcceptedLearning[]
+      recall: { text: string; count: number }
+      runs: LearningRun[]
+    })

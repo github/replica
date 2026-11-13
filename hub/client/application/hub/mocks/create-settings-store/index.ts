@@ -6,8 +6,6 @@ import {
 import type {
   AnalyticsDestinationRecord,
   CanvasGrantRecord,
-  LearningRecord,
-  LearningRunRecord,
   SettingsMutationResponse,
   SettingsOperation,
   SettingsPublicResponse,
@@ -50,44 +48,6 @@ export function createSettingsStore(context: MockFlowContext) {
       ]
     : []
   const grants: CanvasGrantRecord[] = []
-  const learningRecords: LearningRecord[] = firstRepository
-    ? [
-        {
-          id: "learning-1",
-          repositoryId: firstRepository.id,
-          content: "Keep a visible label above every form field.",
-          digest: "1".padStart(64, "0"),
-          evidenceId: "review-event-1",
-          version: 1,
-          state: "suggested",
-          decidedBy: null,
-          reason: null,
-        },
-        {
-          id: "learning-2",
-          repositoryId: firstRepository.id,
-          content: "Explain the next step beside the primary action.",
-          digest: "2".padStart(64, "0"),
-          evidenceId: "review-event-2",
-          version: 1,
-          state: "suggested",
-          decidedBy: null,
-          reason: null,
-        },
-        {
-          id: "learning-3",
-          repositoryId: firstRepository.id,
-          content: "Use one primary action per form.",
-          digest: "3".padStart(64, "0"),
-          evidenceId: "review-event-3",
-          version: 1,
-          state: "accepted",
-          decidedBy: "mona",
-          reason: null,
-        },
-      ]
-    : []
-  const runs: LearningRunRecord[] = []
   const { auditEvents, notifications } = createSettingsFixtures(context)
   let nextId =
     Math.max(
@@ -140,9 +100,6 @@ export function createSettingsStore(context: MockFlowContext) {
           .filter((entry) => query.scope === "hub" || entry.repositoryId === repository?.id)
           .sort((first, second) => second.id - first.id)
     const pageSize = 50
-    const prototype = context.resources.prototypes.find(
-      (entry) => entry.repositoryId === repository?.id,
-    )
     const empty = scenario === "empty"
     return settingsWorkspaceResponseSchema.parse({
       ...getPublic(),
@@ -164,10 +121,6 @@ export function createSettingsStore(context: MockFlowContext) {
             ? []
             : candidates.filter((entry) => administrators.has(entry.login)),
       },
-      learnings: empty
-        ? []
-        : learningRecords.filter((entry) => entry.repositoryId === repository?.id),
-      learningRuns: empty ? [] : runs.filter((entry) => entry.repositoryId === repository?.id),
       notifications: {
         items: empty
           ? []
@@ -185,13 +138,11 @@ export function createSettingsStore(context: MockFlowContext) {
           : filteredEvents.slice((query.page - 1) * pageSize, query.page * pageSize),
         nextPage: !empty && filteredEvents.length > query.page * pageSize ? query.page + 1 : null,
       },
-      evidenceAuthor: context.resources.users.find((entry) => entry.login === "mona") ?? null,
-      evidencePrototype: prototype ? { id: prototype.id, name: prototype.name } : null,
     })
   }
 
   function record(
-    operation: SettingsOperation["operation"],
+    operation: SettingsOperation["operation"] | "learning-decide" | "learning-run",
     notice: string,
     repositoryId: string | null = null,
     redirect: string | null = null,
@@ -417,63 +368,6 @@ export function createSettingsStore(context: MockFlowContext) {
           destination,
         )
       }
-      case "learning-decide": {
-        const repository = requireRepository(input.repositoryId)
-        const learning = learningRecords.find(
-          (entry) => entry.id === input.learningId && entry.repositoryId === repository.id,
-        )
-        if (!learning) throw new MockStoreError(404, "That learning does not exist.")
-        const retiring = input.decision === "retire"
-        if (learning.state !== (retiring ? "accepted" : "suggested")) {
-          throw new MockStoreError(409, "This learning already has a different decision.")
-        }
-        if (input.decision !== "accept" && !input.reason) {
-          throw new MockStoreError(422, "Explain this rejection or retirement.")
-        }
-        if (
-          (input.decision !== "accept" && input.content !== undefined) ||
-          (input.decision === "accept" && input.reason !== undefined) ||
-          (retiring && input.digest !== undefined)
-        ) {
-          throw new MockStoreError(422, "Submit only fields belonging to this learning decision.")
-        }
-        learning.content = input.content ?? learning.content
-        learning.state = retiring
-          ? "retired"
-          : input.decision === "accept"
-            ? "accepted"
-            : "rejected"
-        learning.reason = input.reason ?? null
-        learning.decidedBy = context.session.requireViewer().login
-        learning.version += 1
-        learning.digest = String(learning.version).padStart(64, "0")
-        return record(input.operation, `Learning ${learning.state}.`, repository.id)
-      }
-      case "learning-run": {
-        const repository = requireRepository(input.repositoryId)
-        if (!copilot.connected) {
-          throw new MockStoreError(409, "Connect Copilot before looking for learnings.")
-        }
-        runs.unshift({
-          id: nextId++,
-          repositoryId: repository.id,
-          startedAt: new Date().toISOString(),
-          startedBy: context.session.requireViewer().login,
-          state: "succeeded",
-        })
-        learningRecords.push({
-          id: `learning-${nextId++}`,
-          repositoryId: repository.id,
-          content: "Keep recovery actions beside the error they resolve.",
-          digest: String(nextId).padStart(64, "0"),
-          evidenceId: `review-event-${nextId}`,
-          version: 1,
-          state: "suggested",
-          decidedBy: null,
-          reason: null,
-        })
-        return record(input.operation, "Finished looking for learnings.", repository.id)
-      }
       case "notification-read": {
         const viewer = context.session.requireViewer()
         const notification = notifications.find(
@@ -511,6 +405,16 @@ export function createSettingsStore(context: MockFlowContext) {
     getPublic,
     getWorkspace,
     mutate,
+    getCopilot() {
+      return { ...copilot }
+    },
+    recordLearningActivity(
+      operation: "learning-decide" | "learning-run",
+      detail: string,
+      repositoryId: string,
+    ) {
+      record(operation, detail, repositoryId)
+    },
     getNotificationPage(unreadOnly: boolean, limit: number, before?: number) {
       const viewer = context.session.requireViewer()
       const owned = notifications.filter((entry) => entry.recipientLogin === viewer.login)

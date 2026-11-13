@@ -7,7 +7,6 @@ import { CopilotConnectionPage } from "@pages/copilot-connection-page"
 import { GithubAppPage } from "@pages/github-app-page"
 import { HubAdminConfirmationPage } from "@pages/hub-admin-confirmation-page"
 import { HubAdminsPage } from "@pages/hub-admins-page"
-import { LearningsPage } from "@pages/learnings-page"
 import { SecurityAuditPage } from "@pages/security-audit-page"
 import { WelcomePage } from "@pages/welcome-page"
 import { workspaceResponseSchema } from "@application/hub/contracts"
@@ -22,7 +21,6 @@ import { settingsAudit } from "@application/hub/view-models/settings-audit"
 import { settingsCanvas } from "@application/hub/view-models/settings-canvas"
 import { settingsCopilot } from "@application/hub/view-models/settings-copilot"
 import { settingsGithub } from "@application/hub/view-models/settings-github"
-import { settingsLearnings } from "@application/hub/view-models/settings-learnings"
 import { settingsWelcome } from "@application/hub/view-models/settings-welcome"
 
 import { NotificationsScreen } from "../notifications-screen"
@@ -101,8 +99,6 @@ export function SettingsWorkspaceScreen({
         />
       )
     }
-    case "learnings":
-      return <LearningsPage data={settingsLearnings(workspace, state, search)} />
     case "notifications":
       return (
         <NotificationsScreen
