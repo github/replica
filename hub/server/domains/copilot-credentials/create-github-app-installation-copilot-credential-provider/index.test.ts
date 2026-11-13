@@ -126,4 +126,18 @@ describe("createGitHubAppInstallationCopilotCredentialProvider()", () => {
       "GITHUB_APP_ID, REPLICA_COPILOT_GITHUB_INSTALLATION_ID, REPLICA_COPILOT_GITHUB_ORGANIZATION must provide positive numeric App and installation IDs and a valid organization login.",
     )
   })
+
+  it("names the required PEM private-key setting", () => {
+    expect(() =>
+      createGitHubAppInstallationCopilotCredentialProvider(
+        configuration("", { GITHUB_APP_PRIVATE_KEY: undefined }),
+      ),
+    ).toThrow(
+      "GITHUB_APP_PRIVATE_KEY is required and must contain a PEM-encoded GitHub App private key.",
+    )
+
+    expect(() =>
+      createGitHubAppInstallationCopilotCredentialProvider(configuration("not-a-private-key")),
+    ).toThrow("GITHUB_APP_PRIVATE_KEY must contain a valid PEM-encoded GitHub App private key.")
+  })
 })

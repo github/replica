@@ -4,12 +4,18 @@ A Hub administrator can connect one deployment-wide Copilot credential for learn
 
 ## Configure a provider
 
-No Copilot credential provider is enabled by default. Simple and local deployments can explicitly select one:
+No Copilot credential provider is enabled by default. Production deployments can select the Hub GitHub App installation:
+
+- `REPLICA_COPILOT_AUTHENTICATION=github-app-installation` uses `GITHUB_APP_ID`, a PEM-encoded `GITHUB_APP_PRIVATE_KEY`, `REPLICA_COPILOT_GITHUB_ORGANIZATION`, and `REPLICA_COPILOT_GITHUB_INSTALLATION_ID`.
+- Hub verifies that the App and organization own that installation and that it grants only read-only organization Copilot requests.
+- Hub mints a fresh installation token for each learning command and never persists it. Usage is billed to the configured organization and remains subject to its model policy, budget, permission changes, and installation revocation.
+
+Simple and local deployments can instead explicitly select one personal provider:
 
 - `REPLICA_COPILOT_AUTHENTICATION=ambient-cli` uses the Copilot account signed in where Hub runs.
 - `REPLICA_COPILOT_AUTHENTICATION=environment-token` reads `REPLICA_COPILOT_TOKEN` from the deployment secret store.
 
-These providers attribute usage to the represented individual identity. Production deployments should supply a governed provider through the same provider boundary. Restart every Hub API and worker process together after changing provider configuration.
+The personal providers attribute usage to the represented individual identity. Hub never falls back between credential modes. Restart every Hub API and worker process together after changing provider configuration.
 
 See [Learning foundation](learning-foundation.md) for the command boundary, storage configuration, and current learning lifecycle.
 
@@ -30,6 +36,8 @@ Connect, disconnect, page access, and authorization phases write bounded securit
 
 - Without a configured provider, Hub shows the configuration requirement and does not offer connection.
 - A refused credential produces a denied change and records refusal state without saving a connection.
+- A removed GitHub App installation, mismatched App or organization, or denied Copilot Requests permission produces a denied change for that exact provider configuration. Hub never falls back to a personal credential.
+- GitHub throttling, network failures, and unreadable responses remain retryable failures and do not record terminal refusal state.
 - An unavailable command or Copilot service produces a failed change and no connection.
 - A stale, cancelled, expired, reused, or mismatched authorization changes nothing.
 - When the connector loses their final effective administrator assignment, the same authority transaction disconnects Copilot, advances the connection generation, and audits the automatic change.

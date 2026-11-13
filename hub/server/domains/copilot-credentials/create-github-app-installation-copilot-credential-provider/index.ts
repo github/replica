@@ -40,15 +40,24 @@ export function createGitHubAppInstallationCopilotCredentialProvider(
   }
   const configuration = parsedConfiguration.data
   const privateKey = environment.GITHUB_APP_PRIVATE_KEY?.replaceAll("\\n", "\n").trim()
-  const jwtSigner =
-    signer ??
-    (privateKey
-      ? createGitHubAppJwtSigner(privateKey)
-      : (() => {
-          throw new Error(
-            "GITHUB_APP_PRIVATE_KEY or a workload-backed GitHub App signer is required.",
-          )
-        })())
+  let jwtSigner: GitHubAppJwtSigner
+  if (signer) {
+    jwtSigner = signer
+  } else {
+    if (!privateKey) {
+      throw new Error(
+        "GITHUB_APP_PRIVATE_KEY is required and must contain a PEM-encoded GitHub App private key.",
+      )
+    }
+    try {
+      jwtSigner = createGitHubAppJwtSigner(privateKey)
+    } catch (error) {
+      throw new Error(
+        "GITHUB_APP_PRIVATE_KEY must contain a valid PEM-encoded GitHub App private key.",
+        { cause: error },
+      )
+    }
+  }
   const identity = {
     appId: configuration.GITHUB_APP_ID,
     installationId: configuration.REPLICA_COPILOT_GITHUB_INSTALLATION_ID,
