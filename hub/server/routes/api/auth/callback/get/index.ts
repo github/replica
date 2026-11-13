@@ -82,7 +82,7 @@ export function get(dependencies: AuthenticationCallbackDependencies): RequestHa
             ? `/settings/sessions/confirm?authorizationId=${completed.sensitiveAuthorizationId}`
             : operation === "CONNECT_COPILOT" || operation === "DISCONNECT_COPILOT"
               ? `/settings/copilot/confirm?authorizationId=${completed.sensitiveAuthorizationId}`
-            : `/settings/administrators/confirm?authorizationId=${completed.sensitiveAuthorizationId}`,
+              : `/settings/administrators/confirm?authorizationId=${completed.sensitiveAuthorizationId}`,
         )
         return
       }
