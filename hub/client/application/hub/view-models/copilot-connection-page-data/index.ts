@@ -34,9 +34,12 @@ export function copilotConnectionPageData(
     submitPath: "/settings/copilot",
     credentialLabel: status.configured
       ? null
-      : "Configure a Copilot credential provider before connecting. Simple deployments can explicitly select ambient CLI authentication or the environment-token provider.",
+      : "Configure a Copilot credential provider before connecting. Production deployments can use a GitHub App installation; simple deployments can explicitly select ambient CLI authentication or the environment-token provider.",
     connectedBy: status.connectedBy
       ? `${status.connectedBy.login ? `@${status.connectedBy.login}` : "A Hub administrator"} connected Copilot. Membership ${status.connectedBy.membershipId}.`
+      : undefined,
+    usageLabel: status.credentialIdentity
+      ? `Copilot usage is billed to the ${status.credentialIdentity.organization} organization through GitHub App ${status.credentialIdentity.appId}. Organization model policy, budget, and installation revocation continue to apply.`
       : undefined,
     verifiedLabel: status.verifiedAt
       ? `Copilot last answered on ${new Date(status.verifiedAt).toISOString()}.`
@@ -52,8 +55,9 @@ export function copilotConnectionPageData(
             : status.verifiedAt
               ? "Check and connect Copilot"
               : "Connect Copilot",
-          consequence:
-            "Hub asks Copilot to verify the configured credential. Later learning runs may send review comment text without reviewer identity. The available local providers attribute usage to the signed-in account or user-token identity.",
+          consequence: status.credentialIdentity
+            ? `Hub asks Copilot to verify a fresh credential for the ${status.credentialIdentity.organization} organization through GitHub App ${status.credentialIdentity.appId}. Later learning runs may send review comment text without reviewer identity. The organization's Copilot model policy, budget, and App installation revocation continue to apply.`
+            : "Hub asks Copilot to verify the configured credential. Later learning runs may send review comment text without reviewer identity. The available local providers attribute usage to the signed-in account or user-token identity.",
           confirmLabel: "I understand and confirm connecting Copilot for this Hub.",
           verification,
         },

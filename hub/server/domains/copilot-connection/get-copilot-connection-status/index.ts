@@ -1,4 +1,7 @@
-import type { CopilotCredentialProviderKey } from "../../copilot-credentials/types.ts"
+import type {
+  CopilotCredentialProviderKey,
+  GitHubAppInstallationIdentity,
+} from "../../copilot-credentials/types.ts"
 
 export function getCopilotConnectionStatus(
   connection: {
@@ -13,6 +16,7 @@ export function getCopilotConnectionStatus(
   } | null,
   credentialProvider: {
     configurationDigest: string | null
+    githubAppInstallation?: GitHubAppInstallationIdentity | null
     key: CopilotCredentialProviderKey
   },
   connectedByIsAdministrator: boolean,
@@ -42,6 +46,7 @@ export function getCopilotConnectionStatus(
     configured: credentialProvider.configurationDigest !== null,
     connected,
     savedConnection: connection !== null,
+    credentialIdentity: credentialProvider.githubAppInstallation ?? null,
     connectedBy:
       connection && matchesVerifiedCredential && connectedByIsAdministrator
         ? connection.connectedBy

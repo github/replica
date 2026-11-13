@@ -264,6 +264,11 @@ const eventSchema = z.discriminatedUnion("type", [
   z
     .object({
       actorMembershipId: z.uuid().nullable(),
+      appId: z
+        .string()
+        .regex(/^[1-9]\d*$/)
+        .optional(),
+      billedOrganization: z.string().min(1).max(39).optional(),
       connectionId: z.uuid().optional(),
       credentialProvider: z.string().min(1).max(100),
       id: z.uuid(),

@@ -113,4 +113,41 @@ describe("securityAuditPageData()", () => {
       }),
     ])
   })
+
+  it("labels the billed organization and GitHub App identity", () => {
+    const session = currentHubSessionSchema.parse({
+      authenticated: true,
+      membershipId: "11111111-1111-4111-8111-111111111111",
+      userId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      provider: "github",
+      login: "octocat",
+      name: "The Octocat",
+      role: "ADMINISTRATOR",
+    })
+    const response = securityAuditResponseSchema.parse({
+      records: [
+        {
+          id: "22222222-2222-4222-8222-222222222222",
+          occurredAt: "2026-11-10T12:00:00.000Z",
+          action: "copilot.connection.connected",
+          outcome: "success",
+          actor: null,
+          context: {
+            appId: "123",
+            billedOrganization: "github",
+            provider: "github_app_installation",
+            phase: "connected",
+          },
+        },
+      ],
+      nextCursor: null,
+    })
+
+    expect(securityAuditPageData(session, response).events[0]?.context).toEqual([
+      { label: "GitHub App", value: "123" },
+      { label: "Billed organization", value: "github" },
+      { label: "Provider", value: "github_app_installation" },
+      { label: "Phase", value: "connected" },
+    ])
+  })
 })

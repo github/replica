@@ -5,6 +5,8 @@ import type { SecurityAuditResponse } from "@application/hub/security-audit-cont
 import { administratorWorkspace } from "../administrator-workspace"
 
 const contextLabels: Record<string, string> = {
+  appId: "GitHub App",
+  billedOrganization: "Billed organization",
   membershipId: "Membership",
   operation: "Operation",
   phase: "Phase",

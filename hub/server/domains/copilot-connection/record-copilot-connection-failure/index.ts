@@ -1,7 +1,17 @@
 import type { CopilotConnectionTransactionRepositories } from "../types.ts"
 
 export function recordCopilotConnectionFailure(
-  { credentialProvider, sessionDigest }: { credentialProvider: string; sessionDigest: string },
+  {
+    appId,
+    billedOrganization,
+    credentialProvider,
+    sessionDigest,
+  }: {
+    appId?: string
+    billedOrganization?: string
+    credentialProvider: string
+    sessionDigest: string
+  },
   {
     createId,
     runTransaction,
@@ -18,6 +28,8 @@ export function recordCopilotConnectionFailure(
     if (!session) return false
     await repositories.writeAudit({
       actorMembershipId: session.membershipId,
+      ...(appId ? { appId } : {}),
+      ...(billedOrganization ? { billedOrganization } : {}),
       credentialProvider,
       id: createId(),
       phase: "failed",

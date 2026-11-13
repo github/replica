@@ -210,6 +210,8 @@ export interface SessionRevocationAdvancedAudit extends SecurityAuditEvent {
 export interface CopilotConnectionAudit extends SecurityAuditEvent {
   type: "copilot_connection"
   actorMembershipId: string | null
+  appId?: string
+  billedOrganization?: string
   connectionId?: string
   credentialProvider: string
   phase: "connected" | "disconnected" | "denied" | "failed"

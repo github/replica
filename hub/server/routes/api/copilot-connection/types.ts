@@ -54,6 +54,11 @@ export interface CopilotConnectionRouteDependencies {
     configured: boolean
     connected: boolean
     savedConnection: boolean
+    credentialIdentity: {
+      appId: string
+      installationId: string
+      organization: string
+    } | null
     connectedBy: {
       login: string | null
       membershipId: string
