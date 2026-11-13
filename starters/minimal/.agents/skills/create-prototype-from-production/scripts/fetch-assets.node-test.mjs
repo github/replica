@@ -168,4 +168,11 @@ test("CLI reports rejections without URLs and rejects usage errors", (t) => {
   assert.equal(JSON.parse(result.stdout).rejected, 1)
   assert.doesNotMatch(result.stdout + result.stderr, /127\.0\.0\.1\/x\.png/)
   assert.equal(spawnSync(process.execPath, [script, manifest], { cwd: dir }).status, 2)
+  writeFileSync(join(dir, "reference/assets.json"), "{")
+  const out = join(dir, "unread")
+  assert.equal(
+    spawnSync(process.execPath, [script, manifest, "--out", out], { cwd: dir }).status,
+    2,
+  )
+  assert.equal(existsSync(out), false)
 })

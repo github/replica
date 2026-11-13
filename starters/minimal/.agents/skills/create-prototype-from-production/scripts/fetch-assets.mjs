@@ -147,7 +147,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     console.error("Cannot read manifest: expected an array of URL and page strings.")
     process.exit(2)
   }
-  const { results, entries } = await fetchAssets(manifest, { outDir })
   const metadata = resolve("reference/assets.json")
   let existing = []
   try {
@@ -157,6 +156,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     console.error("Cannot read asset metadata: expected a JSON array.")
     process.exit(2)
   }
+  const { results, entries } = await fetchAssets(manifest, { outDir })
   const merged = new Map([...existing, ...entries].map((entry) => [entry.sha256, entry]))
   fs.mkdirSync(dirname(metadata), { recursive: true })
   fs.writeFileSync(metadata, JSON.stringify([...merged.values()], null, 2) + "\n")
