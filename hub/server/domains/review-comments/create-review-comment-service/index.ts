@@ -63,6 +63,13 @@ export function createReviewCommentService(
     sessionDigest: string,
     userId: string,
   ) => Promise<boolean> = () => Promise.resolve(true),
+  options: {
+    onDeleted?: (input: {
+      repositoryId: string
+      commentId: number
+      actorLogin: string
+    }) => Promise<void>
+  } = {},
 ): ReviewCommentService {
   const repository = createReviewCommentRepository(database)
   return {
@@ -121,7 +128,13 @@ export function createReviewCommentService(
         }),
       )
       if (!result.ok) throw persistenceError(result.reason)
-      return serializeReviewThread(result.value)
+      const thread = serializeReviewThread(result.value)
+      await options.onDeleted?.({
+        repositoryId: input.repositoryId,
+        commentId: input.commentId,
+        actorLogin: input.actor.login,
+      })
+      return thread
     },
     async setResolution(input) {
       const result = await runReviewMutation(() =>

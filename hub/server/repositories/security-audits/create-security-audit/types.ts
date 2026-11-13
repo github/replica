@@ -228,6 +228,15 @@ export interface LearningDecisionAudit extends SecurityAuditEvent {
   repositoryId: string
 }
 
+export interface LearningRunAudit extends SecurityAuditEvent {
+  type: "learning_run"
+  actorMembershipId: string
+  outcome: "requested" | "failed"
+  reason?: string
+  repositoryId: string
+  runId: string
+}
+
 export type CreateSecurityAuditEvent =
   | AuthenticationAttemptDeniedAudit
   | BootstrapAttemptDeniedAudit
@@ -257,3 +266,4 @@ export type CreateSecurityAuditEvent =
   | AuthenticationProvidersReconcileFailedAudit
   | SessionRevocationAdvancedAudit
   | LearningDecisionAudit
+  | LearningRunAudit

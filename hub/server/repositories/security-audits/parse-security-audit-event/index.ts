@@ -289,6 +289,17 @@ const eventSchema = z.discriminatedUnion("type", [
       type: z.literal("learning_decision"),
     })
     .strict(),
+  z
+    .object({
+      actorMembershipId: z.uuid(),
+      id: z.uuid(),
+      outcome: z.enum(["requested", "failed"]),
+      reason: z.string().min(1).max(100).optional(),
+      repositoryId: z.uuid(),
+      runId: z.uuid(),
+      type: z.literal("learning_run"),
+    })
+    .strict(),
 ])
 
 export function parseSecurityAuditEvent(input: unknown): ParsedSecurityAuditEvent {

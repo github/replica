@@ -15,7 +15,10 @@ const referenceSchema = z
     source: z
       .object({
         kind: z.string().optional(),
+        hubOrigin: z.string().optional(),
         repositoryId: z.string().optional(),
+        prototypeId: z.string().optional(),
+        threadId: z.number().int().positive().optional(),
         commentId: z.number().int().positive().optional(),
       })
       .loose(),
@@ -73,6 +76,25 @@ const recallSchema = z
   .object({
     text: z.string(),
     memories: z.array(z.object({ id: z.string() }).loose()),
+  })
+  .loose()
+const observationsSchema = z
+  .object({
+    events: z.array(
+      z
+        .object({
+          id: z.string().min(1),
+          episodeId: z.string().min(1),
+          at: z.string().min(1),
+          payload: z
+            .object({
+              commentId: z.number().int().positive(),
+              body: z.string().nullable(),
+            })
+            .loose(),
+        })
+        .loose(),
+    ),
   })
   .loose()
 
@@ -153,9 +175,28 @@ export async function getLearningOverview(input: {
       const evidenceReferences = item.record.evidence ?? []
       const contradictionReferences = item.record.contradictions ?? []
       const references = [...evidenceReferences, ...contradictionReferences]
+      const eventIds = [...new Set(references.flatMap((reference) => reference.eventIds))]
+      const events = []
+      for (let index = 0; index < eventIds.length; index += 100) {
+        const batch = eventIds.slice(index, index + 100)
+        const result = observationsSchema.parse(
+          await runLearningCommand(
+            [
+              "observations",
+              "--purpose",
+              "review",
+              ...batch.flatMap((eventId) => ["--event", eventId]),
+              ...commonArguments,
+            ],
+            commandOptions,
+          ),
+        )
+        events.push(...result.events)
+      }
       const resolved = await input.evidenceSource.resolveEvidence({
         repositoryId: input.repositoryId,
         references,
+        events,
       })
       const byIndex = new Map(resolved.map((entry) => [entry.referenceIndex, entry.evidence]))
       const evidence = evidenceReferences.flatMap((_, index) => byIndex.get(index) ?? [])

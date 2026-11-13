@@ -28,6 +28,7 @@ import type {
   SessionCreatedAudit,
   SessionEndedAudit,
   LearningDecisionAudit,
+  LearningRunAudit,
 } from "../create-security-audit/types.ts"
 
 export type ParsedSecurityAuditEvent =
@@ -67,3 +68,4 @@ export type ParsedSecurityAuditEvent =
     })
   | SessionRevocationAdvancedAudit
   | LearningDecisionAudit
+  | LearningRunAudit

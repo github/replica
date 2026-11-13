@@ -215,12 +215,21 @@ export async function runLearningCommand(
         const stderr = Buffer.concat(errors).toString("utf8").trim()
         if (code !== 0) {
           const match = errorPattern.exec(stderr)
+          let result: unknown
+          if (stdout.trim()) {
+            try {
+              result = JSON.parse(stdout)
+            } catch {
+              result = undefined
+            }
+          }
           reject(
             new LearningCommandError(
               match?.[1] ?? (code === 2 ? "invalid_request" : "learning_failed"),
               match?.[2]?.trim() ||
                 stderr.split("\n")[0]?.replace(/^error:\s*/, "") ||
                 "replica-learning failed.",
+              { result },
             ),
           )
           return

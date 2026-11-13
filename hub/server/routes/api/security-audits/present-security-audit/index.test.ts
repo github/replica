@@ -415,6 +415,23 @@ describe("presentSecurityAudit()", () => {
         outcome: "success",
       }),
     },
+    {
+      label: "repository learning run request",
+      event: {
+        actorMembershipId,
+        id: auditId,
+        outcome: "requested",
+        repositoryId: providerId,
+        runId: sessionId,
+        type: "learning_run",
+      },
+      expected: expectedRecord({
+        action: "learning.run.requested",
+        actor: { membershipId: actorMembershipId },
+        context: { repositoryId: providerId, runId: sessionId },
+        outcome: "success",
+      }),
+    },
     ...(
       [
         ["connected", "success", true, undefined],

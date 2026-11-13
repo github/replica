@@ -24,7 +24,7 @@ The [Pino integration](logging.md) writes structured application and HTTP logs t
 
 The [prototype details editor](frontend.md#prototype-metadata-edits) lets signed-in members edit visible prototypes and register drafts. Hub holds session authority and prototype visibility locks through the write and detail read-back.
 
-The [background-job foundation](background-jobs.md) uses BullMQ with PostgreSQL and separate on-demand and scheduled worker processes. Setup migrates BullMQ's own schema independently of Prisma. Product processors and schedules are not registered yet.
+The [background-job foundation](background-jobs.md) uses BullMQ with PostgreSQL and separate on-demand and scheduled worker processes. Setup migrates BullMQ's own schema independently of Prisma. Learnings registers on-demand run and redaction processors plus one scheduled recovery sweep.
 
 The [artifact storage domain](artifact-storage.md) selects filesystem or managed-identity Azure Blob storage behind one immutable-byte contract. Future product domains call this provider-neutral API, not SDK integrations directly. Startup validates explicitly configured storage, but no product route or processor consumes artifact bytes yet.
 
@@ -46,7 +46,7 @@ The administrator session-revocation API and retained frontend show current Hub 
 
 The deployment-wide Copilot connection API and retained `/settings/copilot` frontend require a live administrator session. Hub obtains a credential from the configured provider and verifies it through the separate `replica-learning` process, then locks the persistent connection generation and rereads authority before committing the connection and typed security audit together. The database stores the provider key and configuration digest, never the credential.
 
-The [learning foundation](learning-foundation.md) validates private storage, isolates the command's environment and temporary state, bounds output and execution time, and provides a PostgreSQL execution lock plus repository-store preparation primitive. The repository API reads accepted guidance and recall, persists run history and usage, and records accept, edit, reject, and retire decisions through the package store. The [review backend](review-collaboration.md) provides complete repository snapshots with stable actors, deleted-message markers, and ordered resolution history; learning run orchestration and redaction execution remain to be connected.
+The [learning foundation](learning-foundation.md) validates private storage, isolates the command's environment and temporary state, bounds output and execution time, and provides a PostgreSQL execution lock plus repository-store preparation primitive. The repository API reads exact review evidence, accepted guidance, recall, and persisted run history; records accept, edit, reject, and retire decisions through the package store; and queues explicit runs. Workers import complete [review backend](review-collaboration.md) snapshots, label and consolidate within fixed bounds, preserve usage and failures, and redact deleted comment text.
 
 ## Frontend
 

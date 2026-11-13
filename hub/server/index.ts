@@ -84,9 +84,6 @@ try {
         try {
           if (authenticationConfiguration.providerConfigured) {
             authentication = await createAuthenticationRouteDependencies(authenticationEnvironment)
-            const { createProductRouteDependencies } =
-              await import("./routes/api/product/create-product-route-dependencies/index.ts")
-            product = createProductRouteDependencies()
             const { createCopilotConnectionRouteDependencies } =
               await import("./routes/api/copilot-connection/create-copilot-connection-route-dependencies/index.ts")
             copilotConnection = await createCopilotConnectionRouteDependencies(
@@ -96,11 +93,17 @@ try {
             )
             const { createLearningsRouteDependencies } =
               await import("./routes/api/learnings/create-learnings-route-dependencies/index.ts")
-            learnings = await createLearningsRouteDependencies(
+            const learningDependencies = await createLearningsRouteDependencies(
               authenticationEnvironment,
               authentication.currentSession,
               logger,
             )
+            learnings = learningDependencies
+            const { createProductRouteDependencies } =
+              await import("./routes/api/product/create-product-route-dependencies/index.ts")
+            product = createProductRouteDependencies({
+              onReviewCommentDeleted: (input) => learningDependencies.redactComment(input),
+            })
           } else {
             await disableAuthenticationProviders()
           }

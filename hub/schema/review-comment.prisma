@@ -18,6 +18,8 @@ model ReviewComment {
   body        String
   editedAt    DateTime? @map("edited_at") @db.Timestamptz(3)
   deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(3)
+  learningRedactionActor String?   @map("learning_redaction_actor") @db.VarChar(300)
+  learningRedactedAt     DateTime? @map("learning_redacted_at") @db.Timestamptz(3)
 
   // Timestamp columns
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)

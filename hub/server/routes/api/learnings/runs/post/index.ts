@@ -2,6 +2,7 @@ import type { RequestHandler } from "express"
 import { z } from "zod"
 
 import { readLearningSession } from "../../read-learning-session/index.ts"
+import { respondLearningError } from "../../respond-learning-error/index.ts"
 import type { LearningsRouteDependencies } from "../../types.ts"
 
 export function post(dependencies: LearningsRouteDependencies): RequestHandler {
@@ -49,12 +50,13 @@ export function post(dependencies: LearningsRouteDependencies): RequestHandler {
       }
       response.status(202).json(
         await dependencies.requestRun({
+          actorMembershipId: current.membershipId,
           repositoryId: repositoryId.data,
           requestedById: current.userId,
         }),
       )
     } catch (error) {
-      next(error)
+      if (!respondLearningError(response, error)) next(error)
     }
   }
 }

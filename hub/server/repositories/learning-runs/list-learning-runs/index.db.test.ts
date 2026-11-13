@@ -19,6 +19,7 @@ describe("listLearningRuns()", () => {
       data: [
         {
           repositoryId,
+          snapshotDigest: `sha256:${"a".repeat(64)}`,
           requestedById: userId,
           state: "SUCCEEDED",
           startedAt: new Date("2026-11-12T10:00:00Z"),
@@ -32,6 +33,7 @@ describe("listLearningRuns()", () => {
         },
         {
           repositoryId,
+          snapshotDigest: `sha256:${"b".repeat(64)}`,
           scheduled: true,
           state: "FAILED",
           failureCode: "copilot_refused",
@@ -68,11 +70,18 @@ describe("listLearningRuns()", () => {
     await prisma.repository.create({
       data: { id: repositoryId, nameWithOwner: "team/design", defaultBranch: "main" },
     })
-    await prisma.learningRun.create({ data: { repositoryId } })
+    await prisma.learningRun.create({
+      data: { repositoryId, snapshotDigest: `sha256:${"a".repeat(64)}` },
+    })
 
     await expect(
       prisma.learningRun.create({
-        data: { repositoryId, state: "RUNNING", startedAt: new Date() },
+        data: {
+          repositoryId,
+          snapshotDigest: `sha256:${"b".repeat(64)}`,
+          state: "RUNNING",
+          startedAt: new Date(),
+        },
       }),
     ).rejects.toThrow()
   })

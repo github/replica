@@ -81,7 +81,7 @@ export function post(dependencies: LearningsRouteDependencies): RequestHandler {
         await dependencies.decide({
           repositoryId: repositoryId.data,
           learningId: learningId.data,
-          actor: `github:${current.login}`,
+          actor: `human:${current.login}`,
           actorMembershipId: current.membershipId,
           decision: decision.data,
         }),

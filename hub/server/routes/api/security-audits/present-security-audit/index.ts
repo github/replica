@@ -64,7 +64,9 @@ function actorFor(record: SecurityAuditListRecord) {
     }
     case "learning.accept":
     case "learning.reject":
-    case "learning.retire": {
+    case "learning.retire":
+    case "learning.run.requested":
+    case "learning.run.failed": {
       const parsed = actorContextSchema.safeParse(record.context)
       return parsed.success ? { membershipId: parsed.data.actorMembershipId } : null
     }
@@ -324,7 +326,9 @@ function contextFor(record: SecurityAuditListRecord): Record<string, string | nu
     }
     case "learning.accept":
     case "learning.reject":
-    case "learning.retire": {
+    case "learning.retire":
+    case "learning.run.requested":
+    case "learning.run.failed": {
       const parsed = z
         .object({
           actorMembershipId: z.uuid(),
@@ -336,7 +340,11 @@ function contextFor(record: SecurityAuditListRecord): Record<string, string | nu
       return parsed.success
         ? {
             repositoryId: parsed.data.repositoryId,
-            ...(record.targetId ? { learningId: record.targetId } : {}),
+            ...(record.targetId
+              ? record.action.startsWith("learning.run.")
+                ? { runId: record.targetId }
+                : { learningId: record.targetId }
+              : {}),
             ...(parsed.data.reason ? { reason: parsed.data.reason } : {}),
           }
         : {}

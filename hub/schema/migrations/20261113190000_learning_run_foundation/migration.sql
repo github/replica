@@ -1,5 +1,13 @@
 CREATE TYPE "LearningRunState" AS ENUM ('QUEUED', 'RUNNING', 'SUCCEEDED', 'FAILED');
 
+ALTER TABLE "review_comments"
+ADD COLUMN "learning_redaction_actor" VARCHAR(300),
+ADD COLUMN "learning_redacted_at" TIMESTAMPTZ(3);
+
+CREATE INDEX "review_comments_pending_learning_redaction_idx"
+ON "review_comments"("deleted_at", "id")
+WHERE "deleted_at" IS NOT NULL AND "learning_redacted_at" IS NULL;
+
 CREATE TABLE "learning_runs" (
     "id" UUID NOT NULL,
     "repository_id" UUID NOT NULL,
@@ -14,6 +22,7 @@ CREATE TABLE "learning_runs" (
     "suggestions_remaining" INTEGER NOT NULL DEFAULT 0,
     "copilot_requests" INTEGER NOT NULL DEFAULT 0,
     "ai_credits" DECIMAL(20,9) NOT NULL DEFAULT 0,
+    "snapshot_digest" VARCHAR(71) NOT NULL,
     "failure_code" VARCHAR(60),
     "failure_summary" VARCHAR(1000),
     "started_at" TIMESTAMPTZ(3),
@@ -30,6 +39,9 @@ CREATE TABLE "learning_runs" (
       "suggestions_remaining" >= 0 AND
       "copilot_requests" >= 0 AND
       "ai_credits" >= 0
+    ),
+    CONSTRAINT "learning_runs_snapshot_digest_check" CHECK (
+      "snapshot_digest" ~ '^sha256:[0-9a-f]{64}$'
     ),
     CONSTRAINT "learning_runs_result_check" CHECK (
       ("state" = 'FAILED' AND "failure_code" IS NOT NULL AND "failure_summary" IS NOT NULL AND "finished_at" IS NOT NULL) OR

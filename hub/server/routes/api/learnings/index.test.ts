@@ -43,6 +43,7 @@ function dependencies(
     getCopilot: vi.fn().mockResolvedValue({ state: "connected", connectedBy: "mona" }),
     listRuns: vi.fn().mockResolvedValue({ runs: [], usageCredits: "0", active: false }),
     decide: vi.fn().mockResolvedValue({ notice: "Learning accepted." }),
+    redactComment: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   }
 }
@@ -215,6 +216,31 @@ describe("learning routes", () => {
     )
   })
 
+  it("requests a run with the live administrator identity", async () => {
+    const requestRun = vi.fn().mockResolvedValue({ notice: "Learning run requested." })
+    const deps = dependencies({ requestRun })
+
+    await withRoute(
+      "post",
+      "/api/repositories/:repositoryId/learnings/runs",
+      postRun(deps),
+      async (baseUrl) => {
+        const response = await fetch(`${baseUrl}/api/repositories/${repositoryId}/learnings/runs`, {
+          method: "POST",
+          headers,
+        })
+
+        expect(response.status).toBe(202)
+        expect(await response.json()).toEqual({ notice: "Learning run requested." })
+        expect(requestRun).toHaveBeenCalledWith({
+          actorMembershipId: session.membershipId,
+          repositoryId,
+          requestedById: session.userId,
+        })
+      },
+    )
+  })
+
   it("rejects an invalid decision before calling the package-store boundary", async () => {
     const decide = vi.fn()
     const deps = dependencies({ decide })
@@ -332,7 +358,7 @@ describe("learning routes", () => {
           expect(decide).toHaveBeenCalledWith({
             repositoryId,
             learningId: "mem_1",
-            actor: "github:mona",
+            actor: "human:mona",
             actorMembershipId: session.membershipId,
             decision: input,
           })

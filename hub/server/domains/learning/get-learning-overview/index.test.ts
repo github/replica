@@ -55,6 +55,16 @@ describe("getLearningOverview()", () => {
         },
       ])
       .mockResolvedValueOnce({ text: "", memories: [] })
+      .mockResolvedValueOnce({
+        events: [
+          {
+            id: "event-1",
+            episodeId: "episode-1",
+            at: "2026-11-01T10:00:00.000Z",
+            payload: { commentId: 17, body: "The field needs a visible label." },
+          },
+        ],
+      })
     const resolveEvidence = vi.fn().mockResolvedValue([
       {
         referenceIndex: 0,
@@ -100,6 +110,14 @@ describe("getLearningOverview()", () => {
           episodeId: "foreign-episode",
           eventIds: ["foreign-event"],
           source: { kind: "hub_review_comments", repositoryId: "foreign", commentId: 18 },
+        },
+      ],
+      events: [
+        {
+          id: "event-1",
+          episodeId: "episode-1",
+          at: "2026-11-01T10:00:00.000Z",
+          payload: { commentId: 17, body: "The field needs a visible label." },
         },
       ],
     })

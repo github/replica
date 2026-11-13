@@ -33,7 +33,7 @@ export function get(dependencies: LearningsRouteDependencies): RequestHandler {
       const [overview, copilot, runSummary] = await Promise.all([
         dependencies.getOverview({
           repositoryId: repository.id,
-          viewer: `github:${initial.login}`,
+          viewer: `human:${initial.login}`,
         }),
         dependencies.getCopilot(),
         dependencies.listRuns(repository.id),

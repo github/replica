@@ -78,4 +78,17 @@ describe("parseSecurityAuditEvent()", () => {
 
     expect(parseSecurityAuditEvent(event)).toEqual(event)
   })
+
+  it("accepts a bounded learning run request audit", () => {
+    const event = {
+      actorMembershipId: "8a2479e7-3ca4-46f8-9749-c35d8e4eb09e",
+      id: "5dd31031-6f1c-4c16-87c2-aee5342145cc",
+      outcome: "requested" as const,
+      repositoryId: "df75faa4-ed4c-44ed-8db0-443cc3b426ed",
+      runId: "e02c9c4c-f661-4618-8ff5-ab9cf10eaece",
+      type: "learning_run" as const,
+    }
+
+    expect(parseSecurityAuditEvent(event)).toEqual(event)
+  })
 })

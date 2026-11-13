@@ -82,6 +82,7 @@ export interface LearningsRouteDependencies {
     active: boolean
   }>
   requestRun?: (input: {
+    actorMembershipId: string
     repositoryId: string
     requestedById: string
   }) => Promise<{ notice: string }>
@@ -92,4 +93,9 @@ export interface LearningsRouteDependencies {
     actorMembershipId: string
     decision: LearningDecision
   }): Promise<{ notice: string }>
+  redactComment(input: {
+    repositoryId: string
+    commentId: number
+    actorLogin: string
+  }): Promise<void>
 }
