@@ -1,12 +1,28 @@
-import type { GithubAppSetupHeaderData } from "@features/github-app-setup-header/types"
+import type {
+  GithubConnectionCheckResult,
+  GithubSettingStatus,
+} from "@features/github-app-connection-status/types"
+import type { GithubAppSetupUrls } from "@features/github-app-registration-guide/types"
 
-export interface GithubAppSetupShowPageData extends GithubAppSetupHeaderData {
-  canContinue?: boolean
-  authenticityToken: string
-  organizationHint: string
-  organizationLabel: string
-  pageTitle: string
-  secretLabel: string
-  submitLabel: string
-  submitPath: string
+export interface GithubAppSetupStatusData {
+  status: "not_configured" | "incomplete" | "configured"
+  signInEnabled: boolean
+  settings: GithubSettingStatus[]
+  urls: GithubAppSetupUrls
+  connectedRepositories: string[]
+}
+
+export interface GithubAppSetupShowPageProps {
+  status: GithubAppSetupStatusData | null
+  bootstrap: { error: string | null; pending: boolean; onSubmit: (secret: string) => void }
+  organization: string
+  onOrganizationChange: (organization: string) => void
+  creationUrl: string
+  connection: {
+    checks: GithubConnectionCheckResult[] | null
+    testing: boolean
+    error: string | null
+    onTest: () => void
+  }
+  signInPath: string
 }

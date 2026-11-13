@@ -2,7 +2,7 @@
 
 The Hub frontend uses React Router Framework Mode as a single-page application (SPA) rendered in the browser. In mock mode, it connects the retained pages to local product mocks. In real mode, the repository index, read-only prototype details, administrator roster, and Hub-wide security audit use their production APIs. Creation and branching open the original Copilot app handoff.
 
-This frontend does not restore the production Hub. Configured GitHub authentication, Hub admission, browser sessions, and a read-only repository index and prototype detail API are available; see [Authentication](authentication.md). The following remain separate backend work:
+This frontend does not restore the production Hub. Configured GitHub authentication, Hub admission, browser sessions, and a read-only repository index and prototype detail API limited to each GitHub member's readable repositories are available; see [Authentication](authentication.md). The following remain separate backend work:
 
 - Other product APIs and repository-specific permissions.
 - External product integrations.
@@ -49,6 +49,8 @@ Start the mock development server before opening these examples. The links use t
 | `/` | Redirects to a repository or mock sign-in, or shows an empty workspace | Selection comes from session and workspace responses | [Home](http://127.0.0.1:5173/) |
 | `/repositories` | Selects the first accessible repository, or shows an empty workspace | Uses the same selection behavior as Home; no separate repository-list screen | [Repositories](http://127.0.0.1:5173/repositories) |
 | `/sign-in` | Mock sign-in using the retained home page | Already signed-in viewers return to their workspace | [Sign-in](http://127.0.0.1:5173/sign-in) |
+| `/signed-in/no-access` | Explains missing GitHub repository access and offers retry or account switching | A short-lived server-verified notice may identify the GitHub login | Reached after a denied sign-in or a revoked GitHub session |
+| `/settings/github/setup` | GitHub App setup, connection test, and connected repositories | Administrator session, or bootstrap access before the first administrator | Requires configured shared authentication settings |
 | `/session` | Sign-in/out action; POST only, not a page | `intent` selects sign-in or sign-out | [Sign-in form](http://127.0.0.1:5173/sign-in); persona changes use the separate test toolbar |
 | `/settings/administrators` | Real administrator roster, candidate search, and bounded opaque-cursor pagination | `before` is the server cursor; `result` carries completion feedback | Requires a configured real-mode administrator session |
 | `/settings/administrators/:membershipId/revoke` | Explicit confirmation before provider authorization | Membership IDs are UUIDs; `before` retains the authoritative list page | Requires a configured real-mode administrator session |
@@ -147,7 +149,7 @@ Use this map to find the frontend destination when converting a Rails page. The 
 | Manual GitHub App setup | `/setup/manual` | `/settings/github/register` |
 | Setup callback / installation | `/setup/callback`, `/setup/install` | `/settings/github/installed` |
 
-The React `/repositories` entry selects the first accessible repository or shows the empty state; it is not a separate repository-list screen. Build record IDs and Build numbers are different identifiers. The setup and installation mapping represents a consolidated frontend flow, not a replacement for the Rails provider callback protocol.
+The React `/repositories` entry selects the first accessible repository or shows the empty state; it is not a separate repository-list screen. Build record IDs and Build numbers are different identifiers. The setup and installation mapping represents a consolidated frontend flow, not a replacement for the Rails provider callback protocol. `/settings/github/setup` guides App creation or reuse: it reads `/api/settings/github/status` and runs `/api/settings/github/test`, and is available to administrators or with the bootstrap secret before the first administrator exists. In mock mode, the bootstrap secret is `replica-mock-bootstrap`.
 
 Compatibility redirects cover earlier React URLs, not every Rails URL:
 
@@ -282,7 +284,7 @@ GitHub App setup, registration, and installation pages can be opened directly wi
 | [GitHub App](../client/pages/github-app-page/) | `/settings/github` | [Mock App settings](http://127.0.0.1:5173/settings/github) |
 | [GitHub App install](../client/pages/github-app-setup-install-page/) | `/settings/github/installed` | [Installation after registration](http://127.0.0.1:5173/settings/github/installed) |
 | [GitHub App register](../client/pages/github-app-setup-register-page/) | `/settings/github/register` | [Registration after setup](http://127.0.0.1:5173/settings/github/register) |
-| [GitHub App setup](../client/pages/github-app-setup-show-page/) | `/settings/github/setup` | [Start mock App setup](http://127.0.0.1:5173/settings/github/setup) |
+| [GitHub App setup](../client/pages/github-app-setup-show-page/) | `/settings/github/setup` | [Manual App setup guide](http://127.0.0.1:5173/settings/github/setup) |
 | [Admin confirmation](../client/pages/hub-admin-confirmation-page/) | Real `/settings/administrators/:membershipId/:operation`; mock retained route stays request-only | [Confirmation states in Storybook](http://localhost:6006/?path=/story/hub-pages-security-hub-administrator-confirmation--remove) |
 | [Admin enrollment](../client/pages/hub-admin-enrollment-page/) | `/settings/enroll` | [Mock enrollment](http://127.0.0.1:5173/settings/enroll) |
 | [Admins](../client/pages/hub-admins-page/) | Real `/settings/administrators`; mock `/settings/admins` | [Administrator roster in Storybook](http://localhost:6006/?path=/story/hub-pages-security-hub-administrators--multiple) |

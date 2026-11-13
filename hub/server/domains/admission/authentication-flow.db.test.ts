@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID } from "node:crypto"
+import { createHash, generateKeyPairSync, randomBytes, randomUUID } from "node:crypto"
 import { once } from "node:events"
 import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
@@ -16,12 +16,24 @@ import { runSessionRestoreTransaction } from "./run-session-restore-transaction"
 
 const applicationOrigin = "http://127.0.0.1:5173"
 const clientId = "github-client"
+const installationRepositoriesUrl =
+  "https://api.github.com/user/installations/456/repositories?page=1&per_page=100"
+const githubPrivateKey = Buffer.from(
+  generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey.export({
+    format: "pem",
+    type: "pkcs1",
+  }),
+).toString("base64")
 
 function runtimeEnvironment(bootstrapSecret = "bootstrap-secret-that-is-at-least-32-characters") {
   return {
+    GITHUB_APP_ID: "123",
+    GITHUB_APP_INSTALLATION_ID: "456",
+    GITHUB_APP_PRIVATE_KEY_BASE64: githubPrivateKey,
     GITHUB_CLIENT_ID: clientId,
     GITHUB_CLIENT_SECRET: "github-secret",
     GITHUB_PROVIDER_REVISION: "1",
+    GITHUB_WEBHOOK_SECRET: "webhook-secret-at-least-twenty-characters",
     HUB_APPLICATION_ORIGIN: applicationOrigin,
     HUB_AUTHENTICATION_ENCRYPTION_KEY: randomBytes(32).toString("base64"),
     HUB_BOOTSTRAP_SECRET: bootstrapSecret,
@@ -60,6 +72,9 @@ async function openServer(
       }
       if (url === "https://api.github.com/user") {
         return Promise.resolve(Response.json({ id: userIds[userIndex++]! }))
+      }
+      if (url === installationRepositoriesUrl) {
+        return Promise.resolve(Response.json({ total_count: 0, repositories: [] }))
       }
       throw new Error(`Unexpected provider request: ${url}`)
     })
@@ -519,7 +534,7 @@ describe("Hub admission and session flow", () => {
 
       expect(fresh.headers.get("location")).toBe("/?authentication=success")
       expect(cookieValue(fresh, "hub_session")).toBeTruthy()
-      expect(reenabled.providerRequest).toHaveBeenCalledTimes(2)
+      expect(reenabled.providerRequest).toHaveBeenCalledTimes(3)
       expect(await prisma.membershipAssignment.count()).toBe(1)
       expect(await prisma.hubSession.count()).toBe(1)
     } finally {
@@ -585,6 +600,9 @@ describe("Hub admission and session flow", () => {
       if (url === "https://api.github.com/user") {
         return Promise.resolve(Response.json({ id: 702 }))
       }
+      if (url === installationRepositoriesUrl) {
+        return Promise.resolve(Response.json({ total_count: 0, repositories: [] }))
+      }
       throw new Error(`Unexpected provider request: ${url}`)
     })
     const server = await openServer([702], undefined, runtimeEnvironment(), providerRequest)
@@ -608,7 +626,7 @@ describe("Hub admission and session flow", () => {
 
       expect(response.headers.get("location")).toBe("/?authentication=denied")
       expect(cookieValue(response, "hub_session")).toBeNull()
-      expect(providerRequest).toHaveBeenCalledTimes(2)
+      expect(providerRequest).toHaveBeenCalledTimes(3)
       expect(await prisma.user.count()).toBe(0)
       expect(await prisma.externalIdentity.count()).toBe(0)
       expect(await prisma.membership.count()).toBe(0)
@@ -631,6 +649,9 @@ describe("Hub admission and session flow", () => {
       }
       if (url === "https://api.github.com/user") {
         return Promise.resolve(Response.json({ id: 703 }))
+      }
+      if (url === installationRepositoriesUrl) {
+        return Promise.resolve(Response.json({ total_count: 0, repositories: [] }))
       }
       throw new Error(`Unexpected provider request: ${url}`)
     })
@@ -868,10 +889,10 @@ describe("Hub admission and session flow", () => {
       const sameIdentityCallbacks = await Promise.all(
         sameIdentityAttempts.map((attempt) => completeAuthentication(server.baseUrl, attempt)),
       )
-      expect(sameIdentityCallbacks.map((response) => response.headers.get("location"))).toEqual([
-        "/?authentication=success",
-        "/?authentication=success",
-      ])
+      expect(
+        sameIdentityCallbacks.map((response) => response.headers.get("location")),
+        JSON.stringify(await prisma.securityAudit.findMany()),
+      ).toEqual(["/?authentication=success", "/?authentication=success"])
       expect(await prisma.membership.count()).toBe(1)
       expect(await prisma.membershipAssignment.count()).toBe(1)
       expect(await prisma.hubSession.count()).toBe(2)
@@ -948,7 +969,7 @@ describe("Hub admission and session flow", () => {
       const attempt = await startAuthentication(server.baseUrl, "/api/auth/github/start")
       const response = await completeAuthentication(server.baseUrl, attempt)
 
-      expect(response.headers.get("location")).toBe("/?authentication=denied")
+      expect(response.headers.get("location")).toBe("/signed-in/no-access")
       expect(await prisma.hubSession.count()).toBe(0)
     } finally {
       await server.close()
@@ -973,7 +994,7 @@ describe("Hub admission and session flow", () => {
 
       const unknown = await startAuthentication(server.baseUrl, "/api/auth/github/start")
       const denied = await completeAuthentication(server.baseUrl, unknown)
-      expect(denied.headers.get("location")).toBe("/?authentication=denied")
+      expect(denied.headers.get("location")).toBe("/signed-in/no-access")
       expect(cookieValue(denied, "hub_session")).toBeNull()
 
       const enrollment = await startAuthentication(

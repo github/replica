@@ -600,23 +600,23 @@ describe("real product index", () => {
     const product = createProductRouteDependencies()
     const listRepositories = product.listRepositories.bind(product)
     const findRepositoryIndex = product.findRepositoryIndex.bind(product)
-    const list = vi.spyOn(product, "listRepositories").mockImplementation(async () => {
-      const repositories = await listRepositories()
+    const list = vi.spyOn(product, "listRepositories").mockImplementation(async (viewer) => {
+      const repositories = await listRepositories(viewer)
       currentSession = null
       return repositories
     })
     const findRepositoryAuthors = product.findRepositoryAuthors.bind(product)
     const find = vi
       .spyOn(product, "findRepositoryIndex")
-      .mockImplementation(async (id, filters) => {
-        const index = await findRepositoryIndex(id, filters)
+      .mockImplementation(async (viewer, id, filters) => {
+        const index = await findRepositoryIndex(viewer, id, filters)
         currentSession = null
         return index
       })
     const findAuthors = vi
       .spyOn(product, "findRepositoryAuthors")
-      .mockImplementation(async (id, filters) => {
-        const authors = await findRepositoryAuthors(id, filters)
+      .mockImplementation(async (viewer, id, filters) => {
+        const authors = await findRepositoryAuthors(viewer, id, filters)
         currentSession = null
         return authors
       })
@@ -657,8 +657,8 @@ describe("real product index", () => {
     const restore = vi.fn(() => Promise.resolve(currentSession))
     const product = createProductRouteDependencies()
     const listRepositories = product.listRepositories.bind(product)
-    vi.spyOn(product, "listRepositories").mockImplementation(async () => {
-      const repositories = await listRepositories()
+    vi.spyOn(product, "listRepositories").mockImplementation(async (viewer) => {
+      const repositories = await listRepositories(viewer)
       currentSession = { ...currentSession, role: roleAfterRead }
       return repositories
     })
@@ -711,6 +711,74 @@ describe("real product index", () => {
       expect(missing.status).toBe(404)
       expect(removed.status).toBe(404)
     })
+  })
+
+  it("shows a scoped GitHub member only repositories they can read", async () => {
+    const readableId = randomUUID()
+    const hiddenId = randomUUID()
+    const userId = randomUUID()
+    const membershipId = randomUUID()
+    await prisma.repository.createMany({
+      data: [
+        { id: readableId, nameWithOwner: `team/readable-${readableId}`, defaultBranch: "main" },
+        { id: hiddenId, nameWithOwner: `team/hidden-${hiddenId}`, defaultBranch: "main" },
+      ],
+    })
+    await prisma.user.create({ data: { id: userId } })
+    await prisma.membership.create({ data: { id: membershipId, userId } })
+    await prisma.repositoryAccessGrant.create({
+      data: { membershipId, repositoryId: readableId, observedAt: new Date() },
+    })
+    const hiddenPrototype = await prisma.prototype.create({
+      data: {
+        repositoryId: hiddenId,
+        authorId: userId,
+        branchName: "prototype/hidden",
+        name: "Hidden",
+      },
+    })
+    const hiddenDetailPath = `/api/repositories/${hiddenId}/prototypes/${hiddenPrototype.id}`
+    const viewer = {
+      membershipId,
+      userId,
+      provider: "github",
+      login: "mona",
+      name: "Mona",
+      role: "MEMBER" as const,
+    }
+    const headers = { cookie: "hub_session=member-session" }
+    const product = createProductRouteDependencies({ scopeGitHubMembers: true })
+
+    await withServer(vi.fn().mockResolvedValue(viewer), product, async (baseUrl) => {
+      const workspace = (await (await fetch(`${baseUrl}/api/workspace`, { headers })).json()) as {
+        repositories: { id: string }[]
+      }
+      const readable = await fetch(`${baseUrl}/api/repositories/${readableId}`, { headers })
+      const hidden = await fetch(`${baseUrl}/api/repositories/${hiddenId}`, { headers })
+      const hiddenUsers = await fetch(`${baseUrl}/api/repositories/${hiddenId}/authors`, {
+        headers,
+      })
+
+      expect(workspace.repositories.map(({ id }) => id)).toContain(readableId)
+      expect(workspace.repositories.map(({ id }) => id)).not.toContain(hiddenId)
+      expect(readable.status).toBe(200)
+      expect(hidden.status).toBe(404)
+      const hiddenDetail = await fetch(`${baseUrl}${hiddenDetailPath}`, { headers })
+
+      expect(hiddenUsers.status).toBe(404)
+      expect(hiddenDetail.status).toBe(404)
+    })
+    await withServer(
+      vi.fn().mockResolvedValue({ ...viewer, role: "ADMINISTRATOR" }),
+      product,
+      async (baseUrl) => {
+        const hidden = await fetch(`${baseUrl}/api/repositories/${hiddenId}`, { headers })
+        const hiddenDetail = await fetch(`${baseUrl}${hiddenDetailPath}`, { headers })
+
+        expect(hidden.status).toBe(200)
+        expect(hiddenDetail.status).toBe(200)
+      },
+    )
   })
 
   it("returns an error when the repository lookup fails", async () => {

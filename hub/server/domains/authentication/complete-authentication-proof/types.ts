@@ -1,4 +1,5 @@
 import type {
+  AuthenticationCompletionEvidence,
   AuthenticationProofResult,
   AuthenticationProviderAdapter,
   ProviderAssignmentEvidence,
@@ -63,6 +64,8 @@ export interface CompleteAuthenticationProofInput {
 export interface CompleteAuthenticationProofResult {
   purpose: "SIGN_IN" | "ADMIN_ENROLLMENT" | "ADMINISTRATOR_MANAGEMENT"
   sensitiveAuthorizationId?: string
+  githubLogin?: string
   providerAssignment?: ProviderAssignmentEvidence & { providerRevisionId: string }
+  repositoryAccess?: AuthenticationCompletionEvidence["repositoryAccess"]
   proof: AuthenticationProofResult
 }

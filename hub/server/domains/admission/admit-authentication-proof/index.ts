@@ -34,6 +34,18 @@ const inputSchema = z
       .strict()
       .optional(),
     providerKey: z.unknown(),
+    repositoryAccess: z
+      .array(
+        z
+          .object({
+            defaultBranch: z.string().min(1).max(255),
+            githubRepositoryId: z.number().int().positive(),
+            nameWithOwner: z.string().min(3).max(255),
+          })
+          .strict(),
+      )
+      .max(2_000)
+      .optional(),
     requiresProviderAssignmentEvidence: z.boolean(),
     sessionDigest: z.string().regex(/^[0-9a-f]{64}$/),
     sessionId: z.uuid(),
@@ -139,7 +151,8 @@ async function admitWithinTransaction(
   | { admitted: AdmittedHubSession }
   | {
       denied: true
-      reason: "authority_missing" | "membership_inactive" | "membership_missing"
+      reason:
+        "authority_missing" | "membership_inactive" | "membership_missing" | "no_repository_access"
     }
 > {
   const provider = await repositories.lockProvider(input.providerKey)
@@ -162,6 +175,15 @@ async function admitWithinTransaction(
   if (identity.provider !== input.providerKey) {
     throw new AdmissionDeniedError("identity_mismatch", input.proof.externalIdentityId)
   }
+  if (input.providerKey === "github" && input.repositoryAccess) {
+    const access = await repositories.lockGitHubRepositoryAccess()
+    if (
+      (access.changedAt && attempt.createdAt <= access.changedAt) ||
+      (await repositories.hasDisconnectedRepositories(input.repositoryAccess))
+    ) {
+      throw new AdmissionDeniedError("provider_evidence_stale", input.proof.externalIdentityId)
+    }
+  }
   if (
     attempt.purpose === "ADMIN_ENROLLMENT" &&
     !matchesAuthenticationDigest(attempt.bootstrapSecretDigest, getBootstrapSecretDigest())
@@ -171,16 +193,28 @@ async function admitWithinTransaction(
   if (input.requiresProviderAssignmentEvidence && !input.providerAssignment) {
     throw new AdmissionDeniedError("provider_evidence_missing", input.proof.externalIdentityId)
   }
+  const administratorEnrollment = attempt.purpose === "ADMIN_ENROLLMENT"
+  let applyProviderEvidence = true
   if (input.providerAssignment) {
+    if (input.providerAssignment.providerRevisionId !== attempt.providerRevisionId) {
+      throw new AdmissionDeniedError("configuration_changed", input.proof.externalIdentityId)
+    }
     const claim = await repositories.claimProviderEvidence({
       externalIdentityId: input.proof.externalIdentityId,
       id: createId(),
-      issuedAt: input.providerAssignment.issuedAt,
+      issuedAt:
+        input.providerKey === "github" && input.repositoryAccess
+          ? attempt.createdAt
+          : input.providerAssignment.issuedAt,
       role: input.providerAssignment.role,
     })
     if (claim === "conflict") throw new AdmissionTransactionConflictError()
     if (claim === "stale") {
-      throw new AdmissionDeniedError("provider_evidence_stale", input.proof.externalIdentityId)
+      if (!administratorEnrollment || input.providerKey !== "github" || !input.repositoryAccess) {
+        throw new AdmissionDeniedError("provider_evidence_stale", input.proof.externalIdentityId)
+      }
+      // Bootstrap authority is independent; older repository evidence must not overwrite newer grants.
+      applyProviderEvidence = false
     }
   }
   let authority:
@@ -189,7 +223,6 @@ async function admitWithinTransaction(
         role: "MEMBER" | "ADMINISTRATOR"
       }
     | undefined
-  const administratorEnrollment = attempt.purpose === "ADMIN_ENROLLMENT"
   if (administratorEnrollment) {
     const enrollment = await ensureBootstrapMembership(
       repositories,
@@ -205,10 +238,7 @@ async function admitWithinTransaction(
       await endMembershipSessions(repositories, authority.membershipId, createId)
     }
   }
-  if (input.providerAssignment) {
-    if (input.providerAssignment.providerRevisionId !== attempt.providerRevisionId) {
-      throw new AdmissionDeniedError("configuration_changed", input.proof.externalIdentityId)
-    }
+  if (input.providerAssignment && applyProviderEvidence) {
     const applied = await applyProviderAssignmentEvidence(
       {
         assignmentSubject: input.providerAssignment.assignmentSubject,
@@ -217,13 +247,34 @@ async function admitWithinTransaction(
         role: input.providerAssignment.role,
         userId: identity.userId,
       },
-      { createId, repositories },
+      {
+        createId,
+        markNoRepositoryAccess:
+          input.providerKey === "github" &&
+          input.repositoryAccess?.length === 0 &&
+          !administratorEnrollment,
+        repositories,
+      },
     )
     if (applied.denied) {
       if (administratorEnrollment) {
         throw new AdmissionDeniedError(applied.reason, input.proof.externalIdentityId)
       }
-      const reason = applied.reason
+      if (input.repositoryAccess?.length === 0) {
+        const membership = await repositories.lockMembership(identity.userId)
+        if (membership) {
+          await repositories.recordRepositoryAccess({
+            createId,
+            membershipId: membership.id,
+            observedAt: attempt.createdAt,
+            repositories: input.repositoryAccess,
+          })
+        }
+      }
+      const reason =
+        input.repositoryAccess?.length === 0 && applied.reason !== "membership_inactive"
+          ? "no_repository_access"
+          : applied.reason
       await repositories.createSecurityAudit({
         id: createId(),
         type: "admission_denied",
@@ -247,6 +298,23 @@ async function admitWithinTransaction(
     authority = active
   }
   if (!authority) throw new AdmissionPersistenceError()
+  if (input.repositoryAccess && applyProviderEvidence) {
+    await repositories.recordRepositoryAccess({
+      createId,
+      membershipId: authority.membershipId,
+      observedAt: attempt.createdAt,
+      repositories: input.repositoryAccess,
+    })
+    if (!input.repositoryAccess.length && authority.role !== "ADMINISTRATOR") {
+      await repositories.createSecurityAudit({
+        id: createId(),
+        type: "admission_denied",
+        externalIdentityId: input.proof.externalIdentityId,
+        reason: "no_repository_access",
+      })
+      return { denied: true, reason: "no_repository_access" }
+    }
+  }
   const session = await repositories.createHubSession({
     digest: input.sessionDigest,
     externalIdentityId: input.proof.externalIdentityId,

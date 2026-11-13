@@ -53,6 +53,7 @@ export function get(
       }
 
       const detail = await product.findPrototypeDetail(
+        initial,
         repositoryId.data,
         prototypeId.data,
         buildNumber,

@@ -1,0 +1,20 @@
+.setup-section {
+  display: grid;
+  gap: var(--hub-space-16);
+}
+
+.github-app-fields {
+  display: grid;
+  gap: var(--hub-space-12);
+}
+
+.github-app-fields__lists {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: var(--hub-space-16);
+}
+
+.github-app-fields__lists ul {
+  margin: var(--hub-space-8) 0 0;
+  padding-left: var(--hub-space-24);
+}

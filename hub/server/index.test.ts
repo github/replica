@@ -1,3 +1,4 @@
+import { generateKeyPairSync } from "node:crypto"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { Prisma } from "./generated/prisma/client.ts"
@@ -13,7 +14,7 @@ vi.mock("./integrations/opentelemetry/start-telemetry", () => ({
   startTelemetry: vi.fn(() => ({ shutdown: vi.fn().mockResolvedValue(undefined) })),
 }))
 vi.mock("./integrations/pino", () => ({
-  logger: { fatal: vi.fn() },
+  logger: { fatal: vi.fn(), warn: vi.fn() },
 }))
 vi.mock("./integrations/prisma/index.ts", () => {
   throw new Error("Authentication composition imported Prisma")
@@ -37,11 +38,33 @@ const apiConfiguration = {
   scheduledConcurrency: 1,
 }
 
+function configureSharedSettings() {
+  vi.stubEnv("HUB_APPLICATION_ORIGIN", "https://hub.example.test")
+  vi.stubEnv("HUB_AUTHENTICATION_ENCRYPTION_KEY", Buffer.alloc(32, 1).toString("base64"))
+  vi.stubEnv("HUB_BOOTSTRAP_SECRET", "bootstrap-secret-that-is-at-least-32-characters")
+}
+
+function configureGitHubApp() {
+  const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
+  vi.stubEnv("GITHUB_CLIENT_ID", "github-client")
+  vi.stubEnv("GITHUB_CLIENT_SECRET", "github-secret")
+  vi.stubEnv("GITHUB_PROVIDER_REVISION", "1")
+  vi.stubEnv("GITHUB_APP_ID", "123")
+  vi.stubEnv("GITHUB_APP_INSTALLATION_ID", "456")
+  vi.stubEnv(
+    "GITHUB_APP_PRIVATE_KEY_BASE64",
+    Buffer.from(privateKey.export({ format: "pem", type: "pkcs1" })).toString("base64"),
+  )
+  vi.stubEnv("GITHUB_WEBHOOK_SECRET", "webhook-secret-at-least-twenty-characters")
+}
+
 describe("server runtime", () => {
   beforeEach(() => {
     vi.resetModules()
     vi.doUnmock("./routes/api/auth/create-authentication-route-dependencies/index.ts")
     vi.doUnmock("./routes/api/product/create-product-route-dependencies/index.ts")
+    vi.doUnmock("./routes/api/settings/github/create-github-setup-route-dependencies/index.ts")
+    vi.doUnmock("./routes/api/github/webhooks/create-github-webhook-route-dependencies/index.ts")
     vi.mocked(parseRuntimeConfig).mockReturnValue(apiConfiguration)
     vi.mocked(runApi).mockResolvedValue(undefined)
     vi.spyOn(process, "exit").mockImplementation((code) => {
@@ -80,7 +103,7 @@ describe("server runtime", () => {
     },
   )
 
-  it("rejects an application origin without a configured provider", async () => {
+  it("requires valid shared settings before serving the setup page", async () => {
     vi.stubEnv("HUB_APPLICATION_ORIGIN", "https://hub.example.test")
     vi.mocked(parseRuntimeConfig).mockReturnValue({
       ...apiConfiguration,
@@ -91,8 +114,97 @@ describe("server runtime", () => {
 
     expect(runApi).not.toHaveBeenCalled()
     expect(logger.fatal).toHaveBeenCalledWith(
-      "Configure GitHub, Entra, or local sign-in when HUB_APPLICATION_ORIGIN is set.",
+      "HUB_APPLICATION_ORIGIN, HUB_AUTHENTICATION_ENCRYPTION_KEY, and HUB_BOOTSTRAP_SECRET must be valid before setup. See the authentication guide.",
     )
+  })
+
+  it("serves initial setup without a configured authentication provider", async () => {
+    const disableAuthenticationProviders = vi.fn().mockResolvedValue(undefined)
+    const githubSetup = { readStatus: vi.fn() }
+    configureSharedSettings()
+    vi.mocked(parseRuntimeConfig).mockReturnValue({
+      ...apiConfiguration,
+      databaseUrl: "postgresql://hub.example.test/replica",
+    })
+    vi.doMock("./routes/api/auth/create-authentication-route-dependencies/index.ts", () => ({
+      createAuthenticationRouteDependencies: vi.fn(),
+      disableAuthenticationProviders,
+    }))
+    vi.doMock(
+      "./routes/api/settings/github/create-github-setup-route-dependencies/index.ts",
+      () => ({ createGitHubSetupRouteDependencies: vi.fn().mockReturnValue(githubSetup) }),
+    )
+
+    await expect(import("./index.ts")).resolves.toBeDefined()
+
+    expect(disableAuthenticationProviders).toHaveBeenCalledOnce()
+    expect(runApi).toHaveBeenCalledWith(
+      expect.objectContaining({ authentication: undefined, githubSetup, product: undefined }),
+    )
+  })
+
+  it("serves setup with invalid and missing GitHub settings instead of enabling sign-in", async () => {
+    const disableAuthenticationProviders = vi.fn().mockResolvedValue(undefined)
+    const githubSetup = { readStatus: vi.fn() }
+    configureSharedSettings()
+    vi.stubEnv("GITHUB_CLIENT_ID", "github-client")
+    vi.stubEnv("GITHUB_CLIENT_SECRET", "github-secret")
+    vi.stubEnv("GITHUB_PROVIDER_REVISION", "1")
+    vi.stubEnv("GITHUB_APP_ID", "invalid")
+    vi.mocked(parseRuntimeConfig).mockReturnValue({
+      ...apiConfiguration,
+      databaseUrl: "postgresql://hub.example.test/replica",
+    })
+    vi.doMock("./routes/api/auth/create-authentication-route-dependencies/index.ts", () => ({
+      createAuthenticationRouteDependencies: vi.fn(),
+      disableAuthenticationProviders,
+    }))
+    vi.doMock(
+      "./routes/api/settings/github/create-github-setup-route-dependencies/index.ts",
+      () => ({ createGitHubSetupRouteDependencies: vi.fn().mockReturnValue(githubSetup) }),
+    )
+
+    await expect(import("./index.ts")).resolves.toBeDefined()
+
+    expect(disableAuthenticationProviders).toHaveBeenCalledOnce()
+    expect(runApi).toHaveBeenCalledWith(
+      expect.objectContaining({ authentication: undefined, githubSetup }),
+    )
+    expect(logger.warn).toHaveBeenCalledWith(
+      {
+        settings: [
+          { key: "GITHUB_APP_ID", state: "invalid" },
+          { key: "GITHUB_APP_PRIVATE_KEY_BASE64", state: "missing" },
+          { key: "GITHUB_APP_INSTALLATION_ID", state: "missing" },
+          { key: "GITHUB_WEBHOOK_SECRET", state: "missing" },
+        ],
+      },
+      expect.stringContaining("GitHub sign-in is disabled"),
+    )
+  })
+
+  it("fails before changing provider authority when complete GitHub settings are invalid", async () => {
+    const disableAuthenticationProviders = vi.fn()
+    configureSharedSettings()
+    configureGitHubApp()
+    vi.stubEnv("GITHUB_APP_ID", "invalid-app-id")
+    vi.mocked(parseRuntimeConfig).mockReturnValue({
+      ...apiConfiguration,
+      databaseUrl: "postgresql://hub.example.test/replica",
+    })
+    vi.doMock("./routes/api/auth/create-authentication-route-dependencies/index.ts", () => ({
+      createAuthenticationRouteDependencies: vi.fn(),
+      disableAuthenticationProviders,
+    }))
+
+    await expect(import("./index.ts")).rejects.toThrow("Unexpected process exit: 1")
+
+    expect(disableAuthenticationProviders).not.toHaveBeenCalled()
+    expect(runApi).not.toHaveBeenCalled()
+    expect(logger.fatal).toHaveBeenCalledWith(
+      "GitHub App configuration is invalid. Check: GITHUB_APP_ID.",
+    )
+    expect(JSON.stringify(vi.mocked(logger.fatal).mock.calls)).not.toContain("invalid-app-id")
   })
 
   it("refuses local sign-in against a shared database before touching it", async () => {
@@ -158,6 +270,7 @@ describe("server runtime", () => {
     })
     expect(Buffer.from(environment.HUB_AUTHENTICATION_ENCRYPTION_KEY!, "base64")).toHaveLength(32)
     expect(Buffer.from(environment.HUB_BOOTSTRAP_SECRET!, "base64url")).toHaveLength(32)
+    expect(runApi).toHaveBeenCalledWith(expect.objectContaining({ githubSetup: undefined }))
     expect(runApi).toHaveBeenCalledWith(expect.objectContaining({ authentication, product }))
   })
 
@@ -242,8 +355,8 @@ describe("server runtime", () => {
       },
       signOut: {},
     }
-    vi.stubEnv("HUB_APPLICATION_ORIGIN", "https://hub.example.test")
-    vi.stubEnv("GITHUB_CLIENT_ID", "github-client")
+    configureSharedSettings()
+    configureGitHubApp()
     vi.mocked(parseRuntimeConfig).mockReturnValue({
       ...apiConfiguration,
       databaseUrl: "postgresql://hub.example.test/replica",
@@ -256,12 +369,27 @@ describe("server runtime", () => {
     vi.doMock("./routes/api/product/create-product-route-dependencies/index.ts", () => ({
       createProductRouteDependencies,
     }))
+    const githubSetup = { readStatus: vi.fn() }
+    vi.doMock(
+      "./routes/api/settings/github/create-github-setup-route-dependencies/index.ts",
+      () => ({
+        createGitHubSetupRouteDependencies: vi.fn().mockReturnValue(githubSetup),
+      }),
+    )
+    vi.doMock(
+      "./routes/api/github/webhooks/create-github-webhook-route-dependencies/index.ts",
+      () => ({
+        createGitHubWebhookRouteDependencies: vi.fn().mockReturnValue({}),
+      }),
+    )
 
     await expect(import("./index.ts")).resolves.toBeDefined()
 
     expect(createAuthenticationRouteDependencies).toHaveBeenCalledWith(process.env)
     expect(createProductRouteDependencies).toHaveBeenCalledOnce()
     expect(disableAuthenticationProviders).not.toHaveBeenCalled()
-    expect(runApi).toHaveBeenCalledWith(expect.objectContaining({ authentication, product }))
+    expect(runApi).toHaveBeenCalledWith(
+      expect.objectContaining({ authentication, githubSetup, product }),
+    )
   })
 })

@@ -1,6 +1,7 @@
 import type { Prisma, PrismaClient } from "../../../generated/prisma/client.ts"
 import { containsText } from "../contains-text/index.ts"
 import { reviewablePrototypeWhere } from "../reviewable-prototype-where/index.ts"
+import { type RepositoryScope, visibleRepositoryWhere } from "../visible-repository-where/index.ts"
 
 const pageSize = 20
 
@@ -18,9 +19,10 @@ export async function findRepositoryAuthors(
   database: Pick<PrismaClient, "repository" | "user">,
   repositoryId: string,
   filters: RepositoryAuthorsFilters,
+  scope: RepositoryScope = null,
 ) {
   const repository = await database.repository.findFirst({
-    where: { id: repositoryId, removedAt: null },
+    where: { id: repositoryId, ...visibleRepositoryWhere(scope) },
     select: { id: true, defaultBranch: true },
   })
   if (!repository) return null

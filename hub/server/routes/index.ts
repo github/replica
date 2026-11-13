@@ -9,6 +9,7 @@ import { get as handleCurrentSessionGet } from "./api/auth/session/get/index.ts"
 import { get as handleAuthenticationProvidersGet } from "./api/auth/providers/get/index.ts"
 import { post as handleSignOutPost } from "./api/auth/session/sign-out/post/index.ts"
 import { post as handleAuthenticationStartPost } from "./api/auth/start/post/index.ts"
+import { post as handleGitHubWebhookPost } from "./api/github/webhooks/post/index.ts"
 import { get as handleApiHealthGet } from "./api/health/get/index.ts"
 import { get as handleApiReadyGet } from "./api/ready/get/index.ts"
 import { get as handleWorkspaceGet } from "./api/workspace/get/index.ts"
@@ -23,15 +24,32 @@ import { post as handleAdministratorAuthorizationCancelPost } from "./api/admini
 import { get as handleAdministratorAuthorizationGet } from "./api/administrators/authorizations/get/index.ts"
 import { rateLimit as administratorAuthorizationRateLimit } from "./api/administrators/authorizations/start/rate-limit/index.ts"
 import { get as handleSecurityAuditsGet } from "./api/security-audits/get/index.ts"
+import { get as handleGitHubSetupStatusGet } from "./api/settings/github/status/get/index.ts"
+import { post as handleGitHubSetupTestPost } from "./api/settings/github/test/post/index.ts"
 import type { RouteDependencies } from "./types.ts"
 
 /** Keep endpoint registration separate from the app's shared middleware. */
 export function routes(app: Express, dependencies: RouteDependencies = {}): void {
-  const { authentication, isReady, logger, product } = dependencies
+  const { authentication, githubSetup, githubWebhooks, isReady, logger, product } = dependencies
   app.get("/api/health", handleApiHealthGet)
   app.get("/api/ready", (request, response) =>
     handleApiReadyGet(request, response, { isReady, logger }),
   )
+  if (githubWebhooks) {
+    app.post(
+      "/api/github/webhooks",
+      express.raw({ limit: "1mb", type: "application/json" }),
+      handleGitHubWebhookPost(githubWebhooks),
+    )
+  }
+  if (githubSetup) {
+    app.get("/api/settings/github/status", handleGitHubSetupStatusGet(githubSetup))
+    app.post(
+      "/api/settings/github/test",
+      requireOrigin(githubSetup.applicationOrigin),
+      handleGitHubSetupTestPost(githubSetup),
+    )
+  }
   if (authentication) {
     if (product) {
       app.get("/api/workspace", handleWorkspaceGet(authentication.currentSession, product))

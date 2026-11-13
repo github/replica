@@ -9,6 +9,7 @@ import { hashAuthenticationValue } from "../../../../../domains/authentication/h
 import { browserAuthenticationCookieName } from "../../../../../integrations/express/browser-authentication-cookie-name/index.ts"
 import { clearAuthenticationCookie } from "../../../../../integrations/express/clear-authentication-cookie/index.ts"
 import { createAuthenticationCookie } from "../../../../../integrations/express/create-authentication-cookie/index.ts"
+import { githubRepositoryDenialCookieName } from "../../../../../integrations/express/github-repository-denial-cookie-name/index.ts"
 import { hubSessionCookieName } from "../../../../../integrations/express/hub-session-cookie-name/index.ts"
 import { readCookie } from "../../../../../integrations/express/read-cookie/index.ts"
 import type { AuthenticationCallbackDependencies } from "../../types.ts"
@@ -41,12 +42,14 @@ export function get(dependencies: AuthenticationCallbackDependencies): RequestHa
       response.redirect(303, "/?authentication=denied")
       return
     }
+    let githubLogin: string | undefined
     try {
       const completed = await dependencies.complete({
         browserBinding: browserBinding.data,
         code: query.data.code,
         state: query.data.state,
       })
+      githubLogin = completed.githubLogin
       if (completed.purpose === "ADMINISTRATOR_MANAGEMENT") {
         const hubSessionValue = readCookie(request, hubSessionCookieName)
         if (
@@ -80,6 +83,7 @@ export function get(dependencies: AuthenticationCallbackDependencies): RequestHa
       const admitted = await dependencies.admit({
         proof: completed.proof,
         providerAssignment: completed.providerAssignment,
+        repositoryAccess: completed.repositoryAccess,
         sessionDigest: hashAuthenticationValue(sessionValue),
         sessionId: randomUUID(),
       })
@@ -95,11 +99,28 @@ export function get(dependencies: AuthenticationCallbackDependencies): RequestHa
       response.redirect(303, "/?authentication=success")
     } catch (error) {
       if (error instanceof AdmissionDeniedError || error instanceof AuthenticationProofError) {
-        response.setHeader(
-          "Set-Cookie",
+        const noAccess =
+          error instanceof AdmissionDeniedError && error.reason === "no_repository_access"
+        const cookies = [
           clearAuthenticationCookie(browserAuthenticationCookieName, dependencies.secureCookie),
-        )
-        response.redirect(303, "/?authentication=denied")
+        ]
+        if (
+          noAccess &&
+          githubLogin &&
+          /^[a-z0-9-]{1,39}$/i.test(githubLogin) &&
+          dependencies.createGitHubRepositoryDenialNotice
+        ) {
+          const notice = dependencies.createGitHubRepositoryDenialNotice(githubLogin)
+          cookies.push(
+            createAuthenticationCookie({
+              ...notice,
+              name: githubRepositoryDenialCookieName,
+              secure: dependencies.secureCookie,
+            }),
+          )
+        }
+        response.setHeader("Set-Cookie", cookies)
+        response.redirect(303, noAccess ? "/signed-in/no-access" : "/?authentication=denied")
         return
       }
       next(error)

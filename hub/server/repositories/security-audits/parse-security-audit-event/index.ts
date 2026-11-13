@@ -143,6 +143,7 @@ const eventSchema = z.discriminatedUnion("type", [
         "membership_missing",
         "provider_evidence_missing",
         "provider_evidence_stale",
+        "no_repository_access",
       ]),
     })
     .strict(),
@@ -235,6 +236,14 @@ const eventSchema = z.discriminatedUnion("type", [
       reason: z.literal("provider_removed"),
       revision: z.number().int().nonnegative(),
       type: z.literal("session_revocation_advanced"),
+    })
+    .strict(),
+  z
+    .object({
+      actorMembershipId: z.uuid().nullable(),
+      failedChecks: z.array(z.string().regex(/^[a-z_]{1,50}$/)).max(10),
+      id: z.uuid(),
+      type: z.literal("github_app_connection_tested"),
     })
     .strict(),
 ])

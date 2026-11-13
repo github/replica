@@ -13,6 +13,8 @@ import type { CreateAppOptions } from "./types.ts"
 export function createApp({
   authentication,
   broadcast,
+  githubSetup,
+  githubWebhooks,
   clientDirectory,
   isReady,
   logger,
@@ -30,12 +32,24 @@ export function createApp({
       "/api/security-audits",
       "/api/workspace",
       "/api/repositories",
+      "/api/settings",
     ],
     authenticationSecurity(),
   )
-  app.use(/^(?!\/api\/(?:auth|administrators\/authorizations)(?:\/|$)).*/i, express.json())
+  app.use(
+    /^(?!\/api\/(?:auth|administrators\/authorizations|github\/webhooks)(?:\/|$)).*/i,
+    express.json(),
+  )
 
-  routes(app, { authentication, broadcast, isReady, logger, product })
+  routes(app, {
+    authentication,
+    broadcast,
+    githubSetup,
+    githubWebhooks,
+    isReady,
+    logger,
+    product,
+  })
   app.use("/api", respondNotFound)
   if (clientDirectory) {
     const directory = resolve(clientDirectory)

@@ -90,10 +90,6 @@ export function settingsFormOperation(
         confirmed,
       }
       break
-    case "github-setup":
-      requireFormDestination(source, method, "/settings/github/setup", ["post"])
-      input = { operation: "github-setup", organization: readFormField(form, "organization") }
-      break
     case "github-register":
       requireFormDestination(source, method, "/settings/github/register", ["post"])
       input = { operation: "github-register" }

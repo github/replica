@@ -188,12 +188,6 @@ export const settingsOperationSchema = z.discriminatedUnion("operation", [
   z.object({ operation: z.literal("canvas-revoke"), grantId: identifier }).strict(),
   z.object({ operation: z.literal("copilot-connect"), confirmed }).strict(),
   z.object({ operation: z.literal("copilot-disconnect"), confirmed }).strict(),
-  z
-    .object({
-      operation: z.literal("github-setup"),
-      organization: z.string().trim().min(1).max(100),
-    })
-    .strict(),
   z.object({ operation: z.literal("github-register") }).strict(),
   z.object({ operation: z.literal("github-install") }).strict(),
   z

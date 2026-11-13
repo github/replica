@@ -3,6 +3,8 @@ import type { Logger } from "pino"
 import { openDatabase } from "../integrations/postgres/open-database/index.ts"
 import type { AuthenticationRouteDependencies } from "../routes/api/auth/types.ts"
 import type { ProductRouteDependencies } from "../routes/api/product/types.ts"
+import type { GitHubWebhookRouteDependencies } from "../routes/api/github/webhooks/types.ts"
+import type { GitHubSetupRouteDependencies } from "../routes/api/settings/github/types.ts"
 import { runApi } from "../run-api/index.ts"
 import { jobProcessors } from "../workers/configuration.ts"
 import { runJobWorker } from "../workers/run-job-worker/index.ts"
@@ -19,6 +21,8 @@ export async function startServerProcesses(options: {
   isStorageReady?: () => Promise<boolean>
   authentication?: AuthenticationRouteDependencies
   product?: ProductRouteDependencies
+  githubSetup?: GitHubSetupRouteDependencies
+  githubWebhooks?: GitHubWebhookRouteDependencies
   trustedProxyHops?: number
 }) {
   const controller = new AbortController()
