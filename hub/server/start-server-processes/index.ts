@@ -3,6 +3,7 @@ import type { Logger } from "pino"
 import { openDatabase } from "../integrations/postgres/open-database/index.ts"
 import type { AuthenticationRouteDependencies } from "../routes/api/auth/types.ts"
 import type { CopilotConnectionRouteDependencies } from "../routes/api/copilot-connection/types.ts"
+import type { LearningsRouteDependencies } from "../routes/api/learnings/types.ts"
 import type { ProductRouteDependencies } from "../routes/api/product/types.ts"
 import { runApi } from "../run-api/index.ts"
 import { jobProcessors } from "../workers/configuration.ts"
@@ -20,6 +21,7 @@ export async function startServerProcesses(options: {
   isStorageReady?: () => Promise<boolean>
   authentication?: AuthenticationRouteDependencies
   copilotConnection?: CopilotConnectionRouteDependencies
+  learnings?: LearningsRouteDependencies
   product?: ProductRouteDependencies
   trustedProxyHops?: number
 }) {

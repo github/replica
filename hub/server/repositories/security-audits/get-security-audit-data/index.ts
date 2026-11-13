@@ -303,5 +303,21 @@ export function getSecurityAuditData(
           ...(event.reason ? { reason: event.reason } : {}),
         },
       }
+    case "learning_decision":
+      return {
+        id: event.id,
+        action: `learning.${event.decision}`,
+        outcome:
+          event.outcome === "succeeded"
+            ? SecurityAuditOutcome.SUCCESS
+            : SecurityAuditOutcome.FAILURE,
+        targetType: "learning",
+        targetId: event.learningId,
+        context: {
+          actorMembershipId: event.actorMembershipId,
+          repositoryId: event.repositoryId,
+          ...(event.reason ? { reason: event.reason } : {}),
+        },
+      }
   }
 }

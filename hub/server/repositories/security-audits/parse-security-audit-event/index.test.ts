@@ -64,4 +64,18 @@ describe("parseSecurityAuditEvent()", () => {
 
     expect(parseSecurityAuditEvent(event)).toEqual(event)
   })
+
+  it("accepts a content-free repository learning decision audit", () => {
+    const event = {
+      actorMembershipId: "8a2479e7-3ca4-46f8-9749-c35d8e4eb09e",
+      decision: "accept" as const,
+      id: "5dd31031-6f1c-4c16-87c2-aee5342145cc",
+      learningId: "mem_1",
+      outcome: "succeeded" as const,
+      repositoryId: "df75faa4-ed4c-44ed-8db0-443cc3b426ed",
+      type: "learning_decision" as const,
+    }
+
+    expect(parseSecurityAuditEvent(event)).toEqual(event)
+  })
 })

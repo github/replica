@@ -42,11 +42,14 @@ import { post as handleCopilotAuthorizationStartPost } from "./api/copilot-conne
 import { get as handleCopilotAuthorizationGet } from "./api/copilot-connection/authorizations/get/index.ts"
 import { post as handleCopilotAuthorizationContinuePost } from "./api/copilot-connection/authorizations/continue/post/index.ts"
 import { post as handleCopilotAuthorizationCancelPost } from "./api/copilot-connection/authorizations/cancel/post/index.ts"
+import { get as handleLearningsGet } from "./api/learnings/get/index.ts"
+import { post as handleLearningRunPost } from "./api/learnings/runs/post/index.ts"
+import { post as handleLearningDecisionPost } from "./api/learnings/decision/post/index.ts"
 import type { RouteDependencies } from "./types.ts"
 
 /** Keep endpoint registration separate from the app's shared middleware. */
 export function routes(app: Express, dependencies: RouteDependencies = {}): void {
-  const { authentication, copilotConnection, isReady, logger, product } = dependencies
+  const { authentication, copilotConnection, isReady, learnings, logger, product } = dependencies
   app.get("/api/health", handleApiHealthGet)
   app.get("/api/ready", (request, response) =>
     handleApiReadyGet(request, response, { isReady, logger }),
@@ -117,6 +120,20 @@ export function routes(app: Express, dependencies: RouteDependencies = {}): void
           handleReviewThreadResolutionDelete(authentication.currentSession, product.reviewComments),
         )
       }
+    }
+    if (learnings) {
+      app.get("/api/repositories/:repositoryId/learnings", handleLearningsGet(learnings))
+      app.post(
+        "/api/repositories/:repositoryId/learnings/runs",
+        requireOrigin(learnings.applicationOrigin),
+        handleLearningRunPost(learnings),
+      )
+      app.post(
+        "/api/repositories/:repositoryId/learnings/:learningId/decision",
+        requireOrigin(learnings.applicationOrigin),
+        express.json({ limit: "4kb", strict: true }),
+        handleLearningDecisionPost(learnings),
+      )
     }
     if (authentication.administrators) {
       app.get("/api/security-audits", handleSecurityAuditsGet(authentication.administrators))

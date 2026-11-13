@@ -277,6 +277,18 @@ const eventSchema = z.discriminatedUnion("type", [
       type: z.literal("copilot_connection"),
     })
     .strict(),
+  z
+    .object({
+      actorMembershipId: z.uuid(),
+      decision: z.enum(["accept", "reject", "retire"]),
+      id: z.uuid(),
+      learningId: z.string().min(1).max(255),
+      outcome: z.enum(["succeeded", "failed"]),
+      reason: z.string().min(1).max(100).optional(),
+      repositoryId: z.uuid(),
+      type: z.literal("learning_decision"),
+    })
+    .strict(),
 ])
 
 export function parseSecurityAuditEvent(input: unknown): ParsedSecurityAuditEvent {

@@ -1,0 +1,6 @@
+enum LearningRunState {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+}

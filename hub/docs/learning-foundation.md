@@ -1,6 +1,6 @@
 # Learning foundation
 
-Hub can persist one deployment-wide Copilot connection and run the host-neutral [`replica-learning`](../../packages/learning/README.md) command through a bounded process boundary. The review backend can capture one complete repository snapshot, but learning imports, runs, decisions, redactions, and recalls are not connected yet.
+Hub can persist one deployment-wide Copilot connection and run the host-neutral [`replica-learning`](../../packages/learning/README.md) command through a bounded process boundary. The repository Learnings API reads package-backed accepted guidance and recall previews, records package-backed accept, edit, reject, and retire decisions, and persists learning-run history and usage. The review backend can capture one complete repository snapshot; import, run orchestration, and redaction execution remain to be connected.
 
 The package remains the authority for consent, purpose, evidence, approval, redaction, and learning lifecycle rules. Hub does not reimplement those rules.
 
@@ -24,7 +24,7 @@ Disconnecting removes the connection record and advances the generation. It does
 
 A future repository learning integration supplies the persisted repository UUID and package scope such as `github.com/repositories/123`. The store primitive creates `<root>/repositories/<repository-uuid>` with mode `0700` and writes the package's default `config.json` with mode `0600` only when it is absent. Existing configuration remains operator-owned.
 
-Hub does not create stores or invoke repository learning commands yet.
+Hub uses the repository UUID for the store directory and the package scope `github.com/repositories/<repository-uuid>`. Decision commands use an existing store and never create one implicitly. A future complete review import prepares the store before its first run.
 
 ## Command boundary
 
@@ -36,7 +36,23 @@ The runner starts Node.js with the configured CLI entry point, appends `--json`,
 
 Hub passes store paths and repository scope as command arguments, not inherited `REPLICA_LEARNING_*` variables. It does not pass database, authentication, workload-identity, storage, or other deployment credentials. Standard output is limited to 16 MiB, standard error to 1 MiB, and the default deadline is 60 seconds. A timeout, output overflow, cancellation, or surviving descendant kills the command's process group before Hub removes the temporary directory.
 
-Later repository mutations use the PostgreSQL advisory-lock primitive for one Hub-wide learning execution at a time. Losing that database connection aborts the operation and its command through the shared signal. This preserves the CLI process boundary without moving package policy into Hub.
+Repository decisions use the PostgreSQL advisory-lock primitive for one Hub-wide learning execution at a time. Losing that database connection aborts the operation and its command through the shared signal. This preserves the CLI process boundary without moving package policy into Hub.
+
+## Repository API
+
+The browser contracts are:
+
+- `GET /api/repositories/:repositoryId/learnings`
+- `POST /api/repositories/:repositoryId/learnings/runs`
+- `POST /api/repositories/:repositoryId/learnings/:learningId/decision`
+
+Current product authorization has Hub members and Hub administrators but no repository-specific role model. Signed-in members receive the Learnings contract's access-denied response without suggestion, evidence, permission, Copilot, or usage data. Hub administrators may read accepted guidance and recall previews and may make decisions. Every write rereads the live session and administrator authority immediately before it reaches the package store.
+
+The read response lists the ten newest persisted runs and decimal Copilot usage from runs started during the previous 30 days. It withholds suggestions when the review domain cannot resolve every displayed package event to exact repository comment evidence. Accepted guidance and recall remain available because they do not expose review comment text.
+
+Decision inputs follow the browser schema. Accept and reject require the exact reviewed digest; package `stale_review` failures return `409` rather than applying a changed suggestion. Reject and retire require a reason. Edited acceptance writes the proposed content to a private temporary file because command-line arguments must not carry review text. Successful and failed package decisions write typed security audits without storing content, evidence, or reasons.
+
+The run endpoint currently returns `409 review_snapshot_unavailable`. It does not create a run or enqueue work. Enabling it requires both sides of the production seam below.
 
 ## Configuration
 
@@ -56,7 +72,7 @@ The environment-token mode may obtain its secret through a platform secret refer
 
 ## Remaining integration seam
 
-Repository learning runs can consume `captureRepositoryReviewSnapshot()` from the [review backend](review-collaboration.md#learning-snapshot-seam). A future orchestration layer can:
+Repository learning runs can consume `captureRepositoryReviewSnapshot()` from the [review backend](review-collaboration.md#learning-snapshot-seam). The integration must also resolve displayed package event references to exact stored repository comment versions. Missing, foreign, deleted, or mismatched references remain unresolved and are counted rather than replaced with live comment text.
 
 1. Authorize the repository operation.
 2. Derive a stable package scope and prepare its store.
@@ -64,4 +80,4 @@ Repository learning runs can consume `captureRepositoryReviewSnapshot()` from th
 4. Capture the complete repeatable-read review snapshot.
 5. Invoke package import, labeling, consolidation, decision, redaction, or recall commands.
 
-That integration must keep the package's consent and lifecycle rules intact. It must not create another Hub review store or omit deleted-message and resolution-history records from the imported snapshot.
+The run producer and worker must use a stable BullMQ job definition with record IDs and snapshot digest only. They must create or reuse one active run per repository, reread authority and repository state in the worker, preserve partial usage reported by failed labeling commands, and never enqueue a success-shaped no-op. The integration must keep the package's consent and lifecycle rules intact, must not create another Hub review store, and must not omit deleted-message or resolution-history records from the imported snapshot.

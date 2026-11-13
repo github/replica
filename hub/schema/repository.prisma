@@ -3,7 +3,8 @@ model Repository {
   id String @id @default(uuid()) @db.Uuid
 
   // Relations
-  prototypes Prototype[]
+  learningRuns  LearningRun[]
+  prototypes    Prototype[]
   reviewThreads ReviewThread[]
 
   // Attribute columns

@@ -46,7 +46,7 @@ The administrator session-revocation API and retained frontend show current Hub 
 
 The deployment-wide Copilot connection API and retained `/settings/copilot` frontend require a live administrator session. Hub obtains a credential from the configured provider and verifies it through the separate `replica-learning` process, then locks the persistent connection generation and rereads authority before committing the connection and typed security audit together. The database stores the provider key and configuration digest, never the credential.
 
-The [learning foundation](learning-foundation.md) validates private storage, isolates the command's environment and temporary state, bounds output and execution time, and provides a PostgreSQL execution lock plus repository-store preparation primitive. The [review backend](review-collaboration.md) now provides complete repository snapshots with stable actors, deleted-message markers, and ordered resolution history. Learning import, runs, decisions, redaction execution, and recall remain unimplemented.
+The [learning foundation](learning-foundation.md) validates private storage, isolates the command's environment and temporary state, bounds output and execution time, and provides a PostgreSQL execution lock plus repository-store preparation primitive. The repository API reads accepted guidance and recall, persists run history and usage, and records accept, edit, reject, and retire decisions through the package store. The [review backend](review-collaboration.md) provides complete repository snapshots with stable actors, deleted-message markers, and ordered resolution history; learning run orchestration and redaction execution remain to be connected.
 
 ## Frontend
 

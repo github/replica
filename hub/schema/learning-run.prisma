@@ -1,0 +1,34 @@
+model LearningRun {
+  // ID columns
+  id            String  @id @default(uuid()) @db.Uuid
+  repositoryId  String  @map("repository_id") @db.Uuid
+  requestedById String? @map("requested_by_id") @db.Uuid
+  number        Int     @default(autoincrement())
+
+  // Relations
+  repository  Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  requestedBy User?      @relation(fields: [requestedById], references: [id], onDelete: SetNull)
+
+  // Attribute columns
+  scheduled            Boolean          @default(false)
+  state                LearningRunState  @default(QUEUED)
+  commentsConsidered   Int              @default(0) @map("comments_considered")
+  commentsLabeled      Int              @default(0) @map("comments_labeled")
+  commentsRemaining    Int              @default(0) @map("comments_remaining")
+  suggestions          Int              @default(0)
+  suggestionsRemaining Int              @default(0) @map("suggestions_remaining")
+  copilotRequests      Int              @default(0) @map("copilot_requests")
+  aiCredits            Decimal          @default(0) @map("ai_credits") @db.Decimal(20, 9)
+  failureCode          String?          @map("failure_code") @db.VarChar(60)
+  failureSummary       String?          @map("failure_summary") @db.VarChar(1000)
+  startedAt            DateTime?        @map("started_at") @db.Timestamptz(3)
+  finishedAt           DateTime?        @map("finished_at") @db.Timestamptz(3)
+
+  // Timestamp columns
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([requestedById])
+  @@index([repositoryId, createdAt])
+  @@map("learning_runs")
+}

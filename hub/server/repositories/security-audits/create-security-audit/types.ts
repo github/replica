@@ -218,6 +218,16 @@ export interface CopilotConnectionAudit extends SecurityAuditEvent {
   reason?: string
 }
 
+export interface LearningDecisionAudit extends SecurityAuditEvent {
+  type: "learning_decision"
+  actorMembershipId: string
+  decision: "accept" | "reject" | "retire"
+  learningId: string
+  outcome: "succeeded" | "failed"
+  reason?: string
+  repositoryId: string
+}
+
 export type CreateSecurityAuditEvent =
   | AuthenticationAttemptDeniedAudit
   | BootstrapAttemptDeniedAudit
@@ -246,3 +256,4 @@ export type CreateSecurityAuditEvent =
   | AuthenticationProviderLifecycleAudit
   | AuthenticationProvidersReconcileFailedAudit
   | SessionRevocationAdvancedAudit
+  | LearningDecisionAudit
