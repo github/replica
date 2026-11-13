@@ -95,6 +95,12 @@ export const ConnectedOrganizationInstallation: Story = {
       notice: "Copilot is connected.",
       usageLabel:
         "Copilot usage is billed to the github organization through GitHub App 12345. Organization model policy, budget, and installation revocation continue to apply.",
+      connect: {
+        ...connect,
+        label: "Check Copilot connection",
+        consequence:
+          "Hub asks Copilot to verify a fresh credential for the github organization through GitHub App 12345. Later learning runs may send review comment text without reviewer identity. The organization's Copilot model policy, budget, and App installation revocation continue to apply.",
+      },
     },
   },
 }
