@@ -189,9 +189,52 @@ describe("repository access migration", () => {
           )
           expect(newFields.rows).toEqual([{ github_repository_id: null, end_reason: null }])
           const authority = await database.query(
-            `SELECT key, revision, changed_at FROM github_repository_access_states`,
+            `SELECT id, key, revision, changed_at, created_at FROM github_repository_access_states`,
           )
-          expect(authority.rows).toEqual([{ key: "global", revision: 0, changed_at: null }])
+          expect(authority.rows).toEqual([
+            expect.objectContaining({ key: "global", revision: 0, changed_at: null }),
+          ])
+          const changedAt = new Date("2026-11-13T20:00:00.000Z")
+          const later = new Date("2026-11-13T20:00:01.000Z")
+          const advance = await database.query(
+            `UPDATE github_repository_access_states SET revision = 1, changed_at = $1
+             RETURNING id, key, revision, changed_at, created_at`,
+            [changedAt],
+          )
+          expect(advance.rows).toEqual([
+            { ...authority.rows[0], revision: 1, changed_at: changedAt },
+          ])
+          const fenceQuery =
+            "SELECT id, key, revision, changed_at, created_at FROM github_repository_access_states"
+          for (const [revision, timestamp] of [
+            [3, later],
+            [1, later],
+            [2, changedAt],
+            [2, new Date(changedAt.getTime() - 1)],
+            [2, null],
+          ]) {
+            await expect(
+              database.query(
+                `UPDATE github_repository_access_states SET revision = $1, changed_at = $2`,
+                [revision, timestamp],
+              ),
+            ).rejects.toMatchObject({ code: "P0001" })
+            expect((await database.query(fenceQuery)).rows).toEqual(advance.rows)
+          }
+          for (const mutation of [
+            "id = gen_random_uuid()",
+            "key = 'replacement'",
+            "created_at = created_at - interval '1 second'",
+          ]) {
+            await expect(
+              database.query(
+                `UPDATE github_repository_access_states
+                 SET revision = 2, changed_at = $1, ${mutation}`,
+                [later],
+              ),
+            ).rejects.toMatchObject({ code: "P0001" })
+            expect((await database.query(fenceQuery)).rows).toEqual(advance.rows)
+          }
 
           await database.query(
             `INSERT INTO repository_access_grants (id, membership_id, repository_id, observed_at)
@@ -208,6 +251,7 @@ describe("repository access migration", () => {
           await expect(
             database.query(`DELETE FROM github_repository_access_states`),
           ).rejects.toThrow("GitHub repository access authority cannot be deleted.")
+          expect((await database.query(fenceQuery)).rows).toEqual(advance.rows)
         } finally {
           await database.end()
         }

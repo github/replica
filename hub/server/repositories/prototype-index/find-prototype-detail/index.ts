@@ -120,7 +120,7 @@ export async function findPrototypeDetail(
   const currentRepository = await database.repository.findFirst({
     where: {
       id: repositoryId,
-      removedAt: null,
+      ...visibleRepositoryWhere(scope),
       defaultBranch: detail.repository.defaultBranch,
     },
     select: { id: true },

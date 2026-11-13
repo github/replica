@@ -1,9 +1,9 @@
 import type { KeyObject } from "node:crypto"
 import { z } from "zod"
 
-import type { ConnectedRepositoryEvidence } from "../../../repositories/repository-access/types.ts"
 import { createGitHubAppJwt } from "../create-github-app-jwt/index.ts"
 import { GitHubProviderRequestError } from "../errors.ts"
+import type { GitHubRepositoryEvidence } from "../types.ts"
 
 const tokenSchema = z.looseObject({ token: z.string().min(1) })
 const repositoriesSchema = z.looseObject({
@@ -31,7 +31,7 @@ export async function listInstallationRepositories(
     now = () => new Date(),
     timeoutMs = 10_000,
   }: { apiUrl?: string; fetch?: typeof fetch; now?: () => Date; timeoutMs?: number } = {},
-): Promise<ConnectedRepositoryEvidence[]> {
+): Promise<GitHubRepositoryEvidence[]> {
   async function send(path: string, token: string, method = "GET") {
     let response: Response
     try {
@@ -60,7 +60,7 @@ export async function listInstallationRepositories(
       "POST",
     ),
   )
-  const repositories: ConnectedRepositoryEvidence[] = []
+  const repositories: GitHubRepositoryEvidence[] = []
   let totalCount: number | undefined
   for (let page = 1; page <= maxPages; page += 1) {
     const body = repositoriesSchema.parse(

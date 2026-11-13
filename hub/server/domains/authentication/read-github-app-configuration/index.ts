@@ -1,6 +1,6 @@
-import { createPrivateKey } from "node:crypto"
 import type { KeyObject } from "node:crypto"
 
+import { readGitHubAppPrivateKey } from "../read-github-app-private-key/index.ts"
 import {
   githubAppKeys,
   githubSignInKeys,
@@ -16,19 +16,6 @@ function validId(input: string) {
   return digits.test(input) && Number.isSafeInteger(Number(input))
 }
 
-function readPrivateKey(value: string): KeyObject | undefined {
-  try {
-    const bytes = Buffer.from(value, "base64")
-    if (bytes.toString("base64") !== value) return undefined
-    const pem = bytes.toString("utf8")
-    if (!pem.includes("PRIVATE KEY-----")) return undefined
-    const key = createPrivateKey(pem)
-    return key.asymmetricKeyType === "rsa" ? key : undefined
-  } catch {
-    return undefined
-  }
-}
-
 /** Classifies GitHub settings by name; only parsed credentials carry values. */
 export function readGitHubAppConfiguration(environment: NodeJS.ProcessEnv): GitHubAppConfiguration {
   function value(key: GitHubSettingKey) {
@@ -41,7 +28,7 @@ export function readGitHubAppConfiguration(environment: NodeJS.ProcessEnv): GitH
     GITHUB_PROVIDER_REVISION: validId,
     GITHUB_APP_ID: validId,
     GITHUB_APP_PRIVATE_KEY_BASE64: (input) => {
-      privateKey = readPrivateKey(input)
+      privateKey = readGitHubAppPrivateKey(input)
       return Boolean(privateKey)
     },
     GITHUB_APP_INSTALLATION_ID: validId,

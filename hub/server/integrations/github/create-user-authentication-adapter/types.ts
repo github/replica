@@ -1,3 +1,5 @@
+import type { GitHubRepositoryEvidence } from "../types.ts"
+
 export interface GitHubAuthenticationPublicConfiguration {
   authorizationEndpoint: string
   callbackUri: string
@@ -44,12 +46,6 @@ export interface GitHubUserAuthenticationAdapter {
       issuedAt: Date
       role: "MEMBER" | null
     }
-    repositoryAccess?: RepositoryAccessEvidence[]
+    repositoryAccess?: GitHubRepositoryEvidence[]
   }>
-}
-
-export interface RepositoryAccessEvidence {
-  defaultBranch: string
-  githubRepositoryId: number
-  nameWithOwner: string
 }

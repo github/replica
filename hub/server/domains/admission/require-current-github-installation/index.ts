@@ -1,4 +1,5 @@
 import type { Prisma } from "../../../generated/prisma/client.ts"
+import { findAuthenticationProviderRevision } from "../../../repositories/authentication-providers/find-authentication-provider-revision/index.ts"
 import { lockSelectedAuthenticationProvider } from "../../../repositories/authentication-providers/lock-selected-authentication-provider/index.ts"
 
 export async function requireCurrentGitHubInstallation(
@@ -9,10 +10,10 @@ export async function requireCurrentGitHubInstallation(
   if (!provider?.enabled || !provider.selectedRevisionId) {
     throw new Error("The GitHub installation is not the selected authentication configuration.")
   }
-  const revision = await transaction.authenticationProviderRevision.findUnique({
-    select: { configurationDigest: true, revision: true },
-    where: { id: provider.selectedRevisionId },
-  })
+  const revision = await findAuthenticationProviderRevision(
+    transaction,
+    provider.selectedRevisionId,
+  )
   if (
     !revision ||
     revision.revision !== expected.revision ||

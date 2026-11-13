@@ -1,10 +1,11 @@
 import { z } from "zod"
 
 import { GitHubProviderRequestError } from "../errors.ts"
+import { listReadableInstallationRepositories } from "../list-readable-installation-repositories/index.ts"
+import { requestGitHubUser } from "../request-github-user/index.ts"
 import type {
   CreateGitHubUserAuthenticationAdapterInput,
   GitHubUserAuthenticationAdapter,
-  RepositoryAccessEvidence,
 } from "./types.ts"
 
 const publicConfigurationSchema = z
@@ -25,89 +26,7 @@ const userResponseSchema = z.looseObject({
   login: z.string().min(1).max(200).optional(),
   name: z.string().nullable().optional(),
 })
-const installationRepositoriesResponseSchema = z.looseObject({
-  total_count: z.number().int().nonnegative(),
-  repositories: z.array(
-    z.looseObject({
-      default_branch: z.string().min(1).max(255),
-      full_name: z.string().min(3).max(255),
-      id: z.number().int().positive(),
-    }),
-  ),
-})
 const providerRequestTimeoutMs = 10_000
-const installationRepositoriesPageSize = 100
-const installationRepositoriesMaxPages = 20
-
-async function requestGitHub(
-  request: typeof globalThis.fetch,
-  url: string,
-  accessToken: string,
-): Promise<Response> {
-  try {
-    return await request(url, {
-      headers: {
-        accept: "application/vnd.github+json",
-        authorization: ["Bearer", accessToken].join(" "),
-        "x-github-api-version": "2022-11-28",
-      },
-      redirect: "error",
-      signal: AbortSignal.timeout(providerRequestTimeoutMs),
-    })
-  } catch (error) {
-    throw new GitHubProviderRequestError({ cause: error })
-  }
-}
-
-/**
- * Lists the App installation's repositories this user can read. GitHub answers
- * 404 when the user cannot see the installation, which means no access.
- */
-async function listReadableInstallationRepositories(
-  request: typeof globalThis.fetch,
-  installationId: number,
-  accessToken: string,
-): Promise<RepositoryAccessEvidence[]> {
-  const repositories: RepositoryAccessEvidence[] = []
-  let totalCount: number | undefined
-  for (let page = 1; page <= installationRepositoriesMaxPages; page += 1) {
-    const url = new URL(`https://api.github.com/user/installations/${installationId}/repositories`)
-    url.search = new URLSearchParams({
-      page: String(page),
-      per_page: String(installationRepositoriesPageSize),
-    }).toString()
-    const response = await requestGitHub(request, url.toString(), accessToken)
-    if (response.status === 404 && page === 1) return []
-    if (!response.ok) throw new GitHubProviderRequestError()
-    const body = installationRepositoriesResponseSchema.parse(await response.json())
-    if (totalCount !== undefined && totalCount !== body.total_count) {
-      throw new GitHubProviderRequestError()
-    }
-    totalCount = body.total_count
-    repositories.push(
-      ...body.repositories.map((repository) => ({
-        defaultBranch: repository.default_branch,
-        githubRepositoryId: repository.id,
-        nameWithOwner: repository.full_name,
-      })),
-    )
-    if (repositories.length === totalCount) {
-      if (
-        new Set(repositories.map((repository) => repository.githubRepositoryId)).size !== totalCount
-      ) {
-        throw new GitHubProviderRequestError()
-      }
-      return repositories
-    }
-    if (
-      repositories.length > totalCount ||
-      body.repositories.length < installationRepositoriesPageSize
-    ) {
-      throw new GitHubProviderRequestError()
-    }
-  }
-  throw new GitHubProviderRequestError()
-}
 
 export function createGitHubUserAuthenticationAdapter(
   input: CreateGitHubUserAuthenticationAdapterInput,
@@ -201,7 +120,7 @@ export function createGitHubUserAuthenticationAdapter(
       if (!tokenResponse.ok) throw new GitHubProviderRequestError()
       const token = tokenResponseSchema.parse(await tokenResponse.json())
 
-      const userResponse = await requestGitHub(
+      const userResponse = await requestGitHubUser(
         request,
         configuration.userEndpoint,
         token.access_token,

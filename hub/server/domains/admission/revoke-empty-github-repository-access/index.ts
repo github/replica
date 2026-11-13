@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto"
 
 import type { Prisma } from "../../../generated/prisma/client.ts"
+import { listGitHubMembershipIdentities } from "../../../repositories/memberships/list-github-membership-identities/index.ts"
 import { claimProviderEvidence } from "../../../repositories/provider-evidence-states/claim-provider-evidence/index.ts"
 import { applyProviderAssignmentEvidence } from "../apply-provider-assignment-evidence/index.ts"
 import { createAdmissionRepositories } from "../create-admission-repositories/index.ts"
@@ -10,23 +11,7 @@ export async function revokeEmptyGitHubRepositoryAccess(
   transaction: Prisma.TransactionClient,
   input: { changedAt: Date; membershipIds: string[] },
 ) {
-  const memberships = await transaction.membership.findMany({
-    orderBy: { id: "asc" },
-    select: {
-      id: true,
-      lifecycle: true,
-      user: {
-        select: {
-          externalIdentities: {
-            orderBy: { id: "asc" },
-            select: { id: true, userId: true },
-            where: { provider: "github" },
-          },
-        },
-      },
-    },
-    where: { id: { in: input.membershipIds } },
-  })
+  const memberships = await listGitHubMembershipIdentities(transaction, input.membershipIds)
   const repositories = createAdmissionRepositories(transaction)
   for (const membership of memberships) {
     let revoked = false

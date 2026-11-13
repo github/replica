@@ -1,15 +1,7 @@
 import { z } from "zod"
 
-import { Prisma } from "../../../../../generated/prisma/client.ts"
-import { AdmissionTransactionConflictError } from "../../../../../domains/admission/errors.ts"
-import { requireCurrentGitHubInstallation } from "../../../../../domains/admission/require-current-github-installation/index.ts"
-import { revokeEmptyGitHubRepositoryAccess } from "../../../../../domains/admission/revoke-empty-github-repository-access/index.ts"
-import { runWithBoundedRetries } from "../../../../../domains/identity/run-with-bounded-retries/index.ts"
-import { classifyPrismaTransactionError } from "../../../../../integrations/prisma/classify-transaction-error/index.ts"
+import { revokeGitHubRepositoryAccess } from "../../../../../domains/admission/revoke-github-repository-access/index.ts"
 import { prisma } from "../../../../../integrations/prisma/index.ts"
-import { advanceGitHubRepositoryAccessState } from "../../../../../repositories/github-repository-access-states/advance-github-repository-access-state/index.ts"
-import { markRepositoriesDisconnected } from "../../../../../repositories/repository-access/mark-repositories-disconnected/index.ts"
-import { removeRepositoryAccessGrants } from "../../../../../repositories/repository-access/remove-repository-access-grants/index.ts"
 import type { GitHubWebhookRouteDependencies } from "../types.ts"
 
 const githubId = z.number().int().positive()
@@ -29,42 +21,6 @@ const organizationEvent = z.looseObject({
   action: z.literal("member_removed"),
   membership: z.looseObject({ user: z.looseObject({ id: githubId }) }),
 })
-
-async function revokeAccess(
-  input: {
-    disconnect: boolean
-    githubRepositoryIds: number[] | "all"
-    githubUserId?: number
-  },
-  provider: { configurationDigest: string; revision: number },
-) {
-  await runWithBoundedRetries(
-    () =>
-      prisma.$transaction(
-        async (transaction) => {
-          await requireCurrentGitHubInstallation(transaction, provider)
-          const { changedAt } = await advanceGitHubRepositoryAccessState(transaction)
-          if (input.disconnect) {
-            await markRepositoriesDisconnected(
-              transaction,
-              input.githubRepositoryIds === "all"
-                ? { exceptGithubRepositoryIds: [] }
-                : { githubRepositoryIds: input.githubRepositoryIds },
-            )
-          }
-          const { emptiedMembershipIds } = await removeRepositoryAccessGrants(transaction, input)
-          await revokeEmptyGitHubRepositoryAccess(transaction, {
-            changedAt,
-            membershipIds: emptiedMembershipIds,
-          })
-        },
-        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
-      ),
-    (error) =>
-      error instanceof AdmissionTransactionConflictError ||
-      classifyPrismaTransactionError(error) === "retryable",
-  )
-}
 
 /**
  * Repositories are marked disconnected rather than deleted so their Builds and
@@ -88,7 +44,11 @@ export function createGitHubWebhookRouteDependencies(input: {
         const event = installationEvent.safeParse(payload)
         if (!event.success) return false
         if (event.data.action === "unsuspend") return syncRepositories()
-        await revokeAccess({ disconnect: true, githubRepositoryIds: "all" }, input.provider)
+        await revokeGitHubRepositoryAccess(
+          prisma,
+          { disconnect: true, githubRepositoryIds: "all" },
+          input.provider,
+        )
         return true
       }
       if (name === "installation_repositories") {
@@ -96,7 +56,8 @@ export function createGitHubWebhookRouteDependencies(input: {
         if (!event.success) return false
         // The added payload omits default branches, so read the full list instead.
         if (event.data.action === "added") return syncRepositories()
-        await revokeAccess(
+        await revokeGitHubRepositoryAccess(
+          prisma,
           {
             disconnect: true,
             githubRepositoryIds: event.data.repositories_removed.map((repository) => repository.id),
@@ -108,7 +69,8 @@ export function createGitHubWebhookRouteDependencies(input: {
       if (name === "member") {
         const event = memberEvent.safeParse(payload)
         if (!event.success) return false
-        await revokeAccess(
+        await revokeGitHubRepositoryAccess(
+          prisma,
           {
             disconnect: false,
             githubRepositoryIds: [event.data.repository.id],
@@ -121,7 +83,8 @@ export function createGitHubWebhookRouteDependencies(input: {
       if (name === "organization") {
         const event = organizationEvent.safeParse(payload)
         if (!event.success) return false
-        await revokeAccess(
+        await revokeGitHubRepositoryAccess(
+          prisma,
           {
             disconnect: false,
             githubRepositoryIds: "all",

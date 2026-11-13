@@ -2,7 +2,7 @@ import type {
   GithubConnectionCheckResult,
   GithubSettingStatus,
 } from "@features/github-app-connection-status/types"
-import type { GithubAppSetupUrls } from "@features/github-app-registration-guide/types"
+import type { GithubAppSetupUrls } from "@components/github-app-fields/types"
 
 export interface GithubAppSetupStatusData {
   status: "not_configured" | "incomplete" | "configured"
