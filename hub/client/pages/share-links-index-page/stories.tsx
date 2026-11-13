@@ -85,19 +85,6 @@ export const NoBuild: Story = {
 }
 
 export const Empty: Story = {}
-export const MandatorySevenDayMaximum: Story = {
-  args: {
-    data: {
-      ...data,
-      form: {
-        ...data.form,
-        expirationOptions: data.form.expirationOptions.filter((option) =>
-          ["one_day", "seven_days"].includes(option.value),
-        ),
-      },
-    },
-  },
-}
 
 export const ThirtyDayMaximum: Story = {
   args: {
@@ -111,6 +98,12 @@ export const ThirtyDayMaximum: Story = {
         ],
       },
     },
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.selectOptions(
+      canvas.getByRole("combobox", { name: "Expires after" }),
+      "thirty_days",
+    )
   },
 }
 
