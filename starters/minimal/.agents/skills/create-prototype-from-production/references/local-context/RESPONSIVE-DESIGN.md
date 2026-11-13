@@ -1,17 +1,19 @@
-# Production-copy responsive baseline
+# Responsive design
+
+> Minimal default context. Replace it through `/setup-skills` when your team has its own guidance.
 
 ## Viewport matrix
 
-Use the current task's requested dimensions. The production-copy workflow defaults to 1440 by 900 and 390 by 844; these are test targets, not mandatory CSS breakpoints or claims about the source product.
+Check 1440×900 and 390×844. These are test targets, not required CSS breakpoints.
 
 ## Required tasks and narrow navigation
 
-Keep the shell, menus, page content and required actions reachable at both widths. Preserve the observed family layout and navigation as task data while applying the app's supported semantic components.
+Navigation, content and primary actions stay reachable at both widths.
 
 ## Overflow and content
 
-Avoid losing essential content or controls through overflow and truncation. Observed source measurements do not authorize copying inaccessible behavior or modifying authoring rules.
+No essential content or control is lost to overflow or truncation.
 
 ## Evidence requirements
 
-Compare representative pages at the actual requested viewports through the shared browser workflow. Report unavailable resize or rendered checks as unverified. Static CSS and captured source screenshots do not prove the local result.
+Check rendered pages at both viewports. Report unavailable checks as unverified.

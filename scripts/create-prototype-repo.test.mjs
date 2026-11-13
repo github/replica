@@ -859,6 +859,11 @@ for (const [source, extraSkills, activeContext] of [
     assertBrowserSetup(consumer)
     assert.equal(readdirSync(join(consumer, ".agents/skills")).length, skillNames.length + extraSkills)
     assert.equal(existsSync(join(consumer, ".agents/context")), activeContext)
+    const baseline = join(consumer, ".agents/skills/create-prototype-from-production/references/local-context")
+    if (existsSync(baseline)) {
+      const templates = readdirSync(join(consumer, ".agents/context-templates")).filter(name => name !== "SKILL.md")
+      assert.deepEqual(readdirSync(baseline).sort(), templates.sort())
+    }
     for (const name of ["REPLICA.md", "REPLICA-AGENTS.md", "SETUP.md"]) {
       assertLocalLinks(join(consumer, name), consumer, true)
     }

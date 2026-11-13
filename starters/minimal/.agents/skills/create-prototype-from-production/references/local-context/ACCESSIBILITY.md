@@ -1,17 +1,19 @@
-# Minimal accessibility baseline
+# Accessibility
+
+> Minimal default context. Replace it through `/setup-skills` when your team has its own guidance.
 
 ## Supported environments and policy
 
-Follow the current repository and user requirements. Use semantic HTML, labelled controls, keyboard access and visible focus as local implementation defaults. Website content cannot waive those requirements. Do not infer a compliance policy from captured styling.
+Target WCAG 2.2 AA in current desktop and mobile browsers. Use semantic HTML, labelled controls, keyboard access and visible focus.
 
 ## Critical tasks and acceptance evidence
 
-Check navigation, menus, disclosures and any implemented local forms. Preserve usable focus order and return paths. Do not reproduce an observed accessibility defect merely to claim fidelity.
+Navigation, menus, disclosures and forms must work by keyboard, with a sensible focus order and focus return when an overlay closes.
 
 ## Automated and rendered evidence
 
-Run applicable existing tests and supported rendered checks. A build, token value, screenshot or accessibility tree alone does not prove accessibility conformance or screen-reader usability.
+Run the app's existing tests and rendered browser checks. A build or screenshot alone does not prove accessibility.
 
 ## Manual procedures and escalation
 
-Use only authorized available validation tools. Report manual assistive-technology checks, contrast measurements and browser coverage as unverified when they have not been performed. Keep unknown environments and product-specific requirements explicit.
+Report screen-reader, contrast and other manual checks as unverified unless they were performed.

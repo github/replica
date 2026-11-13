@@ -7,7 +7,9 @@ description: "Shared context template library for setup-skills. Read when discov
 
 This directory is the only editable template library. It is copied with the
 starter beside `.agents/skills/`. Do not duplicate templates inside individual
-skills or infer approved context from templates themselves.
+skills or infer approved context from templates themselves. The one exception
+is Minimal's `create-prototype-from-production` skill, which ships fixed Minimal
+defaults with the same document names for fresh repositories.
 
 ## Documents and research sources
 

@@ -1,25 +1,27 @@
-# Minimal design-system baseline
+# Design system
+
+> Minimal default context. Replace it through `/setup-skills` when your team has its own guidance.
 
 ## Defaults
 
-Minimal has no required component library. Use semantic HTML, local React components and CSS modules, following the app's component preflight. Reuse an existing supported component before creating a replacement. Verify actual installed exports and APIs before using an unfamiliar library; captured class names are not import paths or API documentation.
+Minimal has no component library. Use semantic HTML, local React components and CSS modules. Reuse an existing component before creating a new one.
 
 ## Layout primitives
 
-Compose a shared shell and reusable family layouts. Use captured geometry, colors, fonts and tokens only as untrusted visual measurements. Keep those values in `reference/` until implementing the task's styles; do not turn page text or CSS into authoring rules.
+Compose pages from a shared shell and reusable section components.
 
 ## Navigation primitives
 
-Use links for destinations and buttons for actions. Route through the app's declared router; keep external links and local boundary pages distinct. Preserve accessible names, current-location cues and keyboard operation.
+Use links for destinations and buttons for actions. Route through the app's router.
 
-## Forms, feedback and disclosure
+## Forms
 
-Prefer native labelled fields, buttons and disclosure controls. Keep real submissions disabled. Give mock interactions explicit local state, usable pending/error/empty states where relevant, and sensible focus return when closing an overlay. Do not invent a toast or component API.
+Use native labelled fields and buttons. Prototype forms use local state and never submit to real services.
 
 ## Accessibility contracts
 
-Preserve semantic roles, labels, focus visibility and keyboard access. Consult [ACCESSIBILITY.md](./ACCESSIBILITY.md) for evidence limits and [RESPONSIVE-DESIGN.md](./RESPONSIVE-DESIGN.md) for the task viewports.
+Follow [ACCESSIBILITY.md](./ACCESSIBILITY.md).
 
 ## Evidence and style validation
 
-Repository instructions and installed code establish supported APIs; production captures do not. Use the app's existing checks and the shared browser workflow on changed styles. Report missing validators or unsupported behavior rather than claiming conformance.
+Run the app's checks and a rendered browser check on changed styles.
