@@ -54,6 +54,25 @@ ADD CONSTRAINT "sensitive_authorizations_copilot_generation_check" CHECK (
   )
 );
 
+ALTER TABLE "sensitive_authorizations"
+DROP CONSTRAINT "sensitive_authorizations_targets_check";
+
+ALTER TABLE "sensitive_authorizations"
+ADD CONSTRAINT "sensitive_authorizations_targets_check" CHECK (
+  (
+    "operation" = 'END_ALL_HUB_SESSIONS'
+    AND cardinality("target_membership_ids") = 0
+  )
+  OR (
+    "operation" IN ('CONNECT_COPILOT', 'DISCONNECT_COPILOT', 'REVOKE_ADMINISTRATOR')
+    AND cardinality("target_membership_ids") = 1
+  )
+  OR (
+    "operation" = 'DESIGNATE_ADMINISTRATORS'
+    AND cardinality("target_membership_ids") BETWEEN 1 AND 50
+  )
+);
+
 CREATE OR REPLACE FUNCTION protect_sensitive_authorization()
 RETURNS trigger
 LANGUAGE plpgsql
