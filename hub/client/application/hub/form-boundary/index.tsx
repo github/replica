@@ -9,9 +9,17 @@ interface Props extends PropsWithChildren {
   error?: string | null
   notice?: string | null
   onSubmit: (data: FormData) => void
+  shouldIntercept?: (form: HTMLFormElement) => boolean
 }
 
-export function FormBoundary({ children, busy, error, notice, onSubmit }: Props) {
+export function FormBoundary({
+  children,
+  busy,
+  error,
+  notice,
+  onSubmit,
+  shouldIntercept = () => true,
+}: Props) {
   const feedback = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (error) feedback.current?.focus()
@@ -20,6 +28,7 @@ export function FormBoundary({ children, busy, error, notice, onSubmit }: Props)
   function submit(event: SubmitEvent<HTMLDivElement>) {
     if (event.defaultPrevented || !(event.target instanceof HTMLFormElement)) return
     if (["get", "dialog"].includes(event.target.method.toLowerCase())) return
+    if (!shouldIntercept(event.target)) return
     event.preventDefault()
     if (busy) return
     const submitter = event.nativeEvent.submitter

@@ -59,6 +59,17 @@ describe("server runtime", () => {
     )
   })
 
+  it("reports the invalid learning root that prevents startup", async () => {
+    vi.stubEnv("REPLICA_LEARNING_ROOT", "public/learning")
+
+    await expect(import("./index.ts")).rejects.toThrow("Unexpected process exit: 1")
+
+    expect(runApi).not.toHaveBeenCalled()
+    expect(logger.fatal).toHaveBeenCalledWith(
+      "REPLICA_LEARNING_ROOT must be a dedicated private directory outside the public web root.",
+    )
+  })
+
   it.each([
     ["provider", "GITHUB_CLIENT_ID"],
     ["shared", "HUB_BOOTSTRAP_SECRET"],
@@ -125,6 +136,8 @@ describe("server runtime", () => {
     const createAuthenticationRouteDependencies = vi
       .fn<(environment: NodeJS.ProcessEnv) => Promise<typeof authentication>>()
       .mockResolvedValue(authentication)
+    const copilotConnection = { applicationOrigin: "http://127.0.0.1:5173" }
+    const createCopilotConnectionRouteDependencies = vi.fn().mockResolvedValue(copilotConnection)
     const disableAuthenticationProviders = vi.fn()
     const product = {}
     const createProductRouteDependencies = vi.fn().mockReturnValue(product)
@@ -146,6 +159,10 @@ describe("server runtime", () => {
     vi.doMock("./routes/api/product/create-product-route-dependencies/index.ts", () => ({
       createProductRouteDependencies,
     }))
+    vi.doMock(
+      "./routes/api/copilot-connection/create-copilot-connection-route-dependencies/index.ts",
+      () => ({ createCopilotConnectionRouteDependencies }),
+    )
 
     await expect(import("./index.ts")).resolves.toBeDefined()
 
@@ -158,7 +175,10 @@ describe("server runtime", () => {
     })
     expect(Buffer.from(environment.HUB_AUTHENTICATION_ENCRYPTION_KEY!, "base64")).toHaveLength(32)
     expect(Buffer.from(environment.HUB_BOOTSTRAP_SECRET!, "base64url")).toHaveLength(32)
-    expect(runApi).toHaveBeenCalledWith(expect.objectContaining({ authentication, product }))
+    expect(createCopilotConnectionRouteDependencies).toHaveBeenCalledWith(environment, logger)
+    expect(runApi).toHaveBeenCalledWith(
+      expect.objectContaining({ authentication, copilotConnection, product }),
+    )
   })
 
   it("requires a database when authentication is configured", async () => {
@@ -230,6 +250,7 @@ describe("server runtime", () => {
 
   it("loads route-owned authentication composition when auth is configured", async () => {
     const createAuthenticationRouteDependencies = vi.fn()
+    const createCopilotConnectionRouteDependencies = vi.fn()
     const disableAuthenticationProviders = vi.fn()
     const product = { listRepositories: vi.fn(), findRepositoryIndex: vi.fn() }
     const createProductRouteDependencies = vi.fn().mockReturnValue(product)
@@ -242,6 +263,9 @@ describe("server runtime", () => {
       },
       signOut: {},
     }
+    const copilotConnection = {
+      applicationOrigin: "https://hub.example.test",
+    }
     vi.stubEnv("HUB_APPLICATION_ORIGIN", "https://hub.example.test")
     vi.stubEnv("GITHUB_CLIENT_ID", "github-client")
     vi.mocked(parseRuntimeConfig).mockReturnValue({
@@ -249,6 +273,7 @@ describe("server runtime", () => {
       databaseUrl: "postgresql://hub.example.test/replica",
     })
     createAuthenticationRouteDependencies.mockResolvedValue(authentication)
+    createCopilotConnectionRouteDependencies.mockResolvedValue(copilotConnection)
     vi.doMock("./routes/api/auth/create-authentication-route-dependencies/index.ts", () => ({
       createAuthenticationRouteDependencies,
       disableAuthenticationProviders,
@@ -256,12 +281,19 @@ describe("server runtime", () => {
     vi.doMock("./routes/api/product/create-product-route-dependencies/index.ts", () => ({
       createProductRouteDependencies,
     }))
+    vi.doMock(
+      "./routes/api/copilot-connection/create-copilot-connection-route-dependencies/index.ts",
+      () => ({ createCopilotConnectionRouteDependencies }),
+    )
 
     await expect(import("./index.ts")).resolves.toBeDefined()
 
     expect(createAuthenticationRouteDependencies).toHaveBeenCalledWith(process.env)
     expect(createProductRouteDependencies).toHaveBeenCalledOnce()
+    expect(createCopilotConnectionRouteDependencies).toHaveBeenCalledWith(process.env, logger)
     expect(disableAuthenticationProviders).not.toHaveBeenCalled()
-    expect(runApi).toHaveBeenCalledWith(expect.objectContaining({ authentication, product }))
+    expect(runApi).toHaveBeenCalledWith(
+      expect.objectContaining({ authentication, copilotConnection, product }),
+    )
   })
 })

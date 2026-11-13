@@ -14,6 +14,7 @@ export function createApp({
   authentication,
   broadcast,
   clientDirectory,
+  copilotConnection,
   isReady,
   logger,
   product,
@@ -28,6 +29,7 @@ export function createApp({
       "/api/auth",
       "/api/administrators",
       "/api/session-revocation",
+      "/api/copilot-connection",
       "/api/security-audits",
       "/api/workspace",
       "/api/repositories",
@@ -35,11 +37,11 @@ export function createApp({
     authenticationSecurity(),
   )
   app.use(
-    /^(?!\/api\/(?:auth|administrators\/authorizations|session-revocation\/authorizations)(?:\/|$)).*/i,
+    /^(?!\/api\/copilot-connection(?:\/|$))(?!\/api\/(?:auth|administrators\/authorizations|session-revocation\/authorizations)(?:\/|$)).*/i,
     express.json(),
   )
 
-  routes(app, { authentication, broadcast, isReady, logger, product })
+  routes(app, { authentication, broadcast, copilotConnection, isReady, logger, product })
   app.use("/api", respondNotFound)
   if (clientDirectory) {
     const directory = resolve(clientDirectory)
@@ -58,7 +60,7 @@ export function createApp({
         return
       }
       response.setHeader("Cache-Control", "no-cache")
-      response.sendFile(resolve(directory, "index.html"))
+      response.sendFile("index.html", { root: directory, dotfiles: "deny" })
     })
   }
   app.use(respondNotFound)

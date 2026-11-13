@@ -282,5 +282,24 @@ export function getSecurityAuditData(
         targetId: "global",
         context: { reason: event.reason, revision: event.revision },
       }
+    case "copilot_connection":
+      return {
+        id: event.id,
+        action: `copilot.connection.${event.phase}`,
+        outcome:
+          event.phase === "denied"
+            ? SecurityAuditOutcome.DENIED
+            : event.phase === "failed"
+              ? SecurityAuditOutcome.FAILURE
+              : SecurityAuditOutcome.SUCCESS,
+        targetType: "copilot_connection",
+        targetId: event.connectionId,
+        context: {
+          actorMembershipId: event.actorMembershipId,
+          credentialProvider: event.credentialProvider,
+          phase: event.phase,
+          ...(event.reason ? { reason: event.reason } : {}),
+        },
+      }
   }
 }

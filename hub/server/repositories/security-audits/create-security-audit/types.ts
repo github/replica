@@ -202,6 +202,15 @@ export interface SessionRevocationAdvancedAudit extends SecurityAuditEvent {
   revision: number
 }
 
+export interface CopilotConnectionAudit extends SecurityAuditEvent {
+  type: "copilot_connection"
+  actorMembershipId: string | null
+  connectionId?: string
+  credentialProvider: string
+  phase: "connected" | "disconnected" | "denied" | "failed"
+  reason?: string
+}
+
 export type CreateSecurityAuditEvent =
   | AuthenticationAttemptDeniedAudit
   | BootstrapAttemptDeniedAudit
@@ -229,3 +238,4 @@ export type CreateSecurityAuditEvent =
   | AuthenticationProviderLifecycleAudit
   | AuthenticationProvidersReconcileFailedAudit
   | SessionRevocationAdvancedAudit
+  | CopilotConnectionAudit

@@ -28,6 +28,29 @@ describe("securityAuditResponseSchema", () => {
     })
   })
 
+  it("accepts a credential provider only under the safe provider key", () => {
+    const context = { phase: "connected", provider: "environment_token" }
+
+    expect(
+      securityAuditResponseSchema.parse({
+        records: [{ ...record, action: "copilot.connection.connected", context }],
+        nextCursor: null,
+      }).records[0]?.context,
+    ).toEqual(context)
+    expect(
+      securityAuditResponseSchema.safeParse({
+        records: [
+          {
+            ...record,
+            action: "copilot.connection.connected",
+            context: { credentialProvider: "environment_token", phase: "connected" },
+          },
+        ],
+        nextCursor: null,
+      }).success,
+    ).toBe(false)
+  })
+
   it.each([
     ["a nested object", { metadata: { provider: "github" } }],
     ["a non-integer number", { revision: 1.5 }],

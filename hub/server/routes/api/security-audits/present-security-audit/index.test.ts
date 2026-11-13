@@ -397,6 +397,36 @@ describe("presentSecurityAudit()", () => {
         outcome: "success",
       }),
     },
+    ...(
+      [
+        ["connected", "success", true, undefined],
+        ["disconnected", "success", true, undefined],
+        ["denied", "denied", false, "credential_missing"],
+        ["failed", "failure", false, "status_check_failed"],
+      ] as const
+    ).map(([phase, outcome, hasConnectionId, reason]) => ({
+      label: `Copilot connection ${phase}`,
+      event: {
+        actorMembershipId,
+        ...(hasConnectionId ? { connectionId: providerId } : {}),
+        credentialProvider: "environment_token",
+        id: auditId,
+        phase,
+        ...(reason ? { reason } : {}),
+        type: "copilot_connection",
+      },
+      expected: expectedRecord({
+        action: `copilot.connection.${phase}`,
+        actor: { membershipId: actorMembershipId },
+        context: {
+          provider: "environment_token",
+          phase,
+          ...(reason ? { reason } : {}),
+          ...(hasConnectionId ? { targetId: providerId } : {}),
+        },
+        outcome,
+      }),
+    })),
   ])("presents the stored projection for $label", ({ event, expected }) => {
     const presented = presentSecurityAudit(storedRecordFor(event))
 
