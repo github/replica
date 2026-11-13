@@ -16,7 +16,6 @@ model HubSession {
   revocationRevision Int       @map("revocation_revision")
   expiresAt          DateTime  @map("expires_at") @db.Timestamptz(3)
   endedAt            DateTime? @map("ended_at") @db.Timestamptz(3)
-  endReason          String?   @map("end_reason") @db.VarChar(50)
 
   // Timestamp columns
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)

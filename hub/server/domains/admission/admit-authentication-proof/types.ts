@@ -11,12 +11,6 @@ export interface AdmitAuthenticationProofInput {
     role: "MEMBER" | "ADMINISTRATOR" | null
   }
   providerKey: string
-  /** Repositories GitHub reports the person can read; omitted for other providers. */
-  repositoryAccess?: Array<{
-    defaultBranch: string
-    githubRepositoryId: number
-    nameWithOwner: string
-  }>
   requiresProviderAssignmentEvidence: boolean
   sessionDigest: string
   sessionId: string

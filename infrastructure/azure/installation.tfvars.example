@@ -21,53 +21,6 @@ setup_database_secret = {
 #     secret_id    = "https://YOUR-VAULT.vault.azure.net/secrets/example-api-token"
 #   }
 # }
-
-# Work in a new private directory to avoid overwriting existing files.
-# Hub setup needs its public HTTPS origin and both shared authentication secrets
-# before the setup page can load. For a new installation, generate them with:
-#   umask 077
-#   openssl rand -base64 32 | tr -d '\n' > encryption-key.txt
-#   openssl rand -hex 32 | tr -d '\n' > bootstrap-secret.txt
-# Preserve existing shared secrets when updating a Hub.
-#
-# GitHub App. Identifiers are plain values; credentials are Key Vault references only.
-# Store each secret first, then reference its versioned URL (the commands print IDs, not values):
-#   az keyvault secret set --vault-name YOUR-VAULT --name github-client-secret --file client-secret.txt --query id --output tsv
-#   base64 < key.pem | tr -d '\n' > key.pem.base64
-#   az keyvault secret set --vault-name YOUR-VAULT --name github-app-private-key --file key.pem.base64 --query id --output tsv
-#   az keyvault secret set --vault-name YOUR-VAULT --name github-webhook-secret --file webhook-secret.txt --query id --output tsv
-#   az keyvault secret set --vault-name YOUR-VAULT --name hub-authentication-encryption-key --file encryption-key.txt --query id --output tsv
-#   az keyvault secret set --vault-name YOUR-VAULT --name hub-bootstrap-secret --file bootstrap-secret.txt --query id --output tsv
-# Delete the local files afterward. Increase github_provider_revision whenever these values change.
-# Merge these entries with any other runtime_secret_references; define the map only once.
-# hub_application_origin    = "https://hub.example.com"
-# github_app_id              = "123456"
-# github_client_id           = "Iv23liYOURCLIENTID"
-# github_app_installation_id = "12345678"
-# github_provider_revision   = 1
-# runtime_secret_references = {
-#   GITHUB_CLIENT_SECRET = {
-#     key_vault_id = "/subscriptions/YOUR_SUBSCRIPTION/resourceGroups/YOUR_SECRETS_GROUP/providers/Microsoft.KeyVault/vaults/YOUR-VAULT"
-#     secret_id    = "https://YOUR-VAULT.vault.azure.net/secrets/github-client-secret/YOUR_32_CHARACTER_VERSION"
-#   }
-#   GITHUB_APP_PRIVATE_KEY_BASE64 = {
-#     key_vault_id = "/subscriptions/YOUR_SUBSCRIPTION/resourceGroups/YOUR_SECRETS_GROUP/providers/Microsoft.KeyVault/vaults/YOUR-VAULT"
-#     secret_id    = "https://YOUR-VAULT.vault.azure.net/secrets/github-app-private-key/YOUR_32_CHARACTER_VERSION"
-#   }
-#   GITHUB_WEBHOOK_SECRET = {
-#     key_vault_id = "/subscriptions/YOUR_SUBSCRIPTION/resourceGroups/YOUR_SECRETS_GROUP/providers/Microsoft.KeyVault/vaults/YOUR-VAULT"
-#     secret_id    = "https://YOUR-VAULT.vault.azure.net/secrets/github-webhook-secret/YOUR_32_CHARACTER_VERSION"
-#   }
-#   HUB_AUTHENTICATION_ENCRYPTION_KEY = {
-#     key_vault_id = "/subscriptions/YOUR_SUBSCRIPTION/resourceGroups/YOUR_SECRETS_GROUP/providers/Microsoft.KeyVault/vaults/YOUR-VAULT"
-#     secret_id    = "https://YOUR-VAULT.vault.azure.net/secrets/hub-authentication-encryption-key/YOUR_32_CHARACTER_VERSION"
-#   }
-#   HUB_BOOTSTRAP_SECRET = {
-#     key_vault_id = "/subscriptions/YOUR_SUBSCRIPTION/resourceGroups/YOUR_SECRETS_GROUP/providers/Microsoft.KeyVault/vaults/YOUR-VAULT"
-#     secret_id    = "https://YOUR-VAULT.vault.azure.net/secrets/hub-bootstrap-secret/YOUR_32_CHARACTER_VERSION"
-#   }
-# }
-
 # acr_id = "/subscriptions/.../resourceGroups/.../providers/Microsoft.ContainerRegistry/registries/..."
 # custom_hostname = "hub.example.com"
 # certificate_id = "/subscriptions/.../resourceGroups/.../providers/Microsoft.App/managedEnvironments/.../certificates/..."

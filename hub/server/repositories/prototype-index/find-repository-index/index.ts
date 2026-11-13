@@ -1,7 +1,6 @@
 import { Prisma, type BuildState, type PrismaClient } from "../../../generated/prisma/client.ts"
 import { containsText } from "../contains-text/index.ts"
 import { reviewablePrototypeWhere } from "../reviewable-prototype-where/index.ts"
-import { type RepositoryScope, visibleRepositoryWhere } from "../visible-repository-where/index.ts"
 
 const pageSize = 24
 const authorSelect = {
@@ -19,10 +18,9 @@ export async function findRepositoryIndex(
   database: Pick<PrismaClient, "$transaction" | "repository">,
   repositoryId: string,
   filters: RepositoryIndexFilters = { query: "", authorId: null, page: 1 },
-  scope: RepositoryScope = null,
 ) {
   const repository = await database.repository.findFirst({
-    where: { id: repositoryId, ...visibleRepositoryWhere(scope) },
+    where: { id: repositoryId, removedAt: null },
     select: { id: true, nameWithOwner: true, defaultBranch: true },
   })
   if (!repository) return null
@@ -109,11 +107,7 @@ export async function findRepositoryIndex(
     { isolationLevel: "RepeatableRead" },
   )
   const currentRepository = await database.repository.findFirst({
-    where: {
-      id: repositoryId,
-      defaultBranch: repository.defaultBranch,
-      ...visibleRepositoryWhere(scope),
-    },
+    where: { id: repositoryId, removedAt: null, defaultBranch: repository.defaultBranch },
     select: { id: true },
   })
   if (!currentRepository) return null

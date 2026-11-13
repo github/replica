@@ -3,7 +3,6 @@ import { redirect, useLocation } from "react-router"
 import { RepositoriesIndexPage } from "@pages/repositories-index-page"
 import { HubApplication } from "@application/hub-application"
 import { isAuthenticationRoute } from "@application/hub/is-authentication-route"
-import { noRepositoryAccessLocation } from "@application/hub/no-repository-access-location"
 import { ApiRequestError } from "@application/hub/requests/api-request-error"
 import { getCurrentHubSession } from "@application/hub/requests/get-current-hub-session"
 import { getSession } from "@application/hub/requests/get-session"
@@ -21,8 +20,6 @@ export async function clientLoader({ request }: Pick<Route.ClientLoaderArgs, "re
     try {
       await getCurrentHubSession(request)
     } catch (error) {
-      const noAccess = noRepositoryAccessLocation(error)
-      if (noAccess) throw redirect(noAccess)
       if (error instanceof ApiRequestError && (error.status === 401 || error.status === 404)) {
         return null
       }

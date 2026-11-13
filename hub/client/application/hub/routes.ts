@@ -6,7 +6,6 @@ import { settingsPublicRoutes, settingsWorkspaceRoutes } from "./routes/settings
 export default [
   index("routes/home/index.tsx"),
   route("admin-enrollment", "routes/admin-enrollment/index.tsx"),
-  route("signed-in/no-access", "routes/no-repository-access/index.tsx"),
   route("sign-in", "routes/sign-in/index.tsx"),
   route("session", "routes/session/index.tsx"),
   route("repositories", "routes/repositories/index.tsx"),

@@ -7,11 +7,6 @@ import { createSharedAuthenticationContext } from "../create-shared-authenticati
 const environmentSchema = z.looseObject({
   GITHUB_CLIENT_ID: z.string().min(1).max(200),
   GITHUB_CLIENT_SECRET: z.string().min(1).max(2_000),
-  GITHUB_APP_INSTALLATION_ID: z
-    .string()
-    .regex(/^[1-9][0-9]{0,15}$/)
-    .transform(Number)
-    .optional(),
   GITHUB_PROVIDER_REVISION: z.coerce.number().int().positive(),
 })
 
@@ -26,7 +21,6 @@ export function createGitHubAuthenticationContext(
   const adapter = createGitHubUserAuthenticationAdapter({
     clientSecret: parsed.GITHUB_CLIENT_SECRET,
     fetch: request,
-    installationId: parsed.GITHUB_APP_INSTALLATION_ID,
     publicConfiguration: {
       authorizationEndpoint: "https://github.com/login/oauth/authorize",
       callbackUri,
@@ -44,7 +38,6 @@ export function createGitHubAuthenticationContext(
       .update(adapter.canonicalPublicConfiguration)
       .digest("hex"),
     providerRevision: parsed.GITHUB_PROVIDER_REVISION,
-    // A configured installation lets sign-in admit people by the repositories they can read.
-    requiresProviderAssignmentEvidence: parsed.GITHUB_APP_INSTALLATION_ID !== undefined,
+    requiresProviderAssignmentEvidence: false,
   }
 }

@@ -11,6 +11,7 @@ export function settingsMeta(section: SettingsSection, loaderData?: SettingsRout
     copilot: "Copilot connection",
     authorize: "Fresh GitHub authorization required",
     github: "GitHub App",
+    "github-setup": "Set up Replica Hub",
     "github-register": "Create GitHub App",
     "github-installed": "Install GitHub App",
     "admin-confirmation": "Confirm Hub administrator role change",

@@ -1,5 +1,4 @@
 import type { PrismaClient } from "../../../generated/prisma/client.ts"
-import { type RepositoryScope, visibleRepositoryWhere } from "../visible-repository-where/index.ts"
 
 const hiddenBranches = ["replica/install-workflow"]
 
@@ -8,12 +7,11 @@ export async function findPrototypeDetail(
   repositoryId: string,
   prototypeId: string,
   buildNumber?: number,
-  scope: RepositoryScope = null,
 ) {
   const detail = await database.$transaction(
     async (transaction) => {
       const repository = await transaction.repository.findFirst({
-        where: { id: repositoryId, ...visibleRepositoryWhere(scope) },
+        where: { id: repositoryId, removedAt: null },
         select: { id: true, nameWithOwner: true, defaultBranch: true },
       })
       if (!repository) return null
@@ -120,7 +118,7 @@ export async function findPrototypeDetail(
   const currentRepository = await database.repository.findFirst({
     where: {
       id: repositoryId,
-      ...visibleRepositoryWhere(scope),
+      removedAt: null,
       defaultBranch: detail.repository.defaultBranch,
     },
     select: { id: true },

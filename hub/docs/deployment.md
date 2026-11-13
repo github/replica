@@ -20,10 +20,7 @@ Publishing is an explicit operator step, not a side effect of CI. From the appro
 | `SHUTDOWN_TIMEOUT_MS`                                    | Request and worker drain deadline, default 30000 milliseconds. Allow another five seconds for telemetry flushing.                              |
 | `ON_DEMAND_JOB_CONCURRENCY`, `SCHEDULED_JOB_CONCURRENCY` | Independent worker concurrency, as described in [Background jobs](background-jobs.md).                                                         |
 | `HUB_APPLICATION_ORIGIN`                                 | Exact public HTTP origin required with any authentication provider. Provider settings enable routes; any authentication setting also requires `DATABASE_URL`. A database-backed runtime with no provider configured disables retained provider authority and registers no authentication routes. |
-| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`                | GitHub App user-authorization credentials. Deployed Hubs read the secret from Key Vault secret `github-client-secret`. |
-| `GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID`            | GitHub App identity and the installation Hub uses for repository access. |
-| `GITHUB_APP_PRIVATE_KEY_BASE64`                          | Single-line base64 encoding of the App's `.pem` private key, from Key Vault secret `github-app-private-key`. |
-| `GITHUB_WEBHOOK_SECRET`                                  | The App's webhook secret, 20–2000 characters, from Key Vault secret `github-webhook-secret`. |
+| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`                | GitHub App user-authorization credentials. Keep the secret in protected runtime configuration.                                                 |
 | `GITHUB_PROVIDER_REVISION`                               | Positive configured adapter revision. Increment consecutively for configuration changes and before re-enabling a removed provider.             |
 | `ENTRA_OIDC_ISSUER`, `ENTRA_OIDC_CLIENT_ID`              | Exact single-tenant Entra v2 issuer and application client ID. See [Microsoft Entra OIDC](entra-oidc.md).                                      |
 | `ENTRA_OIDC_PROVIDER_REVISION`                           | Positive Entra adapter revision. Increment consecutively for configuration changes and before re-enabling a removed provider.                   |
@@ -34,7 +31,7 @@ Publishing is an explicit operator step, not a side effect of CI. From the appro
 | `HUB_BOOTSTRAP_SECRET`                                   | Reusable high-entropy secret, at least 32 characters, for administrator enrollment.                                                            |
 | `HUB_TRUSTED_PROXY_HOPS`                                 | Exact protected proxy-chain length, default 0. Configure this for the deployment ingress before enabling authentication.                       |
 
-Incomplete GitHub settings disable its provider and log setting names, not values; a complete but invalid GitHub configuration stops startup before changing provider authority. An administrator can open `/settings/github/setup` to see the callback, setup, and webhook URLs, which GitHub values are configured, and to test the App connection and sync repositories. GitHub delivers App webhooks to `/api/github/webhooks`; see [GitHub repository access](authentication.md#github-repository-access), including GitHub-only recovery. See [GitHub App](../../infrastructure/README.md#github-app) for Key Vault storage and rotation. Logging and optional tracing retain their existing [logging](logging.md) and [telemetry](telemetry.md) contracts.
+Configuration errors stop startup without printing credentials. Logging and optional tracing retain their existing [logging](logging.md) and [telemetry](telemetry.md) contracts.
 
 Hub does not implement immediate per-user Entra lifecycle synchronization. Before changing or removing Entra configuration, review [App roles and membership](entra-oidc.md#app-roles-and-membership) for cached claims, the 12-hour session window, and the different blast radii of provider revision and removal controls.
 
@@ -52,7 +49,7 @@ The script holds a PostgreSQL session advisory lock across Prisma migrations, Bu
 
 Only setup scripts should modify migration and schedule state during a release. `npm run jobs:setup` remains a development-only shortcut that does not acquire the full release lock. Operational entry points live under `server/scripts/`; domains do not invoke them.
 
-Migrations are not one transaction across both schemas. Fix the failed step and retry setup before starting the new image. This repository-access upgrade requires a maintenance window: stop all old API and worker processes before setup and the new deployment. Older binaries do not enforce the new access fence. Application rollback changes the image, not the database schema; a rollback must also preserve the access policy.
+Migrations are not one transaction across both schemas. Fix the failed step and retry setup before starting the new image. Keep schema and schedule changes compatible with the previous image. Application rollback changes the image, not the database schema.
 
 The deployment orchestrator owns serialization of the complete release, including setup and rollout. It must retain exclusion after failure and confirm that prior setup executions and database work have stopped before allowing a retry. Do not invoke production setup outside that serialized procedure. The advisory lock is an additional check for concurrent setup, not a replacement for release serialization or a guarantee of exactly-once jobs. Release orchestration must also define old/new worker overlap. See [Background jobs](background-jobs.md#schedules-and-delivery-guarantees).
 
@@ -60,6 +57,6 @@ The deployment orchestrator owns serialization of the complete release, includin
 
 CI checks the image against disposable PostgreSQL, including setup, frontend/API serving, readiness, and termination. Set `NPM_REGISTRY` when running `node hub/script/check-image/index.ts` locally if the build requires a proxy. This is not a supported local-production installation. The existing devcontainer remains the development environment.
 
-The [Azure reference installation](../../infrastructure/README.md) uses Terraform and a serialized maintenance-window release. It supplies GitHub identifiers and Key Vault-backed credential references; configure the exact Container Apps proxy-chain length before enabling authentication.
+The [Azure reference installation](../../infrastructure/README.md) uses Terraform and a serialized maintenance-window release. It consumes the same image but does not yet configure the optional authentication settings. Add those protected settings and the exact Container Apps proxy-chain length before enabling authentication there.
 
 An actual cloud deployment must additionally verify credentials, networking, data survival, backup and restore, domain configuration, and release ordering in an authorized environment. Never commit secrets, tenant-specific parameter files, or generated service addresses.

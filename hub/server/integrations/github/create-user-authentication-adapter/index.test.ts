@@ -63,10 +63,9 @@ describe("createGitHubUserAuthenticationAdapter()", () => {
       code_challenge: "c".repeat(43),
       code_challenge_method: "S256",
     })
-    expect(Object.fromEntries(freshAuthorizationUrl.searchParams)).toEqual({
-      ...Object.fromEntries(authorizationUrl.searchParams),
-      prompt: "select_account",
-    })
+    expect(Object.fromEntries(freshAuthorizationUrl.searchParams)).toEqual(
+      Object.fromEntries(authorizationUrl.searchParams),
+    )
 
     const evidence = await adapter.completeAuthenticationProof({
       callbackUri: publicConfiguration.callbackUri,
@@ -115,146 +114,6 @@ describe("createGitHubUserAuthenticationAdapter()", () => {
       /provider-token|client-secret|authorization-code|verifier-value/,
     )
   })
-
-  it("returns repository-access evidence from the configured App installation", async () => {
-    const request = mockSignInResponses(
-      jsonResponse({
-        total_count: 1,
-        repositories: [{ id: 42, full_name: "octo/prototypes", default_branch: "main" }],
-      }),
-    )
-    const adapter = createGitHubUserAuthenticationAdapter({
-      clientSecret: "client-secret",
-      fetch: request,
-      installationId: 7,
-      publicConfiguration,
-    })
-
-    const evidence = await adapter.completeAuthenticationProof(proofInput)
-
-    expect(evidence).toMatchObject({
-      providerAssignment: { assignmentSubject: "github_repository_access", role: "MEMBER" },
-      repositoryAccess: [
-        { defaultBranch: "main", githubRepositoryId: 42, nameWithOwner: "octo/prototypes" },
-      ],
-    })
-    expect(request.mock.calls[2]?.[0]).toBe(
-      "https://api.github.com/user/installations/7/repositories?page=1&per_page=100",
-    )
-  })
-
-  it("returns all readable repositories without retaining the GitHub user token", async () => {
-    const firstPage = Array.from({ length: 100 }, (_, index) => ({
-      id: index + 1,
-      full_name: `octo/repo-${index + 1}`,
-      default_branch: "main",
-    }))
-    const request = mockSignInResponses(
-      jsonResponse({ total_count: 101, repositories: firstPage }),
-      jsonResponse({
-        total_count: 101,
-        repositories: [{ id: 101, full_name: "octo/repo-101", default_branch: "main" }],
-      }),
-    )
-    const adapter = createGitHubUserAuthenticationAdapter({
-      clientSecret: "client-secret",
-      fetch: request,
-      installationId: 7,
-      publicConfiguration,
-    })
-
-    const evidence = await adapter.completeAuthenticationProof(proofInput)
-
-    expect(evidence.repositoryAccess).toHaveLength(101)
-    expect(evidence.repositoryAccess?.[100]).toEqual({
-      defaultBranch: "main",
-      githubRepositoryId: 101,
-      nameWithOwner: "octo/repo-101",
-    })
-    expect(request.mock.calls[3]?.[1]).toMatchObject({
-      headers: { authorization: "Bearer provider-token" },
-    })
-    expect(JSON.stringify(evidence)).not.toMatch(/provider-token|client-secret/)
-  })
-
-  it("treats a hidden App installation as no repository access", async () => {
-    const adapter = createGitHubUserAuthenticationAdapter({
-      clientSecret: "client-secret",
-      fetch: mockSignInResponses(new Response(null, { status: 404 })),
-      installationId: 7,
-      publicConfiguration,
-    })
-
-    await expect(adapter.completeAuthenticationProof(proofInput)).resolves.toMatchObject({
-      providerAssignment: { role: null },
-      repositoryAccess: [],
-    })
-  })
-
-  it.each([404, 503])(
-    "rejects a later-page %i rather than returning partial or empty access",
-    async (status) => {
-      const firstPage = Array.from({ length: 100 }, (_, index) => ({
-        id: index + 1,
-        full_name: `octo/repo-${index + 1}`,
-        default_branch: "main",
-      }))
-      const request = mockSignInResponses(
-        jsonResponse({ total_count: 101, repositories: firstPage }),
-        new Response(null, { status }),
-      )
-      const adapter = createGitHubUserAuthenticationAdapter({
-        clientSecret: "client-secret",
-        fetch: request,
-        installationId: 7,
-        publicConfiguration,
-      })
-
-      await expect(adapter.completeAuthenticationProof(proofInput)).rejects.toBeInstanceOf(
-        GitHubProviderRequestError,
-      )
-      expect(request).toHaveBeenCalledTimes(4)
-    },
-  )
-
-  it.each(["short page", "changing total", "duplicate ID"] as const)(
-    "rejects readable repository evidence with a %s",
-    async (problem) => {
-      const firstPage = Array.from({ length: 100 }, (_, index) => ({
-        id: index + 1,
-        full_name: `octo/repo-${index + 1}`,
-        default_branch: "main",
-      }))
-      const pages =
-        problem === "short page"
-          ? [jsonResponse({ total_count: 101, repositories: firstPage.slice(0, 1) })]
-          : [
-              jsonResponse({ total_count: 101, repositories: firstPage }),
-              jsonResponse({
-                total_count: problem === "changing total" ? 102 : 101,
-                repositories: [
-                  {
-                    id: problem === "duplicate ID" ? 1 : 101,
-                    full_name: "octo/last",
-                    default_branch: "main",
-                  },
-                ],
-              }),
-            ]
-      const request = mockSignInResponses(...pages)
-      const adapter = createGitHubUserAuthenticationAdapter({
-        clientSecret: "client-secret",
-        fetch: request,
-        installationId: 7,
-        publicConfiguration,
-      })
-
-      await expect(adapter.completeAuthenticationProof(proofInput)).rejects.toBeInstanceOf(
-        GitHubProviderRequestError,
-      )
-      expect(request).toHaveBeenCalledTimes(problem === "short page" ? 3 : 4)
-    },
-  )
 
   it("rejects unknown public configuration and callback drift", () => {
     expect(() =>
@@ -359,26 +218,3 @@ describe("createGitHubUserAuthenticationAdapter()", () => {
     },
   )
 })
-
-const proofInput = {
-  callbackUri: publicConfiguration.callbackUri,
-  code: "authorization-code",
-  codeVerifier: "verifier-value",
-  nonce: "unused-by-github",
-}
-
-function jsonResponse(body: unknown): Response {
-  return new Response(JSON.stringify(body), {
-    status: 200,
-    headers: { "content-type": "application/json" },
-  })
-}
-
-function mockSignInResponses(...responses: Response[]) {
-  const request = vi
-    .fn<typeof fetch>()
-    .mockResolvedValueOnce(jsonResponse({ access_token: "provider-token", token_type: "bearer" }))
-    .mockResolvedValueOnce(jsonResponse({ id: 123456, login: "octocat" }))
-  for (const response of responses) request.mockResolvedValueOnce(response)
-  return request
-}

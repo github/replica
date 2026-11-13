@@ -8,7 +8,7 @@ The team has chosen TypeScript, Express for the API, React and Vite for the fron
 
 The API responds to a health check and gives signed-in members read access to the seeded repository index and prototype details. The frontend connects the retained pages for local exploration. Storybook remains the presentation workbench.
 
-Contributors can use PostgreSQL and Prisma locally or in the devcontainer. The database has a provider-neutral identity transaction foundation with explicit GitHub and single-tenant Microsoft Entra sign-in adapters. A reusable deployment bootstrap secret can enroll a verified provider identity as a Hub administrator. Hub discovers the configured GitHub App installation's repositories and scopes its read-only index to each GitHub member's access. The app cannot yet import Builds, host published previews, edit product data, or support live multi-user reviews.
+Contributors can use PostgreSQL and Prisma locally or in the devcontainer. The database has a provider-neutral identity transaction foundation with explicit GitHub and single-tenant Microsoft Entra sign-in adapters. A reusable deployment bootstrap secret can enroll a verified provider identity as a Hub administrator. Members can browse a seeded, read-only repository index. The app cannot yet discover real repositories, import Builds, host published previews, edit product data, or support live multi-user reviews.
 
 The [production runtime](deployment.md) serves the built frontend and API and runs both workers in one image. Deployment runs database and job setup separately before starting that image.
 
@@ -22,7 +22,7 @@ The [database guide](database.md) defines the multi-file Prisma schema and share
 
 The [Pino integration](logging.md) writes structured application and HTTP logs to stdout. `createApp()` installs request logging before routes, so new endpoints inherit completion records and server-generated request IDs without explicit logging calls. Authentication routes install their bounded form parsing after origin and rate-limit checks; other routes inherit the shared JSON parser.
 
-The [background-job foundation](background-jobs.md) uses BullMQ with PostgreSQL and separate on-demand and scheduled worker processes. Setup migrates BullMQ's own schema independently of Prisma and registers hourly GitHub installation reconciliation.
+The [background-job foundation](background-jobs.md) uses BullMQ with PostgreSQL and separate on-demand and scheduled worker processes. Setup migrates BullMQ's own schema independently of Prisma. Product processors and schedules are not registered yet.
 
 The [artifact storage domain](artifact-storage.md) selects filesystem or managed-identity Azure Blob storage behind one immutable-byte contract. Future product domains call this provider-neutral API, not SDK integrations directly. Startup validates explicitly configured storage, but no product route or processor consumes artifact bytes yet.
 

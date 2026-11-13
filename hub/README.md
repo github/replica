@@ -7,11 +7,11 @@ The API has liveness, readiness, and read-only repository index routes. React Ro
 Contributors can use PostgreSQL and Prisma locally or in the devcontainer. The backend provides:
 
 - A provider-neutral identity foundation and configured [GitHub authentication](docs/authentication.md).
-- PostgreSQL-backed [background jobs](docs/background-jobs.md) with separate on-demand and scheduled workers. A scheduled job reconciles the GitHub App installation's repositories.
+- PostgreSQL-backed [background jobs](docs/background-jobs.md) with separate on-demand and scheduled workers. Product jobs are not registered yet.
 - Explicit server-side [telemetry spans](docs/telemetry.md).
 - A [WebSocket foundation](docs/websockets.md) that rejects upgrades until application access checks are supplied.
 
-The read-only index can show seeded prototypes and repositories connected through a GitHub App. Product editing and live multi-user reviews are not implemented.
+The index can show seeded prototype records. Repository discovery, product editing, and live multi-user reviews are not implemented.
 
 The [production runtime](docs/deployment.md) packages the frontend, API, and workers in one image, with a separate release setup script.
 

@@ -1,4 +1,4 @@
-import { generateKeyPairSync, randomBytes, randomUUID } from "node:crypto"
+import { randomBytes, randomUUID } from "node:crypto"
 import { describe, expect, it, vi } from "vitest"
 
 import { getSelectedProviderRevision } from "../../../../domains/identity/get-selected-provider-revision"
@@ -9,12 +9,6 @@ import { createAuthenticationRouteDependencies, disableAuthenticationProviders }
 const tenantId = "11111111-1111-4111-8111-111111111111"
 const entraClientId = "22222222-2222-4222-8222-222222222222"
 const issuer = `https://login.microsoftonline.com/${tenantId}/v2.0`
-const githubPrivateKey = Buffer.from(
-  generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey.export({
-    format: "pem",
-    type: "pkcs1",
-  }),
-).toString("base64")
 
 function environment(input: {
   entra?: boolean
@@ -32,10 +26,6 @@ function environment(input: {
           GITHUB_CLIENT_ID: input.githubClientId ?? "github-client",
           GITHUB_CLIENT_SECRET: "github-secret",
           GITHUB_PROVIDER_REVISION: String(input.githubRevision ?? 1),
-          GITHUB_APP_ID: "123",
-          GITHUB_APP_INSTALLATION_ID: "456",
-          GITHUB_APP_PRIVATE_KEY_BASE64: githubPrivateKey,
-          GITHUB_WEBHOOK_SECRET: "webhook-secret-at-least-twenty-characters",
         }
       : {}),
     ...(input.entra
@@ -121,39 +111,6 @@ async function createProviderSession(providerKey: "entra" | "github", digest: st
 }
 
 describe("createAuthenticationRouteDependencies()", () => {
-  it("keeps Entra authority available when the GitHub App configuration becomes incomplete", async () => {
-    const configured = environment({ entra: true, github: true })
-    await createAuthenticationRouteDependencies(configured, validDiscovery)
-    const entraDigest = "c".repeat(64)
-    const entraSession = await createProviderSession("entra", entraDigest)
-
-    const dependencies = await createAuthenticationRouteDependencies(
-      { ...configured, GITHUB_APP_ID: "" },
-      validDiscovery,
-    )
-
-    expect(dependencies.github).toBeUndefined()
-    expect(dependencies.entra).toBeDefined()
-    await expect(dependencies.currentSession.restore(entraDigest)).resolves.toBeNull()
-    await expect(
-      prisma.membershipAssignment.findFirstOrThrow({
-        where: { membershipId: entraSession.membershipId, source: "AUTHENTICATION_PROVIDER" },
-        select: { lifecycle: true, role: true },
-      }),
-    ).resolves.toEqual({ lifecycle: "ACTIVE", role: "MEMBER" })
-    const attempt = await dependencies.entra!.signIn.start()
-    expect(attempt.authorizationUrl).toContain(`${issuer}/oauth2/v2.0/authorize`)
-    await expect(
-      prisma.authenticationProvider.findMany({
-        orderBy: { key: "asc" },
-        select: { enabled: true, key: true },
-      }),
-    ).resolves.toEqual([
-      { enabled: true, key: "entra" },
-      { enabled: false, key: "github" },
-    ])
-  })
-
   it("binds both provider enrollment attempts to one bootstrap digest while sign-in remains unbound", async () => {
     const dependencies = await createAuthenticationRouteDependencies(
       environment({ entra: true, github: true }),

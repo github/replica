@@ -2,8 +2,6 @@ import { http, HttpResponse } from "msw"
 import { z } from "zod"
 
 import { settingsOperationSchema, settingsQuerySchema } from "@application/hub/settings-contracts"
-import { githubSettingKeySchema } from "@application/hub/github-setup-contracts"
-import { bootstrapSecretHeader } from "@application/hub/requests/get-github-setup-status"
 
 import type { MockSession } from "../create-mock-session/types"
 import type { createSettingsStore } from "../create-settings-store"
@@ -13,11 +11,6 @@ import { readMockJson } from "../read-mock-json"
 import { respondMock } from "../respond-mock"
 import { MockStoreError } from "../store-error"
 
-/** Synthetic bootstrap secret accepted by the mock GitHub setup endpoints. */
-export const mockBootstrapSecret = "replica-mock-bootstrap"
-
-const githubSettingKeys = githubSettingKeySchema.options
-
 export function createSettingsHandlers(
   store: ReturnType<typeof createSettingsStore>,
   origin: string,
@@ -25,23 +18,6 @@ export function createSettingsHandlers(
 ) {
   function api(path: string) {
     return new URL(`/api/settings${path}`, origin).href
-  }
-
-  function githubSetupDenial(request: Request) {
-    if (session?.read().capabilities.administerHub) return null
-    const secret = request.headers.get(bootstrapSecretHeader)
-    if (secret === mockBootstrapSecret) return null
-    const requires = session?.read().viewer && !secret ? "administrator" : "bootstrap"
-    return HttpResponse.json(
-      {
-        error:
-          requires === "bootstrap"
-            ? "Enter the bootstrap secret to view GitHub setup."
-            : "Administrator access is required.",
-        requires,
-      },
-      { status: 403 },
-    )
   }
 
   function query(request: Request) {
@@ -112,51 +88,6 @@ export function createSettingsHandlers(
     ),
     http.get(api("/public"), ({ request }) =>
       respondMock(request, () => HttpResponse.json(store.getPublic()), session),
-    ),
-    http.get(api("/github/status"), ({ request }) =>
-      respondMock(
-        request,
-        () =>
-          githubSetupDenial(request) ??
-          HttpResponse.json({
-            status: "configured",
-            signInEnabled: true,
-            settings: githubSettingKeys.map((key) => ({ key, state: "present" })),
-            connectedRepositories: ["octo/checkout-flow", "octo/design-review"],
-            urls: {
-              homepage: origin,
-              callback: new URL("/api/auth/github/callback", origin).href,
-              setup: new URL("/settings/github/setup?step=install", origin).href,
-              webhook: new URL("/api/github/webhooks", origin).href,
-            },
-          }),
-        session,
-      ),
-    ),
-    http.post(api("/github/test"), ({ request }) =>
-      respondMock(
-        request,
-        () =>
-          githubSetupDenial(request) ??
-          HttpResponse.json({
-            checks: [
-              { name: "private_key", result: "pass", detail: "The private key is valid." },
-              { name: "app_identity", result: "pass", detail: "GitHub accepted the App identity." },
-              {
-                name: "installation",
-                result: "pass",
-                detail: "The installation is active.",
-                settingsUrl: "https://github.com/organizations/octo/settings/installations/123",
-              },
-              {
-                name: "repositories",
-                result: "pass",
-                detail: "Hub can read 2 repositories: octo/checkout-flow, octo/design-review.",
-              },
-            ],
-          }),
-        session,
-      ),
     ),
     http.get(api("/admin-candidates"), ({ request }) =>
       respondMock(

@@ -38,7 +38,6 @@ export interface StartAuthenticationProofDependencies {
 export interface StartAuthenticationProofInput {
   purpose: "SIGN_IN" | "ADMIN_ENROLLMENT" | "ADMINISTRATOR_MANAGEMENT"
   sensitiveAuthorizationId?: string
-  switchAccount?: boolean
 }
 
 export interface StartAuthenticationProofResult {

@@ -10,7 +10,7 @@ Hub is being rebuilt in TypeScript. Read the [root instructions](../AGENTS.md), 
 - [Development](docs/development.md) and [testing](docs/testing-and-operations.md) own local and CI commands.
 - [Storybook](docs/storybook.md#ui-changes-and-pull-request-evidence) owns presentation coverage, cleanup, and PR screenshots.
 
-Run Node commands from `hub/`, locally or inside the devcontainer. PostgreSQL and Prisma support configured GitHub authentication, administrator enrollment, Hub sessions, and a read-only prototype index scoped to connected repositories; see [authentication](docs/authentication.md). Other prototype APIs and finer-grained repository permissions are not built. Agree on the design before adding more product models, permissions, deployment choices, or product API routes.
+Run Node commands from `hub/`, locally or inside the devcontainer. PostgreSQL and Prisma support configured GitHub authentication, administrator enrollment, Hub sessions, and a seeded read-only prototype index; see [authentication](docs/authentication.md). Other prototype APIs and repository-specific permissions are not built. Agree on the design before adding more product models, permissions, deployment choices, or product API routes.
 
 Use `npm run dev:api` to run Hub with local developer sign-in; this is the default choice for trying or testing Hub. Use `npm run dev:api:live` only when the task needs real GitHub or Entra sign-in configured in `.env`. [Development](docs/development.md#start-with-the-real-api) explains both modes.
 

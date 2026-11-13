@@ -46,7 +46,7 @@ export function get(
           return
         }
       }
-      const result = await product.findRepositoryAuthors(initial, repositoryId.data, {
+      const result = await product.findRepositoryAuthors(repositoryId.data, {
         viewerId: initial.userId,
         query: (query.data.q ?? "").trim(),
         after,

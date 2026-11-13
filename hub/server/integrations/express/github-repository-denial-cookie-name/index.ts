@@ -1,1 +1,0 @@
-export const githubRepositoryDenialCookieName = "hub_github_repository_denial"

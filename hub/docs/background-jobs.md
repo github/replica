@@ -1,6 +1,6 @@
 # Background jobs
 
-Hub uses BullMQ's PostgreSQL backend for internal background work. The foundation provides queues, validated job payloads, recurring schedules, and independent worker commands. The Rails jobs have not been ported.
+Hub uses BullMQ's PostgreSQL backend for internal background work. The foundation provides queues, validated job payloads, recurring schedules, and independent worker commands. No product jobs or production schedules are registered yet. The Rails jobs have not been ported.
 
 ## Queues and workers
 
@@ -15,7 +15,7 @@ Each command starts one Node.js process consuming only its assigned queue. The A
 
 `ON_DEMAND_JOB_CONCURRENCY` and `SCHEDULED_JOB_CONCURRENCY` independently set the number of active jobs per worker process. Both default to one and accept integers from 1 through 100. CPU-heavy JavaScript still blocks that worker's event loop; move that work to a subprocess or an appropriate execution boundary when adding the domain.
 
-`server/workers/configuration.ts` is the composition point for processors and schedules. It registers hourly GitHub installation reconciliation on the scheduled queue, with three attempts and exponential backoff starting at 60 seconds. An unconfigured App is skipped; an incomplete configuration or a failed GitHub request fails the job. Reconciliation refreshes the installation's repository list, not each user's repository permissions. Worker startup logs readiness after connecting; unknown job names fail permanently rather than disappearing.
+`server/workers/configuration.ts` is the composition point for processors and schedules. Its empty registrations are intentional until product domains exist. Worker startup logs readiness after connecting; unknown job names fail permanently rather than disappearing.
 
 Worker readiness confirms initial connection only; it is not continuous consumer-health monitoring. A later connection error is logged but does not clear the combined runtime's worker-initialized signal.
 
@@ -33,7 +33,7 @@ npm run setup
 
 This runs `prisma migrate deploy`, then BullMQ migrations, then schedule registration. A failed step stops setup. For local work that only needs the job schema, use `npm run jobs:setup`.
 
-Run setup once as a coordinated release step before starting the new application version. Do not run it in every API or worker startup. Migrations are not one transaction across Prisma and BullMQ. The repository-access upgrade requires a maintenance window with old API and worker processes stopped; older binaries do not enforce its access fence. BullMQ schema downgrades are not supported.
+Run setup once as a coordinated release step before starting the new application version. Do not run it in every API or worker startup. Migrations are not one transaction across Prisma and BullMQ, and changes must remain compatible with old processes during a rolling upgrade. BullMQ schema downgrades are not supported.
 
 After building, the compiled equivalents are:
 
@@ -83,7 +83,7 @@ Assume at-least-once execution. A stable job or scheduler ID does not replace id
 
 Ordinary `npm test` requires no database. Use `.db.test.ts` cases and `npm run test:database` for real BullMQ behavior. The [database harness](testing-and-operations.md#parallel-database-tests) applies Prisma and BullMQ setup to a unique template before cloning a database for each Vitest worker.
 
-Pass the current worker's resolved `DATABASE_URL` to every queue and consumer. Do not use the administrative `TEST_DATABASE_URL` or a production connection. Tests that exercise job behavior register their own synthetic processors and schedules.
+Pass the current worker's resolved `DATABASE_URL` to every queue and consumer. Do not use the administrative `TEST_DATABASE_URL` or a production connection. Each test registers its own synthetic processors and schedules; setup does not install production schedules.
 
 Close consumers, queue clients, and any owned connections before the next case resets data. Clearing Vitest's module cache does not stop consumers. Cleanup clears job and schedule tables but preserves `public._prisma_migrations` and `bullmq.migration`; preserving a migration ledger is not preserving queued work.
 

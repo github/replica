@@ -17,12 +17,6 @@ export interface AuthenticationCompletionEvidence {
     name: string | null
   }
   providerAssignment?: ProviderAssignmentEvidence
-  /** GitHub repositories the person can read through the connected App installation. */
-  repositoryAccess?: Array<{
-    defaultBranch: string
-    githubRepositoryId: number
-    nameWithOwner: string
-  }>
 }
 
 /**

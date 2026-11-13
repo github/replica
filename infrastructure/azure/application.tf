@@ -1,15 +1,5 @@
 locals {
-  github_environment = {
-    for name, value in {
-      HUB_APPLICATION_ORIGIN     = var.hub_application_origin
-      GITHUB_APP_ID              = var.github_app_id
-      GITHUB_CLIENT_ID           = var.github_client_id
-      GITHUB_APP_INSTALLATION_ID = var.github_app_installation_id
-      GITHUB_PROVIDER_REVISION   = var.github_provider_revision == null ? null : tostring(var.github_provider_revision)
-    } : name => value if value != null
-  }
-
-  runtime_environment = merge({
+  runtime_environment = {
     NODE_ENV                  = "production"
     RUNTIME_MODE              = "combined"
     HOST                      = "0.0.0.0"
@@ -20,18 +10,6 @@ locals {
     AZURE_STORAGE_ACCOUNT     = azurerm_storage_account.artifacts.name
     AZURE_STORAGE_CONTAINER   = azurerm_storage_container.artifacts.name
     AZURE_CLIENT_ID           = azurerm_user_assigned_identity.hub.client_id
-  }, local.github_environment)
-
-  github_secret_names = ["GITHUB_CLIENT_SECRET", "GITHUB_APP_PRIVATE_KEY_BASE64", "GITHUB_WEBHOOK_SECRET", "HUB_AUTHENTICATION_ENCRYPTION_KEY", "HUB_BOOTSTRAP_SECRET"]
-}
-
-check "github_secret_references_are_versioned" {
-  assert {
-    condition = alltrue([
-      for name, secret in var.runtime_secret_references :
-      length(split("/", secret.secret_id)) == 6 if contains(local.github_secret_names, name)
-    ])
-    error_message = "GitHub App and Hub authentication secrets use versionless Key Vault URLs. Container Apps refreshes those within about 30 minutes and restarts revisions outside the release procedure; prefer versioned secret URLs."
   }
 }
 

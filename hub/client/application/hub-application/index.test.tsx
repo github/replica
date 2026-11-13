@@ -79,29 +79,6 @@ describe("HubApplication()", () => {
     expect(screen.queryByRole("button", { name: "Sign in with GitHub" })).toBeNull()
   })
 
-  it("explains a sign-in denied for missing repository access", async () => {
-    window.history.replaceState({}, "", "/?authentication=no_repository_access")
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((input: RequestInfo | URL) =>
-        Promise.resolve(
-          requestUrl(input).endsWith("/api/auth/providers")
-            ? Response.json({ providers: ["github"] })
-            : new Response(null, { status: 401 }),
-        ),
-      ),
-    )
-
-    renderApplication()
-
-    expect(
-      await screen.findByText(
-        "Your GitHub account cannot read any repository connected to this Hub. Ask a repository owner for access, then sign in again.",
-      ),
-    ).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "Sign in with GitHub" })).toBeInTheDocument()
-  })
-
   it("shows a restore error without a false callback success notice", async () => {
     window.history.replaceState({}, "", "/?authentication=success")
     vi.stubGlobal(

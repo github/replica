@@ -1,4 +1,4 @@
-.setup-section {
+.setup__form {
   display: grid;
   gap: var(--hub-space-16);
 }

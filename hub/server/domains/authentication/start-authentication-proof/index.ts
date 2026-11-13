@@ -14,7 +14,6 @@ const inputSchema = z
   .object({
     purpose: z.enum(["SIGN_IN", "ADMIN_ENROLLMENT", "ADMINISTRATOR_MANAGEMENT"]),
     sensitiveAuthorizationId: z.uuid().optional(),
-    switchAccount: z.boolean().optional(),
   })
   .strict()
   .superRefine((value, context) => {
@@ -76,7 +75,7 @@ export async function startAuthenticationProof(
   const authorizationUrl = await dependencies.adapter.createAuthorizationUrl({
     callbackUri: dependencies.callbackUri,
     codeChallenge,
-    freshAuthentication: parsed.purpose !== "SIGN_IN" || parsed.switchAccount === true,
+    freshAuthentication: parsed.purpose !== "SIGN_IN",
     nonce,
     state,
   })

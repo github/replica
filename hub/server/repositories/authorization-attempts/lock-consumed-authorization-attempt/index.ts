@@ -8,7 +8,6 @@ export async function lockConsumedAuthorizationAttempt(
     Array<{
       bootstrapSecretDigest: string | null
       consumedAt: Date | null
-      createdAt: Date
       providerRevisionId: string
       purpose: "SIGN_IN" | "ADMIN_ENROLLMENT" | "ADMINISTRATOR_MANAGEMENT"
       sessionRevocationRevision: number
@@ -16,7 +15,6 @@ export async function lockConsumedAuthorizationAttempt(
   >`
     SELECT
       "consumed_at" AS "consumedAt",
-      "created_at" AS "createdAt",
       "bootstrap_secret_digest" AS "bootstrapSecretDigest",
       "provider_revision_id" AS "providerRevisionId",
       "purpose"::text,

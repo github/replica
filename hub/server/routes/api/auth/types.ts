@@ -11,7 +11,7 @@ export interface RateLimitDependencies {
 export interface StartAuthenticationDependencies extends RateLimitDependencies {
   applicationOrigin: string
   secureCookie: boolean
-  start(input?: { switchAccount?: boolean }): Promise<{
+  start(): Promise<{
     authorizationUrl: string
     browserBinding: string
     expiresAt: Date
@@ -25,12 +25,10 @@ export interface StartAdministratorEnrollmentDependencies extends StartAuthentic
 
 export interface AuthenticationCallbackDependencies extends RateLimitDependencies {
   callbackIssuer?: string
-  createGitHubRepositoryDenialNotice?(login: string): { expiresAt: Date; value: string }
   secureCookie: boolean
   complete(input: { browserBinding: string; code: string; state: string }): Promise<{
     purpose: "SIGN_IN" | "ADMIN_ENROLLMENT" | "ADMINISTRATOR_MANAGEMENT"
     sensitiveAuthorizationId?: string
-    githubLogin?: string
     proof: AuthenticationProofResult
     providerAssignment?: {
       assignmentSubject: string | null
@@ -38,11 +36,6 @@ export interface AuthenticationCallbackDependencies extends RateLimitDependencie
       providerRevisionId: string
       role: "MEMBER" | "ADMINISTRATOR" | null
     }
-    repositoryAccess?: Array<{
-      defaultBranch: string
-      githubRepositoryId: number
-      nameWithOwner: string
-    }>
   }>
   verifyAdministratorAuthorization?(input: {
     authorizationAttemptId: string
@@ -64,11 +57,6 @@ export interface AuthenticationCallbackDependencies extends RateLimitDependencie
       providerRevisionId: string
       role: "MEMBER" | "ADMINISTRATOR" | null
     }
-    repositoryAccess?: Array<{
-      defaultBranch: string
-      githubRepositoryId: number
-      nameWithOwner: string
-    }>
     sessionDigest: string
     sessionId: string
   }): Promise<{
@@ -77,8 +65,6 @@ export interface AuthenticationCallbackDependencies extends RateLimitDependencie
 }
 
 export interface CurrentSessionDependencies {
-  findGitHubRepositoryAccessDenial?(sessionDigest: string): Promise<{ login: string | null } | null>
-  readGitHubRepositoryDenialNotice?(value: string): { login: string } | null
   restore(sessionDigest: string): Promise<{
     membershipId: string
     userId: string

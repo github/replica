@@ -1,4 +1,4 @@
-import { readGitHubAppConfiguration } from "../read-github-app-configuration/index.ts"
+const githubKeys = ["GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET", "GITHUB_PROVIDER_REVISION"] as const
 
 const entraKeys = [
   "ENTRA_OIDC_CLIENT_AUTHENTICATION",
@@ -15,17 +15,13 @@ export function readAuthenticationConfigurationState(environment: NodeJS.Process
   function configured(key: string) {
     return Boolean(environment[key]?.trim())
   }
-  const github = readGitHubAppConfiguration(environment)
-  const githubConfigured = github.status === "configured"
+  const githubConfigured = githubKeys.some(configured)
   const entraConfigured = entraKeys.some(configured)
   const localConfigured = environment.HUB_LOCAL_SIGN_IN?.trim() === "true"
   return {
     applicationOrigin: environment.HUB_APPLICATION_ORIGIN?.trim() || undefined,
     entraConfigured,
     githubConfigured,
-    githubProblems: github.problems,
-    githubSettingsPresent: github.status !== "not_configured",
-    githubStatus: github.status,
     localConfigured,
     providerConfigured: githubConfigured || entraConfigured || localConfigured,
     sharedConfigured: sharedKeys.some(configured),

@@ -74,19 +74,10 @@ export async function verifyAdministratorAuthorization(
             if (input.providerAssignment.providerRevisionId !== attempt.providerRevisionId) {
               throw new AdmissionDeniedError("configuration_changed", input.externalIdentityId)
             }
-            if (input.providerKey === "github") {
-              const access = await repositories.lockGitHubRepositoryAccess()
-              if (access.changedAt && attempt.createdAt <= access.changedAt) {
-                throw new AdmissionDeniedError("provider_evidence_stale", input.externalIdentityId)
-              }
-            }
             const claim = await repositories.claimProviderEvidence({
               externalIdentityId: input.externalIdentityId,
               id: dependencies.createId(),
-              issuedAt:
-                input.providerKey === "github"
-                  ? attempt.createdAt
-                  : input.providerAssignment.issuedAt,
+              issuedAt: input.providerAssignment.issuedAt,
               role: input.providerAssignment.role,
             })
             if (claim === "conflict") throw new AdmissionTransactionConflictError()

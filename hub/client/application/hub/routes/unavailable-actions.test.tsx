@@ -5,8 +5,10 @@ import { describe, expect, it } from "vitest"
 
 import { createMockHandlers } from "../mocks/create-mock-handlers"
 import { createMockStore } from "../mocks/create-mock-store"
-import { mockBootstrapSecret } from "../mocks/create-settings-handlers"
-import SettingsGithubSetupRoute, { clientLoader as loadSetup } from "./settings-github-setup"
+import SettingsGithubSetupRoute, {
+  clientAction as saveSetup,
+  clientLoader as loadSetup,
+} from "./settings-github-setup"
 import { renderHubFlow } from "./fixtures/render-hub-flow"
 
 function UnconnectedPreferences() {
@@ -27,6 +29,10 @@ function UnconnectedPreferences() {
 
 function SetupComponent() {
   return <SettingsGithubSetupRoute loaderData={useLoaderData<typeof loadSetup>()} />
+}
+
+function unavailableServerRoute(): Promise<never> {
+  return Promise.reject(new Error("The frontend test must not call a server route."))
 }
 
 describe("Hub unavailable actions", () => {
@@ -71,31 +77,44 @@ describe("Hub unavailable actions", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument()
   })
 
-  it("keeps setup locked after a rejected bootstrap secret without echoing it", async () => {
+  it("shows an inline failure when settings refuse credentials without submitting them or claiming success", async () => {
     const store = createMockStore({ origin: window.location.origin })
-    store.session.select("signed-out")
+    store.session.select("admin")
+    const before = store.settings.getPublic()
     const server = setupServer(...createMockHandlers(store))
     const requests: Request[] = []
     server.events.on("request:start", ({ request }) => requests.push(request))
-    await renderHubFlow(server, "/settings/github/setup", {
+    const router = await renderHubFlow(server, "/settings/github/setup", {
       publicRoutes: [
-        { path: "/settings/github/setup", loader: loadSetup, Component: SetupComponent },
+        {
+          path: "/settings/github/setup",
+          loader: (args) => loadSetup({ ...args, serverLoader: unavailableServerRoute }),
+          action: (args) => saveSetup({ ...args, serverAction: unavailableServerRoute }),
+          Component: SetupComponent,
+        },
       ],
     })
+    expect(
+      screen.queryByRole("complementary", { name: "Frontend test controls" }),
+    ).not.toBeInTheDocument()
     const secret = screen.getByLabelText(/Bootstrap secret/)
-    fireEvent.change(secret, { target: { value: "synthetic-wrong-secret-for-test" } })
+    fireEvent.change(secret, { target: { value: "synthetic-bootstrap-secret-for-test" } })
+    fireEvent.change(screen.getByRole("textbox", { name: "Organization" }), {
+      target: { value: "octocat" },
+    })
 
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }))
+    await router.settle(() => fireEvent.click(screen.getByRole("button", { name: "Continue" })))
 
-    const failure = await screen.findByRole("alert")
-    expect(failure).toHaveTextContent("The bootstrap secret is incorrect.")
-    expect(failure).not.toHaveTextContent("synthetic-wrong-secret-for-test")
-    expect(secret).toHaveValue("synthetic-wrong-secret-for-test")
     expect(requests.filter(({ method }) => method !== "GET")).toEqual([])
-
-    fireEvent.change(secret, { target: { value: mockBootstrapSecret } })
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }))
-
-    expect(await screen.findByRole("heading", { name: "1. Register the GitHub App" })).toBeVisible()
+    expect(store.settings.getPublic()).toEqual(before)
+    expect(router.state.location.pathname).toBe("/settings/github/setup")
+    expect(screen.queryByRole("status")).not.toBeInTheDocument()
+    const failure = await screen.findByRole("alert")
+    expect(failure).toBeVisible()
+    expect(failure).not.toBeEmptyDOMElement()
+    expect(failure).not.toHaveTextContent(/not connected|no request was sent/i)
+    expect(failure).not.toHaveTextContent("synthetic-bootstrap-secret-for-test")
+    expect(secret).toHaveValue("synthetic-bootstrap-secret-for-test")
+    expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled()
   })
 })

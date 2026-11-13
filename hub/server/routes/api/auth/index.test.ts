@@ -1,24 +1,15 @@
 import { once } from "node:events"
-import { createHash, randomUUID } from "node:crypto"
+import { createHash } from "node:crypto"
 import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
 import { describe, expect, it, vi } from "vitest"
 
 import { createApp } from "../../../create-app"
-import { admitAuthenticationProof } from "../../../domains/admission/admit-authentication-proof"
-import { AdmissionDeniedError } from "../../../domains/admission/errors"
-import type { AdmissionRepositories } from "../../../domains/admission/run-admission-transaction/types"
-import { createGitHubRepositoryDenialNotice } from "../../../domains/authentication/create-github-repository-denial-notice"
 import { AuthenticationProofError } from "../../../domains/authentication/errors"
-import { readGitHubRepositoryDenialNotice } from "../../../domains/authentication/read-github-repository-denial-notice"
-import { startAuthenticationProof } from "../../../domains/authentication/start-authentication-proof"
-import type { StartAuthenticationProofDependencies } from "../../../domains/authentication/start-authentication-proof/types"
-import { createGitHubUserAuthenticationAdapter } from "../../../integrations/github/create-user-authentication-adapter"
 import { createLogger } from "../../../integrations/pino/create-logger"
 import type { AuthenticationRouteDependencies } from "./types"
 
 function routeDependencies() {
-  const encryptionKey = Buffer.alloc(32, 1)
   const checkRateLimit = vi.fn().mockResolvedValue({ allowed: true, auditFailed: false })
   const startSignIn = vi.fn()
   const startEnrollment = vi.fn()
@@ -47,8 +38,6 @@ function routeDependencies() {
       callback: {
         callbackIssuer: "https://github.com/login/oauth",
         checkRateLimit,
-        createGitHubRepositoryDenialNotice: (login) =>
-          createGitHubRepositoryDenialNotice(login, encryptionKey),
         secureCookie: false,
         complete: completeProof,
         verifyAdministratorAuthorization,
@@ -56,8 +45,6 @@ function routeDependencies() {
       },
     },
     currentSession: {
-      readGitHubRepositoryDenialNotice: (value) =>
-        readGitHubRepositoryDenialNotice(value, encryptionKey),
       restore: restoreSession,
     },
     signOut: {
@@ -120,152 +107,6 @@ describe("authenticationRoutes()", () => {
 
       expect(response.status).toBe(403)
       expect(checkRateLimit).not.toHaveBeenCalled()
-      expect(startSignIn).not.toHaveBeenCalled()
-    })
-  })
-
-  it.each([
-    ["retry", "", null],
-    ["switch accounts", "switch_account=true", "select_account"],
-  ])("starts a GitHub %s with the requested account choice", async (_label, body, prompt) => {
-    const { dependencies, checkRateLimit } = routeDependencies()
-    const publicConfiguration = {
-      authorizationEndpoint: "https://github.com/login/oauth/authorize",
-      callbackUri: "https://hub.example.test/api/auth/github/callback",
-      clientId: "client-id",
-      tokenEndpoint: "https://github.com/login/oauth/access_token",
-      userEndpoint: "https://api.github.com/user",
-    }
-    const proofDependencies: StartAuthenticationProofDependencies = {
-      adapter: createGitHubUserAuthenticationAdapter({
-        clientSecret: "client-secret",
-        publicConfiguration,
-      }),
-      callbackUri: publicConfiguration.callbackUri,
-      configurationDigest: "a".repeat(64),
-      expectedRevision: 1,
-      createAttempt: vi.fn().mockResolvedValue({ expiresAt: new Date(Date.now() + 600_000) }),
-      createId: randomUUID,
-      createOpaqueValue: () => "x".repeat(32),
-      deleteExpiredArtifacts: vi.fn().mockResolvedValue(undefined),
-      encryptCodeVerifier: () => "encrypted-verifier",
-      encryptNonce: () => "encrypted-nonce",
-      getAuthenticationProofState: vi.fn().mockResolvedValue({
-        selectedProviderRevision: {
-          configurationDigest: "a".repeat(64),
-          id: randomUUID(),
-          revision: 1,
-        },
-        sessionRevocationRevision: 0,
-      }),
-      writeDenialAudit: vi.fn(),
-    }
-    dependencies.github!.signIn.start = (input) =>
-      startAuthenticationProof(
-        { purpose: "SIGN_IN", switchAccount: input?.switchAccount },
-        proofDependencies,
-      )
-
-    await withServer(dependencies, async (baseUrl) => {
-      const response = await fetch(`${baseUrl}/api/auth/github/start`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/x-www-form-urlencoded",
-          origin: dependencies.github!.signIn.applicationOrigin,
-        },
-        body,
-        redirect: "manual",
-      })
-
-      expect(response.status).toBe(303)
-      const location = new URL(response.headers.get("location")!)
-      expect(location.origin + location.pathname).toBe(publicConfiguration.authorizationEndpoint)
-      expect(location.searchParams.get("prompt")).toBe(prompt)
-      expect(response.headers.get("set-cookie")).toContain("hub_auth_browser=")
-      expect(checkRateLimit).toHaveBeenCalledOnce()
-    })
-  })
-
-  it("checks the origin before a switch-account request reaches the rate limiter", async () => {
-    const { dependencies, checkRateLimit, startSignIn } = routeDependencies()
-    await withServer(dependencies, async (baseUrl) => {
-      const response = await fetch(`${baseUrl}/api/auth/github/start`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/x-www-form-urlencoded",
-          origin: "https://attacker.example",
-        },
-        body: "switch_account=true",
-      })
-
-      expect(response.status).toBe(403)
-      expect(checkRateLimit).not.toHaveBeenCalled()
-      expect(startSignIn).not.toHaveBeenCalled()
-    })
-  })
-
-  it("rate-limits a switch-account request before starting authentication", async () => {
-    const { dependencies, checkRateLimit, startSignIn } = routeDependencies()
-    checkRateLimit.mockResolvedValue({ allowed: false, auditFailed: false })
-    await withServer(dependencies, async (baseUrl) => {
-      const response = await fetch(`${baseUrl}/api/auth/github/start`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/x-www-form-urlencoded",
-          origin: dependencies.github!.signIn.applicationOrigin,
-        },
-        body: "switch_account=true",
-      })
-
-      expect(response.status).toBe(429)
-      expect(checkRateLimit).toHaveBeenCalledOnce()
-      expect(startSignIn).not.toHaveBeenCalled()
-    })
-  })
-
-  it.each([
-    ["an invalid value", "switch_account=false"],
-    ["duplicate values", "switch_account=true&switch_account=false"],
-    ["an unexpected field", "switch_account=true&unexpected=value"],
-  ])("rejects %s in a switch-account request", async (_description, body) => {
-    const { dependencies, checkRateLimit, startSignIn } = routeDependencies()
-    await withServer(dependencies, async (baseUrl) => {
-      const response = await fetch(`${baseUrl}/api/auth/github/start`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/x-www-form-urlencoded",
-          origin: dependencies.github!.signIn.applicationOrigin,
-        },
-        body,
-      })
-
-      expect(response.status).toBeGreaterThanOrEqual(400)
-      expect(response.status).toBeLessThan(500)
-      expect(checkRateLimit).toHaveBeenCalledOnce()
-      expect(startSignIn).not.toHaveBeenCalled()
-    })
-  })
-
-  it("does not treat an unparsed switch-account request as an ordinary retry", async () => {
-    const { dependencies, startSignIn } = routeDependencies()
-    startSignIn.mockResolvedValue({
-      authorizationUrl: "https://github.com/login/oauth/authorize",
-      browserBinding: "b".repeat(32),
-      expiresAt: new Date(Date.now() + 600_000),
-    })
-    await withServer(dependencies, async (baseUrl) => {
-      const response = await fetch(`${baseUrl}/api/auth/github/start`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          origin: dependencies.github!.signIn.applicationOrigin,
-        },
-        body: JSON.stringify({ switch_account: "invalid" }),
-        redirect: "manual",
-      })
-
-      expect(response.status).toBeGreaterThanOrEqual(400)
-      expect(response.status).toBeLessThan(500)
       expect(startSignIn).not.toHaveBeenCalled()
     })
   })
@@ -429,188 +270,6 @@ describe("authenticationRoutes()", () => {
       expect(completeProof).not.toHaveBeenCalled()
     })
   })
-
-  it.each([
-    ["a verified login", "octocat"],
-    ["no verified login", undefined],
-  ])("redirects a no-access denial with %s and no new session", async (_label, login) => {
-    const { dependencies, completeProof, admitSession } = routeDependencies()
-    const repositoryAccess: [] = []
-    completeProof.mockResolvedValue({
-      purpose: "SIGN_IN",
-      githubLogin: login,
-      proof: {
-        authorizationAttemptId: "00000000-0000-4000-8000-000000000010",
-        externalIdentityId: "00000000-0000-4000-8000-000000000012",
-      },
-      repositoryAccess,
-    })
-    admitSession.mockRejectedValue(
-      new AdmissionDeniedError("no_repository_access", "00000000-0000-4000-8000-000000000012"),
-    )
-
-    await withServer(dependencies, async (baseUrl) => {
-      const response = await fetch(
-        `${baseUrl}/api/auth/github/callback?code=provider-code&state=${"s".repeat(32)}`,
-        {
-          headers: { cookie: `hub_auth_browser=${"b".repeat(32)}` },
-          redirect: "manual",
-        },
-      )
-
-      expect(response.status).toBe(303)
-      const location = new URL(response.headers.get("location")!, baseUrl)
-      expect(location.pathname).toBe("/signed-in/no-access")
-      expect(location.hash).toBe("")
-      const noticeCookie = response.headers
-        .getSetCookie()
-        .find((cookie) => cookie.startsWith("hub_github_repository_denial="))
-      if (login) {
-        expect(noticeCookie).toContain("HttpOnly")
-        expect(noticeCookie).not.toContain(login)
-        const cookie = noticeCookie!.split(";", 1)[0]!
-        const notice = await fetch(`${baseUrl}/api/auth/session?explain_no_repository_access=1`, {
-          headers: { cookie },
-        })
-        expect(notice.status).toBe(401)
-        expect(await notice.json()).toMatchObject({ login, reason: "no_repository_access" })
-        const ordinarySession = await fetch(`${baseUrl}/api/auth/session`, {
-          headers: { cookie },
-        })
-        expect(await ordinarySession.json()).toEqual({ authenticated: false })
-        const forgedNotice = await fetch(
-          `${baseUrl}/api/auth/session?explain_no_repository_access=1`,
-          { headers: { cookie: "hub_github_repository_denial=somebody-else" } },
-        )
-        expect(await forgedNotice.json()).toEqual({ authenticated: false })
-      } else {
-        expect(noticeCookie).toBeUndefined()
-      }
-      expect(admitSession).toHaveBeenCalledWith(expect.objectContaining({ repositoryAccess }))
-      expect(response.headers.get("set-cookie")).not.toContain("hub_session=")
-      expect(response.headers.get("set-cookie")).toContain("Max-Age=0")
-    })
-  })
-
-  it.each([
-    {
-      label: "a first-time GitHub user",
-      assignments: [],
-      hasMembership: false,
-      independentlyAuthorized: false,
-    },
-    {
-      label: "a GitHub member with no remaining authority",
-      assignments: [],
-      hasMembership: true,
-      independentlyAuthorized: false,
-    },
-    {
-      label: "an independent administrator",
-      assignments: [{ id: "independent", role: "ADMINISTRATOR", source: "HUB_ADMINISTRATOR" }],
-      hasMembership: true,
-      independentlyAuthorized: true,
-    },
-    {
-      label: "an independent Entra member",
-      assignments: [{ id: "independent", role: "MEMBER", source: "AUTHENTICATION_PROVIDER" }],
-      hasMembership: true,
-      independentlyAuthorized: false,
-    },
-  ])(
-    "handles a verified GitHub sign-in with no repository grants for $label",
-    async ({ assignments, hasMembership, independentlyAuthorized }) => {
-      const { dependencies, completeProof } = routeDependencies()
-      const providerRevisionId = randomUUID()
-      const membershipId = randomUUID()
-      const records = {
-        claimProviderEvidence: vi.fn().mockResolvedValue("created"),
-        createMembership: vi.fn(),
-        createProviderAssignment: vi.fn(),
-        createBootstrapAssignment: vi.fn(),
-        createHubSession: vi
-          .fn()
-          .mockResolvedValue({ expiresAt: new Date(Date.now() + 3_600_000) }),
-        createOrRestoreMembership: vi.fn(),
-        createSecurityAudit: vi.fn().mockResolvedValue(undefined),
-        recordRepositoryAccess: vi.fn().mockResolvedValue(undefined),
-        endProviderAssignment: vi.fn(),
-        endOpenHubSessionsForMembership: vi.fn().mockResolvedValue([]),
-        lockActiveAssignments: vi.fn().mockResolvedValue(assignments),
-        lockActiveProviderAssignment: vi.fn().mockResolvedValue(null),
-        lockAttempt: vi.fn().mockResolvedValue({
-          bootstrapSecretDigest: null,
-          consumedAt: new Date(),
-          createdAt: new Date(),
-          providerRevisionId,
-          purpose: "SIGN_IN",
-          sessionRevocationRevision: 0,
-        }),
-        getExternalIdentity: vi
-          .fn()
-          .mockResolvedValue({ provider: "github", userId: randomUUID() }),
-        lockGitHubRepositoryAccess: vi.fn().mockResolvedValue({ revision: 0, changedAt: null }),
-        hasDisconnectedRepositories: vi.fn().mockResolvedValue(false),
-        lockMembership: vi
-          .fn()
-          .mockResolvedValue(hasMembership ? { id: membershipId, lifecycle: "ACTIVE" } : null),
-        lockProvider: vi
-          .fn()
-          .mockResolvedValue({ enabled: true, selectedRevisionId: providerRevisionId }),
-        lockRevocation: vi.fn().mockResolvedValue({ revision: 0 }),
-      } satisfies AdmissionRepositories
-      completeProof.mockResolvedValue({
-        githubLogin: "octocat",
-        proof: { authorizationAttemptId: randomUUID(), externalIdentityId: randomUUID() },
-        purpose: "SIGN_IN",
-        providerAssignment: {
-          assignmentSubject: "github_repository_access",
-          issuedAt: new Date(),
-          providerRevisionId,
-          role: null,
-        },
-        repositoryAccess: [],
-      })
-      dependencies.github!.callback.admit = (input) =>
-        admitAuthenticationProof(
-          {
-            ...input,
-            providerKey: "github",
-            requiresProviderAssignmentEvidence: true,
-            sessionLifetimeSeconds: 3_600,
-          },
-          {
-            createId: randomUUID,
-            getBootstrapSecretDigest: () => "f".repeat(64),
-            runTransaction: (operation) => operation(records),
-            writeAudit: vi.fn(),
-          },
-        )
-
-      await withServer(dependencies, async (baseUrl) => {
-        const response = await fetch(
-          `${baseUrl}/api/auth/github/callback?code=provider-code&state=${"s".repeat(32)}`,
-          {
-            headers: { cookie: `hub_auth_browser=${"b".repeat(32)}` },
-            redirect: "manual",
-          },
-        )
-
-        expect(response.status).toBe(303)
-        if (independentlyAuthorized) {
-          expect(new URL(response.headers.get("location")!, baseUrl).pathname).not.toBe(
-            "/signed-in/no-access",
-          )
-        } else {
-          expect(new URL(response.headers.get("location")!, baseUrl).pathname).toBe(
-            "/signed-in/no-access",
-          )
-          expect(response.headers.get("set-cookie")).not.toContain("hub_session=")
-          expect(records.createHubSession).not.toHaveBeenCalled()
-        }
-      })
-    },
-  )
 
   it("accepts GitHub's exact callback issuer parameter", async () => {
     const { dependencies, completeProof, admitSession } = routeDependencies()
@@ -922,84 +581,6 @@ describe("authenticationRoutes()", () => {
       )
     })
   })
-
-  it.each(["octocat", null])(
-    "reports a revoked GitHub session without changing its cookie (login: %s)",
-    async (login) => {
-      const { dependencies, restoreSession } = routeDependencies()
-      restoreSession.mockResolvedValue(null)
-      const findDenial = vi.fn().mockResolvedValue({ login })
-      dependencies.currentSession.findGitHubRepositoryAccessDenial = findDenial
-
-      await withServer(dependencies, async (baseUrl) => {
-        const response = await fetch(`${baseUrl}/api/auth/session`, {
-          headers: { cookie: "hub_session=revoked-session" },
-        })
-
-        expect(response.status).toBe(401)
-        expect(await response.json()).toMatchObject({
-          authenticated: false,
-          login,
-          reason: "no_repository_access",
-        })
-        expect(response.headers.get("set-cookie")).toBeNull()
-        expect(findDenial).toHaveBeenCalledWith(
-          createHash("sha256").update("revoked-session").digest("hex"),
-        )
-      })
-    },
-  )
-
-  it.each([
-    ["no session cookie", undefined],
-    ["an ordinary ended session", "hub_session=ordinary-session"],
-  ])("does not label %s as repository access loss", async (_label, cookie) => {
-    const { dependencies, restoreSession } = routeDependencies()
-    restoreSession.mockResolvedValue(null)
-    const findDenial = vi.fn().mockResolvedValue(null)
-    dependencies.currentSession.findGitHubRepositoryAccessDenial = findDenial
-
-    await withServer(dependencies, async (baseUrl) => {
-      const response = await fetch(`${baseUrl}/api/auth/session`, {
-        headers: cookie ? { cookie } : {},
-      })
-
-      expect(response.status).toBe(401)
-      expect(await response.json()).toEqual({ authenticated: false })
-      expect(response.headers.get("set-cookie")).toBeNull()
-      expect(findDenial).toHaveBeenCalledTimes(cookie ? 1 : 0)
-    })
-  })
-
-  it.each([
-    ["GitHub administrator", "github", "ADMINISTRATOR"],
-    ["Entra member", "entra", "MEMBER"],
-  ] as const)(
-    "restores a current %s without a repository-loss lookup",
-    async (_label, provider, role) => {
-      const { dependencies, restoreSession } = routeDependencies()
-      restoreSession.mockResolvedValue({
-        membershipId: randomUUID(),
-        userId: randomUUID(),
-        provider,
-        login: "member",
-        name: null,
-        role,
-      })
-      const findDenial = vi.fn().mockResolvedValue({ login: "wrong-account" })
-      dependencies.currentSession.findGitHubRepositoryAccessDenial = findDenial
-
-      await withServer(dependencies, async (baseUrl) => {
-        const response = await fetch(`${baseUrl}/api/auth/session`, {
-          headers: { cookie: "hub_session=current-session" },
-        })
-
-        expect(response.status).toBe(200)
-        expect(await response.json()).toMatchObject({ authenticated: true, provider, role })
-        expect(findDenial).not.toHaveBeenCalled()
-      })
-    },
-  )
 
   it("redirects a native sign-out form after ending and clearing the session", async () => {
     const { dependencies, endSession } = routeDependencies()

@@ -3,14 +3,12 @@ model Repository {
   id String @id @default(uuid()) @db.Uuid
 
   // Relations
-  prototypes   Prototype[]
-  accessGrants RepositoryAccessGrant[]
+  prototypes Prototype[]
 
   // Attribute columns
-  githubRepositoryId BigInt?   @unique @map("github_repository_id")
-  nameWithOwner      String    @map("name_with_owner") @db.VarChar(255)
-  defaultBranch      String    @map("default_branch") @db.VarChar(255)
-  removedAt          DateTime? @map("removed_at") @db.Timestamptz(3)
+  nameWithOwner String    @map("name_with_owner") @db.VarChar(255)
+  defaultBranch String    @map("default_branch") @db.VarChar(255)
+  removedAt     DateTime? @map("removed_at") @db.Timestamptz(3)
 
   // Timestamp columns
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)

@@ -15,7 +15,7 @@ export async function checkAuthenticationRateLimit(
     auditFirstDenial: boolean
     createId(): string
     limit: number
-    operation: "start" | "callback" | "github_setup" | "github_test"
+    operation: "start" | "callback"
     subjectDigest: string
     windowSeconds: number
   },

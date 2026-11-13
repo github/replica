@@ -31,6 +31,7 @@ export type SettingsSection =
   | "copilot"
   | "authorize"
   | "github"
+  | "github-setup"
   | "github-register"
   | "github-installed"
   | "admin-confirmation"

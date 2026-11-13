@@ -1,5 +1,3 @@
-import type { GitHubRepositoryEvidence } from "../types.ts"
-
 export interface GitHubAuthenticationPublicConfiguration {
   authorizationEndpoint: string
   callbackUri: string
@@ -11,8 +9,6 @@ export interface GitHubAuthenticationPublicConfiguration {
 export interface CreateGitHubUserAuthenticationAdapterInput {
   clientSecret: string
   fetch?: typeof globalThis.fetch
-  /** Enables repository-access admission for members of this App installation. */
-  installationId?: number
   publicConfiguration: unknown
 }
 
@@ -39,13 +35,5 @@ export interface GitHubUserAuthenticationAdapter {
     code: string
     codeVerifier: string
     nonce: string
-  }): Promise<{
-    identity: GitHubUserIdentityEvidence
-    providerAssignment?: {
-      assignmentSubject: string
-      issuedAt: Date
-      role: "MEMBER" | null
-    }
-    repositoryAccess?: GitHubRepositoryEvidence[]
-  }>
+  }): Promise<{ identity: GitHubUserIdentityEvidence }>
 }
