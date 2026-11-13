@@ -79,7 +79,7 @@ validation and unverified behavior rather than claiming success.
 
 Except for [narrow edits](#narrow-edits) and source-only tasks, complete the [canvas preflight](REPLICA.md#canvas-preflight) before UI edits, preview startup or opening a preview in Copilot. Use `replica-prototype` to open the actual running preview URL.
 
-Session setup owns plugin installation and CLI enablement; agents check canvas availability and explain recovery using the preflight's missing-canvas instructions. In a canvas-capable host, stop before UI edits or preview startup until the canvas is available, except for the preflight's narrow local-preview exception for explicitly authorized unattended `create-prototype-from-production` runs when that skill is installed. Skills such as `review-hub-feedback` keep their own missing-canvas blocker rules.
+Session setup owns plugin installation and CLI enablement; agents check canvas availability and explain recovery using the preflight's missing-canvas instructions. In a canvas-capable host, stop before UI edits or preview startup until the canvas is available. Skills such as `review-hub-feedback` keep their own missing-canvas blocker rules.
 
 For prototype work with a local preview, discover and use the project's actual development command and running server URL. Verify the server is responsive; do not guess its port or assume npm, Vite or a route scheme.
 
@@ -87,7 +87,7 @@ As soon as the authorized route is known and its preview is running, show its cu
 
 In a canvas-capable host, discover `replica-prototype` schemas before the first required operation and reuse them for the same provider in this session. Rediscover after provider reload/reconnect, schema mismatch or an explicit capability-refresh request. Open or focus the canvas with the actual `prototypeUrl`.
 
-If an available canvas fails to open after the documented connection checks, disclose the runtime blocker and use the authorized route in a browser canvas or supported local browser. Outside the preflight's unattended exception, this fallback does not bypass missing-plugin setup, approval or a required fresh session. An unavailable canvas is different from a disconnected Hub; a Hub connection problem does not require replacing a working local preview.
+If an available canvas fails to open after the documented connection checks, disclose the runtime blocker and use the authorized route in a browser canvas or supported local browser. This fallback does not bypass missing-plugin setup, approval or a required fresh session. An unavailable canvas is different from a disconnected Hub; a Hub connection problem does not require replacing a working local preview.
 
 Use a browser canvas separately for route and interaction checks; it does not replace the Replica canvas's prototype and publishing controls. If the host lacks canvas support or plugin management, follow the preflight's local-preview fallback without claiming canvas validation.
 
