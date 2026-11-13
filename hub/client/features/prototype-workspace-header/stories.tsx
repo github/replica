@@ -134,34 +134,6 @@ export const NewerBuildFailed: Story = {
   },
 }
 
-const longBuildStatus = {
-  ...data,
-  buildOptions: [
-    {
-      number: 1,
-      label: "v1",
-      path: "/repositories/2001/prototypes/1?build=1",
-      state: "successful" as const,
-      stateLabel: "Pending review (12 checks remaining)",
-    },
-  ],
-}
-
-export const LongBuildStatus: Story = {
-  args: { data: longBuildStatus },
-}
-
-export const NarrowLongBuildStatus: Story = {
-  args: { data: longBuildStatus },
-  decorators: [
-    (Story) => (
-      <div style={{ containerType: "inline-size", width: "20rem" }}>
-        <Story />
-      </div>
-    ),
-  ],
-}
-
 export const ManyBuilds: Story = {
   args: {
     data: {
