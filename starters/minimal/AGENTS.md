@@ -13,7 +13,7 @@ npm ci
 npm run dev
 ```
 
-For checks, run `npm run typecheck`, `npm test`, `npm run build` and `npm run format:check`. Format authored code with `npm run format`: double quotes, no semicolons and trailing commas.
+Run `npm run check:starter` for formatting, type checking, app tests, production-prototyping helper tests and the build. Use the individual commands while iterating. Format authored code with `npm run format`: double quotes, no semicolons and trailing commas.
 
 ## Code
 
@@ -24,3 +24,5 @@ Read the [app guide](README.md) for routing and scaffold commands. The scaffold 
 ## Product guidance
 
 Minimal includes research templates, not approved product or design-system facts. When authoring work needs missing context, offer `/setup-skills`. Review and separately approve drafts before activation. No guidance setup is needed just to inspect the included app.
+
+`create-prototype-from-production` may copy its fixed Minimal defaults into `.agents/context/` when no context exists; its `SKILL.md` owns that rule.
