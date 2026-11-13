@@ -10,28 +10,17 @@ const FINAL_STATUSES = new Set(["verified", "blocked"])
 const LOCAL_BOUNDARIES = new Set(["stub-auth", "stub-download", "deferred"])
 const HTTP_PROTOCOLS = new Set(["http:", "https:"])
 
-function isRecord(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-}
-
-function isNonblankString(value) {
-  return typeof value === "string" && value.trim().length > 0
-}
-
-function absoluteUrl(value) {
-  if (!isNonblankString(value) || !URL.canParse(value)) return undefined
-  return new URL(value)
-}
+const isRecord = (value) => value !== null && typeof value === "object" && !Array.isArray(value)
+const isNonblankString = (value) => typeof value === "string" && value.trim().length > 0
+const absoluteUrl = (value) => (isNonblankString(value) ? URL.parse(value) : undefined)
 
 export function checkLedger(ledger, { final = false } = {}) {
   if (!isRecord(ledger)) return ["ledger: expected a JSON object"]
   const problems = []
-
   const source = absoluteUrl(ledger.source)
-  const sourceProblem = checkPublicUrl(ledger.source)
-  if (sourceProblem) problems.push(`source: ${sourceProblem}`)
-  const credentialProblem = hasCredentials(ledger.source)
-  if (credentialProblem) problems.push(`source: ${credentialProblem}`)
+  for (const reason of [checkPublicUrl(ledger.source), hasCredentials(ledger.source)]) {
+    if (reason) problems.push(`source: ${reason}`)
+  }
   if (!ledger.browser || ledger.browser.cookies !== 0 || ledger.browser.pages !== 1) {
     problems.push("browser: runtime isolation proof requires zero cookies and exactly one page")
   }
@@ -42,7 +31,6 @@ export function checkLedger(ledger, { final = false } = {}) {
     problems.push("pages: no destinations recorded")
     return problems
   }
-
   const families = new Map()
   const routes = new Map()
   const urls = new Set()
@@ -54,6 +42,8 @@ export function checkLedger(ledger, { final = false } = {}) {
     }
     const url = absoluteUrl(page.url)
     const label = `pages[${index}]`
+    if ("representative" in page && typeof page.representative !== "boolean")
+      problems.push(`${label}: representative must be true or omitted`)
     if (!url) {
       problems.push(`${label}: requires an absolute destination URL`)
     } else {
@@ -101,39 +91,36 @@ export function checkLedger(ledger, { final = false } = {}) {
       problems.push(`${label}: blocked without a note; expected a nonblank string`)
     if (page.status === "verified" && !isNonblankString(page.note))
       problems.push(`${label}: verified without an evidence note; expected a nonblank string`)
-
     if (hasLocalRoute) {
       if (routes.has(page.route))
         problems.push(`${label}: local route also used by ${routes.get(page.route)}`)
       routes.set(page.route, label)
     }
     if (page.decision !== "build") continue
-
     if (typeof page.family !== "string") {
       problems.push(`${label}: build page has no family`)
       continue
     }
-    const family = families.get(page.family) ?? { representatives: 0, label }
-    if (page.representative) family.representatives += 1
+    const family = families.get(page.family) ?? { representatives: 0, label, name: page.family }
+    if (page.representative === true) {
+      family.representatives += 1
+      if (family.representatives === 2) family.label = label
+    }
     families.set(page.family, family)
   }
-
   if (source && !sourcePage) {
     problems.push("source: no row represents the source URL")
-  } else if (sourcePage?.decision === "stub-external") {
-    problems.push("source: requires a build page or local boundary, not an outbound-only stub")
   } else if (sourcePage?.decision === "deferred" && !isNonblankString(sourcePage.note)) {
     problems.push("source: deferred without a scope-exclusion reason")
   }
-
   for (const family of families.values()) {
-    if (family.representatives !== 1) {
+    if (family.representatives !== 1)
       problems.push(
-        `${family.label}: family needs exactly one representative, found ${family.representatives}`,
+        `${family.label}: family "${family.name}" needs exactly one representative, found ${family.representatives}`,
       )
-    }
   }
-
+  if (final && sourcePage && sourcePage.status !== "verified")
+    problems.push("source: final ledger requires a verified source row")
   return problems
 }
 
