@@ -847,7 +847,7 @@ test("the shared bundle has a complete context library and working local links",
 })
 
 for (const [source, extraSkills, activeContext] of [
-  ["starters/minimal", 0, false],
+  ["starters/minimal", 1, false],
   ["starters/coreai", 11, true],
 ]) {
   test(`${source} composes with shared guidance without collisions or broken links`, t => {
@@ -859,6 +859,11 @@ for (const [source, extraSkills, activeContext] of [
     assertBrowserSetup(consumer)
     assert.equal(readdirSync(join(consumer, ".agents/skills")).length, skillNames.length + extraSkills)
     assert.equal(existsSync(join(consumer, ".agents/context")), activeContext)
+    const baseline = join(consumer, ".agents/skills/create-prototype-from-production/references/local-context")
+    if (existsSync(baseline)) {
+      const templates = readdirSync(join(consumer, ".agents/context-templates")).filter(name => name !== "SKILL.md")
+      assert.deepEqual(readdirSync(baseline).sort(), templates.sort())
+    }
     for (const name of ["REPLICA.md", "REPLICA-AGENTS.md", "SETUP.md"]) {
       assertLocalLinks(join(consumer, name), consumer, true)
     }
