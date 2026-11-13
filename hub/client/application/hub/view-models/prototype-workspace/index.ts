@@ -49,7 +49,7 @@ export function prototypeWorkspace({
       ? workspace.viewer
       : null
   const previewPath = resourcePath(path, search, {
-    build: selectedBuild?.previewUrl ? selectedBuild.number : null,
+    build: selectedBuild?.state === "successful" ? selectedBuild.number : null,
   })
 
   return {
@@ -65,16 +65,14 @@ export function prototypeWorkspace({
     branchName: prototype.branchName,
     branchPath: resourcePath(path, search),
     prototypeName: prototype.name,
-    // Only successful Builds have a preview to open; History still lists the rest.
-    buildOptions: builds
-      .filter((build) => build.state === "successful")
-      .map((build) => ({
-        number: build.number,
-        label: `v${build.number}`,
-        path: resourcePath(path, search, { build: build.number }),
-        state: build.state,
-        stateLabel: buildStateLabel(build.state),
-      })),
+    buildOptions: builds.map((build) => ({
+      number: build.number,
+      label: `v${build.number}`,
+      path:
+        build.state === "successful" ? resourcePath(path, search, { build: build.number }) : null,
+      state: build.state,
+      stateLabel: buildStateLabel(build.state),
+    })),
     buildSelectionLabel: "Choose build",
     closeLabel: surface === "preview" ? "Return to prototypes" : "Return to prototype",
     closePath: surface === "preview" ? undefined : previewPath,

@@ -68,6 +68,11 @@ export const Multiple: Story = {
   args: {
     data: {
       ...data,
+      buildOptions: [
+        { number: 3, label: "v3", path: null, state: "running", stateLabel: "Running" },
+        { number: 2, label: "v2", path: null, state: "failed", stateLabel: "Failed" },
+        ...data.buildOptions,
+      ],
       builds: [
         {
           ...successfulBuild,

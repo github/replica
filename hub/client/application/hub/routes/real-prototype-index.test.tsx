@@ -253,11 +253,12 @@ describe("real prototype index", () => {
               authorLogin: "mona",
               authorName: "Mona",
               canEdit: false,
-              latestBuild: { number: 1, state: "successful" },
+              latestBuild: { number: 4, state: "running" },
               builds: [
                 successfulBuild,
                 { ...successfulBuild, number: 2, state: "failed" },
                 { ...successfulBuild, number: 3 },
+                { ...successfulBuild, number: 4, state: "running" },
               ],
             },
             selectedBuild,
@@ -391,15 +392,37 @@ describe("real prototype index", () => {
     expect(document.querySelector('form[action="/api/auth/session/sign-out"]')).not.toBeNull()
     expect(document.querySelector('form[action="/session"]')).toBeNull()
 
-    fireEvent.click(screen.getByRole("button", { name: /Build 1.*v1/i }))
-    const successful = screen.getByRole("menuitem", { name: /v3/i }).querySelector("a")
-    expect(successful).toHaveAttribute(
+    const chooser = screen.getByRole("button", { name: /Build 1.*v1/i })
+    function buildOption(name: RegExp) {
+      if (chooser.getAttribute("aria-expanded") !== "true") fireEvent.click(chooser)
+      return within(screen.getByRole("menu", { name: /Build 1/i })).getByRole("menuitem", { name })
+    }
+    const successful = buildOption(/v3.*Successful/i)
+    const failed = buildOption(/v2.*Failed/i)
+    const running = buildOption(/v4.*Running/i)
+    const successfulLink = within(successful).getByRole("link")
+    expect(successfulLink).toHaveAttribute(
       "href",
       `/repositories/${repositoryId}/prototypes/${prototypeId}?build=3`,
     )
-    expect(screen.queryByRole("menuitem", { name: /v2/i })?.querySelector("a")).toBeFalsy()
-    if (!successful) throw new Error("The successful Build needs a link.")
-    fireEvent.click(successful)
+    expect(failed).toHaveAttribute("aria-disabled", "true")
+    expect(running).toHaveAttribute("aria-disabled", "true")
+    expect(within(failed).queryByRole("link")).not.toBeInTheDocument()
+    expect(within(running).queryByRole("link")).not.toBeInTheDocument()
+    failed.focus()
+    fireEvent.keyDown(failed, { key: "Enter" })
+    fireEvent.click(buildOption(/v2.*Failed/i))
+    const currentRunning = buildOption(/v4.*Running/i)
+    currentRunning.focus()
+    fireEvent.keyDown(currentRunning, { key: " " })
+    fireEvent.click(buildOption(/v4.*Running/i))
+    expect(chooser).toHaveAccessibleName(/Build 1.*v1/i)
+    expect(router.state.location.pathname).toBe(
+      `/repositories/${repositoryId}/prototypes/${prototypeId}`,
+    )
+    expect(router.state.location.search).toBe("")
+
+    fireEvent.click(within(buildOption(/v3.*Successful/i)).getByRole("link"))
     await waitFor(() => expect(router.state.location.search).toBe("?build=3"))
     expect(await screen.findByText("Build 3 has no preview")).toBeVisible()
     await act(async () =>
@@ -425,6 +448,35 @@ describe("real prototype index", () => {
     )
     expect((await screen.findByLabelText("Unknown author")).closest("a")).toBeNull()
   }, 15_000)
+
+  it("returns not-found for a standalone Build detail URL", async () => {
+    vi.stubEnv("MODE", "development")
+    vi.stubEnv("DEV", true)
+    const buildPath = "/repositories/2001/prototypes/1/builds/3"
+    const buildRead = vi.fn(() => HttpResponse.json({ error: "Build not found." }, { status: 404 }))
+    const server = setupServer(
+      http.get(`${window.location.origin}/api/auth/session`, () =>
+        HttpResponse.json({
+          authenticated: true,
+          membershipId: "33333333-3333-4333-8333-333333333333",
+          userId: "22222222-2222-4222-8222-222222222222",
+          provider: "github",
+          login: "octocat",
+          name: "Octocat",
+          role: "MEMBER",
+        }),
+      ),
+      http.get(`${window.location.origin}/api${buildPath}`, buildRead),
+    )
+    server.listen({ onUnhandledRequest: "error" })
+    onTestFinished(() => server.close())
+
+    await renderApplication(buildPath)
+
+    expect(await screen.findByRole("heading", { name: "Page or record not found" })).toBeVisible()
+    expect(screen.getByText("404")).toBeVisible()
+    expect(buildRead).not.toHaveBeenCalled()
+  })
 
   it("shows a repository failure instead of an empty index", async () => {
     vi.stubEnv("MODE", "development")

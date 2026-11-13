@@ -3,6 +3,7 @@ import { http, HttpResponse } from "msw"
 import { setupServer } from "msw/node"
 import { describe, expect, it, onTestFinished, vi } from "vitest"
 
+import type { FixtureBuild } from "../mocks/create-fixture-build/types"
 import { createFixtureSeed } from "../mocks/create-fixture-seed"
 import { createMockHandlers } from "../mocks/create-mock-handlers"
 import { createMockStore } from "../mocks/create-mock-store"
@@ -144,6 +145,95 @@ describe("Hub repository journey", () => {
     )
     expect(new URLSearchParams(router.state.location.search).get("build")).toBe("1")
   }, 15_000)
+
+  it("lists every Build in History and opens only successful Builds", async () => {
+    const seed: Omit<typeof seedData, "builds"> & { builds: FixtureBuild[] } =
+      structuredClone(seedData)
+    seed.builds = seed.builds.map((build) => {
+      if (build.prototypeId !== "1") return build
+      if (build.number === 1) {
+        return {
+          ...build,
+          previewUrl: null,
+          desktopScreenshotUrl: null,
+          narrowScreenshotUrl: null,
+        }
+      }
+      if (build.number === 3) {
+        return {
+          ...build,
+          state: "running",
+          finishedAt: null,
+          previewUrl: null,
+          desktopScreenshotUrl: null,
+          narrowScreenshotUrl: null,
+        }
+      }
+      return build
+    })
+    const store = createMockStore({ origin: window.location.origin, seed })
+    const server = setupServer(...createMockHandlers(store))
+    const historyPath = "/repositories/2001/prototypes/1/builds"
+    const router = await renderHubFlow(server, historyPath)
+    const history = screen.getByRole("list", { name: "History" })
+    const successful = within(history).getByRole("link", { name: "Build 1" })
+    const failed = within(history).getByText("Build 2")
+    const running = within(history).getByText("Build 3")
+    const successfulRow = successful.closest("li")
+    const failedRow = failed.closest("li")
+    const runningRow = running.closest("li")
+    if (!successfulRow || !failedRow || !runningRow) {
+      throw new Error("Each Build must have a History entry.")
+    }
+
+    expect(within(successfulRow).getByText("Successful")).toBeVisible()
+    expect(within(failedRow).getByText("Failed")).toBeVisible()
+    expect(within(runningRow).getByText("Running")).toBeVisible()
+    expect(successful).toHaveAttribute("href", "/repositories/2001/prototypes/1?build=1")
+    expect(failed.closest("a, button, [role='link'], [role='button']")).toBeNull()
+    expect(running.closest("a, button, [role='link'], [role='button']")).toBeNull()
+    fireEvent.click(failed)
+    fireEvent.click(running)
+    expect(router.state.location.pathname).toBe(historyPath)
+
+    await router.settle(() => fireEvent.click(successful))
+
+    expect(router.state.location.pathname).toBe("/repositories/2001/prototypes/1")
+    expect(new URLSearchParams(router.state.location.search).get("build")).toBe("1")
+    expect(await screen.findByText("Build 1 has no preview")).toBeVisible()
+  })
+
+  it("returns from History to the pinned successful Build without a hosted preview", async () => {
+    const seed: Omit<typeof seedData, "builds"> & { builds: FixtureBuild[] } =
+      structuredClone(seedData)
+    seed.builds = seed.builds.map((build) =>
+      build.prototypeId === "1" && build.number === 1
+        ? {
+            ...build,
+            previewUrl: null,
+            desktopScreenshotUrl: null,
+            narrowScreenshotUrl: null,
+          }
+        : build,
+    )
+    const store = createMockStore({ origin: window.location.origin, seed })
+    const server = setupServer(...createMockHandlers(store))
+    const prototypePath = "/repositories/2001/prototypes/1"
+    const router = await renderHubFlow(server, `${prototypePath}?build=1`)
+    expect(screen.getByText("Build 1 has no preview")).toBeVisible()
+
+    fireEvent.click(screen.getByRole("button", { name: "More actions" }))
+    const history = within(screen.getByRole("menuitem", { name: "History" })).getByRole("link")
+    await router.settle(() => fireEvent.click(history))
+    expect(screen.getByRole("heading", { name: "History", level: 2 })).toBeVisible()
+    const close = screen.getByRole("link", { name: "Return to prototype" })
+    await router.settle(() => fireEvent.click(close))
+
+    expect(router.state.location.pathname).toBe(prototypePath)
+    expect(new URLSearchParams(router.state.location.search).get("build")).toBe("1")
+    expect(screen.getByText("Build 1 has no preview")).toBeVisible()
+    expect(screen.queryByTitle("Welcome, Build 3 preview")).not.toBeInTheDocument()
+  })
 
   it("shows commit authors in Build history", async () => {
     const store = createMockStore({ origin: window.location.origin })

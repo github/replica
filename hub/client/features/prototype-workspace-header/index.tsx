@@ -47,8 +47,8 @@ export function PrototypeWorkspaceHeader({
   })
   const dark = resolvedColorMode === "dark"
   const themeLabel = dark ? data.useLightThemeLabel : data.useDarkThemeLabel
-  const selectedVersion =
-    data.selectedBuildNumber ?? data.selectedBuild?.number ?? data.latestBuild?.number
+  const selectedBuildNumber = data.selectedBuildNumber ?? data.selectedBuild?.number
+  const selectedVersion = selectedBuildNumber ?? data.latestBuild?.number
   const menuLinks = data.browseReplica
     ? []
     : [
@@ -202,13 +202,13 @@ export function PrototypeWorkspaceHeader({
             </ActionMenu.Button>
             <ActionMenu.Overlay aria-label={data.buildSelectionLabel}>
               {data.buildOptions.map((build) => {
-                const path = controlPath(build.path)
+                const path = build.path ? controlPath(build.path) : null
                 return (
                   <BuildMenuOption
                     key={build.number}
                     build={build}
                     path={path}
-                    selected={build.number === selectedVersion}
+                    selected={build.number === selectedBuildNumber && build.state === "successful"}
                     onKeyDown={activateMenuLink}
                   />
                 )

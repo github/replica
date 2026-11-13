@@ -27,9 +27,6 @@ export function prototypeShowData(
 
   return {
     ...workspaceData,
-    buildOptions: options.real
-      ? workspaceData.buildOptions.filter((build) => build.state === "successful")
-      : workspaceData.buildOptions,
     historyPath: options.real ? undefined : workspaceData.historyPath,
     shareLinksPath: options.real ? undefined : workspaceData.shareLinksPath,
     buildPinned: search.has("build"),

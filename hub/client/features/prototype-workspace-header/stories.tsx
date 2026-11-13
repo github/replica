@@ -21,6 +21,7 @@ const data: PrototypeWorkspaceHeaderData = {
       label: "v1",
       path: "/repositories/2001/prototypes/1?build=1",
       state: "successful",
+      stateLabel: "Successful",
     },
   ],
   buildSelectionLabel: "Choose build",
@@ -108,7 +109,28 @@ export const NewerBuildFailed: Story = {
     data: {
       ...data,
       newerBuildLabel: "The latest update failed. You're viewing an earlier version.",
+      latestBuild: { number: 3, state: "failed", stateLabel: "Failed" },
+      buildOptions: [
+        {
+          number: 3,
+          label: "v3",
+          path: null,
+          state: "failed",
+          stateLabel: "Failed",
+        },
+        {
+          number: 2,
+          label: "v2",
+          path: null,
+          state: "running",
+          stateLabel: "Running",
+        },
+        ...data.buildOptions,
+      ],
     },
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: /Choose build/ }))
   },
 }
 
@@ -149,7 +171,7 @@ export const ManyBuilds: Story = {
         label: `v${index + 1}`,
         path: `/repositories/2001/prototypes/1?build=${index + 1}`,
         state: "successful" as const,
-        stateLabel: index % 3 === 0 ? "Ready to review" : undefined,
+        stateLabel: "Successful",
       })),
     },
   },

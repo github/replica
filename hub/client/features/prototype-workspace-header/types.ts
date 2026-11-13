@@ -33,7 +33,7 @@ export interface PrototypeWorkspaceHeaderData extends WorkspaceHeaderData {
   buildOptions: Array<{
     number: number
     label: string
-    path: string
+    path: string | null
     state: BuildState
     stateLabel?: string
   }>

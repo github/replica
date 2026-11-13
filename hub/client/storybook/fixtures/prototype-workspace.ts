@@ -19,6 +19,7 @@ export const prototypeWorkspaceData = {
       label: "v1",
       path: "/repositories/2001/prototypes/1?build=1",
       state: "successful",
+      stateLabel: "Successful",
     },
   ],
   buildSelectionLabel: "Choose build",

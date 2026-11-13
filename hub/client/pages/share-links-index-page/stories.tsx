@@ -21,6 +21,10 @@ const shareLink = {
 const data: ShareLinksIndexPageData = {
   ...prototypeWorkspaceData,
   alert: null,
+  buildOptions: prototypeWorkspaceData.buildOptions.map((build) => ({
+    ...build,
+    path: `/repositories/2001/prototypes/1/share-links?build=${build.number}`,
+  })),
   closePath: "/repositories/2001/prototypes/1",
   copyErrorLabel: "Copy failed",
   copiedLabel: "Copied",

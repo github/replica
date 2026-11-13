@@ -56,7 +56,6 @@ export function buildHistoryData(
         createdLabel: `Created ${formatBuildTime(build.createdAt)}`,
         number: build.number,
         numberLabel: `Build ${build.number}`,
-        // Only successful Builds have a preview to open.
         path:
           build.state === "successful"
             ? resourcePath(prototypePath, search, { build: build.number })

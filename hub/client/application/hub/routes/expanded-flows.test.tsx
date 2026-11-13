@@ -4,9 +4,11 @@ import { setupServer } from "msw/node"
 import { useLoaderData, type RouteObject } from "react-router"
 import { describe, expect, it, vi } from "vitest"
 
+import type { FixtureBuild } from "../mocks/create-fixture-build/types"
 import { createMockHandlers } from "../mocks/create-mock-handlers"
 import { createMockStore } from "../mocks/create-mock-store"
 import { mockDiagnostics } from "../mocks/diagnostics"
+import seedData from "../mocks/seed.json"
 import { settingsQuerySchema, settingsWorkspaceResponseSchema } from "../settings-contracts"
 import ProductManagementRoute, {
   clientAction as saveManagement,
@@ -342,7 +344,22 @@ describe("Hub expanded frontend flows", () => {
   })
 
   it("opens a newly created fixed-Build share after sign-out without loading a private workspace", async () => {
-    const store = createMockStore({ origin: window.location.origin })
+    const seed: Omit<typeof seedData, "builds"> & { builds: FixtureBuild[] } =
+      structuredClone(seedData)
+    const successful = seed.builds.find((build) => build.prototypeId === "1" && build.number === 3)
+    const running = seed.builds.find((build) => build.prototypeId === "2")
+    if (!successful || !running) throw new Error("The share-link flow needs Build fixtures.")
+    seed.builds.push(
+      { ...running, prototypeId: "1", number: 4 },
+      {
+        ...successful,
+        number: 5,
+        previewUrl: null,
+        desktopScreenshotUrl: null,
+        narrowScreenshotUrl: null,
+      },
+    )
+    const store = createMockStore({ origin: window.location.origin, seed })
     const server = setupServer(...createMockHandlers(store))
     const router = await renderHubFlow(
       server,
@@ -352,6 +369,17 @@ describe("Hub expanded frontend flows", () => {
         publicRoutes,
       },
     )
+    fireEvent.click(screen.getByRole("button", { name: "Choose build, v3" }))
+    const menu = screen.getByRole("menu", { name: "Choose build" })
+    expect(within(menu).getAllByRole("menuitem")).toHaveLength(2)
+    const first = within(menu).getByRole("menuitem", { name: /v1/i })
+    expect(within(menu).getByRole("menuitem", { name: /v3/i })).toBeVisible()
+    const firstLink = within(first).getByRole("link")
+    expect(firstLink).toHaveAttribute("href", "/repositories/2001/prototypes/1/share-links?build=1")
+    await router.settle(() => fireEvent.click(firstLink))
+    expect(router.state.location.pathname).toBe("/repositories/2001/prototypes/1/share-links")
+    expect(new URLSearchParams(router.state.location.search).get("build")).toBe("1")
+    expect(screen.getByRole("heading", { name: "Build 1" })).toBeVisible()
     fireEvent.change(await screen.findByRole("textbox", { name: "Label" }), {
       target: { value: "Stakeholder review" },
     })
@@ -374,7 +402,7 @@ describe("Hub expanded frontend flows", () => {
 
     await router.settle(() => router.navigate(sharedPath))
 
-    expect(await screen.findByTitle("Welcome · Build 3")).toBeInTheDocument()
+    expect(await screen.findByTitle("Welcome · Build 1")).toBeInTheDocument()
     expect(store.session.read().viewer).toBeNull()
     expect(privateReads).not.toHaveBeenCalled()
     expect(screen.queryByRole("button", { name: /Account menu/ })).not.toBeInTheDocument()

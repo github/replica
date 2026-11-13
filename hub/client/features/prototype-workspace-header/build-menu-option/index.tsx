@@ -12,10 +12,32 @@ export function BuildMenuOption({
   type,
 }: Pick<ComponentProps<typeof ActionMenu.Item>, "handler" | "type"> & {
   build: PrototypeWorkspaceHeaderData["buildOptions"][number]
-  path: string
+  path: string | null
   selected: boolean
   onKeyDown: (event: KeyboardEvent<HTMLElement>) => void
 }) {
+  const content = (
+    <span className="review-shell__build-option-content">
+      <span className="review-shell__build-option-label">{build.label}</span>
+      {build.stateLabel ? (
+        <span className="review-shell__build-status">{build.stateLabel}</span>
+      ) : null}
+    </span>
+  )
+
+  // Failed and running Builds stay listed without navigation.
+  if (!path)
+    return (
+      <ActionMenu.Item
+        disabled
+        value={String(build.number)}
+        type={type}
+        className="review-shell__build-option"
+      >
+        {content}
+      </ActionMenu.Item>
+    )
+
   return (
     <ActionMenu.Item
       as="a"
@@ -48,12 +70,7 @@ export function BuildMenuOption({
         handler?.(String(build.number))
       }}
     >
-      <span className="review-shell__build-option-content">
-        <span className="review-shell__build-option-label">{build.label}</span>
-        {build.stateLabel ? (
-          <span className="review-shell__build-status">{build.stateLabel}</span>
-        ) : null}
-      </span>
+      {content}
     </ActionMenu.Item>
   )
 }
