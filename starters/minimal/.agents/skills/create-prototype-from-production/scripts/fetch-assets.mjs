@@ -20,6 +20,7 @@ const signatures = [
   ["gif", /^47494638/],
   ["webp", /^52494646.{8}57454250/],
   ["avif", /^.{8}6674797061766966/],
+  ["mp4", /^.{8}66747970(?:69736f|6d7034)/],
   ["woff", /^774f4646/],
   ["woff2", /^774f4632/],
   ["ico", /^00000100/],
@@ -41,6 +42,7 @@ export async function fetchAssets(
     const result = { index, page: entry.page }
     let partial, signal
     try {
+      if (total >= limits.maxTotalBytes) fail("exceeds run limit")
       let current = entry.url
       let response
       for (let hop = 0; hop <= limits.maxRedirects; hop++) {

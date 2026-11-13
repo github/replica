@@ -69,7 +69,7 @@ async function fixture(t, limits = {}) {
       return globalThis.fetch(url, init)
     },
   }
-  return { outDir, base, run: (url) => fetchAssets([{ url, page: "/home" }], options) }
+  return { outDir, base, options, run: (url) => fetchAssets([{ url, page: "/home" }], options) }
 }
 
 test("fetches a PNG with content-addressed metadata", async (t) => {
@@ -82,6 +82,22 @@ test("fetches a PNG with content-addressed metadata", async (t) => {
   assert.equal(entries[0].sha256, sha256)
   assert.deepEqual(readdirSync(outDir), [`${sha256}.png`])
   assert.deepEqual(readFileSync(join(outDir, `${sha256}.png`)), png)
+})
+
+test("stops requesting once the run limit is spent", async (t) => {
+  const { base, options } = await fixture(t, { maxTotalBytes: png.length })
+  let requests = 0
+  const fetch = options.fetch
+  options.fetch = (...args) => (requests++, fetch(...args))
+  const { results } = await fetchAssets(
+    [`${base}/a.png`, `${base}/b.png`].map((url) => ({ url, page: "/home" })),
+    options,
+  )
+  assert.deepEqual(
+    results.map((result) => result.reason ?? result.status),
+    ["fetched", "exceeds run limit"],
+  )
+  assert.equal(requests, 1)
 })
 
 test("rejects hosts resolving to private addresses", async (t) => {

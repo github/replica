@@ -56,8 +56,10 @@ node .agents/skills/create-prototype-from-production/scripts/fetch-assets.mjs re
 
 Never download with curl, wget or generated code, and never put a URL on a
 command line. The downloader rejects private destinations, limits size and
-time, names files by detected type and records each in `reference/assets.json`.
-If it rejects an asset, note that on the page and continue.
+time, names files by detected type and records each in `reference/assets.json`
+with signed query values redacted. If it rejects an asset, note that on the page
+and continue. Delete `reference/asset-manifest.json` before committing; it keeps
+the unredacted URLs.
 
 Use captured SVGs only through `<img>` or CSS backgrounds. Never paste captured
 SVG or HTML markup into components or use `dangerouslySetInnerHTML`.
