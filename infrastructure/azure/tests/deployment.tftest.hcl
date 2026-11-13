@@ -238,6 +238,14 @@ run "combined_release_uses_one_image_and_bounded_shutdown" {
     )
     error_message = "HTTPS, dependency readiness, process liveness, and runtime configuration must match Hub."
   }
+  assert {
+    condition = toset([for env in azurerm_container_app.hub[0].template[0].container[0].env : env.name]) == toset([
+      "NODE_ENV", "RUNTIME_MODE", "HOST", "PORT", "CLIENT_DIRECTORY", "SHUTDOWN_TIMEOUT_MS",
+      "ARTIFACT_STORAGE_PROVIDER", "AZURE_STORAGE_ACCOUNT", "AZURE_STORAGE_CONTAINER",
+      "AZURE_CLIENT_ID", "AZURE_KEY_VAULT_SECRET_REFERENCES",
+    ])
+    error_message = "Omitting optional runtime configuration must leave the deployment-owned environment unchanged."
+  }
 }
 
 run "setup_and_runtime_have_separate_secret_access" {
@@ -252,6 +260,15 @@ run "setup_and_runtime_have_separate_secret_access" {
         secret_id    = "https://service.vault.azure.net/secrets/api-key/cccccccccccccccccccccccccccccccc"
       }
     }
+    runtime_environment_variables = merge(
+      { for index in range(61) : "PUBLIC_${index}" => "public" },
+      {
+        GITHUB_CLIENT_ID                           = "synthetic-public-client"
+        HUB_APPLICATION_ORIGIN                     = "https://hub.example.com"
+        EMPTY_SETTING                              = ""
+        "A${join("", [for i in range(40) : "B"])}" = "maximum-length-name"
+      },
+    )
   }
 
   assert {
@@ -320,6 +337,74 @@ run "setup_and_runtime_have_separate_secret_access" {
     )
     error_message = "Setup must receive only production/setup mode, its identity and migration URI metadata, and the fixed runtime grant target."
   }
+  assert {
+    condition = (
+      length(azurerm_container_app.hub[0].template[0].container[0].env) == 11 + length(var.runtime_environment_variables) &&
+      alltrue([for name, value in merge(var.runtime_environment_variables, {
+        NODE_ENV                  = "production"
+        RUNTIME_MODE              = "combined"
+        HOST                      = "0.0.0.0"
+        PORT                      = "3001"
+        CLIENT_DIRECTORY          = "/app/dist/client"
+        SHUTDOWN_TIMEOUT_MS       = "30000"
+        ARTIFACT_STORAGE_PROVIDER = "azure"
+        AZURE_STORAGE_ACCOUNT     = azurerm_storage_account.artifacts.name
+        AZURE_STORAGE_CONTAINER   = "artifacts"
+        }) : one([for env in azurerm_container_app.hub[0].template[0].container[0].env : env.value if env.name == name]) == value
+      ])
+    )
+    error_message = "Public settings, empty strings, and maximum-length names must reach only Hub without a secret-reference count cap or changes to deployment-owned values."
+  }
+}
+
+run "runtime_environment_rejects_reserved_names" {
+  command = plan
+  variables {
+    runtime_environment_variables = { PORT = "9000" }
+  }
+  expect_failures = [var.runtime_environment_variables]
+}
+
+run "runtime_environment_rejects_invalid_names" {
+  command = plan
+  variables {
+    runtime_environment_variables = { github_client_id = "synthetic-public-client" }
+  }
+  expect_failures = [var.runtime_environment_variables]
+}
+
+run "runtime_environment_rejects_oversized_names" {
+  command = plan
+  variables {
+    runtime_environment_variables = {
+      "${join("", [for i in range(42) : "A"])}" = "synthetic-public-value"
+    }
+  }
+  expect_failures = [var.runtime_environment_variables]
+}
+
+run "runtime_environment_rejects_null_values" {
+  command = plan
+  variables {
+    runtime_environment_variables = { PUBLIC_SETTING = null }
+  }
+  expect_failures = [var.runtime_environment_variables]
+}
+
+run "runtime_environment_cannot_duplicate_a_secret_reference" {
+  command = plan
+  variables {
+    runtime_environment_variables = {
+      SERVICE_API_KEY = "https://service.vault.azure.net/secrets/api-key"
+    }
+    runtime_secret_references = {
+      SERVICE_API_KEY = {
+        key_vault_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/service"
+        secret_id    = "https://service.vault.azure.net/secrets/api-key"
+      }
+    }
+  }
+  expect_failures = [var.runtime_environment_variables]
 }
 
 run "mutable_image_is_rejected" {

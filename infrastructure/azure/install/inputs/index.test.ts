@@ -12,6 +12,88 @@ describe("readInstallationInputs()", () => {
     vi.mocked(readPrivateFile).mockReset()
   })
 
+  it.each([
+    { name: "omitted", environment: undefined, expected: {} },
+    { name: "empty", environment: {}, expected: { runtime_environment_variables: {} } },
+  ])("accepts an $name runtime environment map", async ({ environment, expected }) => {
+    const { config, inputs } = boundaryInputs()
+    const { runtime_secret_references: _, ...saved } = inputs
+    vi.mocked(readPrivateFile).mockResolvedValue(
+      JSON.stringify({ ...saved, runtime_environment_variables: environment }),
+    )
+
+    await expect(readInstallationInputs("synthetic-installation", config)).resolves.toEqual(expected)
+  })
+
+  it("retains public runtime values, empty strings, and boundary names without a secret-reference count limit", async () => {
+    const { config, inputs } = boundaryInputs()
+    const environment = {
+      ...Object.fromEntries(Array.from({ length: 61 }, (_, index) => [`PUBLIC_${index}`, "public"])),
+      GITHUB_CLIENT_ID: "synthetic-public-client",
+      HUB_APPLICATION_ORIGIN: "https://hub.example.com",
+      EMPTY_SETTING: "",
+      [`A${"B".repeat(40)}`]: "maximum-length-name",
+    }
+    vi.mocked(readPrivateFile).mockResolvedValue(
+      JSON.stringify({ ...inputs, runtime_environment_variables: environment }),
+    )
+
+    await expect(readInstallationInputs("synthetic-installation", config)).resolves.toMatchObject({
+      runtime_environment_variables: environment,
+    })
+  })
+
+  it.each([
+    { reason: "a null map", environment: null },
+    { reason: "an array map", environment: [] },
+    { reason: "a scalar map", environment: "synthetic-invalid-map" },
+    { reason: "a lowercase name", environment: { github_client_id: "synthetic-invalid-value" } },
+    { reason: "a punctuation name", environment: { "GITHUB-CLIENT-ID": "synthetic-invalid-value" } },
+    { reason: "a leading digit", environment: { "1SETTING": "synthetic-invalid-value" } },
+    { reason: "an oversized name", environment: { ["A".repeat(42)]: "synthetic-invalid-value" } },
+    { reason: "a database override", environment: { DATABASE_URL: "synthetic-invalid-value" } },
+    { reason: "a runtime port override", environment: { PORT: "synthetic-invalid-value" } },
+    {
+      reason: "an Azure metadata override",
+      environment: { AZURE_KEY_VAULT_SECRET_REFERENCES: "synthetic-invalid-value" },
+    },
+    { reason: "a null value", environment: { PUBLIC_SETTING: null } },
+    { reason: "a numeric value", environment: { PUBLIC_SETTING: 12345 } },
+    { reason: "a boolean value", environment: { PUBLIC_SETTING: true } },
+    { reason: "an object value", environment: { PUBLIC_SETTING: { value: "synthetic-invalid-value" } } },
+  ])("rejects $reason without exposing runtime values", async ({ environment }) => {
+    const { config, inputs } = boundaryInputs()
+    vi.mocked(readPrivateFile).mockResolvedValue(
+      JSON.stringify({ ...inputs, runtime_environment_variables: environment }),
+    )
+
+    const failure = await readInstallationInputs("synthetic-installation", config).catch(
+      (error: unknown) => error,
+    )
+
+    expect(failure).toBeInstanceOf(Error)
+    expect(String(failure)).not.toMatch(/synthetic-invalid|12345/)
+  })
+
+  it("rejects a name shared by public configuration and secret references even when values match", async () => {
+    const { config, inputs, reference } = boundaryInputs()
+    const secret = reference(24, 127)
+    vi.mocked(readPrivateFile).mockResolvedValue(
+      JSON.stringify({
+        ...inputs,
+        runtime_environment_variables: { SERVICE_API_KEY: secret.secret_id },
+        runtime_secret_references: { SERVICE_API_KEY: secret },
+      }),
+    )
+
+    const failure = await readInstallationInputs("synthetic-installation", config).catch(
+      (error: unknown) => error,
+    )
+
+    expect(failure).toBeInstanceOf(Error)
+    expect(String(failure)).not.toContain(secret.secret_id)
+  })
+
   it("rejects an operator secret reference that would replace Azure startup metadata", async () => {
     const config: DeploymentConfig = {
       version: 1,

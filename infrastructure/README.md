@@ -73,7 +73,7 @@ Keep the configuration directory private and owned by the current user (0700). E
 
 An existing name-only workspace such as `.local/INSTALLATION_NAME/` blocks deployment before cloud changes. Do not delete it or start with empty state. After stopping prior local installer processes, independently verify the saved subscription, tenant, installation, owner, and backend state keys against the intended configuration. Preserve a private backup and move that verified workspace to the target-specific path printed by setup. Review its private inputs and Terraform backend before rerunning. A mismatch or ambiguous workspace needs manual recovery rather than automatic adoption. This local migration does not clear any cloud leases.
 
-Updates preserve validated optional inputs already stored in the workspace's `installation.tfvars.json`: `runtime_secret_references`, PostgreSQL SKU and major version, backup retention, and the custom hostname/certificate pair. Runtime references must match the main module's environment-name and Key Vault rules and must not reference the migration credential. Other customizations or invalid inputs stop setup before cloud changes or input rewrites. Review changes to immutable infrastructure through the existing Terraform guards; retaining a setting is not approval to replace resources.
+Updates preserve validated optional inputs already stored in the workspace's `installation.tfvars.json`: `runtime_environment_variables`, `runtime_secret_references`, PostgreSQL SKU and major version, backup retention, and the custom hostname/certificate pair. Runtime environment values must be strings with valid names and cannot override deployment-owned settings or share names with secret references. Runtime references must match the main module's environment-name and Key Vault rules and must not reference the migration credential. Other customizations or invalid inputs stop setup before cloud changes or input rewrites. Review changes to immutable infrastructure through the existing Terraform guards; retaining a setting is not approval to replace resources.
 
 ```sh
 # Collect and save configuration without creating cloud resources.
@@ -251,6 +251,19 @@ Initialize each optional module against its own protected backend state key, rev
 The app has external HTTPS ingress and minimum and maximum one replica **per revision**. Multiple-revision mode permits explicit deactivation before releases. Azure's single-revision mode deliberately overlaps old and new processes while readiness is checked, so it is unsuitable for this maintenance-window strategy. Do not activate old revisions alongside the combined worker. This is not a high-availability or zero-downtime installation.
 
 The runtime receives `RUNTIME_MODE=combined`, `HOST=0.0.0.0`, `PORT=3001`, `CLIENT_DIRECTORY=/app/dist/client`, `SHUTDOWN_TIMEOUT_MS=30000`, and `NODE_ENV=production`. Artifacts use `ARTIFACT_STORAGE_PROVIDER=azure`, the provisioned `AZURE_STORAGE_ACCOUNT`, `AZURE_STORAGE_CONTAINER=artifacts`, and Hub's `AZURE_CLIENT_ID`. Optional `runtime_secret_references` map environment names to vault resource IDs and HTTPS secret URLs; at most 63 additional references are allowed because the runtime database URL is the 64th. Vault and secret names in these URLs must fit Azure's 24-character and 127-character limits. Terraform passes the Key Vault URLs, including the runtime database secret reference, as the non-secret JSON map `AZURE_KEY_VAULT_SECRET_REFERENCES`, never as inline secret values or Container Apps Key Vault secret bindings.
+
+Use the optional `runtime_environment_variables` string map for non-secret Hub settings. Names must start with an uppercase letter and contain only uppercase letters, digits, or underscores, with at most 41 characters. Empty string values are allowed; null values are not. Deployment-owned names, including database credentials, storage settings, and startup identity/reference metadata, cannot be overridden. A name cannot appear in both this map and `runtime_secret_references`. These values go only to Hub, not setup or provisioning. The wizard adds no questions for this map; guided updates preserve it in the private workspace's `installation.tfvars.json`.
+
+For example, the manual Terraform module accepts:
+
+```hcl
+runtime_environment_variables = {
+  HUB_APPLICATION_ORIGIN = "https://hub.example.com"
+  GITHUB_CLIENT_ID       = "example-client-id"
+}
+```
+
+These values are stored directly in Terraform state and Container Apps configuration. Do not put credentials, tokens, or private keys in this map; use `runtime_secret_references` for secret values. Supplying public authentication settings alone does not complete sign-in configuration; follow [Hub deployment](../hub/docs/deployment.md#image-and-runtime) for the corresponding required settings.
 
 Azure containers run `node dist/server/scripts/azure-entrypoint/index.js runtime`, `setup`, or `provision`. The entrypoint validates the complete reference map and explicit managed-identity client ID before fetching anything. It retrieves values directly from Key Vault with that identity, applies them to the workload's in-memory environment only after all reads succeed, then imports the selected workload. Startup secret retrieval has one 30-second deadline, with a bounded exponential retry for transient authorization, throttling, and service errors under the same identity; it stops on cancellation or failure before API/worker startup, database provisioning, or migrations. Secret-retrieval errors do not print token, URL, response-body, or secret contents. Registry pulling still uses Azure's normal managed-identity registry configuration; this does not bypass image-pull, DNS, or access failures.
 

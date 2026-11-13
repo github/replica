@@ -63,7 +63,7 @@ resource "azurerm_container_app" "hub" {
       command = ["node", "dist/server/scripts/azure-entrypoint/index.js", "runtime"]
 
       dynamic "env" {
-        for_each = local.runtime_environment
+        for_each = merge(var.runtime_environment_variables, local.runtime_environment)
         content {
           name  = env.key
           value = env.value

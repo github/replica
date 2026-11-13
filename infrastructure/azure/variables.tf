@@ -125,6 +125,33 @@ variable "setup_database_secret" {
   }
 }
 
+locals {
+  runtime_reserved_environment_names = [
+    "DATABASE_URL", "DATABASE_RUNTIME_ROLE", "NODE_ENV", "RUNTIME_MODE", "HOST", "PORT",
+    "CLIENT_DIRECTORY", "SHUTDOWN_TIMEOUT_MS", "ARTIFACT_STORAGE_PROVIDER",
+    "ARTIFACT_STORAGE_DIRECTORY", "AZURE_STORAGE_ACCOUNT", "AZURE_STORAGE_CONTAINER",
+    "AZURE_CLIENT_ID", "AZURE_KEY_VAULT_SECRET_REFERENCES",
+  ]
+}
+
+variable "runtime_environment_variables" {
+  type        = map(string)
+  default     = {}
+  nullable    = false
+  description = "Non-secret Hub runtime environment values, stored directly in Terraform state and Container Apps configuration. Use runtime_secret_references for credentials."
+
+  validation {
+    condition = alltrue([
+      for name, value in var.runtime_environment_variables :
+      can(regex("^[A-Z][A-Z0-9_]{0,40}$", name)) &&
+      !contains(local.runtime_reserved_environment_names, name) &&
+      !contains(keys(var.runtime_secret_references), name) &&
+      value != null
+    ])
+    error_message = "Use uppercase environment names of at most 41 characters and non-null string values; deployment-owned settings and secret-reference names cannot be overridden."
+  }
+}
+
 variable "runtime_secret_references" {
   type = map(object({
     key_vault_id = string
@@ -137,7 +164,7 @@ variable "runtime_secret_references" {
     condition = length(keys(var.runtime_secret_references)) <= 63 && alltrue([
       for name in keys(var.runtime_secret_references) :
       can(regex("^[A-Z][A-Z0-9_]{0,40}$", name)) &&
-      !contains(["DATABASE_URL", "DATABASE_RUNTIME_ROLE", "NODE_ENV", "RUNTIME_MODE", "HOST", "PORT", "CLIENT_DIRECTORY", "SHUTDOWN_TIMEOUT_MS", "ARTIFACT_STORAGE_PROVIDER", "ARTIFACT_STORAGE_DIRECTORY", "AZURE_STORAGE_ACCOUNT", "AZURE_STORAGE_CONTAINER", "AZURE_CLIENT_ID", "AZURE_KEY_VAULT_SECRET_REFERENCES"], name)
+      !contains(local.runtime_reserved_environment_names, name)
     ])
     error_message = "Supply at most 63 additional secret references, using uppercase environment names of at most 41 characters; deployment-owned settings cannot be overridden."
   }

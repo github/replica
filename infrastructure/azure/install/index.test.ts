@@ -386,6 +386,11 @@ it("preserves supported runtime, database and TLS customization in privately rep
     `${guidedPostgresProfile.postgres_sku}, version ${guidedPostgresProfile.postgres_version}`,
   )
   const customization = {
+    runtime_environment_variables: {
+      GITHUB_CLIENT_ID: "synthetic-public-client",
+      HUB_APPLICATION_ORIGIN: "https://synthetic-public-hub.example.com",
+      EMPTY_SETTING: "",
+    },
     runtime_secret_references: {
       SERVICE_API_KEY: {
         key_vault_id: `/subscriptions/${s.config.azure.subscriptionId}/resourceGroups/secrets/providers/Microsoft.KeyVault/vaults/service`,
@@ -402,6 +407,7 @@ it("preserves supported runtime, database and TLS customization in privately rep
   await writeFile(filename, previous, { mode: 0o600 })
   const reader = await open(filename, "r")
   s.events.length = 0
+  s.messages.length = 0
   vi.mocked(s.ui.confirm).mockClear()
 
   try {
@@ -417,6 +423,8 @@ it("preserves supported runtime, database and TLS customization in privately rep
     const review = vi.mocked(s.ui.confirm).mock.calls[0]![0]
     expect(review).toContain(`${customization.postgres_sku}, version ${customization.postgres_version}`)
     expect(review).not.toContain(guidedPostgresProfile.postgres_sku)
+    const diagnostics = JSON.stringify([s.events, s.messages, vi.mocked(s.ui.confirm).mock.calls])
+    expect(diagnostics).not.toMatch(/synthetic-public-client|synthetic-public-hub/)
     expect(replacement).not.toBe(previous)
     expect(await reader.readFile("utf8")).toBe(previous)
     expect((await stat(filename)).mode & 0o777).toBe(0o600)
@@ -466,6 +474,10 @@ it.each([
     change: { postgres_version: "18" },
   },
   { reason: "invalid backup retention", change: { backup_retention_days: 0 } },
+  {
+    reason: "a deployment-owned runtime environment override",
+    change: { runtime_environment_variables: { NODE_ENV: "synthetic-invalid-runtime-value" } },
+  },
   { reason: "different stored installation name", change: { name: "another-hub" } },
   { reason: "different stored ownership", change: { owner: "another-team" } },
   { reason: "different stored region", change: { location: "westus2" } },
@@ -496,12 +508,20 @@ it.each([
   await writeFile(filename, previous, { mode: 0o600 })
   const files = await readdir(workspace)
   s.events.length = 0
+  s.messages.length = 0
+  s.ui.confirm = vi.fn(async () => true)
   const availability = vi.fn<PostgresAvailability>(async () => true)
 
-  await expect(installAzure(s.config, { ...s, availability })).rejects.toThrow()
+  const failure = await installAzure(s.config, { ...s, availability }).catch(
+    (error: unknown) => error,
+  )
 
+  expect(failure).toBeInstanceOf(Error)
+  expect(String(failure)).not.toContain("synthetic-invalid-runtime-value")
   expect(availability).not.toHaveBeenCalled()
+  expect(s.ui.confirm).not.toHaveBeenCalled()
   expect(installationChanges(s.events)).toEqual([])
+  expect(JSON.stringify(s.messages)).not.toContain("synthetic-invalid-runtime-value")
   expect(await readFile(filename, "utf8")).toBe(previous)
   expect(await readdir(workspace)).toEqual(files)
 })
