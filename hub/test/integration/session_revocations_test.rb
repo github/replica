@@ -68,7 +68,7 @@ class SessionRevocationsTest < ActionDispatch::IntegrationTest
     get session_revocation_path
     assert_redirected_to root_path
     sign_in
-    assert_redirected_to repositories_path
+    assert_redirected_to session_revocation_path
     get session_revocation_path
     assert_response :success
     replacement = pair
