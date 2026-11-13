@@ -40,8 +40,6 @@ node --test scripts/create-prototype-repo.test.mjs scripts/setup-replica-plugin.
 node --test starters/minimal/.agents/skills/create-prototype-from-production/scripts/*.node-test.mjs
 ```
 
-Run these commands from the monorepo root. The final command checks Minimal's production-prototyping skill helpers without installing app dependencies. Minimal's `npm run check:starter` also runs that suite through `npm run test:production-prototyping`; Starter CI uses this same app-owned entrypoint on the assembled repository.
-
 `check-starter.sh` creates the selected app, validates its manifest and lockfile, runs `npm ci --engine-strict` and `npm run check:starter`, then checks the resulting `dist` with the existing Build validator. Use a compatible installed runtime and the selected app's registry access. These commands do not install Node.js, enable the Copilot plugin, start a preview or publish.
 
 Checkout creation copies tracked files with their current working-tree contents. It excludes untracked files, dependencies, generated output and source Git metadata. New files must be staged before this path includes them; commits are not required. The downloader uses validated regular files from the source archive. Both paths reject linked files, unsafe paths, unsupported entries and existing destinations.
