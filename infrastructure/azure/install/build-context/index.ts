@@ -70,10 +70,10 @@ export async function createBuildSnapshot(
   signal?: AbortSignal,
 ): Promise<{ directory: string; fingerprint: string; cleanup: () => Promise<void> }> {
   const root = await mkdtemp(join(parent, "image-context-"))
-  const directory = join(root, "hub")
+  const directory = join(root, "context")
   const fingerprint = createHash("sha256")
   try {
-    const rules = dockerIgnore(await readFile(join(source, ".dockerignore"), "utf8"))
+    const rules = dockerIgnore(await readFile(join(source, "hub/Dockerfile.dockerignore"), "utf8"))
     await mkdir(directory, { mode: 0o700 })
     async function copy(sourceDirectory: string, targetDirectory: string) {
       signal?.throwIfAborted()

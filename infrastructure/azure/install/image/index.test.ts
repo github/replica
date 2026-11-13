@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto"
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises"
-import { resolve } from "node:path"
+import { join, relative, resolve } from "node:path"
 import { afterEach, expect, it, vi } from "vitest"
 
 import { CommandExecutionError } from "../../../installer/command/index.ts"
@@ -32,7 +32,7 @@ async function writeDigest(args: string[], value: string) {
 
 async function buildFingerprint(parent: string) {
   const snapshot = await createBuildSnapshot(
-    resolve(import.meta.dirname, "../../../../hub"),
+    resolve(import.meta.dirname, "../../../.."),
     parent,
   )
   try {
@@ -149,6 +149,16 @@ it("retries publication with fresh source approval, ACR login, metadata and tag,
   const attempts: string[][] = []
   const s = await scenario(async (args) => {
     attempts.push(args)
+    const snapshot = args.at(-1)!
+    expect(relative(s.context.directory, snapshot)).not.toMatch(/^\.\./)
+    expect(args).toContain("--file")
+    expect(args[args.indexOf("--file") + 1]).toBe(join(snapshot, "hub/Dockerfile"))
+    await expect(readFile(join(snapshot, "hub/Dockerfile"), "utf8")).resolves.toContain(
+      "COPY hub/",
+    )
+    await expect(readFile(join(snapshot, "packages/learning/package.json"), "utf8")).resolves.toContain(
+      '"name"',
+    )
     if (attempts.length === 1) {
       await writeDigest(args, `sha256:${"a".repeat(64)}`)
       throw new CommandExecutionError("Image push failed", false, 1)

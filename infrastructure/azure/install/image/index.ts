@@ -45,7 +45,7 @@ export async function publishImage(
           "Image publication cancelled; use an approved source checkout.",
           "AbortError",
         )
-      snapshot = await createBuildSnapshot(join(repository, "hub"), directory, context.signal)
+      snapshot = await createBuildSnapshot(repository, directory, context.signal)
       if (approval && approval.sourceFingerprint !== snapshot.fingerprint)
         throw new DOMException(
           "The Hub build contents changed after deployment approval. Restart to review the source before publishing.",
@@ -58,6 +58,8 @@ export async function publishImage(
         "build",
         "--platform",
         "linux/amd64",
+        "--file",
+        join(snapshot.directory, "hub/Dockerfile"),
         "--tag",
         tag,
         "--metadata-file",

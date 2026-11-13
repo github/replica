@@ -1,5 +1,6 @@
 import { setImmediate } from "node:timers/promises"
 import { cleanup, render } from "ink-testing-library"
+import { act } from "react"
 import { afterEach, expect, it, vi } from "vitest"
 
 import { SearchSelect } from "./index.tsx"
@@ -78,7 +79,14 @@ it("does not select a stale option when nothing matches and recovers after clear
   await setImmediate()
   expect(onChange).not.toHaveBeenCalled()
 
-  terminal.stdin.write("\u007f")
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true)
+  try {
+    await act(async () => {
+      terminal.stdin.write("\u007f")
+    })
+  } finally {
+    vi.unstubAllGlobals()
+  }
   await vi.waitFor(() => expect(terminal.lastFrame()).toContain("2 of 2 options"))
   terminal.stdin.write("\r")
   await vi.waitFor(() => expect(onChange).toHaveBeenCalledExactlyOnceWith("dev"))

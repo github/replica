@@ -1,4 +1,4 @@
-import { resolve, join } from "node:path"
+import { resolve } from "node:path"
 
 import { installationNames } from "../settings.ts"
 import type { AzureInstallation, DeploymentApproval } from "../types.ts"
@@ -21,7 +21,7 @@ export async function approveDeployment(
     throw new Error(
       "Unattended deployment requires a clean source checkout. Commit the intended changes, or rerun interactively to review publication of the working tree. No cloud changes were started.",
     )
-  const snapshot = await createBuildSnapshot(join(repository, "hub"), directory, signal)
+  const snapshot = await createBuildSnapshot(repository, directory, signal)
   const sourceFingerprint = snapshot.fingerprint
   await snapshot.cleanup()
   const names = installationNames(config)
@@ -44,7 +44,7 @@ export async function approveDeployment(
     "",
     `Source: ${sourceRevision}${sourceStatus ? " with uncommitted changes" : " (clean checkout)"}.`,
     `Hub build context fingerprint: ${sourceFingerprint}.`,
-    `Build and publish this local working tree to ${names.registry}.azurecr.io, including its uncommitted Hub changes when present.`,
+    `Build and publish this local working tree to ${names.registry}.azurecr.io, including its uncommitted Hub and learning runtime changes when present.`,
     `Container npm registry: ${config.npmRegistry ?? "npm default; public npm access is required"}.`,
     "State storage uses a public network endpoint with Azure authentication and Blob data permissions. Shared-key and anonymous access remain disabled.",
     "Release stops old Hub revisions, runs database migrations and schedule setup, and deploys the new image.",

@@ -150,13 +150,15 @@ describe("loadAzureSecretEnvironment()", () => {
     transient.name = "AzureKeyVaultSecretError"
     Object.defineProperty(transient, "retryable", { value: true })
     let databaseAttempts = 0
-    mocks.getSecret.mockImplementation(async ({ url }) => {
-      if (url === databaseUrl && databaseAttempts++ === 0) throw transient
-      return url === databaseUrl
-        ? "synthetic-database-url"
-        : url === migrationUrl
-          ? "synthetic-migration-password"
-          : "synthetic-runtime-password"
+    mocks.getSecret.mockImplementation(({ url }) => {
+      if (url === databaseUrl && databaseAttempts++ === 0) return Promise.reject(transient)
+      return Promise.resolve(
+        url === databaseUrl
+          ? "synthetic-database-url"
+          : url === migrationUrl
+            ? "synthetic-migration-password"
+            : "synthetic-runtime-password",
+      )
     })
 
     const loading = loadAzureSecretEnvironment(environment, "provision")

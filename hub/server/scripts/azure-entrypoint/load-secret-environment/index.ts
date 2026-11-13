@@ -20,7 +20,7 @@ function waitForRetry(delay: number, signal: AbortSignal): Promise<void> {
       signal.removeEventListener("abort", cancel)
       resolve()
     }, delay)
-    const cancel = () => {
+    function cancel() {
       clearTimeout(timer)
       signal.removeEventListener("abort", cancel)
       reject(new Error("Azure startup secret loading was cancelled."))
@@ -51,7 +51,7 @@ export async function loadAzureSecretEnvironment(
       stopWaiting = () => reject(new Error("Azure startup secret loading was cancelled."))
       controller.signal.addEventListener("abort", stopWaiting, { once: true })
     })
-    const getSecret = async (url: string) => {
+    async function getSecret(url: string) {
       for (let attempt = 0; ; attempt++) {
         try {
           return await getAzureKeyVaultSecret({
@@ -70,10 +70,7 @@ export async function loadAzureSecretEnvironment(
       aborted,
       Promise.all(
         Object.entries(configuration.references).map(
-          async ([name, url]): Promise<[string, string]> => [
-            name,
-            await getSecret(url),
-          ],
+          async ([name, url]): Promise<[string, string]> => [name, await getSecret(url)],
         ),
       ),
     ])
