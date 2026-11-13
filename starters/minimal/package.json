@@ -15,7 +15,7 @@
     "format": "prettier --write src scripts .agents/skills/create-prototype-from-production/scripts scaffold-templates/neutral prototype-scaffold.config.mjs vite-aliases.ts vite.config.ts vite.config.test.ts vitest.config.ts",
     "format:check": "prettier --check src scripts .agents/skills/create-prototype-from-production/scripts scaffold-templates/neutral prototype-scaffold.config.mjs vite-aliases.ts vite.config.ts vite.config.test.ts vitest.config.ts",
     "test": "vitest run",
-    "test:production-prototyping": "node --test .agents/skills/create-prototype-from-production/scripts/*.node-test.mjs",
+    "test:production-prototyping": "node --test .agents/skills/create-prototype-from-production/scripts/check-ledger.node-test.mjs .agents/skills/create-prototype-from-production/scripts/check-public-url.node-test.mjs .agents/skills/create-prototype-from-production/scripts/fetch-assets.node-test.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
