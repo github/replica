@@ -272,6 +272,106 @@ The checks cover terminal cloud selection, searchable lists, tenant-scoped subsc
 
 The [installer terminal design guide](docs/terminal-design.md) records the working patterns for layout, field feedback, semantic notices, progress, timing, and private sessions. It explains module boundaries and the evidence expected when evolving these patterns.
 
+## Protected GitHub Actions deployment
+
+The [`Deploy Hub to Azure development`](../.github/workflows/hub-azure-deploy.yml) workflow updates one non-production installation through the protected `hub-azure-development` GitHub Environment. It runs only through **Run workflow**. The Environment approval gate is the deployment approval; pushes and pull requests never deploy.
+
+The workflow builds the exact checked-out commit, pushes a commit-tagged image to the installation ACR, resolves its immutable digest, and passes that digest to the existing serialized release command. Deployment concurrency keeps one run active or queued and never cancels a release in progress.
+
+### Prepare the installation
+
+Use the guided installer for the first infrastructure bootstrap and one-time database-role provisioning. The workflow is an update and release path; it does not create the state backend, foundation, PostgreSQL administrator credential, or temporary provisioning identity. A first workflow release may create the Hub app after the installer has completed bootstrap and database provisioning.
+
+Create the `hub-azure-development` GitHub Environment, require approval from the installation operators, and restrict deployment branches to the reviewed branch policy. Add an Entra application or user-assigned managed identity federated credential with:
+
+| Federated credential field | Value |
+| -------------------------- | ----- |
+| Issuer | `https://token.actions.githubusercontent.com` |
+| Audience | `api://AzureADTokenExchange` |
+| Subject | `repo:github/replica:environment:hub-azure-development` |
+
+Do not add an Azure client secret. The workflow requests `id-token: write` and [`azure/login`](https://github.com/Azure/login) exchanges the GitHub token for a short-lived Azure token.
+
+### Configure the GitHub Environment
+
+Store these non-secret values as Environment variables:
+
+| Variable | Value |
+| -------- | ----- |
+| `AZURE_CLIENT_ID` | Client ID for the federated deployment identity. |
+| `AZURE_TENANT_ID` | Entra tenant UUID. |
+| `AZURE_SUBSCRIPTION_ID` | Installation subscription UUID. |
+| `AZURE_LOCATION` | Existing installation region. |
+| `AZURE_INSTALLATION_NAME` | Existing Terraform installation name. |
+| `AZURE_INSTALLATION_OWNER` | Existing ownership tag value. |
+| `AZURE_RESOURCE_GROUP` | Existing application resource group. |
+| `AZURE_ACR_ID` | Full resource ID of the installation ACR. |
+| `AZURE_KEY_VAULT_ID` | Full resource ID of the RBAC-enabled installation vault. |
+| `AZURE_DEPLOYMENT_STORAGE_PRINCIPAL_ID` | Object ID of the deployment principal already recorded by Terraform for the installation storage grant. Preserve this value so a release does not replace that grant. |
+| `AZURE_RUNTIME_DATABASE_SECRET_URL` | Versioned or unversioned Key Vault URL for the runtime database URL. |
+| `AZURE_SETUP_DATABASE_SECRET_URL` | Different Key Vault URL for the migration database URL. |
+| `AZURE_RUNTIME_SECRET_REFERENCES_JSON` | JSON object matching `runtime_secret_references`; use `{}` when no additional runtime settings are configured. |
+| `AZURE_STATE_RESOURCE_GROUP` | Terraform backend resource group. |
+| `AZURE_STATE_STORAGE_ACCOUNT` | Terraform backend account. |
+| `AZURE_STATE_CONTAINER` | Terraform backend container. |
+| `AZURE_STATE_KEY` | Application module state key. |
+| `NPM_REGISTRY` | Optional HTTPS npm proxy used only during the container build. |
+
+Key Vault URLs are references, not secret values. Do not put secret values in GitHub variables, GitHub secrets, workflow inputs, repository files, or installation JSON. The workflow writes only references and non-secret coordinates to private temporary files and does not upload plans or configuration artifacts.
+
+The installer creates `postgres-runtime-url` and `postgres-migration-url`. Store optional runtime settings under operator-chosen Key Vault secret names, then map their environment names in `AZURE_RUNTIME_SECRET_REFERENCES_JSON`. Authentication and Copilot examples include:
+
+```json
+{
+  "HUB_APPLICATION_ORIGIN": {
+    "key_vault_id": "/subscriptions/.../resourceGroups/.../providers/Microsoft.KeyVault/vaults/...",
+    "secret_id": "https://YOUR-VAULT.vault.azure.net/secrets/hub-application-origin/VERSION"
+  },
+  "GITHUB_CLIENT_ID": {
+    "key_vault_id": "/subscriptions/.../resourceGroups/.../providers/Microsoft.KeyVault/vaults/...",
+    "secret_id": "https://YOUR-VAULT.vault.azure.net/secrets/github-client-id/VERSION"
+  },
+  "GITHUB_CLIENT_SECRET": {
+    "key_vault_id": "/subscriptions/.../resourceGroups/.../providers/Microsoft.KeyVault/vaults/...",
+    "secret_id": "https://YOUR-VAULT.vault.azure.net/secrets/github-client-secret/VERSION"
+  },
+  "HUB_AUTHENTICATION_ENCRYPTION_KEY": {
+    "key_vault_id": "/subscriptions/.../resourceGroups/.../providers/Microsoft.KeyVault/vaults/...",
+    "secret_id": "https://YOUR-VAULT.vault.azure.net/secrets/hub-authentication-encryption-key/VERSION"
+  },
+  "HUB_BOOTSTRAP_SECRET": {
+    "key_vault_id": "/subscriptions/.../resourceGroups/.../providers/Microsoft.KeyVault/vaults/...",
+    "secret_id": "https://YOUR-VAULT.vault.azure.net/secrets/hub-bootstrap-secret/VERSION"
+  },
+  "REPLICA_COPILOT_TOKEN": {
+    "key_vault_id": "/subscriptions/.../resourceGroups/.../providers/Microsoft.KeyVault/vaults/...",
+    "secret_id": "https://YOUR-VAULT.vault.azure.net/secrets/replica-copilot-token/VERSION"
+  }
+}
+```
+
+Add the corresponding non-secret mode, revision, client, issuer, proxy, or Copilot provider settings as Key Vault references when the Hub runtime contract requires them. Increment authentication provider revisions before re-enabling a removed provider or intentionally invalidating in-flight attempts. Prefer versioned URLs so a configuration change is explicit in the reviewed Terraform plan.
+
+### Grant least-privilege Azure access
+
+The deployment identity needs:
+
+- `Storage Blob Data Contributor` on the Terraform state container.
+- `Storage Blob Data Contributor` on the installation storage account for the release lease.
+- `AcrPush` on the installation ACR.
+- Resource read and update permission for the existing application resource group.
+- Permission to create and remove role assignments at the application resource group, ACR, and each referenced Key Vault secret scope. Use a custom role when available; otherwise scope `Role Based Access Control Administrator` to only those resources.
+
+Grant the workflow identity state, installation Blob, and ACR access before its first run; it needs those permissions before Terraform can initialize, acquire the release lease, or publish an image. Keep the installer's Terraform-managed installation storage grant unchanged. Read its non-secret principal with `terraform -chdir=infrastructure/azure state show 'azurerm_role_assignment.deployment_storage[0]'` against the protected application backend, then set `AZURE_DEPLOYMENT_STORAGE_PRINCIPAL_ID` to that `principal_id`. A mismatched value plans a replacement and the release guard stops before setup. Migrating or removing the original grant requires a separately reviewed access change outside the release.
+
+The deployment identity does not need Key Vault secret data access. Terraform records secret URLs, creates secret-scoped `Key Vault Secrets User` assignments for the Hub or setup identity, and configures the Container Apps reference. Hub receives artifact storage and runtime-secret access. Setup receives only its migration URL and image pull. The temporary provisioning identity remains owned by the first-installation flow and is removed before release. Do not grant workload identities access to Terraform state, image publication, deployment control, or unrelated vault secrets.
+
+### Deploy, recover, and verify
+
+Select **Actions**, **Deploy Hub to Azure development**, **Run workflow**, then approve the `hub-azure-development` Environment deployment. The release command retains its infinite lease when setup, rollout, digest verification, readiness, health, or provider-configuration checks fail. Review the failed setup execution, active revision and image digest, and Terraform state before following the existing [interrupted-installation recovery](#interrupted-installation) procedure. Do not cancel a running deployment or break its lease.
+
+The workflow verifies the exact active image digest, `/api/ready`, `/api/health`, and the unauthenticated `/api/auth/providers` configuration shape. It cannot prove a real GitHub or Entra sign-in, administrator enrollment, or a Copilot connection without a dedicated test identity and credential contract. Do not weaken authentication or reuse an operator credential for smoke testing.
+
 ## Manual reference
 
 Operators can provision a durable Hub, run setup before every release, and replace the image without replacing its database or artifacts. This reference chooses Terraform with AzureRM to follow the team's Terraform experience; it is an implementation choice, not an application dependency. The main installation is flat under [`azure/`](azure/) rather than split into one-resource modules.
@@ -333,7 +433,7 @@ Use the Terraform version constrained in [`versions.tf`](azure/versions.tf), a N
 
 An authorized administrator must first create the **separate** Terraform backend: a dedicated state resource group, Storage account, and private container. Enable TLS, Entra authorization, Blob versioning and soft deletion; disable shared-key authorization and anonymous Blob access, and grant the deployment identity `Storage Blob Data Contributor` on the state container. Apply any network restrictions required by deployment policy and ensure the runner can reach the account. These bootstrap resources are not part of this installation's state or teardown. Never store this state in the app's artifacts account.
 
-For automation, configure a dedicated deployment identity with a federated workload identity credential rather than a client secret. Bind its issuer to `https://token.actions.githubusercontent.com`, audience to `api://AzureADTokenExchange`, and subject to the exact protected repository/environment, such as `repo:YOUR_ORG/YOUR_REPO:environment:hub-production`. Protect that environment and deployment branch. A future release workflow needs `id-token: write` and must authenticate Azure CLI as the same identity; the infrastructure-check workflow intentionally has no such permission.
+For automation, configure a dedicated deployment identity with a federated workload identity credential rather than a client secret. The protected non-production workflow is described in [Protected GitHub Actions deployment](#protected-github-actions-deployment). The infrastructure-check workflow intentionally has no Azure permission.
 
 Set `ARM_CLIENT_ID`, `ARM_TENANT_ID`, `ARM_SUBSCRIPTION_ID`, and `ARM_USE_OIDC=true` in that authorized runner. Terraform's AzureRM backend supports GitHub's OIDC request environment; other runners must supply their supported OIDC token source. For local authorized operation, use Azure CLI sign-in and set `use_oidc=false` in your private backend configuration instead. Do not copy tokens into Terraform inputs.
 
@@ -347,7 +447,7 @@ Copy [`backend.hcl.example`](azure/backend.hcl.example) to `infrastructure/azure
 
 Prepare an existing RBAC-enabled Key Vault reachable by the Container Apps environment. Supply `runtime_database_secret` and `setup_database_secret`, each with the vault's resource ID and a distinct HTTPS secret URL. Before bootstrap, store separate database URLs for `replica_runtime` and `replica_migration` with independently generated passwords, the planned private PostgreSQL hostname, database `replica`, and `sslmode=verify-full`. Percent-encode URL credentials. The identities receive secret-scoped `Key Vault Secrets User` grants, so sharing a vault does not give setup access to runtime secrets. Additional runtime references must not point at the migration credential. The vault, secret values, rotation and retention remain operator-owned; Terraform never reads those values. Prefer versioned URLs for deliberate rotation through a serialized release.
 
-Supply `postgres_admin_password` from a secret manager as `TF_VAR_postgres_admin_password`, or through the ignored variables file with mode `0600`. This provisioning password still enters Terraform state; replacing application secret values with references does not remove it or erase historical secret values in older state versions. Never enable shell tracing while injecting secrets. Terraform's sensitive marking redacts normal CLI output but **does not encrypt state or saved plans**. Protect backend access, runner logs, environment variables, and local `.terraform/`; never publish a JSON plan or upload it as a CI artifact.
+Supply `postgres_admin_password` from a secret manager as `TF_VAR_postgres_admin_password`, or through the ignored variables file with mode `0600`, for bootstrap only. This provisioning password still enters Terraform state; replacing application secret values with references does not remove it or erase historical secret values in older state versions. The serialized release path reuses the existing password without receiving its value and Terraform ignores password changes after creation. Rotate the administrator password only through a separately designed recovery procedure. Never enable shell tracing while injecting secrets. Terraform's sensitive marking redacts normal CLI output but **does not encrypt state or saved plans**. Protect backend access, runner logs, environment variables, and local `.terraform/`; never publish a JSON plan or upload it as a CI artifact.
 
 ## Bootstrap and release
 

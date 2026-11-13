@@ -19,7 +19,10 @@ export interface DeploymentPlan {
 
 export interface Revision {
   name: string
-  properties: { active: boolean }
+  properties: {
+    active: boolean
+    template: { containers: { image: string }[] }
+  }
 }
 
 export interface JobExecution {

@@ -1,0 +1,190 @@
+name: Deploy Hub to Azure development
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: hub-azure-development
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy Hub
+    runs-on: ubuntu-latest
+    environment: hub-azure-development
+    timeout-minutes: 60
+    env:
+      ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      ARM_USE_OIDC: "true"
+      AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
+      AZURE_INSTALLATION_NAME: ${{ vars.AZURE_INSTALLATION_NAME }}
+      AZURE_INSTALLATION_OWNER: ${{ vars.AZURE_INSTALLATION_OWNER }}
+      AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+      AZURE_ACR_ID: ${{ vars.AZURE_ACR_ID }}
+      AZURE_KEY_VAULT_ID: ${{ vars.AZURE_KEY_VAULT_ID }}
+      AZURE_DEPLOYMENT_STORAGE_PRINCIPAL_ID: ${{ vars.AZURE_DEPLOYMENT_STORAGE_PRINCIPAL_ID }}
+      AZURE_RUNTIME_DATABASE_SECRET_URL: ${{ vars.AZURE_RUNTIME_DATABASE_SECRET_URL }}
+      AZURE_SETUP_DATABASE_SECRET_URL: ${{ vars.AZURE_SETUP_DATABASE_SECRET_URL }}
+      AZURE_RUNTIME_SECRET_REFERENCES_JSON: ${{ vars.AZURE_RUNTIME_SECRET_REFERENCES_JSON }}
+      AZURE_STATE_RESOURCE_GROUP: ${{ vars.AZURE_STATE_RESOURCE_GROUP }}
+      AZURE_STATE_STORAGE_ACCOUNT: ${{ vars.AZURE_STATE_STORAGE_ACCOUNT }}
+      AZURE_STATE_CONTAINER: ${{ vars.AZURE_STATE_CONTAINER }}
+      AZURE_STATE_KEY: ${{ vars.AZURE_STATE_KEY }}
+      NPM_REGISTRY: ${{ vars.NPM_REGISTRY }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+        with:
+          terraform_version: 1.17.1
+          terraform_wrapper: false
+      - uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Verify the deployment target
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          for name in \
+            ARM_CLIENT_ID ARM_TENANT_ID ARM_SUBSCRIPTION_ID \
+            AZURE_LOCATION AZURE_INSTALLATION_NAME AZURE_INSTALLATION_OWNER \
+            AZURE_RESOURCE_GROUP AZURE_ACR_ID AZURE_KEY_VAULT_ID \
+            AZURE_DEPLOYMENT_STORAGE_PRINCIPAL_ID \
+            AZURE_RUNTIME_DATABASE_SECRET_URL AZURE_SETUP_DATABASE_SECRET_URL \
+            AZURE_STATE_RESOURCE_GROUP AZURE_STATE_STORAGE_ACCOUNT \
+            AZURE_STATE_CONTAINER AZURE_STATE_KEY
+          do
+            test -n "${!name}"
+          done
+          test "$(az account show --query id --output tsv)" = "$ARM_SUBSCRIPTION_ID"
+          test "${AZURE_ACR_ID%%/resourceGroups/*}" = "/subscriptions/$ARM_SUBSCRIPTION_ID"
+          test "${AZURE_KEY_VAULT_ID%%/resourceGroups/*}" = "/subscriptions/$ARM_SUBSCRIPTION_ID"
+          test "$(
+            az group show \
+              --name "$AZURE_RESOURCE_GROUP" \
+              --query "tags.installation" \
+              --output tsv \
+              --only-show-errors
+          )" = "$AZURE_INSTALLATION_NAME"
+          test "$(
+            az acr show \
+              --ids "$AZURE_ACR_ID" \
+              --query "tags.installation" \
+              --output tsv \
+              --only-show-errors
+          )" = "$AZURE_INSTALLATION_NAME"
+          test "$(
+            az resource show \
+              --ids "$AZURE_KEY_VAULT_ID" \
+              --query "tags.installation" \
+              --output tsv \
+              --only-show-errors
+          )" = "$AZURE_INSTALLATION_NAME"
+      - name: Build and publish the checked-out commit
+        id: image
+        run: |
+          set -euo pipefail
+          ACR_NAME="${AZURE_ACR_ID##*/}"
+          ACR_LOGIN_SERVER="$(
+            az acr show --ids "$AZURE_ACR_ID" --query loginServer --output tsv --only-show-errors
+          )"
+          az acr login --name "$ACR_NAME" --only-show-errors
+          BUILD_ARGUMENTS=()
+          if [ -n "${NPM_REGISTRY:-}" ]; then
+            BUILD_ARGUMENTS+=(--build-arg "NPM_REGISTRY=$NPM_REGISTRY")
+          fi
+          docker buildx build \
+            --file hub/Dockerfile \
+            --platform linux/amd64 \
+            --tag "$ACR_LOGIN_SERVER/replica-hub:$GITHUB_SHA" \
+            --metadata-file "$RUNNER_TEMP/image-metadata.json" \
+            --push \
+            "${BUILD_ARGUMENTS[@]}" \
+            .
+          DIGEST="$(
+            node -e \
+              'const value=require(process.argv[1])["containerimage.digest"]; if(!/^sha256:[a-f0-9]{64}$/.test(value)) process.exit(1); process.stdout.write(value)' \
+              "$RUNNER_TEMP/image-metadata.json"
+          )"
+          printf 'reference=%s@%s\n' "$ACR_LOGIN_SERVER/replica-hub" "$DIGEST" >> "$GITHUB_OUTPUT"
+      - name: Prepare non-secret deployment configuration
+        env:
+          HUB_IMAGE: ${{ steps.image.outputs.reference }}
+        run: |
+          set -euo pipefail
+          umask 077
+          node --input-type=module <<'NODE'
+          import { writeFileSync } from "node:fs"
+          import { join } from "node:path"
+
+          const required = (name) => {
+            const value = process.env[name]
+            if (!value) throw new Error(`Missing required GitHub Environment variable: ${name}`)
+            return value
+          }
+          const references = process.env.AZURE_RUNTIME_SECRET_REFERENCES_JSON?.trim()
+            ? JSON.parse(process.env.AZURE_RUNTIME_SECRET_REFERENCES_JSON)
+            : {}
+          if (typeof references !== "object" || references === null || Array.isArray(references)) {
+            throw new Error("AZURE_RUNTIME_SECRET_REFERENCES_JSON must be a JSON object.")
+          }
+          const runnerTemp = required("RUNNER_TEMP")
+          const keyVaultId = required("AZURE_KEY_VAULT_ID")
+          writeFileSync(
+            join(runnerTemp, "installation.tfvars.json"),
+            JSON.stringify({
+              subscription_id: required("ARM_SUBSCRIPTION_ID"),
+              name: required("AZURE_INSTALLATION_NAME"),
+              owner: required("AZURE_INSTALLATION_OWNER"),
+              location: required("AZURE_LOCATION"),
+              resource_group_name: required("AZURE_RESOURCE_GROUP"),
+              image: required("HUB_IMAGE"),
+              deploy_hub: true,
+              acr_id: required("AZURE_ACR_ID"),
+              grant_deployment_storage_access: true,
+              deployment_storage_principal_id: required(
+                "AZURE_DEPLOYMENT_STORAGE_PRINCIPAL_ID",
+              ),
+              runtime_database_secret: {
+                key_vault_id: keyVaultId,
+                secret_id: required("AZURE_RUNTIME_DATABASE_SECRET_URL"),
+              },
+              setup_database_secret: {
+                key_vault_id: keyVaultId,
+                secret_id: required("AZURE_SETUP_DATABASE_SECRET_URL"),
+              },
+              runtime_secret_references: references,
+            }),
+          )
+          const backend = [
+            `resource_group_name = ${JSON.stringify(required("AZURE_STATE_RESOURCE_GROUP"))}`,
+            `storage_account_name = ${JSON.stringify(required("AZURE_STATE_STORAGE_ACCOUNT"))}`,
+            `container_name = ${JSON.stringify(required("AZURE_STATE_CONTAINER"))}`,
+            `key = ${JSON.stringify(required("AZURE_STATE_KEY"))}`,
+            "use_azuread_auth = true",
+            "use_oidc = true",
+            "",
+          ].join("\n")
+          writeFileSync(join(runnerTemp, "backend.hcl"), backend)
+          NODE
+      - name: Run the serialized maintenance-window release
+        env:
+          TF_DATA_DIR: ${{ runner.temp }}/terraform
+          HUB_IMAGE: ${{ steps.image.outputs.reference }}
+        run: |
+          node infrastructure/azure/deploy-hub/index.ts release \
+            --subscription "$ARM_SUBSCRIPTION_ID" \
+            --backend "$RUNNER_TEMP/backend.hcl" \
+            --variables "$RUNNER_TEMP/installation.tfvars.json" \
+            --image "$HUB_IMAGE" \
+            --accept-maintenance

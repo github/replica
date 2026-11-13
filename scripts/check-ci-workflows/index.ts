@@ -145,6 +145,67 @@ export function checkWorkflows(root: string): void {
     "Dependency age must run unconditionally",
   )
   assert(!workflow("dependency-age").jobs.audit.if, "Dependency age must run unconditionally")
+
+  const deployment = workflow("hub-azure-deploy")
+  assert.deepEqual(
+    deployment.on,
+    { workflow_dispatch: null },
+    "Azure deployment must remain an explicit manual action",
+  )
+  assert.deepEqual(deployment.permissions, {
+    contents: "read",
+    "id-token": "write",
+  })
+  assert.deepEqual(deployment.concurrency, {
+    group: "hub-azure-development",
+    "cancel-in-progress": false,
+  })
+  assert.deepEqual(Object.keys(deployment.jobs), ["deploy"])
+  const deploy = deployment.jobs.deploy
+  assert.equal(deploy.environment, "hub-azure-development")
+  assert(!JSON.stringify(deployment).includes("secrets."), "Deployment must not read GitHub secrets")
+  assert(
+    deploy.steps?.every(
+      (step) => !step.uses || step.uses.startsWith("./") || /@[a-f0-9]{40}$/.test(step.uses),
+    ),
+    "Deployment actions must use immutable commit SHAs",
+  )
+  assert(
+    deploy.steps?.some(
+      (step) =>
+        step.uses === "azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6" &&
+        step.with?.["client-id"] === "${{ vars.AZURE_CLIENT_ID }}" &&
+        step.with?.["tenant-id"] === "${{ vars.AZURE_TENANT_ID }}" &&
+        step.with?.["subscription-id"] === "${{ vars.AZURE_SUBSCRIPTION_ID }}",
+    ),
+    "Deployment must authenticate to Azure with the protected environment's OIDC identity",
+  )
+  const image = deploy.steps?.find((step) => step.name === "Build and publish the checked-out commit")
+  assert(
+    image?.run?.includes("docker buildx build") &&
+      image.run.includes("--metadata-file") &&
+      image.run.includes("--push") &&
+      image.run.includes("containerimage.digest") &&
+      image.run.includes("reference=%s@%s"),
+    "Deployment must publish the checked-out commit and return an immutable image digest",
+  )
+  const configuration = deploy.steps?.find(
+    (step) => step.name === "Prepare non-secret deployment configuration",
+  )
+  assert(
+    configuration?.run?.includes("deployment_storage_principal_id: required(") &&
+      configuration.run.includes('"AZURE_DEPLOYMENT_STORAGE_PRINCIPAL_ID"'),
+    "Deployment must preserve the Terraform-managed installation storage principal",
+  )
+  const release = deploy.steps?.find(
+    (step) => step.name === "Run the serialized maintenance-window release",
+  )
+  assert(
+    release?.run?.includes("node infrastructure/azure/deploy-hub/index.ts release") &&
+      release.run.includes('--image "$HUB_IMAGE"') &&
+      release.env?.HUB_IMAGE === "${{ steps.image.outputs.reference }}",
+    "Deployment must use the serialized Hub release path",
+  )
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
