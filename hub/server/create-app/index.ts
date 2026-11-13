@@ -37,7 +37,7 @@ export function createApp({
     authenticationSecurity(),
   )
   app.use(
-    /^(?!\/api\/(?:auth|administrators\/authorizations|session-revocation\/authorizations|copilot-connection)(?:\/|$)).*/i,
+    /^(?!\/api\/copilot-connection(?:\/|$))(?!\/api\/(?:auth|administrators\/authorizations|session-revocation\/authorizations)(?:\/|$)).*/i,
     express.json(),
   )
 
@@ -60,7 +60,7 @@ export function createApp({
         return
       }
       response.setHeader("Cache-Control", "no-cache")
-      response.sendFile(resolve(directory, "index.html"))
+      response.sendFile("index.html", { root: directory, dotfiles: "deny" })
     })
   }
   app.use(respondNotFound)
