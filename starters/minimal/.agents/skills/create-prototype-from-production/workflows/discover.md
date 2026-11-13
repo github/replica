@@ -11,7 +11,9 @@ only where visiting a public website is acceptable.
 Before the first navigation to the site, prove the browser is empty at
 runtime: on `about:blank`, read the cookie and page counts with supported
 actions and record them in the ledger's `browser` field. A non-empty result
-stops the run; configuration alone is not proof.
+stops the run; configuration alone is not proof. If the browser can't start,
+stop and report the blocker; never fall back to `web_fetch` or fill the
+`browser` field without a check.
 
 Then write the ledger (section 4) with the requested URL as `source`, its
 origin's `access` set to `web_fetch`, and a `build` row for it with

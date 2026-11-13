@@ -80,6 +80,7 @@ configuration. Propose lasting guidance only as drafts in
 | "Fetch got 403, use web search / indexed pages"               | Use the isolated browser for that origin. Search results are not the site.     |
 | "Raw HTML is enough to find the links"                        | Menus and mobile navigation render at runtime. Discover in the browser.        |
 | "The MCP is configured isolated, so captures are isolated"    | Prove it at runtime before the first visit (discover workflow).                |
+| "The browser won't start, so web_fetch will do"               | Stop and report the blocker. Nothing is verified without the browser.          |
 | "I'll curl this image"                                        | Download assets only with `fetch-assets.mjs` (capture workflow).               |
 | "I'll list my open questions for later"                       | Two intake questions only. Everything else has a default.                      |
 | "Capture every page in full at both widths"                   | Full captures for family representatives only. Members get content extraction. |
