@@ -91,6 +91,11 @@ export function redactUrl(value) {
   return url.href === original ? value : url.href
 }
 
+export function isPublicAddress(address) {
+  const type = isIP(address) === 6 ? "ipv6" : "ipv4"
+  return supported.check(address, type) && !blocked.check(address, type)
+}
+
 export function checkPublicUrl(value) {
   const url = typeof value === "string" && value.trim() ? URL.parse(value) : null
   if (!url || !["http:", "https:"].includes(url.protocol)) return "requires an absolute HTTP(S) URL"
@@ -101,9 +106,7 @@ export function checkPublicUrl(value) {
     .toLowerCase()
   const family = isIP(host)
   if (family) {
-    const type = family === 6 ? "ipv6" : "ipv4"
-    if (!supported.check(host, type) || blocked.check(host, type))
-      return "nonpublic IP destination is not allowed"
+    if (!isPublicAddress(host)) return "nonpublic IP destination is not allowed"
   } else if (
     !host.includes(".") ||
     "localhost local internal intranet private corp home lan home.arpa localdomain localdomain4 localdomain6 test invalid example alt onion"
